@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": {
+      "Write": [".claude/hooks/artifact-watcher.py"]
+    },
+    "Stop": [".claude/hooks/workflow-router.py"],
+    "SessionStart": [".claude/hooks/context-loader.py"],
+    "PreToolUse": {
+      "Write": [".claude/hooks/quality-gate.py"]
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Skill(skill-creator)"
+    ]
+  }
+}

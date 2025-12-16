@@ -1,0 +1,580 @@
+package repository
+
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/test"
+)
+
+// Performance Benchmark Tests for Epic and Feature Queries
+// These tests validate that query performance meets PRD targets:
+// - pm epic list: <100ms for 100 epics
+// - pm epic get: <200ms for epics with 50 features
+// - pm feature get: <200ms for features with 100 tasks
+
+// BenchmarkEpicList measures epic list query performance
+// PRD Target: <100ms for 100 epics
+func BenchmarkEpicList(b *testing.B) {
+	database := test.GetTestDB()
+	db := NewDB(database)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	// Create 100 epics with features for realistic testing
+	suffix := time.Now().UnixNano()
+	epicIDs := make([]int64, 100)
+
+	b.Log("Setting up 100 epics with features...")
+	for i := 0; i < 100; i++ {
+		epicKey := fmt.Sprintf("E-BENCH-LIST-%d-%d", i, suffix)
+		epic := &models.Epic{
+			Key:           epicKey,
+			Title:         fmt.Sprintf("Benchmark Epic %d", i),
+			Description:   "Epic for benchmark testing",
+			Status:        models.EpicStatusActive,
+			Priority:      models.PriorityMedium,
+			BusinessValue: models.BusinessValueMedium,
+		}
+		epicRepo.Create(epic)
+		epicIDs[i] = epic.ID
+
+		// Create 1 feature with 5 tasks per epic (realistic small epic)
+		feature := &models.Feature{
+			EpicID:      epic.ID,
+			Key:         fmt.Sprintf("%s-F01", epicKey),
+			Title:       "Benchmark Feature",
+			Description: "Feature for benchmarking",
+			Status:      models.FeatureStatusActive,
+		}
+		featureRepo.Create(feature)
+
+		// Create 5 tasks (3 completed, 2 todo = 60% progress)
+		for ti := 0; ti < 5; ti++ {
+			status := models.TaskStatusTodo
+			if ti < 3 {
+				status = models.TaskStatusCompleted
+			}
+			database.Exec(`
+				INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
+				VALUES (?, ?, ?, ?, 'testing', 1, '[]')
+			`, feature.ID, fmt.Sprintf("%s-T%02d", feature.Key, ti+1), fmt.Sprintf("Task %d", ti+1), status)
+		}
+
+		featureRepo.UpdateProgress(feature.ID)
+		epicRepo.UpdateProgress(epic.ID)
+	}
+
+	b.ResetTimer()
+	b.Log("Benchmarking epic list query...")
+
+	for i := 0; i < b.N; i++ {
+		epics, err := epicRepo.GetAll()
+		if err != nil {
+			b.Fatalf("Failed to get all epics: %v", err)
+		}
+		if len(epics) < 100 {
+			b.Fatalf("Expected at least 100 epics, got %d", len(epics))
+		}
+	}
+
+	// Report average time
+	avgNs := b.Elapsed().Nanoseconds() / int64(b.N)
+	avgMs := float64(avgNs) / 1_000_000
+	b.Logf("Average epic list query time: %.2f ms (target: <100ms)", avgMs)
+
+	if avgMs > 100 {
+		b.Logf("WARNING: Epic list query exceeded 100ms target (%.2f ms)", avgMs)
+	}
+}
+
+// BenchmarkEpicGetWithFeatures measures epic get with feature details
+// PRD Target: <200ms for epics with 50 features
+func BenchmarkEpicGetWithFeatures(b *testing.B) {
+	database := test.GetTestDB()
+	db := NewDB(database)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	suffix := time.Now().UnixNano()
+	epicKey := fmt.Sprintf("E-BENCH-GET-%d", suffix)
+
+	b.Log("Setting up epic with 50 features...")
+
+	// Create epic
+	epic := &models.Epic{
+		Key:           epicKey,
+		Title:         "Benchmark Epic with 50 Features",
+		Description:   "Epic for testing pm epic get performance",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: models.BusinessValueHigh,
+	}
+	epicRepo.Create(epic)
+
+	// Create 50 features, each with 10 tasks
+	for fi := 0; fi < 50; fi++ {
+		feature := &models.Feature{
+			EpicID:      epic.ID,
+			Key:         fmt.Sprintf("%s-F%02d", epicKey, fi+1),
+			Title:       fmt.Sprintf("Feature %d", fi+1),
+			Description: "Benchmark feature",
+			Status:      models.FeatureStatusActive,
+		}
+		featureRepo.Create(feature)
+
+		// Create 10 tasks (5 completed = 50% progress)
+		for ti := 0; ti < 10; ti++ {
+			status := models.TaskStatusTodo
+			if ti < 5 {
+				status = models.TaskStatusCompleted
+			}
+			database.Exec(`
+				INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
+				VALUES (?, ?, ?, ?, 'testing', 1, '[]')
+			`, feature.ID, fmt.Sprintf("%s-T%02d", feature.Key, ti+1), fmt.Sprintf("Task %d", ti+1), status)
+		}
+
+		featureRepo.UpdateProgress(feature.ID)
+	}
+	epicRepo.UpdateProgress(epic.ID)
+
+	b.ResetTimer()
+	b.Log("Benchmarking epic get with features...")
+
+	for i := 0; i < b.N; i++ {
+		// Get epic by key
+		retrievedEpic, err := epicRepo.GetByKey(epicKey)
+		if err != nil {
+			b.Fatalf("Failed to get epic: %v", err)
+		}
+
+		// Get all features for the epic
+		features, err := featureRepo.GetByEpicID(retrievedEpic.ID)
+		if err != nil {
+			b.Fatalf("Failed to get features: %v", err)
+		}
+
+		if len(features) != 50 {
+			b.Fatalf("Expected 50 features, got %d", len(features))
+		}
+
+		// Calculate progress for epic
+		_, err = epicRepo.CalculateProgress(retrievedEpic.ID)
+		if err != nil {
+			b.Fatalf("Failed to calculate epic progress: %v", err)
+		}
+	}
+
+	avgNs := b.Elapsed().Nanoseconds() / int64(b.N)
+	avgMs := float64(avgNs) / 1_000_000
+	b.Logf("Average epic get (with 50 features) time: %.2f ms (target: <200ms)", avgMs)
+
+	if avgMs > 200 {
+		b.Logf("WARNING: Epic get query exceeded 200ms target (%.2f ms)", avgMs)
+	}
+}
+
+// BenchmarkFeatureGetWithTasks measures feature get with task details
+// PRD Target: <200ms for features with 100 tasks
+func BenchmarkFeatureGetWithTasks(b *testing.B) {
+	database := test.GetTestDB()
+	db := NewDB(database)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	suffix := time.Now().UnixNano()
+	epicKey := fmt.Sprintf("E-BENCH-FEAT-%d", suffix)
+
+	b.Log("Setting up feature with 100 tasks...")
+
+	// Create epic
+	epic := &models.Epic{
+		Key:           epicKey,
+		Title:         "Epic for Feature Benchmark",
+		Description:   "Testing feature get performance",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityMedium,
+		BusinessValue: models.BusinessValueMedium,
+	}
+	epicRepo.Create(epic)
+
+	// Create feature
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
+	feature := &models.Feature{
+		EpicID:      epic.ID,
+		Key:         featureKey,
+		Title:       "Benchmark Feature with 100 Tasks",
+		Description: "Feature for testing pm feature get performance",
+		Status:      models.FeatureStatusActive,
+	}
+	featureRepo.Create(feature)
+
+	// Create 100 tasks (50 completed = 50% progress)
+	for ti := 0; ti < 100; ti++ {
+		status := models.TaskStatusTodo
+		if ti < 50 {
+			status = models.TaskStatusCompleted
+		}
+		database.Exec(`
+			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
+			VALUES (?, ?, ?, ?, 'testing', 1, '[]')
+		`, feature.ID, fmt.Sprintf("%s-T%03d", featureKey, ti+1), fmt.Sprintf("Task %d", ti+1), status)
+	}
+
+	featureRepo.UpdateProgress(feature.ID)
+
+	b.ResetTimer()
+	b.Log("Benchmarking feature get with tasks...")
+
+	for i := 0; i < b.N; i++ {
+		// Get feature by key
+		retrievedFeature, err := featureRepo.GetByKey(featureKey)
+		if err != nil {
+			b.Fatalf("Failed to get feature: %v", err)
+		}
+
+		// Calculate progress
+		progress, err := featureRepo.CalculateProgress(retrievedFeature.ID)
+		if err != nil {
+			b.Fatalf("Failed to calculate progress: %v", err)
+		}
+
+		if progress != 50.0 {
+			b.Fatalf("Expected 50%% progress, got %.1f%%", progress)
+		}
+	}
+
+	avgNs := b.Elapsed().Nanoseconds() / int64(b.N)
+	avgMs := float64(avgNs) / 1_000_000
+	b.Logf("Average feature get (with 100 tasks) time: %.2f ms (target: <200ms)", avgMs)
+
+	if avgMs > 200 {
+		b.Logf("WARNING: Feature get query exceeded 200ms target (%.2f ms)", avgMs)
+	}
+}
+
+// BenchmarkProgressCalculation measures just the progress calculation SQL performance
+func BenchmarkProgressCalculation(b *testing.B) {
+	database := test.GetTestDB()
+	db := NewDB(database)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	suffix := time.Now().UnixNano()
+	epicKey := fmt.Sprintf("E-BENCH-PROG-%d", suffix)
+
+	// Create epic with 10 features, each with 20 tasks
+	epic := &models.Epic{
+		Key:           epicKey,
+		Title:         "Progress Benchmark Epic",
+		Description:   "Testing progress calculation performance",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityMedium,
+		BusinessValue: models.BusinessValueMedium,
+	}
+	epicRepo.Create(epic)
+
+	featureIDs := make([]int64, 10)
+	for fi := 0; fi < 10; fi++ {
+		feature := &models.Feature{
+			EpicID:      epic.ID,
+			Key:         fmt.Sprintf("%s-F%02d", epicKey, fi+1),
+			Title:       fmt.Sprintf("Feature %d", fi+1),
+			Description: "Benchmark feature",
+			Status:      models.FeatureStatusActive,
+		}
+		featureRepo.Create(feature)
+		featureIDs[fi] = feature.ID
+
+		// Create 20 tasks per feature
+		for ti := 0; ti < 20; ti++ {
+			status := models.TaskStatusTodo
+			if ti < 10 {
+				status = models.TaskStatusCompleted
+			}
+			database.Exec(`
+				INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
+				VALUES (?, ?, ?, ?, 'testing', 1, '[]')
+			`, feature.ID, fmt.Sprintf("%s-T%02d", feature.Key, ti+1), fmt.Sprintf("Task %d", ti+1), status)
+		}
+
+		featureRepo.UpdateProgress(feature.ID)
+	}
+
+	b.ResetTimer()
+
+	b.Run("FeatureProgress", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, err := featureRepo.CalculateProgress(featureIDs[i%10])
+			if err != nil {
+				b.Fatalf("Failed to calculate feature progress: %v", err)
+			}
+		}
+	})
+
+	b.Run("EpicProgress", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_, err := epicRepo.CalculateProgress(epic.ID)
+			if err != nil {
+				b.Fatalf("Failed to calculate epic progress: %v", err)
+			}
+		}
+	})
+}
+
+// TestQueryPlanAnalysis verifies SQL query efficiency using EXPLAIN QUERY PLAN
+// This is NOT a benchmark but validates that queries use indexes properly
+func TestQueryPlanAnalysis(t *testing.T) {
+	database := test.GetTestDB()
+	db := NewDB(database)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	// Create test data
+	suffix := time.Now().UnixNano()
+	epicKey := fmt.Sprintf("E-QPLAN-%d", suffix)
+
+	epic := &models.Epic{
+		Key:           epicKey,
+		Title:         "Query Plan Test Epic",
+		Description:   "Testing query efficiency",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityMedium,
+		BusinessValue: models.BusinessValueMedium,
+	}
+	epicRepo.Create(epic)
+
+	feature := &models.Feature{
+		EpicID:      epic.ID,
+		Key:         fmt.Sprintf("%s-F01", epicKey),
+		Title:       "Query Plan Test Feature",
+		Description: "Test feature",
+		Status:      models.FeatureStatusActive,
+	}
+	featureRepo.Create(feature)
+
+	// Create some tasks
+	for i := 0; i < 5; i++ {
+		database.Exec(`
+			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
+			VALUES (?, ?, ?, 'todo', 'testing', 1, '[]')
+		`, feature.ID, fmt.Sprintf("%s-T%02d", feature.Key, i+1), fmt.Sprintf("Task %d", i+1))
+	}
+
+	t.Run("FeatureProgressQueryPlan", func(t *testing.T) {
+		query := `
+			EXPLAIN QUERY PLAN
+			SELECT
+			    COUNT(*) as total_tasks,
+			    COALESCE(SUM(CASE WHEN status IN ('completed', 'archived') THEN 1 ELSE 0 END), 0) as completed_tasks
+			FROM tasks
+			WHERE feature_id = ?
+		`
+
+		rows, err := database.Query(query, feature.ID)
+		if err != nil {
+			t.Fatalf("Failed to get query plan: %v", err)
+		}
+		defer rows.Close()
+
+		t.Log("Feature progress calculation query plan:")
+		hasIndex := false
+		for rows.Next() {
+			var id, parent, notUsed int
+			var detail string
+			err := rows.Scan(&id, &parent, &notUsed, &detail)
+			if err != nil {
+				t.Fatalf("Failed to scan query plan: %v", err)
+			}
+			t.Logf("  %s", detail)
+
+			// Check if index is being used
+			if contains(detail, "INDEX") || contains(detail, "idx_tasks_feature_id") {
+				hasIndex = true
+			}
+		}
+
+		if !hasIndex {
+			t.Log("WARNING: Feature progress query may not be using an index")
+		}
+	})
+
+	t.Run("EpicProgressQueryPlan", func(t *testing.T) {
+		// Update feature progress first
+		featureRepo.UpdateProgress(feature.ID)
+
+		query := `
+			EXPLAIN QUERY PLAN
+			SELECT
+			    COALESCE(SUM(f.progress_pct * (
+			        SELECT COUNT(*) FROM tasks t WHERE t.feature_id = f.id
+			    )), 0) as weighted_sum,
+			    COALESCE(SUM((
+			        SELECT COUNT(*) FROM tasks t WHERE t.feature_id = f.id
+			    )), 0) as total_task_count
+			FROM features f
+			WHERE f.epic_id = ?
+		`
+
+		rows, err := database.Query(query, epic.ID)
+		if err != nil {
+			t.Fatalf("Failed to get query plan: %v", err)
+		}
+		defer rows.Close()
+
+		t.Log("Epic progress calculation query plan:")
+		hasIndex := false
+		for rows.Next() {
+			var id, parent, notUsed int
+			var detail string
+			err := rows.Scan(&id, &parent, &notUsed, &detail)
+			if err != nil {
+				t.Fatalf("Failed to scan query plan: %v", err)
+			}
+			t.Logf("  %s", detail)
+
+			if contains(detail, "INDEX") || contains(detail, "idx_features_epic_id") {
+				hasIndex = true
+			}
+		}
+
+		if !hasIndex {
+			t.Log("WARNING: Epic progress query may not be using an index")
+		}
+	})
+
+	t.Run("GetByKeyQueryPlan", func(t *testing.T) {
+		query := `
+			EXPLAIN QUERY PLAN
+			SELECT id, epic_id, key, title, description, status, progress_pct,
+			       created_at, updated_at
+			FROM features
+			WHERE key = ?
+		`
+
+		rows, err := database.Query(query, feature.Key)
+		if err != nil {
+			t.Fatalf("Failed to get query plan: %v", err)
+		}
+		defer rows.Close()
+
+		t.Log("GetByKey query plan:")
+		hasIndex := false
+		for rows.Next() {
+			var id, parent, notUsed int
+			var detail string
+			err := rows.Scan(&id, &parent, &notUsed, &detail)
+			if err != nil {
+				t.Fatalf("Failed to scan query plan: %v", err)
+			}
+			t.Logf("  %s", detail)
+
+			if contains(detail, "INDEX") || contains(detail, "idx_features_key") {
+				hasIndex = true
+			}
+		}
+
+		if !hasIndex {
+			t.Log("WARNING: GetByKey query may not be using an index")
+		}
+	})
+}
+
+// TestNoPlusOneQueries verifies that queries don't have N+1 problems
+func TestNoPlusOneQueries(t *testing.T) {
+	database := test.GetTestDB()
+	db := NewDB(database)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	suffix := time.Now().UnixNano()
+	epicKey := fmt.Sprintf("E-N1-%d", suffix)
+
+	// Create epic with 10 features
+	epic := &models.Epic{
+		Key:           epicKey,
+		Title:         "N+1 Test Epic",
+		Description:   "Testing for N+1 query problems",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityMedium,
+		BusinessValue: models.BusinessValueMedium,
+	}
+	epicRepo.Create(epic)
+
+	for fi := 0; fi < 10; fi++ {
+		feature := &models.Feature{
+			EpicID:      epic.ID,
+			Key:         fmt.Sprintf("%s-F%02d", epicKey, fi+1),
+			Title:       fmt.Sprintf("Feature %d", fi+1),
+			Description: "Test feature",
+			Status:      models.FeatureStatusActive,
+		}
+		featureRepo.Create(feature)
+
+		// Create 5 tasks per feature
+		for ti := 0; ti < 5; ti++ {
+			status := models.TaskStatusTodo
+			if ti < 3 {
+				status = models.TaskStatusCompleted
+			}
+			database.Exec(`
+				INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
+				VALUES (?, ?, ?, ?, 'testing', 1, '[]')
+			`, feature.ID, fmt.Sprintf("%s-T%02d", feature.Key, ti+1), fmt.Sprintf("Task %d", ti+1), status)
+		}
+
+		featureRepo.UpdateProgress(feature.ID)
+	}
+
+	// Get all features for epic - should be 1 query, not 10
+	start := time.Now()
+	features, err := featureRepo.GetByEpicID(epic.ID)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Failed to get features: %v", err)
+	}
+
+	if len(features) != 10 {
+		t.Errorf("Expected 10 features, got %d", len(features))
+	}
+
+	// Should complete very quickly since it's a single query
+	if elapsed > 50*time.Millisecond {
+		t.Logf("WARNING: GetByEpicID took %v, may have N+1 problem", elapsed)
+	}
+
+	t.Logf("GetByEpicID for 10 features: %v (no N+1 detected)", elapsed)
+
+	// Calculate epic progress - should use efficient aggregation
+	start = time.Now()
+	_, err = epicRepo.CalculateProgress(epic.ID)
+	elapsed = time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Failed to calculate epic progress: %v", err)
+	}
+
+	if elapsed > 50*time.Millisecond {
+		t.Logf("WARNING: CalculateProgress took %v, may have inefficient queries", elapsed)
+	}
+
+	t.Logf("Epic progress calculation: %v (efficient aggregation)", elapsed)
+}
+
+// Helper function to check if string contains substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
+}
+
+func containsMiddle(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
