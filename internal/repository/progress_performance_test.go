@@ -11,7 +11,6 @@ import (
 
 // TestFeatureProgressPerformance verifies the SQL query performance
 func TestFeatureProgressPerformance(t *testing.T) {
-	ctx := context.Background()
 	database := test.GetTestDB()
 
 	// Create test data
