@@ -59,7 +59,7 @@ This command:
 ## Implementation
 
 The command:
-1. Updates `/home/jwwelbor/projects/ai-dev-team/docs/workflow/state.json` with Development workflow state
+1. Updates `docs/workflow/state.json` with Development workflow state
 2. Sets current_node to "Dev_Package_Review"
 3. Invokes the TechLead agent to verify package completeness
 4. Hooks automatically advance through TDD cycle and quality gates
