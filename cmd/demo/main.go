@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -10,6 +11,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	// Use the main database (not a test database)
 	dbPath := "shark-tasks.db"
 
@@ -42,12 +45,12 @@ func main() {
 	}
 
 	// Check if epic already exists
-	existingEpic, _ := epicRepo.GetByKey(epic.Key)
+	existingEpic, _ := epicRepo.GetByKey(ctx, epic.Key)
 	if existingEpic != nil {
 		fmt.Printf("   Epic %s already exists (ID: %d)\n", epic.Key, existingEpic.ID)
 		epic = existingEpic
 	} else {
-		if err := epicRepo.Create(epic); err != nil {
+		if err := epicRepo.Create(ctx, epic); err != nil {
 			log.Fatal("Failed to create epic:", err)
 		}
 		fmt.Printf("   ✓ Created Epic: %s - %s\n", epic.Key, epic.Title)
@@ -64,12 +67,12 @@ func main() {
 		ProgressPct: 0.0,
 	}
 
-	existingFeature, _ := featureRepo.GetByKey(feature.Key)
+	existingFeature, _ := featureRepo.GetByKey(ctx, feature.Key)
 	if existingFeature != nil {
 		fmt.Printf("   Feature %s already exists (ID: %d)\n", feature.Key, existingFeature.ID)
 		feature = existingFeature
 	} else {
-		if err := featureRepo.Create(feature); err != nil {
+		if err := featureRepo.Create(ctx, feature); err != nil {
 			log.Fatal("Failed to create feature:", err)
 		}
 		fmt.Printf("   ✓ Created Feature: %s - %s\n", feature.Key, feature.Title)
@@ -94,7 +97,7 @@ func main() {
 
 	createdTasks := []*models.Task{}
 	for _, t := range tasks {
-		existingTask, _ := taskRepo.GetByKey(t.key)
+		existingTask, _ := taskRepo.GetByKey(ctx, t.key)
 		if existingTask != nil {
 			fmt.Printf("   Task %s already exists\n", t.key)
 			createdTasks = append(createdTasks, existingTask)
@@ -113,7 +116,7 @@ func main() {
 			DependsOn:   strPtr("[]"),
 		}
 
-		if err := taskRepo.Create(task); err != nil {
+		if err := taskRepo.Create(ctx, task); err != nil {
 			log.Fatal("Failed to create task:", err)
 		}
 		fmt.Printf("   ✓ Created: %s - %s\n", task.Key, task.Title)
@@ -127,20 +130,20 @@ func main() {
 
 	// Mark first task as in progress
 	if len(createdTasks) > 0 && createdTasks[0].Status == models.TaskStatusTodo {
-		taskRepo.UpdateStatus(createdTasks[0].ID, models.TaskStatusInProgress, &agent, strPtr("Starting implementation"))
+		taskRepo.UpdateStatus(ctx, createdTasks[0].ID, models.TaskStatusInProgress, &agent, strPtr("Starting implementation"))
 		fmt.Printf("   ✓ %s → in_progress\n", createdTasks[0].Key)
 	}
 
 	// Mark first three tasks as completed
 	for i := 0; i < 3 && i < len(createdTasks); i++ {
 		if createdTasks[i].Status != models.TaskStatusCompleted {
-			taskRepo.UpdateStatus(createdTasks[i].ID, models.TaskStatusCompleted, &agent, strPtr("Implementation complete"))
+			taskRepo.UpdateStatus(ctx, createdTasks[i].ID, models.TaskStatusCompleted, &agent, strPtr("Implementation complete"))
 			fmt.Printf("   ✓ %s → completed\n", createdTasks[i].Key)
 		}
 	}
 
 	// Update feature progress
-	if err := featureRepo.UpdateProgress(feature.ID); err != nil {
+	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
 		log.Fatal("Failed to update feature progress:", err)
 	}
 
@@ -149,13 +152,13 @@ func main() {
 	fmt.Println("   ─────────────────────────────────────────")
 
 	// Get updated feature
-	updatedFeature, _ := featureRepo.GetByID(feature.ID)
+	updatedFeature, _ := featureRepo.GetByID(ctx, feature.ID)
 	fmt.Printf("   Epic: %s - %s\n", epic.Key, epic.Title)
 	fmt.Printf("   Feature: %s - %s (%.1f%% complete)\n",
 		updatedFeature.Key, updatedFeature.Title, updatedFeature.ProgressPct)
 
 	fmt.Println("\n   Tasks:")
-	allTasks, _ := taskRepo.ListByFeature(feature.ID)
+	allTasks, _ := taskRepo.ListByFeature(ctx, feature.ID)
 	statusCounts := make(map[models.TaskStatus]int)
 	for _, task := range allTasks {
 		statusCounts[task.Status]++
@@ -171,24 +174,24 @@ func main() {
 	}
 
 	// Show epic progress
-	epicProgress, _ := epicRepo.CalculateProgress(epic.ID)
+	epicProgress, _ := epicRepo.CalculateProgress(ctx, epic.ID)
 	fmt.Printf("\n   Epic Progress: %.1f%%\n", epicProgress)
 
 	fmt.Println("\n6️⃣  Testing Queries:")
 	fmt.Println("   ─────────────────────────────────────────")
 
 	// Filter by status
-	todoTasks, _ := taskRepo.FilterByStatus(models.TaskStatusTodo)
+	todoTasks, _ := taskRepo.FilterByStatus(ctx, models.TaskStatusTodo)
 	fmt.Printf("   Tasks with status 'todo': %d\n", len(todoTasks))
 
 	// Filter by agent type
-	backendTasks, _ := taskRepo.FilterByAgentType(models.AgentTypeBackend)
+	backendTasks, _ := taskRepo.FilterByAgentType(ctx, models.AgentTypeBackend)
 	fmt.Printf("   Tasks for backend agent: %d\n", len(backendTasks))
 
 	// Combined filter
 	todoStatus := models.TaskStatusTodo
 	maxPriority := 3
-	filteredTasks, _ := taskRepo.FilterCombined(&todoStatus, nil, nil, &maxPriority)
+	filteredTasks, _ := taskRepo.FilterCombined(ctx, &todoStatus, nil, nil, &maxPriority)
 	fmt.Printf("   High-priority todo tasks (priority ≤ 3): %d\n", len(filteredTasks))
 
 	fmt.Println("\n✅ Demo completed! Database: shark-tasks.db")
