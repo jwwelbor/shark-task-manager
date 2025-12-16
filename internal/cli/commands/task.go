@@ -11,6 +11,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/spf13/cobra"
 )
 
@@ -55,12 +57,13 @@ var taskGetCmd = &cobra.Command{
 var taskCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new task",
-	Long:  `Create a new task with interactive prompts or flags.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// TODO: Implement in E04-F06 (Task Creation)
-		cli.Warning("Not yet implemented - coming in E04-F06")
-		return nil
-	},
+	Long: `Create a new task with automatic key generation and file creation.
+
+Examples:
+  pm task create --epic=E01 --feature=F02 --title="Build Login" --agent=frontend
+  pm task create -e E01 -f F02 -t "Build Login" -a frontend -p 5
+  pm task create --epic=E01 --feature=F02 --title="User Service" --agent=backend --depends-on="T-E01-F01-001"`,
+	RunE: runTaskCreate,
 }
 
 // taskStartCmd starts a task
@@ -492,6 +495,87 @@ func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.Ta
 	return true
 }
 
+// runTaskCreate executes the task create command
+func runTaskCreate(cmd *cobra.Command, args []string) error {
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get required flags
+	epicKey, _ := cmd.Flags().GetString("epic")
+	featureKey, _ := cmd.Flags().GetString("feature")
+	title, _ := cmd.Flags().GetString("title")
+	agentType, _ := cmd.Flags().GetString("agent")
+
+	// Validate required flags
+	if epicKey == "" || featureKey == "" || title == "" || agentType == "" {
+		cli.Error("Error: Missing required flags. All of --epic, --feature, --title, and --agent are required.")
+		fmt.Println("\nExample:")
+		fmt.Println("  pm task create --epic=E01 --feature=F02 --title=\"Build Login\" --agent=frontend")
+		os.Exit(1)
+	}
+
+	// Get optional flags
+	description, _ := cmd.Flags().GetString("description")
+	priority, _ := cmd.Flags().GetInt("priority")
+	dependsOn, _ := cmd.Flags().GetString("depends-on")
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		return fmt.Errorf("failed to get database path: %w", err)
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer database.Close()
+
+	// Create repositories
+	repoDb := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(repoDb)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
+	historyRepo := repository.NewTaskHistoryRepository(repoDb)
+
+	// Create task creation components
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	creator := taskcreation.NewCreator(repoDb, keygen, validator, renderer, taskRepo, historyRepo)
+
+	// Create task
+	input := taskcreation.CreateTaskInput{
+		EpicKey:     epicKey,
+		FeatureKey:  featureKey,
+		Title:       title,
+		Description: description,
+		AgentType:   agentType,
+		Priority:    priority,
+		DependsOn:   dependsOn,
+	}
+
+	result, err := creator.CreateTask(ctx, input)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Failed to create task: %s", err.Error()))
+		os.Exit(1)
+	}
+
+	// Output result
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(result.Task)
+	}
+
+	// Human-readable output
+	cli.Success(fmt.Sprintf("Created task %s: %s", result.Task.Key, result.Task.Title))
+	fmt.Printf("File created at: %s\n", result.FilePath)
+	fmt.Printf("Start work with: pm task start %s\n", result.Task.Key)
+
+	return nil
+}
+
 // runTaskStart executes the task start command
 func runTaskStart(cmd *cobra.Command, args []string) error {
 	// Create context with timeout
@@ -848,6 +932,19 @@ func init() {
 	taskListCmd.Flags().IntP("priority-min", "", 0, "Minimum priority (1-10)")
 	taskListCmd.Flags().IntP("priority-max", "", 0, "Maximum priority (1-10)")
 	taskListCmd.Flags().BoolP("blocked", "b", false, "Show only blocked tasks")
+
+	// Add flags for create command
+	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) (required)")
+	taskCreateCmd.MarkFlagRequired("epic")
+	taskCreateCmd.Flags().StringP("feature", "f", "", "Feature key (e.g., F02 or E01-F02) (required)")
+	taskCreateCmd.MarkFlagRequired("feature")
+	taskCreateCmd.Flags().StringP("title", "t", "", "Task title (required)")
+	taskCreateCmd.MarkFlagRequired("title")
+	taskCreateCmd.Flags().StringP("agent", "a", "", "Agent type: frontend, backend, api, testing, devops, general (required)")
+	taskCreateCmd.MarkFlagRequired("agent")
+	taskCreateCmd.Flags().StringP("description", "d", "", "Detailed description (optional)")
+	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority (1-10, default 5)")
+	taskCreateCmd.Flags().String("depends-on", "", "Comma-separated dependency task keys (optional)")
 
 	// Add flags for next command
 	taskNextCmd.Flags().StringP("agent", "a", "", "Agent type to match")
