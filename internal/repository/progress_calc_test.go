@@ -32,23 +32,21 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 	featureKey := fmt.Sprintf("E%02d-F%02d", epicNum, featureNum)
 
 	// Create epic via SQL with INSERT OR IGNORE
-	result, err := database.Exec(`
+	_, err := database.Exec(`
 		INSERT OR IGNORE INTO epics (key, title, description, status, priority)
 		VALUES (?, 'Progress Test Epic', 'Test epic', 'active', 'medium')
 	`, epicKey)
 	if err != nil {
 		t.Fatalf("Failed to create epic %s: %v", epicKey, err)
 	}
-	epicID, _ := result.LastInsertId()
-	if epicID == 0 {
-		err := database.QueryRow("SELECT id FROM epics WHERE key = ?", epicKey).Scan(&epicID)
-		if err != nil {
-			t.Fatalf("Failed to get epic ID for %s: %v", epicKey, err)
-		}
-		t.Logf("Epic %s already existed, retrieved ID=%d from database", epicKey, epicID)
-	} else {
-		t.Logf("Created new epic %s with ID=%d", epicKey, epicID)
+
+	// Always query for the epic ID since INSERT OR IGNORE may return unreliable LastInsertId()
+	var epicID int64
+	err = database.QueryRow("SELECT id FROM epics WHERE key = ?", epicKey).Scan(&epicID)
+	if err != nil {
+		t.Fatalf("Failed to get epic ID for %s: %v", epicKey, err)
 	}
+	t.Logf("Using epic %s with ID=%d", epicKey, epicID)
 
 	// Verify epic exists before creating feature
 	var count int
@@ -61,19 +59,19 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 	if epicID == 0 {
 		t.Fatalf("Cannot create feature %s: epicID is 0 (epic %s does not exist)", featureKey, epicKey)
 	}
-	result, err = database.Exec(`
+	_, err = database.Exec(`
 		INSERT OR IGNORE INTO features (epic_id, key, title, description, status)
 		VALUES (?, ?, 'Progress Test Feature', 'Test feature', 'active')
 	`, epicID, featureKey)
 	if err != nil {
 		t.Fatalf("Failed to create feature %s with epicID=%d: %v", featureKey, epicID, err)
 	}
-	featureID, _ := result.LastInsertId()
-	if featureID == 0 {
-		err := database.QueryRow("SELECT id FROM features WHERE key = ?", featureKey).Scan(&featureID)
-		if err != nil {
-			t.Fatalf("Failed to get feature ID for %s: %v", featureKey, err)
-		}
+
+	// Always query for the feature ID since INSERT OR IGNORE may return unreliable LastInsertId()
+	var featureID int64
+	err = database.QueryRow("SELECT id FROM features WHERE key = ?", featureKey).Scan(&featureID)
+	if err != nil {
+		t.Fatalf("Failed to get feature ID for %s: %v", featureKey, err)
 	}
 
 	// Delete and recreate tasks for this feature (so we can control task statuses)

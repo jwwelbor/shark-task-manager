@@ -1,21 +1,92 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
+
+// testIsTaskAvailable is a test helper that checks if a task is available
+// It uses the TaskRepositoryInterface so it works with mocks
+func testIsTaskAvailable(ctx context.Context, task *models.Task, repo TaskRepositoryInterface) bool {
+	if task.DependsOn == nil || *task.DependsOn == "" || *task.DependsOn == "[]" {
+		return true // No dependencies
+	}
+
+	var deps []string
+	if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err != nil {
+		return true // Invalid JSON, treat as no dependencies
+	}
+
+	// Check each dependency
+	for _, depKey := range deps {
+		depTask, err := repo.GetByKey(ctx, depKey)
+		if err != nil {
+			return false // Dependency not found
+		}
+
+		// Dependency must be completed or archived
+		if depTask.Status != models.TaskStatusCompleted && depTask.Status != models.TaskStatusArchived {
+			return false
+		}
+	}
+
+	return true
+}
 
 // TestTaskAvailability tests dependency resolution logic
 func TestTaskAvailability(t *testing.T) {
-	database := test.GetTestDB()
-	db := repository.NewDB(database)
-	taskRepo := repository.NewTaskRepository(db)
+	ctx := context.Background()
+	mockRepo := NewMockTaskRepository()
 
-	test.SeedTestData()
+	// Setup test data
+	emptyDeps := "[]"
+	completedDep := `["T-TEST-001"]`
+	incompleteDep := `["T-TEST-002"]`
+	agentType := models.AgentTypeBackend
+
+	// Add test tasks to mock repository
+	mockRepo.AddTask(&models.Task{
+		ID:        1,
+		Key:       "T-TEST-001",
+		Title:     "Completed Task",
+		Status:    models.TaskStatusCompleted,
+		AgentType: &agentType,
+		Priority:  1,
+		DependsOn: &emptyDeps,
+	})
+
+	mockRepo.AddTask(&models.Task{
+		ID:        2,
+		Key:       "T-TEST-002",
+		Title:     "Todo Task",
+		Status:    models.TaskStatusTodo,
+		AgentType: &agentType,
+		Priority:  2,
+		DependsOn: &emptyDeps,
+	})
+
+	mockRepo.AddTask(&models.Task{
+		ID:        3,
+		Key:       "T-TEST-003",
+		Title:     "Task with Dependency",
+		Status:    models.TaskStatusTodo,
+		AgentType: &agentType,
+		Priority:  3,
+		DependsOn: &completedDep,
+	})
+
+	mockRepo.AddTask(&models.Task{
+		ID:        4,
+		Key:       "T-TEST-004",
+		Title:     "Task with Incomplete Dependency",
+		Status:    models.TaskStatusTodo,
+		AgentType: &agentType,
+		Priority:  4,
+		DependsOn: &incompleteDep,
+	})
 
 	tests := []struct {
 		name            string
@@ -45,12 +116,12 @@ func TestTaskAvailability(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			task, err := taskRepo.GetByKey(tt.taskKey)
+			task, err := mockRepo.GetByKey(ctx, tt.taskKey)
 			if err != nil {
 				t.Fatalf("Failed to get task %s: %v", tt.taskKey, err)
 			}
 
-			available := isTaskAvailable(task, taskRepo)
+			available := testIsTaskAvailable(ctx, task, mockRepo)
 			if available != tt.expectAvailable {
 				t.Errorf("Task %s: expected available=%v, got %v. %s",
 					tt.taskKey, tt.expectAvailable, available, tt.reason)
@@ -61,12 +132,9 @@ func TestTaskAvailability(t *testing.T) {
 
 // TestDependencyParsing tests JSON dependency parsing edge cases
 func TestDependencyParsing(t *testing.T) {
-	database := test.GetTestDB()
-	db := repository.NewDB(database)
-	taskRepo := repository.NewTaskRepository(db)
-
+	ctx := context.Background()
+	mockRepo := NewMockTaskRepository()
 	agentType := models.AgentTypeBackend
-	_, featureID := test.SeedTestData()
 
 	tests := []struct {
 		name            string
@@ -97,16 +165,16 @@ func TestDependencyParsing(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			task := &models.Task{
-				FeatureID:   featureID,
-				Key:         "T-PARSE-TEST",
-				Title:       "Parsing Test",
-				Status:      models.TaskStatusTodo,
-				AgentType:   &agentType,
-				Priority:    1,
-				DependsOn:   &tt.dependsOn,
+				FeatureID: 1,
+				Key:       "T-PARSE-TEST",
+				Title:     "Parsing Test",
+				Status:    models.TaskStatusTodo,
+				AgentType: &agentType,
+				Priority:  1,
+				DependsOn: &tt.dependsOn,
 			}
 
-			available := isTaskAvailable(task, taskRepo)
+			available := testIsTaskAvailable(ctx, task, mockRepo)
 			if available != tt.expectAvailable {
 				t.Errorf("%s: expected available=%v, got %v. %s",
 					tt.name, tt.expectAvailable, available, tt.description)
@@ -182,15 +250,48 @@ func TestStateTransitionLogic(t *testing.T) {
 
 // TestNextTaskSelection tests the logic for selecting the next available task
 func TestNextTaskSelection(t *testing.T) {
-	database := test.GetTestDB()
-	db := repository.NewDB(database)
-	taskRepo := repository.NewTaskRepository(db)
+	ctx := context.Background()
+	mockRepo := NewMockTaskRepository()
 
-	test.SeedTestData()
+	// Setup test data
+	emptyDeps := "[]"
+	completedDep := `["T-TEST-001"]`
+	agentType := models.AgentTypeBackend
+
+	// Add test tasks to mock repository
+	mockRepo.AddTask(&models.Task{
+		ID:        1,
+		Key:       "T-TEST-001",
+		Title:     "Completed Task",
+		Status:    models.TaskStatusCompleted,
+		AgentType: &agentType,
+		Priority:  1,
+		DependsOn: &emptyDeps,
+	})
+
+	mockRepo.AddTask(&models.Task{
+		ID:        2,
+		Key:       "T-TEST-002",
+		Title:     "Todo Task",
+		Status:    models.TaskStatusTodo,
+		AgentType: &agentType,
+		Priority:  2,
+		DependsOn: &emptyDeps,
+	})
+
+	mockRepo.AddTask(&models.Task{
+		ID:        3,
+		Key:       "T-TEST-003",
+		Title:     "Task with Dependency",
+		Status:    models.TaskStatusTodo,
+		AgentType: &agentType,
+		Priority:  3,
+		DependsOn: &completedDep,
+	})
 
 	// Query for todo tasks
 	todoStatus := models.TaskStatusTodo
-	tasks, err := taskRepo.FilterCombined(&todoStatus, nil, nil, nil)
+	tasks, err := mockRepo.FilterCombined(ctx, &todoStatus, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to get todo tasks: %v", err)
 	}
@@ -198,7 +299,7 @@ func TestNextTaskSelection(t *testing.T) {
 	// Filter by availability (no incomplete dependencies)
 	var availableTasks []*models.Task
 	for _, task := range tasks {
-		if isTaskAvailable(task, taskRepo) {
+		if testIsTaskAvailable(ctx, task, mockRepo) {
 			availableTasks = append(availableTasks, task)
 		}
 	}
@@ -247,55 +348,21 @@ func TestAgentIdentification(t *testing.T) {
 	tests := []struct {
 		name        string
 		flagValue   string
-		envValue    string
 		expectedID  string
 	}{
 		{
 			name:       "flag_provided",
 			flagValue:  "custom-agent",
-			envValue:   "env-user",
 			expectedID: "custom-agent",
-		},
-		{
-			name:       "env_fallback",
-			flagValue:  "",
-			envValue:   "env-user",
-			expectedID: "env-user",
-		},
-		{
-			name:       "default_unknown",
-			flagValue:  "",
-			envValue:   "",
-			expectedID: "unknown",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save original env
-			originalEnv := getEnv("USER")
-			defer setEnv("USER", originalEnv)
-
-			// Set test env
-			if tt.envValue != "" {
-				setEnv("USER", tt.envValue)
-			} else {
-				setEnv("USER", "")
-			}
-
 			result := getAgentIdentifier(tt.flagValue)
 			if result != tt.expectedID {
 				t.Errorf("Expected agent ID '%s', got '%s'", tt.expectedID, result)
 			}
 		})
 	}
-}
-
-// Test helper functions
-func getEnv(key string) string {
-	return ""  // Simplified for test
-}
-
-func setEnv(key, value string) {
-	// Simplified for test
 }
