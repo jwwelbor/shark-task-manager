@@ -1,0 +1,12 @@
+# {Title}
+- **Status:** Open
+- **Card ID:** CC-{yyyymmdd}-{nnn}
+- **Owner:** {owner}
+- **Goal:** {goal}
+- **Scope (files/areas):** {scope}
+- **Acceptance Criteria:** {acceptance_criteria}
+- **Dependencies / Flags:** {dependencies_or_flags}
+- **Tests to Run:** {tests}
+- **Priority / Timebox:** {priority} / {timebox}
+- **Created:** {iso_date}
+- **Notes:** {notes_or_empty}
