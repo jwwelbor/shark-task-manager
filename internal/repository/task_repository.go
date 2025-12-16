@@ -26,6 +26,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -574,6 +575,176 @@ func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64
 	}
 
 	return breakdown, nil
+}
+
+// BulkCreate creates multiple tasks in a single transaction
+// Returns number of tasks created and error
+func (r *TaskRepository) BulkCreate(ctx context.Context, tasks []*models.Task) (int, error) {
+	if len(tasks) == 0 {
+		return 0, nil
+	}
+
+	// Validate all tasks before inserting
+	for i, task := range tasks {
+		if err := task.Validate(); err != nil {
+			return 0, fmt.Errorf("validation failed for task %d: %w", i, err)
+		}
+	}
+
+	// Start transaction
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Prepare statement for efficiency
+	query := `
+		INSERT INTO tasks (
+			feature_id, key, title, description, status, agent_type, priority,
+			depends_on, assigned_agent, file_path, blocked_reason
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	stmt, err := tx.PrepareContext(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	// Insert all tasks
+	count := 0
+	for _, task := range tasks {
+		result, err := stmt.ExecContext(ctx,
+			task.FeatureID,
+			task.Key,
+			task.Title,
+			task.Description,
+			task.Status,
+			task.AgentType,
+			task.Priority,
+			task.DependsOn,
+			task.AssignedAgent,
+			task.FilePath,
+			task.BlockedReason,
+		)
+		if err != nil {
+			return count, fmt.Errorf("failed to insert task %s: %w", task.Key, err)
+		}
+
+		id, err := result.LastInsertId()
+		if err != nil {
+			return count, fmt.Errorf("failed to get last insert id for task %s: %w", task.Key, err)
+		}
+
+		task.ID = id
+		count++
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return count, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetByKeys retrieves multiple tasks by their keys
+// Returns map of key -> task, missing keys are omitted
+func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[string]*models.Task, error) {
+	if len(keys) == 0 {
+		return make(map[string]*models.Task), nil
+	}
+
+	// Build dynamic IN clause
+	query := `
+		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason,
+		       created_at, started_at, completed_at, blocked_at, updated_at
+		FROM tasks
+		WHERE key IN (?` + strings.Repeat(", ?", len(keys)-1) + `)`
+
+	// Convert keys to []interface{} for query
+	args := make([]interface{}, len(keys))
+	for i, key := range keys {
+		args[i] = key
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tasks by keys: %w", err)
+	}
+	defer rows.Close()
+
+	// Build result map
+	result := make(map[string]*models.Task)
+	for rows.Next() {
+		task := &models.Task{}
+		err := rows.Scan(
+			&task.ID,
+			&task.FeatureID,
+			&task.Key,
+			&task.Title,
+			&task.Description,
+			&task.Status,
+			&task.AgentType,
+			&task.Priority,
+			&task.DependsOn,
+			&task.AssignedAgent,
+			&task.FilePath,
+			&task.BlockedReason,
+			&task.CreatedAt,
+			&task.StartedAt,
+			&task.CompletedAt,
+			&task.BlockedAt,
+			&task.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+		result[task.Key] = task
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating tasks: %w", err)
+	}
+
+	return result, nil
+}
+
+// UpdateMetadata updates only metadata fields (title, description, file_path)
+// Does NOT update status, priority, agent_type (database-only fields)
+func (r *TaskRepository) UpdateMetadata(ctx context.Context, task *models.Task) error {
+	if err := task.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	query := `
+		UPDATE tasks
+		SET title = ?, description = ?, file_path = ?
+		WHERE id = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query,
+		task.Title,
+		task.Description,
+		task.FilePath,
+		task.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update task metadata: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("task not found with id %d", task.ID)
+	}
+
+	return nil
 }
 
 // queryTasks is a helper function to execute task queries
