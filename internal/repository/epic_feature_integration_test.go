@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -35,6 +36,7 @@ func strPtr(s string) *string {
 // TestEpicListingIntegration verifies listing all epics with progress
 // Acceptance Criteria: Given 5 epics in database, pm epic list displays all 5 with progress
 func TestEpicListingIntegration(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -54,7 +56,7 @@ func TestEpicListingIntegration(t *testing.T) {
 		}
 
 		// Try to create, skip if already exists
-		err := epicRepo.Create(epic)
+		err := epicRepo.Create(ctx, epic)
 		if err != nil {
 			continue
 		}
@@ -68,7 +70,7 @@ func TestEpicListingIntegration(t *testing.T) {
 			Description: strPtr("Test feature"),
 			Status:      models.FeatureStatusActive,
 		}
-		err = featureRepo.Create(feature)
+		err = featureRepo.Create(ctx, feature)
 		if err != nil {
 			t.Logf("Failed to create feature (may already exist): %v", err)
 			continue
@@ -88,11 +90,11 @@ func TestEpicListingIntegration(t *testing.T) {
 		}
 
 		// Update feature progress
-		featureRepo.UpdateProgress(feature.ID)
+		featureRepo.UpdateProgress(ctx, feature.ID)
 	}
 
 	// Retrieve all epics
-	epics, err := epicRepo.List(nil)
+	epics, err := epicRepo.List(ctx, nil)
 	if err != nil {
 		t.Fatalf("Failed to get all epics: %v", err)
 	}
@@ -108,6 +110,7 @@ func TestEpicListingIntegration(t *testing.T) {
 // TestEpicDetailsIntegration verifies getting epic details with feature breakdown
 // Acceptance Criteria: Epic with 3 features shows weighted progress correctly
 func TestEpicDetailsIntegration(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -124,7 +127,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 		Priority:      models.PriorityHigh,
 		BusinessValue: priorityPtr(models.PriorityMedium),
 	}
-	err := epicRepo.Create(epic)
+	err := epicRepo.Create(ctx, epic)
 	if err != nil {
 		t.Skipf("Epic already exists, skipping test: %v", err)
 		return
@@ -138,7 +141,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 		Description: strPtr("Test feature"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(feature1)
+	featureRepo.Create(ctx, feature1)
 
 	for i := 0; i < 10; i++ {
 		status := models.TaskStatusTodo
@@ -151,7 +154,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 			VALUES (?, ?, ?, ?, 'testing', 1, '[]')
 		`, feature1.ID, taskKey, fmt.Sprintf("Task %d", i+1), status)
 	}
-	featureRepo.UpdateProgress(feature1.ID)
+	featureRepo.UpdateProgress(ctx, feature1.ID)
 
 	// Feature 2: 75% progress (6 of 8 tasks completed)
 	feature2 := &models.Feature{
@@ -161,7 +164,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 		Description: strPtr("Test feature"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(feature2)
+	featureRepo.Create(ctx, feature2)
 
 	for i := 0; i < 8; i++ {
 		status := models.TaskStatusTodo
@@ -174,7 +177,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 			VALUES (?, ?, ?, ?, 'testing', 1, '[]')
 		`, feature2.ID, taskKey, fmt.Sprintf("Task %d", i+1), status)
 	}
-	featureRepo.UpdateProgress(feature2.ID)
+	featureRepo.UpdateProgress(ctx, feature2.ID)
 
 	// Feature 3: 100% progress (2 of 2 tasks completed)
 	feature3 := &models.Feature{
@@ -184,7 +187,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 		Description: strPtr("Test feature"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(feature3)
+	featureRepo.Create(ctx, feature3)
 
 	for i := 0; i < 2; i++ {
 		taskKey := fmt.Sprintf("T-%s-F03-%03d", epicKey, i+1)
@@ -193,11 +196,11 @@ func TestEpicDetailsIntegration(t *testing.T) {
 			VALUES (?, ?, ?, 'completed', 'testing', 1, '[]')
 		`, feature3.ID, taskKey, fmt.Sprintf("Task %d", i+1))
 	}
-	featureRepo.UpdateProgress(feature3.ID)
+	featureRepo.UpdateProgress(ctx, feature3.ID)
 
 	// Calculate epic progress
 	// Weighted average: (50*10 + 75*8 + 100*2) / (10+8+2) = (500 + 600 + 200) / 20 = 1300/20 = 65.0
-	progress, err := epicRepo.CalculateProgress(epic.ID)
+	progress, err := epicRepo.CalculateProgress(ctx, epic.ID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)
 	}
@@ -208,7 +211,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 	}
 
 	// Get all features for the epic
-	features, err := featureRepo.ListByEpic(epic.ID)
+	features, err := featureRepo.ListByEpic(ctx, epic.ID)
 	if err != nil {
 		t.Fatalf("Failed to get features: %v", err)
 	}
@@ -223,6 +226,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 // TestFeatureDetailsIntegration verifies getting feature details with task breakdown
 // Acceptance Criteria: Feature with 10 tasks (7 completed, 2 in_progress, 1 todo) shows 70% progress
 func TestFeatureDetailsIntegration(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -239,7 +243,7 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 		Priority:      models.PriorityMedium,
 		BusinessValue: priorityPtr(models.PriorityHigh),
 	}
-	err := epicRepo.Create(epic)
+	err := epicRepo.Create(ctx, epic)
 	if err != nil {
 		t.Skipf("Epic already exists: %v", err)
 		return
@@ -254,7 +258,7 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 		Description: strPtr("Testing task breakdown"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(feature)
+	featureRepo.Create(ctx, feature)
 
 	// Create 10 tasks: 7 completed, 2 in_progress, 1 todo
 	taskStatuses := []models.TaskStatus{
@@ -279,7 +283,7 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 	}
 
 	// Calculate progress
-	progress, err := featureRepo.CalculateProgress(feature.ID)
+	progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
 	if err != nil {
 		t.Fatalf("Failed to calculate feature progress: %v", err)
 	}
@@ -294,6 +298,7 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 
 // TestFeatureListFilteringIntegration verifies filtering features by epic
 func TestFeatureListFilteringIntegration(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -309,7 +314,7 @@ func TestFeatureListFilteringIntegration(t *testing.T) {
 		Priority:      models.PriorityMedium,
 		BusinessValue: priorityPtr(models.PriorityMedium),
 	}
-	err := epicRepo.Create(epic)
+	err := epicRepo.Create(ctx, epic)
 	if err != nil {
 		t.Skipf("Epic already exists: %v", err)
 		return
@@ -324,11 +329,11 @@ func TestFeatureListFilteringIntegration(t *testing.T) {
 			Description: strPtr("Test feature"),
 			Status:      models.FeatureStatusActive,
 		}
-		featureRepo.Create(feature)
+		featureRepo.Create(ctx, feature)
 	}
 
 	// Test filtering by epic
-	features, err := featureRepo.ListByEpic(epic.ID)
+	features, err := featureRepo.ListByEpic(ctx, epic.ID)
 	if err != nil {
 		t.Fatalf("Failed to get features for epic %s: %v", epicKey, err)
 	}
@@ -350,6 +355,7 @@ func TestFeatureListFilteringIntegration(t *testing.T) {
 
 // TestProgressCalculationEdgeCases verifies edge case handling
 func TestProgressCalculationEdgeCases(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -365,7 +371,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			Priority:      models.PriorityLow,
 			BusinessValue: priorityPtr(models.PriorityLow),
 		}
-		err := epicRepo.Create(epic)
+		err := epicRepo.Create(ctx, epic)
 		if err != nil {
 			t.Skip("Epic already exists")
 			return
@@ -378,9 +384,9 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			Description: strPtr("Edge case"),
 			Status:      models.FeatureStatusActive,
 		}
-		featureRepo.Create(feature)
+		featureRepo.Create(ctx, feature)
 
-		progress, err := featureRepo.CalculateProgress(feature.ID)
+		progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
 		if err != nil {
 			t.Fatalf("Failed to calculate progress: %v", err)
 		}
@@ -400,7 +406,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			Priority:      models.PriorityMedium,
 			BusinessValue: priorityPtr(models.PriorityMedium),
 		}
-		err := epicRepo.Create(epic)
+		err := epicRepo.Create(ctx, epic)
 		if err != nil {
 			t.Skip("Epic already exists")
 			return
@@ -413,7 +419,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			Description: strPtr("Edge case"),
 			Status:      models.FeatureStatusActive,
 		}
-		featureRepo.Create(feature)
+		featureRepo.Create(ctx, feature)
 
 		// Create 5 completed tasks
 		for i := 0; i < 5; i++ {
@@ -424,7 +430,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			`, feature.ID, taskKey, fmt.Sprintf("Task %d", i+1))
 		}
 
-		progress, err := featureRepo.CalculateProgress(feature.ID)
+		progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
 		if err != nil {
 			t.Fatalf("Failed to calculate progress: %v", err)
 		}
@@ -439,6 +445,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 
 // TestMultiLevelProgressPropagation verifies progress updates propagate correctly
 func TestMultiLevelProgressPropagation(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -455,7 +462,7 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 		Priority:      models.PriorityHigh,
 		BusinessValue: priorityPtr(models.PriorityHigh),
 	}
-	err := epicRepo.Create(epic)
+	err := epicRepo.Create(ctx, epic)
 	if err != nil {
 		t.Skipf("Epic already exists: %v", err)
 		return
@@ -469,7 +476,7 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 		Description: strPtr("Test feature"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(feature)
+	featureRepo.Create(ctx, feature)
 
 	// Create 4 todo tasks
 	taskIDs := make([]int64, 4)
@@ -486,8 +493,8 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 	}
 
 	// Initial progress should be 0%
-	featureRepo.UpdateProgress(feature.ID)
-	feature, _ = featureRepo.GetByKey(feature.Key)
+	featureRepo.UpdateProgress(ctx, feature.ID)
+	feature, _ = featureRepo.GetByKey(ctx, feature.Key)
 	if feature.ProgressPct != 0.0 {
 		t.Errorf("Initial feature progress: expected 0.0%%, got %.1f%%", feature.ProgressPct)
 	}
@@ -496,8 +503,8 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 	database.Exec("UPDATE tasks SET status = 'completed' WHERE id = ?", taskIDs[0])
 	database.Exec("UPDATE tasks SET status = 'completed' WHERE id = ?", taskIDs[1])
 
-	featureRepo.UpdateProgress(feature.ID)
-	feature, _ = featureRepo.GetByKey(feature.Key)
+	featureRepo.UpdateProgress(ctx, feature.ID)
+	feature, _ = featureRepo.GetByKey(ctx, feature.Key)
 	if feature.ProgressPct != 50.0 {
 		t.Errorf("After completing 2/4 tasks: expected 50.0%% progress, got %.1f%%", feature.ProgressPct)
 	}

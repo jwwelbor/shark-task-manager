@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 // BenchmarkEpicList measures epic list query performance
 // PRD Target: <100ms for 100 epics
 func BenchmarkEpicList(b *testing.B) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -23,7 +25,7 @@ func BenchmarkEpicList(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		epics, err := epicRepo.List(nil)
+		epics, err := epicRepo.List(ctx, nil)
 		if err != nil {
 			b.Fatalf("Failed to get all epics: %v", err)
 		}
@@ -45,6 +47,7 @@ func BenchmarkEpicList(b *testing.B) {
 // BenchmarkEpicGetWithFeatures measures epic get with feature details
 // PRD Target: <200ms for epics with 50 features
 func BenchmarkEpicGetWithFeatures(b *testing.B) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -54,7 +57,7 @@ func BenchmarkEpicGetWithFeatures(b *testing.B) {
 	testEpicKey := "E04" // Use existing test epic
 
 	// Try to get epic, skip benchmark if it doesn't exist
-	epic, err := epicRepo.GetByKey(testEpicKey)
+	epic, err := epicRepo.GetByKey(ctx, testEpicKey)
 	if err != nil {
 		b.Skipf("Test epic %s not found, skipping benchmark", testEpicKey)
 		return
@@ -64,19 +67,19 @@ func BenchmarkEpicGetWithFeatures(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		// Get epic by key
-		retrievedEpic, err := epicRepo.GetByKey(testEpicKey)
+		retrievedEpic, err := epicRepo.GetByKey(ctx, testEpicKey)
 		if err != nil {
 			b.Fatalf("Failed to get epic: %v", err)
 		}
 
 		// Get all features for the epic
-		_, err = featureRepo.ListByEpic(retrievedEpic.ID)
+		_, err = featureRepo.ListByEpic(ctx, retrievedEpic.ID)
 		if err != nil {
 			b.Fatalf("Failed to get features: %v", err)
 		}
 
 		// Calculate progress for epic
-		_, err = epicRepo.CalculateProgress(retrievedEpic.ID)
+		_, err = epicRepo.CalculateProgress(ctx, retrievedEpic.ID)
 		if err != nil {
 			b.Fatalf("Failed to calculate epic progress: %v", err)
 		}
@@ -86,7 +89,7 @@ func BenchmarkEpicGetWithFeatures(b *testing.B) {
 	avgMs := float64(avgNs) / 1_000_000
 
 	// Get feature count
-	features, _ := featureRepo.ListByEpic(epic.ID)
+	features, _ := featureRepo.ListByEpic(ctx, epic.ID)
 	b.Logf("Average epic get (with %d features) time: %.2f ms (target: <200ms)", len(features), avgMs)
 
 	if avgMs > 200 {
@@ -97,6 +100,7 @@ func BenchmarkEpicGetWithFeatures(b *testing.B) {
 // BenchmarkFeatureGetWithTasks measures feature get with task details
 // PRD Target: <200ms for features with 100 tasks
 func BenchmarkFeatureGetWithTasks(b *testing.B) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	featureRepo := NewFeatureRepository(db)
@@ -105,7 +109,7 @@ func BenchmarkFeatureGetWithTasks(b *testing.B) {
 	testFeatureKey := "E04-F01"
 
 	// Try to get feature, skip if not found
-	feature, err := featureRepo.GetByKey(testFeatureKey)
+	feature, err := featureRepo.GetByKey(ctx, testFeatureKey)
 	if err != nil {
 		b.Skipf("Test feature %s not found, skipping benchmark", testFeatureKey)
 		return
@@ -115,13 +119,13 @@ func BenchmarkFeatureGetWithTasks(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		// Get feature by key
-		retrievedFeature, err := featureRepo.GetByKey(testFeatureKey)
+		retrievedFeature, err := featureRepo.GetByKey(ctx, testFeatureKey)
 		if err != nil {
 			b.Fatalf("Failed to get feature: %v", err)
 		}
 
 		// Calculate progress
-		_, err = featureRepo.CalculateProgress(retrievedFeature.ID)
+		_, err = featureRepo.CalculateProgress(ctx, retrievedFeature.ID)
 		if err != nil {
 			b.Fatalf("Failed to calculate progress: %v", err)
 		}
@@ -143,13 +147,14 @@ func BenchmarkFeatureGetWithTasks(b *testing.B) {
 
 // BenchmarkProgressCalculation measures just the progress calculation SQL performance
 func BenchmarkProgressCalculation(b *testing.B) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	featureRepo := NewFeatureRepository(db)
 
 	// Use an existing feature
 	testFeatureKey := "E04-F01"
-	feature, err := featureRepo.GetByKey(testFeatureKey)
+	feature, err := featureRepo.GetByKey(ctx, testFeatureKey)
 	if err != nil {
 		b.Skipf("Test feature not found: %v", err)
 		return
@@ -159,7 +164,7 @@ func BenchmarkProgressCalculation(b *testing.B) {
 
 	b.Run("FeatureProgress", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_, err := featureRepo.CalculateProgress(feature.ID)
+			_, err := featureRepo.CalculateProgress(ctx, feature.ID)
 			if err != nil {
 				b.Fatalf("Failed to calculate feature progress: %v", err)
 			}
@@ -298,6 +303,7 @@ func TestQueryPlanAnalysis(t *testing.T) {
 
 // TestNoPlusOneQueries verifies that queries don't have N+1 problems
 func TestNoPlusOneQueries(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	featureRepo := NewFeatureRepository(db)
@@ -307,7 +313,7 @@ func TestNoPlusOneQueries(t *testing.T) {
 
 	// Get all features for epic - should be 1 query, not N
 	start := time.Now()
-	features, err := featureRepo.ListByEpic(epicID)
+	features, err := featureRepo.ListByEpic(ctx, epicID)
 	elapsed := time.Since(start)
 
 	if err != nil {

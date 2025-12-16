@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 
 // TestFeatureProgressPerformance verifies the SQL query performance
 func TestFeatureProgressPerformance(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 
 	// Create test data
@@ -53,6 +55,7 @@ func TestFeatureProgressPerformance(t *testing.T) {
 
 // TestEpicProgressPerformance verifies the epic progress SQL performance
 func TestEpicProgressPerformance(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	featureRepo := NewFeatureRepository(db)
@@ -62,13 +65,13 @@ func TestEpicProgressPerformance(t *testing.T) {
 		models.TaskStatusCompleted,
 		models.TaskStatusTodo,
 	})
-	featureRepo.UpdateProgress(feature1ID)
+	featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Create second feature with 1 completed task using setupProgressTest helper
 	_, feature2ID := setupProgressTest(t, 84, 2, []models.TaskStatus{
 		models.TaskStatusCompleted,
 	})
-	featureRepo.UpdateProgress(feature2ID)
+	featureRepo.UpdateProgress(ctx, feature2ID)
 
 	// Get the SQL query plan for epic progress
 	query := `
@@ -107,6 +110,7 @@ func TestEpicProgressPerformance(t *testing.T) {
 
 // BenchmarkFeatureProgress measures feature progress calculation performance
 func BenchmarkFeatureProgress(b *testing.B) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	featureRepo := NewFeatureRepository(db)
@@ -125,7 +129,7 @@ func BenchmarkFeatureProgress(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := featureRepo.CalculateProgress(featureID)
+		_, err := featureRepo.CalculateProgress(ctx, featureID)
 		if err != nil {
 			b.Fatalf("Failed to calculate progress: %v", err)
 		}
@@ -134,6 +138,7 @@ func BenchmarkFeatureProgress(b *testing.B) {
 
 // BenchmarkEpicProgress measures epic progress calculation performance
 func BenchmarkEpicProgress(b *testing.B) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -182,12 +187,12 @@ func BenchmarkEpicProgress(b *testing.B) {
 			`, featureID, fmt.Sprintf("%s-T%03d", featureKey, t), fmt.Sprintf("Task %d", t), status)
 		}
 
-		featureRepo.UpdateProgress(featureID)
+		featureRepo.UpdateProgress(ctx, featureID)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := epicRepo.CalculateProgress(epicID)
+		_, err := epicRepo.CalculateProgress(ctx, epicID)
 		if err != nil {
 			b.Fatalf("Failed to calculate epic progress: %v", err)
 		}
