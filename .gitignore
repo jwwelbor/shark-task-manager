@@ -30,3 +30,10 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Project specific
+bin/
+tmp/
+*.db
+*.db-journal
+build-errors.log
