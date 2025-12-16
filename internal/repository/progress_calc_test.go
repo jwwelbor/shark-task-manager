@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -95,12 +96,13 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 
 // TestFeatureProgress_NoTasks verifies 0% progress when feature has no tasks
 func TestFeatureProgress_NoTasks(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 
 	_, featureID := setupProgressTest(t, 90, 1, []models.TaskStatus{})
 
-	progress, err := featureRepo.CalculateProgress(featureID)
+	progress, err := featureRepo.CalculateProgress(ctx, featureID)
 	if err != nil {
 		t.Fatalf("Failed to calculate progress: %v", err)
 	}
@@ -112,6 +114,7 @@ func TestFeatureProgress_NoTasks(t *testing.T) {
 
 // TestFeatureProgress_CompletedTasks verifies counting completed tasks
 func TestFeatureProgress_CompletedTasks(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 
@@ -131,7 +134,7 @@ func TestFeatureProgress_CompletedTasks(t *testing.T) {
 
 	_, featureID := setupProgressTest(t, 91, 1, statuses)
 
-	progress, err := featureRepo.CalculateProgress(featureID)
+	progress, err := featureRepo.CalculateProgress(ctx, featureID)
 	if err != nil {
 		t.Fatalf("Failed to calculate progress: %v", err)
 	}
@@ -144,6 +147,7 @@ func TestFeatureProgress_CompletedTasks(t *testing.T) {
 
 // TestFeatureProgress_CompletedAndArchived verifies both completed and archived count as done
 func TestFeatureProgress_CompletedAndArchived(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 
@@ -163,7 +167,7 @@ func TestFeatureProgress_CompletedAndArchived(t *testing.T) {
 
 	_, featureID := setupProgressTest(t, 92, 1, statuses)
 
-	progress, err := featureRepo.CalculateProgress(featureID)
+	progress, err := featureRepo.CalculateProgress(ctx, featureID)
 	if err != nil {
 		t.Fatalf("Failed to calculate progress: %v", err)
 	}
@@ -176,6 +180,7 @@ func TestFeatureProgress_CompletedAndArchived(t *testing.T) {
 
 // TestFeatureProgress_AllCompleted verifies 100% progress
 func TestFeatureProgress_AllCompleted(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 
@@ -189,7 +194,7 @@ func TestFeatureProgress_AllCompleted(t *testing.T) {
 
 	_, featureID := setupProgressTest(t, 93, 1, statuses)
 
-	progress, err := featureRepo.CalculateProgress(featureID)
+	progress, err := featureRepo.CalculateProgress(ctx, featureID)
 	if err != nil {
 		t.Fatalf("Failed to calculate progress: %v", err)
 	}
@@ -202,6 +207,7 @@ func TestFeatureProgress_AllCompleted(t *testing.T) {
 
 // TestFeatureProgress_NoneCompleted verifies 0% with tasks present
 func TestFeatureProgress_NoneCompleted(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 
@@ -215,7 +221,7 @@ func TestFeatureProgress_NoneCompleted(t *testing.T) {
 
 	_, featureID := setupProgressTest(t, 94, 1, statuses)
 
-	progress, err := featureRepo.CalculateProgress(featureID)
+	progress, err := featureRepo.CalculateProgress(ctx, featureID)
 	if err != nil {
 		t.Fatalf("Failed to calculate progress: %v", err)
 	}
@@ -228,6 +234,7 @@ func TestFeatureProgress_NoneCompleted(t *testing.T) {
 
 // TestFeatureProgress_BlockedNotCounted verifies blocked tasks don't count as completed
 func TestFeatureProgress_BlockedNotCounted(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 
@@ -241,7 +248,7 @@ func TestFeatureProgress_BlockedNotCounted(t *testing.T) {
 
 	_, featureID := setupProgressTest(t, 95, 1, statuses)
 
-	progress, err := featureRepo.CalculateProgress(featureID)
+	progress, err := featureRepo.CalculateProgress(ctx, featureID)
 	if err != nil {
 		t.Fatalf("Failed to calculate progress: %v", err)
 	}
@@ -254,6 +261,7 @@ func TestFeatureProgress_BlockedNotCounted(t *testing.T) {
 
 // TestEpicProgress_NoFeatures verifies 0% when epic has no features
 func TestEpicProgress_NoFeatures(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	epicRepo := NewEpicRepository(db)
 
@@ -263,7 +271,7 @@ func TestEpicProgress_NoFeatures(t *testing.T) {
 	// Delete the feature so epic has none
 	test.GetTestDB().Exec("DELETE FROM features WHERE epic_id = ?", epicID)
 
-	progress, err := epicRepo.CalculateProgress(epicID)
+	progress, err := epicRepo.CalculateProgress(ctx, epicID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)
 	}
@@ -275,6 +283,7 @@ func TestEpicProgress_NoFeatures(t *testing.T) {
 
 // TestEpicProgress_WeightedAverage verifies epic progress is weighted by task count
 func TestEpicProgress_WeightedAverage(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 	epicRepo := NewEpicRepository(db)
@@ -289,7 +298,7 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 		}
 	}
 	epicID, feature1ID := setupProgressTest(t, 97, 1, statuses1)
-	featureRepo.UpdateProgress(feature1ID)
+	featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Feature 2: 100% with 10 tasks (E97-F02)
 	statuses2 := make([]models.TaskStatus, 10)
@@ -297,10 +306,10 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 		statuses2[i] = models.TaskStatusCompleted
 	}
 	_, feature2ID := setupProgressTest(t, 97, 2, statuses2)
-	featureRepo.UpdateProgress(feature2ID)
+	featureRepo.UpdateProgress(ctx, feature2ID)
 
 	// Weighted average: (50×10 + 100×10) / (10+10) = 1500/20 = 75.0
-	progress, err := epicRepo.CalculateProgress(epicID)
+	progress, err := epicRepo.CalculateProgress(ctx, epicID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)
 	}
@@ -313,6 +322,7 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 
 // TestEpicProgress_TaskCountWeighting verifies small complete feature doesn't dominate large incomplete one
 func TestEpicProgress_TaskCountWeighting(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 	epicRepo := NewEpicRepository(db)
@@ -321,7 +331,7 @@ func TestEpicProgress_TaskCountWeighting(t *testing.T) {
 	epicID, feature1ID := setupProgressTest(t, 98, 1, []models.TaskStatus{
 		models.TaskStatusCompleted,
 	})
-	featureRepo.UpdateProgress(feature1ID)
+	featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Feature 2: 0% with 9 tasks (E98-F02)
 	statuses2 := make([]models.TaskStatus, 9)
@@ -329,11 +339,11 @@ func TestEpicProgress_TaskCountWeighting(t *testing.T) {
 		statuses2[i] = models.TaskStatusTodo
 	}
 	_, feature2ID := setupProgressTest(t, 98, 2, statuses2)
-	featureRepo.UpdateProgress(feature2ID)
+	featureRepo.UpdateProgress(ctx, feature2ID)
 
 	// Weighted average: (100×1 + 0×9) / (1+9) = 100/10 = 10.0
 	// NOT simple average of (100+0)/2 = 50.0
-	progress, err := epicRepo.CalculateProgress(epicID)
+	progress, err := epicRepo.CalculateProgress(ctx, epicID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)
 	}
@@ -346,13 +356,14 @@ func TestEpicProgress_TaskCountWeighting(t *testing.T) {
 
 // TestEpicProgress_EmptyFeatures verifies features with no tasks contribute 0 weight
 func TestEpicProgress_EmptyFeatures(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 	epicRepo := NewEpicRepository(db)
 
 	// Feature 1: empty (0 tasks) - E99-F01
 	epicID, feature1ID := setupProgressTest(t, 99, 1, []models.TaskStatus{})
-	featureRepo.UpdateProgress(feature1ID)
+	featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Feature 2: 50% with 10 tasks - E99-F02
 	statuses2 := make([]models.TaskStatus, 10)
@@ -364,11 +375,11 @@ func TestEpicProgress_EmptyFeatures(t *testing.T) {
 		}
 	}
 	_, feature2ID := setupProgressTest(t, 99, 2, statuses2)
-	featureRepo.UpdateProgress(feature2ID)
+	featureRepo.UpdateProgress(ctx, feature2ID)
 
 	// Feature 1 has 0 tasks so contributes 0 weight
 	// Weighted average: (0×0 + 50×10) / (0+10) = 500/10 = 50.0
-	progress, err := epicRepo.CalculateProgress(epicID)
+	progress, err := epicRepo.CalculateProgress(ctx, epicID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)
 	}
@@ -381,6 +392,7 @@ func TestEpicProgress_EmptyFeatures(t *testing.T) {
 
 // TestFeatureProgressByKey verifies calculating progress by feature key
 func TestFeatureProgressByKey(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 
@@ -396,7 +408,7 @@ func TestFeatureProgressByKey(t *testing.T) {
 	setupProgressTest(t, 80, 1, statuses)
 
 	// Calculate progress by key
-	progress, err := featureRepo.CalculateProgressByKey("E80-F01")
+	progress, err := featureRepo.CalculateProgressByKey(ctx, "E80-F01")
 	if err != nil {
 		t.Fatalf("Failed to calculate progress by key: %v", err)
 	}
@@ -409,6 +421,7 @@ func TestFeatureProgressByKey(t *testing.T) {
 
 // TestEpicProgressByKey verifies calculating progress by epic key
 func TestEpicProgressByKey(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 	epicRepo := NewEpicRepository(db)
@@ -425,10 +438,10 @@ func TestEpicProgressByKey(t *testing.T) {
 	_, featureID := setupProgressTest(t, 81, 1, statuses)
 
 	// Update feature progress first
-	featureRepo.UpdateProgress(featureID)
+	featureRepo.UpdateProgress(ctx, featureID)
 
 	// Calculate epic progress by key
-	progress, err := epicRepo.CalculateProgressByKey("E81")
+	progress, err := epicRepo.CalculateProgressByKey(ctx, "E81")
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress by key: %v", err)
 	}
@@ -441,6 +454,7 @@ func TestEpicProgressByKey(t *testing.T) {
 
 // TestUpdateProgressByKey verifies updating cached progress using key
 func TestUpdateProgressByKey(t *testing.T) {
+	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 
@@ -454,13 +468,13 @@ func TestUpdateProgressByKey(t *testing.T) {
 	setupProgressTest(t, 82, 1, statuses)
 
 	// Update progress by key
-	err := featureRepo.UpdateProgressByKey("E82-F01")
+	err := featureRepo.UpdateProgressByKey(ctx, "E82-F01")
 	if err != nil {
 		t.Fatalf("Failed to update progress by key: %v", err)
 	}
 
 	// Retrieve feature and verify progress was updated
-	feature, err := featureRepo.GetByKey("E82-F01")
+	feature, err := featureRepo.GetByKey(ctx, "E82-F01")
 	if err != nil {
 		t.Fatalf("Failed to get feature: %v", err)
 	}

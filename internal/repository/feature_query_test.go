@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 )
 
 func TestFeatureRepository_ListByStatus(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -29,7 +31,7 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
-	err := epicRepo.Create(epic)
+	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create features with different statuses
@@ -41,7 +43,7 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
-	err = featureRepo.Create(activeFeature)
+	err = featureRepo.Create(ctx, activeFeature)
 	require.NoError(t, err)
 
 	completedFeature := &models.Feature{
@@ -52,7 +54,7 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 		Status:      models.FeatureStatusCompleted,
 		ProgressPct: 100.0,
 	}
-	err = featureRepo.Create(completedFeature)
+	err = featureRepo.Create(ctx, completedFeature)
 	require.NoError(t, err)
 
 	draftFeature := &models.Feature{
@@ -63,12 +65,12 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 		Status:      models.FeatureStatusDraft,
 		ProgressPct: 0.0,
 	}
-	err = featureRepo.Create(draftFeature)
+	err = featureRepo.Create(ctx, draftFeature)
 	require.NoError(t, err)
 
 	// Test filtering by active status
 	t.Run("filter by active status", func(t *testing.T) {
-		features, err := featureRepo.ListByStatus(models.FeatureStatusActive)
+		features, err := featureRepo.ListByStatus(ctx, models.FeatureStatusActive)
 		require.NoError(t, err)
 
 		// Find our test feature in results
@@ -85,7 +87,7 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 
 	// Test filtering by completed status
 	t.Run("filter by completed status", func(t *testing.T) {
-		features, err := featureRepo.ListByStatus(models.FeatureStatusCompleted)
+		features, err := featureRepo.ListByStatus(ctx, models.FeatureStatusCompleted)
 		require.NoError(t, err)
 
 		// Find our test feature in results
@@ -102,7 +104,7 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 
 	// Test filtering by draft status
 	t.Run("filter by draft status", func(t *testing.T) {
-		features, err := featureRepo.ListByStatus(models.FeatureStatusDraft)
+		features, err := featureRepo.ListByStatus(ctx, models.FeatureStatusDraft)
 		require.NoError(t, err)
 
 		// Find our test feature in results
@@ -119,6 +121,7 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 }
 
 func TestFeatureRepository_ListByEpicAndStatus(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -136,7 +139,7 @@ func TestFeatureRepository_ListByEpicAndStatus(t *testing.T) {
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
-	err := epicRepo.Create(epic)
+	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create features with different statuses
@@ -148,7 +151,7 @@ func TestFeatureRepository_ListByEpicAndStatus(t *testing.T) {
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
-	err = featureRepo.Create(activeFeature)
+	err = featureRepo.Create(ctx, activeFeature)
 	require.NoError(t, err)
 
 	completedFeature := &models.Feature{
@@ -159,12 +162,12 @@ func TestFeatureRepository_ListByEpicAndStatus(t *testing.T) {
 		Status:      models.FeatureStatusCompleted,
 		ProgressPct: 100.0,
 	}
-	err = featureRepo.Create(completedFeature)
+	err = featureRepo.Create(ctx, completedFeature)
 	require.NoError(t, err)
 
 	// Test filtering by epic and status
 	t.Run("filter by epic and active status", func(t *testing.T) {
-		features, err := featureRepo.ListByEpicAndStatus(epic.ID, models.FeatureStatusActive)
+		features, err := featureRepo.ListByEpicAndStatus(ctx, epic.ID, models.FeatureStatusActive)
 		require.NoError(t, err)
 
 		// Find our test feature in results
@@ -181,6 +184,7 @@ func TestFeatureRepository_ListByEpicAndStatus(t *testing.T) {
 }
 
 func TestFeatureRepository_GetTaskCount(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -199,7 +203,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
-	err := epicRepo.Create(epic)
+	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create feature
@@ -211,7 +215,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
-	err = featureRepo.Create(feature)
+	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
 	// Create tasks
@@ -223,7 +227,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 		Status:      models.TaskStatusCompleted,
 		Priority:    1,
 	}
-	err = taskRepo.Create(task1)
+	err = taskRepo.Create(ctx, task1)
 	require.NoError(t, err)
 
 	task2 := &models.Task{
@@ -234,7 +238,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 		Status:      models.TaskStatusInProgress,
 		Priority:    2,
 	}
-	err = taskRepo.Create(task2)
+	err = taskRepo.Create(ctx, task2)
 	require.NoError(t, err)
 
 	task3 := &models.Task{
@@ -245,12 +249,12 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 		Status:      models.TaskStatusTodo,
 		Priority:    3,
 	}
-	err = taskRepo.Create(task3)
+	err = taskRepo.Create(ctx, task3)
 	require.NoError(t, err)
 
 	// Test getting task count
 	t.Run("get task count for feature", func(t *testing.T) {
-		count, err := featureRepo.GetTaskCount(feature.ID)
+		count, err := featureRepo.GetTaskCount(ctx, feature.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 3, count)
 	})
@@ -265,16 +269,17 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 			Status:      models.FeatureStatusActive,
 			ProgressPct: 0.0,
 		}
-		err = featureRepo.Create(emptyFeature)
+		err = featureRepo.Create(ctx, emptyFeature)
 		require.NoError(t, err)
 
-		count, err := featureRepo.GetTaskCount(emptyFeature.ID)
+		count, err := featureRepo.GetTaskCount(ctx, emptyFeature.ID)
 		require.NoError(t, err)
 		assert.Equal(t, 0, count)
 	})
 }
 
 func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
+	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 	epicRepo := NewEpicRepository(db)
@@ -293,7 +298,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
-	err := epicRepo.Create(epic)
+	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create feature
@@ -305,7 +310,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
-	err = featureRepo.Create(feature)
+	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
 	// Create tasks with different statuses
@@ -361,13 +366,13 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 	}
 
 	for _, task := range tasks {
-		err = taskRepo.Create(task)
+		err = taskRepo.Create(ctx, task)
 		require.NoError(t, err)
 	}
 
 	// Test getting status breakdown
 	t.Run("get status breakdown for feature", func(t *testing.T) {
-		breakdown, err := taskRepo.GetStatusBreakdown(feature.ID)
+		breakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
 		require.NoError(t, err)
 
 		assert.Equal(t, 2, breakdown[models.TaskStatusCompleted])
@@ -388,10 +393,10 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 			Status:      models.FeatureStatusActive,
 			ProgressPct: 0.0,
 		}
-		err = featureRepo.Create(emptyFeature)
+		err = featureRepo.Create(ctx, emptyFeature)
 		require.NoError(t, err)
 
-		breakdown, err := taskRepo.GetStatusBreakdown(emptyFeature.ID)
+		breakdown, err := taskRepo.GetStatusBreakdown(ctx, emptyFeature.ID)
 		require.NoError(t, err)
 
 		// All counts should be 0
