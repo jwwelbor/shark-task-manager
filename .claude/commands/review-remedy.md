@@ -12,4 +12,4 @@ Update the status of the issues in the code-review-frontend and code-review-back
 [ ] - Agree upon scope
 [ ] - Completed each issue in scope (if not launch a new agent task to resolve and check again)
 [ ] - updated code-review*.md files to indicate status.
-[ ] - any items deemed to big for a quick fix are put in a TODO.md file and noted in code-review*.md
+[ ] - any items deemed too big for a quick fix are put in a TODO.md file and noted in code-review*.md
