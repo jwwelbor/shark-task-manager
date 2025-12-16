@@ -29,7 +29,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
-	result, err := r.db.Exec(query,
+	result, err := r.db.ExecContext(ctx, query,
 		feature.EpicID,
 		feature.Key,
 		feature.Title,
@@ -60,7 +60,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 	`
 
 	feature := &models.Feature{}
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&feature.ID,
 		&feature.EpicID,
 		&feature.Key,
@@ -92,7 +92,7 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 	`
 
 	feature := &models.Feature{}
-	err := r.db.QueryRow(query, key).Scan(
+	err := r.db.QueryRowContext(ctx, query, key).Scan(
 		&feature.ID,
 		&feature.EpicID,
 		&feature.Key,
@@ -124,7 +124,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Query(query, epicID)
+	rows, err := r.db.QueryContext(ctx, query, epicID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list features: %w", err)
 	}
@@ -166,7 +166,7 @@ func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error)
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Query(query)
+	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list features: %w", err)
 	}
@@ -211,7 +211,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		WHERE id = ?
 	`
 
-	result, err := r.db.Exec(query,
+	result, err := r.db.ExecContext(ctx, query,
 		feature.Title,
 		feature.Description,
 		feature.Status,
@@ -237,7 +237,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 func (r *FeatureRepository) Delete(ctx context.Context, id int64) error {
 	query := "DELETE FROM features WHERE id = ?"
 
-	result, err := r.db.Exec(query, id)
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete feature: %w", err)
 	}
@@ -265,7 +265,7 @@ func (r *FeatureRepository) CalculateProgress(ctx context.Context, featureID int
 	`
 
 	var totalTasks, completedTasks int
-	err := r.db.QueryRow(query, featureID).Scan(&totalTasks, &completedTasks)
+	err := r.db.QueryRowContext(ctx, query, featureID).Scan(&totalTasks, &completedTasks)
 	if err != nil {
 		return 0, fmt.Errorf("failed to calculate feature progress: %w", err)
 	}
@@ -295,7 +295,7 @@ func (r *FeatureRepository) UpdateProgress(ctx context.Context, featureID int64)
 	}
 
 	query := "UPDATE features SET progress_pct = ? WHERE id = ?"
-	_, err = r.db.Exec(query, progress, featureID)
+	_, err = r.db.ExecContext(ctx, query, progress, featureID)
 	if err != nil {
 		return fmt.Errorf("failed to update feature progress: %w", err)
 	}
@@ -322,7 +322,7 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Query(query, status)
+	rows, err := r.db.QueryContext(ctx, query, status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list features by status: %w", err)
 	}
@@ -365,7 +365,7 @@ func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int6
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Query(query, epicID, status)
+	rows, err := r.db.QueryContext(ctx, query, epicID, status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list features by epic and status: %w", err)
 	}
@@ -403,7 +403,7 @@ func (r *FeatureRepository) GetTaskCount(ctx context.Context, featureID int64) (
 	query := `SELECT COUNT(*) FROM tasks WHERE feature_id = ?`
 
 	var count int
-	err := r.db.QueryRow(query, featureID).Scan(&count)
+	err := r.db.QueryRowContext(ctx, query, featureID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get task count: %w", err)
 	}

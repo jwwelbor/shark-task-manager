@@ -55,7 +55,7 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	result, err := r.db.Exec(query,
+	result, err := r.db.ExecContext(ctx, query,
 		task.FeatureID,
 		task.Key,
 		task.Title,
@@ -92,7 +92,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 	`
 
 	task := &models.Task{}
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&task.ID,
 		&task.FeatureID,
 		&task.Key,
@@ -133,7 +133,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 	`
 
 	task := &models.Task{}
-	err := r.db.QueryRow(query, key).Scan(
+	err := r.db.QueryRowContext(ctx, query, key).Scan(
 		&task.ID,
 		&task.FeatureID,
 		&task.Key,
@@ -298,7 +298,7 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 		WHERE id = ?
 	`
 
-	result, err := r.db.Exec(query,
+	result, err := r.db.ExecContext(ctx, query,
 		task.Title,
 		task.Description,
 		task.Status,
@@ -328,7 +328,7 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 // UpdateStatus atomically updates task status, timestamps, and creates history record
 func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
 	// Start transaction
-	tx, err := r.db.BeginTx()
+	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -337,7 +337,7 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 	// Get current task state
 	var currentStatus string
 	var startedAt, completedAt, blockedAt sql.NullTime
-	err = tx.QueryRow("SELECT status, started_at, completed_at, blocked_at FROM tasks WHERE id = ?", taskID).
+	err = tx.QueryRowContext(ctx, "SELECT status, started_at, completed_at, blocked_at FROM tasks WHERE id = ?", taskID).
 		Scan(&currentStatus, &startedAt, &completedAt, &blockedAt)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("task not found with id %d", taskID)
@@ -366,7 +366,7 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 	query += " WHERE id = ?"
 	args = append(args, taskID)
 
-	_, err = tx.Exec(query, args...)
+	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
@@ -376,7 +376,7 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 		INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
 		VALUES (?, ?, ?, ?, ?)
 	`
-	_, err = tx.Exec(historyQuery, taskID, currentStatus, newStatus, agent, notes)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -392,7 +392,7 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 // BlockTask marks a task as blocked with a reason
 func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason string, agent *string) error {
 	// Start transaction
-	tx, err := r.db.BeginTx()
+	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -400,7 +400,7 @@ func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason str
 
 	// Get current task state
 	var currentStatus string
-	err = tx.QueryRow("SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
+	err = tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("task not found with id %d", taskID)
 	}
@@ -411,14 +411,14 @@ func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason str
 	// Update status, blocked_at, and blocked_reason
 	now := time.Now()
 	query := `UPDATE tasks SET status = ?, blocked_at = ?, blocked_reason = ? WHERE id = ?`
-	_, err = tx.Exec(query, models.TaskStatusBlocked, now, reason, taskID)
+	_, err = tx.ExecContext(ctx, query, models.TaskStatusBlocked, now, reason, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes) VALUES (?, ?, ?, ?, ?)`
-	_, err = tx.Exec(historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, reason)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, reason)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -434,7 +434,7 @@ func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason str
 // UnblockTask unblocks a task and returns it to todo status
 func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *string) error {
 	// Start transaction
-	tx, err := r.db.BeginTx()
+	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -442,7 +442,7 @@ func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *s
 
 	// Get current task state
 	var currentStatus string
-	err = tx.QueryRow("SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
+	err = tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("task not found with id %d", taskID)
 	}
@@ -452,14 +452,14 @@ func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *s
 
 	// Update status and clear blocked fields
 	query := `UPDATE tasks SET status = ?, blocked_at = NULL, blocked_reason = NULL WHERE id = ?`
-	_, err = tx.Exec(query, models.TaskStatusTodo, taskID)
+	_, err = tx.ExecContext(ctx, query, models.TaskStatusTodo, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes) VALUES (?, ?, ?, ?, ?)`
-	_, err = tx.Exec(historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -475,7 +475,7 @@ func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *s
 // ReopenTask reopens a task from ready_for_review back to in_progress
 func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *string, notes *string) error {
 	// Start transaction
-	tx, err := r.db.BeginTx()
+	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -483,7 +483,7 @@ func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *st
 
 	// Get current task state
 	var currentStatus string
-	err = tx.QueryRow("SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
+	err = tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("task not found with id %d", taskID)
 	}
@@ -493,14 +493,14 @@ func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *st
 
 	// Update status and clear completed_at
 	query := `UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?`
-	_, err = tx.Exec(query, models.TaskStatusInProgress, taskID)
+	_, err = tx.ExecContext(ctx, query, models.TaskStatusInProgress, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes) VALUES (?, ?, ?, ?, ?)`
-	_, err = tx.Exec(historyQuery, taskID, currentStatus, models.TaskStatusInProgress, agent, notes)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusInProgress, agent, notes)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -517,7 +517,7 @@ func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *st
 func (r *TaskRepository) Delete(ctx context.Context, id int64) error {
 	query := "DELETE FROM tasks WHERE id = ?"
 
-	result, err := r.db.Exec(query, id)
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete task: %w", err)
 	}
@@ -542,7 +542,7 @@ func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64
 		GROUP BY status
 	`
 
-	rows, err := r.db.Query(query, featureID)
+	rows, err := r.db.QueryContext(ctx, query, featureID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status breakdown: %w", err)
 	}
@@ -578,7 +578,7 @@ func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64
 
 // queryTasks is a helper function to execute task queries
 func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...interface{}) ([]*models.Task, error) {
-	rows, err := r.db.Query(query, args...)
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tasks: %w", err)
 	}
