@@ -17,7 +17,7 @@ func NewDB(db *sql.DB) *DB {
 
 // BeginTxContext starts a new transaction with context
 func (db *DB) BeginTxContext(ctx context.Context) (*sql.Tx, error) {
-	return db.BeginTx(ctx, nil)
+	return db.DB.BeginTx(ctx, nil)
 }
 
 // BeginTx starts a new transaction (deprecated: use BeginTxContext)

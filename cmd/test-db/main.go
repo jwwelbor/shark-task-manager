@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	// Create a temporary test database
 	dbPath := "test-db.db"
 	defer os.Remove(dbPath)
@@ -46,12 +49,12 @@ func main() {
 		BusinessValue: &businessValue,
 	}
 
-	if err := epicRepo.Create(epic); err != nil {
+	if err := epicRepo.Create(ctx, epic); err != nil {
 		log.Fatal("Failed to create epic:", err)
 	}
 	fmt.Printf("✓ Created epic with ID: %d\n", epic.ID)
 
-	retrievedEpic, err := epicRepo.GetByKey("E04")
+	retrievedEpic, err := epicRepo.GetByKey(ctx, "E04")
 	if err != nil {
 		log.Fatal("Failed to get epic by key:", err)
 	}
@@ -69,7 +72,7 @@ func main() {
 		ProgressPct: 0.0,
 	}
 
-	if err := featureRepo.Create(feature); err != nil {
+	if err := featureRepo.Create(ctx, feature); err != nil {
 		log.Fatal("Failed to create feature:", err)
 	}
 	fmt.Printf("✓ Created feature with ID: %d\n", feature.ID)
@@ -89,7 +92,7 @@ func main() {
 		DependsOn:   strPtr("[]"),
 	}
 
-	if err := taskRepo.Create(task); err != nil {
+	if err := taskRepo.Create(ctx, task); err != nil {
 		log.Fatal("Failed to create task:", err)
 	}
 	fmt.Printf("✓ Created task with ID: %d\n", task.ID)
@@ -99,13 +102,13 @@ func main() {
 
 	agent := "test-agent"
 	notes := "Starting implementation"
-	if err := taskRepo.UpdateStatus(task.ID, models.TaskStatusInProgress, &agent, &notes); err != nil {
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, &notes); err != nil {
 		log.Fatal("Failed to update task status:", err)
 	}
 	fmt.Println("✓ Updated task status to in_progress")
 
 	// Verify task status was updated
-	updatedTask, err := taskRepo.GetByID(task.ID)
+	updatedTask, err := taskRepo.GetByID(ctx, task.ID)
 	if err != nil {
 		log.Fatal("Failed to get updated task:", err)
 	}
@@ -114,7 +117,7 @@ func main() {
 	// Test Task History
 	fmt.Println("\n--- Testing Task History ---")
 
-	history, err := historyRepo.ListByTask(task.ID)
+	history, err := historyRepo.ListByTask(ctx, task.ID)
 	if err != nil {
 		log.Fatal("Failed to list task history:", err)
 	}
@@ -127,29 +130,29 @@ func main() {
 	// Test Feature Progress Calculation
 	fmt.Println("\n--- Testing Progress Calculation ---")
 
-	progress, err := featureRepo.CalculateProgress(feature.ID)
+	progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
 	if err != nil {
 		log.Fatal("Failed to calculate feature progress:", err)
 	}
 	fmt.Printf("✓ Feature progress: %.1f%% (0/1 tasks completed)\n", progress)
 
 	// Complete the task and recalculate
-	if err := taskRepo.UpdateStatus(task.ID, models.TaskStatusCompleted, &agent, nil); err != nil {
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil); err != nil {
 		log.Fatal("Failed to complete task:", err)
 	}
 
-	if err := featureRepo.UpdateProgress(feature.ID); err != nil {
+	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
 		log.Fatal("Failed to update feature progress:", err)
 	}
 
-	updatedFeature, err := featureRepo.GetByID(feature.ID)
+	updatedFeature, err := featureRepo.GetByID(ctx, feature.ID)
 	if err != nil {
 		log.Fatal("Failed to get updated feature:", err)
 	}
 	fmt.Printf("✓ Feature progress updated: %.1f%% (1/1 tasks completed)\n", updatedFeature.ProgressPct)
 
 	// Test Epic Progress Calculation
-	epicProgress, err := epicRepo.CalculateProgress(epic.ID)
+	epicProgress, err := epicRepo.CalculateProgress(ctx, epic.ID)
 	if err != nil {
 		log.Fatal("Failed to calculate epic progress:", err)
 	}
@@ -158,19 +161,19 @@ func main() {
 	// Test Cascade Delete
 	fmt.Println("\n--- Testing Cascade Delete ---")
 
-	if err := epicRepo.Delete(epic.ID); err != nil {
+	if err := epicRepo.Delete(ctx, epic.ID); err != nil {
 		log.Fatal("Failed to delete epic:", err)
 	}
 	fmt.Println("✓ Deleted epic (should cascade to features and tasks)")
 
 	// Verify cascade delete worked
-	features, err := featureRepo.ListByEpic(epic.ID)
+	features, err := featureRepo.ListByEpic(ctx, epic.ID)
 	if err != nil {
 		log.Fatal("Failed to list features after epic delete:", err)
 	}
 	fmt.Printf("✓ Features after cascade delete: %d (should be 0)\n", len(features))
 
-	tasks, err := taskRepo.ListByFeature(feature.ID)
+	tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
 	if err != nil {
 		log.Fatal("Failed to list tasks after epic delete:", err)
 	}
