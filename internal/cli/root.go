@@ -161,13 +161,32 @@ func Warning(message string) {
 }
 
 // Info prints an info message
-func Info(message string) {
+func Info(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
 	if !GlobalConfig.NoColor {
 		pterm.Info.Println(message)
 	} else {
 		fmt.Println("ℹ", message)
 	}
 }
+
+// Title prints a section title
+func Title(message string) {
+	if !GlobalConfig.NoColor {
+		pterm.DefaultHeader.WithFullWidth().Println(message)
+	} else {
+		fmt.Println("===", message, "===")
+	}
+}
+
+// Color constants for manual formatting
+const (
+	ColorReset  = "\033[0m"
+	ColorRed    = "\033[31m"
+	ColorGreen  = "\033[32m"
+	ColorYellow = "\033[33m"
+	ColorBlue   = "\033[34m"
+)
 
 // GetDBPath returns the database file path, ensuring parent directory exists
 func GetDBPath() (string, error) {
