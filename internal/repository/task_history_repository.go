@@ -28,7 +28,7 @@ func (r *TaskHistoryRepository) Create(ctx context.Context, history *models.Task
 		VALUES (?, ?, ?, ?, ?)
 	`
 
-	result, err := r.db.Exec(query,
+	result, err := r.db.ExecContext(ctx, query,
 		history.TaskID,
 		history.OldStatus,
 		history.NewStatus,
@@ -57,7 +57,7 @@ func (r *TaskHistoryRepository) ListByTask(ctx context.Context, taskID int64) ([
 		ORDER BY timestamp DESC
 	`
 
-	rows, err := r.db.Query(query, taskID)
+	rows, err := r.db.QueryContext(ctx, query, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list task history: %w", err)
 	}
@@ -97,7 +97,7 @@ func (r *TaskHistoryRepository) ListRecent(ctx context.Context, limit int) ([]*m
 		LIMIT ?
 	`
 
-	rows, err := r.db.Query(query, limit)
+	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list recent history: %w", err)
 	}

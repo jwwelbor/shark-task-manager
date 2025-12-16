@@ -29,7 +29,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
-	result, err := r.db.Exec(query,
+	result, err := r.db.ExecContext(ctx, query,
 		epic.Key,
 		epic.Title,
 		epic.Description,
@@ -60,7 +60,7 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 	`
 
 	epic := &models.Epic{}
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&epic.ID,
 		&epic.Key,
 		&epic.Title,
@@ -92,7 +92,7 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 	`
 
 	epic := &models.Epic{}
-	err := r.db.QueryRow(query, key).Scan(
+	err := r.db.QueryRowContext(ctx, query, key).Scan(
 		&epic.ID,
 		&epic.Key,
 		&epic.Title,
@@ -130,7 +130,7 @@ func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([
 
 	query += " ORDER BY created_at DESC"
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list epics: %w", err)
 	}
@@ -175,7 +175,7 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) error {
 		WHERE id = ?
 	`
 
-	result, err := r.db.Exec(query,
+	result, err := r.db.ExecContext(ctx, query,
 		epic.Title,
 		epic.Description,
 		epic.Status,
@@ -202,7 +202,7 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) error {
 func (r *EpicRepository) Delete(ctx context.Context, id int64) error {
 	query := "DELETE FROM epics WHERE id = ?"
 
-	result, err := r.db.Exec(query, id)
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete epic: %w", err)
 	}
@@ -235,7 +235,7 @@ func (r *EpicRepository) CalculateProgress(ctx context.Context, epicID int64) (f
 	`
 
 	var weightedSum, totalTaskCount float64
-	err := r.db.QueryRow(query, epicID).Scan(&weightedSum, &totalTaskCount)
+	err := r.db.QueryRowContext(ctx, query, epicID).Scan(&weightedSum, &totalTaskCount)
 	if err != nil {
 		return 0, fmt.Errorf("failed to calculate epic progress: %w", err)
 	}
