@@ -1,0 +1,77 @@
+{{/* Frontend Agent Task Template */}}
+---
+key: {{.Key}}
+title: {{.Title}}
+epic: {{.Epic}}
+feature: {{.Feature}}
+agent: frontend
+status: todo
+priority: {{.Priority}}
+{{- if .DependsOn}}
+depends_on: [{{join (quote .DependsOn) ", "}}]
+{{- end}}
+created_at: {{formatTime .CreatedAt}}
+---
+
+# Task: {{.Title}}
+
+## Goal
+
+{{if not (isEmpty .Description)}}{{.Description}}{{else}}[Describe the goal of this task]{{end}}
+
+## Component Specifications
+
+### UI Components
+
+- [ ] Component structure defined
+- [ ] Props interface documented
+- [ ] State management approach determined
+
+### Styling Requirements
+
+- [ ] Design system tokens identified
+- [ ] Responsive behavior defined
+- [ ] Accessibility requirements documented
+
+## Implementation Details
+
+### State Management
+
+- [ ] Local state requirements identified
+- [ ] Global state integration points defined
+- [ ] State update patterns documented
+
+### User Interactions
+
+- [ ] Event handlers identified
+- [ ] User feedback mechanisms defined
+- [ ] Error states handled
+
+## Acceptance Criteria
+
+- [ ] Component renders correctly
+- [ ] All interactive elements functional
+- [ ] Responsive across breakpoints
+- [ ] Accessibility standards met (WCAG 2.1 AA)
+- [ ] Browser compatibility verified
+
+## Testing Requirements
+
+### Component Tests
+
+- [ ] Unit tests for component logic
+- [ ] Rendering tests for different states
+- [ ] Interaction tests for user events
+- [ ] Snapshot tests for UI consistency
+
+### Integration Tests
+
+- [ ] Integration with parent components
+- [ ] Integration with state management
+- [ ] API integration (if applicable)
+
+## Notes
+
+- Follow project code style and naming conventions
+- Use existing design system components where possible
+- Document any new patterns or components introduced
