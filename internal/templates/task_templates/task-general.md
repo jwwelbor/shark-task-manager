@@ -1,0 +1,86 @@
+{{/* General Purpose Agent Task Template */}}
+---
+key: {{.Key}}
+title: {{.Title}}
+epic: {{.Epic}}
+feature: {{.Feature}}
+agent: general
+status: todo
+priority: {{.Priority}}
+{{- if .DependsOn}}
+depends_on: [{{join (quote .DependsOn) ", "}}]
+{{- end}}
+created_at: {{formatTime .CreatedAt}}
+---
+
+# Task: {{.Title}}
+
+## Goal
+
+{{if not (isEmpty .Description)}}{{.Description}}{{else}}[Describe what needs to be accomplished]{{end}}
+
+## Requirements
+
+### Functional Requirements
+
+- [ ] Requirement 1
+- [ ] Requirement 2
+- [ ] Requirement 3
+
+### Non-Functional Requirements
+
+- [ ] Performance requirements
+- [ ] Security requirements
+- [ ] Usability requirements
+
+## Implementation Plan
+
+### Steps
+
+1. [ ] Step 1: [Description]
+2. [ ] Step 2: [Description]
+3. [ ] Step 3: [Description]
+
+### Technical Approach
+
+- [ ] Approach documented
+- [ ] Trade-offs evaluated
+- [ ] Dependencies identified
+
+## Deliverables
+
+- [ ] Deliverable 1
+- [ ] Deliverable 2
+- [ ] Deliverable 3
+
+## Acceptance Criteria
+
+- [ ] All functional requirements met
+- [ ] Non-functional requirements satisfied
+- [ ] Code reviewed and approved
+- [ ] Documentation updated
+- [ ] Tests passing
+
+## Testing Strategy
+
+- [ ] Test plan defined
+- [ ] Test cases written
+- [ ] Tests executed
+- [ ] Results documented
+
+## Dependencies
+
+{{- if .DependsOn}}
+This task depends on:
+{{- range .DependsOn}}
+- {{.}}
+{{- end}}
+{{- else}}
+No dependencies identified.
+{{- end}}
+
+## Notes
+
+- Add any additional context
+- Document assumptions
+- Note any risks or blockers
