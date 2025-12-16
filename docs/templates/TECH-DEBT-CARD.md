@@ -1,0 +1,15 @@
+# {Title}
+- **Status:** Open
+- **Card ID:** TD-{yyyymmdd}-{nnn}
+- **Owner:** {owner}
+- **Priority:** {priority}
+- **Area / Files:** {areas_or_files}
+- **Pain:** {pain_summary}
+- **Target State:** {target_state}
+- **Scope / Guardrails:** {scope_guardrails}
+- **Risks:** {risks}
+- **Rollback / Observability:** {rollback_observability}
+- **Regression Tests to Protect:** {regression_tests}
+- **Dependencies / Flags:** {dependencies_or_flags}
+- **Created:** {iso_date}
+- **Notes:** {notes_or_empty}
