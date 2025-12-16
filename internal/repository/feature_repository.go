@@ -410,3 +410,57 @@ func (r *FeatureRepository) GetTaskCount(ctx context.Context, featureID int64) (
 
 	return count, nil
 }
+
+// CreateIfNotExists creates feature only if it doesn't exist
+// Returns feature (existing or newly created) and whether it was created
+func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *models.Feature) (*models.Feature, bool, error) {
+	// Start transaction to prevent race conditions
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Check if feature already exists
+	existing, err := r.GetByKey(ctx, feature.Key)
+	if err == nil {
+		// Feature exists, return it
+		return existing, false, nil
+	}
+
+	// Feature doesn't exist, create it
+	if err := feature.Validate(); err != nil {
+		return nil, false, fmt.Errorf("validation failed: %w", err)
+	}
+
+	query := `
+		INSERT INTO features (epic_id, key, title, description, status, progress_pct)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := tx.ExecContext(ctx, query,
+		feature.EpicID,
+		feature.Key,
+		feature.Title,
+		feature.Description,
+		feature.Status,
+		feature.ProgressPct,
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to create feature: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get last insert id: %w", err)
+	}
+
+	feature.ID = id
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return feature, true, nil
+}

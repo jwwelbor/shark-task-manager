@@ -256,3 +256,57 @@ func (r *EpicRepository) CalculateProgressByKey(ctx context.Context, key string)
 	}
 	return r.CalculateProgress(ctx, epic.ID)
 }
+
+// CreateIfNotExists creates epic only if it doesn't exist
+// Returns epic (existing or newly created) and whether it was created
+func (r *EpicRepository) CreateIfNotExists(ctx context.Context, epic *models.Epic) (*models.Epic, bool, error) {
+	// Start transaction to prevent race conditions
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Check if epic already exists
+	existing, err := r.GetByKey(ctx, epic.Key)
+	if err == nil {
+		// Epic exists, return it
+		return existing, false, nil
+	}
+
+	// Epic doesn't exist, create it
+	if err := epic.Validate(); err != nil {
+		return nil, false, fmt.Errorf("validation failed: %w", err)
+	}
+
+	query := `
+		INSERT INTO epics (key, title, description, status, priority, business_value)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := tx.ExecContext(ctx, query,
+		epic.Key,
+		epic.Title,
+		epic.Description,
+		epic.Status,
+		epic.Priority,
+		epic.BusinessValue,
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to create epic: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get last insert id: %w", err)
+	}
+
+	epic.ID = id
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return epic, true, nil
+}
