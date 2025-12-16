@@ -59,6 +59,8 @@ dev:
 
 # Run tests
 test:
+	@echo "Cleaning test database..."
+	@rm -f internal/repository/test-shark-tasks.db*
 	@echo "Running tests..."
 	@export PATH=$$PATH:$$HOME/go/bin && go test -v ./...
 
@@ -102,6 +104,7 @@ clean:
 	@echo "Cleaning..."
 	@rm -rf bin/
 	@rm -f *.db *.db-shm *.db-wal
+	@rm -f internal/repository/*.db internal/repository/*.db-shm internal/repository/*.db-wal
 	@rm -f coverage.out coverage.html
 	@echo "Clean complete"
 
