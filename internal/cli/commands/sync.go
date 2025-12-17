@@ -16,6 +16,7 @@ var (
 	syncStrategy      string
 	syncCreateMissing bool
 	syncCleanup       bool
+	syncPatterns      []string
 )
 
 var syncCmd = &cobra.Command{
@@ -25,8 +26,14 @@ var syncCmd = &cobra.Command{
 parsing frontmatter, detecting conflicts, and applying resolution strategies.
 
 Status is managed exclusively in the database and is NOT synced from files.`,
-	Example: `  # Sync all feature folders
+	Example: `  # Sync all feature folders (task pattern only)
   pm sync
+
+  # Sync PRP files only
+  pm sync --pattern=prp
+
+  # Sync both task and PRP files
+  pm sync --pattern=task --pattern=prp
 
   # Sync specific folder
   pm sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
@@ -58,6 +65,8 @@ func init() {
 		"Auto-create missing epics/features")
 	syncCmd.Flags().BoolVar(&syncCleanup, "cleanup", false,
 		"Delete orphaned database tasks (files deleted)")
+	syncCmd.Flags().StringSliceVar(&syncPatterns, "pattern", []string{"task"},
+		"File patterns to scan: task, prp (can specify multiple)")
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
@@ -71,6 +80,12 @@ func runSync(cmd *cobra.Command, args []string) error {
 	strategy, err := parseConflictStrategy(syncStrategy)
 	if err != nil {
 		return fmt.Errorf("invalid strategy: %w", err)
+	}
+
+	// Parse and validate patterns
+	patterns, err := validatePatterns(syncPatterns)
+	if err != nil {
+		return fmt.Errorf("invalid pattern: %w", err)
 	}
 
 	// Default folder path
@@ -89,8 +104,8 @@ func runSync(cmd *cobra.Command, args []string) error {
 		Cleanup:       syncCleanup,
 	}
 
-	// Create sync engine
-	engine, err := sync.NewSyncEngine(dbPath)
+	// Create sync engine with specified patterns
+	engine, err := sync.NewSyncEngineWithPatterns(dbPath, patterns)
 	if err != nil {
 		return fmt.Errorf("failed to create sync engine: %w", err)
 	}
@@ -134,6 +149,24 @@ func parseConflictStrategy(s string) (sync.ConflictStrategy, error) {
 	default:
 		return "", fmt.Errorf("unknown strategy: %s (valid: file-wins, database-wins, newer-wins)", s)
 	}
+}
+
+func validatePatterns(patternStrings []string) ([]sync.PatternType, error) {
+	validPatterns := map[string]sync.PatternType{
+		"task": sync.PatternTypeTask,
+		"prp":  sync.PatternTypePRP,
+	}
+
+	result := make([]sync.PatternType, 0, len(patternStrings))
+	for _, ps := range patternStrings {
+		pt, ok := validPatterns[ps]
+		if !ok {
+			return nil, fmt.Errorf("unknown pattern: %s (valid: task, prp)", ps)
+		}
+		result = append(result, pt)
+	}
+
+	return result, nil
 }
 
 func displaySyncReport(report *sync.SyncReport, dryRun bool) {

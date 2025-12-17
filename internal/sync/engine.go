@@ -7,6 +7,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/taskfile"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -22,8 +23,13 @@ type SyncEngine struct {
 	resolver    *ConflictResolver
 }
 
-// NewSyncEngine creates a new SyncEngine instance
+// NewSyncEngine creates a new SyncEngine instance with default patterns (task only)
 func NewSyncEngine(dbPath string) (*SyncEngine, error) {
+	return NewSyncEngineWithPatterns(dbPath, []PatternType{PatternTypeTask})
+}
+
+// NewSyncEngineWithPatterns creates a new SyncEngine instance with specific patterns enabled
+func NewSyncEngineWithPatterns(dbPath string, patterns []PatternType) (*SyncEngine, error) {
 	// Open database connection
 	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
 	if err != nil {
@@ -44,7 +50,7 @@ func NewSyncEngine(dbPath string) (*SyncEngine, error) {
 		taskRepo:    repository.NewTaskRepository(repoDb),
 		epicRepo:    repository.NewEpicRepository(repoDb),
 		featureRepo: repository.NewFeatureRepository(repoDb),
-		scanner:     NewFileScanner(),
+		scanner:     NewFileScannerWithPatterns(patterns),
 		detector:    NewConflictDetector(),
 		resolver:    NewConflictResolver(),
 	}, nil
@@ -128,6 +134,9 @@ func (e *SyncEngine) parseFiles(files []TaskFileInfo) ([]*TaskMetadata, []string
 	var taskDataList []*TaskMetadata
 	var warnings []string
 
+	// Create key generator for PRP files
+	keyGen := taskcreation.NewKeyGenerator(e.taskRepo, e.featureRepo)
+
 	for _, file := range files {
 		// Parse task file
 		taskFile, err := taskfile.ParseTaskFile(file.FilePath)
@@ -136,10 +145,37 @@ func (e *SyncEngine) parseFiles(files []TaskFileInfo) ([]*TaskMetadata, []string
 			continue
 		}
 
-		// Validate required field
+		// Handle missing task_key (common for PRP files)
 		if taskFile.Metadata.TaskKey == "" {
-			warnings = append(warnings, fmt.Sprintf("Missing task_key in %s", file.FilePath))
-			continue
+			// For PRP files, generate task key from epic/feature
+			if file.PatternType == PatternTypePRP {
+				// Validate epic/feature were inferred
+				if file.EpicKey == "" || file.FeatureKey == "" {
+					warnings = append(warnings, fmt.Sprintf("Cannot generate task_key for %s: missing epic/feature in path", file.FilePath))
+					continue
+				}
+
+				// Generate task key
+				ctx := context.Background()
+				taskKey, err := keyGen.GenerateTaskKey(ctx, file.EpicKey, file.FeatureKey)
+				if err != nil {
+					warnings = append(warnings, fmt.Sprintf("Failed to generate task_key for %s: %v", file.FilePath, err))
+					continue
+				}
+
+				// Update file frontmatter with generated key
+				if err := taskfile.UpdateFrontmatterField(file.FilePath, "task_key", taskKey); err != nil {
+					warnings = append(warnings, fmt.Sprintf("Generated key %s but couldn't write to %s: %v", taskKey, file.FilePath, err))
+					// Continue anyway - we can still use the generated key for this sync
+				}
+
+				// Use generated key
+				taskFile.Metadata.TaskKey = taskKey
+			} else {
+				// For task pattern files, task_key is required
+				warnings = append(warnings, fmt.Sprintf("Missing task_key in %s", file.FilePath))
+				continue
+			}
 		}
 
 		// Build task metadata

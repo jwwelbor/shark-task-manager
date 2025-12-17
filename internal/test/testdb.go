@@ -34,31 +34,31 @@ func SeedTestData() (int64, int64) {
 	// Create epic via SQL to avoid import cycle
 	result, _ := database.Exec(`
 		INSERT OR IGNORE INTO epics (key, title, description, status, priority)
-		VALUES ('E-TEST-01', 'Test Epic', 'Test epic', 'active', 'high')
+		VALUES ('E99', 'Test Epic', 'Test epic', 'active', 'high')
 	`)
 	epicID, _ := result.LastInsertId()
 	if epicID == 0 {
-		database.QueryRow("SELECT id FROM epics WHERE key = 'E-TEST-01'").Scan(&epicID)
+		database.QueryRow("SELECT id FROM epics WHERE key = 'E99'").Scan(&epicID)
 	}
 
 	// Create feature
 	result, _ = database.Exec(`
 		INSERT OR IGNORE INTO features (epic_id, key, title, description, status)
-		VALUES (?, 'F-TEST-01', 'Test Feature', 'Test feature', 'active')
+		VALUES (?, 'E99-F99', 'Test Feature', 'Test feature', 'active')
 	`, epicID)
 	featureID, _ := result.LastInsertId()
 	if featureID == 0 {
-		database.QueryRow("SELECT id FROM features WHERE key = 'F-TEST-01'").Scan(&featureID)
+		database.QueryRow("SELECT id FROM features WHERE key = 'E99-F99'").Scan(&featureID)
 	}
 
 	// Create test tasks
 	database.Exec(`
 		INSERT OR IGNORE INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 		VALUES
-			(?, 'T-TEST-001', 'Completed Task', 'completed', 'backend', 1, '[]'),
-			(?, 'T-TEST-002', 'Todo Task', 'todo', 'backend', 2, '[]'),
-			(?, 'T-TEST-003', 'Task with Dependency', 'todo', 'backend', 3, '["T-TEST-001"]'),
-			(?, 'T-TEST-004', 'Task with Incomplete Dependency', 'todo', 'backend', 4, '["T-TEST-002"]')
+			(?, 'T-E99-F99-001', 'Completed Task', 'completed', 'backend', 1, '[]'),
+			(?, 'T-E99-F99-002', 'Todo Task', 'todo', 'backend', 2, '[]'),
+			(?, 'T-E99-F99-003', 'Task with Dependency', 'todo', 'backend', 3, '["T-E99-F99-001"]'),
+			(?, 'T-E99-F99-004', 'Task with Incomplete Dependency', 'todo', 'backend', 4, '["T-E99-F99-002"]')
 	`, featureID, featureID, featureID, featureID)
 
 	// Create E04 epic and feature for sync tests
@@ -82,6 +82,7 @@ func PriorityPtr(p string) *string {
 }
 
 // GenerateUniqueKey generates a unique task key for testing
-func GenerateUniqueKey(prefix string, i int) string {
-	return fmt.Sprintf("%s-%03d", prefix, i)
+// Expects epicFeature like "E04-F05" and returns valid task keys
+func GenerateUniqueKey(epicFeature string, i int) string {
+	return fmt.Sprintf("T-%s-%03d", epicFeature, i)
 }

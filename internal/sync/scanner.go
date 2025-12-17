@@ -15,24 +15,36 @@ const (
 
 // FileScanner recursively scans directories for task markdown files
 type FileScanner struct {
-	taskFilePattern *regexp.Regexp
+	patternRegistry *PatternRegistry
 	featurePattern  *regexp.Regexp
 	epicPattern     *regexp.Regexp
 	keyPattern      *regexp.Regexp
 }
 
-// NewFileScanner creates a new FileScanner instance
+// NewFileScanner creates a new FileScanner instance with default patterns (task only)
+// This maintains backward compatibility
 func NewFileScanner() *FileScanner {
+	registry := NewPatternRegistry()
+	// Task pattern is enabled by default, PRP is disabled
 	return &FileScanner{
-		// Match pattern: T-E##-F##-###.md
-		taskFilePattern: regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}\.md$`),
-		// Match feature directory: E##-F##-*
-		featurePattern: regexp.MustCompile(`^(E\d{2})-(F\d{2})`),
+		patternRegistry: registry,
+		// Match feature directory: E##-F##-* or E##-P##-F##-* (with optional project number)
+		featurePattern: regexp.MustCompile(`^(E\d{2})(-P\d{2})?-(F\d{2})`),
 		// Match epic directory: E##-*
 		epicPattern: regexp.MustCompile(`^(E\d{2})`),
 		// Extract keys from filename: T-E##-F##-###.md
 		keyPattern: regexp.MustCompile(`^T-(E\d{2})-(F\d{2})-\d{3}\.md$`),
 	}
+}
+
+// NewFileScannerWithPatterns creates a FileScanner with specific patterns enabled
+func NewFileScannerWithPatterns(patterns []PatternType) *FileScanner {
+	scanner := NewFileScanner()
+	if err := scanner.patternRegistry.SetActivePatterns(patterns); err != nil {
+		// Fall back to default if invalid patterns
+		return NewFileScanner()
+	}
+	return scanner
 }
 
 // Scan recursively scans directory for task markdown files
@@ -57,8 +69,9 @@ func (s *FileScanner) Scan(rootPath string) ([]TaskFileInfo, error) {
 			return nil
 		}
 
-		// Check if filename matches task pattern
-		if !s.isTaskFile(info.Name()) {
+		// Check if filename matches any enabled pattern
+		patternType, matches := s.getMatchingPattern(info.Name())
+		if !matches {
 			return nil
 		}
 
@@ -91,11 +104,12 @@ func (s *FileScanner) Scan(rootPath string) ([]TaskFileInfo, error) {
 
 		// Add to results
 		files = append(files, TaskFileInfo{
-			FilePath:   absPath,
-			FileName:   info.Name(),
-			EpicKey:    epicKey,
-			FeatureKey: featureKey,
-			ModifiedAt: info.ModTime(),
+			FilePath:    absPath,
+			FileName:    info.Name(),
+			EpicKey:     epicKey,
+			FeatureKey:  featureKey,
+			ModifiedAt:  info.ModTime(),
+			PatternType: patternType,
 		})
 
 		return nil
@@ -104,13 +118,22 @@ func (s *FileScanner) Scan(rootPath string) ([]TaskFileInfo, error) {
 	return files, err
 }
 
+// getMatchingPattern checks if filename matches any enabled pattern
+// Returns the pattern type and whether a match was found
+func (s *FileScanner) getMatchingPattern(filename string) (PatternType, bool) {
+	return s.patternRegistry.MatchesAnyPattern(filename)
+}
+
 // isTaskFile checks if filename matches task file pattern (T-E##-F##-###.md)
+// Deprecated: Use getMatchingPattern() instead
 func (s *FileScanner) isTaskFile(filename string) bool {
-	return s.taskFilePattern.MatchString(filename)
+	patternType, matches := s.getMatchingPattern(filename)
+	return matches && patternType == PatternTypeTask
 }
 
 // inferEpicFeature infers epic and feature keys from file path structure
 // Returns epic key, feature key, and error if inference fails
+// Supports both E##-F##-* and E##-P##-F##-* patterns (with optional project number)
 func (s *FileScanner) inferEpicFeature(filePath string) (string, string, error) {
 	// Get directory containing the file
 	dir := filepath.Dir(filePath)
@@ -119,22 +142,29 @@ func (s *FileScanner) inferEpicFeature(filePath string) (string, string, error) 
 	parentDir := filepath.Base(dir)
 
 	// Try to extract feature key from parent directory
-	// Pattern: E##-F##-* (e.g., E04-F07-initialization-sync)
-	if matches := s.featurePattern.FindStringSubmatch(parentDir); len(matches) >= 3 {
+	// Pattern: E##-F##-* or E##-P##-F##-* (e.g., E04-F07-initialization-sync or E09-P02-F01-character-management)
+	// Captures: [1]=E##, [2]=-P## (optional), [3]=F##
+	if matches := s.featurePattern.FindStringSubmatch(parentDir); len(matches) >= 4 {
 		epicKey := matches[1]   // E##
-		featureKey := matches[1] + "-" + matches[2] // E##-F##
+		projectNum := matches[2] // -P## or empty string
+		featureNum := matches[3] // F##
+
+		// Build feature key: E##-F## or E##-P##-F## (includes project if present)
+		featureKey := epicKey + projectNum + "-" + featureNum
 		return epicKey, featureKey, nil
 	}
 
-	// If parent directory doesn't match, try grandparent (might be nested)
+	// If parent directory doesn't match, try grandparent (might be nested in tasks/ or prps/ folder)
 	grandparentDir := filepath.Base(filepath.Dir(dir))
-	if matches := s.featurePattern.FindStringSubmatch(grandparentDir); len(matches) >= 3 {
+	if matches := s.featurePattern.FindStringSubmatch(grandparentDir); len(matches) >= 4 {
 		epicKey := matches[1]
-		featureKey := matches[1] + "-" + matches[2]
+		projectNum := matches[2]
+		featureNum := matches[3]
+		featureKey := epicKey + projectNum + "-" + featureNum
 		return epicKey, featureKey, nil
 	}
 
-	// Fallback: Extract from filename
+	// Fallback: Extract from filename (only works for task pattern, not PRP)
 	// This handles legacy folder structures (docs/tasks/todo/T-E##-F##-###.md)
 	filename := filepath.Base(filePath)
 	epicKey, featureKey := s.extractKeyFromFilename(filename)
@@ -187,7 +217,7 @@ func (s *FileScanner) validateFilePath(filePath string, rootDir string) error {
 	allowedDirs := []string{
 		filepath.Join(absRoot, "docs", "plan"),
 		filepath.Join(absRoot, "docs", "tasks"),
-		filepath.Join(absRoot, "templates"),
+		filepath.Join(absRoot, "shark-templates"),
 	}
 
 	// Check if file is within any allowed subdirectory

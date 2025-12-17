@@ -1,10 +1,12 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -76,6 +78,25 @@ var epicStatusCmd = &cobra.Command{
 	},
 }
 
+// epicCreateCmd creates a new epic
+var epicCreateCmd = &cobra.Command{
+	Use:   "create <title>",
+	Short: "Create a new epic",
+	Long: `Create a new epic with auto-assigned key, folder structure, and database entry.
+
+The epic key is automatically assigned as the next available E## number.
+
+Examples:
+  shark epic create "User Authentication System"
+  shark epic create "User Auth" --description="Add OAuth and MFA"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runEpicCreate,
+}
+
+var (
+	epicCreateDescription string
+)
+
 func init() {
 	// Register epic command with root
 	cli.RootCmd.AddCommand(epicCmd)
@@ -84,10 +105,14 @@ func init() {
 	epicCmd.AddCommand(epicListCmd)
 	epicCmd.AddCommand(epicGetCmd)
 	epicCmd.AddCommand(epicStatusCmd)
+	epicCmd.AddCommand(epicCreateCmd)
 
 	// Add flags for list command
 	epicListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
 	epicListCmd.Flags().String("status", "", "Filter by status: draft, active, completed, archived")
+
+	// Add flags for create command
+	epicCreateCmd.Flags().StringVar(&epicCreateDescription, "description", "", "Epic description (optional)")
 }
 
 // runEpicList executes the epic list command
@@ -471,4 +496,160 @@ func sortEpicsByStatus(epics []EpicWithProgress) {
 			}
 		}
 	}
+}
+
+// EpicTemplateData holds data for epic template rendering
+type EpicTemplateData struct {
+	EpicKey     string
+	EpicSlug    string
+	Title       string
+	Description string
+	FilePath    string
+	Date        string
+}
+
+// runEpicCreate executes the epic create command
+func runEpicCreate(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get title from args
+	epicTitle := args[0]
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
+		return fmt.Errorf("database path error")
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		cli.Error("Error: Database error. Run with --verbose for details.")
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
+		}
+		os.Exit(2)
+	}
+
+	// Get repositories
+	repoDb := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(repoDb)
+
+	// Get next epic key
+	nextKey, err := getNextEpicKey(ctx, epicRepo)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get next epic key: %v", err))
+		os.Exit(1)
+	}
+
+	// Generate slug from title
+	slug := generateSlug(epicTitle)
+	epicSlug := fmt.Sprintf("%s-%s", nextKey, slug)
+
+	// Create folder path
+	epicDir := fmt.Sprintf("docs/plan/%s", epicSlug)
+
+	// Check if epic already exists (shouldn't happen with auto-increment)
+	if _, err := os.Stat(epicDir); err == nil {
+		cli.Error(fmt.Sprintf("Error: Epic directory already exists: %s", epicDir))
+		os.Exit(1)
+	}
+
+	// Create epic directory
+	if err := os.MkdirAll(epicDir, 0755); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to create epic directory: %v", err))
+		os.Exit(1)
+	}
+
+	// Read epic template
+	templatePath := "shark-templates/epic.md"
+	templateContent, err := os.ReadFile(templatePath)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to read epic template: %v", err))
+		cli.Info("Make sure you've run 'shark init' to create templates")
+		os.Exit(1)
+	}
+
+	// Prepare template data
+	data := EpicTemplateData{
+		EpicKey:     nextKey,
+		EpicSlug:    epicSlug,
+		Title:       epicTitle,
+		Description: epicCreateDescription,
+		FilePath:    fmt.Sprintf("%s/epic.md", epicDir),
+		Date:        time.Now().Format("2006-01-02"),
+	}
+
+	// Parse and execute template
+	tmpl, err := template.New("epic").Parse(string(templateContent))
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to parse epic template: %v", err))
+		os.Exit(1)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to render epic template: %v", err))
+		os.Exit(1)
+	}
+
+	// Write epic.md file
+	epicFilePath := fmt.Sprintf("%s/epic.md", epicDir)
+	if err := os.WriteFile(epicFilePath, buf.Bytes(), 0644); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to write epic file: %v", err))
+		os.Exit(1)
+	}
+
+	// Create database entry with key (E##) not full slug
+	epic := &models.Epic{
+		Key:          nextKey,
+		Title:        epicTitle,
+		Description:  &epicCreateDescription,
+		Status:       models.EpicStatusDraft,
+		Priority:     models.PriorityMedium,
+		BusinessValue: nil,
+	}
+
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to create epic in database: %v", err))
+		// Clean up file on DB error
+		os.RemoveAll(epicDir)
+		os.Exit(1)
+	}
+
+	// Success output
+	cli.Success(fmt.Sprintf("Epic created successfully!"))
+	fmt.Println()
+	fmt.Printf("Epic Key:  %s\n", epicSlug)
+	fmt.Printf("Directory: %s\n", epicDir)
+	fmt.Printf("File:      %s\n", epicFilePath)
+	fmt.Printf("Database:  ✓ Epic record created (ID: %d)\n", epic.ID)
+	fmt.Println()
+	fmt.Println("Next steps:")
+	fmt.Println("1. Edit the epic.md file to add details")
+	fmt.Printf("2. Create features with: shark feature create --epic=%s \"Feature title\"\n", nextKey)
+
+	return nil
+}
+
+// getNextEpicKey finds the next available epic key
+func getNextEpicKey(ctx context.Context, epicRepo *repository.EpicRepository) (string, error) {
+	epics, err := epicRepo.List(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+
+	maxNum := 0
+	for _, epic := range epics {
+		// Extract number from key in DB (E01 -> 1, E02 -> 2, etc.)
+		var num int
+		if _, err := fmt.Sscanf(epic.Key, "E%d", &num); err == nil {
+			if num > maxNum {
+				maxNum = num
+			}
+		}
+	}
+
+	return fmt.Sprintf("E%02d", maxNum+1), nil
 }

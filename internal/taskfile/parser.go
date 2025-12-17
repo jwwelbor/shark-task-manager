@@ -33,7 +33,6 @@ type TaskMetadata struct {
 	Dependencies  []string `yaml:"dependencies,omitempty"`
 	EstimatedTime string   `yaml:"estimated_time,omitempty"`
 	Priority      int      `yaml:"priority,omitempty"`
-	FilePath      string   `yaml:"file_path,omitempty"`
 }
 
 // TaskFile represents a complete task file with metadata and content

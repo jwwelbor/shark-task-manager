@@ -2,8 +2,11 @@ package taskcreation
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -14,12 +17,69 @@ import (
 func setupTestDB(t *testing.T) (*repository.DB, func()) {
 	t.Helper()
 
-	db, err := repository.NewDB(":memory:")
-	require.NoError(t, err, "Failed to create in-memory database")
+	// Create temp database file
+	tmpFile := t.TempDir() + "/test.db"
 
-	// Run migrations
-	err = db.Migrate()
-	require.NoError(t, err, "Failed to run migrations")
+	// Initialize database with schema using db.InitDB
+	sqlDB, err := sql.Open("sqlite3", tmpFile+"?_foreign_keys=on")
+	require.NoError(t, err, "Failed to create database")
+
+	// Configure SQLite and create schema
+	_, err = sqlDB.Exec("PRAGMA foreign_keys = ON;")
+	require.NoError(t, err, "Failed to enable foreign keys")
+
+	// Create schema
+	schema := `
+		CREATE TABLE IF NOT EXISTS epics (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			description TEXT,
+			status TEXT NOT NULL,
+			priority TEXT NOT NULL,
+			business_value TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS features (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			epic_id INTEGER NOT NULL,
+			key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			description TEXT,
+			status TEXT NOT NULL,
+			progress_pct REAL NOT NULL DEFAULT 0.0,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE
+		);
+
+		CREATE TABLE IF NOT EXISTS tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			feature_id INTEGER NOT NULL,
+			key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			description TEXT,
+			status TEXT NOT NULL,
+			agent_type TEXT,
+			priority INTEGER NOT NULL DEFAULT 5,
+			depends_on TEXT,
+			assigned_agent TEXT,
+			file_path TEXT,
+			blocked_reason TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			started_at TIMESTAMP,
+			completed_at TIMESTAMP,
+			blocked_at TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
+		);
+	`
+	_, err = sqlDB.Exec(schema)
+	require.NoError(t, err, "Failed to create schema")
+
+	db := repository.NewDB(sqlDB)
 
 	cleanup := func() {
 		db.Close()
@@ -32,13 +92,15 @@ func createTestEpic(t *testing.T, db *repository.DB, key string) *models.Epic {
 	t.Helper()
 
 	epicRepo := repository.NewEpicRepository(db)
+	description := "Test Description"
+	businessValue := models.PriorityHigh
 	epic := &models.Epic{
 		Key:           key,
 		Title:         "Test Epic",
-		Description:   stringPtr("Test Description"),
+		Description:   &description,
 		Status:        models.EpicStatusActive,
-		Priority:      "high",
-		BusinessValue: stringPtr("Test value"),
+		Priority:      models.PriorityHigh,
+		BusinessValue: &businessValue,
 	}
 
 	err := epicRepo.Create(context.Background(), epic)
@@ -51,11 +113,12 @@ func createTestFeature(t *testing.T, db *repository.DB, epicID int64, key string
 	t.Helper()
 
 	featureRepo := repository.NewFeatureRepository(db)
+	description := "Test Description"
 	feature := &models.Feature{
 		EpicID:      epicID,
 		Key:         key,
 		Title:       "Test Feature",
-		Description: stringPtr("Test Description"),
+		Description: &description,
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -97,7 +160,7 @@ func TestKeyGenerator_GenerateTaskKey_FirstTask(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E01")
-	feature := createTestFeature(t, db, epic.ID, "E01-F01")
+	_ = createTestFeature(t, db, epic.ID, "E01-F01")
 
 	// Create key generator
 	taskRepo := repository.NewTaskRepository(db)
@@ -164,7 +227,7 @@ func TestKeyGenerator_GenerateTaskKey_NormalizeFeatureKey(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E01")
-	feature := createTestFeature(t, db, epic.ID, "E01-F04")
+	_ = createTestFeature(t, db, epic.ID, "E01-F04")
 
 	// Create key generator
 	taskRepo := repository.NewTaskRepository(db)
@@ -185,7 +248,7 @@ func TestKeyGenerator_GenerateTaskKey_FullFeatureKey(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E02")
-	feature := createTestFeature(t, db, epic.ID, "E02-F05")
+	_ = createTestFeature(t, db, epic.ID, "E02-F05")
 
 	// Create key generator
 	taskRepo := repository.NewTaskRepository(db)
@@ -381,9 +444,4 @@ func TestExtractFeaturePart(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-// Helper function
-func stringPtr(s string) *string {
-	return &s
 }

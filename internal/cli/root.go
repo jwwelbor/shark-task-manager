@@ -25,9 +25,9 @@ var GlobalConfig = &Config{}
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "pm",
-	Short: "Project Manager - Task management CLI for AI-driven development",
-	Long: `PM (Project Manager) is a command-line tool for managing tasks, epics, and features
+	Use:   "shark",
+	Short: "Shark Task Manager - Task management CLI for AI-driven development",
+	Long: `Shark is a command-line tool for managing tasks, epics, and features
 in multi-agent software development projects.
 
 It provides a SQLite-backed database for tracking project state with commands
@@ -63,7 +63,7 @@ func init() {
 	RootCmd.PersistentFlags().BoolVar(&GlobalConfig.JSON, "json", false, "Output in JSON format (machine-readable)")
 	RootCmd.PersistentFlags().BoolVar(&GlobalConfig.NoColor, "no-color", false, "Disable colored output")
 	RootCmd.PersistentFlags().BoolVarP(&GlobalConfig.Verbose, "verbose", "v", false, "Enable verbose/debug output")
-	RootCmd.PersistentFlags().StringVar(&GlobalConfig.ConfigFile, "config", "", "Config file path (default: .pmconfig.json)")
+	RootCmd.PersistentFlags().StringVar(&GlobalConfig.ConfigFile, "config", "", "Config file path (default: .sharkconfig.json)")
 	RootCmd.PersistentFlags().StringVar(&GlobalConfig.DBPath, "db", "shark-tasks.db", "Database file path")
 
 	// Bind flags to viper for config file support

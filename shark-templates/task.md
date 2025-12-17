@@ -2,7 +2,6 @@
 task_key: T-E##-F##-###
 title: Task Title Here
 description: Task description here
-file_path: docs/plan/E##-epic-name/E##-F##-feature-name/T-E##-F##-###.md
 ---
 
 # Task: [Task Title]

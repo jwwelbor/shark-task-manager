@@ -11,7 +11,7 @@ import (
 func (i *Initializer) createFolders() ([]string, error) {
 	folders := []string{
 		"docs/plan",
-		"templates",
+		"shark-templates",
 	}
 
 	created := []string{} // Initialize to empty slice, not nil

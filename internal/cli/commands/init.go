@@ -17,19 +17,19 @@ var (
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize PM CLI infrastructure",
-	Long: `Initialize PM CLI infrastructure by creating database schema,
+	Short: "Initialize Shark CLI infrastructure",
+	Long: `Initialize Shark CLI infrastructure by creating database schema,
 folder structure, configuration file, and task templates.
 
 This command is idempotent and safe to run multiple times.`,
 	Example: `  # Initialize with default settings
-  pm init
+  shark init
 
   # Initialize without prompts (for automation)
-  pm init --non-interactive
+  shark init --non-interactive
 
   # Force overwrite existing config
-  pm init --force`,
+  shark init --force`,
 	RunE: runInit,
 }
 
@@ -52,7 +52,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Create initializer options
 	opts := init_pkg.InitOptions{
 		DBPath:         dbPath,
-		ConfigPath:     ".pmconfig.json", // Default
+		ConfigPath:     ".sharkconfig.json", // Default
 		NonInteractive: initNonInteractive || cli.GlobalConfig.JSON,
 		Force:          initForce,
 	}
@@ -93,7 +93,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 }
 
 func displayInitSuccess(result *init_pkg.InitResult) {
-	cli.Success("PM CLI initialized successfully!")
+	cli.Success("Shark CLI initialized successfully!")
 	fmt.Println()
 
 	if result.DatabaseCreated {
@@ -107,7 +107,7 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 			fmt.Printf("✓ Folder created: %s\n", folder)
 		}
 	} else {
-		fmt.Println("✓ Folder structure exists: docs/plan/, templates/")
+		fmt.Println("✓ Folder structure exists: docs/plan/, shark-templates/")
 	}
 
 	if result.ConfigCreated {
@@ -124,7 +124,7 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("1. Edit .pmconfig.json to set default epic and agent")
-	fmt.Println("2. Create tasks with: pm task create --epic=E01 --feature=F01 --title=\"Task title\" --agent=backend")
-	fmt.Println("3. Import existing tasks with: pm sync")
+	fmt.Println("1. Edit .sharkconfig.json to set default epic and agent")
+	fmt.Println("2. Create tasks with: shark task create --epic=E01 --feature=F01 --title=\"Task title\" --agent=backend")
+	fmt.Println("3. Import existing tasks with: shark sync")
 }

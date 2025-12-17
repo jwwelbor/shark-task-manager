@@ -59,8 +59,8 @@ This will install `air` if not already installed and run the application with ho
 ## Available Make Commands
 
 ### CLI Tools
-- `make pm` - Build the PM CLI tool
-- `make install-pm` - Install PM CLI to ~/go/bin ⭐
+- `make shark` - Build the Shark CLI tool
+- `make install-shark` - Install Shark CLI to ~/go/bin ⭐
 
 ### Application
 - `make help` - Show all available commands
@@ -114,80 +114,327 @@ Tests include:
 
 See [TESTING.md](docs/TESTING.md) for detailed testing guide.
 
-## PM CLI - Task Management
+## Shark CLI - AI Agent Task Management
 
-The `pm` (Project Manager) CLI provides a powerful interface for managing tasks, epics, and features:
+The `shark` CLI is designed for AI agents to manage epics, features, and tasks programmatically. It provides atomic operations, dependency management, and progress tracking.
+
+### Installation
 
 ```bash
 # Install the CLI
-make install-pm
+make install-shark
 
-# Quick start
-pm --help
-pm task --help
-pm epic list
-pm feature list --epic=E04
+# Verify installation
+shark --help
 ```
 
-### Getting Started with PM CLI
-
-#### 1. Initialize a New Project
-
-Set up PM CLI infrastructure in one command:
+### Quick Start for AI Agents
 
 ```bash
-pm init
+# 1. Initialize infrastructure (first time only)
+shark init --non-interactive
+
+# 2. Query available work
+shark epic list --json
+shark task next --agent=backend --json
+
+# 3. Start working on a task
+shark task start T-E04-F06-001
+
+# 4. Mark task ready for review
+shark task complete T-E04-F06-001
+
+# 5. Approve and complete
+shark task approve T-E04-F06-001
+```
+
+### Core Workflows for AI Agents
+
+#### 1. Project Initialization
+
+Set up Shark CLI infrastructure (run once per project):
+
+```bash
+# Non-interactive mode for automation
+shark init --non-interactive
 ```
 
 This creates:
-- Database (`shark-tasks.db`) with complete schema
-- Folder structure under `docs/plan/`
-- Configuration file (`.pmconfig.json`)
-- Task templates in `templates/`
+- SQLite database (`shark-tasks.db`) with schema
+- Folder structure (`docs/plan/`)
+- Configuration file (`.sharkconfig.json`)
+- Templates (`shark-templates/`) - epic.md, feature.md, task.md
 
-**For CI/CD or automation**:
+#### 2. Discovering Available Work
+
+**List all epics with progress:**
 ```bash
-pm init --non-interactive
+shark epic list --json
+shark epic list --status=active --json
 ```
 
-#### 2. Import Existing Tasks
-
-If you have existing task markdown files:
-
+**Get epic details with all features:**
 ```bash
-# Preview what will be imported
-pm sync --create-missing --dry-run
-
-# Import tasks
-pm sync --create-missing
+shark epic get E04 --json
 ```
 
-#### 3. Sync After Git Pull
-
-Keep your database in sync with file changes:
-
+**List features in an epic:**
 ```bash
-git pull
-pm sync
+shark feature list --epic=E04 --json
+shark feature list --epic=E04 --status=active --json
 ```
 
-### Key Commands
+**Get feature details with all tasks:**
+```bash
+shark feature get E04-F06 --json
+```
 
-| Command | Description |
-|---------|-------------|
-| `pm init` | Initialize PM CLI infrastructure |
-| `pm sync` | Synchronize task files with database |
-| `pm task create` | Create a new task |
-| `pm task list` | List tasks with filtering |
-| `pm epic create` | Create an epic |
-| `pm feature create` | Create a feature |
+**Find the next available task:**
+```bash
+# Get next task for any agent
+shark task next --json
 
-See [CLI Documentation](docs/CLI.md) for complete command reference.
+# Get next task for specific agent type
+shark task next --agent=backend --json
+shark task next --agent=frontend --json
+
+# Get next task in specific epic
+shark task next --epic=E04 --json
+```
+
+The `task next` command:
+- Returns tasks in `todo` status
+- Checks all dependencies are completed
+- Sorts by priority (1 = highest)
+- Returns task key, title, file path, and dependencies
+
+#### 3. Querying Tasks
+
+**List all tasks:**
+```bash
+shark task list --json
+```
+
+**Filter by status:**
+```bash
+shark task list --status=todo --json
+shark task list --status=in_progress --json
+shark task list --status=ready_for_review --json
+shark task list --status=completed --json
+shark task list --status=blocked --json
+```
+
+**Filter by epic or agent:**
+```bash
+shark task list --epic=E04 --json
+shark task list --agent=backend --json
+shark task list --epic=E04 --agent=backend --status=todo --json
+```
+
+**Get task details:**
+```bash
+shark task get T-E04-F06-001 --json
+```
+
+Returns task metadata, dependencies, and dependency status.
+
+#### 4. Creating Tasks
+
+```bash
+shark task create \
+  --epic=E04 \
+  --feature=F06 \
+  --title="Implement task validation" \
+  --agent=backend \
+  --priority=3 \
+  --description="Add validation logic for task creation" \
+  --depends-on="T-E04-F06-001,T-E04-F06-002"
+```
+
+Parameters:
+- `--epic` (required): Epic key (e.g., `E04`)
+- `--feature` (required): Feature key (e.g., `F06` or `E04-F06`)
+- `--title` (required): Task title
+- `--agent` (required): Agent type (`frontend`, `backend`, `api`, `testing`, `devops`, `general`)
+- `--priority`: Priority 1-10 (default: 5, where 1 = highest)
+- `--description`: Detailed task description
+- `--depends-on`: Comma-separated list of dependency task keys
+
+The CLI automatically:
+- Generates unique task key (e.g., `T-E04-F06-003`)
+- Creates markdown file at `docs/plan/epic/feature/task-key.md`
+- Sets initial status to `todo`
+- Validates epic and feature exist
+
+#### 5. Task Lifecycle Management
+
+**Standard workflow:**
+
+```bash
+# 1. Start task (todo → in_progress)
+shark task start T-E04-F06-001 --json
+
+# 2. Mark ready for review (in_progress → ready_for_review)
+shark task complete T-E04-F06-001 --json
+
+# 3. Approve and mark completed (ready_for_review → completed)
+shark task approve T-E04-F06-001 --json
+```
+
+**State Transitions:**
+
+| Command | From Status | To Status | Notes |
+|---------|-------------|-----------|-------|
+| `start` | `todo` | `in_progress` | Begin work on task |
+| `complete` | `in_progress` | `ready_for_review` | Implementation done, needs review |
+| `approve` | `ready_for_review` | `completed` | Review passed, task complete |
+| `reopen` | `ready_for_review` | `in_progress` | Review failed, rework needed |
+| `block` | `todo`, `in_progress` | `blocked` | Cannot proceed, needs resolution |
+| `unblock` | `blocked` | `todo` | Blocker resolved, ready to start |
+
+**Handling blocked tasks:**
+
+```bash
+# Block a task with reason
+shark task block T-E04-F06-001 --reason="Waiting for API design approval" --json
+
+# List all blocked tasks
+shark task list --blocked --json
+
+# Unblock when resolved
+shark task unblock T-E04-F06-001 --json
+```
+
+**Handling review feedback:**
+
+```bash
+# Reopen for rework
+shark task reopen T-E04-F06-001 --notes="Need to add error handling" --json
+
+# Fix issues and mark ready again
+shark task complete T-E04-F06-001 --json
+```
+
+#### 6. Synchronizing with File System
+
+After Git operations or manual file edits:
+
+```bash
+# Preview sync changes (dry-run)
+shark sync --dry-run --json
+
+# Sync task files with database
+shark sync --json
+
+# Sync with conflict resolution strategy
+shark sync --strategy=file-wins --json
+shark sync --strategy=database-wins --json
+shark sync --strategy=newer-wins --json
+
+# Create missing epics/features from files
+shark sync --create-missing --json
+
+# Delete orphaned database records (files deleted)
+shark sync --cleanup --json
+
+# Sync specific folder only
+shark sync --folder=docs/plan/E04-task-mgmt-cli-core --json
+```
+
+**Sync patterns:**
+```bash
+# Sync task files only (default)
+shark sync --pattern=task --json
+
+# Sync PRP (Product Requirement Prompt) files only
+shark sync --pattern=prp --json
+
+# Sync both task and PRP files
+shark sync --pattern=task --pattern=prp --json
+```
+
+**Important:** Status is managed exclusively in the database and is NOT synced from files. This ensures atomic status transitions and audit trails.
+
+#### 7. Progress Tracking
+
+**Epic progress:**
+```bash
+shark epic list --json
+shark epic get E04 --json
+```
+
+Returns calculated progress percentage based on completed tasks across all features.
+
+**Feature progress:**
+```bash
+shark feature list --epic=E04 --json
+shark feature get E04-F06 --json
+```
+
+Returns:
+- Progress percentage
+- Task count
+- Status breakdown (todo/in_progress/completed/blocked)
+
+### AI Agent Best Practices
+
+1. **Always use `--json` flag** for machine-readable output
+2. **Check dependencies** before starting tasks via `shark task next --json`
+3. **Use atomic operations** - each command is a single transaction
+4. **Handle blocked tasks** - use `block` command with reasons
+5. **Sync after Git operations** - run `shark sync` after pulls/checkouts
+6. **Track work with agent identifier** - use `--agent` flag for audit trail
+7. **Use priority effectively** - 1=highest, 10=lowest for task ordering
+8. **Check exit codes** - Non-zero indicates errors (1=not found, 2=db error, 3=invalid state)
+
+### Example: Complete AI Agent Workflow
+
+```bash
+# 1. Initialize project (first time)
+shark init --non-interactive
+
+# 2. Discover available work
+NEXT_TASK=$(shark task next --agent=backend --json | jq -r '.key')
+
+# 3. Start the task
+shark task start "$NEXT_TASK" --agent="ai-agent-001"
+
+# 4. Do the implementation work...
+# ... code implementation happens here ...
+
+# 5. Mark ready for review
+shark task complete "$NEXT_TASK" --agent="ai-agent-001" --notes="Implementation complete, all tests passing"
+
+# 6. After review approval
+shark task approve "$NEXT_TASK" --agent="reviewer-001" --notes="LGTM, approved"
+
+# 7. Sync changes to filesystem
+shark sync
+```
+
+### JSON Output Format
+
+All commands support `--json` for structured output:
+
+```json
+{
+  "key": "T-E04-F06-001",
+  "title": "Implement key generation",
+  "status": "todo",
+  "priority": 3,
+  "agent_type": "backend",
+  "depends_on": ["T-E04-F05-001"],
+  "dependency_status": {
+    "T-E04-F05-001": "completed"
+  },
+  "file_path": "docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation/T-E04-F06-001.md"
+}
+```
 
 ### Documentation
 
 #### User Guides
-- [Initialization Guide](docs/user-guide/initialization.md) - Set up PM CLI
+- [Initialization Guide](docs/user-guide/initialization.md) - Set up Shark CLI
 - [Synchronization Guide](docs/user-guide/synchronization.md) - Sync tasks with Git workflow
 - [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
 

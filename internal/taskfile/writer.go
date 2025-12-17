@@ -132,3 +132,33 @@ func CreateTaskFile(filePath string, metadata TaskMetadata, content string) erro
 
 	return WriteTaskFile(filePath, taskFile)
 }
+
+// UpdateFrontmatterField updates a specific field in the frontmatter while preserving other content.
+// This is a convenience wrapper around UpdateTaskMetadata for simple single-field updates.
+func UpdateFrontmatterField(filePath string, fieldName string, value interface{}) error {
+	return UpdateTaskMetadata(filePath, func(metadata *TaskMetadata) error {
+		switch fieldName {
+		case "task_key":
+			if v, ok := value.(string); ok {
+				metadata.TaskKey = v
+			} else {
+				return fmt.Errorf("task_key must be a string")
+			}
+		case "title":
+			if v, ok := value.(string); ok {
+				metadata.Title = v
+			} else {
+				return fmt.Errorf("title must be a string")
+			}
+		case "description":
+			if v, ok := value.(string); ok {
+				metadata.Description = v
+			} else {
+				return fmt.Errorf("description must be a string")
+			}
+		default:
+			return fmt.Errorf("unsupported field: %s", fieldName)
+		}
+		return nil
+	})
+}
