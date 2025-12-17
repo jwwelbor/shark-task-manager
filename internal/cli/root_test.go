@@ -11,8 +11,8 @@ func TestRootCommand(t *testing.T) {
 	}
 
 	// Test command properties
-	if RootCmd.Use != "pm" {
-		t.Errorf("Expected command use to be 'pm', got '%s'", RootCmd.Use)
+	if RootCmd.Use != "shark" {
+		t.Errorf("Expected command use to be 'shark', got '%s'", RootCmd.Use)
 	}
 
 	if RootCmd.Version != "0.1.0" {

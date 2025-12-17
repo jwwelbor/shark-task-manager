@@ -6,11 +6,12 @@ import (
 
 // TaskFileInfo represents metadata about a discovered task file
 type TaskFileInfo struct {
-	FilePath    string    // Absolute path to file
-	FileName    string    // Filename (e.g., T-E04-F07-001.md)
-	EpicKey     string    // Inferred epic key (e.g., E04)
-	FeatureKey  string    // Inferred feature key (e.g., E04-F07)
-	ModifiedAt  time.Time // File modified timestamp
+	FilePath    string      // Absolute path to file
+	FileName    string      // Filename (e.g., T-E04-F07-001.md or 01-setup.md)
+	EpicKey     string      // Inferred epic key (e.g., E04)
+	FeatureKey  string      // Inferred feature key (e.g., E04-F07 or E04-P01-F02)
+	ModifiedAt  time.Time   // File modified timestamp
+	PatternType PatternType // Pattern type that matched this file (task or prp)
 }
 
 // TaskMetadata represents metadata parsed from a task file

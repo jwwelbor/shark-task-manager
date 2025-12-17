@@ -20,7 +20,7 @@ func TestInitialize(t *testing.T) {
 			name: "full initialization from scratch",
 			opts: InitOptions{
 				DBPath:         "shark-tasks.db",
-				ConfigPath:     ".pmconfig.json",
+				ConfigPath:     ".sharkconfig.json",
 				NonInteractive: true,
 				Force:          false,
 			},
@@ -61,7 +61,7 @@ func TestInitialize(t *testing.T) {
 			name: "idempotent - everything exists",
 			opts: InitOptions{
 				DBPath:         "shark-tasks.db",
-				ConfigPath:     ".pmconfig.json",
+				ConfigPath:     ".sharkconfig.json",
 				NonInteractive: true,
 				Force:          false,
 			},
@@ -71,7 +71,7 @@ func TestInitialize(t *testing.T) {
 				ctx := context.Background()
 				opts := InitOptions{
 					DBPath:         filepath.Join(baseDir, "shark-tasks.db"),
-					ConfigPath:     filepath.Join(baseDir, ".pmconfig.json"),
+					ConfigPath:     filepath.Join(baseDir, ".sharkconfig.json"),
 					NonInteractive: true,
 					Force:          false,
 				}
@@ -100,13 +100,13 @@ func TestInitialize(t *testing.T) {
 			name: "force mode overwrites config",
 			opts: InitOptions{
 				DBPath:         "shark-tasks.db",
-				ConfigPath:     ".pmconfig.json",
+				ConfigPath:     ".sharkconfig.json",
 				NonInteractive: true,
 				Force:          true,
 			},
 			setupFunc: func(baseDir string) error {
 				// Create existing config
-				configPath := filepath.Join(baseDir, ".pmconfig.json")
+				configPath := filepath.Join(baseDir, ".sharkconfig.json")
 				return os.WriteFile(configPath, []byte(`{"old":"config"}`), 0644)
 			},
 			wantErr: false,
@@ -186,7 +186,7 @@ func TestInitializeWithContext(t *testing.T) {
 	initializer := NewInitializer()
 	opts := InitOptions{
 		DBPath:         "shark-tasks.db",
-		ConfigPath:     ".pmconfig.json",
+		ConfigPath:     ".sharkconfig.json",
 		NonInteractive: true,
 		Force:          false,
 	}
@@ -212,7 +212,7 @@ func TestInitializeErrorHandling(t *testing.T) {
 			name: "database creation fails",
 			opts: InitOptions{
 				DBPath:         "invalid/path/shark-tasks.db",
-				ConfigPath:     ".pmconfig.json",
+				ConfigPath:     ".sharkconfig.json",
 				NonInteractive: true,
 				Force:          false,
 			},
@@ -226,7 +226,7 @@ func TestInitializeErrorHandling(t *testing.T) {
 			name: "folder creation fails",
 			opts: InitOptions{
 				DBPath:         "shark-tasks.db",
-				ConfigPath:     ".pmconfig.json",
+				ConfigPath:     ".sharkconfig.json",
 				NonInteractive: true,
 				Force:          false,
 			},
@@ -300,7 +300,7 @@ func TestInitializePerformance(t *testing.T) {
 	ctx := context.Background()
 	opts := InitOptions{
 		DBPath:         "shark-tasks.db",
-		ConfigPath:     ".pmconfig.json",
+		ConfigPath:     ".sharkconfig.json",
 		NonInteractive: true,
 		Force:          false,
 	}

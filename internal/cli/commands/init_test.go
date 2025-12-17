@@ -29,7 +29,7 @@ func TestInitCommand(t *testing.T) {
 				}
 
 				// Verify folders exist
-				for _, folder := range []string{"docs/plan", "templates"} {
+				for _, folder := range []string{"docs/plan", "shark-templates"} {
 					folderPath := filepath.Join(tempDir, folder)
 					if _, err := os.Stat(folderPath); os.IsNotExist(err) {
 						t.Errorf("Folder %s was not created", folder)
@@ -37,7 +37,7 @@ func TestInitCommand(t *testing.T) {
 				}
 
 				// Verify config exists
-				configPath := filepath.Join(tempDir, ".pmconfig.json")
+				configPath := filepath.Join(tempDir, ".sharkconfig.json")
 				if _, err := os.Stat(configPath); os.IsNotExist(err) {
 					t.Error("Config file was not created")
 				}
@@ -61,13 +61,13 @@ func TestInitCommand(t *testing.T) {
 			args: []string{"init", "--non-interactive", "--force"},
 			setup: func(tempDir string) error {
 				// Create existing config
-				configPath := filepath.Join(tempDir, ".pmconfig.json")
+				configPath := filepath.Join(tempDir, ".sharkconfig.json")
 				return os.WriteFile(configPath, []byte(`{"old":"config"}`), 0644)
 			},
 			wantErr: false,
 			verify: func(t *testing.T, tempDir string) {
 				// Verify config was overwritten
-				configPath := filepath.Join(tempDir, ".pmconfig.json")
+				configPath := filepath.Join(tempDir, ".sharkconfig.json")
 				data, err := os.ReadFile(configPath)
 				if err != nil {
 					t.Fatalf("Failed to read config: %v", err)
@@ -162,7 +162,7 @@ func TestInitCommandJSON(t *testing.T) {
 		t.Error("Database file was not created with --json flag")
 	}
 
-	configPath := filepath.Join(tempDir, ".pmconfig.json")
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		t.Error("Config file was not created with --json flag")
 	}

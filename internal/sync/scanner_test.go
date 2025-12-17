@@ -195,7 +195,7 @@ func TestValidateFilePath(t *testing.T) {
 	// Create allowed subdirectories
 	planDir := filepath.Join(tmpDir, "docs", "plan")
 	tasksDir := filepath.Join(tmpDir, "docs", "tasks")
-	templatesDir := filepath.Join(tmpDir, "templates")
+	templatesDir := filepath.Join(tmpDir, "shark-templates")
 
 	os.MkdirAll(planDir, 0755)
 	os.MkdirAll(tasksDir, 0755)
@@ -224,7 +224,7 @@ func TestValidateFilePath(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "file in templates is allowed",
+			name:     "file in shark-templates is allowed",
 			filePath: filepath.Join(templatesDir, "task-template.md"),
 			rootDir:  tmpDir,
 			wantErr:  false,

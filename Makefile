@@ -1,12 +1,12 @@
-.PHONY: help build run test clean install dev lint fmt vet demo test-db pm install-pm
+.PHONY: help build run test clean install dev lint fmt vet demo test-db shark install-shark
 
 # Default target
 help:
 	@echo "Shark Task Manager - Available commands:"
 	@echo "  make install    - Install project dependencies"
 	@echo "  make build      - Build the application"
-	@echo "  make pm         - Build the PM CLI tool"
-	@echo "  make install-pm - Install PM CLI to ~/go/bin"
+	@echo "  make shark         - Build the Shark CLI tool"
+	@echo "  make install-shark - Install Shark CLI to ~/go/bin"
 	@echo "  make run        - Run the application"
 	@echo "  make dev        - Run in development mode with auto-reload"
 	@echo "  make demo       - Run interactive demo (creates sample data)"
@@ -29,20 +29,20 @@ build:
 	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/shark-task-manager cmd/server/main.go
 	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/demo cmd/demo/main.go
 	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/test-db cmd/test-db/main.go
-	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/pm cmd/pm/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/shark cmd/shark/main.go
 
-# Build PM CLI tool
-pm:
-	@echo "Building PM CLI..."
-	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/pm cmd/pm/main.go
-	@echo "PM CLI built: ./bin/pm"
+# Build Shark CLI tool
+shark:
+	@echo "Building Shark CLI..."
+	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/shark cmd/shark/main.go
+	@echo "Shark CLI built: ./bin/shark"
 
-# Install PM CLI to ~/go/bin
-install-pm: pm
-	@echo "Installing PM CLI to ~/go/bin..."
+# Install Shark CLI to ~/go/bin
+install-shark: shark
+	@echo "Installing Shark CLI to ~/go/bin..."
 	@mkdir -p ~/go/bin
-	@cp bin/pm ~/go/bin/pm
-	@echo "PM CLI installed! Run 'pm --help' to get started."
+	@cp bin/shark ~/go/bin/shark
+	@echo "Shark CLI installed! Run 'shark --help' to get started."
 
 # Run the application
 run: build

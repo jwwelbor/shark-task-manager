@@ -287,8 +287,8 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	// Create test epic with unique key
-	//Use nanosecond timestamp to create unique but valid epic keys
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano() / 1000) % 100)
+	// Use nanosecond timestamp to create unique but valid epic keys (avoid E04 and E99 used by test data)
+	suffix := fmt.Sprintf("%02d", 10 + ((time.Now().UnixNano() / 1000) % 88))
 	highPriority := models.PriorityHigh
 	epic := &models.Epic{
 		Key:           fmt.Sprintf("E%s", suffix),

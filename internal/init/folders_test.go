@@ -17,7 +17,7 @@ func TestCreateFolders(t *testing.T) {
 		{
 			name:        "creates all folders successfully",
 			setupFunc:   nil,
-			wantFolders: []string{"docs/plan", "templates"},
+			wantFolders: []string{"docs/plan", "shark-templates"},
 			wantErr:     false,
 			expectedPerms: 0755,
 		},
@@ -25,7 +25,7 @@ func TestCreateFolders(t *testing.T) {
 			name: "idempotent - folders already exist",
 			setupFunc: func(baseDir string) error {
 				// Create folders first
-				folders := []string{"docs/plan", "templates"}
+				folders := []string{"docs/plan", "shark-templates"}
 				for _, folder := range folders {
 					if err := os.MkdirAll(filepath.Join(baseDir, folder), 0755); err != nil {
 						return err
@@ -39,7 +39,7 @@ func TestCreateFolders(t *testing.T) {
 		{
 			name:        "creates nested folders",
 			setupFunc:   nil,
-			wantFolders: []string{"docs/plan", "templates"},
+			wantFolders: []string{"docs/plan", "shark-templates"},
 			wantErr:     false,
 			expectedPerms: 0755,
 		},
@@ -81,7 +81,7 @@ func TestCreateFolders(t *testing.T) {
 			}
 
 			// Verify all expected folders exist
-			expectedFolders := []string{"docs/plan", "templates"}
+			expectedFolders := []string{"docs/plan", "shark-templates"}
 			for _, folder := range expectedFolders {
 				folderPath := filepath.Join(tempDir, folder)
 				info, err := os.Stat(folderPath)

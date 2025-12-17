@@ -26,7 +26,7 @@ func TestCopyTemplates(t *testing.T) {
 			force: false,
 			setupFunc: func(baseDir string) error {
 				// Create templates directory with existing file
-				templateDir := filepath.Join(baseDir, "templates")
+				templateDir := filepath.Join(baseDir, "shark-templates")
 				if err := os.MkdirAll(templateDir, 0755); err != nil {
 					return err
 				}
@@ -40,7 +40,7 @@ func TestCopyTemplates(t *testing.T) {
 			force: true,
 			setupFunc: func(baseDir string) error {
 				// Create templates directory with existing file
-				templateDir := filepath.Join(baseDir, "templates")
+				templateDir := filepath.Join(baseDir, "shark-templates")
 				if err := os.MkdirAll(templateDir, 0755); err != nil {
 					return err
 				}
@@ -87,7 +87,7 @@ func TestCopyTemplates(t *testing.T) {
 			}
 
 			// Verify templates directory exists
-			templateDir := filepath.Join(tempDir, "templates")
+			templateDir := filepath.Join(tempDir, "shark-templates")
 			if _, err := os.Stat(templateDir); os.IsNotExist(err) {
 				t.Error("Templates directory does not exist")
 			}
@@ -116,14 +116,14 @@ func TestCopyTemplatesCreatesDirectory(t *testing.T) {
 	}
 
 	// Verify templates directory was created
-	templateDir := filepath.Join(tempDir, "templates")
+	templateDir := filepath.Join(tempDir, "shark-templates")
 	info, err := os.Stat(templateDir)
 	if err != nil {
 		t.Fatalf("Templates directory does not exist: %v", err)
 	}
 
 	if !info.IsDir() {
-		t.Error("templates is not a directory")
+		t.Error("shark-templates is not a directory")
 	}
 }
 
@@ -152,7 +152,7 @@ func TestCopyTemplatesFilePermissions(t *testing.T) {
 	}
 
 	// Check permissions on copied files
-	templateDir := filepath.Join(tempDir, "templates")
+	templateDir := filepath.Join(tempDir, "shark-templates")
 	entries, err := os.ReadDir(templateDir)
 	if err != nil {
 		t.Fatalf("Failed to read templates directory: %v", err)

@@ -112,7 +112,7 @@ func TestValidator_ValidateTaskInput_FeatureWrongEpic(t *testing.T) {
 
 	// Setup - create two epics and a feature belonging to one
 	epic1 := createTestEpic(t, db, "E01")
-	epic2 := createTestEpic(t, db, "E02")
+	_ = createTestEpic(t, db, "E02")
 	createTestFeature(t, db, epic1.ID, "E01-F01")
 
 	// Create validator
@@ -363,7 +363,7 @@ func TestValidator_ValidateDependencies_EmptyDependsOn(t *testing.T) {
 
 	// Setup
 	epic := createTestEpic(t, db, "E01")
-	feature := createTestFeature(t, db, epic.ID, "E01-F01")
+	_ = createTestFeature(t, db, epic.ID, "E01-F01")
 
 	// Create validator
 	epicRepo := repository.NewEpicRepository(db)

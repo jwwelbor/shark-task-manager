@@ -16,13 +16,16 @@ func TestCompleteWorkflow(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	test.SeedTestData()
-	task, _ := taskRepo.GetByKey(ctx, "T-TEST-002") // Todo task
+	task, err := taskRepo.GetByKey(ctx, "T-E99-F99-002") // Todo task
+	if err != nil {
+		t.Fatalf("Failed to get test task: %v", err)
+	}
 	agent := "workflow-test-agent"
 
 	// Workflow: todo -> in_progress -> ready_for_review -> completed
 
 	// Step 1: Start task
-	err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
 	if err != nil {
 		t.Fatalf("Failed to start task: %v", err)
 	}
@@ -81,7 +84,10 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	test.SeedTestData()
-	task, _ := taskRepo.GetByKey(ctx, "T-TEST-002")
+	task, err := taskRepo.GetByKey(ctx, "T-E99-F99-002")
+	if err != nil {
+		t.Fatalf("Failed to get test task: %v", err)
+	}
 	agent := "block-test-agent"
 
 	// Start the task
@@ -89,7 +95,7 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 
 	// Block it
 	reason := "Waiting for API specification"
-	err := taskRepo.BlockTask(ctx, task.ID, reason, &agent)
+	err = taskRepo.BlockTask(ctx, task.ID, reason, &agent)
 	if err != nil {
 		t.Fatalf("Failed to block task: %v", err)
 	}
@@ -131,7 +137,10 @@ func TestReopenWorkflow(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	test.SeedTestData()
-	task, _ := taskRepo.GetByKey(ctx, "T-TEST-002")
+	task, err := taskRepo.GetByKey(ctx, "T-E99-F99-002")
+	if err != nil {
+		t.Fatalf("Failed to get test task: %v", err)
+	}
 	agent := "reopen-test-agent"
 
 	// Complete workflow to ready_for_review
@@ -140,7 +149,7 @@ func TestReopenWorkflow(t *testing.T) {
 
 	// Reopen for rework
 	reworkNotes := "Need to add error handling"
-	err := taskRepo.ReopenTask(ctx, task.ID, &agent, &reworkNotes)
+	err = taskRepo.ReopenTask(ctx, task.ID, &agent, &reworkNotes)
 	if err != nil {
 		t.Fatalf("Failed to reopen task: %v", err)
 	}

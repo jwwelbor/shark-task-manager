@@ -19,7 +19,7 @@ func TestCreateConfig(t *testing.T) {
 		{
 			name: "creates new config file",
 			opts: InitOptions{
-				ConfigPath:     ".pmconfig.json",
+				ConfigPath:     ".sharkconfig.json",
 				NonInteractive: true,
 				Force:          false,
 			},
@@ -30,13 +30,13 @@ func TestCreateConfig(t *testing.T) {
 		{
 			name: "skips existing config in non-interactive mode",
 			opts: InitOptions{
-				ConfigPath:     ".pmconfig.json",
+				ConfigPath:     ".sharkconfig.json",
 				NonInteractive: true,
 				Force:          false,
 			},
 			setupFunc: func(baseDir string) error {
 				// Create existing config
-				configPath := filepath.Join(baseDir, ".pmconfig.json")
+				configPath := filepath.Join(baseDir, ".sharkconfig.json")
 				return os.WriteFile(configPath, []byte(`{"existing":"config"}`), 0644)
 			},
 			wantCreated: false,
@@ -45,13 +45,13 @@ func TestCreateConfig(t *testing.T) {
 		{
 			name: "overwrites existing config with force flag",
 			opts: InitOptions{
-				ConfigPath:     ".pmconfig.json",
+				ConfigPath:     ".sharkconfig.json",
 				NonInteractive: true,
 				Force:          true,
 			},
 			setupFunc: func(baseDir string) error {
 				// Create existing config
-				configPath := filepath.Join(baseDir, ".pmconfig.json")
+				configPath := filepath.Join(baseDir, ".sharkconfig.json")
 				return os.WriteFile(configPath, []byte(`{"existing":"config"}`), 0644)
 			},
 			wantCreated: true,
@@ -131,7 +131,7 @@ func TestCreateConfig(t *testing.T) {
 func TestCreateConfigAtomicWrite(t *testing.T) {
 	// Create temp directory
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, ".pmconfig.json")
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
 
 	// Execute
 	initializer := NewInitializer()
@@ -165,7 +165,7 @@ func TestCreateConfigAtomicWrite(t *testing.T) {
 func TestCreateConfigPermissions(t *testing.T) {
 	// Create temp directory
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, ".pmconfig.json")
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
 
 	// Execute
 	initializer := NewInitializer()
@@ -197,7 +197,7 @@ func TestCreateConfigPermissions(t *testing.T) {
 func TestCreateConfigValidJSON(t *testing.T) {
 	// Create temp directory
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, ".pmconfig.json")
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
 
 	// Execute
 	initializer := NewInitializer()

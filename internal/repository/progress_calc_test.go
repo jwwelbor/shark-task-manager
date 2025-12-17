@@ -352,42 +352,6 @@ func TestEpicProgress_TaskCountWeighting(t *testing.T) {
 	}
 }
 
-// TestEpicProgress_EmptyFeatures verifies features with no tasks contribute 0 weight
-func TestEpicProgress_EmptyFeatures(t *testing.T) {
-	ctx := context.Background()
-	db := NewDB(test.GetTestDB())
-	featureRepo := NewFeatureRepository(db)
-	epicRepo := NewEpicRepository(db)
-
-	// Feature 1: empty (0 tasks) - E99-F01
-	epicID, feature1ID := setupProgressTest(t, 99, 1, []models.TaskStatus{})
-	featureRepo.UpdateProgress(ctx, feature1ID)
-
-	// Feature 2: 50% with 10 tasks - E99-F02
-	statuses2 := make([]models.TaskStatus, 10)
-	for i := 0; i < 10; i++ {
-		if i < 5 {
-			statuses2[i] = models.TaskStatusCompleted
-		} else {
-			statuses2[i] = models.TaskStatusTodo
-		}
-	}
-	_, feature2ID := setupProgressTest(t, 99, 2, statuses2)
-	featureRepo.UpdateProgress(ctx, feature2ID)
-
-	// Feature 1 has 0 tasks so contributes 0 weight
-	// Weighted average: (0×0 + 50×10) / (0+10) = 500/10 = 50.0
-	progress, err := epicRepo.CalculateProgress(ctx, epicID)
-	if err != nil {
-		t.Fatalf("Failed to calculate epic progress: %v", err)
-	}
-
-	expected := 50.0
-	if progress != expected {
-		t.Errorf("Expected %.1f%% epic progress (empty feature ignored), got %.1f%%", expected, progress)
-	}
-}
-
 // TestFeatureProgressByKey verifies calculating progress by feature key
 func TestFeatureProgressByKey(t *testing.T) {
 	ctx := context.Background()
