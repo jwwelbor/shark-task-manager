@@ -129,11 +129,71 @@ pm epic list
 pm feature list --epic=E04
 ```
 
+### Getting Started with PM CLI
+
+#### 1. Initialize a New Project
+
+Set up PM CLI infrastructure in one command:
+
+```bash
+pm init
+```
+
+This creates:
+- Database (`shark-tasks.db`) with complete schema
+- Folder structure under `docs/plan/`
+- Configuration file (`.pmconfig.json`)
+- Task templates in `templates/`
+
+**For CI/CD or automation**:
+```bash
+pm init --non-interactive
+```
+
+#### 2. Import Existing Tasks
+
+If you have existing task markdown files:
+
+```bash
+# Preview what will be imported
+pm sync --create-missing --dry-run
+
+# Import tasks
+pm sync --create-missing
+```
+
+#### 3. Sync After Git Pull
+
+Keep your database in sync with file changes:
+
+```bash
+git pull
+pm sync
+```
+
+### Key Commands
+
+| Command | Description |
+|---------|-------------|
+| `pm init` | Initialize PM CLI infrastructure |
+| `pm sync` | Synchronize task files with database |
+| `pm task create` | Create a new task |
+| `pm task list` | List tasks with filtering |
+| `pm epic create` | Create an epic |
+| `pm feature create` | Create a feature |
+
 See [CLI Documentation](docs/CLI.md) for complete command reference.
 
 ### Documentation
 
+#### User Guides
+- [Initialization Guide](docs/user-guide/initialization.md) - Set up PM CLI
+- [Synchronization Guide](docs/user-guide/synchronization.md) - Sync tasks with Git workflow
+- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
+
+#### Reference
 - [Complete Documentation Index](docs/DOCUMENTATION_INDEX.md) - Find all documentation
+- [CLI Documentation](docs/CLI.md) - Complete command reference
 - [Epic & Feature Query Guide](docs/EPIC_FEATURE_QUERIES.md) - Query epics and features with progress
 - [Quick Reference](docs/EPIC_FEATURE_QUICK_REFERENCE.md) - Fast command lookup
 - [Examples](docs/EPIC_FEATURE_EXAMPLES.md) - Real-world usage scenarios

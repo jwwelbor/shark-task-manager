@@ -2,561 +2,368 @@
 
 **Epic**: E04-task-mgmt-cli-core
 **Feature**: E04-F07-initialization-sync
-**Date**: 2025-12-14
+**Date**: 2025-12-16
 **Author**: db-admin
 
-## Overview
+## Purpose
 
-This document defines the data structures, formats, and persistence patterns for the Initialization & Synchronization feature. Unlike typical features, E04-F07 does not introduce new database tables but instead works with existing tables from E04-F01 and manages configuration and template files on the filesystem.
+This document defines data storage and schema changes for sync metadata tracking. It describes how the system tracks synchronization state, detects conflicts, and maintains consistency between filesystem and database.
 
 ---
 
-## Data Structures
+## Data Architecture Decision
 
-### 1. Configuration File (.pmconfig.json)
+### Approach: Minimal Schema Changes
 
-**Location**: `./.pmconfig.json` (project root)
+**Decision**: Use existing database schema without adding sync-specific tables.
 
-**Format**: JSON
+**Rationale**:
+1. The existing `tasks` table already has `file_path` and `updated_at` fields
+2. File modified timestamps can be read from filesystem
+3. Conflict detection can be done in-memory during sync
+4. Sync history can be tracked via existing `task_history` table
+5. Reduces schema complexity and migration overhead
 
-**Schema**:
-```json
-{
-  "default_epic": "E04",                    // Optional: Default epic key
-  "default_agent": "general-purpose",        // Optional: Default agent type
-  "color_enabled": true,                     // Boolean: Enable colored output
-  "json_output": false                       // Boolean: JSON output mode
+**What We Have**:
+- `tasks.file_path` - Stores current file location (used for conflict detection)
+- `tasks.updated_at` - Stores last database update time (used for newer-wins strategy)
+- `task_history` - Already tracks task changes with timestamps and notes
+
+**What We DON'T Need**:
+- No new `sync_metadata` table
+- No `last_synced_at` column
+- No `content_hash` column (compare values directly)
+
+---
+
+## Existing Schema (Relevant Parts)
+
+### Tasks Table (from E04-F01)
+
+```sql
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature_id INTEGER NOT NULL,
+    key TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'blocked', 'ready_for_review', 'completed', 'archived')),
+    agent_type TEXT CHECK (agent_type IN ('frontend', 'backend', 'api', 'testing', 'devops', 'general')),
+    priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 1 AND priority <= 10),
+    depends_on TEXT,           -- JSON array of task keys
+    assigned_agent TEXT,
+    file_path TEXT,            -- *** CRITICAL FOR SYNC: Stores actual file location ***
+    blocked_reason TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    blocked_at TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- *** CRITICAL FOR SYNC: Used for newer-wins ***
+
+    FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
+);
+
+-- Existing indexes
+CREATE UNIQUE INDEX idx_tasks_key ON tasks(key);
+CREATE INDEX idx_tasks_feature_id ON tasks(feature_id);
+CREATE INDEX idx_tasks_status ON tasks(status);
+CREATE INDEX idx_tasks_agent_type ON tasks(agent_type);
+CREATE INDEX idx_tasks_status_priority ON tasks(status, priority);
+CREATE INDEX idx_tasks_priority ON tasks(priority);
+
+-- Automatic updated_at trigger
+CREATE TRIGGER tasks_updated_at
+AFTER UPDATE ON tasks
+FOR EACH ROW
+BEGIN
+    UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+```
+
+### Task History Table (for sync audit trail)
+
+```sql
+CREATE TABLE task_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    old_status TEXT,
+    new_status TEXT NOT NULL,
+    agent TEXT,
+    notes TEXT,                -- *** SYNC WILL USE THIS: "Imported from file", "Updated from file during sync" ***
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_task_history_task_id ON task_history(task_id);
+CREATE INDEX idx_task_history_timestamp ON task_history(timestamp DESC);
+```
+
+### Epics and Features Tables (for --create-missing flag)
+
+```sql
+CREATE TABLE epics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
+    priority TEXT NOT NULL CHECK (priority IN ('high', 'medium', 'low')),
+    business_value TEXT CHECK (business_value IN ('high', 'medium', 'low')),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE features (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    epic_id INTEGER NOT NULL,
+    key TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
+    progress_pct REAL NOT NULL DEFAULT 0.0 CHECK (progress_pct >= 0.0 AND progress_pct <= 100.0),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE
+);
+```
+
+---
+
+## Data Flow During Sync
+
+### Sync Operation Data Flow
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ 1. FILE SCANNING                                                  │
+│                                                                    │
+│  Filesystem                                                        │
+│    ├── docs/plan/E04-epic/E04-F07-feature/T-E04-F07-001.md       │
+│    └── File Modified Time: 2025-12-16 10:00:00                   │
+│                                                                    │
+│  Scan Result:                                                      │
+│    - File Path: /abs/path/to/T-E04-F07-001.md                    │
+│    - Modified At: 2025-12-16 10:00:00                            │
+│    - Inferred Epic: E04                                           │
+│    - Inferred Feature: E04-F07                                    │
+└────────────────────────────┬───────────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ 2. FRONTMATTER PARSING                                            │
+│                                                                    │
+│  Parse YAML:                                                       │
+│    key: T-E04-F07-001                                             │
+│    title: "Implement sync engine"                                 │
+│    description: "Core sync orchestration logic"                   │
+│    file_path: docs/plan/.../T-E04-F07-001.md  (optional)         │
+│                                                                    │
+│  TaskMetadata:                                                     │
+│    - Key: T-E04-F07-001                                           │
+│    - Title: "Implement sync engine"                               │
+│    - Description: "Core sync orchestration logic"                 │
+│    - FilePath: docs/plan/.../T-E04-F07-001.md                    │
+│    - ModifiedAt: 2025-12-16 10:00:00                             │
+└────────────────────────────┬───────────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ 3. DATABASE QUERY                                                 │
+│                                                                    │
+│  SELECT * FROM tasks WHERE key = 'T-E04-F07-001';                │
+│                                                                    │
+│  Result:                                                           │
+│    - ID: 42                                                        │
+│    - Key: T-E04-F07-001                                           │
+│    - Title: "Add sync engine"  *** CONFLICT ***                  │
+│    - Description: "Core sync orchestration logic"  (same)         │
+│    - FilePath: docs/tasks/created/T-E04-F07-001.md  *** CONFLICT │
+│    - UpdatedAt: 2025-12-15 09:00:00                              │
+│    - Status: in_progress  (DATABASE ONLY - not in file)          │
+└────────────────────────────┬───────────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ 4. CONFLICT DETECTION                                             │
+│                                                                    │
+│  Compare:                                                          │
+│    title:       "Implement sync engine" (file) vs                │
+│                 "Add sync engine" (database)  → CONFLICT          │
+│    description: (same) → NO CONFLICT                              │
+│    file_path:   /abs/.../T-E04-F07-001.md (actual) vs            │
+│                 docs/tasks/created/T-E04-F07-001.md (db)          │
+│                 → CONFLICT (file moved)                           │
+│                                                                    │
+│  Conflicts Detected:                                               │
+│    1. Field: title, DB: "Add...", File: "Implement..."           │
+│    2. Field: file_path, DB: "docs/tasks/...", File: "docs/plan..." │
+└────────────────────────────┬───────────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ 5. CONFLICT RESOLUTION (Strategy: file-wins)                     │
+│                                                                    │
+│  Apply Resolution:                                                 │
+│    title: Use file value → "Implement sync engine"               │
+│    file_path: Use actual location → /abs/.../T-E04-F07-001.md   │
+│                                                                    │
+│  Preserve Database-Only Fields:                                   │
+│    status: in_progress (unchanged)                                │
+│    priority: 5 (unchanged)                                        │
+│    agent_type: backend (unchanged)                                │
+│    depends_on: [...] (unchanged)                                  │
+└────────────────────────────┬───────────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ 6. DATABASE UPDATE (Transaction)                                 │
+│                                                                    │
+│  BEGIN TRANSACTION;                                                │
+│                                                                    │
+│    UPDATE tasks                                                    │
+│    SET title = 'Implement sync engine',                          │
+│        file_path = '/abs/.../T-E04-F07-001.md'                   │
+│    WHERE id = 42;                                                 │
+│    -- updated_at automatically set by trigger                     │
+│                                                                    │
+│    INSERT INTO task_history (task_id, old_status, new_status,    │
+│                              agent, notes)                         │
+│    VALUES (42, 'in_progress', 'in_progress', 'sync',             │
+│            'Updated from file during sync: title, file_path');    │
+│                                                                    │
+│  COMMIT;                                                           │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Sync Metadata Tracking Strategy
+
+### Approach 1: Use Existing Fields (CHOSEN)
+
+**Implementation**:
+- Use `tasks.updated_at` for database modification time
+- Read file modified time from filesystem (os.Stat)
+- Compare timestamps for "newer-wins" strategy
+- Store sync events in `task_history` table with notes
+
+**Advantages**:
+- No schema changes required
+- Leverages existing automatic triggers
+- Simple and maintainable
+- Sufficient for all PRD requirements
+
+**Disadvantages**:
+- No explicit "last sync time" field
+- Cannot track content hash (rely on direct comparison)
+
+### Approach 2: Add Sync Metadata Table (REJECTED)
+
+**Why Rejected**:
+- Adds complexity without clear benefit
+- All required information available from existing schema
+- Sync is not frequent enough to justify caching
+- Would require additional maintenance and queries
+
+---
+
+## Conflict Detection Algorithm
+
+### Data Structures for Conflict Detection
+
+**In-Memory Comparison** (no persistent storage needed):
+
+```go
+type ConflictDetectionData struct {
+    TaskKey       string
+    FileData      TaskFileData
+    DatabaseData  TaskDatabaseData
+}
+
+type TaskFileData struct {
+    Title       string
+    Description *string
+    FilePath    string      // Actual file path
+    ModifiedAt  time.Time   // From os.Stat(file).ModTime()
+}
+
+type TaskDatabaseData struct {
+    ID          int64
+    Title       string
+    Description *string
+    FilePath    *string     // Stored path in database
+    UpdatedAt   time.Time   // From tasks.updated_at
+    Status      string      // DATABASE ONLY - preserved during sync
+    Priority    int         // DATABASE ONLY - preserved
+    AgentType   *string     // DATABASE ONLY - preserved
 }
 ```
 
-**Field Specifications**:
+### Conflict Detection Logic
 
-| Field | Type | Required | Default | Constraints | Description |
-|-------|------|----------|---------|-------------|-------------|
-| `default_epic` | string\|null | No | null | Must match `E\d{2}` pattern | Default epic for task creation |
-| `default_agent` | string\|null | No | null | Must be valid agent type enum | Default agent for task creation |
-| `color_enabled` | boolean | No | true | N/A | Enable ANSI color codes in output |
-| `json_output` | boolean | No | false | N/A | Output all results as JSON |
+```go
+func DetectConflicts(fileData TaskFileData, dbData TaskDatabaseData) []Conflict {
+    conflicts := []Conflict{}
 
-**Validation Rules**:
-1. File must be valid JSON
-2. If `default_epic` provided, must exist in database
-3. If `default_agent` provided, must be in: `general-purpose`, `backend-developer`, `frontend-developer`, `devops-engineer`, `api-developer`
-4. Unknown fields ignored (forward compatibility)
+    // 1. Title conflict
+    if fileData.Title != "" && fileData.Title != dbData.Title {
+        conflicts = append(conflicts, Conflict{
+            Field:         "title",
+            FileValue:     fileData.Title,
+            DatabaseValue: dbData.Title,
+        })
+    }
 
-**Example**:
-```json
-{
-  "default_epic": "E04",
-  "default_agent": "backend-developer",
-  "color_enabled": true,
-  "json_output": false
+    // 2. Description conflict
+    if fileData.Description != nil && *fileData.Description != *dbData.Description {
+        conflicts = append(conflicts, Conflict{
+            Field:         "description",
+            FileValue:     *fileData.Description,
+            DatabaseValue: *dbData.Description,
+        })
+    }
+
+    // 3. File path conflict (always update to actual location)
+    if dbData.FilePath == nil || *dbData.FilePath != fileData.FilePath {
+        conflicts = append(conflicts, Conflict{
+            Field:         "file_path",
+            FileValue:     fileData.FilePath,
+            DatabaseValue: *dbData.FilePath,
+        })
+    }
+
+    return conflicts
 }
 ```
 
----
+### Resolution Strategy Application
 
-### 2. Task Frontmatter Format
-
-**Purpose**: Define task metadata in markdown files for sync parsing
-
-**Format**: YAML frontmatter between `---` delimiters
-
-**Schema**:
-```yaml
----
-task_key: T-E04-F01-001
-status: todo
-feature: /path/to/feature
-created: 2025-12-14
-assigned_agent: general-purpose
-dependencies: []
-estimated_time: 4 hours
-file_path: /path/to/task.md
----
+**File-Wins Strategy**:
+```sql
+UPDATE tasks
+SET title = ?,              -- Use file value
+    description = ?,        -- Use file value
+    file_path = ?           -- Use actual file location
+    -- updated_at automatically updated by trigger
+WHERE key = ?;
 ```
 
-**Field Specifications**:
-
-| Field | Type | Required | Format | Sync Behavior |
-|-------|------|----------|--------|---------------|
-| `task_key` | string | Yes | `T-E\d{2}-F\d{2}-\d{3}` | Must match filename |
-| `status` | string | Yes | Enum | Synced to DB, validated against folder location |
-| `feature` | string | Yes | Path to feature dir | Extracted to feature_id FK |
-| `created` | string | Yes | YYYY-MM-DD | Parsed to ISO 8601 timestamp |
-| `assigned_agent` | string | Yes | Enum | Synced to DB |
-| `dependencies` | array | No | Array of task keys | Synced to DB as JSON |
-| `estimated_time` | string | No | "X hours" | Informational only |
-| `file_path` | string | No | Absolute path | Updated during file moves |
-
-**Status Enum Values**:
-- `todo`
-- `in_progress`
-- `ready_for_review`
-- `completed`
-- `archived`
-
-**Agent Type Enum Values**:
-- `general-purpose`
-- `backend-developer`
-- `frontend-developer`
-- `devops-engineer`
-- `api-developer`
-
-**Validation Rules**:
-1. `task_key` must match filename (e.g., file `T-E04-F01-001.md` requires `task_key: T-E04-F01-001`)
-2. `status` must match folder location or sync will move file
-3. `feature` path must reference existing feature directory
-4. `dependencies` must be array of valid task keys (circular deps allowed for now)
-5. Invalid YAML causes file skip with warning
-
-**Example**:
-```yaml
----
-task_key: T-E04-F01-003
-status: in_progress
-feature: /home/jwwelbor/.claude/docs/plan/E04-task-mgmt-cli-core/E04-F01-database-schema
-created: 2025-12-14
-assigned_agent: backend-developer
-dependencies: ["T-E04-F01-001", "T-E04-F01-002"]
-estimated_time: 12 hours
-file_path: /home/jwwelbor/.claude/docs/tasks/active/T-E04-F01-003.md
----
-
-# PRP: Repository Layer Implementation
-
-...
+**Database-Wins Strategy**:
+```sql
+-- No UPDATE needed
+-- Database values are authoritative
+-- Optionally update file if --update-files flag set
 ```
 
----
-
-### 3. Template Files
-
-**Location**: `./templates/` (project directory)
-
-**Source**: `pm/templates/` (package resources)
-
-#### 3.1 task.md Template
-
-**Purpose**: Default task/PRP template
-
-**Content**:
-```markdown
----
-task_key: {TASK_KEY}
-status: todo
-feature: {FEATURE_PATH}
-created: {CREATED_DATE}
-assigned_agent: {AGENT_TYPE}
-dependencies: []
-estimated_time: X hours
-file_path: {FILE_PATH}
----
-
-# PRP: {TITLE}
-
-## Goal
-
-{Single sentence describing what will be built and why}
-
-## Success Criteria
-
-- [ ] Criterion 1
-- [ ] Criterion 2
-- [ ] All validation gates pass
-
-## Implementation Guidance
-
-### Overview
-
-{High-level description of component}
-
-### Key Requirements
-
-- Requirement 1 - See [Design Doc](../path/to/doc.md#section)
-- Requirement 2 - See [Design Doc](../path/to/doc.md#section)
-
-### Files to Create/Modify
-
-- `path/to/file.py` - Description
-
-### Integration Points
-
-- Component A: Description
-- Component B: Description
-
-## Validation Gates
-
-- **Type Safety**: mypy passes
-- **Unit Tests**: Coverage >80%
-- **Integration Tests**: End-to-end flow works
-
-## Context & Resources
-
-- [Architecture](../path/to/architecture.md)
-- [Data Design](../path/to/data-design.md)
-
-## Notes for Agent
-
-- Note 1
-- Note 2
-```
-
-**Placeholders**:
-- `{TASK_KEY}` - Generated task key
-- `{FEATURE_PATH}` - Path to feature directory
-- `{CREATED_DATE}` - Current date (YYYY-MM-DD)
-- `{AGENT_TYPE}` - Assigned agent type
-- `{FILE_PATH}` - Absolute path to task file
-- `{TITLE}` - Task title from CLI
-
----
-
-#### 3.2 epic.md Template
-
-**Purpose**: Epic PRD template
-
-**Content**:
-```markdown
-# Epic: {EPIC_TITLE}
-
-**Epic Key**: {EPIC_KEY}
-**Status**: {STATUS}
-**Created**: {CREATED_DATE}
-
-## Vision
-
-{High-level epic vision and business value}
-
-## Goals
-
-1. Goal 1
-2. Goal 2
-3. Goal 3
-
-## Features
-
-| Feature | Status | Description |
-|---------|--------|-------------|
-| F01 | Planned | Feature 1 description |
-| F02 | Planned | Feature 2 description |
-
-## Success Metrics
-
-- Metric 1: Target value
-- Metric 2: Target value
-
-## Timeline
-
-- **Start**: {START_DATE}
-- **End**: {END_DATE}
-- **Duration**: X weeks
-
-## Dependencies
-
-- Dependency 1
-- Dependency 2
-
-## Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Risk 1 | High | Mitigation strategy |
-
-## Out of Scope
-
-- Item 1
-- Item 2
-```
-
----
-
-#### 3.3 feature.md Template
-
-**Purpose**: Feature PRD template
-
-**Content**:
-```markdown
-# Feature: {FEATURE_TITLE}
-
-**Feature Key**: {FEATURE_KEY}
-**Epic**: {EPIC_KEY}
-**Status**: {STATUS}
-**Created**: {CREATED_DATE}
-
-## Goal
-
-### Problem
-
-{Problem statement}
-
-### Solution
-
-{Solution description}
-
-### Impact
-
-- Impact 1
-- Impact 2
-
-## User Stories
-
-### Must-Have
-
-**Story 1**: As a user, I want to... so that...
-
-### Should-Have
-
-**Story 2**: As a user, I want to... so that...
-
-## Requirements
-
-### Functional Requirements
-
-1. Requirement 1
-2. Requirement 2
-
-### Non-Functional Requirements
-
-- Performance: Target
-- Security: Requirements
-- Reliability: Requirements
-
-## Acceptance Criteria
-
-**Given** initial condition
-**When** action occurs
-**Then** expected outcome
-
-## Out of Scope
-
-1. Item 1
-2. Item 2
-```
-
----
-
-## Data Mapping: File → Database
-
-### Task Frontmatter → Database Task Table
-
-| Frontmatter Field | Database Column | Transformation | Notes |
-|-------------------|-----------------|----------------|-------|
-| `task_key` | `key` (TEXT) | Direct copy | Must be unique |
-| `status` | `status` (TEXT) | Direct copy | Validated against enum |
-| `feature` (path) | `feature_id` (INTEGER FK) | Extract feature key from path, query ID | E.g., path ends with `E04-F01-database-schema` → query feature with key `E04-F01` |
-| `created` | `created_at` (TIMESTAMP) | Parse YYYY-MM-DD to ISO 8601 | Append `T00:00:00Z` |
-| `assigned_agent` | `agent_type` (TEXT) | Direct copy | Validated against enum |
-| `dependencies` | `depends_on` (TEXT JSON) | Serialize array to JSON | E.g., `["T-E04-F01-001"]` → `'["T-E04-F01-001"]'` |
-| N/A (from filename) | `file_path` (TEXT) | Absolute path to file | Updated during moves |
-| N/A | `title` (TEXT) | Extracted from first `#` heading | Parse markdown body |
-| N/A | `description` (TEXT) | Extracted from "## Goal" section | Parse markdown body |
-| N/A | `priority` (TEXT) | Default "medium" | Not in frontmatter |
-| N/A | `progress_pct` (INTEGER) | Default 0 | Not in frontmatter |
-| N/A | `updated_at` (TIMESTAMP) | File modification time | From filesystem |
-
-**Feature Key Extraction Logic**:
-```python
-def extract_feature_key(feature_path: str) -> str:
-    """
-    Extract feature key from path like:
-    /home/user/.claude/docs/plan/E04-task-mgmt-cli-core/E04-F01-database-schema
-    → E04-F01
-    """
-    dir_name = Path(feature_path).name  # "E04-F01-database-schema"
-    match = re.match(r'(E\d{2}-F\d{2})', dir_name)
-    if match:
-        return match.group(1)
-    raise ValueError(f"Invalid feature path: {feature_path}")
-```
-
----
-
-## File System Structure
-
-### Initialization Creates
-
-```
-project-root/
-├── project.db                      # SQLite database (E04-F01)
-├── .pmconfig.json                  # Configuration file (E04-F07)
-├── docs/
-│   └── tasks/
-│       ├── todo/                   # Status: todo
-│       ├── active/                 # Status: in_progress
-│       ├── ready-for-review/       # Status: ready_for_review
-│       ├── completed/              # Status: completed
-│       └── archived/               # Status: archived
-└── templates/
-    ├── task.md                     # Task template
-    ├── epic.md                     # Epic template
-    └── feature.md                  # Feature template
-```
-
----
-
-### Folder → Status Mapping
-
-| Folder | Expected Status | Sync Behavior |
-|--------|----------------|---------------|
-| `docs/tasks/todo/` | `todo` | File-wins: move file if status != "todo" |
-| `docs/tasks/active/` | `in_progress` | File-wins: move file if status != "in_progress" |
-| `docs/tasks/ready-for-review/` | `ready_for_review` | File-wins: move file if status != "ready_for_review" |
-| `docs/tasks/completed/` | `completed` | File-wins: move file if status != "completed" |
-| `docs/tasks/archived/` | `archived` | File-wins: move file if status != "archived" |
-
-**Conflict Example**:
-- File location: `docs/tasks/todo/T-E04-F01-001.md`
-- Frontmatter status: `in_progress`
-- **File-Wins Strategy**: Move file to `docs/tasks/active/T-E04-F01-001.md`, update DB status to `in_progress`
-- **Database-Wins Strategy**: Update frontmatter to `status: todo`, keep file in `todo/`
-
----
-
-## Sync Data Structures
-
-### SyncReport (Output)
-
-**Purpose**: Report sync results to user
-
-**Format**: Python dataclass → JSON
-
-```python
-@dataclass
-class SyncReport:
-    scanned: int                     # Total files scanned
-    imported: int                    # New tasks created
-    updated: int                     # Existing tasks updated
-    conflicts: int                   # Conflicts resolved
-    skipped: int                     # Files skipped (invalid)
-    warnings: List[str]              # Warning messages
-    errors: List[str]                # Error messages
-    dry_run: bool                    # Was this a dry-run?
-
-    def to_json(self) -> str:
-        """Serialize to JSON"""
-        return json.dumps(asdict(self), indent=2)
-
-    def to_text(self) -> str:
-        """Format as human-readable text"""
-        return f"""
-Sync completed:
-  Files scanned: {self.scanned}
-  New tasks imported: {self.imported}
-  Existing tasks updated: {self.updated}
-  Conflicts resolved: {self.conflicts}
-  Warnings: {len(self.warnings)}
-  Errors: {len(self.errors)}
-        """
-```
-
-**JSON Example**:
-```json
-{
-  "scanned": 47,
-  "imported": 5,
-  "updated": 3,
-  "conflicts": 2,
-  "skipped": 1,
-  "warnings": [
-    "Warning: Invalid frontmatter in todo/broken.md, skipping"
-  ],
-  "errors": [],
-  "dry_run": false
+**Newer-Wins Strategy**:
+```go
+if fileData.ModifiedAt.After(dbData.UpdatedAt) {
+    // File is newer → use file-wins logic
+} else {
+    // Database is newer → use database-wins logic
 }
-```
-
----
-
-### InitResult (Output)
-
-**Purpose**: Report init results to user
-
-**Format**: Python dataclass → text output
-
-```python
-@dataclass
-class InitResult:
-    database_created: bool
-    folders_created: bool
-    config_created: bool
-    templates_installed: bool
-    warnings: List[str]
-
-    def to_text(self) -> str:
-        """Format as human-readable text"""
-        lines = ["PM CLI initialized successfully!", ""]
-        if self.database_created:
-            lines.append("✓ Database created: project.db")
-        else:
-            lines.append("- Database already exists (skipped)")
-
-        if self.folders_created:
-            lines.append("✓ Folder structure created")
-        else:
-            lines.append("- Folders already exist (skipped)")
-
-        if self.config_created:
-            lines.append("✓ Config file created: .pmconfig.json")
-        else:
-            lines.append("- Config file already exists (skipped)")
-
-        if self.templates_installed:
-            lines.append("✓ Templates installed to templates/")
-        else:
-            lines.append("- Templates already exist (skipped)")
-
-        if self.warnings:
-            lines.append("")
-            lines.append("Warnings:")
-            for warning in self.warnings:
-                lines.append(f"  - {warning}")
-
-        lines.append("")
-        lines.append("Next steps:")
-        lines.append("  1. Edit .pmconfig.json to set default epic and agent")
-        lines.append("  2. Create tasks with: pm task create ...")
-        lines.append("  3. Import existing tasks with: pm sync")
-
-        return "\n".join(lines)
-```
-
----
-
-## Conflict Detection Data
-
-### Conflict Record
-
-**Purpose**: Track detected conflicts during sync
-
-```python
-@dataclass
-class Conflict:
-    task_key: str
-    field: str                       # "status", "priority", "title", etc.
-    file_value: Any                  # Value from file frontmatter
-    db_value: Any                    # Value from database
-    file_path: Path
-    resolution: str                  # "file-wins", "database-wins", "newer-wins"
-
-    def describe(self) -> str:
-        """Human-readable conflict description"""
-        return f"""
-Conflict detected in {self.task_key}:
-  Field: {self.field}
-  Database: {self.db_value}
-  File: {self.file_value}
-  Resolution: {self.resolution} ({"file" if self.resolution == "file-wins" else "database"} updated)
-        """
-```
-
-**Example**:
-```
-Conflict detected in T-E04-F01-003:
-  Field: status
-  Database: in_progress
-  File: todo
-  Resolution: file-wins (database updated to "todo")
 ```
 
 ---
@@ -565,184 +372,521 @@ Conflict detected in T-E04-F01-003:
 
 ### Frontmatter Validation
 
-1. **YAML Structure**:
-   - Must be valid YAML between `---` delimiters
-   - Must be at start of file
-   - Invalid YAML → skip file, log warning
+**Required Fields**:
+- `key` (string, pattern: `T-E##-F##-###`)
 
-2. **Required Fields**:
-   - `task_key` - always required
-   - `status` - always required
-   - `feature` - always required
-   - Missing required field → skip file, log warning
+**Optional Fields**:
+- `title` (string)
+- `description` (string)
+- `file_path` (string)
 
-3. **Key Format**:
-   - Must match `T-E\d{2}-F\d{2}-\d{3}` pattern
-   - Must match filename
-   - Mismatch → skip file, log warning
+**Forbidden Fields in Frontmatter** (from PRD architectural decision):
+- `status` - MUST NOT be in file (database only)
+- `priority` - MUST NOT be in file (database only)
+- `agent_type` - MUST NOT be in file (database only)
+- `depends_on` - MUST NOT be in file (database only)
 
-4. **Feature Path**:
-   - Must be absolute path
-   - Must end with `E\d{2}-F\d{2}-{feature-slug}` pattern
-   - Feature must exist in DB (or `--create-missing` flag)
-   - Invalid → skip file, log warning
+**Validation Logic**:
+```go
+func ValidateFrontmatter(metadata TaskMetadata) error {
+    // Required: key
+    if metadata.Key == "" {
+        return errors.New("task_key is required")
+    }
 
-5. **Dependencies**:
-   - Must be array (YAML list)
-   - Each element must match task key format
-   - Invalid format → skip file, log warning
+    // Validate key format
+    if !regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}$`).MatchString(metadata.Key) {
+        return fmt.Errorf("invalid task key format: %s", metadata.Key)
+    }
 
----
+    // Optional fields - no validation if empty
+    // Title and description can be empty (preserve database values)
 
-### Config Validation
-
-1. **JSON Structure**:
-   - Must be valid JSON
-   - Invalid JSON → error on read, use defaults
-
-2. **Field Types**:
-   - `default_epic`: string or null
-   - `default_agent`: string or null
-   - `color_enabled`: boolean
-   - `json_output`: boolean
-   - Wrong type → error, use defaults
-
-3. **Epic Key Validation**:
-   - If provided, must match `E\d{2}` pattern
-   - If provided, must exist in database
-   - Invalid → warning, treat as null
-
-4. **Agent Type Validation**:
-   - If provided, must be in enum
-   - Invalid → warning, treat as null
-
----
-
-## Performance Considerations
-
-### Bulk Data Loading
-
-**Sync Performance**: Use batch operations for database writes
-
-```python
-# Good: Bulk insert
-new_tasks = [task1, task2, task3, ...]
-session.bulk_insert_mappings(Task, new_tasks)
-session.commit()
-
-# Bad: Individual inserts
-for task_data in new_tasks:
-    task = Task(**task_data)
-    session.add(task)
-    session.commit()  # Commits per task!
+    return nil
+}
 ```
 
-**Target**: 100 files in <10 seconds
-- File scanning: ~2s
-- YAML parsing: ~1s (10ms per file)
-- DB operations: ~5s (bulk inserts)
-- File moves: ~2s
-- Total: ~10s
+### Key Consistency Validation
+
+**Rule**: Task key in frontmatter MUST match key in filename.
+
+**Validation**:
+```go
+// File: T-E04-F07-001.md
+// Frontmatter: key: T-E04-F07-001
+// → VALID
+
+// File: T-E04-F07-001.md
+// Frontmatter: key: T-E04-F07-002
+// → INVALID (log warning, skip file)
+```
+
+**Implementation**:
+```go
+func ValidateKeyConsistency(filename, frontmatterKey string) error {
+    // Extract key from filename
+    expectedKey := strings.TrimSuffix(filename, ".md")
+
+    if expectedKey != frontmatterKey {
+        return fmt.Errorf("key mismatch: filename=%s, frontmatter=%s",
+            expectedKey, frontmatterKey)
+    }
+
+    return nil
+}
+```
 
 ---
 
-### File Scanning
+## Epic and Feature Management
 
-**Strategy**: Use `Path.rglob()` for recursive scanning
+### Auto-Creation Strategy (--create-missing flag)
 
-```python
-def scan_folders(base_path: Path, folder_filter: Optional[str]) -> List[Path]:
-    """Scan for *.md files recursively"""
-    folders = ['todo', 'active', 'ready-for-review', 'completed', 'archived']
-    if folder_filter:
-        folders = [f for f in folders if f == folder_filter]
+**Data Sources for Inference**:
+1. **From folder structure**: `docs/plan/E04-task-mgmt-cli-core/E04-F07-initialization-sync/`
+   - Epic: E04 (from grandparent directory)
+   - Feature: E04-F07 (from parent directory)
 
-    files = []
-    for folder in folders:
-        folder_path = base_path / 'docs' / 'tasks' / folder
-        files.extend(folder_path.rglob('*.md'))
+2. **From task key**: `T-E04-F07-001`
+   - Epic: E04 (extract from key)
+   - Feature: E04-F07 (extract from key)
 
-    return files
+**Auto-Creation Data**:
+```go
+// Minimal epic creation
+epic := &models.Epic{
+    Key:          "E04",                        // From inference
+    Title:        "E04 (Auto-created)",         // Placeholder
+    Description:  "Auto-created during sync",   // Note auto-creation
+    Status:       "active",                     // Default
+    Priority:     "medium",                     // Default
+}
+
+// Minimal feature creation
+feature := &models.Feature{
+    EpicID:       epicID,                       // From epic lookup
+    Key:          "E04-F07",                    // From inference
+    Title:        "E04-F07 (Auto-created)",     // Placeholder
+    Description:  "Auto-created during sync",   // Note auto-creation
+    Status:       "active",                     // Default
+    ProgressPct:  0.0,                          // Default
+}
 ```
 
-**Target**: Scan 1000 files in <1 second
+**Database Operations**:
+```sql
+-- 1. Check if epic exists
+SELECT id FROM epics WHERE key = 'E04';
+
+-- 2. If not exists and --create-missing, create epic
+INSERT INTO epics (key, title, description, status, priority)
+VALUES ('E04', 'E04 (Auto-created)', 'Auto-created during sync', 'active', 'medium');
+
+-- 3. Check if feature exists
+SELECT id FROM features WHERE key = 'E04-F07';
+
+-- 4. If not exists and --create-missing, create feature
+INSERT INTO features (epic_id, key, title, description, status, progress_pct)
+VALUES (?, 'E04-F07', 'E04-F07 (Auto-created)', 'Auto-created during sync', 'active', 0.0);
+```
+
+**Without --create-missing Flag**:
+```go
+// If epic or feature doesn't exist, skip task and log warning
+log.Warnf("Task %s references non-existent feature %s. Use --create-missing or create feature first.",
+    taskKey, featureKey)
+```
 
 ---
 
-## Data Persistence Patterns
+## Task History Tracking
 
-### Transactional Sync
+### Sync Events Recorded
 
-**Pattern**: All DB changes in single transaction
+**Event Types**:
+1. **Task Import**: New task imported from file
+2. **Task Update**: Existing task updated from file
+3. **Conflict Resolution**: Conflict detected and resolved
 
-```python
-with session_factory.get_session() as session:
-    try:
-        # All DB operations
-        for action in actions:
-            if action.type == ActionType.CREATE:
-                session.add(Task(**action.data))
-            elif action.type == ActionType.UPDATE:
-                task = session.get(Task, action.task_id)
-                for field, value in action.changes.items():
-                    setattr(task, field, value)
-
-        # Commit all at once
-        session.commit()
-
-    except Exception as e:
-        session.rollback()
-        raise SyncError(f"Sync failed: {e}")
+**History Record Format**:
+```go
+type TaskHistoryRecord struct {
+    TaskID    int64
+    OldStatus string      // Same as new status (status not changed during sync)
+    NewStatus string      // Current status
+    Agent     *string     // "sync" (identifies sync operation)
+    Notes     *string     // Detailed description of sync action
+    Timestamp time.Time   // Automatic
+}
 ```
 
-**Rationale**: Atomicity - either all changes succeed or none do.
+**Example History Records**:
+
+**1. Task Import**:
+```sql
+INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
+VALUES (42, NULL, 'todo', 'sync', 'Task imported from file: docs/plan/.../T-E04-F07-001.md');
+```
+
+**2. Task Update (No Conflicts)**:
+```sql
+INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
+VALUES (42, 'in_progress', 'in_progress', 'sync', 'File path updated to: docs/plan/.../T-E04-F07-001.md');
+```
+
+**3. Task Update (With Conflicts)**:
+```sql
+INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
+VALUES (42, 'in_progress', 'in_progress', 'sync',
+        'Updated from file during sync (file-wins): title ("Add..." → "Implement..."), file_path');
+```
+
+**4. Task Deletion (--cleanup flag)**:
+```sql
+-- History record automatically deleted via CASCADE
+-- But we can add a record before deleting task:
+INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
+VALUES (42, 'completed', 'archived', 'sync', 'Task file not found, marked for deletion');
+
+DELETE FROM tasks WHERE id = 42;
+-- Cascade deletes history
+```
 
 ---
 
-### Incremental Config Updates
+## Query Patterns for Sync
 
-**Pattern**: Read, modify, write config
+### Efficient Bulk Queries
 
-```python
-def update_config(updates: Dict[str, Any]) -> None:
-    """Update specific config fields"""
-    config = read_config()  # Read existing
-    config.update(updates)  # Merge changes
-    write_config(config)    # Write back
+**1. Bulk Task Lookup by Keys**:
+```sql
+-- Fetch all tasks matching scanned file keys
+SELECT id, key, title, description, file_path, updated_at, status, priority, agent_type
+FROM tasks
+WHERE key IN (?, ?, ?, ...);  -- Bind array of keys
 ```
 
-**Atomic Write**: Use temp file + rename
+**2. Epic/Feature Existence Check**:
+```sql
+-- Check multiple epics/features in one query
+SELECT key FROM epics WHERE key IN (?, ?, ?);
+SELECT key FROM features WHERE key IN (?, ?, ?);
+```
 
-```python
-def write_config(config: Dict[str, Any]) -> None:
-    """Atomically write config file"""
-    temp_path = Path('.pmconfig.json.tmp')
-    final_path = Path('.pmconfig.json')
+**3. Orphaned Task Detection (--cleanup flag)**:
+```sql
+-- Find tasks with file_path not in scanned files list
+SELECT id, key, file_path
+FROM tasks
+WHERE file_path NOT IN (?, ?, ?, ...);  -- Bind array of scanned file paths
+```
 
-    # Write to temp file
-    with temp_path.open('w') as f:
-        json.dump(config, f, indent=2)
+### Transaction Pattern for Sync
 
-    # Atomic rename
-    temp_path.rename(final_path)
+```sql
+BEGIN TRANSACTION;
+
+-- 1. Create missing epics (if --create-missing)
+INSERT INTO epics (...) VALUES (...);
+
+-- 2. Create missing features (if --create-missing)
+INSERT INTO features (...) VALUES (...);
+
+-- 3. Bulk insert new tasks (using prepared statement)
+INSERT INTO tasks (...) VALUES (?);  -- Execute for each new task
+
+-- 4. Update existing tasks (using prepared statement)
+UPDATE tasks SET title = ?, description = ?, file_path = ? WHERE key = ?;
+
+-- 5. Create history records
+INSERT INTO task_history (...) VALUES (?);  -- Execute for each task
+
+-- 6. Delete orphaned tasks (if --cleanup)
+DELETE FROM tasks WHERE id IN (?);
+
+COMMIT;  -- Or ROLLBACK on any error
+```
+
+---
+
+## Data Integrity Constraints
+
+### Enforced Constraints (Existing)
+
+1. **Foreign Keys**:
+   - `tasks.feature_id` REFERENCES `features.id` ON DELETE CASCADE
+   - `features.epic_id` REFERENCES `epics.id` ON DELETE CASCADE
+   - Ensures tasks cannot be orphaned
+
+2. **Unique Keys**:
+   - `tasks.key` UNIQUE
+   - `features.key` UNIQUE
+   - `epics.key` UNIQUE
+   - Prevents duplicate keys during bulk import
+
+3. **Check Constraints**:
+   - `tasks.status` IN ('todo', 'in_progress', ...)
+   - `tasks.priority` BETWEEN 1 AND 10
+   - Validates data during import
+
+### Sync-Specific Constraints
+
+**1. Key Format Validation** (application-level):
+```go
+// Regex: T-E##-F##-###
+validTaskKey := regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}$`)
+```
+
+**2. File Path Validation** (application-level):
+```go
+// Ensure file path is within allowed directories
+func ValidateFilePath(path string) error {
+    absPath, err := filepath.Abs(path)
+    if err != nil {
+        return err
+    }
+
+    allowedRoots := []string{
+        "/path/to/docs/plan",
+        "/path/to/docs/tasks",
+    }
+
+    for _, root := range allowedRoots {
+        if strings.HasPrefix(absPath, root) {
+            return nil
+        }
+    }
+
+    return fmt.Errorf("file path outside allowed directories: %s", path)
+}
+```
+
+---
+
+## Performance Optimization
+
+### Indexing Strategy (Existing)
+
+**Already Optimized**:
+- `tasks.key` has UNIQUE index (automatic)
+- `tasks.feature_id` has index (for foreign key lookups)
+- `task_history.task_id` has index (for history queries)
+
+**No New Indexes Needed**: Sync queries use existing indexes efficiently.
+
+### Bulk Operation Performance
+
+**Prepared Statements for Bulk Insert**:
+```go
+// Prepare once
+stmt, err := tx.PrepareContext(ctx, `
+    INSERT INTO tasks (feature_id, key, title, description, status, file_path)
+    VALUES (?, ?, ?, ?, ?, ?)
+`)
+defer stmt.Close()
+
+// Execute multiple times
+for _, task := range tasks {
+    _, err = stmt.ExecContext(ctx, task.FeatureID, task.Key, ...)
+}
+```
+
+**Transaction Batching**:
+- Use single transaction for entire sync
+- Reduces commit overhead (WAL mode benefits)
+- Target: 100 inserts in <1 second
+
+---
+
+## Data Migration Considerations
+
+### No Migration Required
+
+**Reason**: This feature uses existing schema without changes.
+
+**Compatibility**:
+- Works with existing database created by E04-F01
+- No ALTER TABLE statements needed
+- No data migration scripts needed
+
+### Future Migration Path (if needed)
+
+**If we later add sync metadata table**:
+```sql
+-- Migration script (future, if needed)
+CREATE TABLE sync_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_key TEXT NOT NULL UNIQUE,
+    last_synced_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    content_hash TEXT,
+    FOREIGN KEY (task_key) REFERENCES tasks(key) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_sync_metadata_task_key ON sync_metadata(task_key);
+```
+
+**For MVP**: Not needed. Use existing fields.
+
+---
+
+## Backup and Recovery
+
+### Pre-Sync Backup (--backup flag)
+
+**Backup Strategy**:
+```go
+// Copy database file before sync
+func CreateBackup(dbPath string) (string, error) {
+    timestamp := time.Now().Format("2006-01-02T15-04-05")
+    backupPath := fmt.Sprintf("%s.backup.%s", dbPath, timestamp)
+
+    // Copy file
+    return backupPath, copyFile(dbPath, backupPath)
+}
+```
+
+**Backup Location**: Same directory as database
+**Backup Naming**: `shark-tasks.db.backup.2025-12-16T10-30-00`
+
+### Restore from Backup
+
+**Manual Restore**:
+```bash
+# If sync goes wrong, restore from backup
+cp shark-tasks.db.backup.2025-12-16T10-30-00 shark-tasks.db
+```
+
+**Automatic Rollback**: Transaction rollback handles most error cases (no backup restore needed).
+
+---
+
+## Data Consistency Rules
+
+### Consistency Guarantees
+
+**1. Task Uniqueness**:
+- Task key is UNIQUE in database
+- One task per key (enforced by database)
+
+**2. Epic/Feature Relationships**:
+- Every task must have valid feature_id
+- Every feature must have valid epic_id
+- Enforced by foreign key constraints
+
+**3. File Path Tracking**:
+- `tasks.file_path` always reflects actual file location after sync
+- Updated during every sync operation
+
+**4. Status Consistency**:
+- Status is NEVER read from file frontmatter
+- Status is ALWAYS preserved during sync (database only)
+
+**5. Timestamp Consistency**:
+- `updated_at` automatically updated by trigger on any UPDATE
+- File modified time read from filesystem (os.Stat)
+- Timestamps used for newer-wins strategy
+
+---
+
+## Error Recovery Strategies
+
+### Database Errors
+
+**Foreign Key Violation** (missing epic/feature):
+```
+Error: FOREIGN KEY constraint failed
+Action: Rollback transaction, log error
+Recovery: User must create epic/feature first or use --create-missing
+```
+
+**Unique Key Violation** (duplicate task key):
+```
+Error: UNIQUE constraint failed: tasks.key
+Action: Rollback transaction, log error
+Recovery: This indicates data corruption (key in file already in DB but query missed it)
+```
+
+### Transaction Rollback
+
+**Automatic Rollback Triggers**:
+- Any SQL error (constraint violation, syntax error)
+- Context cancellation (timeout, user interrupt)
+- File read error mid-sync
+
+**Post-Rollback State**:
+- Database unchanged (transaction never committed)
+- No partial updates
+- File paths not updated
+- History records not created
+
+---
+
+## Testing Data Scenarios
+
+### Test Data Sets
+
+**1. Clean Import** (new tasks, no conflicts):
+```
+Files: 10 new task files
+Database: Empty
+Expected: 10 tasks imported, no conflicts
+```
+
+**2. Conflict Resolution** (file vs database):
+```
+Files: 5 files with title "New Title"
+Database: Same 5 tasks with title "Old Title"
+Expected: 5 conflicts detected, resolved per strategy
+```
+
+**3. File Moved** (file path conflict):
+```
+Files: Task at docs/plan/.../T-E04-F07-001.md
+Database: Task with file_path docs/tasks/created/T-E04-F07-001.md
+Expected: File path updated to new location
+```
+
+**4. Missing Epic/Feature**:
+```
+Files: Task T-E99-F99-001 (E99-F99 doesn't exist)
+Database: No epic E99 or feature E99-F99
+Expected (without --create-missing): Task skipped, warning logged
+Expected (with --create-missing): Epic E99 and feature E99-F99 created, task imported
+```
+
+**5. Orphaned Tasks** (--cleanup flag):
+```
+Files: 10 task files scanned
+Database: 15 tasks (5 files deleted)
+Expected: 5 orphaned tasks deleted
 ```
 
 ---
 
 ## Summary
 
-This data design defines:
-- **Configuration Format**: `.pmconfig.json` structure and validation
-- **Frontmatter Schema**: Task metadata format for sync
-- **Template Structure**: Reusable templates for tasks, epics, features
-- **Data Mapping**: File → database transformation logic
-- **Sync Data Structures**: Report formats and conflict tracking
-- **Validation Rules**: Comprehensive input validation
-- **Performance Patterns**: Bulk operations and atomic writes
+### Data Storage Approach
 
-**Key Principles**:
-1. **Validation First**: Validate all inputs before processing
-2. **Fail Fast**: Skip invalid files, don't halt entire sync
-3. **Atomicity**: Use transactions and atomic file writes
-4. **Performance**: Batch operations for large datasets
-5. **Extensibility**: Forward-compatible config, ignore unknown fields
+- **No new tables**: Use existing schema
+- **Use existing fields**: `file_path`, `updated_at`
+- **Track sync in history**: Use `task_history` table with agent='sync'
+- **Conflict detection**: In-memory comparison during sync
+- **Resolution**: Update database based on strategy
+
+### Critical Data Fields
+
+| Field | Table | Purpose | Updated During Sync? |
+|-------|-------|---------|---------------------|
+| `key` | tasks | Task identifier | No (unique, immutable) |
+| `title` | tasks | Task title | Yes (if conflict, per strategy) |
+| `description` | tasks | Task description | Yes (if conflict, per strategy) |
+| `file_path` | tasks | File location | Yes (always updated to actual) |
+| `updated_at` | tasks | Last DB update | Yes (automatic trigger) |
+| `status` | tasks | Task status | No (database only, preserved) |
+| `priority` | tasks | Task priority | No (database only, preserved) |
+| `agent_type` | tasks | Agent type | No (database only, preserved) |
+
+---
+
+**Document Complete**: 2025-12-16
+**Next Document**: 02-architecture.md (backend-architect creates)

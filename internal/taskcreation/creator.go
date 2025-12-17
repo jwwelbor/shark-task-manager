@@ -2,7 +2,6 @@ package taskcreation
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -83,7 +82,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	}
 
 	// 3. Begin database transaction
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := c.db.BeginTxContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -135,7 +134,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	agent := getCurrentUser()
 	history := &models.TaskHistory{
 		TaskID:    task.ID,
-		OldStatus: "",
+		OldStatus: nil,
 		NewStatus: string(models.TaskStatusTodo),
 		Agent:     &agent,
 		Notes:     stringPtr("Task created"),

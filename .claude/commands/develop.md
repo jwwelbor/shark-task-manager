@@ -167,11 +167,11 @@ git branch --list feature/*
 ## Skills Used
 
 **Primary Skills**:
+- 
 - `development` - Code implementation, git operations
-- `tdd` - Test-first development workflow
+- `test-driven-development` - Test-first development workflow
 - `quality` - Code review, testing, validation
 - `devops` - Branch management, CI/CD integration
-- `code-review` - Standards compliance verification
 - `architecture` - Design compliance review
 
 ## Example Session
