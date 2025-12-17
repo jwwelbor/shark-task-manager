@@ -203,6 +203,68 @@ Next failing test for next feature.
 | **Clear** | Name describes behavior | `test('test1')` |
 | **Shows intent** | Demonstrates desired API | Obscures what code should do |
 
+## Database and Repository Testing
+
+**Database functionality does not need testing—we know the DB works.**
+
+All database activity should be mocked through repositories in unit tests. Only repository tests should connect to the actual database.
+
+<Good>
+```typescript
+// Service test - mock the repository
+test('getUserTasks returns active tasks', async () => {
+  const mockRepo = {
+    findByUserId: jest.fn().mockResolvedValue([
+      { id: 1, status: 'active' },
+      { id: 2, status: 'active' }
+    ])
+  };
+
+  const service = new TaskService(mockRepo);
+  const tasks = await service.getUserTasks(123);
+
+  expect(tasks).toHaveLength(2);
+  expect(mockRepo.findByUserId).toHaveBeenCalledWith(123);
+});
+```
+Service tests mock repository—no DB needed
+</Good>
+
+<Bad>
+```typescript
+// Service test - connects to real DB
+test('getUserTasks returns active tasks', async () => {
+  const db = await setupTestDatabase();
+  await db.insert({ userId: 123, status: 'active' });
+
+  const service = new TaskService(new TaskRepository(db));
+  const tasks = await service.getUserTasks(123);
+
+  expect(tasks).toHaveLength(1);
+});
+```
+Slow, brittle, tests DB not service logic
+</Bad>
+
+<Good>
+```typescript
+// Repository test - connects to real DB
+test('TaskRepository.findByUserId queries correctly', async () => {
+  const db = await setupTestDatabase();
+  await db.insert({ userId: 123, status: 'active' });
+
+  const repo = new TaskRepository(db);
+  const tasks = await repo.findByUserId(123);
+
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0].userId).toBe(123);
+});
+```
+Repository test validates DB interaction
+</Good>
+
+**Key principle:** Test your logic, not the database. Mock repositories in business logic tests. Only test actual DB interactions in repository tests.
+
 ## Why Order Matters
 
 **"I'll write tests after to verify it works"**

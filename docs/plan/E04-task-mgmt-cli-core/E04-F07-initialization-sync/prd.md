@@ -6,13 +6,27 @@
 
 ## Goal
 
+### Key Architectural Decisions
+
+**Status Management:**
+- Task status is stored ONLY in the database, NOT in file frontmatter
+- Status is managed exclusively through the `pm` tool
+- File frontmatter contains only: key (required), title (optional), description (optional), file_path (optional)
+- When syncing, the system queries the database using the task key to get the current status
+
+**File Organization:**
+- Tasks are organized under feature folders: `docs/plan/<epic>/<feature>/T-<key>.md`
+- Tasks remain in their feature folders regardless of status changes
+- Status changes update the database record only, not file location
+- Legacy tasks in status-based folders (docs/tasks/todo/, etc.) are supported for backward compatibility
+
 ### Problem
 
-New projects need to set up the PM CLI infrastructure from scratch: create the database schema, set up folder structure, configure defaults, and optionally import existing task markdown files. Existing projects with legacy markdown-based task files need to migrate data into the database without losing information or manually recreating tasks. When markdown files are edited outside the CLI (direct file edits, Git pulls, manual folder reorganization), the database becomes stale and out of sync with filesystem reality. Without initialization and sync tools, users must manually set up infrastructure, risk data loss during migration, and have no way to detect or repair database/filesystem inconsistencies caused by external changes.
+New projects need to set up the PM CLI infrastructure from scratch: create the database schema, set up folder structure, configure defaults, and optionally import existing task markdown files. Existing projects with task files organized under feature folders (e.g., `docs/plan/E04-epic/E04-F06-feature/T-E04-F06-001.md`) or legacy status-based folders need to migrate data into the database without losing information or manually recreating tasks. When markdown files are edited outside the CLI (direct file edits, Git pulls, manual edits to title/description), the database becomes stale and out of sync with filesystem reality. Tasks are organized under their respective feature folders and remain there regardless of status changes - status is managed solely in the database, not in files. Without initialization and sync tools, users must manually set up infrastructure, risk data loss during migration, and have no way to detect or repair database/filesystem inconsistencies caused by external changes.
 
 ### Solution
 
-Implement `pm init` command for new project setup that creates database schema, folder structure, default configuration file, and task templates in a single operation. Implement `pm sync` command that scans the filesystem for task markdown files, parses frontmatter, imports/updates database records to match file contents, and handles conflicts when database and file metadata disagree. Support dry-run mode (`--dry-run`) to preview changes before applying, force mode (`--force`) to overwrite database with file contents, and selective sync (`--folder=todo`) to sync specific folders. Provide conflict resolution strategies: file-wins (default), database-wins, or interactive prompt. Integrate with E04-F01 (Database), E04-F05 (Folder Management), and E04-F02 (CLI Framework) to ensure reliable setup and synchronization.
+Implement `pm init` command for new project setup that creates database schema, folder structure, default configuration file, and task templates in a single operation. Implement `pm sync` command that scans feature folders recursively for task markdown files, parses frontmatter (key, title, description), queries database for status using task key, imports/updates database records to match file contents, and handles conflicts when database and file metadata disagree. Tasks remain organized under their feature folders regardless of status - status changes only update the database, not file location or frontmatter. Support dry-run mode (`--dry-run`) to preview changes before applying, force mode (`--force`) to overwrite database with file contents, and selective sync (`--folder=<path>`) to sync specific folders. Provide conflict resolution strategies: file-wins (default), database-wins, or newer-wins based on timestamps. Integrate with E04-F01 (Database), E04-F05 (Folder Management), and E04-F02 (CLI Framework) to ensure reliable setup and synchronization.
 
 ### Impact
 
@@ -73,7 +87,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 ### Tertiary Persona: AI Agent (Initialization)
 
 **Role**: Agent setting up PM CLI in automated workflows
-**Environment**: CI/CD, automated project setup
+**Environment**: automated project setup
 
 **Key Characteristics**:
 - Needs non-interactive initialization
@@ -82,7 +96,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 - Needs JSON output for verification
 
 **Goals**:
-- Initialize in CI/CD: `pm init --non-interactive`
+- Initialize: `pm init --non-interactive`
 - Verify init succeeded: check exit code and JSON output
 - Sync files programmatically: `pm sync --json`
 
@@ -104,36 +118,37 @@ Implement `pm init` command for new project setup that creates database schema, 
 **Story 3: Preview Sync Changes**
 - As a user, I want to run `pm sync --dry-run` to see what will change without modifying data, so that I can verify sync results before committing.
 
-**Story 4: Sync After Git Pull**
-- As a developer, I want to run `pm sync` after pulling Git changes, so that my database reflects newly added or modified task files.
-
-**Story 5: Handle Frontmatter Changes**
-- As a user, I want file frontmatter changes (status, priority) to update the database during sync, so that external edits are reflected in PM CLI.
-
-**Story 6: Detect Conflicts**
-- As a user, I want sync to detect conflicts (DB says status="in_progress", file says status="todo") and report them clearly, so that I can resolve inconsistencies.
-
-**Story 7: Choose Conflict Resolution**
-- As a user, I want to choose conflict resolution strategy (`--strategy=file-wins` or `--strategy=database-wins`), so that I control which source is authoritative.
-
 **Story 8: Create Default Config**
 - As a user, I want `pm init` to create `.pmconfig.json` with sensible defaults, so that I can customize configuration without starting from scratch.
 
-### Should-Have User Stories
-
 **Story 9: Selective Folder Sync**
-- As a user, I want to run `pm sync --folder=todo` to sync only specific folders, so that I can update subsets of tasks.
-
-**Story 10: Force Overwrite**
-- As a user, I want to run `pm sync --force` to overwrite database with file contents regardless of conflicts, so that I can reset database to match filesystem.
-
-**Story 11: Sync History Recording**
-- As a user, I want sync operations to create task_history records for status changes, so that I have audit trail of external edits.
+- As a user, I want to run `pm sync --folder=<path>` to sync only a specific folder, so that I can update subsets of tasks (useful for legacy task folders or specific feature folders).
 
 **Story 12: Epic/Feature Import**
 - As a user, I want `pm sync` to detect epic and feature keys from task files and create epic/feature records if they don't exist, so that I can import tasks without manually creating epics first.
 
+### Should-Have User Stories
+
+**Story 4: Sync After Git Pull**
+- As a developer, I want to run `pm sync` after pulling Git changes, so that my database reflects newly added or modified task files.
+
+**Story 5: Handle Frontmatter Changes**
+- As a user, I want file frontmatter changes (title, description) to update the database during sync, so that external edits are reflected in PM CLI.
+
+**Story 6: Detect Conflicts**
+- As a user, I want sync to detect conflicts (DB says title="X", file says title="Y") and report them clearly, so that I can resolve inconsistencies.
+
+**Story 7: Choose Conflict Resolution**
+- As a user, I want to choose conflict resolution strategy (`--strategy=file-wins` or `--strategy=database-wins`), so that I control which source is authoritative.
+
+**Story 10: Force Overwrite**
+- As a user, I want to run `pm sync --force` to overwrite database with file contents regardless of conflicts, so that I can reset database to match filesystem.
+
+
 ### Could-Have User Stories
+
+**Story 11: Sync History Recording**
+- As a user, I want sync operations to create task_history records for status changes, so that I have audit trail of external edits.
 
 **Story 13: Interactive Conflict Resolution**
 - As a user, I want sync to prompt me for each conflict (file or database wins?), so that I can resolve conflicts case-by-case.
@@ -192,127 +207,132 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 11. The system must provide `pm sync` command that synchronizes filesystem with database
 
-12. The command must scan these folders for .md files:
-    - docs/tasks/todo/
-    - docs/tasks/active/
-    - docs/tasks/ready-for-review/
-    - docs/tasks/completed/
-    - docs/tasks/archived/
+12. The command must scan feature folders for task .md files:
+    - Recursively search under `docs/plan/` for feature folders matching pattern `E##-F##-*`
+    - Within each feature folder, find all task markdown files (e.g., `T-E04-F06-001.md`)
+    - Also scan legacy task folders if they exist: `docs/tasks/todo/`, `docs/tasks/active/`, etc.
 
 13. For each markdown file, the command must:
     - Parse frontmatter (YAML between `---` delimiters)
-    - Extract task metadata: key, title, epic, feature, status, agent, priority, depends_on, created_at
-    - Determine file status from folder location (todo/ → status should be "todo")
-    - Compare with database record (if exists)
+    - Extract task key from frontmatter (required field)
+    - Extract optional metadata: title, description, file_path
+    - Query database using task key to get current status and full task record
+    - Compare file metadata with database record (if exists)
 
-14. The command must support `--folder=<folder-name>` to sync only specific folder (e.g., `--folder=todo`)
+14. The command must support `--folder=<folder-path>` to sync only a specific folder (e.g., `--folder=docs/tasks/todo` or `--folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation`)
 
-15. The command must support `--dry-run` flag to preview changes without applying them
+15. When scanning files, the system must attempt to infer epic and feature from:
+    - Parent folder structure (e.g., `docs/plan/E04-epic/E04-F06-feature/`)
+    - Task key pattern in frontmatter (e.g., `T-E04-F06-001`)
+    - If epic/feature cannot be determined, prompt user: "Cannot determine feature for task <key>. Please specify --epic=<key> --feature=<key>"
 
-16. The command must support `--json` flag to output sync report in JSON format
+16. The command must support `--dry-run` flag to preview changes without applying them
+
+17. The command must support `--json` flag to output sync report in JSON format
 
 **File Discovery and Parsing:**
 
-17. The system must recursively scan sync folders for files matching `*.md` pattern
+18. The system must recursively scan feature folders under `docs/plan/` for task files matching pattern `T-*.md`
 
-18. The system must parse YAML frontmatter using PyYAML or similar library
+19. The system must parse YAML frontmatter using a Go YAML library (e.g., gopkg.in/yaml.v3)
 
-19. If frontmatter is invalid YAML, log warning and skip file: "Warning: Invalid frontmatter in <file>, skipping"
+20. If frontmatter is invalid YAML, log warning and skip file: "Warning: Invalid frontmatter in <file>, skipping"
 
-20. If required fields (key, title) are missing from frontmatter, log warning and skip file
+21. Required field in frontmatter: `key` (task identifier)
 
-21. Task key must match filename: if file is `T-E01-F02-003.md`, frontmatter key must be `T-E01-F02-003`
+22. Optional fields in frontmatter: `title`, `description`, `file_path`
 
-22. If key mismatch detected, log warning: "Warning: Key mismatch in <file>: filename=T-E01-F02-003, frontmatter=T-E01-F02-004"
+23. Status is NOT stored in frontmatter - status is retrieved from database using the task key
+
+24. Task key must match filename: if file is `T-E01-F02-003.md`, frontmatter key must be `T-E01-F02-003`
+
+25. If key mismatch detected, log warning: "Warning: Key mismatch in <file>: filename=T-E01-F02-003, frontmatter=T-E01-F02-004"
+
+26. The system may read file_path field from frontmatter to identify a canonical file reference (may differ from actual file location due to legacy naming or reorganization)
 
 **Database Comparison:**
 
-23. For each parsed file, the system must query database for task with matching key
+27. For each parsed file, the system must query database for task with matching key
 
-24. If task does not exist in database (new file):
-    - Create new database record from file metadata
-    - Infer feature_id from feature key in frontmatter
+28. If task does not exist in database (new file):
+    - Create new database record from file metadata (key, title, description)
+    - Infer epic and feature from parent folder structure or task key pattern
+    - If epic/feature cannot be inferred, prompt user to specify (see requirement 15)
     - Set file_path to actual file location
+    - Set initial status to "todo" (default for new tasks)
     - Create task_history record: "Task imported from file"
 
-25. If task exists in database (existing file):
-    - Compare file metadata with database record
-    - Detect conflicts (differences in status, priority, title, etc.)
-    - Apply conflict resolution strategy
+29. If task exists in database (existing file):
+    - Compare file metadata (title, description) with database record
+    - Detect conflicts (differences in title or description between file and DB)
+    - Update file_path in database if actual file location differs from stored path
+    - Apply conflict resolution strategy for metadata differences
 
-26. If database has tasks not found in filesystem (orphaned DB records):
-    - Log warning: "Warning: Task T-E01-F02-003 in database but file not found"
+30. If database has tasks not found in filesystem (orphaned DB records):
+    - Log warning: "Warning: Task T-E01-F02-003 in database but file not found at <path>"
     - Optionally mark as archived or delete (based on `--cleanup` flag)
 
 **Conflict Detection:**
 
-27. The system must detect conflicts between file and database for these fields:
-    - status
-    - priority
-    - title
-    - description
-    - agent_type
-    - depends_on
+31. The system must detect conflicts between file and database for these fields:
+    - title (if present in frontmatter and differs from DB)
+    - description (if present in frontmatter and differs from DB)
+    - file_path (if actual file location differs from DB record)
 
-28. Conflicts must be reported in sync output:
+32. Note: Status, priority, agent_type, and depends_on are NOT stored in frontmatter and therefore cannot conflict. These fields are managed exclusively through the pm tool and stored only in the database.
+
+33. Conflicts must be reported in sync output:
     ```
     Conflict detected in T-E01-F02-003:
-      Field: status
-      Database: in_progress
-      File: todo
-      Resolution: file-wins (status updated to "todo")
+      Field: title
+      Database: "Implement user authentication"
+      File: "Add user authentication feature"
+      Resolution: file-wins (title updated to "Add user authentication feature")
     ```
 
 **Conflict Resolution Strategies:**
 
-29. The system must support `--strategy=<strategy>` flag with values:
-    - `file-wins` (default): File metadata overwrites database
+34. The system must support `--strategy=<strategy>` flag with values:
+    - `file-wins` (default): File metadata (title, description) overwrites database
     - `database-wins`: Database metadata is authoritative, files unchanged
     - `newer-wins`: Use timestamp comparison (most recently updated wins)
 
-30. With `file-wins` strategy:
-    - Update database record with file metadata
-    - Move file to correct folder if folder location doesn't match file frontmatter status
+35. With `file-wins` strategy:
+    - Update database record with file metadata from frontmatter (title, description)
+    - Update file_path in database to match actual file location
     - Create task_history record: "Updated from file during sync"
 
-31. With `database-wins` strategy:
+36. With `database-wins` strategy:
     - Keep database record unchanged
     - Optionally update file frontmatter to match database (with `--update-files` flag)
     - Log conflicts but don't modify database
 
-32. With `newer-wins` strategy:
+37. With `newer-wins` strategy:
     - Compare file modified timestamp with database updated_at
     - If file is newer, use file-wins logic
     - If database is newer, use database-wins logic
 
 **Epic and Feature Inference:**
 
-33. If file frontmatter references epic/feature that doesn't exist in database:
+38. If inferred epic/feature doesn't exist in database:
     - Log warning: "Warning: Task references non-existent feature E01-F02"
     - Skip task import (don't create orphaned tasks)
-    - Suggest: "Create feature E01-F02 first or use pm init to set up epics"
+    - Suggest: "Create feature E01-F02 first or run pm sync with --create-missing"
 
-34. With `--create-missing` flag:
+39. With `--create-missing` flag:
     - Auto-create missing epic and feature records with minimal metadata
+    - Infer feature key from parent folder name or task key pattern
     - Log: "Created feature E01-F02 (inferred from task file)"
 
-**Folder Location Validation:**
-
-35. The system must validate that file folder location matches frontmatter status:
-    - File in todo/ should have status="todo"
-    - File in active/ should have status="in_progress"
-    - File in ready-for-review/ should have status="ready_for_review"
-    - File in completed/ should have status="completed"
-    - File in archived/ should have status="archived"
-
-36. If mismatch detected (e.g., file in todo/ but status="in_progress"):
-    - Log conflict: "Folder location (todo/) doesn't match status (in_progress)"
-    - With file-wins strategy: move file to correct folder (active/)
-    - With database-wins strategy: update file frontmatter to status="todo"
+40. Feature folder organization is preserved:
+    - Tasks remain in their feature folders regardless of status changes
+    - File location follows pattern: `docs/plan/<epic-folder>/<feature-folder>/T-<key>.md`
+    - Status is managed in database only, not in files
+    - Database file_path is updated to reflect actual file location
 
 **Sync Report:**
 
-37. After sync completes, the system must display summary report:
+41. After sync completes, the system must display summary report:
     ```
     Sync completed:
       Files scanned: 47
@@ -323,48 +343,48 @@ Implement `pm init` command for new project setup that creates database schema, 
       Errors: 0
     ```
 
-38. JSON output must include detailed report:
+42. JSON output must include detailed report:
     ```json
     {
       "scanned": 47,
       "imported": 5,
       "updated": 3,
       "conflicts": 2,
-      "warnings": ["Warning: Invalid frontmatter in todo/invalid.md"],
+      "warnings": ["Warning: Invalid frontmatter in docs/tasks/legacy/invalid.md"],
       "errors": []
     }
     ```
 
 **Dry-Run Mode:**
 
-39. With `--dry-run` flag, the system must:
+43. With `--dry-run` flag, the system must:
     - Scan files and detect changes as normal
     - Display what would change (imported, updated, conflicts)
     - NOT modify database
-    - NOT move files
+    - NOT update files
     - Exit with code 0 (success)
 
-40. Dry-run output must clearly indicate preview mode: "Dry-run mode: No changes will be made"
+44. Dry-run output must clearly indicate preview mode: "Dry-run mode: No changes will be made"
 
 **Transaction Safety:**
 
-41. All database changes during sync must use transactions
+45. All database changes during sync must use transactions (Go database/sql package)
 
-42. If any database operation fails, the entire sync must rollback
+46. If any database operation fails, the entire sync must rollback
 
-43. File operations (moves) must be transactional (rollback on failure)
+47. With `--update-files` flag, file frontmatter updates must be atomic (all-or-nothing)
 
-44. The system must use E04-F05 `TransactionalFileOperation` for file moves
+48. Database and file updates must be coordinated to prevent partial updates
 
 **Error Handling:**
 
-45. Invalid YAML frontmatter must not halt sync (log warning, skip file, continue)
+49. Invalid YAML frontmatter must not halt sync (log warning, skip file, continue)
 
-46. Missing required fields must not halt sync (log warning, skip file)
+50. Missing required field (key) must not halt sync (log warning, skip file)
 
-47. Database errors must halt sync and rollback (exit code 2)
+51. Database errors must halt sync and rollback (exit code 2)
 
-48. Filesystem errors (permissions) must halt sync and rollback (exit code 2)
+52. Filesystem errors (permissions) must halt sync and rollback (exit code 2)
 
 ### Non-Functional Requirements
 
@@ -374,6 +394,14 @@ Implement `pm init` command for new project setup that creates database schema, 
 - `pm sync` must process 100 files in <10 seconds
 - YAML parsing must not be bottleneck (<10ms per file)
 - Database bulk inserts should be used for efficiency
+
+**Implementation:**
+
+- The project is implemented in Go
+- Use Go standard library packages where possible (database/sql, os, path/filepath)
+- YAML parsing: gopkg.in/yaml.v3 or similar Go YAML library
+- Transaction support via database/sql package
+- Cross-platform file path handling using filepath package
 
 **Usability:**
 
@@ -399,8 +427,8 @@ Implement `pm init` command for new project setup that creates database schema, 
 **Compatibility:**
 
 - YAML parsing must handle common frontmatter formats
-- Init must work on Linux, macOS, Windows
-- Templates must be cross-platform
+- Init must work on Linux, macOS, Windows (Go's cross-platform support)
+- File path handling must use filepath package for cross-platform compatibility
 - Config file must be valid JSON
 
 ## Acceptance Criteria
@@ -423,23 +451,25 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 ### File Scanning
 
-**Given** I have 10 markdown files in docs/tasks/todo/
+**Given** I have 10 task markdown files across multiple features under docs/plan/
 **When** I run `pm sync`
 **Then** all 10 files are scanned and parsed
 **And** sync report shows "Files scanned: 10"
 
-**Given** I have files in multiple folders
-**When** I run `pm sync --folder=todo`
-**Then** only files in todo/ are scanned
+**Given** I have task files in multiple folders
+**When** I run `pm sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation`
+**Then** only task files in the specified folder are scanned
 **And** files in other folders are ignored
 
 ### New Task Import
 
-**Given** file `docs/tasks/todo/T-E01-F02-003.md` exists with valid frontmatter
+**Given** file `docs/plan/E01-epic-name/E01-F02-feature/T-E01-F02-003.md` exists with valid frontmatter containing key, title, and description
 **And** task T-E01-F02-003 does not exist in database
 **When** I run `pm sync`
 **Then** task T-E01-F02-003 is created in database
-**And** all metadata from frontmatter is imported
+**And** all metadata from frontmatter (key, title, description) is imported
+**And** status is set to "todo" (default for new tasks)
+**And** file_path is set to actual file location
 **And** sync report shows "New tasks imported: 1"
 
 **Given** file has invalid frontmatter (bad YAML)
@@ -450,28 +480,29 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 ### Conflict Resolution (File-Wins)
 
-**Given** database shows task T-E01-F02-003 has status="in_progress"
-**And** file frontmatter shows status="todo"
+**Given** database shows task T-E01-F02-003 has title="Implement authentication"
+**And** file frontmatter shows title="Add user authentication"
 **When** I run `pm sync --strategy=file-wins`
-**Then** database is updated to status="todo"
+**Then** database title is updated to "Add user authentication"
 **And** conflict is reported in sync output
 **And** task_history record is created
 
 ### Conflict Resolution (Database-Wins)
 
-**Given** database shows task T-E01-F02-003 has status="in_progress"
-**And** file frontmatter shows status="todo"
+**Given** database shows task T-E01-F02-003 has title="Implement authentication"
+**And** file frontmatter shows title="Add user authentication"
 **When** I run `pm sync --strategy=database-wins`
-**Then** database remains status="in_progress"
+**Then** database title remains "Implement authentication"
 **And** conflict is reported but database not modified
 
-### Folder Location Validation
+### File Path Updates
 
-**Given** file is in `docs/tasks/todo/T-E01-F02-003.md`
-**And** file frontmatter shows status="in_progress"
-**When** I run `pm sync --strategy=file-wins`
-**Then** file is moved to `docs/tasks/active/T-E01-F02-003.md`
-**And** database status is updated to "in_progress"
+**Given** database shows task T-E01-F02-003 at file_path="docs/tasks/created/T-E01-F02-003.md"
+**And** actual file is at `docs/plan/E01-epic/E01-F02-feature/T-E01-F02-003.md`
+**When** I run `pm sync`
+**Then** database file_path is updated to match actual location
+**And** task remains in feature folder (not moved)
+**And** sync report shows file path conflict resolved
 
 ### Dry-Run Mode
 
@@ -522,22 +553,24 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 ### Explicitly NOT Included in This Feature
 
-1. **Interactive Conflict Resolution** - Prompting user for each conflict is Could-Have, deferred.
+1. **Status-Based File Moves** - Tasks are NOT moved between folders when status changes. Tasks remain in their feature folders permanently. Only the frontmatter status field and database record are updated.
 
-2. **Automatic Backup** - Creating database backups before sync is Could-Have.
+2. **Interactive Conflict Resolution** - Prompting user for each conflict is Could-Have, deferred.
 
-3. **Epic/Feature PRD Import** - Syncing epic/feature metadata from PRD files is out of scope (manual epic creation only).
+3. **Automatic Backup** - Creating database backups before sync is Could-Have.
 
-4. **Continuous Sync** - File watching and automatic sync on file changes is out of scope (manual sync only).
+4. **Epic/Feature PRD Import** - Syncing epic/feature metadata from PRD files is out of scope (manual epic creation only).
 
-5. **Merge Conflict Resolution** - Handling Git merge conflicts in frontmatter is out of scope (users resolve manually).
+5. **Continuous Sync** - File watching and automatic sync on file changes is out of scope (manual sync only).
 
-6. **Selective Field Sync** - Syncing only certain fields (e.g., sync status but not priority) is out of scope.
+6. **Merge Conflict Resolution** - Handling Git merge conflicts in frontmatter is out of scope (users resolve manually).
 
-7. **Bidirectional Sync** - Updating file frontmatter from database is only available with `--update-files` flag in database-wins mode, not a full bidirectional sync.
+7. **Selective Field Sync** - Syncing only certain fields (e.g., sync status but not priority) is out of scope.
 
-8. **Version Control Integration** - No automatic `git commit` after sync.
+8. **Bidirectional Sync** - Updating file frontmatter from database is only available with `--update-files` flag in database-wins mode, not a full bidirectional sync.
 
-9. **Schema Migration** - Upgrading database schema during sync is out of scope (separate migration commands).
+9. **Version Control Integration** - No automatic `git commit` after sync.
 
-10. **Orphaned Task Cleanup** - Automatically deleting database tasks without files requires explicit `--cleanup` flag, not automatic.
+10. **Schema Migration** - Upgrading database schema during sync is out of scope (separate migration commands).
+
+11. **Orphaned Task Cleanup** - Automatically deleting database tasks without files requires explicit `--cleanup` flag, not automatic.

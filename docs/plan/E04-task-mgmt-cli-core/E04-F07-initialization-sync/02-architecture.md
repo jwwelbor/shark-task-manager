@@ -2,738 +2,1458 @@
 
 **Epic**: E04-task-mgmt-cli-core
 **Feature**: E04-F07-initialization-sync
-**Date**: 2025-12-14
-**Author**: feature-architect
+**Date**: 2025-12-16
+**Author**: backend-architect
 
-## Overview
+## Purpose
 
-This document defines the system architecture for the Initialization & Synchronization feature, which provides two critical commands: `pm init` for project setup and `pm sync` for filesystem-database synchronization. The architecture integrates with E04-F01 (Database Schema), E04-F05 (Folder Management), and E04-F02 (CLI Framework) to deliver reliable, transactional initialization and sync operations.
+This document defines the system architecture for initialization and synchronization features. It describes component interactions, data flows, and architectural patterns for `pm init` and `pm sync` commands.
 
 ---
 
-## Architectural Overview
+## System Overview
 
-### System Context
+### High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     PM CLI Ecosystem                         │
-│                                                              │
-│  ┌──────────────────┐          ┌──────────────────┐        │
-│  │   E04-F02: CLI   │◄─────────┤  E04-F07: Init   │        │
-│  │   Framework      │          │  & Sync          │        │
-│  └──────────────────┘          └──────────────────┘        │
-│           ▲                             │                   │
-│           │                             ▼                   │
-│  ┌──────────────────┐          ┌──────────────────┐        │
-│  │  E04-F01: DB     │◄─────────┤  E04-F05: Folder │        │
-│  │  Schema          │          │  Management      │        │
-│  └──────────────────┘          └──────────────────┘        │
-└─────────────────────────────────────────────────────────────┘
-         │                               │
-         ▼                               ▼
-    SQLite DB                    Filesystem (Markdown)
-```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              CLI Layer (Cobra)                               │
+│                                                                               │
+│  ┌──────────────────────┐                  ┌─────────────────────────────┐  │
+│  │   pm init            │                  │   pm sync                    │  │
+│  │   (init.go)          │                  │   (sync.go)                  │  │
+│  │                      │                  │                              │  │
+│  │  Flags:              │                  │  Flags:                      │  │
+│  │   --non-interactive  │                  │   --folder                   │  │
+│  │   --force            │                  │   --dry-run                  │  │
+│  │   --db               │                  │   --strategy                 │  │
+│  │   --config           │                  │   --create-missing           │  │
+│  └──────────┬───────────┘                  └──────────┬──────────────────┘  │
+│             │                                          │                      │
+└─────────────┼──────────────────────────────────────────┼──────────────────────┘
+              │                                          │
+              ▼                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Application Layer (Business Logic)                   │
+│                                                                               │
+│  ┌──────────────────────────────────────────┐                                │
+│  │  Initializer (internal/init/)             │                                │
+│  │                                           │                                │
+│  │  + Initialize(opts InitOptions)          │                                │
+│  │    - Create database                     │                                │
+│  │    - Create folders                      │                                │
+│  │    - Create config                       │                                │
+│  │    - Copy templates                      │                                │
+│  └──────────────────────────────────────────┘                                │
+│                                                                               │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │  SyncEngine (internal/sync/engine.go)                                   │  │
+│  │                                                                          │  │
+│  │  + Sync(opts SyncOptions) SyncReport                                    │  │
+│  │    1. Scan files (FileScanner)                                          │  │
+│  │    2. Parse frontmatter (TaskFileParser)                                │  │
+│  │    3. Query database (Repositories)                                     │  │
+│  │    4. Detect conflicts (ConflictDetector)                               │  │
+│  │    5. Resolve conflicts (ConflictResolver)                              │  │
+│  │    6. Update database (Transaction)                                     │  │
+│  │    7. Generate report                                                   │  │
+│  └──────────────────────────────────────────┬───────────────────────────────┘  │
+│                                              │                                │
+│  ┌──────────────────────┐  ┌───────────────┴───────────┐  ┌──────────────┐  │
+│  │  FileScanner         │  │  ConflictDetector          │  │  Conflict    │  │
+│  │  (scanner.go)        │  │  (conflict.go)             │  │  Resolver    │  │
+│  │                      │  │                            │  │  (resolver.go│  │
+│  │  + Scan(root) []file│  │  + Detect(file, db)        │  │              │  │
+│  │  + InferEpicFeature  │  │    []Conflict              │  │  + Resolve() │  │
+│  └──────────────────────┘  └────────────────────────────┘  └──────────────┘  │
+└───────────────────────────────────────────┬─────────────────────────────────┘
+                                            │
+                                            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Data Access Layer (Repository Pattern)                    │
+│                                                                               │
+│  ┌──────────────────────┐  ┌──────────────────────┐  ┌───────────────────┐  │
+│  │  TaskRepository      │  │  EpicRepository      │  │  FeatureRepository│  │
+│  │  (extended)          │  │  (extended)          │  │  (extended)       │  │
+│  │                      │  │                      │  │                   │  │
+│  │  + BulkCreate()      │  │  + CreateIfNotExists()│  │  + CreateIfNotExists()│  │
+│  │  + GetByKeys()       │  │  + GetByKey()        │  │  + GetByKey()     │  │
+│  │  + UpdateMetadata()  │  │                      │  │                   │  │
+│  └──────────────────────┘  └──────────────────────┘  └───────────────────┘  │
+│                                                                               │
+└───────────────────────────────────────────┬─────────────────────────────────┘
+                                            │
+                                            ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Database Layer (SQLite)                             │
+│                                                                               │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌───────────┐  │
+│  │  epics         │  │  features      │  │  tasks         │  │  task_    │  │
+│  │                │  │                │  │                │  │  history  │  │
+│  └────────────────┘  └────────────────┘  └────────────────┘  └───────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-**Key Dependencies**:
-- **E04-F01**: Provides `init_database()`, bulk operations, repositories
-- **E04-F05**: Provides folder structure creation, file operations
-- **E04-F02**: Provides CLI command framework, argument parsing
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Filesystem Layer (Task Files)                         │
+│                                                                               │
+│  ┌──────────────────────┐  ┌──────────────────────┐                          │
+│  │  TaskFileParser      │  │  TaskFileWriter      │                          │
+│  │  (parser.go)         │  │  (writer.go)         │                          │
+│  │                      │  │                      │                          │
+│  │  + ParseTaskFile()   │  │  + WriteTaskFile()   │                          │
+│  └──────────────────────┘  └──────────────────────┘                          │
+│                                                                               │
+│  Filesystem Structure:                                                        │
+│    docs/plan/E04-epic/E04-F07-feature/T-E04-F07-001.md                       │
+│    docs/tasks/todo/*.md (legacy)                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Component Architecture
 
-### High-Level Components
+### 1. CLI Layer Components
 
-```
-┌───────────────────────────────────────────────────────────────┐
-│                       pm init / pm sync                        │
-│                     (CLI Command Layer)                        │
-└───────────────────────┬───────────────────────────────────────┘
-                        │
-        ┌───────────────┴───────────────┐
-        │                               │
-        ▼                               ▼
-┌─────────────────┐           ┌─────────────────┐
-│  InitService    │           │  SyncService    │
-│  - Database     │           │  - File Scanner │
-│  - Folders      │           │  - Parser       │
-│  - Config       │           │  - Comparator   │
-│  - Templates    │           │  - Reconciler   │
-└─────────────────┘           └─────────────────┘
-        │                               │
-        └───────────────┬───────────────┘
-                        │
-        ┌───────────────┴───────────────┐
-        │                               │
-        ▼                               ▼
-┌─────────────────┐           ┌─────────────────┐
-│  Database Layer │           │  Filesystem     │
-│  (E04-F01)      │           │  (E04-F05)      │
-│  - Repos        │           │  - File I/O     │
-│  - Transactions │           │  - Moves        │
-└─────────────────┘           └─────────────────┘
-```
+#### 1.1 Init Command (`internal/cli/commands/init.go`)
 
----
+**Responsibilities**:
+- Parse command-line flags
+- Validate user input
+- Create Initializer instance
+- Invoke initialization
+- Display results (human or JSON)
 
-## Component Specifications
+**Interface**:
+```go
+var initCmd = &cobra.Command{
+    Use:   "init",
+    Short: "Initialize PM CLI infrastructure",
+    Long:  `Creates database schema, folder structure, config file, and templates.`,
+    RunE:  runInit,
+}
 
-### 1. InitService
+func runInit(cmd *cobra.Command, args []string) error {
+    // 1. Parse flags
+    opts := parseInitOptions(cmd)
 
-**Responsibility**: Orchestrate project initialization
+    // 2. Create initializer
+    initializer := init.NewInitializer()
 
-**Location**: `pm/services/init_service.py`
+    // 3. Run initialization
+    ctx := context.Background()
+    result, err := initializer.Initialize(ctx, opts)
+    if err != nil {
+        return err
+    }
 
-**Public Interface**:
-```python
-class InitService:
-    def initialize_project(
-        self,
-        non_interactive: bool = False,
-        force: bool = False
-    ) -> InitResult:
-        """Initialize PM CLI infrastructure"""
-```
+    // 4. Display results
+    if cli.GlobalConfig.JSON {
+        return cli.OutputJSON(result)
+    }
 
-**Operations** (in order):
-1. Check if database exists → skip creation if present
-2. Create database schema (E04-F01 `init_database()`)
-3. Check if folders exist → skip creation if present
-4. Create folder structure (E04-F05 folder creation)
-5. Check if config exists → prompt or skip based on flags
-6. Create `.pmconfig.json` with defaults
-7. Copy templates to `templates/` folder
-8. Return success summary
-
-**Error Handling**:
-- Database creation failure: raise `InitializationError`
-- Folder creation failure: rollback DB, raise error
-- Config write failure: warn but don't fail (non-critical)
-
-**Idempotency**: Safe to run multiple times; skips existing resources.
-
----
-
-### 2. SyncService
-
-**Responsibility**: Synchronize filesystem markdown files with database
-
-**Location**: `pm/services/sync_service.py`
-
-**Public Interface**:
-```python
-class SyncService:
-    def sync_filesystem(
-        self,
-        folder: Optional[str] = None,
-        strategy: ConflictStrategy = ConflictStrategy.FILE_WINS,
-        dry_run: bool = False,
-        create_missing: bool = False
-    ) -> SyncReport:
-        """Sync filesystem with database"""
-```
-
-**Sub-Components**:
-
-#### 2.1 FileScanner
-**Responsibility**: Discover markdown files in sync folders
-
-```python
-class FileScanner:
-    def scan_folders(self, folder_filter: Optional[str]) -> List[Path]:
-        """Recursively scan for *.md files"""
-```
-
-**Folders scanned**:
-- `docs/tasks/todo/`
-- `docs/tasks/active/`
-- `docs/tasks/ready-for-review/`
-- `docs/tasks/completed/`
-- `docs/tasks/archived/`
-
-#### 2.2 FrontmatterParser
-**Responsibility**: Parse YAML frontmatter from markdown files
-
-```python
-class FrontmatterParser:
-    def parse_file(self, file_path: Path) -> Optional[TaskMetadata]:
-        """Parse frontmatter, return None if invalid"""
-```
-
-**Validation**:
-- YAML structure valid
-- Required fields present (key, title)
-- Key matches filename
-- Epic/feature keys exist in DB (or --create-missing)
-
-#### 2.3 MetadataComparator
-**Responsibility**: Compare file metadata with database records
-
-```python
-class MetadataComparator:
-    def compare(
-        self,
-        file_meta: TaskMetadata,
-        db_task: Optional[Task]
-    ) -> ComparisonResult:
-        """Detect new, updated, or conflicting tasks"""
-```
-
-**Comparison Logic**:
-- Task doesn't exist in DB → NEW
-- Task exists, no differences → NO_CHANGE
-- Task exists, differences found → CONFLICT
-
-**Conflict Detection**: Compare these fields:
-- status
-- priority
-- title
-- description
-- agent_type
-- depends_on
-
-#### 2.4 ConflictReconciler
-**Responsibility**: Apply conflict resolution strategy
-
-```python
-class ConflictReconciler:
-    def reconcile(
-        self,
-        conflict: Conflict,
-        strategy: ConflictStrategy
-    ) -> ReconciliationAction:
-        """Determine action based on strategy"""
-```
-
-**Strategies**:
-- `FILE_WINS`: Update DB from file
-- `DATABASE_WINS`: Keep DB, optionally update file
-- `NEWER_WINS`: Compare timestamps, apply most recent
-
-**Actions**:
-- `UPDATE_DATABASE`: Write file metadata to DB
-- `UPDATE_FILE`: Write DB metadata to file
-- `MOVE_FILE`: Relocate file to match status
-- `CREATE_TASK`: Insert new task
-- `SKIP`: No action (dry-run or no change)
-
----
-
-### 3. ConfigManager
-
-**Responsibility**: Manage `.pmconfig.json` file
-
-**Location**: `pm/config/config_manager.py`
-
-**Public Interface**:
-```python
-class ConfigManager:
-    def create_default_config(self, overwrite: bool = False) -> None:
-        """Create .pmconfig.json with defaults"""
-
-    def read_config(self) -> Config:
-        """Read and parse config file"""
-```
-
-**Default Configuration**:
-```json
-{
-  "default_epic": null,
-  "default_agent": null,
-  "color_enabled": true,
-  "json_output": false
+    displayInitSuccess(result)
+    return nil
 }
 ```
 
----
+**Dependencies**:
+- `internal/init.Initializer` - Core initialization logic
+- `internal/cli` - CLI utilities (OutputJSON, Success, Error)
 
-### 4. TemplateManager
+#### 1.2 Sync Command (`internal/cli/commands/sync.go`)
 
-**Responsibility**: Copy task templates to templates/ folder
+**Responsibilities**:
+- Parse command-line flags (folder, dry-run, strategy, etc.)
+- Validate conflict resolution strategy
+- Create SyncEngine instance
+- Invoke synchronization
+- Display sync report (human or JSON)
 
-**Location**: `pm/templates/template_manager.py`
+**Interface**:
+```go
+var syncCmd = &cobra.Command{
+    Use:   "sync",
+    Short: "Synchronize task files with database",
+    Long:  `Scans feature folders for task markdown files and syncs with database.`,
+    RunE:  runSync,
+}
 
-**Public Interface**:
-```python
-class TemplateManager:
-    def install_templates(self, force: bool = False) -> None:
-        """Copy templates from package to project"""
+func runSync(cmd *cobra.Command, args []string) error {
+    // 1. Parse flags
+    opts := parseSyncOptions(cmd)
+
+    // 2. Validate options
+    if err := opts.Validate(); err != nil {
+        return err
+    }
+
+    // 3. Create sync engine
+    engine, err := sync.NewSyncEngine(opts.DBPath)
+    if err != nil {
+        return err
+    }
+    defer engine.Close()
+
+    // 4. Run sync
+    ctx := context.Background()
+    report, err := engine.Sync(ctx, opts)
+    if err != nil {
+        return err
+    }
+
+    // 5. Display report
+    if cli.GlobalConfig.JSON {
+        return cli.OutputJSON(report)
+    }
+
+    displaySyncReport(report)
+    return nil
+}
 ```
 
-**Templates Included**:
-- `task.md` - Default task template
-- `epic.md` - Epic PRD template
-- `feature.md` - Feature PRD template
+**Dependencies**:
+- `internal/sync.SyncEngine` - Core sync logic
+- `internal/cli` - CLI utilities
 
 ---
 
-## Data Flow
+### 2. Application Layer Components
 
-### pm init Flow
+#### 2.1 Initializer (`internal/init/initializer.go`)
 
+**Responsibilities**:
+- Orchestrate initialization steps
+- Create database schema
+- Create folder structure
+- Create config file
+- Copy task templates
+- Handle idempotency (skip existing resources)
+
+**Architecture**:
+```go
+type Initializer struct {
+    // No persistent state needed
+}
+
+func NewInitializer() *Initializer {
+    return &Initializer{}
+}
+
+func (init *Initializer) Initialize(ctx context.Context, opts InitOptions) (*InitResult, error) {
+    result := &InitResult{}
+
+    // Step 1: Create database
+    if err := init.createDatabase(opts.DBPath); err != nil {
+        return nil, &InitError{Step: "database", Err: err}
+    }
+    result.DatabaseCreated = true
+    result.DatabasePath = opts.DBPath
+
+    // Step 2: Create folders
+    folders, err := init.createFolders()
+    if err != nil {
+        return nil, &InitError{Step: "folders", Err: err}
+    }
+    result.FoldersCreated = folders
+
+    // Step 3: Create config
+    if err := init.createConfig(opts); err != nil {
+        return nil, &InitError{Step: "config", Err: err}
+    }
+    result.ConfigCreated = true
+
+    // Step 4: Copy templates
+    count, err := init.copyTemplates()
+    if err != nil {
+        return nil, &InitError{Step: "templates", Err: err}
+    }
+    result.TemplatesCopied = count
+
+    return result, nil
+}
 ```
-User runs: pm init [--non-interactive] [--force]
-    │
-    ▼
-InitService.initialize_project()
-    │
-    ├─► Check DB exists? → No: init_database() (E04-F01)
-    │                   → Yes: Skip
-    │
-    ├─► Check folders exist? → No: create_folder_structure() (E04-F05)
-    │                        → Yes: Skip
-    │
-    ├─► Check config exists? → No: create_default_config()
-    │                        → Yes: Prompt (skip if --non-interactive)
-    │                                Overwrite if --force
-    │
-    ├─► Install templates → template_manager.install_templates()
-    │
-    └─► Return InitResult(
-            database_created: bool,
-            folders_created: bool,
-            config_created: bool,
-            templates_installed: bool
+
+**Sub-Components**:
+- `createDatabase()` - Delegates to `db.InitDB()`
+- `createFolders()` - Creates `docs/plan`, `templates` directories
+- `createConfig()` - Writes `.pmconfig.json` with defaults
+- `copyTemplates()` - Copies embedded templates to `templates/` folder
+
+**Error Handling**:
+- Each step wraps errors with context
+- Returns InitError with step name for clarity
+- Idempotency: Check existence before creating
+
+#### 2.2 SyncEngine (`internal/sync/engine.go`)
+
+**Responsibilities**:
+- Orchestrate sync process
+- Manage database transaction
+- Coordinate scanner, parser, conflict detector, resolver
+- Generate sync report
+- Handle dry-run mode
+
+**Architecture**:
+```go
+type SyncEngine struct {
+    db            *sql.DB
+    taskRepo      *repository.TaskRepository
+    epicRepo      *repository.EpicRepository
+    featureRepo   *repository.FeatureRepository
+    scanner       *FileScanner
+    detector      *ConflictDetector
+    resolver      *ConflictResolver
+}
+
+func NewSyncEngine(dbPath string) (*SyncEngine, error) {
+    // Open database
+    db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
+    if err != nil {
+        return nil, err
+    }
+
+    // Create repositories
+    repoDb := repository.NewDB(db)
+    taskRepo := repository.NewTaskRepository(repoDb)
+    epicRepo := repository.NewEpicRepository(repoDb)
+    featureRepo := repository.NewFeatureRepository(repoDb)
+
+    // Create sync components
+    scanner := NewFileScanner()
+    detector := NewConflictDetector()
+    resolver := NewConflictResolver()
+
+    return &SyncEngine{
+        db:          db,
+        taskRepo:    taskRepo,
+        epicRepo:    epicRepo,
+        featureRepo: featureRepo,
+        scanner:     scanner,
+        detector:    detector,
+        resolver:    resolver,
+    }, nil
+}
+
+func (e *SyncEngine) Sync(ctx context.Context, opts SyncOptions) (*SyncReport, error) {
+    report := &SyncReport{}
+
+    // Step 1: Scan files
+    files, err := e.scanFiles(opts.FolderPath)
+    if err != nil {
+        return nil, err
+    }
+    report.FilesScanned = len(files)
+
+    // Step 2: Parse files and collect task data
+    tasks, err := e.parseFiles(files)
+    if err != nil {
+        return nil, err
+    }
+
+    // Step 3: Begin transaction (unless dry-run)
+    var tx *sql.Tx
+    if !opts.DryRun {
+        tx, err = e.db.BeginTx(ctx, nil)
+        if err != nil {
+            return nil, err
+        }
+        defer tx.Rollback()
+    }
+
+    // Step 4: Sync each task
+    for _, taskData := range tasks {
+        if err := e.syncTask(ctx, tx, taskData, opts, report); err != nil {
+            return report, err  // Transaction will rollback
+        }
+    }
+
+    // Step 5: Commit transaction (unless dry-run)
+    if !opts.DryRun {
+        if err := tx.Commit(); err != nil {
+            return nil, err
+        }
+    }
+
+    return report, nil
+}
+```
+
+**Key Design Decisions**:
+1. **Single Transaction**: All database operations in one transaction
+2. **Early Transaction**: Begin transaction early, defer rollback
+3. **Dry-Run Support**: Skip transaction begin/commit in dry-run mode
+4. **Error Propagation**: Any error triggers rollback
+5. **Report Accumulation**: Build report as sync progresses
+
+#### 2.3 FileScanner (`internal/sync/scanner.go`)
+
+**Responsibilities**:
+- Recursively scan directories for task markdown files
+- Filter files matching pattern `T-*.md`
+- Infer epic and feature keys from directory structure
+- Return file metadata for each task file
+
+**Architecture**:
+```go
+type FileScanner struct {
+    // No state needed
+}
+
+func NewFileScanner() *FileScanner {
+    return &FileScanner{}
+}
+
+func (s *FileScanner) Scan(rootPath string) ([]TaskFileInfo, error) {
+    var files []TaskFileInfo
+
+    err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+
+        // Skip directories
+        if info.IsDir() {
+            return nil
+        }
+
+        // Check if filename matches task pattern
+        if !s.isTaskFile(info.Name()) {
+            return nil
+        }
+
+        // Infer epic and feature from path
+        epicKey, featureKey, err := s.inferEpicFeature(path)
+        if err != nil {
+            // Log warning, continue
+            log.Warnf("Could not infer epic/feature for %s: %v", path, err)
+        }
+
+        // Add to results
+        files = append(files, TaskFileInfo{
+            FilePath:   path,
+            FileName:   info.Name(),
+            EpicKey:    epicKey,
+            FeatureKey: featureKey,
+            ModifiedAt: info.ModTime(),
+        })
+
+        return nil
+    })
+
+    return files, err
+}
+
+func (s *FileScanner) isTaskFile(filename string) bool {
+    // Match pattern: T-E##-F##-###.md
+    return regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}\.md$`).MatchString(filename)
+}
+
+func (s *FileScanner) inferEpicFeature(filePath string) (epicKey, featureKey string, err error) {
+    // Parse directory structure
+    // Example: docs/plan/E04-task-mgmt-cli-core/E04-F07-initialization-sync/T-E04-F07-001.md
+    //          parent: E04-F07-initialization-sync → feature key
+    //          grandparent: E04-task-mgmt-cli-core → epic key
+
+    dir := filepath.Dir(filePath)
+    featureDir := filepath.Base(dir)
+
+    // Extract feature key from directory name
+    featureKey = extractKeyFromDirName(featureDir)  // E04-F07
+
+    // Extract epic key from feature key or grandparent directory
+    epicKey = extractEpicFromFeatureKey(featureKey)  // E04
+
+    return epicKey, featureKey, nil
+}
+```
+
+**Inference Strategy**:
+1. Try to extract feature key from parent directory name (pattern: `E##-F##-*`)
+2. Extract epic key from feature key (pattern: `E##`)
+3. If inference fails, try parsing task key from filename
+4. If all fails, return empty keys (sync will require manual specification)
+
+#### 2.4 ConflictDetector (`internal/sync/conflict.go`)
+
+**Responsibilities**:
+- Compare file metadata with database record
+- Detect conflicts in: title, description, file_path
+- Return list of conflicts with details
+
+**Architecture**:
+```go
+type ConflictDetector struct {
+    // No state needed
+}
+
+func NewConflictDetector() *ConflictDetector {
+    return &ConflictDetector{}
+}
+
+func (d *ConflictDetector) DetectConflicts(fileData *TaskMetadata, dbTask *models.Task) []Conflict {
+    conflicts := []Conflict{}
+
+    // 1. Title conflict
+    if fileData.Title != "" && fileData.Title != dbTask.Title {
+        conflicts = append(conflicts, Conflict{
+            TaskKey:       dbTask.Key,
+            Field:         "title",
+            FileValue:     fileData.Title,
+            DatabaseValue: dbTask.Title,
+        })
+    }
+
+    // 2. Description conflict
+    if fileData.Description != nil && dbTask.Description != nil {
+        if *fileData.Description != *dbTask.Description {
+            conflicts = append(conflicts, Conflict{
+                TaskKey:       dbTask.Key,
+                Field:         "description",
+                FileValue:     *fileData.Description,
+                DatabaseValue: *dbTask.Description,
+            })
+        }
+    }
+
+    // 3. File path conflict (always update to actual location)
+    actualPath := fileData.FilePath
+    if dbTask.FilePath == nil || *dbTask.FilePath != actualPath {
+        dbValue := ""
+        if dbTask.FilePath != nil {
+            dbValue = *dbTask.FilePath
+        }
+        conflicts = append(conflicts, Conflict{
+            TaskKey:       dbTask.Key,
+            Field:         "file_path",
+            FileValue:     actualPath,
+            DatabaseValue: dbValue,
+        })
+    }
+
+    return conflicts
+}
+```
+
+**Conflict Detection Rules**:
+- **Title**: Conflict if file has title AND differs from database
+- **Description**: Conflict if both exist AND differ
+- **File Path**: Always conflict if database path != actual path (file moved)
+- **No conflict for**: status, priority, agent_type (database-only fields)
+
+#### 2.5 ConflictResolver (`internal/sync/resolver.go`)
+
+**Responsibilities**:
+- Apply conflict resolution strategy
+- Return resolved task model ready for database update
+- Preserve database-only fields
+
+**Architecture**:
+```go
+type ConflictResolver struct {
+    // No state needed
+}
+
+func NewConflictResolver() *ConflictResolver {
+    return &ConflictResolver{}
+}
+
+func (r *ConflictResolver) Resolve(conflicts []Conflict, fileData *TaskMetadata, dbTask *models.Task, strategy ConflictStrategy) (*models.Task, error) {
+    // Create copy of database task (preserve all fields)
+    resolved := *dbTask
+
+    for _, conflict := range conflicts {
+        switch strategy {
+        case ConflictStrategyFileWins:
+            r.applyFileValue(&resolved, conflict)
+        case ConflictStrategyDatabaseWins:
+            // Keep database value (no change)
+        case ConflictStrategyNewerWins:
+            r.applyNewerValue(&resolved, conflict, fileData, dbTask)
+        }
+    }
+
+    // Always update file_path to actual location (regardless of strategy)
+    actualPath := fileData.FilePath
+    resolved.FilePath = &actualPath
+
+    return &resolved, nil
+}
+
+func (r *ConflictResolver) applyFileValue(task *models.Task, conflict Conflict) {
+    switch conflict.Field {
+    case "title":
+        task.Title = conflict.FileValue
+    case "description":
+        desc := conflict.FileValue
+        task.Description = &desc
+    case "file_path":
+        task.FilePath = &conflict.FileValue
+    }
+}
+
+func (r *ConflictResolver) applyNewerValue(task *models.Task, conflict Conflict, fileData *TaskMetadata, dbTask *models.Task) {
+    // Compare timestamps
+    if fileData.ModifiedAt.After(dbTask.UpdatedAt) {
+        // File is newer → use file value
+        r.applyFileValue(task, conflict)
+    }
+    // Otherwise, keep database value (no change)
+}
+```
+
+**Strategy Implementation**:
+- **file-wins**: Always use file value
+- **database-wins**: Keep database value (no update)
+- **newer-wins**: Compare timestamps, use newer source
+
+---
+
+### 3. Data Access Layer Extensions
+
+#### 3.1 TaskRepository Extensions
+
+**New Methods**:
+
+**BulkCreate**:
+```go
+func (r *TaskRepository) BulkCreate(ctx context.Context, tasks []*models.Task) (int, error) {
+    if len(tasks) == 0 {
+        return 0, nil
+    }
+
+    // Prepare statement
+    query := `
+        INSERT INTO tasks (feature_id, key, title, description, status, agent_type,
+                          priority, depends_on, assigned_agent, file_path, blocked_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+
+    stmt, err := r.db.PrepareContext(ctx, query)
+    if err != nil {
+        return 0, fmt.Errorf("failed to prepare statement: %w", err)
+    }
+    defer stmt.Close()
+
+    // Execute for each task
+    count := 0
+    for _, task := range tasks {
+        if err := task.Validate(); err != nil {
+            return count, fmt.Errorf("validation failed for task %s: %w", task.Key, err)
+        }
+
+        result, err := stmt.ExecContext(ctx,
+            task.FeatureID, task.Key, task.Title, task.Description, task.Status,
+            task.AgentType, task.Priority, task.DependsOn, task.AssignedAgent,
+            task.FilePath, task.BlockedReason,
         )
-    │
-    ▼
-Display success message + next steps
+        if err != nil {
+            return count, fmt.Errorf("failed to insert task %s: %w", task.Key, err)
+        }
+
+        id, _ := result.LastInsertId()
+        task.ID = id
+        count++
+    }
+
+    return count, nil
+}
 ```
+
+**GetByKeys**:
+```go
+func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[string]*models.Task, error) {
+    if len(keys) == 0 {
+        return map[string]*models.Task{}, nil
+    }
+
+    // Build IN clause
+    placeholders := strings.Repeat("?,", len(keys))
+    placeholders = placeholders[:len(placeholders)-1]  // Remove trailing comma
+
+    query := fmt.Sprintf(`
+        SELECT id, feature_id, key, title, description, status, agent_type, priority,
+               depends_on, assigned_agent, file_path, blocked_reason,
+               created_at, started_at, completed_at, blocked_at, updated_at
+        FROM tasks
+        WHERE key IN (%s)
+    `, placeholders)
+
+    // Convert keys to []interface{} for query
+    args := make([]interface{}, len(keys))
+    for i, key := range keys {
+        args[i] = key
+    }
+
+    rows, err := r.db.QueryContext(ctx, query, args...)
+    if err != nil {
+        return nil, fmt.Errorf("failed to query tasks: %w", err)
+    }
+    defer rows.Close()
+
+    // Build map
+    result := make(map[string]*models.Task)
+    for rows.Next() {
+        task := &models.Task{}
+        err := rows.Scan(
+            &task.ID, &task.FeatureID, &task.Key, &task.Title, &task.Description,
+            &task.Status, &task.AgentType, &task.Priority, &task.DependsOn,
+            &task.AssignedAgent, &task.FilePath, &task.BlockedReason,
+            &task.CreatedAt, &task.StartedAt, &task.CompletedAt, &task.BlockedAt,
+            &task.UpdatedAt,
+        )
+        if err != nil {
+            return nil, fmt.Errorf("failed to scan task: %w", err)
+        }
+        result[task.Key] = task
+    }
+
+    return result, rows.Err()
+}
+```
+
+**UpdateMetadata**:
+```go
+func (r *TaskRepository) UpdateMetadata(ctx context.Context, task *models.Task) error {
+    // Update only metadata fields (not status, priority, agent_type)
+    query := `
+        UPDATE tasks
+        SET title = ?, description = ?, file_path = ?
+        WHERE id = ?
+    `
+
+    result, err := r.db.ExecContext(ctx, query,
+        task.Title, task.Description, task.FilePath, task.ID,
+    )
+    if err != nil {
+        return fmt.Errorf("failed to update task metadata: %w", err)
+    }
+
+    rows, err := result.RowsAffected()
+    if err != nil {
+        return fmt.Errorf("failed to get rows affected: %w", err)
+    }
+    if rows == 0 {
+        return fmt.Errorf("task not found with id %d", task.ID)
+    }
+
+    return nil
+}
+```
+
+#### 3.2 EpicRepository Extensions
+
+**CreateIfNotExists**:
+```go
+func (r *EpicRepository) CreateIfNotExists(ctx context.Context, epic *models.Epic) (*models.Epic, bool, error) {
+    // Check if exists
+    existing, err := r.GetByKey(ctx, epic.Key)
+    if err == nil {
+        // Already exists
+        return existing, false, nil
+    }
+
+    // Create new epic
+    if err := r.Create(ctx, epic); err != nil {
+        return nil, false, fmt.Errorf("failed to create epic: %w", err)
+    }
+
+    return epic, true, nil
+}
+
+func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+    query := `
+        SELECT id, key, title, description, status, priority, business_value,
+               created_at, updated_at
+        FROM epics
+        WHERE key = ?
+    `
+
+    epic := &models.Epic{}
+    err := r.db.QueryRowContext(ctx, query, key).Scan(
+        &epic.ID, &epic.Key, &epic.Title, &epic.Description, &epic.Status,
+        &epic.Priority, &epic.BusinessValue, &epic.CreatedAt, &epic.UpdatedAt,
+    )
+
+    if err == sql.ErrNoRows {
+        return nil, fmt.Errorf("epic not found with key %s", key)
+    }
+    if err != nil {
+        return nil, fmt.Errorf("failed to get epic: %w", err)
+    }
+
+    return epic, nil
+}
+```
+
+#### 3.3 FeatureRepository Extensions
+
+Similar to Epic repository, add `CreateIfNotExists` and `GetByKey` methods.
 
 ---
 
-### pm sync Flow
+## Data Flow Diagrams
+
+### Init Command Flow
 
 ```
-User runs: pm sync [--folder=todo] [--strategy=file-wins] [--dry-run]
-    │
-    ▼
-SyncService.sync_filesystem()
-    │
-    ├─► FileScanner.scan_folders(folder_filter)
-    │   └─► Returns: List[Path] (*.md files)
-    │
-    ├─► For each file:
-    │   │
-    │   ├─► FrontmatterParser.parse_file(path)
-    │   │   ├─► Invalid YAML? → Log warning, skip
-    │   │   ├─► Missing fields? → Log warning, skip
-    │   │   └─► Key mismatch? → Log warning, skip
-    │   │
-    │   ├─► Query database for task (by key)
-    │   │
-    │   ├─► MetadataComparator.compare(file_meta, db_task)
-    │   │   ├─► NEW: No DB record
-    │   │   ├─► NO_CHANGE: Identical
-    │   │   └─► CONFLICT: Differences detected
-    │   │
-    │   └─► ConflictReconciler.reconcile(conflict, strategy)
-    │       ├─► FILE_WINS: Update DB, maybe move file
-    │       ├─► DATABASE_WINS: Keep DB, maybe update file
-    │       └─► NEWER_WINS: Compare timestamps
-    │
-    ├─► If NOT dry_run:
-    │   │
-    │   ├─► Begin transaction
-    │   │
-    │   ├─► Apply all reconciliation actions:
-    │   │   ├─► UPDATE_DATABASE → repo.update(task)
-    │   │   ├─► CREATE_TASK → repo.create(task)
-    │   │   ├─► MOVE_FILE → folder_manager.move(src, dest)
-    │   │   └─► UPDATE_FILE → write_frontmatter(file, db_meta)
-    │   │
-    │   └─► Commit transaction
-    │       (Rollback on any failure)
-    │
-    └─► Return SyncReport(
-            scanned: int,
-            imported: int,
-            updated: int,
-            conflicts: int,
-            warnings: List[str],
-            errors: List[str]
-        )
-    │
-    ▼
-Display sync report
+User
+ │
+ ├─> pm init --non-interactive
+ │
+ ▼
+InitCommand (CLI)
+ ├─> Parse flags
+ ├─> Create InitOptions
+ │
+ ▼
+Initializer
+ ├─> Step 1: Create Database
+ │   ├─> db.InitDB(dbPath)
+ │   ├─> Create schema (tables, indexes, triggers)
+ │   └─> Set file permissions (600 on Unix)
+ │
+ ├─> Step 2: Create Folders
+ │   ├─> os.MkdirAll("docs/plan", 0755)
+ │   ├─> os.MkdirAll("templates", 0755)
+ │   └─> Skip if already exists (idempotent)
+ │
+ ├─> Step 3: Create Config
+ │   ├─> Check if .pmconfig.json exists
+ │   ├─> Prompt user (unless --force or --non-interactive)
+ │   ├─> Write JSON to temp file
+ │   └─> Rename to .pmconfig.json (atomic)
+ │
+ ├─> Step 4: Copy Templates
+ │   ├─> Read embedded templates
+ │   ├─> Write to templates/ folder
+ │   └─> Return count of templates copied
+ │
+ └─> Return InitResult
+
+InitCommand
+ └─> Display success message with next steps
+```
+
+### Sync Command Flow
+
+```
+User
+ │
+ ├─> pm sync --strategy=file-wins --dry-run
+ │
+ ▼
+SyncCommand (CLI)
+ ├─> Parse flags
+ ├─> Create SyncOptions
+ ├─> Validate options
+ │
+ ▼
+SyncEngine
+ ├─> Phase 1: File Scanning
+ │   ├─> FileScanner.Scan(rootPath)
+ │   ├─> Recursively walk directories
+ │   ├─> Filter T-*.md files
+ │   ├─> Infer epic/feature from path
+ │   └─> Return []TaskFileInfo
+ │
+ ├─> Phase 2: File Parsing
+ │   ├─> For each file:
+ │   │   ├─> TaskFileParser.ParseTaskFile(path)
+ │   │   ├─> Extract frontmatter (key, title, description)
+ │   │   ├─> Validate frontmatter
+ │   │   └─> Build TaskMetadata
+ │   └─> Return []TaskMetadata
+ │
+ ├─> Phase 3: Database Query
+ │   ├─> Extract all task keys from files
+ │   ├─> TaskRepository.GetByKeys(keys)
+ │   ├─> Single query with IN clause
+ │   └─> Return map[key]*Task
+ │
+ ├─> Phase 4: Begin Transaction (unless --dry-run)
+ │   ├─> db.BeginTx(ctx, nil)
+ │   └─> defer tx.Rollback() (safety net)
+ │
+ ├─> Phase 5: Process Each Task
+ │   │
+ │   ├─> Case 1: New Task (not in database)
+ │   │   ├─> Validate epic/feature exists
+ │   │   │   ├─> EpicRepository.GetByKey(epicKey)
+ │   │   │   ├─> FeatureRepository.GetByKey(featureKey)
+ │   │   │   └─> If not exists:
+ │   │   │       ├─> If --create-missing: Create epic/feature
+ │   │   │       └─> Else: Log warning, skip task
+ │   │   ├─> Create Task model (status=todo)
+ │   │   ├─> TaskRepository.Create(task)
+ │   │   ├─> Create history record (agent=sync, notes="Imported from file")
+ │   │   └─> Increment report.TasksImported
+ │   │
+ │   ├─> Case 2: Existing Task (in database)
+ │   │   ├─> ConflictDetector.DetectConflicts(fileData, dbTask)
+ │   │   ├─> For each conflict:
+ │   │   │   ├─> ConflictResolver.Resolve(conflicts, strategy)
+ │   │   │   └─> Build resolved task model
+ │   │   ├─> TaskRepository.UpdateMetadata(resolvedTask)
+ │   │   ├─> Create history record (agent=sync, notes="Updated from file: title, file_path")
+ │   │   ├─> Increment report.TasksUpdated
+ │   │   └─> Append conflicts to report.Conflicts
+ │   │
+ │   └─> Handle Errors
+ │       ├─> Invalid YAML: Log warning, skip file
+ │       ├─> Missing key: Log warning, skip file
+ │       ├─> Database error: Return error (triggers rollback)
+ │       └─> Foreign key violation: Return error (triggers rollback)
+ │
+ ├─> Phase 6: Optional Cleanup (if --cleanup flag)
+ │   ├─> Find orphaned tasks (file_path not in scanned files)
+ │   ├─> TaskRepository.Delete(orphanedTasks)
+ │   └─> Increment report.TasksDeleted
+ │
+ ├─> Phase 7: Commit Transaction (unless --dry-run)
+ │   ├─> tx.Commit()
+ │   └─> If error: Return error (rollback already deferred)
+ │
+ └─> Return SyncReport
+
+SyncCommand
+ └─> Display sync report (human or JSON)
 ```
 
 ---
 
 ## Transaction Management
 
-### Initialization Transactions
+### Transaction Boundaries
 
-**Goal**: Rollback all changes if any step fails
+**Init Command**:
+- **Database operations**: Use internal transaction (handled by db.InitDB)
+- **Filesystem operations**: No transaction (idempotent by design)
 
-**Implementation**:
-```python
-def initialize_project(self):
-    db_created = False
-    folders_created = False
-
-    try:
-        # Step 1: Database
-        if not db_exists():
-            init_database()
-            db_created = True
-
-        # Step 2: Folders
-        if not folders_exist():
-            create_folder_structure()
-            folders_created = True
-
-        # Step 3: Config (non-critical)
-        try:
-            create_default_config()
-        except Exception as e:
-            logger.warning(f"Config creation failed: {e}")
-
-        # Step 4: Templates (non-critical)
-        try:
-            install_templates()
-        except Exception as e:
-            logger.warning(f"Template installation failed: {e}")
-
-        return InitResult(...)
-
-    except Exception as e:
-        # Rollback
-        if folders_created:
-            remove_folder_structure()
-        if db_created:
-            remove_database()
-        raise InitializationError(f"Init failed: {e}")
-```
-
-**Critical vs Non-Critical**:
-- **Critical** (rollback on failure): Database, Folders
-- **Non-Critical** (warn but continue): Config, Templates
-
----
-
-### Sync Transactions
-
-**Goal**: All-or-nothing database updates; file moves are best-effort
-
-**Implementation**:
-```python
-def sync_filesystem(self):
-    # Phase 1: Scan and analyze (read-only)
-    files = scanner.scan_folders(folder_filter)
-    actions = []
-
-    for file in files:
-        meta = parser.parse_file(file)
-        db_task = repo.get_by_key(meta.key)
-        comparison = comparator.compare(meta, db_task)
-        action = reconciler.reconcile(comparison, strategy)
-        actions.append(action)
-
-    if dry_run:
-        return SyncReport(preview=True, actions=actions)
-
-    # Phase 2: Apply actions (transactional)
-    with session_factory.get_session() as session:
-        try:
-            # Database actions (in transaction)
-            for action in actions:
-                if action.type == ActionType.UPDATE_DATABASE:
-                    repo.update(action.task_id, action.changes)
-                elif action.type == ActionType.CREATE_TASK:
-                    repo.create(action.task_data)
-
-            # Commit DB changes
-            session.commit()
-
-            # File actions (best-effort, outside transaction)
-            for action in actions:
-                if action.type == ActionType.MOVE_FILE:
-                    try:
-                        folder_manager.move(action.src, action.dest)
-                    except Exception as e:
-                        logger.warning(f"File move failed: {e}")
-
-        except Exception as e:
-            session.rollback()
-            raise SyncError(f"Sync failed: {e}")
-
-    return SyncReport(...)
-```
-
-**Transaction Scope**:
-- **In Transaction**: All DB operations (CREATE, UPDATE)
-- **Outside Transaction**: File moves (log failures, don't rollback DB)
-
-**Rationale**: File operations can fail independently (permissions, disk full). DB should remain consistent even if file moves fail.
-
----
-
-## Integration Points
-
-### With E04-F01 (Database Schema)
-
-**Used Components**:
-- `init_database()` - Create schema during `pm init`
-- `TaskRepository.create()` - Bulk insert during sync
-- `TaskRepository.update()` - Update tasks from file changes
-- `TaskRepository.get_by_key()` - Query tasks during sync
-- `TaskHistoryRepository.create()` - Record sync changes
-- `FeatureRepository.create()` - Auto-create missing features
+**Sync Command**:
+- **Single transaction** encompasses ALL database operations:
+  - Epic creation (if --create-missing)
+  - Feature creation (if --create-missing)
+  - Task inserts (new tasks)
+  - Task updates (existing tasks)
+  - History record inserts
+  - Task deletes (if --cleanup)
 
 **Transaction Pattern**:
-```python
-from pm.database import SessionFactory, TaskRepository
+```go
+// Begin transaction
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+    return err
+}
+defer tx.Rollback()  // Safety net (no-op if committed)
 
-with SessionFactory().get_session() as session:
-    repo = TaskRepository(session)
-    # Perform operations
-    # Auto-commit on success, rollback on exception
+// ... perform all database operations ...
+
+// Commit transaction
+if err := tx.Commit(); err != nil {
+    return err
+}
 ```
 
----
+**Rollback Triggers**:
+- SQL error (constraint violation, syntax error)
+- Foreign key violation (missing epic/feature)
+- Unique key violation (duplicate task key)
+- Context cancellation (timeout, Ctrl+C)
+- Any `return err` before commit
 
-### With E04-F05 (Folder Management)
-
-**Used Components**:
-- `create_folder_structure()` - Create sync folders during init
-- `TransactionalFileOperation` - Move files during sync
-- `get_folder_for_status()` - Determine target folder from status
-
-**Integration Pattern**:
-```python
-from pm.folder_management import FolderManager
-
-folder_mgr = FolderManager()
-
-# During init
-folder_mgr.create_folder_structure()
-
-# During sync
-if file_status != folder_location:
-    target = folder_mgr.get_folder_for_status(file_status)
-    folder_mgr.move(current_path, target / filename)
-```
-
----
-
-### With E04-F02 (CLI Framework)
-
-**Command Registration**:
-```python
-@cli.command()
-@click.option('--non-interactive', is_flag=True)
-@click.option('--force', is_flag=True)
-def init(non_interactive: bool, force: bool):
-    """Initialize PM CLI infrastructure"""
-    init_service = InitService()
-    result = init_service.initialize_project(
-        non_interactive=non_interactive,
-        force=force
-    )
-    display_init_result(result)
-
-@cli.command()
-@click.option('--folder', type=str, default=None)
-@click.option('--strategy', type=click.Choice(['file-wins', 'database-wins', 'newer-wins']))
-@click.option('--dry-run', is_flag=True)
-@click.option('--create-missing', is_flag=True)
-@click.option('--json', is_flag=True)
-def sync(folder, strategy, dry_run, create_missing, json):
-    """Sync filesystem with database"""
-    sync_service = SyncService()
-    report = sync_service.sync_filesystem(
-        folder=folder,
-        strategy=ConflictStrategy[strategy.upper().replace('-', '_')],
-        dry_run=dry_run,
-        create_missing=create_missing
-    )
-    if json:
-        print(report.to_json())
-    else:
-        display_sync_report(report)
-```
+**Commit Conditions**:
+- All files processed successfully
+- All database operations completed
+- No errors encountered
+- Not in dry-run mode
 
 ---
 
 ## Error Handling Strategy
 
-### Init Errors
+### Error Classification
 
-| Error Condition | Handling | Exit Code |
-|----------------|----------|-----------|
-| Database creation fails | Rollback, display error | 2 |
-| Folder creation fails | Rollback DB, display error | 2 |
-| Config write fails | Warn, continue | 0 |
-| Template copy fails | Warn, continue | 0 |
-| Already initialized | Skip existing, success | 0 |
-| Permission denied | Display error, rollback | 2 |
+**1. Non-Fatal Errors** (log warning, skip, continue):
+```go
+// Invalid YAML
+log.Warnf("Invalid frontmatter in %s, skipping", file)
+report.Warnings = append(report.Warnings, fmt.Sprintf("Invalid frontmatter in %s", file))
+continue  // Skip this file, process others
 
----
+// Missing required field
+log.Warnf("Task %s missing required field 'key', skipping", file)
+report.Warnings = append(report.Warnings, fmt.Sprintf("Missing key in %s", file))
+continue
 
-### Sync Errors
+// Key mismatch
+log.Warnf("Key mismatch in %s: filename=%s, frontmatter=%s", file, expectedKey, actualKey)
+report.Warnings = append(report.Warnings, fmt.Sprintf("Key mismatch in %s", file))
+continue
+```
 
-| Error Condition | Handling | Exit Code |
-|----------------|----------|-----------|
-| Invalid YAML | Log warning, skip file | 0 |
-| Missing required fields | Log warning, skip file | 0 |
-| Key mismatch | Log warning, skip file | 0 |
-| Non-existent feature | Log warning, skip (or create if --create-missing) | 0 |
-| DB constraint violation | Rollback, display error | 2 |
-| File permission error | Rollback, display error | 2 |
-| Disk full | Rollback, display error | 2 |
+**2. Fatal Errors** (rollback, halt, return error):
+```go
+// Database connection error
+if err := db.Ping(); err != nil {
+    return nil, fmt.Errorf("database connection failed: %w", err)
+}
 
-**Principle**: Parsing errors are warnings (skip file, continue). Database/filesystem errors are fatal (rollback, exit).
+// Transaction begin error
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+    return nil, fmt.Errorf("failed to begin transaction: %w", err)
+}
 
----
+// Foreign key violation (missing epic/feature without --create-missing)
+if err := repo.Create(task); err != nil {
+    if isForeignKeyError(err) {
+        return fmt.Errorf("task %s references non-existent feature %s (use --create-missing or create feature first)", task.Key, featureKey)
+    }
+    return fmt.Errorf("failed to create task: %w", err)
+}
 
-## Deployment Considerations
+// Transaction commit error
+if err := tx.Commit(); err != nil {
+    return nil, fmt.Errorf("failed to commit transaction: %w", err)
+}
+```
 
-### Database Location
+### Error Wrapping
 
-Default: `./project.db` (current working directory)
+**Use `fmt.Errorf` with `%w` for error chains**:
+```go
+if err != nil {
+    return fmt.Errorf("failed to sync task %s: %w", taskKey, err)
+}
+```
 
-Override: `PM_DATABASE_PATH` environment variable
+**Custom Error Types**:
+```go
+type SyncError struct {
+    Operation string
+    File      string
+    TaskKey   string
+    Err       error
+}
 
-**Init Behavior**:
-- Check if file exists at path
-- If exists and valid: skip creation
-- If exists but corrupt: error, suggest recovery
-- If not exists: create new
+func (e *SyncError) Error() string {
+    return fmt.Sprintf("sync error in %s (%s): %v", e.File, e.Operation, e.Err)
+}
 
----
-
-### Config Location
-
-Default: `./.pmconfig.json` (current working directory)
-
-**Init Behavior**:
-- Check if file exists
-- If exists and `--non-interactive`: skip
-- If exists and interactive: prompt "Overwrite? (y/N)"
-- If exists and `--force`: overwrite
-- If not exists: create
-
----
-
-### Template Location
-
-Source: `pm/templates/` (package resources)
-Destination: `./templates/` (project directory)
-
-**Init Behavior**:
-- Copy all `.md` templates from package to project
-- If destination exists and `--force`: overwrite
-- If destination exists and not `--force`: skip
-
----
-
-## Performance Considerations
-
-### Sync Performance
-
-**Target**: Process 100 files in <10 seconds
-
-**Optimizations**:
-1. **Batch DB Queries**: Fetch all tasks in one query, index by key
-2. **YAML Parsing**: Use fast PyYAML C bindings
-3. **File I/O**: Minimize file reads (parse once per file)
-4. **Bulk Inserts**: Use SQLAlchemy bulk operations for new tasks
-5. **Transaction Batching**: Single transaction for all DB changes
-
-**Benchmark**:
-```python
-# Good: Single query with indexing
-all_tasks = {task.key: task for task in repo.list_all()}
-for file_meta in file_metas:
-    db_task = all_tasks.get(file_meta.key)  # O(1) lookup
-
-# Bad: Query per file
-for file_meta in file_metas:
-    db_task = repo.get_by_key(file_meta.key)  # O(n) queries
+func (e *SyncError) Unwrap() error {
+    return e.Err
+}
 ```
 
 ---
 
-### Init Performance
+## Concurrency and Context Handling
 
-**Target**: Complete in <5 seconds
+### Context Propagation
 
-**Operations**:
-- Database creation: <500ms (E04-F01 target)
-- Folder creation: <100ms (mkdir operations)
-- Config write: <10ms (JSON serialization)
-- Template copy: <100ms (copy 3 files)
+**All database operations accept context**:
+```go
+func (e *SyncEngine) Sync(ctx context.Context, opts SyncOptions) (*SyncReport, error) {
+    // Context passed to all operations
+    tx, err := e.db.BeginTxContext(ctx, nil)
 
-**Total**: ~700ms + overhead = <5 seconds
+    _, err = e.taskRepo.Create(ctx, task)
+
+    _, err = e.taskRepo.GetByKeys(ctx, keys)
+}
+```
+
+**Timeout Management**:
+```go
+// CLI command sets timeout
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+defer cancel()
+
+engine := sync.NewSyncEngine(dbPath)
+report, err := engine.Sync(ctx, opts)
+```
+
+**Cancellation Handling**:
+- User presses Ctrl+C → context cancelled → transaction rolled back
+- Timeout expires → context cancelled → transaction rolled back
+
+### Concurrency Considerations
+
+**Sequential Processing** (no parallelism needed for MVP):
+- Files are processed one by one in a single transaction
+- Simplifies error handling and transaction management
+- Performance is sufficient for PRD requirements (<10s for 100 files)
+
+**Future Optimization** (if needed):
+- Parallel file parsing (goroutines + channels)
+- But keep single transaction for database operations
+
+---
+
+## Performance Optimization
+
+### Query Optimization
+
+**1. Bulk Lookups**:
+```go
+// GOOD: Single query with IN clause
+tasks, err := repo.GetByKeys(ctx, []string{"T-E04-F07-001", "T-E04-F07-002", ...})
+
+// BAD: N queries (avoid)
+for _, key := range keys {
+    task, err := repo.GetByKey(ctx, key)
+}
+```
+
+**2. Prepared Statements for Bulk Inserts**:
+```go
+stmt, err := tx.PrepareContext(ctx, insertQuery)
+defer stmt.Close()
+
+for _, task := range tasks {
+    _, err = stmt.ExecContext(ctx, ...)
+}
+```
+
+**3. Single Transaction**:
+- Reduces commit overhead
+- WAL mode benefits (readers don't block)
+
+### Filesystem Optimization
+
+**1. Efficient File Walking**:
+```go
+// filepath.Walk is efficient for <10,000 files
+err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+    // ...
+})
+```
+
+**2. File Stat Caching**:
+```go
+// os.FileInfo already provides modified time
+// No need for separate os.Stat call
+modTime := info.ModTime()
+```
+
+### Memory Optimization
+
+**Stream Processing** (for large file sets):
+```go
+// Process files one at a time (don't load all into memory)
+for _, file := range files {
+    metadata, err := parseTaskFile(file)
+    if err != nil {
+        continue
+    }
+
+    // Process immediately
+    syncTask(ctx, tx, metadata, opts)
+}
+```
 
 ---
 
 ## Security Considerations
 
-See [Security Design](./06-security-design.md) for complete details.
+### File Path Validation
 
-**Key Concerns**:
-1. **Path Traversal**: Validate file paths during sync
-2. **YAML Injection**: Use safe YAML loader
-3. **File Permissions**: Set 600 on database, 644 on config
-4. **Input Validation**: Validate all frontmatter fields
+**Prevent Path Traversal**:
+```go
+func validateFilePath(path string) error {
+    // Convert to absolute path
+    absPath, err := filepath.Abs(path)
+    if err != nil {
+        return err
+    }
+
+    // Define allowed roots
+    allowedRoots := []string{
+        "/abs/path/to/docs/plan",
+        "/abs/path/to/docs/tasks",
+    }
+
+    // Check if path is within allowed roots
+    for _, root := range allowedRoots {
+        if strings.HasPrefix(absPath, root) {
+            return nil
+        }
+    }
+
+    return fmt.Errorf("file path outside allowed directories: %s", path)
+}
+```
+
+### Database File Permissions
+
+**Set Restrictive Permissions** (Unix):
+```go
+func setDatabasePermissions(dbPath string) error {
+    if runtime.GOOS == "windows" {
+        return nil  // Not applicable on Windows
+    }
+
+    // Set permissions to 600 (read/write owner only)
+    return os.Chmod(dbPath, 0600)
+}
+```
+
+### YAML Injection Prevention
+
+**Read-Only Parsing** (no code execution risk):
+- gopkg.in/yaml.v3 is safe for read-only parsing
+- Validate struct fields after unmarshaling
+- Reject unexpected fields (strict unmarshal)
 
 ---
 
 ## Testing Strategy
 
-See [Test Criteria](./09-test-criteria.md) for complete test specifications.
+### Unit Tests
 
-**Unit Tests**:
-- InitService: Each operation independently
-- SyncService: Each sub-component independently
-- ConfigManager: Config read/write
-- TemplateManager: Template installation
+**1. Initializer Tests**:
+- Test database creation (idempotent)
+- Test folder creation (idempotent)
+- Test config creation (prompt behavior)
+- Test template copying
 
-**Integration Tests**:
-- Full `pm init` flow
-- Full `pm sync` flow with various scenarios
-- Rollback on failure
-- Idempotency verification
+**2. SyncEngine Tests** (with mock repositories):
+- Test file scanning logic
+- Test conflict detection
+- Test conflict resolution strategies
+- Test dry-run mode (no database changes)
 
-**Performance Tests**:
-- Sync 100 files
-- Init with large template set
-- Concurrent sync operations
+**3. FileScanner Tests**:
+- Test recursive directory traversal
+- Test pattern matching (T-*.md)
+- Test epic/feature inference
+
+**4. ConflictDetector Tests**:
+- Test title conflict detection
+- Test description conflict detection
+- Test file_path conflict detection
+
+**5. ConflictResolver Tests**:
+- Test file-wins strategy
+- Test database-wins strategy
+- Test newer-wins strategy (timestamp comparison)
+
+### Integration Tests
+
+**1. Full Init Test**:
+```go
+func TestInitCommand(t *testing.T) {
+    tmpDir := t.TempDir()
+    dbPath := filepath.Join(tmpDir, "test.db")
+
+    initializer := init.NewInitializer()
+    result, err := initializer.Initialize(context.Background(), InitOptions{
+        DBPath:         dbPath,
+        NonInteractive: true,
+    })
+
+    assert.NoError(t, err)
+    assert.True(t, result.DatabaseCreated)
+    assert.FileExists(t, dbPath)
+    assert.FileExists(t, ".pmconfig.json")
+}
+```
+
+**2. Full Sync Test**:
+```go
+func TestSyncCommand(t *testing.T) {
+    // Setup: Create database and task files
+    db := setupTestDB(t)
+    defer db.Close()
+
+    createTestTaskFiles(t, []string{"T-E04-F07-001.md", "T-E04-F07-002.md"})
+
+    // Execute sync
+    engine := sync.NewSyncEngine(db)
+    report, err := engine.Sync(context.Background(), SyncOptions{
+        FolderPath: "testdata",
+        DryRun:     false,
+        Strategy:   ConflictStrategyFileWins,
+    })
+
+    assert.NoError(t, err)
+    assert.Equal(t, 2, report.FilesScanned)
+    assert.Equal(t, 2, report.TasksImported)
+}
+```
+
+**3. Conflict Resolution Test**:
+```go
+func TestSyncWithConflicts(t *testing.T) {
+    // Setup: Task in database with title "Old Title"
+    db := setupTestDB(t)
+    createTaskInDB(t, db, "T-E04-F07-001", "Old Title")
+
+    // Create file with title "New Title"
+    createTestFile(t, "T-E04-F07-001.md", "New Title")
+
+    // Execute sync with file-wins strategy
+    engine := sync.NewSyncEngine(db)
+    report, err := engine.Sync(context.Background(), SyncOptions{
+        Strategy: ConflictStrategyFileWins,
+    })
+
+    assert.NoError(t, err)
+    assert.Equal(t, 1, report.ConflictsResolved)
+
+    // Verify database updated
+    task := getTaskFromDB(t, db, "T-E04-F07-001")
+    assert.Equal(t, "New Title", task.Title)
+}
+```
+
+### Performance Tests
+
+**1. Init Performance** (target: <5 seconds):
+```go
+func BenchmarkInit(b *testing.B) {
+    for i := 0; i < b.N; i++ {
+        tmpDir := b.TempDir()
+        initializer := init.NewInitializer()
+        _, err := initializer.Initialize(context.Background(), InitOptions{
+            DBPath:         filepath.Join(tmpDir, "test.db"),
+            NonInteractive: true,
+        })
+        assert.NoError(b, err)
+    }
+}
+```
+
+**2. Sync Performance** (target: 100 files in <10 seconds):
+```go
+func BenchmarkSync100Files(b *testing.B) {
+    // Setup: Create 100 task files
+    createTestTaskFiles(b, 100)
+
+    for i := 0; i < b.N; i++ {
+        engine := sync.NewSyncEngine(db)
+        _, err := engine.Sync(context.Background(), SyncOptions{})
+        assert.NoError(b, err)
+    }
+}
+```
 
 ---
 
-## Future Enhancements
+## Deployment Considerations
 
-**Out of Scope for E04-F07**:
-1. **Continuous Sync**: File watching and auto-sync
-2. **Interactive Conflict Resolution**: Prompt per conflict
-3. **Bidirectional Sync**: Full DB → file sync
-4. **Merge Conflict Resolution**: Handle Git merge conflicts
-5. **Schema Migrations**: Auto-upgrade DB schema during sync
+### Database Initialization
 
-**Potential Future Features**:
-- `pm sync --watch` for continuous sync
-- `pm sync --interactive` for conflict prompts
-- `pm export` to export DB to markdown
-- `pm validate` to check DB/filesystem consistency
+**First Run**:
+```bash
+# User runs init command
+pm init
+
+# Database created with schema
+# Folders created: docs/plan/, templates/
+# Config created: .pmconfig.json
+```
+
+**Subsequent Runs**:
+```bash
+# Init is idempotent (safe to re-run)
+pm init
+
+# Skips existing database (no error)
+# Skips existing folders (no error)
+# Prompts before overwriting config (unless --force)
+```
+
+### Migration Path
+
+**From Legacy System** (with status-based folders):
+```bash
+# Sync legacy folders first
+pm sync --folder=docs/tasks/todo
+pm sync --folder=docs/tasks/active
+pm sync --folder=docs/tasks/completed
+
+# Then sync feature folders (new structure)
+pm sync --folder=docs/plan
+```
+
+**After Git Pull** (new/modified tasks from collaborators):
+```bash
+# Sync to update database with file changes
+pm sync
+```
+
+---
+
+## Extensibility Points
+
+### Future Enhancements
+
+**1. Bidirectional Sync** (update files from database):
+```go
+// New flag: --update-files
+// With database-wins strategy:
+//   - Read task from database
+//   - Update file frontmatter
+//   - Atomic file write (temp + rename)
+```
+
+**2. Watch Mode** (continuous sync):
+```go
+// New command: pm sync --watch
+// Use fsnotify to watch for file changes
+// Auto-sync when files modified
+```
+
+**3. Sync History Table** (track past sync operations):
+```sql
+CREATE TABLE sync_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sync_started_at TIMESTAMP,
+    sync_completed_at TIMESTAMP,
+    files_scanned INTEGER,
+    tasks_imported INTEGER,
+    tasks_updated INTEGER,
+    strategy TEXT
+);
+```
+
+**4. Selective Field Sync** (sync only certain fields):
+```go
+// New flag: --fields=title,description
+// Only sync specified fields
+```
 
 ---
 
 ## Summary
 
-This architecture provides:
-- **Reliable Initialization**: Idempotent, transactional setup
-- **Flexible Synchronization**: Multiple strategies, dry-run mode
-- **Strong Integration**: Leverages E04-F01, E04-F05, E04-F02
-- **Error Resilience**: Comprehensive rollback and error handling
-- **Performance**: Meets <5s init, <10s sync targets
+### Component Responsibilities
 
-**Next Steps**:
-1. Review architecture with tech lead
-2. Create data design document
-3. Implement backend components
-4. Write comprehensive tests
+| Component | Responsibility | Key Methods |
+|-----------|---------------|-------------|
+| InitCommand | CLI interface for init | runInit() |
+| SyncCommand | CLI interface for sync | runSync() |
+| Initializer | Orchestrate init steps | Initialize() |
+| SyncEngine | Orchestrate sync process | Sync() |
+| FileScanner | Discover task files | Scan(), inferEpicFeature() |
+| ConflictDetector | Compare file vs database | DetectConflicts() |
+| ConflictResolver | Apply resolution strategy | Resolve() |
+| TaskRepository | Database operations | BulkCreate(), GetByKeys(), UpdateMetadata() |
+
+### Data Flow Summary
+
+**Init**: CLI → Initializer → DB/Filesystem
+**Sync**: CLI → SyncEngine → Scanner → Parser → Detector → Resolver → Repository → DB
+
+### Transaction Strategy
+
+- **Init**: No transaction needed (idempotent operations)
+- **Sync**: Single transaction for ALL database operations, rollback on any error
+
+---
+
+**Document Complete**: 2025-12-16
+**Next Document**: 04-backend-design.md (backend-architect creates)
