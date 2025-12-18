@@ -114,19 +114,198 @@ Tests include:
 
 See [TESTING.md](docs/TESTING.md) for detailed testing guide.
 
+## Installation
+
+Shark CLI is available for macOS, Linux, and Windows through multiple installation methods.
+
+### Quick Install
+
+**macOS** (Homebrew):
+```bash
+brew install jwwelbor/shark/shark
+```
+
+**Windows** (Scoop):
+```powershell
+scoop bucket add shark https://github.com/jwwelbor/scoop-shark
+scoop install shark
+```
+
+**Linux/macOS** (Manual):
+```bash
+curl -fsSL https://github.com/jwwelbor/shark-task-manager/releases/latest/download/shark_$(uname -s)_$(uname -m).tar.gz -o shark.tar.gz
+tar -xzf shark.tar.gz
+sudo mv shark /usr/local/bin/
+```
+
+**Verify Installation**:
+```bash
+shark --version
+```
+
+### Detailed Installation Instructions
+
+#### macOS
+
+**Option 1: Homebrew (Recommended)**
+
+1. Add the Shark tap:
+   ```bash
+   brew tap jwwelbor/shark
+   ```
+
+2. Install Shark:
+   ```bash
+   brew install shark
+   ```
+
+3. Verify installation:
+   ```bash
+   shark --version
+   ```
+
+**Option 2: Manual Installation**
+
+1. Download the latest release for your architecture:
+   - Intel Macs: `shark_*_darwin_amd64.tar.gz`
+   - Apple Silicon (M1/M2/M3): `shark_*_darwin_arm64.tar.gz`
+
+2. Extract and install:
+   ```bash
+   tar -xzf shark_*.tar.gz
+   sudo mv shark /usr/local/bin/
+   ```
+
+3. Verify installation:
+   ```bash
+   shark --version
+   ```
+
+#### Linux
+
+**Option 1: Manual Installation (All Distributions)**
+
+1. Download the latest release for your architecture:
+   - AMD64/x86_64: `shark_*_linux_amd64.tar.gz`
+   - ARM64/aarch64: `shark_*_linux_arm64.tar.gz`
+
+2. Download and verify checksums (recommended):
+   ```bash
+   # Download binary and checksums
+   wget https://github.com/jwwelbor/shark-task-manager/releases/latest/download/shark_*_linux_amd64.tar.gz
+   wget https://github.com/jwwelbor/shark-task-manager/releases/latest/download/checksums.txt
+
+   # Verify integrity
+   sha256sum -c checksums.txt --ignore-missing
+   ```
+
+3. Extract and install:
+   ```bash
+   tar -xzf shark_*.tar.gz
+   sudo mv shark /usr/local/bin/
+   ```
+
+4. Verify installation:
+   ```bash
+   shark --version
+   ```
+
+**Option 2: From Source**
+
+1. Install Go 1.23 or later
+2. Clone and build:
+   ```bash
+   git clone https://github.com/jwwelbor/shark-task-manager.git
+   cd shark-task-manager
+   make install-shark
+   ```
+
+#### Windows
+
+**Option 1: Scoop (Recommended)**
+
+1. Add the Shark bucket:
+   ```powershell
+   scoop bucket add shark https://github.com/jwwelbor/scoop-shark
+   ```
+
+2. Install Shark:
+   ```powershell
+   scoop install shark
+   ```
+
+3. Verify installation:
+   ```powershell
+   shark --version
+   ```
+
+**Option 2: Manual Installation**
+
+1. Download `shark_*_windows_amd64.zip` from the [latest release](https://github.com/jwwelbor/shark-task-manager/releases/latest)
+
+2. Download `checksums.txt` and verify (PowerShell):
+   ```powershell
+   # Calculate hash
+   $actual = (Get-FileHash shark_*_windows_amd64.zip -Algorithm SHA256).Hash.ToLower()
+
+   # Extract expected hash
+   $expected = (Get-Content checksums.txt | Select-String "windows_amd64").ToString().Split()[0]
+
+   # Verify
+   if ($actual -eq $expected) {
+       Write-Host "✅ Checksum verified successfully"
+   } else {
+       Write-Host "❌ Checksum verification FAILED"
+       exit 1
+   }
+   ```
+
+3. Extract the ZIP file
+
+4. Add the directory to your PATH or move `shark.exe` to a directory already in PATH
+
+5. Verify installation:
+   ```powershell
+   shark --version
+   ```
+
+### Security: Verifying Downloads
+
+All releases include SHA256 checksums in `checksums.txt`. Always verify downloads before installation:
+
+**Linux/macOS**:
+```bash
+sha256sum -c checksums.txt --ignore-missing
+```
+
+**Windows PowerShell**:
+```powershell
+$actual = (Get-FileHash shark.zip -Algorithm SHA256).Hash.ToLower()
+$expected = (Get-Content checksums.txt | Select-String "windows").ToString().Split()[0]
+if ($actual -eq $expected) { Write-Host "✅ Verified" }
+```
+
+For more details, see [SECURITY.md](SECURITY.md).
+
+### Upgrading
+
+**Homebrew**:
+```bash
+brew upgrade shark
+```
+
+**Scoop**:
+```powershell
+scoop update shark
+```
+
+**Manual Installation**: Download and install the latest version following the manual installation steps above.
+
+---
+
 ## Shark CLI - AI Agent Task Management
 
 The `shark` CLI is designed for AI agents to manage epics, features, and tasks programmatically. It provides atomic operations, dependency management, and progress tracking.
-
-### Installation
-
-```bash
-# Install the CLI
-make install-shark
-
-# Verify installation
-shark --help
-```
 
 ### Quick Start for AI Agents
 
