@@ -74,6 +74,8 @@ jobs:
           args: release --clean # Clean dist/ before building
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Automatically provided by GitHub
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }} # For publishing to homebrew-shark
+          SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }} # For publishing to scoop-shark
 
       - name: Upload artifacts (for debugging)
         uses: actions/upload-artifact@v4

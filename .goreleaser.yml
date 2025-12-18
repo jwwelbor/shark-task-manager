@@ -82,6 +82,66 @@ changelog:
       - '^chore:'
       - '^ci:'
 
+# Homebrew Tap configuration
+# Automatically publishes formula to homebrew-shark repository
+brews:
+  - # Repository for Homebrew tap
+    # NOTE: Requires homebrew-shark repository to be created manually
+    # NOTE: Requires HOMEBREW_TAP_TOKEN secret in main repository settings
+    repository:
+      owner: jwwelbor
+      name: homebrew-shark
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+
+    # Formula details
+    name: shark
+    homepage: https://github.com/jwwelbor/shark-task-manager
+    description: "Task management CLI for AI-driven development workflows"
+    license: "MIT"
+
+    # Only build for macOS (Homebrew is macOS-focused)
+    ids:
+      - default
+
+    # Installation instructions
+    install: |
+      bin.install "shark"
+
+    # Test that the formula works
+    test: |
+      system "#{bin}/shark", "--version"
+
+    # Additional formula metadata
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+
+# Scoop Bucket configuration
+# Automatically publishes manifest to scoop-shark repository
+scoops:
+  - # Repository for Scoop bucket
+    # NOTE: Requires scoop-shark repository to be created manually
+    # NOTE: Requires SCOOP_BUCKET_TOKEN secret in main repository settings
+    repository:
+      owner: jwwelbor
+      name: scoop-shark
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+
+    # Manifest details
+    name: shark
+    homepage: https://github.com/jwwelbor/shark-task-manager
+    description: "Task management CLI for AI-driven development workflows"
+    license: MIT
+
+    # Only include Windows builds for Scoop
+    ids:
+      - default
+
+    # Additional manifest metadata
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+
 # Release configuration
 # Creates GitHub releases as drafts for manual review
 release:
