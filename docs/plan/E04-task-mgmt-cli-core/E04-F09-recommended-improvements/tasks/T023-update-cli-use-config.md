@@ -152,7 +152,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 - No compilation errors
 
 **Build Verification**:
-- CLI builds successfully: `go build ./cmd/pm`
+- CLI builds successfully: `go build ./cmd/shark`
 - No hardcoded values remain (verify with grep)
 
 **Manual Testing**:

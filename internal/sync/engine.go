@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -178,10 +179,21 @@ func (e *SyncEngine) parseFiles(files []TaskFileInfo) ([]*TaskMetadata, []string
 			}
 		}
 
+		// Extract title from frontmatter, filename, or H1 heading
+		title := taskFile.Metadata.Title
+		if title == "" {
+			// Try extracting from filename first (e.g., "T-E04-F07-001-my-descriptive-title.md" -> "my descriptive title")
+			title = extractTitleFromFilename(file.FilePath)
+		}
+		if title == "" {
+			// Fall back to H1 heading
+			title = extractTitleFromMarkdown(taskFile.Content)
+		}
+
 		// Build task metadata
 		taskData := &TaskMetadata{
 			Key:        taskFile.Metadata.TaskKey,
-			Title:      taskFile.Metadata.Title,
+			Title:      title,
 			FilePath:   file.FilePath,
 			ModifiedAt: file.ModifiedAt,
 		}
@@ -402,4 +414,48 @@ func parseTaskKey(taskKey string) (string, string, error) {
 	}
 
 	return epicKey, featureKey, nil
+}
+
+// extractTitleFromFilename extracts title from filename
+// Expected formats:
+// - "T-E04-F07-001-repository-extensions.md" -> "Repository Extensions"
+// - "T-E04-F07-001.md" -> "" (no descriptive part)
+func extractTitleFromFilename(filePath string) string {
+	// Get base filename without path
+	parts := strings.Split(filePath, "/")
+	filename := parts[len(parts)-1]
+
+	// Remove .md extension
+	filename = strings.TrimSuffix(filename, ".md")
+
+	// Expected pattern: T-E##-F##-###-descriptive-name
+	// Task key is 13 characters (T-E04-F07-001), descriptive part starts at position 14 with a hyphen
+	if len(filename) > 14 && filename[13] == '-' {
+		descriptive := filename[14:]
+		// Convert hyphens to spaces and title-case
+		descriptive = strings.ReplaceAll(descriptive, "-", " ")
+		return strings.Title(descriptive)
+	}
+
+	return ""
+}
+
+// extractTitleFromMarkdown extracts the title from the first H1 heading
+// Expected formats:
+// - "# Task: Title Text" -> "Title Text"
+// - "# Title Text" -> "Title Text"
+// - "# PRP: Title Text" -> "Title Text"
+func extractTitleFromMarkdown(content string) string {
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# ") {
+			title := strings.TrimPrefix(line, "# ")
+			// Remove common prefixes
+			title = strings.TrimPrefix(title, "Task: ")
+			title = strings.TrimPrefix(title, "PRP: ")
+			return strings.TrimSpace(title)
+		}
+	}
+	return ""
 }

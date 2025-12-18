@@ -132,6 +132,20 @@ Examples:
 	RunE: runTaskNext,
 }
 
+// taskDeleteCmd deletes a task
+var taskDeleteCmd = &cobra.Command{
+	Use:   "delete <task-key>",
+	Short: "Delete a task",
+	Long: `Delete a task from the database (and its history via CASCADE).
+
+WARNING: This action cannot be undone. Task history will also be deleted.
+
+Examples:
+  shark task delete T-E04-F01-001`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskDelete,
+}
+
 // runTaskList executes the task list command
 func runTaskList(cmd *cobra.Command, args []string) error {
 	// Create context with timeout
@@ -908,6 +922,45 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runTaskDelete executes the task delete command
+func runTaskDelete(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	taskKey := args[0]
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		return fmt.Errorf("failed to get database path: %w", err)
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer database.Close()
+
+	// Create repository
+	repo := repository.NewTaskRepository(repository.NewDB(database))
+
+	// Get task by key to verify it exists
+	task, err := repo.GetByKey(ctx, taskKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Task not found: %s", taskKey))
+		os.Exit(1)
+	}
+
+	// Delete task from database (CASCADE will handle history)
+	if err := repo.Delete(ctx, task.ID); err != nil {
+		cli.Error(fmt.Sprintf("Failed to delete task: %v", err))
+		os.Exit(1)
+	}
+
+	cli.Success(fmt.Sprintf("Task %s deleted successfully", taskKey))
+	return nil
+}
+
 func init() {
 	// Register task command with root
 	cli.RootCmd.AddCommand(taskCmd)
@@ -923,6 +976,7 @@ func init() {
 	taskCmd.AddCommand(taskUnblockCmd)
 	taskCmd.AddCommand(taskReopenCmd)
 	taskCmd.AddCommand(taskNextCmd)
+	taskCmd.AddCommand(taskDeleteCmd)
 
 	// Add flags for list command
 	taskListCmd.Flags().StringP("status", "s", "", "Filter by status (todo, in_progress, completed, blocked)")

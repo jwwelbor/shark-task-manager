@@ -15,7 +15,7 @@ AI agents working on multi-epic software projects in the Claude Code environment
 
 ### Solution
 
-Implement the foundational infrastructure for a SQLite-backed task management CLI (`pm` - Project Manager) that serves as the single source of truth for all project state. This epic focuses on the core capabilities: database schema, CLI framework, task lifecycle operations, epic/feature queries, file path management, task creation, and initialization/sync tools. The system combines a normalized relational database (project.db) for task status and metadata with feature-based file organization (docs/plan/{epic}/{feature}/tasks/) that maintains context locality.
+Implement the foundational infrastructure for a SQLite-backed task management CLI (`shark` - Project Manager) that serves as the single source of truth for all project state. This epic focuses on the core capabilities: database schema, CLI framework, task lifecycle operations, epic/feature queries, file path management, task creation, and initialization/sync tools. The system combines a normalized relational database (project.db) for task status and metadata with feature-based file organization (docs/plan/{epic}/{feature}/tasks/) that maintains context locality.
 
 This epic establishes the foundation that enables E05 (Task Management CLI - Extended Capabilities) to add advanced features like dependency management, status dashboards, and audit trails.
 

@@ -1,13 +1,47 @@
 {
   "hooks": {
-    "PostToolUse": {
-      "Write": [".claude/hooks/artifact-watcher.py"]
-    },
-    "Stop": [".claude/hooks/workflow-router.py"],
-    "SessionStart": [".claude/hooks/context-loader.py"],
-    "PreToolUse": {
-      "Write": [".claude/hooks/quality-gate.py"]
-    }
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/artifact-watcher.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/workflow-router.py"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/context-loader.py"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/quality-gate.py"
+          }
+        ]
+      }
+    ]
   },
   "permissions": {
     "allow": [

@@ -1,8 +1,8 @@
-# PM CLI Initialization Guide
+# Shark CLI Initialization Guide
 
 ## Overview
 
-The `pm init` command sets up the PM CLI infrastructure for your project, creating the necessary database, folder structure, configuration file, and task templates in a single operation.
+The `pm init` command sets up the Shark CLI infrastructure for your project, creating the necessary database, folder structure, configuration file, and task templates in a single operation.
 
 ## Quick Start
 
@@ -222,7 +222,7 @@ pm init --force
 
 If you have an existing project with task files:
 
-1. **Initialize PM CLI**:
+1. **Initialize Shark CLI**:
    ```bash
    pm init
    ```

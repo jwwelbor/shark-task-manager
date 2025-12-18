@@ -1,0 +1,18 @@
+{
+  "description": "Optional hook to remind about task completion when tests pass",
+  "usage": "Add this to your .claude/settings.json under the 'hooks' key",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r 'if (.tool_input.command | contains(\"pytest\") or contains(\"go test\") or contains(\"npm test\") or contains(\"make test\")) and (.exit_code == 0) then \"\\n⚠️  All tests passed! Consider completing the task with: /task-complete <task-id>\\n\" else \"\" end'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

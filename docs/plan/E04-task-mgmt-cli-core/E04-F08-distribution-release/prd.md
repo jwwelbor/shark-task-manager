@@ -8,7 +8,7 @@
 
 ### Problem
 
-The PM CLI tool needs to be easily installable across Linux, macOS, and Windows without requiring users to have Go installed or know how to compile binaries. Manual release processes (building binaries for each platform, creating GitHub releases, updating package managers) are error-prone, time-consuming, and inconsistent. Developers expect modern installation workflows: `brew install pm` on macOS, `scoop install pm` on Windows, or downloading a pre-built binary. Without automated distribution, users face complex installation steps (clone repo, install Go, run build commands), significantly reducing adoption and creating support burden.
+The Shark CLI tool needs to be easily installable across Linux, macOS, and Windows without requiring users to have Go installed or know how to compile binaries. Manual release processes (building binaries for each platform, creating GitHub releases, updating package managers) are error-prone, time-consuming, and inconsistent. Developers expect modern installation workflows: `brew install shark` on macOS, `scoop install shark` on Windows, or downloading a pre-built binary. Without automated distribution, users face complex installation steps (clone repo, install Go, run build commands), significantly reducing adoption and creating support burden.
 
 ### Solution
 
@@ -16,7 +16,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 
 ### Impact
 
-- **Developer Experience**: One-command installation (`brew install pm` or `scoop install pm`) reduces setup time from 10+ minutes to <30 seconds
+- **Developer Experience**: One-command installation (`brew install shark` or `scoop install shark`) reduces setup time from 10+ minutes to <30 seconds
 - **Adoption**: Eliminates Go dependency requirement, making the tool accessible to non-Go developers and AI agents
 - **Release Velocity**: Automated releases reduce release time from 2+ hours (manual builds/uploads) to <10 minutes (tag and wait)
 - **Consistency**: All platforms receive identical versions simultaneously, eliminating version skew and platform-specific bugs
@@ -26,7 +26,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 
 ### Primary Persona: Product Manager / Technical Lead
 
-**Role**: Human developer installing PM CLI for the first time
+**Role**: Human developer installing Shark CLI for the first time
 **Environment**: macOS, Linux, or Windows workstation
 
 **Key Characteristics**:
@@ -36,7 +36,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 - Trusts established package managers (Homebrew, Scoop)
 
 **Goals**:
-- Install PM CLI with single command
+- Install Shark CLI with single command
 - Get updates automatically through package manager
 - Verify binary authenticity with checksums
 - Read installation instructions clearly
@@ -49,7 +49,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 
 ### Secondary Persona: CI/CD Pipeline
 
-**Role**: Automated system installing PM CLI in GitHub Actions or GitLab CI
+**Role**: Automated system installing Shark CLI in GitHub Actions or GitLab CI
 **Environment**: Linux containers (Docker), ephemeral environments
 
 **Key Characteristics**:
@@ -98,10 +98,10 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 ### Must-Have User Stories
 
 **Story 1: One-Command Installation (Homebrew)**
-- As a macOS/Linux user, I want to run `brew install <user>/pm/pm`, so that I can install PM CLI without downloading or compiling anything manually.
+- As a macOS/Linux user, I want to run `brew install <user>/shark/shark`, so that I can install Shark CLI without downloading or compiling anything manually.
 
 **Story 2: One-Command Installation (Scoop)**
-- As a Windows user, I want to run `scoop install pm`, so that I can install PM CLI using my existing package manager.
+- As a Windows user, I want to run `scoop install shark`, so that I can install Shark CLI using my existing package manager.
 
 **Story 3: Download Pre-Built Binary**
 - As a user on any platform, I want to download a pre-built binary from GitHub releases, so that I can install without a package manager.
@@ -116,10 +116,10 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 - As a release manager, I want GoReleaser to build binaries for Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64), so that all users get native binaries.
 
 **Story 7: Automated Homebrew Tap**
-- As a macOS user, I want the Homebrew tap to update automatically when a new version is released, so that `brew upgrade pm` gets the latest version.
+- As a macOS user, I want the Homebrew tap to update automatically when a new version is released, so that `brew upgrade shark` gets the latest version.
 
 **Story 8: Automated Scoop Bucket**
-- As a Windows user, I want the Scoop bucket to update automatically when a new version is released, so that `scoop update pm` gets the latest version.
+- As a Windows user, I want the Scoop bucket to update automatically when a new version is released, so that `scoop update shark` gets the latest version.
 
 ### Should-Have User Stories
 
@@ -138,7 +138,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 ### Could-Have User Stories
 
 **Story 13: Snap Package (Linux)**
-- As a Linux user, I want to install via `snap install pm`, so that I can use my preferred package manager.
+- As a Linux user, I want to install via `snap install shark`, so that I can use my preferred package manager.
 
 **Story 14: Docker Image**
 - As a CI/CD user, I want a Docker image (`pm:latest`), so that I can use PM in containerized environments without installation.
@@ -159,7 +159,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
    - macOS: amd64 (Intel), arm64 (Apple Silicon)
    - Windows: amd64
 
-3. The configuration must specify binary name as `pm` (with `.exe` suffix for Windows)
+3. The configuration must specify binary name as `shark` (with `.exe` suffix for Windows)
 
 4. The configuration must generate archives:
    - Format: `.tar.gz` for Linux/macOS, `.zip` for Windows
@@ -198,27 +198,27 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 
 **Homebrew Tap:**
 
-15. The system must publish to a Homebrew tap at `https://github.com/<user>/homebrew-pm`
+15. The system must publish to a Homebrew tap at `https://github.com/<user>/homebrew-shark`
 
 16. GoReleaser must generate a Homebrew formula (`pm.rb`) with:
     - Binary download URLs for macOS (amd64, arm64)
     - SHA256 checksums
     - Installation instructions
 
-17. The formula must support `brew install <user>/pm/pm` syntax
+17. The formula must support `brew install <user>/pm/shark` syntax
 
 18. The tap must auto-update when GoReleaser publishes a new release
 
 **Scoop Bucket:**
 
-19. The system must publish to a Scoop bucket at `https://github.com/<user>/scoop-pm`
+19. The system must publish to a Scoop bucket at `https://github.com/<user>/scoop-shark`
 
 20. GoReleaser must generate a Scoop manifest (`pm.json`) with:
     - Binary download URL for Windows amd64
     - SHA256 checksum
     - Installation instructions
 
-21. The manifest must support `scoop bucket add pm <user>/scoop-pm` followed by `scoop install pm`
+21. The manifest must support `scoop bucket add pm <user>/scoop-shark` followed by `scoop install shark`
 
 22. The bucket must auto-update when GoReleaser publishes a new release
 
@@ -324,14 +324,14 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 ### Homebrew Installation
 
 **Given** a new release `v1.0.0` is published
-**When** I run `brew install <user>/pm/pm`
-**Then** the `pm` binary is installed to `/opt/homebrew/bin/pm` (Apple Silicon) or `/usr/local/bin/pm` (Intel)
+**When** I run `brew install <user>/pm/shark`
+**Then** the `shark` binary is installed to `/opt/homebrew/bin/shark` (Apple Silicon) or `/usr/local/bin/shark` (Intel)
 **And** running `pm --version` outputs `v1.0.0`
 
 ### Scoop Installation
 
 **Given** a new release `v1.0.0` is published
-**When** I run `scoop bucket add pm <user>/scoop-pm` and `scoop install pm`
+**When** I run `scoop bucket add pm <user>/scoop-shark` and `scoop install shark`
 **Then** the `pm.exe` binary is installed to `~/scoop/apps/pm/current/pm.exe`
 **And** running `pm --version` outputs `v1.0.0`
 
@@ -377,10 +377,10 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 **Given** I run GoReleaser locally with `goreleaser build --snapshot --clean`
 **When** the build completes
 **Then** `dist/` contains binaries for all 6 platforms:
-- `pm_linux_amd64/pm`
-- `pm_linux_arm64/pm`
-- `pm_darwin_amd64/pm`
-- `pm_darwin_arm64/pm`
+- `pm_linux_amd64/shark`
+- `pm_linux_arm64/shark`
+- `pm_darwin_amd64/shark`
+- `pm_darwin_arm64/shark`
 - `pm_windows_amd64/pm.exe`
 
 ## Out of Scope

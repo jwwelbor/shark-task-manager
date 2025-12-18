@@ -117,7 +117,7 @@ func runTaskList(repo domain.TaskRepository) error { ... }
 
 **Build Verification**:
 - `go build ./cmd/server` succeeds
-- `go build ./cmd/pm` succeeds
+- `go build ./cmd/shark` succeeds
 
 **Test Verification**:
 - Run full test suite: `go test ./...`

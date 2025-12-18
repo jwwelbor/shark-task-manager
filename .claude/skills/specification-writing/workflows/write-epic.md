@@ -63,25 +63,34 @@ For detailed structure of each file, see:
 2. Ask clarifying questions as needed
 3. Confirm you have sufficient information to proceed
 
-**Phase 2: Create Directory Structure**
-1. Create `/docs/plan/{epic-key}/` directory
-2. Verify path is correct before creating files
+**Phase 2: Create Epic in Shark Database**
+1. Run `shark epic create --key=<epic-key> --title="<Epic Name>" --status=draft`
+   - This creates the database record and generates the epic directory structure
+   - Epic key format: `E##-{epic-slug}` (e.g., `E09-identity-platform`)
+   - Shark will create `/docs/plan/{epic-key}/` and initialize `epic.md` with basic structure
+   - **Note**: If shark epic create is not yet implemented, manually create the directory and files
 
-**Phase 3: Generate Files in Sequence**
-1. **Create `epic.md` first** - This establishes the core summary and navigation structure
-2. **Create `personas.md`** - Define who will use the system
-3. **Create `user-journeys.md`** - Map how personas interact with the system
-4. **Create `requirements.md`** - Specify what must be built (references journeys and personas)
-5. **Create `success-metrics.md`** - Define how success will be measured
-6. **Create `scope.md`** - Establish clear boundaries
+2. Verify the epic was created: `shark epic get <epic-key>`
 
-**Phase 4: Cross-Reference Verification**
+**Phase 3: Fill in Epic Files with Detailed Content**
+1. **Fill `epic.md`** - Expand the generated file with comprehensive goal, business value, quick reference
+2. **Create and fill `personas.md`** - Add detailed user persona profiles
+3. **Create and fill `user-journeys.md`** - Map detailed user workflows
+4. **Create and fill `requirements.md`** - Add comprehensive functional and non-functional requirements
+5. **Create and fill `success-metrics.md`** - Define detailed KPIs and measurement framework
+6. **Create and fill `scope.md`** - Establish explicit boundaries and exclusions
+
+**Phase 4: Verify Epic in Database**
+1. Confirm epic exists: `shark epic get <epic-key>`
+2. Verify epic shows in list: `shark epic list`
+
+**Phase 5: Cross-Reference Verification**
 1. Verify all relative links work correctly
 2. Ensure personas are referenced consistently across files
 3. Confirm requirements trace back to user journeys
 4. Validate metrics align with requirements
 
-**Phase 5: Quality Check**
+**Phase 6: Quality Check**
 Run through the self-verification checklist before finalizing.
 
 ## Best Practices
@@ -151,7 +160,13 @@ Before delivering the PRD, verify:
 
 After creating all files, provide the user with:
 
-1. **Confirmation message**: "Epic PRD created successfully in `/docs/plan/{epic-key}/`"
+1. **Confirmation message**: "Epic PRD created successfully:"
+   - Epic created in database: `shark epic get {epic-key}`
+   - Files created in `/docs/plan/{epic-key}/`
 2. **File list**: List all 6 files created
-3. **Navigation instruction**: "Start with `epic.md` for overview, then navigate to detail files as needed"
-4. **Next steps**: Suggest how they can use this PRD (e.g., "This PRD is ready to be used as input for technical architecture specifications")
+3. **Database verification**: Show output of `shark epic get {epic-key}` to confirm epic is tracked
+4. **Navigation instruction**: "Start with `epic.md` for overview, then navigate to detail files as needed"
+5. **Next steps**: Suggest workflow options:
+   - "Create features for this epic: `shark feature create --epic={epic-key} --key={feature-key} --title='Feature Name'`"
+   - "Generate tasks with `/task` command once feature design docs are ready"
+   - "This PRD is ready to be used as input for technical architecture specifications"

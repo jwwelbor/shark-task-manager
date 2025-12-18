@@ -8,7 +8,7 @@
 
 ### Problem
 
-The PM CLI maintains task metadata in a database and task markdown files in the filesystem. The database needs to store the correct file path for each task, and the system must ensure tasks are organized in a consistent, logical structure. Without a standardized file organization strategy, tasks become scattered across arbitrary locations, making it difficult for both humans and AI agents to find related tasks and understand feature context. File paths stored in the database can drift from actual file locations due to manual file moves, filesystem errors, or bugs. The system needs a simple, predictable file organization pattern that keeps tasks close to their feature's design documents (PRD, architecture, etc.) for maximum context locality.
+The Shark CLI maintains task metadata in a database and task markdown files in the filesystem. The database needs to store the correct file path for each task, and the system must ensure tasks are organized in a consistent, logical structure. Without a standardized file organization strategy, tasks become scattered across arbitrary locations, making it difficult for both humans and AI agents to find related tasks and understand feature context. File paths stored in the database can drift from actual file locations due to manual file moves, filesystem errors, or bugs. The system needs a simple, predictable file organization pattern that keeps tasks close to their feature's design documents (PRD, architecture, etc.) for maximum context locality.
 
 ### Solution
 

@@ -819,7 +819,7 @@ def test_ac_database_schema_creation(tmp_path):
     """
     PRD AC: Database Schema Creation
 
-    Given: PM CLI is run for the first time in a new project
+    Given: Shark CLI is run for the first time in a new project
     When: Database initialization code executes
     Then: project.db file is created with all four tables
     And: All foreign key constraints are enabled

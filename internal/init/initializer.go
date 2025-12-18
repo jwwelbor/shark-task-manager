@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 )
 
-// Initializer orchestrates PM CLI initialization
+// Initializer orchestrates Shark CLI initialization
 type Initializer struct {
 	// No persistent state
 }
@@ -15,7 +15,7 @@ func NewInitializer() *Initializer {
 	return &Initializer{}
 }
 
-// Initialize performs complete PM CLI initialization
+// Initialize performs complete Shark CLI initialization
 func (i *Initializer) Initialize(ctx context.Context, opts InitOptions) (*InitResult, error) {
 	result := &InitResult{
 		FoldersCreated: []string{}, // Initialize to empty slice, not nil

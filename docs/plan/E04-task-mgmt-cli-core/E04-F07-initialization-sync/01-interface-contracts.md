@@ -95,7 +95,7 @@ This document defines the contracts between system components for initialization
 
 **Output (Human-Readable)**:
 ```
-PM CLI initialized successfully!
+Shark CLI initialized successfully!
 
 ✓ Database created: shark-tasks.db
 ✓ Folder structure created: docs/plan/, templates/
@@ -199,7 +199,7 @@ Warnings:
 **Interface**:
 ```go
 type Initializer interface {
-    // Initialize sets up PM CLI infrastructure
+    // Initialize sets up Shark CLI infrastructure
     // Returns error if initialization fails
     Initialize(ctx context.Context, opts InitOptions) (*InitResult, error)
 }

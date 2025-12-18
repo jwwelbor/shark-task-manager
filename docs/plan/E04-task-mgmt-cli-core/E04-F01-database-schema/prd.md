@@ -8,7 +8,7 @@
 
 ### Problem
 
-The PM CLI tool requires a robust, performant, and reliable data storage layer to serve as the single source of truth for all project state (epics, features, tasks). Without a properly designed database schema, the system cannot maintain referential integrity, calculate progress metrics efficiently, track status transitions, or support the complex queries needed by agents and developers. The schema must balance normalization (to prevent data duplication and inconsistencies) with query performance (agents need <100ms response times even with 10,000 tasks). It must also support the full task lifecycle with proper constraints, enable atomic transactions for status changes, and provide a foundation for audit trails.
+The Shark CLI tool requires a robust, performant, and reliable data storage layer to serve as the single source of truth for all project state (epics, features, tasks). Without a properly designed database schema, the system cannot maintain referential integrity, calculate progress metrics efficiently, track status transitions, or support the complex queries needed by agents and developers. The schema must balance normalization (to prevent data duplication and inconsistencies) with query performance (agents need <100ms response times even with 10,000 tasks). It must also support the full task lifecycle with proper constraints, enable atomic transactions for status changes, and provide a foundation for audit trails.
 
 ### Solution
 
@@ -286,7 +286,7 @@ Design and implement a normalized SQLite database schema (project.db) with four 
 
 ### Database Schema Creation
 
-**Given** the PM CLI is run for the first time in a new project
+**Given** the Shark CLI is run for the first time in a new project
 **When** the database initialization code executes
 **Then** the project.db file is created with all four tables (epics, features, tasks, task_history)
 **And** all foreign key constraints are enabled

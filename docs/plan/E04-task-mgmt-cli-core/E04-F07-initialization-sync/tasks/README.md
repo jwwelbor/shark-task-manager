@@ -62,7 +62,7 @@ Extends existing repository layer with methods optimized for sync operations: Bu
 - Performance benchmarks
 
 ### Task 002: Initialization Command Implementation
-Implements `pm init` command to set up PM CLI infrastructure with database schema, folder structure, config file, and templates. Emphasizes idempotency and atomic operations for safety.
+Implements `pm init` command to set up Shark CLI infrastructure with database schema, folder structure, config file, and templates. Emphasizes idempotency and atomic operations for safety.
 
 **Key Deliverables**:
 - `internal/init/` package with orchestrator and sub-components
@@ -108,7 +108,7 @@ Completes test coverage, adds performance benchmarks, tests edge cases, and crea
 
 ## Status Management
 
-Task status is tracked in the database via `pm` CLI. Use these commands:
+Task status is tracked in the database via `shark` CLI. Use these commands:
 
 ```bash
 # List tasks by status

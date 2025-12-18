@@ -28,6 +28,24 @@ Use this workflow when:
    - Test database configured
    - Migration tracking table exists
 
+## Phase 0: Start Task Tracking
+
+Before beginning implementation, start task tracking:
+
+```bash
+# Start the task to update status and track progress
+shark task start <task-id>
+
+# Example:
+shark task start T-E04-F04-001
+```
+
+This:
+- Updates task status to "in-progress" in the database
+- Tracks when implementation began
+- Provides visibility to the team
+- Enables accurate progress reporting
+
 ## Phase 1: Design Data Model
 
 ### Step 1.1: Define Entities
@@ -753,6 +771,14 @@ class User(Base, AuditMixin):
 - [ ] Repository unit tests passing
 - [ ] Integration tests passing
 - [ ] Documentation updated
+- [ ] **Task completed:** `shark task complete <task-id>`
+
+**Final Step:** Mark the task as complete:
+```bash
+shark task complete T-E04-F04-001
+```
+
+This updates the task status to "completed" and records completion time in the database.
 
 ## Common Issues
 

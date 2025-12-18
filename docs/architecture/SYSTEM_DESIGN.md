@@ -27,7 +27,7 @@
 
 ### Purpose
 
-Shark Task Manager is a task management system designed for AI-driven development workflows. It provides both an HTTP API and a powerful CLI (`pm`) for managing epics, features, and tasks with progress tracking, dependency management, and history auditing.
+Shark Task Manager is a task management system designed for AI-driven development workflows. It provides both an HTTP API and a powerful CLI (`shark`) for managing epics, features, and tasks with progress tracking, dependency management, and history auditing.
 
 ### Key Architectural Decisions
 
@@ -56,7 +56,7 @@ Shark Task Manager is a task management system designed for AI-driven developmen
 graph TB
     subgraph "Presentation Layer"
         HTTP[HTTP Server :8080]
-        CLI[PM CLI Tool]
+        CLI[Shark CLI Tool]
     end
 
     subgraph "Business Layer"
@@ -826,7 +826,7 @@ cp shark-tasks.db shark-tasks.db.backup
 │     Developer Machine                  │
 │                                        │
 │  ┌──────────────────────────────────┐ │
-│  │  pm CLI Tool                     │ │
+│  │  Shark CLI Tool                     │ │
 │  │  (~/go/bin/pm)                   │ │
 │  └──────────────────────────────────┘ │
 │                 ↓                      │
@@ -863,7 +863,7 @@ pm --help
 
 ```
 ┌──────────────────┐      HTTP       ┌──────────────────┐
-│   PM CLI Tool    │ ─────────────→  │   HTTP Server    │
+│   Shark CLI Tool    │ ─────────────→  │   HTTP Server    │
 │   (Client)       │                  │   (:8080)        │
 └──────────────────┘                  └──────────────────┘
                                                ↓
