@@ -55,6 +55,9 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 		t.Fatalf("Epic with ID %d (key=%s) does not exist in database", epicID, epicKey)
 	}
 
+	// Clean up any existing feature with this specific key from previous test runs to ensure test isolation
+	database.Exec("DELETE FROM features WHERE key = ?", featureKey)
+
 	// Create feature via SQL with INSERT OR IGNORE
 	if epicID == 0 {
 		t.Fatalf("Cannot create feature %s: epicID is 0 (epic %s does not exist)", featureKey, epicKey)

@@ -3,9 +3,13 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/reporting"
 	"github.com/jwwelbor/shark-task-manager/internal/sync"
 	"github.com/spf13/cobra"
 )
@@ -17,6 +21,9 @@ var (
 	syncCreateMissing bool
 	syncCleanup       bool
 	syncPatterns      []string
+	syncForceFullScan bool
+	syncOutput        string
+	syncQuiet         bool
 )
 
 var syncCmd = &cobra.Command{
@@ -27,28 +34,37 @@ parsing frontmatter, detecting conflicts, and applying resolution strategies.
 
 Status is managed exclusively in the database and is NOT synced from files.`,
 	Example: `  # Sync all feature folders (task pattern only)
-  pm sync
+  shark sync
 
   # Sync PRP files only
-  pm sync --pattern=prp
+  shark sync --pattern=prp
 
   # Sync both task and PRP files
-  pm sync --pattern=task --pattern=prp
+  shark sync --pattern=task --pattern=prp
 
   # Sync specific folder
-  pm sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
+  shark sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
 
   # Preview changes without applying (dry-run)
-  pm sync --dry-run
+  shark sync --dry-run
 
   # Use database-wins strategy for conflicts
-  pm sync --strategy=database-wins
+  shark sync --strategy=database-wins
+
+  # Manually resolve conflicts interactively
+  shark sync --strategy=manual
 
   # Auto-create missing epics/features
-  pm sync --create-missing
+  shark sync --create-missing
 
   # Delete orphaned database tasks (files deleted)
-  pm sync --cleanup`,
+  shark sync --cleanup
+
+  # Output as JSON for scripting
+  shark sync --output=json
+
+  # Quiet mode (minimal output)
+  shark sync --quiet`,
 	RunE: runSync,
 }
 
@@ -60,16 +76,24 @@ func init() {
 	syncCmd.Flags().BoolVar(&syncDryRun, "dry-run", false,
 		"Preview changes without applying them")
 	syncCmd.Flags().StringVar(&syncStrategy, "strategy", "file-wins",
-		"Conflict resolution strategy: file-wins, database-wins, newer-wins")
+		"Conflict resolution strategy: file-wins, database-wins, newer-wins, manual")
 	syncCmd.Flags().BoolVar(&syncCreateMissing, "create-missing", false,
 		"Auto-create missing epics/features")
 	syncCmd.Flags().BoolVar(&syncCleanup, "cleanup", false,
 		"Delete orphaned database tasks (files deleted)")
 	syncCmd.Flags().StringSliceVar(&syncPatterns, "pattern", []string{"task"},
 		"File patterns to scan: task, prp (can specify multiple)")
+	syncCmd.Flags().BoolVar(&syncForceFullScan, "force-full-scan", false,
+		"Force full scan, ignoring incremental filtering")
+	syncCmd.Flags().StringVar(&syncOutput, "output", "text",
+		"Output format: text, json")
+	syncCmd.Flags().BoolVar(&syncQuiet, "quiet", false,
+		"Quiet mode (only show errors, useful for scripting)")
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
+	startTime := time.Now()
+
 	// Get database path
 	dbPath, err := cli.GetDBPath()
 	if err != nil {
@@ -94,6 +118,15 @@ func runSync(cmd *cobra.Command, args []string) error {
 		folderPath = "docs/plan"
 	}
 
+	// Load config to get last_sync_time
+	configPath := findConfigPath()
+	configManager := config.NewManager(configPath)
+	cfg, err := configManager.Load()
+	if err != nil {
+		// Config load error is not fatal - just log warning and continue with full scan
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
+	}
+
 	// Create sync options
 	opts := sync.SyncOptions{
 		DBPath:        dbPath,
@@ -102,6 +135,13 @@ func runSync(cmd *cobra.Command, args []string) error {
 		Strategy:      strategy,
 		CreateMissing: syncCreateMissing,
 		Cleanup:       syncCleanup,
+		ForceFullScan: syncForceFullScan,
+		LastSyncTime:  nil, // Will be set from config if available
+	}
+
+	// Set last sync time from config (if not forcing full scan)
+	if cfg != nil && !syncForceFullScan {
+		opts.LastSyncTime = cfg.LastSyncTime
 	}
 
 	// Create sync engine with specified patterns
@@ -115,9 +155,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	report, err := engine.Sync(ctx, opts)
+	syncReport, err := engine.Sync(ctx, opts)
 	if err != nil {
-		if cli.GlobalConfig.JSON {
+		if syncOutput == "json" || cli.GlobalConfig.JSON {
 			return cli.OutputJSON(map[string]interface{}{
 				"status": "error",
 				"error":  err.Error(),
@@ -126,15 +166,38 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Output report
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"status": "success",
-			"report": report,
-		})
+	// Update last_sync_time in config after successful sync (non-dry-run only)
+	if !syncDryRun && cfg != nil {
+		syncTime := time.Now()
+		if updateErr := configManager.UpdateLastSyncTime(syncTime); updateErr != nil {
+			// Log warning but don't fail the sync
+			fmt.Fprintf(os.Stderr, "Warning: Failed to update last_sync_time in config: %v\n", updateErr)
+		}
 	}
 
-	displaySyncReport(report, syncDryRun)
+	// Convert sync report to scan report for enhanced reporting
+	scanReport := convertToScanReport(syncReport, startTime, folderPath, patterns)
+
+	// Output report
+	if syncOutput == "json" || cli.GlobalConfig.JSON {
+		fmt.Println(reporting.FormatJSON(scanReport))
+		return nil
+	}
+
+	if !syncQuiet {
+		// Use color output if terminal supports it
+		useColor := isTerminal()
+		fmt.Println(reporting.FormatCLI(scanReport, useColor))
+	} else {
+		// Quiet mode: only show errors
+		if len(syncReport.Errors) > 0 {
+			for _, err := range syncReport.Errors {
+				fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
+			}
+			return fmt.Errorf("sync completed with %d error(s)", len(syncReport.Errors))
+		}
+	}
+
 	return nil
 }
 
@@ -146,8 +209,10 @@ func parseConflictStrategy(s string) (sync.ConflictStrategy, error) {
 		return sync.ConflictStrategyDatabaseWins, nil
 	case "newer-wins":
 		return sync.ConflictStrategyNewerWins, nil
+	case "manual":
+		return sync.ConflictStrategyManual, nil
 	default:
-		return "", fmt.Errorf("unknown strategy: %s (valid: file-wins, database-wins, newer-wins)", s)
+		return "", fmt.Errorf("unknown strategy: %s (valid: file-wins, database-wins, newer-wins, manual)", s)
 	}
 }
 
@@ -169,52 +234,91 @@ func validatePatterns(patternStrings []string) ([]sync.PatternType, error) {
 	return result, nil
 }
 
-func displaySyncReport(report *sync.SyncReport, dryRun bool) {
-	if dryRun {
-		cli.Warning("DRY-RUN MODE: No changes will be made")
-		fmt.Println()
+// convertToScanReport converts a sync.SyncReport to reporting.ScanReport
+func convertToScanReport(syncReport *sync.SyncReport, startTime time.Time, folderPath string, patterns []sync.PatternType) *reporting.ScanReport {
+	scanReport := reporting.NewScanReport()
+
+	// Set metadata
+	scanReport.Metadata = reporting.ScanMetadata{
+		Timestamp:         startTime,
+		DurationSeconds:   time.Since(startTime).Seconds(),
+		ValidationLevel:   "basic",
+		DocumentationRoot: folderPath,
+		Patterns:          make(map[string]string),
 	}
 
-	cli.Success("Sync completed:")
-	fmt.Printf("  Files scanned:      %d\n", report.FilesScanned)
-	fmt.Printf("  New tasks imported: %d\n", report.TasksImported)
-	fmt.Printf("  Tasks updated:      %d\n", report.TasksUpdated)
-	fmt.Printf("  Conflicts resolved: %d\n", report.ConflictsResolved)
-
-	if report.TasksDeleted > 0 {
-		fmt.Printf("  Tasks deleted:      %d\n", report.TasksDeleted)
+	// Add patterns to metadata
+	for _, p := range patterns {
+		scanReport.Metadata.Patterns[string(p)] = "enabled"
 	}
 
-	fmt.Printf("  Warnings:           %d\n", len(report.Warnings))
-	fmt.Printf("  Errors:             %d\n", len(report.Errors))
+	// Set dry run flag
+	scanReport.SetDryRun(syncReport.DryRun)
 
-	// Display conflicts
-	if len(report.Conflicts) > 0 {
-		fmt.Println()
-		fmt.Println("Conflicts:")
-		for _, conflict := range report.Conflicts {
-			fmt.Printf("  %s:\n", conflict.TaskKey)
-			fmt.Printf("    Field:    %s\n", conflict.Field)
-			fmt.Printf("    Database: %q\n", conflict.DatabaseValue)
-			fmt.Printf("    File:     %q\n", conflict.FileValue)
+	// Set counts
+	scanReport.Counts.Scanned = syncReport.FilesScanned
+	scanReport.Counts.Matched = syncReport.TasksImported + syncReport.TasksUpdated
+	scanReport.Counts.Skipped = len(syncReport.Errors) + len(syncReport.Warnings)
+
+	// Set entity counts (tasks only for now)
+	scanReport.Entities.Tasks.Matched = syncReport.TasksImported + syncReport.TasksUpdated
+	scanReport.Entities.Tasks.Skipped = len(syncReport.Errors)
+
+	// Convert warnings
+	for _, warning := range syncReport.Warnings {
+		scanReport.AddWarning(reporting.SkippedFileEntry{
+			FilePath:     folderPath,
+			Reason:       warning,
+			ErrorType:    "validation_warning",
+			SuggestedFix: "Review warning and take appropriate action",
+		})
+	}
+
+	// Convert errors
+	for _, errMsg := range syncReport.Errors {
+		scanReport.AddError(reporting.SkippedFileEntry{
+			FilePath:     folderPath,
+			Reason:       errMsg,
+			ErrorType:    "parse_error",
+			SuggestedFix: "Fix the error and re-run sync",
+		})
+	}
+
+	// Update status based on errors
+	scanReport.Status = scanReport.GetStatus()
+
+	return scanReport
+}
+
+// isTerminal checks if stdout is a terminal (for color output)
+func isTerminal() bool {
+	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
+		return true
+	}
+	return false
+}
+
+// findConfigPath finds the .sharkconfig.json file by walking up the directory tree
+func findConfigPath() string {
+	// Try current directory first
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ".sharkconfig.json" // Fallback to current directory
+	}
+
+	// Walk up directory tree looking for .sharkconfig.json
+	dir := cwd
+	for {
+		configPath := filepath.Join(dir, ".sharkconfig.json")
+		if _, err := os.Stat(configPath); err == nil {
+			return configPath
 		}
-	}
 
-	// Display warnings
-	if len(report.Warnings) > 0 {
-		fmt.Println()
-		fmt.Println("Warnings:")
-		for _, warning := range report.Warnings {
-			fmt.Printf("  - %s\n", warning)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root, use current directory
+			return filepath.Join(cwd, ".sharkconfig.json")
 		}
-	}
-
-	// Display errors
-	if len(report.Errors) > 0 {
-		fmt.Println()
-		fmt.Println("Errors:")
-		for _, err := range report.Errors {
-			fmt.Printf("  - %s\n", err)
-		}
+		dir = parent
 	}
 }

@@ -36,6 +36,9 @@ const (
 
 	// ConflictStrategyNewerWins compares timestamps and uses newer value
 	ConflictStrategyNewerWins ConflictStrategy = "newer-wins"
+
+	// ConflictStrategyManual prompts user interactively for each conflict
+	ConflictStrategyManual ConflictStrategy = "manual"
 )
 
 // Conflict represents a detected difference between file and database
@@ -54,16 +57,23 @@ type SyncOptions struct {
 	Strategy      ConflictStrategy // Conflict resolution strategy
 	CreateMissing bool             // Auto-create missing epics/features
 	Cleanup       bool             // Delete orphaned database tasks
+	LastSyncTime  *time.Time       // Last sync time for incremental filtering (nil = full scan)
+	ForceFullScan bool             // Force full scan even if LastSyncTime is set
 }
 
 // SyncReport contains the results of a sync operation
 type SyncReport struct {
-	FilesScanned      int        `json:"files_scanned"`
-	TasksImported     int        `json:"tasks_imported"`
-	TasksUpdated      int        `json:"tasks_updated"`
-	TasksDeleted      int        `json:"tasks_deleted"`
-	ConflictsResolved int        `json:"conflicts_resolved"`
-	Warnings          []string   `json:"warnings"`
-	Errors            []string   `json:"errors"`
-	Conflicts         []Conflict `json:"conflicts"`
+	DryRun            bool                   `json:"dry_run"`
+	FilesScanned      int                    `json:"files_scanned"`
+	FilesFiltered     int                    `json:"files_filtered"`     // Files processed after incremental filtering
+	FilesSkipped      int                    `json:"files_skipped"`      // Files skipped due to incremental filtering
+	TasksImported     int                    `json:"tasks_imported"`
+	TasksUpdated      int                    `json:"tasks_updated"`
+	TasksDeleted      int                    `json:"tasks_deleted"`
+	ConflictsResolved int                    `json:"conflicts_resolved"`
+	KeysGenerated     int                    `json:"keys_generated"`     // Number of task keys generated for PRP files
+	PatternMatches    map[string]int         `json:"pattern_matches"`    // Count of files matched by each pattern
+	Warnings          []string               `json:"warnings"`
+	Errors            []string               `json:"errors"`
+	Conflicts         []Conflict             `json:"conflicts"`
 }

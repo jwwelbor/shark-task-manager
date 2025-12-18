@@ -21,41 +21,42 @@ description:
 ## Goal
 
 ### Problem
-[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]
+Currently, task files may be created in a location separate from their parent feature directory, making it difficult to navigate the project structure and understand the relationship between features and their tasks. This scattered structure makes it harder to find task files and reduces organizational clarity.
 
 ### Solution
-[Explain how this feature solves the problem. Focus on the "what" not the "how."]
+When creating new task files, place them under the feature folder in a `tasks/` subdirectory following the pattern: `docs/plan/{epic-slug}/{feature-slug}/tasks/T-{epic-key}-{feature-key}-{number}-{task-slug}.md`. This creates a clear hierarchical structure where tasks are physically grouped with their parent feature.
 
 ### Impact
-[Define expected outcomes with specific, measurable metrics.]
-
-**Examples**:
-- Reduce user onboarding time by 40%
-- Increase feature adoption to 60% of active users within 3 months
+- Improved project organization with clear epic > feature > task hierarchy
+- Easier navigation - all task files for a feature are in one place
+- Better file discoverability
+- Consistent directory structure across all features
 
 ---
 
 ## User Personas
 
-### Persona 1: [Persona Name/Role]
+### Persona 1: Developer / Project Navigator
 
 **Profile**:
-- **Role/Title**: [e.g., "Marketing Manager at mid-size B2B SaaS company"]
-- **Experience Level**: [e.g., "3-5 years in role, moderate technical proficiency"]
+- **Role/Title**: Developer implementing tasks and navigating project structure
+- **Experience Level**: Moderate, works with multiple features/tasks daily
 - **Key Characteristics**:
-  - [Characteristic 1]
-  - [Characteristic 2]
+  - Navigates file system to find task documentation
+  - Values clear organizational structure
+  - Wants related files grouped together
 
 **Goals Related to This Feature**:
-1. [Specific goal 1]
-2. [Specific goal 2]
+1. Quickly locate all tasks for a given feature
+2. Understand project hierarchy from file structure alone
 
 **Pain Points This Feature Addresses**:
-- [Pain point 1]
-- [Pain point 2]
+- Task files scattered across different locations
+- Difficult to find which tasks belong to which feature
+- Unclear relationship between epics, features, and tasks in file system
 
 **Success Looks Like**:
-[2-3 sentences describing success from this persona's perspective]
+Can navigate to a feature folder and immediately see all its tasks in a `tasks/` subdirectory. File structure mirrors logical project hierarchy.
 
 ---
 
@@ -63,34 +64,34 @@ description:
 
 ### Must-Have Stories
 
-**Story 1**: As a [user persona], I want to [perform an action] so that I can [achieve a benefit].
+**Story 1**: As a developer, I want task files created under their feature folder so that I can find all related tasks in one place.
 
 **Acceptance Criteria**:
-- [ ] [Specific testable criterion 1]
-- [ ] [Specific testable criterion 2]
-- [ ] [Specific testable criterion 3]
+- [ ] New tasks created in `docs/plan/{epic-slug}/{feature-slug}/tasks/` directory
+- [ ] Task filename follows pattern: `T-{epic-key}-{feature-key}-{number}-{task-slug}.md`
+- [ ] Tasks subdirectory is automatically created if it doesn't exist
 
 ---
 
 ### Should-Have Stories
 
-[Follow same format for important but not critical stories]
+None identified.
 
 ---
 
 ### Could-Have Stories
 
-[Follow same format for nice-to-have stories]
+None identified.
 
 ---
 
 ### Edge Case & Error Stories
 
-**Error Story 1**: As a [user persona], when [error condition], I want to [see/receive] so that I can [recover/understand].
+**Error Story 1**: As a user, when the feature folder doesn't exist, I want a clear error so that I understand the issue.
 
 **Acceptance Criteria**:
-- [ ] [How error is presented]
-- [ ] [How user can recover]
+- [ ] Error message indicates feature folder not found
+- [ ] Suggests verifying feature exists or running sync
 
 ---
 
@@ -98,42 +99,36 @@ description:
 
 ### Functional Requirements
 
-**Category: [e.g., Core Functionality]**
+**Category: File System Organization**
 
-1. **REQ-F-001**: [Requirement Title]
-   - **Description**: [Clear, specific, testable requirement statement]
-   - **User Story**: Links to Story [#]
-   - **Priority**: [Must-Have | Should-Have | Could-Have]
+1. **REQ-F-001**: Task File Location
+   - **Description**: New task files must be created in `docs/plan/{epic-slug}/{feature-slug}/tasks/` directory
+   - **User Story**: Links to Story 1
+   - **Priority**: Must-Have
    - **Acceptance Criteria**:
-     - [ ] [Specific criterion 1]
-     - [ ] [Specific criterion 2]
+     - [ ] Task creation code updated to use feature folder path
+     - [ ] `tasks/` subdirectory created automatically if missing
+     - [ ] File path stored correctly in database
+
+2. **REQ-F-002**: Task Filename Pattern
+   - **Description**: Task filenames must follow pattern `T-{epic-key}-{feature-key}-{number}-{task-slug}.md`
+   - **User Story**: Links to Story 1
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] Filename generation follows specified pattern
+     - [ ] Task slug generated from task title
+     - [ ] Number is properly zero-padded (001, 002, etc.)
 
 ---
 
 ### Non-Functional Requirements
 
-**Performance**
+**Backward Compatibility**
 
-1. **REQ-NF-001**: [Performance Requirement]
-   - **Description**: [Specific performance target]
-   - **Measurement**: [How it will be measured]
-   - **Target**: [Quantitative threshold, e.g., "Page load < 2 seconds on 3G"]
-   - **Justification**: [Why this matters]
-
-**Security**
-
-1. **REQ-NF-010**: [Security Requirement]
-   - **Description**: [Specific security control]
-   - **Implementation**: [High-level approach]
-   - **Compliance**: [Relevant standards: OWASP, SOC2, etc.]
-   - **Risk Mitigation**: [What threat this addresses]
-
-**Accessibility**
-
-1. **REQ-NF-020**: [Accessibility Requirement]
-   - **Description**: [Specific WCAG criterion]
-   - **Standard**: [WCAG 2.1 Level AA, etc.]
-   - **Testing**: [How compliance will be verified]
+1. **REQ-NF-001**: Existing Task Files Unaffected
+   - **Description**: Existing task files in old locations remain valid and accessible
+   - **Measurement**: All existing task file paths continue to work
+   - **Justification**: Don't break existing tasks, only affect new creations
 
 ---
 
@@ -141,19 +136,17 @@ description:
 
 ### Feature-Level Acceptance
 
-**Given/When/Then Format**:
+**Scenario 1: Create Task in Feature Folder**
+- **Given** feature E01-F02 exists at `docs/plan/E01-epic-name/E01-F02-feature-name/`
+- **When** user creates task with `shark task create --epic=E01 --feature=F02 "My Task"`
+- **Then** task file is created at `docs/plan/E01-epic-name/E01-F02-feature-name/tasks/T-E01-F02-001-my-task.md`
+- **And** tasks directory is created if it didn't exist
 
-**Scenario 1: [Primary Use Case]**
-- **Given** [initial context/state]
-- **When** [user action is performed]
-- **Then** [expected outcome]
-- **And** [additional outcome]
-
-**Scenario 2: [Error Handling]**
-- **Given** [error precondition]
-- **When** [action that triggers error]
-- **Then** [error is handled gracefully]
-- **And** [user can recover]
+**Scenario 2: Auto-create Tasks Directory**
+- **Given** feature folder exists but has no `tasks/` subdirectory
+- **When** first task is created for that feature
+- **Then** `tasks/` directory is automatically created
+- **And** task file is placed inside it
 
 ---
 
@@ -161,18 +154,23 @@ description:
 
 ### Explicitly Excluded
 
-1. **[Feature/Capability]**
-   - **Why**: [Reasoning - complexity, dependencies, prioritization]
-   - **Future**: [Will this be addressed later? If so, when/why?]
-   - **Workaround**: [How users can accomplish this currently, if applicable]
+1. **Moving existing task files to new locations**
+   - **Why**: Risk of breaking references, path changes in database, complexity
+   - **Future**: Could provide migration tool if needed
+   - **Workaround**: Existing tasks remain in current locations
+
+2. **Automatic folder cleanup when tasks deleted**
+   - **Why**: Out of scope for this feature, focused on creation only
+   - **Future**: Could add in maintenance feature
+   - **Workaround**: Manual cleanup if needed
 
 ---
 
 ### Alternative Approaches Rejected
 
-**Alternative 1: [Approach Name]**
-- **Description**: [Brief overview]
-- **Why Rejected**: [Reasoning]
+**Alternative 1: Flat Structure with Prefix**
+- **Description**: Keep all tasks in docs/plan/tasks/ with filename prefix
+- **Why Rejected**: Doesn't provide hierarchical organization, harder to navigate
 
 ---
 
@@ -180,17 +178,10 @@ description:
 
 ### Primary Metrics
 
-1. **[Metric Name]**
-   - **What**: [What data point is tracked]
-   - **Target**: [Specific goal]
-   - **Timeline**: [When to achieve]
-   - **Measurement**: [How to measure]
-
----
-
-### Secondary Metrics
-
-- **[Metric]**: [Brief description and target]
+1. **Directory Structure Consistency**
+   - **What**: All new tasks created in correct feature folder
+   - **Target**: 100% of new tasks follow new pattern
+   - **Measurement**: File system inspection
 
 ---
 
@@ -198,20 +189,18 @@ description:
 
 ### Dependencies
 
-- **[System/Feature/Service]**: [Description of dependency]
+- **Task Creation Logic** (internal/taskcreation/): File path generation
+- **Feature Folder Discovery**: Need to locate feature folder from epic/feature keys
 
 ### Integration Requirements
 
-- **[External System]**: [What data/functionality is exchanged]
+None
 
 ---
 
 ## Compliance & Security Considerations
 
-[If applicable, note specific requirements]:
-- **Regulatory**: [GDPR, HIPAA, SOC2, etc.]
-- **Data Protection**: [Encryption, access controls]
-- **Audit**: [Logging, audit trail requirements]
+None
 
 ---
 
