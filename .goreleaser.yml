@@ -1,0 +1,113 @@
+# GoReleaser configuration for Shark Task Manager
+# This configuration builds multi-platform binaries and creates release archives
+# Documentation: https://goreleaser.com
+
+# Configuration version
+version: 2
+
+# Project information
+project_name: shark
+
+# Build configuration
+builds:
+  - # Build target: cmd/shark/main.go
+    main: ./cmd/shark/main.go
+
+    # Binary name
+    binary: shark
+
+    # Inject version at build time
+    # This sets the Version variable in main.go via ldflags
+    ldflags:
+      - -s -w # Strip debug symbols to reduce binary size
+      - -X main.Version={{.Version}} # Inject version from git tag
+
+    # Environment variables for build
+    env:
+      - CGO_ENABLED=0 # Disable CGO for static binaries
+
+    # Build for multiple platforms
+    # Covers Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64)
+    goos:
+      - linux
+      - darwin
+      - windows
+
+    goarch:
+      - amd64
+      - arm64
+
+    # Platform-specific configurations
+    # Exclude invalid platform combinations
+    ignore:
+      - goos: windows
+        goarch: arm64 # Windows ARM64 not commonly used yet
+
+# Archive configuration
+archives:
+  - # Archive format (automatically uses .zip for windows, .tar.gz for others in v2)
+    id: default
+
+    # Files to include in each archive
+    files:
+      - LICENSE
+      - README.md
+
+    # Archive naming: shark_version_os_arch
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+
+# Checksum configuration
+# Generates checksums.txt file for verifying downloads
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+# Snapshot configuration
+# Used for local testing without git tags
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+# Changelog configuration
+# Auto-generates release notes from git commits
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+
+# Release configuration
+# Creates GitHub releases as drafts for manual review
+release:
+  draft: true # Start as draft, manually publish after review
+  prerelease: auto # Auto-detect pre-release from version tag
+
+  # Release notes header
+  header: |
+    ## Shark Task Manager {{ .Tag }}
+
+    Task management CLI for AI-driven development workflows.
+
+  # Release notes footer
+  footer: |
+    **Full Changelog**: https://github.com/jwwelbor/shark-task-manager/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    ### Installation
+
+    - **Homebrew (macOS)**: `brew install jwwelbor/shark/shark`
+    - **Scoop (Windows)**: `scoop bucket add shark https://github.com/jwwelbor/scoop-shark && scoop install shark`
+    - **Manual**: Download the appropriate binary for your platform from the assets below
+
+    ### Verifying Downloads
+
+    All binaries include SHA256 checksums in `checksums.txt`. Verify your download:
+
+    ```bash
+    sha256sum -c checksums.txt --ignore-missing
+    ```

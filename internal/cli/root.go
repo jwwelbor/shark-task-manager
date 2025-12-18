@@ -32,7 +32,7 @@ in multi-agent software development projects.
 
 It provides a SQLite-backed database for tracking project state with commands
 optimized for both human developers and AI agents.`,
-	Version: "0.1.0",
+	Version: "dev", // Will be set by SetVersion() from build-time injection
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize configuration
 		if err := initConfig(); err != nil {
@@ -51,6 +51,11 @@ optimized for both human developers and AI agents.`,
 
 		return nil
 	},
+}
+
+// SetVersion sets the version string from build-time injection
+func SetVersion(version string) {
+	RootCmd.Version = version
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

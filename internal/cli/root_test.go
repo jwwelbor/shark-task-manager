@@ -15,8 +15,9 @@ func TestRootCommand(t *testing.T) {
 		t.Errorf("Expected command use to be 'shark', got '%s'", RootCmd.Use)
 	}
 
-	if RootCmd.Version != "0.1.0" {
-		t.Errorf("Expected version to be '0.1.0', got '%s'", RootCmd.Version)
+	// Version should default to "dev" (will be overridden at build time via ldflags)
+	if RootCmd.Version != "dev" {
+		t.Errorf("Expected default version to be 'dev', got '%s'", RootCmd.Version)
 	}
 }
 
