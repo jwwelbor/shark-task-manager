@@ -1,0 +1,87 @@
+# GitHub Actions Release Workflow for Shark Task Manager
+# This workflow automates the complete release process:
+# 1. Runs all tests as a quality gate
+# 2. Builds multi-platform binaries with GoReleaser
+# 3. Creates draft GitHub releases with all assets
+#
+# Trigger: Push tags matching v* pattern (e.g., v1.0.0, v0.1.0-beta)
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on any tag starting with 'v'
+
+permissions:
+  contents: write # Required for creating releases and uploading assets
+
+jobs:
+  # Quality Gate: Run tests before building
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for changelog generation
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23' # Match version from go.mod
+          cache: true # Cache Go modules for faster builds
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Verify build
+        run: go build -v ./cmd/shark/main.go
+
+  # Build and Release: Execute GoReleaser
+  release:
+    name: Build and Release
+    needs: test # Only run if tests pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for GoReleaser changelog
+
+      - name: Fetch all tags
+        run: git fetch --force --tags
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser # Use official GoReleaser distribution
+          version: '~> v2' # Use latest v2.x version
+          args: release --clean # Clean dist/ before building
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Automatically provided by GitHub
+
+      - name: Upload artifacts (for debugging)
+        uses: actions/upload-artifact@v4
+        if: always() # Upload even if release fails
+        with:
+          name: release-artifacts
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+          retention-days: 5
