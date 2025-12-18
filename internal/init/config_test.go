@@ -223,19 +223,32 @@ func TestCreateConfigValidJSON(t *testing.T) {
 		t.Fatalf("Config is not valid JSON: %v", err)
 	}
 
-	// Verify structure
-	expectedJSON := `{
-  "default_epic": null,
-  "default_agent": null,
-  "color_enabled": true,
-  "json_output": false
-}`
-
-	var expected, actual map[string]interface{}
-	json.Unmarshal([]byte(expectedJSON), &expected)
+	// Verify required fields exist
+	var actual map[string]interface{}
 	json.Unmarshal(data, &actual)
 
-	if len(expected) != len(actual) {
-		t.Errorf("Config has %d fields, want %d", len(actual), len(expected))
+	requiredFields := []string{"default_epic", "default_agent", "color_enabled", "json_output"}
+	for _, field := range requiredFields {
+		if _, exists := actual[field]; !exists {
+			t.Errorf("Config missing required field: %s", field)
+		}
+	}
+
+	// Verify patterns field exists (new in E06-F01-001)
+	if _, exists := actual["patterns"]; !exists {
+		t.Error("Config missing patterns field")
+	}
+
+	// Verify patterns is a valid structure
+	patterns, ok := actual["patterns"].(map[string]interface{})
+	if !ok {
+		t.Error("Patterns field should be an object")
+	} else {
+		// Check for epic, feature, task sections
+		for _, section := range []string{"epic", "feature", "task"} {
+			if _, exists := patterns[section]; !exists {
+				t.Errorf("Patterns missing %s section", section)
+			}
+		}
 	}
 }

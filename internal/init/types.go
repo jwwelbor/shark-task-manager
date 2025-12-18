@@ -1,5 +1,7 @@
 package init
 
+import "encoding/json"
+
 // InitOptions contains initialization configuration
 type InitOptions struct {
 	DBPath         string // Database file path
@@ -24,4 +26,6 @@ type ConfigDefaults struct {
 	DefaultAgent *string `json:"default_agent"`
 	ColorEnabled bool    `json:"color_enabled"`
 	JSONOutput   bool    `json:"json_output"`
+	// Patterns is defined in internal/patterns package to avoid import cycle
+	PatternsRaw json.RawMessage `json:"patterns,omitempty"`
 }
