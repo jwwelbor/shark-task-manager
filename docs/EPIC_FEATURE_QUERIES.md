@@ -1,6 +1,6 @@
 # Epic & Feature Query Documentation
 
-Comprehensive guide to querying epics and features with automatic progress calculation in the PM CLI.
+Comprehensive guide to querying epics and features with automatic progress calculation in the Shark CLI.
 
 ## Table of Contents
 
@@ -46,7 +46,7 @@ The Epic & Feature Query functionality provides powerful CLI commands for unders
 ## Quick Start
 
 ```bash
-# Install the PM CLI
+# Install the Shark CLI
 make install-pm
 
 # List all epics

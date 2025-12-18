@@ -128,7 +128,7 @@ This document defines the system architecture for initialization and synchroniza
 ```go
 var initCmd = &cobra.Command{
     Use:   "init",
-    Short: "Initialize PM CLI infrastructure",
+    Short: "Initialize Shark CLI infrastructure",
     Long:  `Creates database schema, folder structure, config file, and templates.`,
     RunE:  runInit,
 }

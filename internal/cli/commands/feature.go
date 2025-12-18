@@ -78,6 +78,22 @@ Examples:
 	RunE: runFeatureCreate,
 }
 
+// featureDeleteCmd deletes a feature
+var featureDeleteCmd = &cobra.Command{
+	Use:   "delete <feature-key>",
+	Short: "Delete a feature",
+	Long: `Delete a feature from the database (and all its tasks via CASCADE).
+
+WARNING: This action cannot be undone. All tasks under this feature will also be deleted.
+If the feature has tasks, you must use --force to confirm the cascade deletion.
+
+Examples:
+  shark feature delete E04-F02         Delete feature with no tasks
+  shark feature delete E04-F02 --force Force delete feature with tasks`,
+	Args: cobra.ExactArgs(1),
+	RunE: runFeatureDelete,
+}
+
 var (
 	featureCreateEpic        string
 	featureCreateDescription string
@@ -91,6 +107,7 @@ func init() {
 	featureCmd.AddCommand(featureListCmd)
 	featureCmd.AddCommand(featureGetCmd)
 	featureCmd.AddCommand(featureCreateCmd)
+	featureCmd.AddCommand(featureDeleteCmd)
 
 	// Add flags for list command
 	featureListCmd.Flags().StringP("epic", "e", "", "Filter by epic key")
@@ -101,6 +118,9 @@ func init() {
 	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01)")
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
 	featureCreateCmd.MarkFlagRequired("epic")
+
+	// Add flags for delete command
+	featureDeleteCmd.Flags().Bool("force", false, "Force deletion even if feature has tasks")
 }
 
 // runFeatureList executes the feature list command
@@ -724,4 +744,69 @@ func getNextFeatureKey(ctx context.Context, featureRepo *repository.FeatureRepos
 
 	// Return next available number
 	return fmt.Sprintf("F%02d", maxNum+1), nil
+}
+
+// runFeatureDelete executes the feature delete command
+func runFeatureDelete(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	featureKey := args[0]
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
+		return fmt.Errorf("database path error")
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		cli.Error("Error: Database error. Run with --verbose for details.")
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
+		}
+		os.Exit(2)
+	}
+
+	// Get repositories
+	repoDb := repository.NewDB(database)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
+
+	// Get feature by key to verify it exists
+	feature, err := featureRepo.GetByKey(ctx, featureKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
+		cli.Info("Use 'shark feature list' to see available features")
+		os.Exit(1)
+	}
+
+	// Check for child tasks
+	tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to check for tasks: %v", err))
+		os.Exit(1)
+	}
+
+	// If there are tasks, require --force flag
+	if len(tasks) > 0 && !force {
+		cli.Error(fmt.Sprintf("Error: Feature %s has %d task(s)", featureKey, len(tasks)))
+		cli.Warning("This will CASCADE DELETE all tasks and their history")
+		cli.Info(fmt.Sprintf("Use --force to confirm deletion: shark feature delete %s --force", featureKey))
+		os.Exit(1)
+	}
+
+	// Delete feature from database (CASCADE will handle tasks)
+	if err := featureRepo.Delete(ctx, feature.ID); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to delete feature: %v", err))
+		os.Exit(1)
+	}
+
+	cli.Success(fmt.Sprintf("Feature %s deleted successfully", featureKey))
+	if len(tasks) > 0 {
+		cli.Warning(fmt.Sprintf("Cascade deleted %d task(s) and their history", len(tasks)))
+	}
+	return nil
 }

@@ -1,4 +1,4 @@
-# PM CLI - Project Manager Command Line Interface
+# Shark CLI - Project Manager Command Line Interface
 
 The PM (Project Manager) CLI is a command-line tool for managing tasks, epics, and features in multi-agent software development projects.
 
@@ -16,7 +16,7 @@ make pm
 make install-pm
 ```
 
-This installs the `pm` command to `~/go/bin/pm`. Ensure `~/go/bin` is in your PATH.
+This installs the `shark` command to `~/go/bin/shark`. Ensure `~/go/bin` is in your PATH.
 
 ## Quick Start
 

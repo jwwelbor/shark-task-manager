@@ -105,7 +105,7 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("feature not found with key %s", key)
+		return nil, sql.ErrNoRows
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get feature: %w", err)

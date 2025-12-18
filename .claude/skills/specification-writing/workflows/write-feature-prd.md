@@ -38,28 +38,33 @@ Before preparing the PRD, determine:
 - "Adding a button to a UI" doesn't require the same level of PRD documentation as adding a "new feature to the application"
 - Adjust accordingly
 
-### Step 3: Structure the PRD
+### Step 3: Create Feature in Shark Database
 
-Create a PRD following the structure defined in `../context/prd-template.md`.
+Before writing the PRD, create the feature in the database:
 
-Key sections:
-1. Feature Name
-2. Epic (with links to parent)
-3. Goal (Problem, Solution, Impact)
-4. User Personas
-5. User Stories
-6. Requirements (Functional & Non-Functional)
-7. Acceptance Criteria
-8. Out of Scope
+1. Run `shark feature create --epic=<epic-key> --key=<feature-key> --title="<Feature Name>" --status=draft`
+   - Epic key: `E##-{epic-slug}` (e.g., `E09-identity-platform`)
+   - Feature key: `E##-F##-{feature-slug}` (e.g., `E09-F01-oauth-integration`)
+   - Shark will create `/docs/plan/{epic-key}/{feature-key}/` and initialize `prd.md` with basic structure
+   - **Note**: If shark feature create is not yet implemented, manually create the directory and `prd.md` file
 
-### Step 4: Save the Document
+2. Verify the feature was created: `shark feature get <feature-key>`
 
-Save the completed PRD to: `/docs/plan/{epic-key}/{feature-key}/prd.md`
+### Step 4: Fill in the PRD with Detailed Content
 
-Use the numbering/slug format for directories and file names:
-- Epic key: `E##-{epic-slug}`
-- Feature key: `E##-F##-{feature-slug}`
-- Example: `/docs/plan/E09-identity-platform/E09-F01-oauth-integration/prd.md`
+Expand the generated `prd.md` following the structure defined in `../context/prd-template.md`.
+
+Fill in all sections with comprehensive detail:
+1. Feature Name (already set)
+2. Epic (add links to parent epic documentation)
+3. Goal (Problem, Solution, Impact with specific metrics)
+4. User Personas (detailed profiles or references to existing personas)
+5. User Stories (categorized as Must/Should/Could Have)
+6. Requirements (Functional & Non-Functional with specific acceptance criteria)
+7. Acceptance Criteria (testable, measurable criteria)
+8. Out of Scope (explicit exclusions and future considerations)
+
+Location: `/docs/plan/{epic-key}/{feature-key}/prd.md`
 
 **Note on phased implementation**: If there is a phased implementation to the epic, the phases should be broken out into separate epics to keep the scope reasonable. It could be something like:
 - `E09a-F01-oauth-integration`
@@ -73,9 +78,17 @@ Use the numbering/slug format for directories and file names:
 - **Traceability**: Each requirement should trace back to a user story or business goal.
 - **Testability**: Every requirement and acceptance criterion must be verifiable.
 
+### Step 5: Verify Feature in Database
+
+After completing the PRD:
+1. Confirm feature exists: `shark feature get <feature-key>`
+2. Verify feature shows in epic's feature list: `shark feature list --epic=<epic-key>`
+3. Check PRD file location matches database file_path
+
 ## Self-Verification Checklist
 
 Before finalizing the PRD, verify:
+- [ ] Feature created in shark database: `shark feature get <feature-key>` returns the feature
 - [ ] All sections are complete and detailed
 - [ ] User stories cover primary, alternative, and edge case scenarios
 - [ ] No implementation details beyond required NFR and as necessary for related feature requirements
@@ -84,7 +97,7 @@ Before finalizing the PRD, verify:
 - [ ] Acceptance criteria are measurable and complete
 - [ ] Out of scope section prevents ambiguity
 - [ ] Links to Epic documentation are correct
-- [ ] Document is saved to the correct location
+- [ ] Document is saved to the correct location: `/docs/plan/{epic-key}/{feature-key}/prd.md`
 - [ ] No vague or ambiguous language remains
 
 ## When You Need More Information
@@ -100,3 +113,16 @@ If the user's request lacks critical details, proactively ask targeted questions
 ## Goal
 
 Your goal is to create a PRD so comprehensive and clear that an engineering team can use it to create an implementation plan for execution based on the document.
+
+## Output Confirmation
+
+After completing the PRD, provide the user with:
+
+1. **Confirmation message**: "Feature PRD created successfully:"
+   - Feature created in database: `shark feature get {feature-key}`
+   - PRD file: `/docs/plan/{epic-key}/{feature-key}/prd.md`
+2. **Database verification**: Show that feature is tracked in shark
+3. **Next steps**: Suggest workflow options:
+   - "Create architecture design docs for this feature (if needed)"
+   - "Generate implementation tasks: `/task {epic-key}/{feature-key}` once design docs are ready"
+   - "Create tasks directly: `shark task create --epic={epic-key} --feature={feature-key} --title='Task Name' --agent=backend`"

@@ -267,7 +267,7 @@ files, _ := ioutil.ReadDir("templates")
 assert.True(t, len(files) > 0)
 
 // Verify: Output contains success message
-assert.Contains(t, string(output), "PM CLI initialized successfully")
+assert.Contains(t, string(output), "Shark CLI initialized successfully")
 ```
 
 ---
@@ -447,7 +447,7 @@ description: Test description
 
 **AC1**: Initialize New Project
 ```
-GIVEN: A new project with no PM CLI infrastructure
+GIVEN: A new project with no Shark CLI infrastructure
 WHEN: I run `pm init`
 THEN: Database file `shark-tasks.db` is created with schema
 AND: Folder structure `docs/plan/`, `templates/` is created
@@ -458,7 +458,7 @@ AND: Success message displays next steps
 
 **AC2**: Idempotent Init
 ```
-GIVEN: PM CLI is already initialized
+GIVEN: Shark CLI is already initialized
 WHEN: I run `pm init` again
 THEN: Command completes without errors (idempotent)
 AND: Existing database is not modified

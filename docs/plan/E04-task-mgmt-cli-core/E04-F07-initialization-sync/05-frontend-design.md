@@ -47,7 +47,7 @@ pm init --config=.custom-config.json
 
 **Success**:
 ```
-PM CLI initialized successfully!
+Shark CLI initialized successfully!
 
 ✓ Database created: shark-tasks.db
 ✓ Folder structure created: docs/plan/, templates/
@@ -62,7 +62,7 @@ Next steps:
 
 **Idempotent Run** (already initialized):
 ```
-PM CLI initialized successfully!
+Shark CLI initialized successfully!
 
 ✓ Database exists: shark-tasks.db
 ✓ Folder structure exists: docs/plan/, templates/
@@ -79,7 +79,7 @@ Next steps:
 Config file already exists at .pmconfig.json. Overwrite? (y/N): n
 Skipping config file creation.
 
-PM CLI initialized successfully!
+Shark CLI initialized successfully!
 
 ✓ Database exists: shark-tasks.db
 ✓ Folder structure exists: docs/plan/, templates/
@@ -305,10 +305,10 @@ Suggestion: Run 'pm init' first to initialize the database.
 git clone https://github.com/user/project.git
 cd project
 
-# Step 2: Initialize PM CLI
+# Step 2: Initialize Shark CLI
 pm init
 
-PM CLI initialized successfully!
+Shark CLI initialized successfully!
 
 ✓ Database created: shark-tasks.db
 ✓ Folder structure created: docs/plan/, templates/
@@ -464,13 +464,13 @@ Syncing with database... 40/45 tasks processed
 ### pm init --help
 
 ```
-Initialize PM CLI infrastructure
+Initialize Shark CLI infrastructure
 
 Usage:
   pm init [flags]
 
 Description:
-  Initialize PM CLI infrastructure by creating database schema,
+  Initialize Shark CLI infrastructure by creating database schema,
   folder structure, configuration file, and task templates.
 
   This command is idempotent and safe to run multiple times.

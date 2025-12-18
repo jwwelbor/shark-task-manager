@@ -1,4 +1,4 @@
-# PM CLI Troubleshooting Guide
+# Shark CLI Troubleshooting Guide
 
 ## Table of Contents
 
@@ -518,7 +518,7 @@ df -h .
 
 ### High Memory Usage
 
-**Symptom**: PM CLI consuming excessive memory
+**Symptom**: Shark CLI consuming excessive memory
 
 **Cause**: Processing many large files at once
 

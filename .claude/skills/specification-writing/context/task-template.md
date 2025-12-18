@@ -37,44 +37,65 @@ estimated_time: X hours
 
 ### Codebase Analysis Results
 
-{CRITICAL for API/Frontend Tasks - reference from design docs}
+{CRITICAL for API/Frontend Tasks - reference from design docs if available}
 
-Reference the codebase analysis from the design docs:
+**If API specification exists**, reference the codebase analysis:
 - **Existing Features Found**: See [API Spec - Codebase Analysis](../04-api-specification.md#codebase-analysis)
 - **Decision**: {Extend existing vs create new, with rationale from design doc}
 - **SRP Validation**: {Confirmation that approach doesn't violate Single Responsibility Principle}
 - **NO PARALLEL PATHS**: {Explicit confirmation this doesn't duplicate existing functionality}
 
+**If API specification is missing**, note in task:
+- **Research Required**: Implementation agent must analyze existing codebase
+- **Document Findings**: Agent should document codebase analysis results
+- **Avoid Duplication**: Agent must verify no parallel functionality exists
+
 ### Key Requirements
 
-{List 5-8 key requirements with references to design docs - DO NOT duplicate content}
+{List 5-8 key requirements with references to available design docs - DO NOT duplicate content}
 
-- Requirement 1 - See [Architecture - Section Name](../02-architecture.md#section)
-- Requirement 2 - See [Database Design - Table Specs](../03-database-design.md#table-specs)
-- Requirement 3 - See [API Spec - Endpoint Details](../04-api-specification.md#endpoints)
+**Reference available design documents**:
+- Requirement from PRD - See [PRD - Requirements](../prd.md#requirements)
+- Requirement from Architecture (if exists) - See [Architecture - Section Name](../02-architecture.md#section)
+- Requirement from Database (if exists) - See [Database Design - Table Specs](../03-database-design.md#table-specs)
+- Requirement from API (if exists) - See [API Spec - Endpoint Details](../04-api-specification.md#endpoints)
+
+**If design docs are missing**, state requirements directly from PRD and note:
+- "Detailed {component} design not yet documented - implementation agent will need to make design decisions"
+- "Agent should document design decisions made during implementation"
 
 ### Contract Specifications
 
-{CRITICAL for API/Frontend Tasks - reference exact contract definitions}
+{CRITICAL for API/Frontend Tasks - reference exact contract definitions IF AVAILABLE}
 
-Reference the exact contract definitions:
+**If API specification exists**, reference the exact contract definitions:
 - **DTOs to Implement**: See [API Spec - DTO Definitions](../04-api-specification.md#dto-definitions)
 - **Field Names**: Must match EXACTLY as specified in API spec
 - **Data Types**: Must match EXACTLY as specified in API spec
 - **Validation Rules**: Must match EXACTLY as specified in API spec
 - **Contract Sync Table**: See [API Spec - Contract Synchronization Table](../04-api-specification.md#contract-synchronization-table)
+- **IMPORTANT**: Frontend and backend must implement IDENTICAL DTOs. Any deviation will cause integration failures.
 
-**IMPORTANT**: Frontend and backend must implement IDENTICAL DTOs. Any deviation will cause integration failures.
+**If API specification is missing**, note in task:
+- **Contract Definition Required**: Implementation agent must define DTOs/interfaces
+- **Documentation Requirement**: Agent must document contract definitions
+- **Coordination Required**: If multiple agents involved, ensure contract synchronization
+- **Recommendation**: Consider creating API specification before implementation
 
 ### Data Flow
 
-{For API/Frontend Tasks - reference data flow documentation}
+{For API/Frontend Tasks - reference data flow documentation IF AVAILABLE}
 
-Reference the data flow documentation:
+**If API specification exists**, reference the data flow documentation:
 - **Frontend Pre-Call**: See [API Spec - Frontend Pre-Call](../04-api-specification.md#{endpoint-name})
 - **Backend Processing**: See [API Spec - Backend Processing](../04-api-specification.md#{endpoint-name})
 - **Backend Pre-Response**: See [API Spec - Backend Pre-Response](../04-api-specification.md#{endpoint-name})
 - **Frontend Post-Response**: See [API Spec - Frontend Post-Response](../04-api-specification.md#{endpoint-name})
+
+**If API specification is missing**, provide high-level data flow from PRD/Architecture:
+- Describe expected data flow based on available documentation
+- Note that detailed data transformations need to be designed during implementation
+- Recommend documenting actual data flow after implementation
 
 ### Files to Create/Modify
 
@@ -102,11 +123,13 @@ Reference the data flow documentation:
 
 {Describe how this component integrates with other systems}
 
-- **Existing systems/features**: {Reference codebase analysis from design docs}
+- **Existing systems/features**: {Reference codebase analysis from design docs if available}
 - **Other components being built**: {What other Tasks does this interact with}
 - **External APIs or services**: {Any third-party integrations}
 
-Reference: [Architecture - Integration Points](../02-architecture.md#integration-points)
+**If architecture document exists**: Reference [Architecture - Integration Points](../02-architecture.md#integration-points)
+
+**If architecture is missing**: Describe integration points from PRD and note that implementation agent should document actual integration approach taken.
 
 ## Validation Gates
 
@@ -139,15 +162,24 @@ Reference: [Architecture - Integration Points](../02-architecture.md#integration
 
 ## Context & Resources
 
-{Provide direct links to relevant design doc sections}
+{Provide direct links to available design doc sections}
 
-- **Architecture**: [System Architecture](../02-architecture.md#system-architecture)
-- **Database**: [Table Specifications](../03-database-design.md#table-specifications)
-- **API**: [Endpoint Details](../04-api-specification.md#api-endpoints)
-- **API Contracts**: [DTO Definitions](../04-api-specification.md#dto-definitions) - **MUST MATCH EXACTLY**
-- **Contract Sync**: [Contract Synchronization Table](../04-api-specification.md#contract-synchronization-table)
-- **Frontend**: [Component Design](../05-frontend-design.md#components)
-- **Security**: [Security Measures](../06-security-performance.md#security-measures)
+**Always available**:
+- **PRD**: [Feature Requirements](../prd.md)
+
+**If design documents exist, link to relevant sections**:
+- **Architecture** (if exists): [System Architecture](../02-architecture.md#system-architecture)
+- **Database** (if exists): [Table Specifications](../03-database-design.md#table-specifications)
+- **API** (if exists): [Endpoint Details](../04-api-specification.md#api-endpoints)
+- **API Contracts** (if exists): [DTO Definitions](../04-api-specification.md#dto-definitions) - **MUST MATCH EXACTLY**
+- **Contract Sync** (if exists): [Contract Synchronization Table](../04-api-specification.md#contract-synchronization-table)
+- **Frontend** (if exists): [Component Design](../05-frontend-design.md#components)
+- **Security** (if exists): [Security Measures](../06-security-performance.md#security-measures)
+
+**If design documents are missing**, note:
+- Implementation will be guided primarily by PRD requirements
+- Agent should create design documentation as part of implementation
+- Document design decisions for future reference
 
 ## Notes for Agent
 
@@ -165,7 +197,7 @@ Reference: [Architecture - Integration Points](../02-architecture.md#integration
 
 **status**: `todo` | `in_progress` | `blocked` | `ready_for_review` | `completed` | `archived`
 
-Note: Status is managed via the `pm` CLI and tracked in database. Task files remain in feature directory regardless of status.
+Note: Status is managed via the `shark` CLI and tracked in database. Task files remain in feature directory regardless of status.
 
 **feature**: Path to feature directory containing design docs
 
@@ -249,7 +281,7 @@ This folder contains agent-executable tasks that implement the {feature-key} fea
 
 ## Status Definitions
 
-Status is tracked in database via `pm` CLI. Use these commands:
+Status is tracked in database via `shark` CLI. Use these commands:
 - `pm task list --status=todo` - Show todo tasks
 - `pm task start <key>` - Start a task (status: in_progress)
 - `pm task complete <key>` - Complete a task (status: ready_for_review)

@@ -72,7 +72,7 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 
 ### Tertiary Persona: Product Manager / Technical Lead
 
-**Role**: Human developer using PM CLI interactively
+**Role**: Human developer using Shark CLI interactively
 **Environment**: Terminal (bash/zsh), managing multiple projects
 
 **Key Characteristics**:
@@ -158,7 +158,7 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 
 3. All commands must be registered as Cobra commands (`cobra.Command` structs)
 
-4. The entry point must be `pm` command installed as a console script
+4. The entry point must be `shark` command installed as a console script
 
 **Global Flags:**
 

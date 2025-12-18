@@ -43,6 +43,24 @@ See: `~/.claude/skills/test-driven-development/SKILL.md`
 
 **If not using TDD:** Still write comprehensive tests immediately after implementation, before moving to next feature.
 
+## Phase 0: Start Task Tracking
+
+Before beginning test implementation, start task tracking:
+
+```bash
+# Start the task to update status and track progress
+shark task start <task-id>
+
+# Example:
+shark task start T-E04-F06-001
+```
+
+This:
+- Updates task status to "in-progress" in the database
+- Tracks when implementation began
+- Provides visibility to the team
+- Enables accurate progress reporting
+
 ## Test Types
 
 ### Unit Tests
@@ -685,6 +703,14 @@ See: `~/.claude/skills/testing-anti-patterns/SKILL.md`
 - [ ] Coverage >= 80% for new code
 - [ ] No flaky tests
 - [ ] Tests run fast (< 10 seconds for unit)
+- [ ] **Task completed:** `shark task complete <task-id>`
+
+**Final Step:** Mark the task as complete:
+```bash
+shark task complete T-E04-F06-001
+```
+
+This updates the task status to "completed" and records completion time in the database.
 
 ## Reference
 

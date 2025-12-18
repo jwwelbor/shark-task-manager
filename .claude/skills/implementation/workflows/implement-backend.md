@@ -35,6 +35,24 @@ Often you'll use both: implement-api.md for endpoints, this workflow for the ser
    - Required libraries installed
    - Configuration available
 
+## Phase 0: Start Task Tracking
+
+Before beginning implementation, start task tracking:
+
+```bash
+# Start the task to update status and track progress
+shark task start <task-id>
+
+# Example:
+shark task start T-E04-F02-001
+```
+
+This:
+- Updates task status to "in-progress" in the database
+- Tracks when implementation began
+- Provides visibility to the team
+- Enables accurate progress reporting
+
 ## Phase 1: Design Service Interface
 
 ### Step 1.1: Define Service Responsibilities
@@ -598,6 +616,14 @@ class UserService:
 - [ ] Unit tests passing (90%+ coverage)
 - [ ] All validation gates passed
 - [ ] Service layer documented
+- [ ] **Task completed:** `shark task complete <task-id>`
+
+**Final Step:** Mark the task as complete:
+```bash
+shark task complete T-E04-F02-001
+```
+
+This updates the task status to "completed" and records completion time in the database.
 
 ## Common Issues
 

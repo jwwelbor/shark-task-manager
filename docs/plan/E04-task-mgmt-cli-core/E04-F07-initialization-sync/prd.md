@@ -10,7 +10,7 @@
 
 **Status Management:**
 - Task status is stored ONLY in the database, NOT in file frontmatter
-- Status is managed exclusively through the `pm` tool
+- Status is managed exclusively through the `shark` tool
 - File frontmatter contains only: key (required), title (optional), description (optional), file_path (optional)
 - When syncing, the system queries the database using the task key to get the current status
 
@@ -22,7 +22,7 @@
 
 ### Problem
 
-New projects need to set up the PM CLI infrastructure from scratch: create the database schema, set up folder structure, configure defaults, and optionally import existing task markdown files. Existing projects with task files organized under feature folders (e.g., `docs/plan/E04-epic/E04-F06-feature/T-E04-F06-001.md`) or legacy status-based folders need to migrate data into the database without losing information or manually recreating tasks. When markdown files are edited outside the CLI (direct file edits, Git pulls, manual edits to title/description), the database becomes stale and out of sync with filesystem reality. Tasks are organized under their respective feature folders and remain there regardless of status changes - status is managed solely in the database, not in files. Without initialization and sync tools, users must manually set up infrastructure, risk data loss during migration, and have no way to detect or repair database/filesystem inconsistencies caused by external changes.
+New projects need to set up the Shark CLI infrastructure from scratch: create the database schema, set up folder structure, configure defaults, and optionally import existing task markdown files. Existing projects with task files organized under feature folders (e.g., `docs/plan/E04-epic/E04-F06-feature/T-E04-F06-001.md`) or legacy status-based folders need to migrate data into the database without losing information or manually recreating tasks. When markdown files are edited outside the CLI (direct file edits, Git pulls, manual edits to title/description), the database becomes stale and out of sync with filesystem reality. Tasks are organized under their respective feature folders and remain there regardless of status changes - status is managed solely in the database, not in files. Without initialization and sync tools, users must manually set up infrastructure, risk data loss during migration, and have no way to detect or repair database/filesystem inconsistencies caused by external changes.
 
 ### Solution
 
@@ -40,7 +40,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 ### Primary Persona: Product Manager / Technical Lead (New User)
 
-**Role**: Developer setting up PM CLI for the first time on a new or existing project
+**Role**: Developer setting up Shark CLI for the first time on a new or existing project
 **Environment**: Terminal, may have existing markdown task files
 
 **Key Characteristics**:
@@ -50,7 +50,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 - Prefers automated setup over manual steps
 
 **Goals**:
-- Run single command to set up PM CLI: `pm init`
+- Run single command to set up Shark CLI: `pm init`
 - Import existing task files: `pm sync`
 - Verify sync results before committing: `pm sync --dry-run`
 - Configure defaults (epic, agent) during init
@@ -86,7 +86,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 ### Tertiary Persona: AI Agent (Initialization)
 
-**Role**: Agent setting up PM CLI in automated workflows
+**Role**: Agent setting up Shark CLI in automated workflows
 **Environment**: automated project setup
 
 **Key Characteristics**:
@@ -110,7 +110,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 ### Must-Have User Stories
 
 **Story 1: Initialize New Project**
-- As a user, I want to run `pm init` to set up database, folders, and config in one command, so that I can start using PM CLI immediately.
+- As a user, I want to run `pm init` to set up database, folders, and config in one command, so that I can start using Shark CLI immediately.
 
 **Story 2: Import Existing Task Files**
 - As a user, I want to run `pm sync` to import existing markdown task files into the database, so that I can migrate legacy projects without data loss.
@@ -133,7 +133,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 - As a developer, I want to run `pm sync` after pulling Git changes, so that my database reflects newly added or modified task files.
 
 **Story 5: Handle Frontmatter Changes**
-- As a user, I want file frontmatter changes (title, description) to update the database during sync, so that external edits are reflected in PM CLI.
+- As a user, I want file frontmatter changes (title, description) to update the database during sync, so that external edits are reflected in Shark CLI.
 
 **Story 6: Detect Conflicts**
 - As a user, I want sync to detect conflicts (DB says title="X", file says title="Y") and report them clearly, so that I can resolve inconsistencies.
@@ -162,7 +162,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 **Initialization Command (pm init):**
 
-1. The system must provide `pm init` command that sets up PM CLI infrastructure
+1. The system must provide `pm init` command that sets up Shark CLI infrastructure
 
 2. The command must perform these operations in order:
    - Create database schema (run E04-F01 migrations)
@@ -195,7 +195,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 10. The command must display completion message with instructions:
     ```
-    PM CLI initialized successfully!
+    Shark CLI initialized successfully!
 
     Next steps:
     1. Edit .pmconfig.json to set default epic and agent
@@ -435,7 +435,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 
 ### Initialization
 
-**Given** a new project with no PM CLI infrastructure
+**Given** a new project with no Shark CLI infrastructure
 **When** I run `pm init`
 **Then** database file `project.db` is created with schema
 **And** folder structure `docs/tasks/{todo,active,ready-for-review,completed,archived}` is created
@@ -443,7 +443,7 @@ Implement `pm init` command for new project setup that creates database schema, 
 **And** task templates are copied to `templates/` folder
 **And** success message displays next steps
 
-**Given** PM CLI is already initialized
+**Given** Shark CLI is already initialized
 **When** I run `pm init` again
 **Then** command completes without errors (idempotent)
 **And** existing database is not modified

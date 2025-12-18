@@ -91,7 +91,7 @@ If an epic requires phased implementation, break into separate epics:
 - Hyphen separators
 - Created in `/docs/plan/{epic-key}/{feature-key}/tasks/` directory
 - Task files remain in feature directory throughout their lifecycle
-- Status is tracked in database via `pm` CLI, not by folder location
+- Status is tracked in database via `shark` CLI, not by folder location
 
 **Examples**:
 - `T-E01-F01-001.md`
@@ -109,7 +109,7 @@ All tasks for a feature live in:
 ```
 
 **Status Management**:
-Task status is managed via `pm` CLI:
+Task status is managed via `shark` CLI:
 - `pm task list --status=todo` - List todo tasks
 - `pm task start T-E01-F01-001` - Start task (status: in_progress)
 - `pm task complete T-E01-F01-001` - Complete task (status: ready_for_review)
@@ -156,7 +156,7 @@ All implementation tasks live with their feature documentation:
     └── T-E##-F##-003.md
 ```
 
-Task status is tracked in database, managed via `pm` CLI.
+Task status is tracked in database, managed via `shark` CLI.
 
 ## Slug Guidelines
 

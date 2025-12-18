@@ -129,19 +129,26 @@ This discipline is designed for production code. Consider deviations for:
 
 ## Integration with Development Process
 
-### PRP-Driven Development
+### Task-Driven Development
 
-When following a Product Requirement Prompt (PRP):
+When following a Task (formerly PRP):
 
-1. Read PRP completely
+1. Read task completely
 2. Check dependencies
-3. Review context documents
-4. Select implementation workflow
-5. Follow blueprint step-by-step
-6. Run validation gates per PRP
-7. Update PRP status
+3. **Start task:** `shark task start <task-id>`
+4. Review context documents
+5. Select implementation workflow
+6. Follow blueprint step-by-step
+7. Run validation gates per task
+8. **Complete task:** `shark task complete <task-id>`
 
-PRPs provide the "what" and "why". This skill provides the "how".
+Tasks provide the "what" and "why". This skill provides the "how".
+
+The shark CLI automatically:
+- Updates task status in the database
+- Tracks implementation progress
+- Provides visibility to the team
+- Enables accurate reporting
 
 ### Agile/Sprint Development
 

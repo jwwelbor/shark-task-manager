@@ -60,7 +60,7 @@ Create the foundational Click-based CLI framework:
 - Command registration infrastructure
 
 **Success Gates**:
-- `pm` command installed and accessible
+- `shark` command installed and accessible
 - Command hierarchy works (`pm --help`, `pm task --help`)
 - Global flags inherited by all subcommands
 - CLI startup time <300ms

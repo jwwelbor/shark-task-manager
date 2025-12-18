@@ -72,8 +72,8 @@ var (
 
 var initCmd = &cobra.Command{
     Use:   "init",
-    Short: "Initialize PM CLI infrastructure",
-    Long: `Initialize PM CLI infrastructure by creating database schema,
+    Short: "Initialize Shark CLI infrastructure",
+    Long: `Initialize Shark CLI infrastructure by creating database schema,
 folder structure, configuration file, and task templates.
 
 This command is idempotent and safe to run multiple times.`,
@@ -140,7 +140,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 }
 
 func displayInitSuccess(result *init.InitResult) {
-    cli.Success("PM CLI initialized successfully!")
+    cli.Success("Shark CLI initialized successfully!")
     fmt.Println()
 
     if result.DatabaseCreated {
@@ -369,7 +369,7 @@ import (
     "github.com/jwwelbor/shark-task-manager/internal/db"
 )
 
-// Initializer orchestrates PM CLI initialization
+// Initializer orchestrates Shark CLI initialization
 type Initializer struct {
     // No persistent state
 }
@@ -379,7 +379,7 @@ func NewInitializer() *Initializer {
     return &Initializer{}
 }
 
-// Initialize performs complete PM CLI initialization
+// Initialize performs complete Shark CLI initialization
 func (i *Initializer) Initialize(ctx context.Context, opts InitOptions) (*InitResult, error) {
     result := &InitResult{}
 

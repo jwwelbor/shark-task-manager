@@ -27,6 +27,7 @@ This skill provides systematic workflows for implementing code across backend AP
 - Following a PRP implementation blueprint
 
 **This skill integrates with:**
+- `shark-task-management` - Task lifecycle tracking with shark CLI
 - `test-driven-development` - TDD methodology for test-first development
 - `testing-anti-patterns` - What to avoid when writing tests
 - `frontend-design` - UI design patterns and aesthetics
@@ -114,21 +115,25 @@ The standard implementation flow is:
 ```
 1. Read design documentation
    ↓
-2. Select appropriate workflow (this SKILL.md)
+2. Start task tracking: shark task start <task-id>
    ↓
-3. Follow contract-first discipline (if applicable)
+3. Select appropriate workflow (this SKILL.md)
    ↓
-4. Implement code following the workflow
+4. Follow contract-first discipline (if applicable)
    ↓
-5. Apply coding standards
+5. Implement code following the workflow
    ↓
-6. Implement error handling
+6. Apply coding standards
    ↓
-7. Write/run tests (TDD when applicable)
+7. Implement error handling
    ↓
-8. Run validation gates
+8. Write/run tests (TDD when applicable)
    ↓
-9. Document implementation
+9. Run validation gates
+   ↓
+10. Document implementation
+   ↓
+11. Complete task tracking: shark task complete <task-id>
 ```
 
 ## Key Principles

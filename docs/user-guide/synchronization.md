@@ -1,8 +1,8 @@
-# PM CLI Synchronization Guide
+# Shark CLI Synchronization Guide
 
 ## Overview
 
-The `pm sync` command synchronizes task markdown files with the database, enabling Git-based workflows where task files are edited in text editors, merged via Git, and kept in sync with the PM CLI database.
+The `pm sync` command synchronizes task markdown files with the database, enabling Git-based workflows where task files are edited in text editors, merged via Git, and kept in sync with the Shark CLI database.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ pm sync --create-missing
 Use `pm sync` when:
 - You've pulled Git changes that include new or modified task files
 - You've edited task files directly in a text editor
-- You're migrating existing task markdown files to PM CLI
+- You're migrating existing task markdown files to Shark CLI
 - You want to ensure database reflects current file state
 
 ## How Sync Works
@@ -298,10 +298,10 @@ pm sync --json
 
 ### Workflow 1: First-Time Migration
 
-Migrate existing task files to PM CLI:
+Migrate existing task files to Shark CLI:
 
 ```bash
-# 1. Initialize PM CLI
+# 1. Initialize Shark CLI
 pm init
 
 # 2. Preview import
@@ -535,6 +535,6 @@ See [Troubleshooting Guide](../troubleshooting.md) for common issues:
 
 ## See Also
 
-- [Initialization Guide](initialization.md) - Set up PM CLI
+- [Initialization Guide](initialization.md) - Set up Shark CLI
 - [Task Management](../CLI.md) - Create and manage tasks
 - [Troubleshooting](../troubleshooting.md) - Common issues

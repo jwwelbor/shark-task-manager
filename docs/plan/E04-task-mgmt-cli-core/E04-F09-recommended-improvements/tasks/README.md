@@ -151,7 +151,7 @@ graph LR
 
 ## Status Management
 
-Task status is tracked in the database via the `pm` CLI tool. Task files remain in this directory regardless of status.
+Task status is tracked in the database via the `shark` CLI tool. Task files remain in this directory regardless of status.
 
 ### Status Definitions
 

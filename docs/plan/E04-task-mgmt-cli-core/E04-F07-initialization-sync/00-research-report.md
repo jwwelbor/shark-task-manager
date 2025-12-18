@@ -619,7 +619,7 @@ defer db.Close()
 ```go
 var initCmd = &cobra.Command{
     Use:   "init",
-    Short: "Initialize PM CLI infrastructure",
+    Short: "Initialize Shark CLI infrastructure",
     Long:  `Creates database schema, folder structure, config file, and templates.`,
     RunE: func(cmd *cobra.Command, args []string) error {
         // Init logic

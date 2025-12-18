@@ -28,6 +28,24 @@ Use this workflow when implementing:
    - API client configured
    - State management setup
 
+## Phase 0: Start Task Tracking
+
+Before beginning implementation, start task tracking:
+
+```bash
+# Start the task to update status and track progress
+shark task start <task-id>
+
+# Example:
+shark task start T-E04-F05-001
+```
+
+This:
+- Updates task status to "in-progress" in the database
+- Tracks when implementation began
+- Provides visibility to the team
+- Enables accurate progress reporting
+
 ## Phase 1: Contract-First Implementation (CRITICAL)
 
 **Time: 30-45 minutes | Prevents: Days of integration debugging**
@@ -661,6 +679,14 @@ Reference: ~/.claude/skills/frontend-design/SKILL.md
 - [ ] All validation gates passed
 - [ ] UI design follows frontend-design skill
 - [ ] Documentation updated
+- [ ] **Task completed:** `shark task complete <task-id>`
+
+**Final Step:** Mark the task as complete:
+```bash
+shark task complete T-E04-F05-001
+```
+
+This updates the task status to "completed" and records completion time in the database.
 
 ## Common Issues
 

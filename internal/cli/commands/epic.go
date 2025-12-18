@@ -93,6 +93,22 @@ Examples:
 	RunE: runEpicCreate,
 }
 
+// epicDeleteCmd deletes an epic
+var epicDeleteCmd = &cobra.Command{
+	Use:   "delete <epic-key>",
+	Short: "Delete an epic",
+	Long: `Delete an epic from the database (and all its features/tasks via CASCADE).
+
+WARNING: This action cannot be undone. All features and tasks under this epic will also be deleted.
+If the epic has features, you must use --force to confirm the cascade deletion.
+
+Examples:
+  shark epic delete E05               Delete epic with no features
+  shark epic delete E05 --force       Force delete epic with features`,
+	Args: cobra.ExactArgs(1),
+	RunE: runEpicDelete,
+}
+
 var (
 	epicCreateDescription string
 )
@@ -106,6 +122,7 @@ func init() {
 	epicCmd.AddCommand(epicGetCmd)
 	epicCmd.AddCommand(epicStatusCmd)
 	epicCmd.AddCommand(epicCreateCmd)
+	epicCmd.AddCommand(epicDeleteCmd)
 
 	// Add flags for list command
 	epicListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
@@ -113,6 +130,9 @@ func init() {
 
 	// Add flags for create command
 	epicCreateCmd.Flags().StringVar(&epicCreateDescription, "description", "", "Epic description (optional)")
+
+	// Add flags for delete command
+	epicDeleteCmd.Flags().Bool("force", false, "Force deletion even if epic has features")
 }
 
 // runEpicList executes the epic list command
@@ -652,4 +672,69 @@ func getNextEpicKey(ctx context.Context, epicRepo *repository.EpicRepository) (s
 	}
 
 	return fmt.Sprintf("E%02d", maxNum+1), nil
+}
+
+// runEpicDelete executes the epic delete command
+func runEpicDelete(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	epicKey := args[0]
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
+		return fmt.Errorf("database path error")
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		cli.Error("Error: Database error. Run with --verbose for details.")
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
+		}
+		os.Exit(2)
+	}
+
+	// Get repositories
+	repoDb := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(repoDb)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+
+	// Get epic by key to verify it exists
+	epic, err := epicRepo.GetByKey(ctx, epicKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicKey))
+		cli.Info("Use 'shark epic list' to see available epics")
+		os.Exit(1)
+	}
+
+	// Check for child features
+	features, err := featureRepo.ListByEpic(ctx, epic.ID)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to check for features: %v", err))
+		os.Exit(1)
+	}
+
+	// If there are features, require --force flag
+	if len(features) > 0 && !force {
+		cli.Error(fmt.Sprintf("Error: Epic %s has %d feature(s)", epicKey, len(features)))
+		cli.Warning("This will CASCADE DELETE all features and their tasks")
+		cli.Info(fmt.Sprintf("Use --force to confirm deletion: shark epic delete %s --force", epicKey))
+		os.Exit(1)
+	}
+
+	// Delete epic from database (CASCADE will handle features/tasks)
+	if err := epicRepo.Delete(ctx, epic.ID); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to delete epic: %v", err))
+		os.Exit(1)
+	}
+
+	cli.Success(fmt.Sprintf("Epic %s deleted successfully", epicKey))
+	if len(features) > 0 {
+		cli.Warning(fmt.Sprintf("Cascade deleted %d feature(s) and their tasks", len(features)))
+	}
+	return nil
 }
