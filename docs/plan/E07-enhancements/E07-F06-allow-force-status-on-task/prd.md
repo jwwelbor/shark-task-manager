@@ -21,41 +21,43 @@ description:
 ## Goal
 
 ### Problem
-[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]
+The task management system enforces strict status flow transitions (todo → in_progress → ready_for_review → completed), which is generally good for workflow integrity. However, there are legitimate scenarios where users need to force a status change: bulk cleanup operations, fixing incorrect status, migrating existing tasks, or administrative corrections. Currently, there's no way to bypass status validation, forcing users to step through each intermediate status.
 
 ### Solution
-[Explain how this feature solves the problem. Focus on the "what" not the "how."]
+Add a `--force` flag to task and feature status update commands that bypasses status flow validation. At the task level, allow forcing any status change. At the feature level with `--force`, update the feature status and also force update all child tasks to the specified status. No additional warnings needed since `--force` flag itself signals intentional override.
 
 ### Impact
-[Define expected outcomes with specific, measurable metrics.]
-
-**Examples**:
-- Reduce user onboarding time by 40%
-- Increase feature adoption to 60% of active users within 3 months
+- Enable administrative corrections and bulk operations
+- Support task migration and cleanup scenarios
+- Maintain workflow integrity while providing escape hatch when needed
+- Reduce friction for legitimate override scenarios
 
 ---
 
 ## User Personas
 
-### Persona 1: [Persona Name/Role]
+### Persona 1: Project Administrator / Tech Lead
 
 **Profile**:
-- **Role/Title**: [e.g., "Marketing Manager at mid-size B2B SaaS company"]
-- **Experience Level**: [e.g., "3-5 years in role, moderate technical proficiency"]
+- **Role/Title**: Technical Lead or Project Manager with administrative responsibilities
+- **Experience Level**: High, manages project cleanup and data corrections
 - **Key Characteristics**:
-  - [Characteristic 1]
-  - [Characteristic 2]
+  - Performs bulk operations and cleanup
+  - Fixes data inconsistencies from migrations or errors
+  - Needs administrative override capabilities
 
 **Goals Related to This Feature**:
-1. [Specific goal 1]
-2. [Specific goal 2]
+1. Quickly mark completed work as done without stepping through statuses
+2. Perform bulk status updates for feature completion
+3. Fix incorrect statuses from previous errors
 
 **Pain Points This Feature Addresses**:
-- [Pain point 1]
-- [Pain point 2]
+- Cannot directly set task status without following strict flow
+- Bulk marking tasks complete requires many individual commands
+- No way to administratively correct status errors
 
 **Success Looks Like**:
-[2-3 sentences describing success from this persona's perspective]
+Can run `shark task complete T-E01-F01-001 --force` to directly mark task complete. Can run `shark feature complete E01-F01 --force` to mark feature and all its tasks complete in one command.
 
 ---
 
@@ -63,34 +65,42 @@ description:
 
 ### Must-Have Stories
 
-**Story 1**: As a [user persona], I want to [perform an action] so that I can [achieve a benefit].
+**Story 1**: As an administrator, I want to force task status changes so that I can correct errors and perform cleanup operations.
 
 **Acceptance Criteria**:
-- [ ] [Specific testable criterion 1]
-- [ ] [Specific testable criterion 2]
-- [ ] [Specific testable criterion 3]
+- [ ] Can use `--force` flag on task status update commands
+- [ ] `--force` bypasses status flow validation
+- [ ] Task status changes to specified value regardless of current status
+
+**Story 2**: As a project manager, I want to force feature status and all child tasks so that I can bulk complete features.
+
+**Acceptance Criteria**:
+- [ ] Can use `--force` flag on feature status commands
+- [ ] Feature status updates to specified value
+- [ ] All child tasks also update to specified status
+- [ ] Single command updates feature + all tasks
 
 ---
 
 ### Should-Have Stories
 
-[Follow same format for important but not critical stories]
+None identified.
 
 ---
 
 ### Could-Have Stories
 
-[Follow same format for nice-to-have stories]
+**Story 3**: As a user, I want confirmation output showing what was updated when using force.
+
+**Acceptance Criteria**:
+- [ ] Success message lists number of tasks updated
+- [ ] Shows old and new status values
 
 ---
 
 ### Edge Case & Error Stories
 
-**Error Story 1**: As a [user persona], when [error condition], I want to [see/receive] so that I can [recover/understand].
-
-**Acceptance Criteria**:
-- [ ] [How error is presented]
-- [ ] [How user can recover]
+None identified - force flag explicitly bypasses normal validation.
 
 ---
 
@@ -98,42 +108,48 @@ description:
 
 ### Functional Requirements
 
-**Category: [e.g., Core Functionality]**
+**Category: Status Management**
 
-1. **REQ-F-001**: [Requirement Title]
-   - **Description**: [Clear, specific, testable requirement statement]
-   - **User Story**: Links to Story [#]
-   - **Priority**: [Must-Have | Should-Have | Could-Have]
+1. **REQ-F-001**: Force Flag on Task Commands
+   - **Description**: Add `--force` flag to task status update commands (start, complete, approve, etc.)
+   - **User Story**: Links to Story 1
+   - **Priority**: Must-Have
    - **Acceptance Criteria**:
-     - [ ] [Specific criterion 1]
-     - [ ] [Specific criterion 2]
+     - [ ] `--force` flag added to all task status commands
+     - [ ] When present, status flow validation is skipped
+     - [ ] Status changes directly to target value
+     - [ ] History still recorded with forced=true indicator
+
+2. **REQ-F-002**: Force Flag on Feature Commands
+   - **Description**: Add `--force` flag to feature status update commands
+   - **User Story**: Links to Story 2
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] `--force` flag added to feature status commands
+     - [ ] Feature status updates to specified value
+     - [ ] All child tasks also updated to same status
+     - [ ] Batch operation is atomic (all or nothing)
+
+3. **REQ-F-003**: New Feature Status Commands
+   - **Description**: Create `shark feature complete` and similar status commands (if they don't exist)
+   - **User Story**: Links to Story 2
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] `shark feature complete <key> [--force]`
+     - [ ] `shark feature start <key> [--force]`
+     - [ ] Other status transitions as needed
+     - [ ] Consistent with task command patterns
 
 ---
 
 ### Non-Functional Requirements
 
-**Performance**
+**Safety**
 
-1. **REQ-NF-001**: [Performance Requirement]
-   - **Description**: [Specific performance target]
-   - **Measurement**: [How it will be measured]
-   - **Target**: [Quantitative threshold, e.g., "Page load < 2 seconds on 3G"]
-   - **Justification**: [Why this matters]
-
-**Security**
-
-1. **REQ-NF-010**: [Security Requirement]
-   - **Description**: [Specific security control]
-   - **Implementation**: [High-level approach]
-   - **Compliance**: [Relevant standards: OWASP, SOC2, etc.]
-   - **Risk Mitigation**: [What threat this addresses]
-
-**Accessibility**
-
-1. **REQ-NF-020**: [Accessibility Requirement]
-   - **Description**: [Specific WCAG criterion]
-   - **Standard**: [WCAG 2.1 Level AA, etc.]
-   - **Testing**: [How compliance will be verified]
+1. **REQ-NF-001**: Audit Trail for Forced Changes
+   - **Description**: All forced status changes logged in history with forced flag
+   - **Measurement**: History records include forced=true field
+   - **Justification**: Enable auditing of administrative overrides
 
 ---
 
@@ -141,19 +157,25 @@ description:
 
 ### Feature-Level Acceptance
 
-**Given/When/Then Format**:
+**Scenario 1: Force Task Status Change**
+- **Given** task T-E01-F01-001 is in status "todo"
+- **When** admin runs `shark task complete T-E01-F01-001 --force`
+- **Then** task status changes directly to "completed"
+- **And** bypasses normal in_progress/ready_for_review steps
+- **And** history records forced=true
 
-**Scenario 1: [Primary Use Case]**
-- **Given** [initial context/state]
-- **When** [user action is performed]
-- **Then** [expected outcome]
-- **And** [additional outcome]
+**Scenario 2: Force Feature and Tasks Status**
+- **Given** feature E01-F01 has 5 tasks in various statuses
+- **When** manager runs `shark feature complete E01-F01 --force`
+- **Then** feature status changes to "completed"
+- **And** all 5 child tasks also change to "completed"
+- **And** success message shows "Updated 1 feature and 5 tasks"
 
-**Scenario 2: [Error Handling]**
-- **Given** [error precondition]
-- **When** [action that triggers error]
-- **Then** [error is handled gracefully]
-- **And** [user can recover]
+**Scenario 3: Force Without Flag Fails**
+- **Given** task T-E01-F01-001 is in status "todo"
+- **When** user runs `shark task complete T-E01-F01-001` (no --force)
+- **Then** normal validation occurs
+- **And** error about invalid status transition is shown
 
 ---
 
@@ -161,18 +183,32 @@ description:
 
 ### Explicitly Excluded
 
-1. **[Feature/Capability]**
-   - **Why**: [Reasoning - complexity, dependencies, prioritization]
-   - **Future**: [Will this be addressed later? If so, when/why?]
-   - **Workaround**: [How users can accomplish this currently, if applicable]
+1. **Additional confirmation prompts**
+   - **Why**: User specified --force flag explicitly signals intent
+   - **Future**: No - force flag is sufficient signal
+   - **Workaround**: N/A
+
+2. **Undo capability for forced changes**
+   - **Why**: Out of scope; can be addressed separately if needed
+   - **Future**: Could add general undo/rollback feature
+   - **Workaround**: Manually set status back if needed
+
+3. **Role-based permissions for force**
+   - **Why**: No authentication/authorization system currently
+   - **Future**: If auth added, could restrict force to admins
+   - **Workaround**: Use with care, documented as admin feature
 
 ---
 
 ### Alternative Approaches Rejected
 
-**Alternative 1: [Approach Name]**
-- **Description**: [Brief overview]
-- **Why Rejected**: [Reasoning]
+**Alternative 1: Separate "admin" Commands**
+- **Description**: Create `shark admin task-set-status` commands
+- **Why Rejected**: Unnecessary complexity; --force flag is clearer and simpler
+
+**Alternative 2: Interactive Confirmation**
+- **Description**: Prompt "Are you sure?" when using --force
+- **Why Rejected**: Annoying for batch scripts; --force is intentional enough
 
 ---
 
@@ -180,17 +216,10 @@ description:
 
 ### Primary Metrics
 
-1. **[Metric Name]**
-   - **What**: [What data point is tracked]
-   - **Target**: [Specific goal]
-   - **Timeline**: [When to achieve]
-   - **Measurement**: [How to measure]
-
----
-
-### Secondary Metrics
-
-- **[Metric]**: [Brief description and target]
+1. **Force Usage**
+   - **What**: Number of forced status changes
+   - **Target**: Used judiciously (<5% of all status changes)
+   - **Measurement**: Query history for forced=true
 
 ---
 
@@ -198,20 +227,19 @@ description:
 
 ### Dependencies
 
-- **[System/Feature/Service]**: [Description of dependency]
+- **Task/Feature Status Commands**: Modify existing commands
+- **Repository Layer**: Update status methods to accept force flag
+- **History Tracking**: Add forced indicator to history records
 
 ### Integration Requirements
 
-- **[External System]**: [What data/functionality is exchanged]
+None
 
 ---
 
 ## Compliance & Security Considerations
 
-[If applicable, note specific requirements]:
-- **Regulatory**: [GDPR, HIPAA, SOC2, etc.]
-- **Data Protection**: [Encryption, access controls]
-- **Audit**: [Logging, audit trail requirements]
+**Audit Trail**: All forced changes must be logged with forced=true indicator for accountability
 
 ---
 

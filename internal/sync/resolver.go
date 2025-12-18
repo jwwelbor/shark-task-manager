@@ -21,6 +21,7 @@ func NewConflictResolver() *ConflictResolver {
 // - file-wins: Use file value for all conflicting fields
 // - database-wins: Keep database value for all conflicting fields
 // - newer-wins: Compare file.ModifiedAt with db.UpdatedAt, use newer source
+// - manual: Prompt user interactively for each conflict
 //
 // Database-only fields are ALWAYS preserved from the database:
 // - status, priority, agent_type, depends_on, assigned_agent, timestamps
@@ -30,6 +31,12 @@ func (r *ConflictResolver) ResolveConflicts(
 	dbTask *models.Task,
 	strategy ConflictStrategy,
 ) (*models.Task, error) {
+	// Handle manual strategy separately
+	if strategy == ConflictStrategyManual {
+		manualResolver := NewManualResolver()
+		return manualResolver.ResolveConflictsManually(conflicts, fileData, dbTask)
+	}
+
 	// Create a copy of the database task to avoid modifying the original
 	resolved := r.copyTask(dbTask)
 

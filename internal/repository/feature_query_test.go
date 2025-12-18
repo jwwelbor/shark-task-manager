@@ -20,8 +20,13 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create test epic with unique key
-	//Use nanosecond timestamp to create unique but valid epic keys
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano() / 1000) % 100)
+	// Use nanosecond timestamp modulo 1000 for better uniqueness
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+
+	// Clean up any existing data from previous test runs
+	database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE ?", fmt.Sprintf("E%s-F%%", suffix))
+	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", fmt.Sprintf("E%s", suffix))
+
 	highPriority := models.PriorityHigh
 	epic := &models.Epic{
 		Key:           fmt.Sprintf("E%s", suffix),
@@ -128,8 +133,13 @@ func TestFeatureRepository_ListByEpicAndStatus(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create test epic with unique key
-	//Use nanosecond timestamp to create unique but valid epic keys
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano() / 1000) % 100)
+	// Use nanosecond timestamp modulo 1000 for better uniqueness
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+
+	// Clean up any existing data from previous test runs
+	database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE ?", fmt.Sprintf("E%s-F%%", suffix))
+	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", fmt.Sprintf("E%s", suffix))
+
 	highPriority := models.PriorityHigh
 	epic := &models.Epic{
 		Key:           fmt.Sprintf("E%s", suffix),
@@ -192,8 +202,14 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	// Create test epic with unique key
-	//Use nanosecond timestamp to create unique but valid epic keys
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano() / 1000) % 100)
+	// Use nanosecond timestamp modulo 1000 for better uniqueness
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+
+	// Clean up any existing data from previous test runs
+	database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE ?", fmt.Sprintf("T-E%s-F01-%%", suffix))
+	database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE ?", fmt.Sprintf("E%s-F%%", suffix))
+	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", fmt.Sprintf("E%s", suffix))
+
 	highPriority := models.PriorityHigh
 	epic := &models.Epic{
 		Key:           fmt.Sprintf("E%s", suffix),

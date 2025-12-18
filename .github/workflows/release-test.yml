@@ -1,0 +1,305 @@
+# GitHub Actions Release Testing Workflow
+# This workflow provides automated testing for release artifacts
+# Can be triggered manually or automatically after release creation
+
+name: Release Testing
+
+on:
+  # Manual trigger for beta testing
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to test (e.g., v0.1.0-beta)'
+        required: true
+        type: string
+      test_platforms:
+        description: 'Platforms to test (comma-separated: linux,macos,windows)'
+        required: false
+        default: 'linux,macos,windows'
+        type: string
+
+  # Automatic trigger after release is published
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  # Test manual download and checksum verification
+  test-manual-download:
+    name: Test Manual Download
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
+            # Note: GitHub doesn't provide ARM runners yet, but we can test download
+          - os: macos-13 # Intel Mac
+            platform: darwin
+            arch: amd64
+          - os: macos-14 # Apple Silicon Mac
+            platform: darwin
+            arch: arm64
+          - os: windows-latest
+            platform: windows
+            arch: amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Test manual download (Unix)
+        if: matrix.platform != 'windows'
+        run: |
+          chmod +x ./scripts/test-manual.sh
+          ./scripts/test-manual.sh ${{ steps.version.outputs.version }}
+        shell: bash
+
+      - name: Test manual download (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          bash ./scripts/test-manual.sh ${{ steps.version.outputs.version }}
+        shell: bash
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: manual-test-results-${{ matrix.platform }}-${{ matrix.arch }}
+          path: /tmp/manual-test-results.txt
+          retention-days: 7
+
+  # Test Homebrew installation (macOS only)
+  test-homebrew:
+    name: Test Homebrew Installation
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        include:
+          - os: macos-13 # Intel Mac
+            arch: x86_64
+          - os: macos-14 # Apple Silicon Mac
+            arch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Test Homebrew installation
+        run: |
+          chmod +x ./scripts/test-homebrew.sh
+          ./scripts/test-homebrew.sh ${{ steps.version.outputs.version }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: homebrew-test-results-${{ matrix.arch }}
+          path: homebrew-test-results.txt
+          retention-days: 7
+
+  # Test Scoop installation (Windows only)
+  test-scoop:
+    name: Test Scoop Installation
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            echo "version=${{ inputs.version }}" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "version=${{ github.event.release.tag_name }}" >> $env:GITHUB_OUTPUT
+          }
+        shell: pwsh
+
+      - name: Install Scoop
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+          if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
+            Invoke-RestMethod get.scoop.sh | Invoke-Expression
+          }
+        shell: pwsh
+
+      - name: Test Scoop installation
+        run: |
+          .\scripts\test-scoop.ps1 -ExpectedVersion ${{ steps.version.outputs.version }}
+        shell: pwsh
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scoop-test-results
+          path: scoop-test-results.txt
+          retention-days: 7
+
+  # Performance benchmarking
+  performance-benchmark:
+    name: Performance Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download release binary
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          ARCHIVE_NAME="shark_${VERSION#v}_linux_amd64.tar.gz"
+          wget "https://github.com/${{ github.repository }}/releases/download/${VERSION}/${ARCHIVE_NAME}"
+          tar -xzf "$ARCHIVE_NAME"
+          chmod +x shark
+
+      - name: Benchmark startup time
+        run: |
+          echo "Measuring startup time..."
+          for i in {1..10}; do
+            time ./shark --version
+          done
+
+      - name: Benchmark command execution
+        run: |
+          echo "Measuring command execution time..."
+          time ./shark --help
+          time ./shark epic list 2>/dev/null || true
+          time ./shark task list 2>/dev/null || true
+
+      - name: Check binary size
+        run: |
+          echo "Binary size:"
+          ls -lh shark
+          SIZE_BYTES=$(stat -c%s shark)
+          SIZE_MB=$((SIZE_BYTES / 1024 / 1024))
+          echo "Binary size: ${SIZE_MB} MB"
+
+          if [ $SIZE_MB -le 12 ]; then
+            echo "✅ Binary size within target (<12 MB)"
+          else
+            echo "⚠️ Binary size exceeds target (${SIZE_MB} MB > 12 MB)"
+            exit 1
+          fi
+
+  # Collect and report results
+  report-results:
+    name: Report Test Results
+    needs: [test-manual-download, test-homebrew, test-scoop, performance-benchmark]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results
+
+      - name: Generate summary
+        run: |
+          echo "# Release Testing Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check job statuses
+          echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Manual Download | ${{ needs.test-manual-download.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Homebrew | ${{ needs.test-homebrew.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Scoop | ${{ needs.test-scoop.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Performance | ${{ needs.performance-benchmark.result }} |" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Detailed Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # List all result files
+          if [ -d "test-results" ]; then
+            find test-results -name "*.txt" -type f | while read file; do
+              echo "### $(basename $(dirname $file))" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat "$file" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            done
+          fi
+
+      - name: Upload combined results
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-test-results
+          path: test-results
+          retention-days: 30
+
+  # Notify on completion
+  notify:
+    name: Notify Test Completion
+    needs: [report-results]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Set status
+        id: status
+        run: |
+          if [ "${{ needs.report-results.result }}" = "success" ]; then
+            echo "status=✅ All tests passed" >> $GITHUB_OUTPUT
+            echo "color=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=❌ Some tests failed" >> $GITHUB_OUTPUT
+            echo "color=failure" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Summary
+        run: |
+          echo "# Release Testing Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.status.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See detailed results in the 'report-results' job artifacts." >> $GITHUB_STEP_SUMMARY

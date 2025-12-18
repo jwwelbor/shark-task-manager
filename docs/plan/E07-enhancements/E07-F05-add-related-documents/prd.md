@@ -21,41 +21,42 @@ description:
 ## Goal
 
 ### Problem
-[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]
+Important supporting documents (architecture diagrams, design docs, QA reports, API specifications) exist outside the task management system with no formal links to related epics, features, or tasks. This creates information silos where developers must hunt for relevant documents, and there's no structured way to track which documents relate to which work items.
 
 ### Solution
-[Explain how this feature solves the problem. Focus on the "what" not the "how."]
+Create a `documents` table with columns for id, title, and file path. Add link tables (`epic_documents`, `feature_documents`, `task_documents`) to create many-to-many relationships. Provide CLI commands (`shark related-docs add/delete/list`) to manage document associations at epic, feature, and task levels.
 
 ### Impact
-[Define expected outcomes with specific, measurable metrics.]
-
-**Examples**:
-- Reduce user onboarding time by 40%
-- Increase feature adoption to 60% of active users within 3 months
+- Centralized tracking of supporting documents linked to work items
+- Easy discovery of relevant documentation from CLI
+- Structured relationships between work items and their documentation
+- Foundation for documentation-aware workflows and tooling
 
 ---
 
 ## User Personas
 
-### Persona 1: [Persona Name/Role]
+### Persona 1: Developer / Documentation Consumer
 
 **Profile**:
-- **Role/Title**: [e.g., "Marketing Manager at mid-size B2B SaaS company"]
-- **Experience Level**: [e.g., "3-5 years in role, moderate technical proficiency"]
+- **Role/Title**: Developer implementing features and tasks
+- **Experience Level**: Moderate, needs to access supporting documentation frequently
 - **Key Characteristics**:
-  - [Characteristic 1]
-  - [Characteristic 2]
+  - Switches between tasks and needs relevant docs quickly
+  - Frustrated by hunting for scattered documentation
+  - Values having context at fingertips
 
 **Goals Related to This Feature**:
-1. [Specific goal 1]
-2. [Specific goal 2]
+1. Quickly find all documentation related to current task/feature
+2. Discover relevant architecture, design, and QA documents without searching
 
 **Pain Points This Feature Addresses**:
-- [Pain point 1]
-- [Pain point 2]
+- Documents scattered across file system with no linkage to work items
+- No way to know which docs are relevant to current task
+- Wastes time searching for related documentation
 
 **Success Looks Like**:
-[2-3 sentences describing success from this persona's perspective]
+Can run `shark task get T-E01-F01-001` and see list of related documents. Can add document links when creating QA reports or architecture docs.
 
 ---
 
@@ -63,34 +64,59 @@ description:
 
 ### Must-Have Stories
 
-**Story 1**: As a [user persona], I want to [perform an action] so that I can [achieve a benefit].
+**Story 1**: As a developer, I want to link documents to tasks so that I can track relevant supporting files.
 
 **Acceptance Criteria**:
-- [ ] [Specific testable criterion 1]
-- [ ] [Specific testable criterion 2]
-- [ ] [Specific testable criterion 3]
+- [ ] Can add document with title and path to database
+- [ ] Can link document to task
+- [ ] Can list all documents for a task
+
+**Story 2**: As a product manager, I want to link documents to features and epics so that architectural and design docs are accessible.
+
+**Acceptance Criteria**:
+- [ ] Can link documents to features
+- [ ] Can link documents to epics
+- [ ] Can list all documents for feature/epic
+
+**Story 3**: As a user, I want CLI commands to manage document relationships so that I can work entirely from command line.
+
+**Acceptance Criteria**:
+- [ ] `shark related-docs add "title" "path" --epic=E01` works
+- [ ] `shark related-docs add "title" "path" --feature=E01-F01` works
+- [ ] `shark related-docs add "title" "path" --task=T-E01-F01-001` works
+- [ ] `shark related-docs delete "title" --epic=E01` works
+- [ ] `shark related-docs list --epic=E01` shows all related docs
 
 ---
 
 ### Should-Have Stories
 
-[Follow same format for important but not critical stories]
+**Story 4**: As a user, when viewing a task/feature/epic, I want to see related documents automatically.
+
+**Acceptance Criteria**:
+- [ ] `shark task get` output includes related documents section
+- [ ] `shark feature get` output includes related documents section
+- [ ] `shark epic get` output includes related documents section
 
 ---
 
 ### Could-Have Stories
 
-[Follow same format for nice-to-have stories]
+**Story 5**: As a user, I want to verify document paths exist when adding them.
+
+**Acceptance Criteria**:
+- [ ] System warns if document path doesn't exist
+- [ ] Optional flag to skip validation for external URLs
 
 ---
 
 ### Edge Case & Error Stories
 
-**Error Story 1**: As a [user persona], when [error condition], I want to [see/receive] so that I can [recover/understand].
+**Error Story 1**: As a user, when I try to link a document that doesn't exist in documents table, I want clear guidance.
 
 **Acceptance Criteria**:
-- [ ] [How error is presented]
-- [ ] [How user can recover]
+- [ ] Error indicates document not found
+- [ ] Suggests using title to search or create new document first
 
 ---
 
@@ -98,42 +124,68 @@ description:
 
 ### Functional Requirements
 
-**Category: [e.g., Core Functionality]**
+**Category: Data Model**
 
-1. **REQ-F-001**: [Requirement Title]
-   - **Description**: [Clear, specific, testable requirement statement]
-   - **User Story**: Links to Story [#]
-   - **Priority**: [Must-Have | Should-Have | Could-Have]
+1. **REQ-F-001**: Documents Table
+   - **Description**: Create `documents` table with id, title, file_path, created_at columns
+   - **User Story**: Links to Story 1
+   - **Priority**: Must-Have
    - **Acceptance Criteria**:
-     - [ ] [Specific criterion 1]
-     - [ ] [Specific criterion 2]
+     - [ ] Table created with proper schema
+     - [ ] Unique constraint on (title, file_path) or separate unique id
+     - [ ] Timestamps for audit trail
+
+2. **REQ-F-002**: Link Tables
+   - **Description**: Create junction tables: epic_documents, feature_documents, task_documents
+   - **User Story**: Links to Story 1, 2
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] epic_documents (epic_id, document_id, created_at)
+     - [ ] feature_documents (feature_id, document_id, created_at)
+     - [ ] task_documents (task_id, document_id, created_at)
+     - [ ] Foreign key constraints properly set
+
+**Category: CLI Commands**
+
+3. **REQ-F-003**: Related-Docs Add Command
+   - **Description**: CLI command to add and link documents
+   - **User Story**: Links to Story 3
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] `shark related-docs add <title> <path> --epic/--feature/--task=<key>`
+     - [ ] Creates document if doesn't exist, or reuses existing
+     - [ ] Creates link in appropriate junction table
+     - [ ] Success confirmation with document ID
+
+4. **REQ-F-004**: Related-Docs Delete Command
+   - **Description**: CLI command to remove document links
+   - **User Story**: Links to Story 3
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] `shark related-docs delete <title> --epic/--feature/--task=<key>`
+     - [ ] Removes link from junction table
+     - [ ] Document record persists (may be linked elsewhere)
+     - [ ] Confirmation message
+
+5. **REQ-F-005**: Related-Docs List Command
+   - **Description**: CLI command to list related documents
+   - **User Story**: Links to Story 3
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] `shark related-docs list --epic/--feature/--task=<key>`
+     - [ ] Shows table with title, path, created_at
+     - [ ] JSON output support with --json flag
 
 ---
 
 ### Non-Functional Requirements
 
-**Performance**
+**Data Integrity**
 
-1. **REQ-NF-001**: [Performance Requirement]
-   - **Description**: [Specific performance target]
-   - **Measurement**: [How it will be measured]
-   - **Target**: [Quantitative threshold, e.g., "Page load < 2 seconds on 3G"]
-   - **Justification**: [Why this matters]
-
-**Security**
-
-1. **REQ-NF-010**: [Security Requirement]
-   - **Description**: [Specific security control]
-   - **Implementation**: [High-level approach]
-   - **Compliance**: [Relevant standards: OWASP, SOC2, etc.]
-   - **Risk Mitigation**: [What threat this addresses]
-
-**Accessibility**
-
-1. **REQ-NF-020**: [Accessibility Requirement]
-   - **Description**: [Specific WCAG criterion]
-   - **Standard**: [WCAG 2.1 Level AA, etc.]
-   - **Testing**: [How compliance will be verified]
+1. **REQ-NF-001**: Referential Integrity
+   - **Description**: Foreign key constraints prevent orphaned links
+   - **Measurement**: Database constraint enforcement
+   - **Justification**: Data consistency critical for reliability
 
 ---
 
@@ -141,19 +193,25 @@ description:
 
 ### Feature-Level Acceptance
 
-**Given/When/Then Format**:
+**Scenario 1: Add Document to Task**
+- **Given** task T-E01-F01-001 exists
+- **When** user runs `shark related-docs add "API Spec" "docs/api/spec.md" --task=T-E01-F01-001`
+- **Then** document is added to documents table (or reused if exists)
+- **And** link created in task_documents table
+- **And** success message shows document ID
 
-**Scenario 1: [Primary Use Case]**
-- **Given** [initial context/state]
-- **When** [user action is performed]
-- **Then** [expected outcome]
-- **And** [additional outcome]
+**Scenario 2: List Documents for Feature**
+- **Given** feature E01-F01 has 3 linked documents
+- **When** user runs `shark related-docs list --feature=E01-F01`
+- **Then** table shows all 3 documents with title, path, date
+- **And** documents are sorted by creation date
 
-**Scenario 2: [Error Handling]**
-- **Given** [error precondition]
-- **When** [action that triggers error]
-- **Then** [error is handled gracefully]
-- **And** [user can recover]
+**Scenario 3: Delete Document Link**
+- **Given** epic E01 has document "Architecture" linked
+- **When** user runs `shark related-docs delete "Architecture" --epic=E01`
+- **Then** link is removed from epic_documents table
+- **And** document record remains in documents table
+- **And** confirmation message displayed
 
 ---
 
@@ -161,18 +219,32 @@ description:
 
 ### Explicitly Excluded
 
-1. **[Feature/Capability]**
-   - **Why**: [Reasoning - complexity, dependencies, prioritization]
-   - **Future**: [Will this be addressed later? If so, when/why?]
-   - **Workaround**: [How users can accomplish this currently, if applicable]
+1. **Document content indexing or search**
+   - **Why**: Complexity beyond scope; path linking is sufficient for v1
+   - **Future**: Could add full-text search in future
+   - **Workaround**: Use file system search tools
+
+2. **Document version tracking**
+   - **Why**: Files are managed by git, not by shark
+   - **Future**: Could integrate with git history if valuable
+   - **Workaround**: Use git for version control of document files
+
+3. **Automatic document generation or templates**
+   - **Why**: Out of scope for linking feature
+   - **Future**: Separate feature for document generation
+   - **Workaround**: Create documents manually, then link
 
 ---
 
 ### Alternative Approaches Rejected
 
-**Alternative 1: [Approach Name]**
-- **Description**: [Brief overview]
-- **Why Rejected**: [Reasoning]
+**Alternative 1: JSON Blob in Epic/Feature/Task Tables**
+- **Description**: Store document list as JSON in existing tables
+- **Why Rejected**: Less flexible, harder to query, no document reuse across entities
+
+**Alternative 2: Single Documents_Links Table with Entity Type**
+- **Description**: One junction table with entity_type, entity_id columns
+- **Why Rejected**: Loses type safety, can't use foreign key constraints effectively
 
 ---
 
@@ -180,17 +252,10 @@ description:
 
 ### Primary Metrics
 
-1. **[Metric Name]**
-   - **What**: [What data point is tracked]
-   - **Target**: [Specific goal]
-   - **Timeline**: [When to achieve]
-   - **Measurement**: [How to measure]
-
----
-
-### Secondary Metrics
-
-- **[Metric]**: [Brief description and target]
+1. **Document Linkage Adoption**
+   - **What**: Number of documents linked to work items
+   - **Target**: >100 document links within first month
+   - **Measurement**: Count rows in junction tables
 
 ---
 
@@ -198,20 +263,19 @@ description:
 
 ### Dependencies
 
-- **[System/Feature/Service]**: [Description of dependency]
+- **Database Schema**: New tables and migrations
+- **CLI Framework**: New command group for related-docs
+- **Repository Layer**: New DocumentRepository for CRUD operations
 
 ### Integration Requirements
 
-- **[External System]**: [What data/functionality is exchanged]
+None
 
 ---
 
 ## Compliance & Security Considerations
 
-[If applicable, note specific requirements]:
-- **Regulatory**: [GDPR, HIPAA, SOC2, etc.]
-- **Data Protection**: [Encryption, access controls]
-- **Audit**: [Logging, audit trail requirements]
+None - documents stored outside system, only paths tracked
 
 ---
 

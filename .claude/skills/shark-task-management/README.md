@@ -152,14 +152,6 @@ See `shark-task-management` skill for details.
 
 ## Benefits
 
-### Explicit Control
-
-- Users invoke commands when ready
-- No surprising automations
-- Clear cause and effect
-
-### Team Visibility
-
 - Database tracks all task activity
 - Enables progress reporting
 - Provides audit trail
@@ -236,8 +228,5 @@ Add new optional hooks to `HOOKS.md` with:
 
 ## See Also
 
-- [Slash Commands Documentation](https://code.claude.com/docs/en/slash-commands)
-- [Hooks Reference](https://code.claude.com/docs/en/hooks-reference)
-- [Skills Best Practices](https://code.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
 - [Implementation Skill](../implementation/SKILL.md)
-- [Shark CLI Documentation](../../../docs/CLI.md)
+- [Shark CLI Documentation](../../../docs/CLI_REFERENCE.md)

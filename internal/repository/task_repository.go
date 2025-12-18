@@ -747,6 +747,28 @@ func (r *TaskRepository) UpdateMetadata(ctx context.Context, task *models.Task) 
 	return nil
 }
 
+// GetMaxSequenceForFeature gets the maximum task sequence number for a feature
+// Returns 0 if no tasks exist for the feature
+func (r *TaskRepository) GetMaxSequenceForFeature(ctx context.Context, featureKey string) (int, error) {
+	// Task keys are in format: T-E##-F##-###
+	// We need to extract the sequence number (###) from the key
+	// Use SQL to parse the key and find the maximum sequence
+	query := `
+		SELECT COALESCE(MAX(CAST(SUBSTR(t.key, -3) AS INTEGER)), 0) as max_sequence
+		FROM tasks t
+		INNER JOIN features f ON t.feature_id = f.id
+		WHERE f.key = ? AND t.key LIKE 'T-' || ? || '-%'
+	`
+
+	var maxSequence int
+	err := r.db.QueryRowContext(ctx, query, featureKey, featureKey).Scan(&maxSequence)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get max sequence for feature %s: %w", featureKey, err)
+	}
+
+	return maxSequence, nil
+}
+
 // queryTasks is a helper function to execute task queries
 func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...interface{}) ([]*models.Task, error) {
 	rows, err := r.db.QueryContext(ctx, query, args...)

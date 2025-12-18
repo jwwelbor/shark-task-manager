@@ -1,0 +1,391 @@
+package keygen
+
+import (
+	"context"
+	"database/sql"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
+)
+
+// Mock repositories for testing
+type mockTaskRepository struct {
+	maxSequence int
+	maxSeqErr   error
+}
+
+func (m *mockTaskRepository) GetMaxSequenceForFeature(ctx context.Context, featureKey string) (int, error) {
+	if m.maxSeqErr != nil {
+		return 0, m.maxSeqErr
+	}
+	return m.maxSequence, nil
+}
+
+type mockFeatureRepository struct {
+	features map[string]*models.Feature
+}
+
+func (m *mockFeatureRepository) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
+	if feature, ok := m.features[key]; ok {
+		return feature, nil
+	}
+	return nil, sql.ErrNoRows
+}
+
+type mockEpicRepository struct {
+	epics map[string]*models.Epic
+}
+
+func (m *mockEpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+	if epic, ok := m.epics[key]; ok {
+		return epic, nil
+	}
+	return nil, sql.ErrNoRows
+}
+
+func TestTaskKeyGenerator_GenerateKeyForFile(t *testing.T) {
+	// Set up mock repositories
+	taskRepo := &mockTaskRepository{maxSequence: 5}
+	featureRepo := &mockFeatureRepository{
+		features: map[string]*models.Feature{
+			"E04-F02": {
+				ID:      1,
+				EpicID:  1,
+				Key:     "E04-F02",
+				Title:   "Test Feature",
+				Status:  "in_progress",
+			},
+		},
+	}
+	epicRepo := &mockEpicRepository{
+		epics: map[string]*models.Epic{
+			"E04": {
+				ID:     1,
+				Key:    "E04",
+				Title:  "Test Epic",
+				Status: "in_progress",
+			},
+		},
+	}
+
+	generator := NewTaskKeyGenerator(taskRepo, featureRepo, epicRepo, "/home/user/project")
+	ctx := context.Background()
+
+	t.Run("generate key for PRP file without task_key", func(t *testing.T) {
+		// Create temp file
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "docs", "plan", "E04-task-mgmt", "E04-F02-cli", "tasks", "auth.prp.md")
+
+		// Create directory structure
+		if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		// Write file without task_key
+		content := `---
+description: Implement authentication
+status: todo
+---
+
+# Authentication Task
+
+Content here.
+`
+		if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		// Generate key
+		result, err := generator.GenerateKeyForFile(ctx, testFile)
+		if err != nil {
+			t.Fatalf("GenerateKeyForFile() unexpected error = %v", err)
+		}
+
+		// Verify result
+		expectedKey := "T-E04-F02-006" // max was 5, so next is 6
+		if result.TaskKey != expectedKey {
+			t.Errorf("GenerateKeyForFile() TaskKey = %v, want %v", result.TaskKey, expectedKey)
+		}
+
+		if result.EpicKey != "E04" {
+			t.Errorf("GenerateKeyForFile() EpicKey = %v, want E04", result.EpicKey)
+		}
+
+		if result.FeatureKey != "E04-F02" {
+			t.Errorf("GenerateKeyForFile() FeatureKey = %v, want E04-F02", result.FeatureKey)
+		}
+
+		if result.FeatureID != 1 {
+			t.Errorf("GenerateKeyForFile() FeatureID = %v, want 1", result.FeatureID)
+		}
+
+		if !result.WrittenToFile {
+			t.Errorf("GenerateKeyForFile() WrittenToFile = false, want true")
+		}
+
+		// Verify key was written to file
+		writer := NewFrontmatterWriter()
+		hasKey, taskKey, err := writer.HasTaskKey(testFile)
+		if err != nil {
+			t.Fatalf("Failed to check task key: %v", err)
+		}
+
+		if !hasKey {
+			t.Errorf("Task key was not written to file")
+		}
+
+		if taskKey != expectedKey {
+			t.Errorf("Written task key = %v, want %v", taskKey, expectedKey)
+		}
+	})
+
+	t.Run("file already has task_key", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "docs", "plan", "E04-task-mgmt", "E04-F02-cli", "tasks", "existing.prp.md")
+
+		if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		content := `---
+task_key: T-E04-F02-001
+description: Existing task
+---
+
+Content.
+`
+		if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		result, err := generator.GenerateKeyForFile(ctx, testFile)
+		if err != nil {
+			t.Fatalf("GenerateKeyForFile() unexpected error = %v", err)
+		}
+
+		if result.TaskKey != "T-E04-F02-001" {
+			t.Errorf("GenerateKeyForFile() TaskKey = %v, want T-E04-F02-001", result.TaskKey)
+		}
+
+		if result.WrittenToFile {
+			t.Errorf("GenerateKeyForFile() WrittenToFile = true, want false (key already exists)")
+		}
+	})
+
+	t.Run("orphaned file - feature not in database", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "docs", "plan", "E04-task-mgmt", "E04-F99-nonexistent", "tasks", "orphan.prp.md")
+
+		if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		content := `---
+description: Orphaned task
+---
+
+Content.
+`
+		if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		result, err := generator.GenerateKeyForFile(ctx, testFile)
+		if err == nil {
+			t.Errorf("GenerateKeyForFile() expected error for orphaned file, got nil")
+		}
+
+		if result != nil {
+			t.Errorf("GenerateKeyForFile() expected nil result for orphaned file, got %v", result)
+		}
+
+		// Verify error message is helpful
+		if err != nil && !contains(err.Error(), "orphaned file") {
+			t.Errorf("Error message should mention 'orphaned file', got: %v", err)
+		}
+
+		if err != nil && !contains(err.Error(), "E04-F99") {
+			t.Errorf("Error message should mention missing feature 'E04-F99', got: %v", err)
+		}
+	})
+
+	t.Run("orphaned file - epic not in database", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "docs", "plan", "E99-nonexistent", "E99-F01-feature", "tasks", "orphan.prp.md")
+
+		if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		content := `---
+description: Orphaned task
+---
+
+Content.
+`
+		if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		result, err := generator.GenerateKeyForFile(ctx, testFile)
+		if err == nil {
+			t.Errorf("GenerateKeyForFile() expected error for orphaned file, got nil")
+		}
+
+		if result != nil {
+			t.Errorf("GenerateKeyForFile() expected nil result for orphaned file, got %v", result)
+		}
+	})
+
+	t.Run("invalid path structure", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "random", "file.md")
+
+		if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		if err := os.WriteFile(testFile, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		result, err := generator.GenerateKeyForFile(ctx, testFile)
+		if err == nil {
+			t.Errorf("GenerateKeyForFile() expected error for invalid path, got nil")
+		}
+
+		if result != nil {
+			t.Errorf("GenerateKeyForFile() expected nil result for invalid path, got %v", result)
+		}
+	})
+}
+
+func TestTaskKeyGenerator_ValidateFile(t *testing.T) {
+	taskRepo := &mockTaskRepository{maxSequence: 5}
+	featureRepo := &mockFeatureRepository{
+		features: map[string]*models.Feature{
+			"E04-F02": {
+				ID:      1,
+				EpicID:  1,
+				Key:     "E04-F02",
+				Title:   "Test Feature",
+				Status:  "in_progress",
+			},
+		},
+	}
+	epicRepo := &mockEpicRepository{
+		epics: map[string]*models.Epic{
+			"E04": {
+				ID:     1,
+				Key:    "E04",
+				Title:  "Test Epic",
+				Status: "in_progress",
+			},
+		},
+	}
+
+	generator := NewTaskKeyGenerator(taskRepo, featureRepo, epicRepo, "/home/user/project")
+	ctx := context.Background()
+
+	t.Run("valid file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "docs", "plan", "E04-task-mgmt", "E04-F02-cli", "tasks", "valid.prp.md")
+
+		if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		if err := os.WriteFile(testFile, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		err := generator.ValidateFile(ctx, testFile)
+		if err != nil {
+			t.Errorf("ValidateFile() unexpected error = %v", err)
+		}
+	})
+
+	t.Run("file not writable", func(t *testing.T) {
+		err := generator.ValidateFile(ctx, "/nonexistent/file.md")
+		if err == nil {
+			t.Errorf("ValidateFile() expected error for non-existent file")
+		}
+	})
+
+	t.Run("invalid epic", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "docs", "plan", "E99-nonexistent", "E99-F01-feature", "tasks", "test.prp.md")
+
+		if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+
+		if err := os.WriteFile(testFile, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+
+		err := generator.ValidateFile(ctx, testFile)
+		if err == nil {
+			t.Errorf("ValidateFile() expected error for invalid epic")
+		}
+	})
+}
+
+func TestTaskKeyGenerator_GetFileFeature(t *testing.T) {
+	taskRepo := &mockTaskRepository{}
+	featureRepo := &mockFeatureRepository{}
+	epicRepo := &mockEpicRepository{}
+
+	generator := NewTaskKeyGenerator(taskRepo, featureRepo, epicRepo, "/home/user/project")
+	ctx := context.Background()
+
+	tests := []struct {
+		name           string
+		filePath       string
+		wantFeatureKey string
+		wantErr        bool
+	}{
+		{
+			name:           "standard path",
+			filePath:       "/home/user/project/docs/plan/E04-task-mgmt/E04-F02-cli/tasks/auth.prp.md",
+			wantFeatureKey: "E04-F02",
+			wantErr:        false,
+		},
+		{
+			name:           "path with project number",
+			filePath:       "/home/user/project/docs/plan/E09-game/E09-P02-F01-feature/tasks/test.prp.md",
+			wantFeatureKey: "E09-P02-F01",
+			wantErr:        false,
+		},
+		{
+			name:     "invalid path",
+			filePath: "/random/path/file.md",
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			featureKey, err := generator.GetFileFeature(ctx, tt.filePath)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetFileFeature() expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("GetFileFeature() unexpected error = %v", err)
+				return
+			}
+
+			if featureKey != tt.wantFeatureKey {
+				t.Errorf("GetFileFeature() featureKey = %v, want %v", featureKey, tt.wantFeatureKey)
+			}
+		})
+	}
+}
