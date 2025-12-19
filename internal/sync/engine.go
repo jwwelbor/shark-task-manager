@@ -490,7 +490,7 @@ func (e *SyncEngine) createMissingFeature(ctx context.Context, tx *sql.Tx,
 // createTaskHistory creates a task history record
 func (e *SyncEngine) createTaskHistory(ctx context.Context, taskID int64, message string) error {
 	query := `
-		INSERT INTO task_history (task_id, status_from, status_to, changed_by, change_description)
+		INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
 		VALUES (?, '', '', 'pm-sync', ?)
 	`
 	_, err := e.db.ExecContext(ctx, query, taskID, message)
