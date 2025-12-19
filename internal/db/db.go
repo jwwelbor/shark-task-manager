@@ -29,6 +29,11 @@ func InitDB(filepath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Run migrations for backwards compatibility
+	if err := runMigrations(db); err != nil {
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
 	return db, nil
 }
 
@@ -204,5 +209,90 @@ func CheckIntegrity(db *sql.DB) error {
 	if result != "ok" {
 		return fmt.Errorf("database integrity check failed: %s", result)
 	}
+	return nil
+}
+
+// runMigrations runs all pending migrations for backwards compatibility
+func runMigrations(db *sql.DB) error {
+	// Check if epics table has file_path column; if not, add it
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'file_path'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check epics schema: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE epics ADD COLUMN file_path TEXT;`); err != nil {
+			return fmt.Errorf("failed to add file_path to epics: %w", err)
+		}
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);`); err != nil {
+			return fmt.Errorf("failed to create epics file_path index: %w", err)
+		}
+	}
+
+	// Check if features table has file_path column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'file_path'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN file_path TEXT;`); err != nil {
+			return fmt.Errorf("failed to add file_path to features: %w", err)
+		}
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);`); err != nil {
+			return fmt.Errorf("failed to create features file_path index: %w", err)
+		}
+	}
+
+	// Check if tasks table has file_path column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'file_path'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check tasks schema: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN file_path TEXT;`); err != nil {
+			return fmt.Errorf("failed to add file_path to tasks: %w", err)
+		}
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_file_path ON tasks(file_path);`); err != nil {
+			return fmt.Errorf("failed to create tasks file_path index: %w", err)
+		}
+	}
+
+	// Check if tasks table has execution_order column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'execution_order'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check tasks schema for execution_order: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN execution_order INTEGER NULL;`); err != nil {
+			return fmt.Errorf("failed to add execution_order to tasks: %w", err)
+		}
+	}
+
+	// Check if features table has execution_order column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'execution_order'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for execution_order: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN execution_order INTEGER NULL;`); err != nil {
+			return fmt.Errorf("failed to add execution_order to features: %w", err)
+		}
+	}
+
 	return nil
 }
