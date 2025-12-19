@@ -85,13 +85,12 @@ shark feature create --epic=E01 "Core Functionality"
 #
 # Next steps:
 # 1. Edit the prd.md file to add details
-# 2. Create tasks with: shark task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
+# 2. Create tasks with: shark task create "Task title" --epic=E01 --feature=F01 --agent=backend
 
 # Create task in feature
-shark task create \
+shark task create "Implement validation logic" \
   --epic=E01 \
   --feature=F01 \
-  --title="Implement validation logic" \
   --agent=backend \
   --priority=1
 #  SUCCESS  Created task T-E01-F01-001: Implement validation logic
@@ -298,32 +297,70 @@ shark feature delete E04-F02 --force
 
 Create a new task with auto-generated key and file.
 
+**Arguments:**
+- `<title>` - Task title (positional argument)
+
 **Flags (required):**
 - `-e, --epic <key>` - Epic key (e.g., `E01`)
 - `-f, --feature <key>` - Feature key (e.g., `F02` or `E01-F02`)
-- `-t, --title <text>` - Task title
 - `-a, --agent <type>` - Agent type: `frontend`, `backend`, `api`, `testing`, `devops`, `general`
 
 **Flags (optional):**
 - `-d, --description <text>` - Detailed description
 - `-p, --priority <n>` - Priority 1-10 (default: 5, where 1 = highest)
 - `--depends-on <keys>` - Comma-separated dependency task keys
+- `--filename <path>` - Custom filename path (relative to project root, must include .md extension)
+- `--force` - Force reassignment if file already claimed by another task
+
+**Custom Filename:**
+
+By default, tasks are created in `docs/tasks/todo/` with filename pattern `T-E{epic}-F{feature}-{number}.md`.
+
+Use `--filename` to specify a custom path:
+
+```bash
+shark task create "API Design" --epic=E04 --feature=F06 --filename="docs/plan/E04/E04-F06/api-design.md"
+```
+
+**Rules:**
+- Path must be relative to project root
+- Must include `.md` extension
+- Existing files are automatically associated (not overwritten)
+- Use `--force` to reassign files from other tasks
 
 **Examples:**
 
 ```bash
 # Basic task
-shark task create --epic=E01 --feature=F02 --title="Build login form" --agent=frontend
+shark task create "Build login form" --epic=E01 --feature=F02 --agent=frontend
 
 # With all options
-shark task create \
+shark task create "User authentication service" \
   -e E01 \
   -f F02 \
-  -t "User authentication service" \
   -a backend \
   -p 3 \
   -d "Implement JWT-based auth" \
   --depends-on="T-E01-F01-001,T-E01-F01-002"
+
+# Custom path in plan directory
+shark task create "API Design" \
+  --epic=E04 \
+  --feature=F06 \
+  --filename="docs/plan/E04/E04-F06/api-design.md"
+
+# Associate existing file
+shark task create "Review" \
+  --epic=E04 \
+  --feature=F06 \
+  --filename="docs/plan/E04/existing-doc.md"
+
+# Force reassignment from another task
+shark task create "New Task" \
+  --epic=E04 \
+  --feature=F06 \
+  --filename="docs/shared.md" \
+  --force
 ```
 
 ### `shark task list`

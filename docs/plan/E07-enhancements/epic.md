@@ -1,12 +1,12 @@
 ---
-epic_key: E07-enhancements
-title: enhancements
-description: simple epic to hold enhancements for the shark cli
+epic_key: E07
+title: Enhancements
+description: Simple epic to hold enhancements for the shark CLI
 ---
 
-# enhancements
+# Enhancements
 
-**Epic Key**: E07-enhancements
+**Epic Key**: E07
 
 ---
 

@@ -619,7 +619,7 @@ All commands support `--json` for structured output:
 
 #### Reference
 - [Complete Documentation Index](docs/DOCUMENTATION_INDEX.md) - Find all documentation
-- [CLI Documentation](docs/CLI.md) - Complete command reference
+- [CLI Documentation](docs/CLI_REFERENCE.md) - Complete command reference
 - [Epic & Feature Query Guide](docs/EPIC_FEATURE_QUERIES.md) - Query epics and features with progress
 - [Quick Reference](docs/EPIC_FEATURE_QUICK_REFERENCE.md) - Fast command lookup
 - [Examples](docs/EPIC_FEATURE_EXAMPLES.md) - Real-world usage scenarios

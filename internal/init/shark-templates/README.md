@@ -47,7 +47,7 @@ shark feature create --epic=E01 --key=F01 --title="OAuth Login Integration"
 
 **Task**:
 ```bash
-shark task create --epic=E01 --feature=F01 --title="Build Login" --agent=backend
+shark task create "Build Login" --epic=E01 --feature=F01 --agent=backend
 ```
 
 The creation commands will automatically populate the templates with the correct keys and metadata.

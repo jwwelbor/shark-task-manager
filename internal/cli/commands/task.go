@@ -575,6 +575,8 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	priority, _ := cmd.Flags().GetInt("priority")
 	dependsOn, _ := cmd.Flags().GetString("depends-on")
 	executionOrder, _ := cmd.Flags().GetInt("execution-order")
+	filename, _ := cmd.Flags().GetString("filename")
+	force, _ := cmd.Flags().GetBool("force")
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -588,6 +590,13 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
+	// Get project root (current working directory)
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
+		os.Exit(1)
+	}
+
 	// Create repositories
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
@@ -600,7 +609,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := taskcreation.NewCreator(repoDb, keygen, validator, renderer, taskRepo, historyRepo)
+	creator := taskcreation.NewCreator(repoDb, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot)
 
 	// Create task
 	input := taskcreation.CreateTaskInput{
@@ -613,6 +622,8 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		Priority:       priority,
 		DependsOn:      dependsOn,
 		ExecutionOrder: executionOrder,
+		Filename:       filename,
+		Force:          force,
 	}
 
 	result, err := creator.CreateTask(ctx, input)
@@ -1090,6 +1101,8 @@ func init() {
 	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority (1-10, default 5)")
 	taskCreateCmd.Flags().String("depends-on", "", "Comma-separated dependency task keys (optional)")
 	taskCreateCmd.Flags().Int("execution-order", 0, "Execution order (optional, 0 = not set)")
+	taskCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must include .md extension)")
+	taskCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
 
 	// Add flags for next command
 	taskNextCmd.Flags().StringP("agent", "a", "", "Agent type to match")

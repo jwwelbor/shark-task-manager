@@ -368,7 +368,7 @@ Potential additions:
 
 ## See Also
 
-- [CLI Documentation](docs/CLI.md) - Complete shark CLI reference
+- [CLI Documentation](docs/CLI_REFERENCE.md) - Complete shark CLI reference
 - [Implementation Skill](.claude/skills/implementation/SKILL.md) - Updated workflows
 - [Shark Task Management Skill](.claude/skills/shark-task-management/SKILL.md) - Complete reference
 - [Optional Hooks Guide](.claude/skills/shark-task-management/HOOKS.md) - Automation options

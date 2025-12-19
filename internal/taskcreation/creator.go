@@ -2,15 +2,19 @@ package taskcreation
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/patterns"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/utils"
 )
 
 // Creator orchestrates the complete task creation workflow
@@ -21,6 +25,9 @@ type Creator struct {
 	renderer    *templates.Renderer
 	taskRepo    *repository.TaskRepository
 	historyRepo *repository.TaskHistoryRepository
+	epicRepo    *repository.EpicRepository
+	featureRepo *repository.FeatureRepository
+	projectRoot string
 }
 
 // NewCreator creates a new task creator
@@ -31,6 +38,9 @@ func NewCreator(
 	renderer *templates.Renderer,
 	taskRepo *repository.TaskRepository,
 	historyRepo *repository.TaskHistoryRepository,
+	epicRepo *repository.EpicRepository,
+	featureRepo *repository.FeatureRepository,
+	projectRoot string,
 ) *Creator {
 	return &Creator{
 		db:          db,
@@ -39,6 +49,9 @@ func NewCreator(
 		renderer:    renderer,
 		taskRepo:    taskRepo,
 		historyRepo: historyRepo,
+		epicRepo:    epicRepo,
+		featureRepo: featureRepo,
+		projectRoot: projectRoot,
 	}
 }
 
@@ -53,6 +66,8 @@ type CreateTaskInput struct {
 	Priority       int
 	DependsOn      string
 	ExecutionOrder int
+	Filename       string // Custom filename path (relative to project root)
+	Force          bool   // Force reassignment if file already claimed
 }
 
 // CreateTaskResult holds the result of task creation
@@ -92,7 +107,83 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 
 	// 4. Prepare task data
 	now := time.Now().UTC()
-	filePath := filepath.Join("docs", "tasks", "todo", fmt.Sprintf("%s.md", key))
+
+	// Determine file path based on custom filename or default
+	var filePath string        // Relative path for database
+	var fullFilePath string    // Absolute path for file operations
+	var fileExists bool
+
+	if input.Filename != "" {
+		// Custom filename - validate it
+		absPath, relPath, err := c.ValidateCustomFilename(input.Filename, c.projectRoot)
+		if err != nil {
+			return nil, fmt.Errorf("invalid filename: %w", err)
+		}
+
+		filePath = relPath
+		fullFilePath = absPath
+
+		// Check if file exists
+		if _, statErr := os.Stat(fullFilePath); statErr == nil {
+			fileExists = true
+		}
+	} else {
+		// Default: use hierarchical path pattern: docs/plan/{epic}/{feature}/tasks/{task}.md
+		// 1. Fetch epic/feature from database and generate slugs
+		feature, err := c.featureRepo.GetByKey(ctx, validated.NormalizedFeatureKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch feature: %w", err)
+		}
+
+		epic, err := c.epicRepo.GetByID(ctx, feature.EpicID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch epic: %w", err)
+		}
+
+		// 2. Generate slugs from titles
+		epicSlug := utils.GenerateSlug(epic.Title)
+		featureSlug := utils.GenerateSlug(feature.Title)
+
+		// 3. Construct directory names
+		epicDirName := fmt.Sprintf("%s-%s", epic.Key, epicSlug)
+		featureDirName := fmt.Sprintf("%s-%s", validated.NormalizedFeatureKey, featureSlug)
+
+		// 4. Construct feature directory and tasks subdirectory
+		epicDir := filepath.Join(c.projectRoot, "docs", "plan", epicDirName)
+		featureDir := filepath.Join(epicDir, featureDirName)
+		tasksDir := filepath.Join(featureDir, "tasks")
+
+		// 5. Create tasks directory if it doesn't exist (creates all parents)
+		if err := os.MkdirAll(tasksDir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create tasks directory: %w", err)
+		}
+
+		// 6. Construct file paths
+		fullFilePath = filepath.Join(tasksDir, fmt.Sprintf("%s.md", key))
+		relPath, _ := filepath.Rel(c.projectRoot, fullFilePath)
+		filePath = relPath
+	}
+
+	// Check for file collision (another task already claims this file)
+	existingTask, err := c.taskRepo.GetByFilePath(ctx, filePath)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to check file collision: %w", err)
+	}
+
+	if existingTask != nil {
+		// Another task already uses this file
+		if !input.Force {
+			return nil, fmt.Errorf(
+				"file '%s' is already claimed by task %s ('%s'). Use --force to reassign",
+				filePath, existingTask.Key, existingTask.Title,
+			)
+		}
+
+		// Force mode: clear file path from old task
+		if err := c.taskRepo.UpdateFilePath(ctx, existingTask.Key, nil); err != nil {
+			return nil, fmt.Errorf("failed to unassign file from %s: %w", existingTask.Key, err)
+		}
+	}
 
 	// Convert dependencies to JSON
 	var dependsOnJSON *string
@@ -177,17 +268,20 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		return nil, fmt.Errorf("failed to render template: %w", err)
 	}
 
-	// 8. Write markdown file
-	fullFilePath := filepath.Join("/", "home", "jwwelbor", "projects", "shark-task-manager", filePath)
-	err = c.writeFileExclusive(fullFilePath, []byte(markdown))
-	if err != nil {
-		return nil, fmt.Errorf("failed to write task file: %w", err)
+	// 8. Write markdown file (only if it doesn't already exist)
+	if !fileExists {
+		err = c.writeFileExclusive(fullFilePath, []byte(markdown))
+		if err != nil {
+			return nil, fmt.Errorf("failed to write task file: %w", err)
+		}
 	}
 
 	// 9. Commit transaction
 	if err := tx.Commit(); err != nil {
-		// Try to delete the file if commit fails
-		os.Remove(fullFilePath)
+		// Try to delete the file only if we created it
+		if !fileExists {
+			os.Remove(fullFilePath)
+		}
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -221,6 +315,52 @@ func (c *Creator) writeFileExclusive(path string, data []byte) error {
 	}
 
 	return nil
+}
+
+// ValidateCustomFilename validates and resolves a user-provided filename path
+// Returns absolute path for file operations and relative path for database storage
+func (c *Creator) ValidateCustomFilename(filename string, projectRoot string) (absPath string, relPath string, err error) {
+	// 1. Reject absolute paths
+	if filepath.IsAbs(filename) {
+		return "", "", fmt.Errorf("filename must be relative to project root, got absolute path: %s", filename)
+	}
+
+	// 2. Clean the path (resolves ./ and normalizes separators)
+	cleanPath := filepath.Clean(filename)
+
+	// 3. Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return "", "", fmt.Errorf("invalid path: contains '..' (path traversal not allowed)")
+	}
+
+	// 4. Ensure path is within project boundaries
+	fullPath := filepath.Join(projectRoot, cleanPath)
+	if err := patterns.ValidatePathWithinProject(fullPath, projectRoot); err != nil {
+		return "", "", fmt.Errorf("path validation failed: %w", err)
+	}
+
+	// 5. Validate file extension
+	ext := filepath.Ext(cleanPath)
+	if ext != ".md" {
+		return "", "", fmt.Errorf("invalid file extension: %s (must be .md)", ext)
+	}
+
+	// 6. Ensure filename is not empty after cleaning
+	base := filepath.Base(cleanPath)
+	if base == "" || base == "." || base == ".." {
+		return "", "", fmt.Errorf("invalid filename: resolved to empty or invalid path")
+	}
+
+	// 7. Convert to absolute path for file operations
+	absPath, err = filepath.Abs(fullPath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	// 8. Store relative path for database (portable across systems)
+	relPath = cleanPath
+
+	return absPath, relPath, nil
 }
 
 // getCurrentUser returns the current user identifier

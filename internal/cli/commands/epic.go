@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
@@ -564,7 +565,7 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate slug from title
-	slug := generateSlug(epicTitle)
+	slug := utils.GenerateSlug(epicTitle)
 	epicSlug := fmt.Sprintf("%s-%s", nextKey, slug)
 
 	// Create folder path

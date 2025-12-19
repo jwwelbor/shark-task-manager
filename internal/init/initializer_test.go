@@ -2,10 +2,13 @@ package init
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestInitialize(t *testing.T) {
@@ -58,7 +61,7 @@ func TestInitialize(t *testing.T) {
 			},
 		},
 		{
-			name: "idempotent - everything exists",
+			name: "idempotent - everything exists but database is empty",
 			opts: InitOptions{
 				DBPath:         "shark-tasks.db",
 				ConfigPath:     ".sharkconfig.json",
@@ -66,7 +69,7 @@ func TestInitialize(t *testing.T) {
 				Force:          false,
 			},
 			setupFunc: func(baseDir string) error {
-				// Run init once
+				// Run init once (creates database with schema but no data)
 				initializer := NewInitializer()
 				ctx := context.Background()
 				opts := InitOptions{
@@ -94,6 +97,43 @@ func TestInitialize(t *testing.T) {
 				if len(result.FoldersCreated) != 0 {
 					t.Errorf("Expected 0 folders created on second run, got %d", len(result.FoldersCreated))
 				}
+			},
+		},
+		{
+			name: "fails when database contains data",
+			opts: InitOptions{
+				DBPath:         "shark-tasks.db",
+				ConfigPath:     ".sharkconfig.json",
+				NonInteractive: true,
+				Force:          false,
+			},
+			setupFunc: func(baseDir string) error {
+				// Run init once to create database
+				initializer := NewInitializer()
+				ctx := context.Background()
+				opts := InitOptions{
+					DBPath:         filepath.Join(baseDir, "shark-tasks.db"),
+					ConfigPath:     filepath.Join(baseDir, ".sharkconfig.json"),
+					NonInteractive: true,
+					Force:          false,
+				}
+				if _, err := initializer.Initialize(ctx, opts); err != nil {
+					return err
+				}
+
+				// Add some data to the database
+				db, err := sql.Open("sqlite3", filepath.Join(baseDir, "shark-tasks.db"))
+				if err != nil {
+					return err
+				}
+				defer db.Close()
+
+				_, err = db.Exec("INSERT INTO epics (key, title, status, priority) VALUES ('E01', 'Test Epic', 'draft', 'medium')")
+				return err
+			},
+			wantErr: true,
+			validate: func(t *testing.T, result *InitResult, baseDir string) {
+				// Should fail when trying to reinit with existing data
 			},
 		},
 		{

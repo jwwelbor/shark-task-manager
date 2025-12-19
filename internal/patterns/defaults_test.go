@@ -152,16 +152,21 @@ func TestDefaultPatternsContainNamedCaptureGroups(t *testing.T) {
 	})
 
 	t.Run("Feature patterns contain required capture groups", func(t *testing.T) {
-		// Feature patterns should include: (epic_id OR epic_num) AND (feature_id, feature_slug, OR number)
+		// Feature patterns should include feature identifiers
+		// Primary pattern should include epic context; nested patterns can infer epic from parent folder
 		for i, pattern := range patterns.Feature.Folder {
 			hasEpicGroup := containsNamedGroup(pattern, "epic_id") || containsNamedGroup(pattern, "epic_num")
 			hasFeatureGroup := containsNamedGroup(pattern, "feature_id") || containsNamedGroup(pattern, "feature_slug") || containsNamedGroup(pattern, "number")
 
-			if !hasEpicGroup {
-				t.Errorf("Feature folder pattern[%d] missing epic identifier (epic_id or epic_num): %s", i, pattern)
-			}
+			// All patterns must have feature identifier
 			if !hasFeatureGroup {
 				t.Errorf("Feature folder pattern[%d] missing feature identifier (feature_id, feature_slug, or number): %s", i, pattern)
+			}
+
+			// First pattern (primary) must have epic identifier
+			// Subsequent patterns (nested) can omit epic if they rely on parent folder context
+			if i == 0 && !hasEpicGroup {
+				t.Errorf("Primary feature folder pattern[%d] missing epic identifier (epic_id or epic_num): %s", i, pattern)
 			}
 		}
 	})

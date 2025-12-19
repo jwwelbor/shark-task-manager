@@ -53,9 +53,8 @@ Shark Task Manager is a task management system designed for AI-driven developmen
 ### High-Level Architecture
 
 ```mermaid
-graph TB
+graph LR
     subgraph "Presentation Layer"
-        HTTP[HTTP Server :8080]
         CLI[Shark CLI Tool]
     end
 
@@ -76,7 +75,6 @@ graph TB
         Schema[Schema Management]
     end
 
-    HTTP --> Models
     CLI --> Models
     Models --> Validation
     Models --> EpicRepo
