@@ -34,7 +34,7 @@ func NewPatternRegistry() *PatternRegistry {
 		patterns: map[PatternType]*FilePattern{
 			PatternTypeTask: {
 				Name:    PatternTypeTask,
-				Regex:   regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}\.md$`),
+				Regex:   regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}.*\.md$`),
 				Enabled: true, // Task pattern enabled by default
 			},
 			PatternTypePRP: {
