@@ -128,8 +128,8 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 			fileExists = true
 		}
 	} else {
-		// Default: use hierarchical path pattern: docs/plan/{epic}/{feature}/tasks/{task}.md
-		// 1. Fetch epic/feature from database and generate slugs
+		// Default: use PathBuilder to resolve the task path
+		// 1. Fetch epic/feature from database
 		feature, err := c.featureRepo.GetByKey(ctx, validated.NormalizedFeatureKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch feature: %w", err)
@@ -140,26 +140,20 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 			return nil, fmt.Errorf("failed to fetch epic: %w", err)
 		}
 
-		// 2. Generate slugs from titles
-		epicSlug := utils.GenerateSlug(epic.Title)
-		featureSlug := utils.GenerateSlug(feature.Title)
+		// 2. Use PathBuilder to resolve task path
+		pb := utils.NewPathBuilder(c.projectRoot)
+		fullFilePath, err = pb.ResolveTaskPath(epic.Key, validated.NormalizedFeatureKey, key, nil, feature.CustomFolderPath, epic.CustomFolderPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve task path: %w", err)
+		}
 
-		// 3. Construct directory names
-		epicDirName := fmt.Sprintf("%s-%s", epic.Key, epicSlug)
-		featureDirName := fmt.Sprintf("%s-%s", validated.NormalizedFeatureKey, featureSlug)
-
-		// 4. Construct feature directory and tasks subdirectory
-		epicDir := filepath.Join(c.projectRoot, "docs", "plan", epicDirName)
-		featureDir := filepath.Join(epicDir, featureDirName)
-		tasksDir := filepath.Join(featureDir, "tasks")
-
-		// 5. Create tasks directory if it doesn't exist (creates all parents)
+		// 3. Create tasks directory if it doesn't exist (creates all parents)
+		tasksDir := filepath.Dir(fullFilePath)
 		if err := os.MkdirAll(tasksDir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create tasks directory: %w", err)
 		}
 
-		// 6. Construct file paths
-		fullFilePath = filepath.Join(tasksDir, fmt.Sprintf("%s.md", key))
+		// 4. Get relative path for database
 		relPath, _ := filepath.Rel(c.projectRoot, fullFilePath)
 		filePath = relPath
 	}
