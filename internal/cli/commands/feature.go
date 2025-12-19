@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -66,15 +67,21 @@ Examples:
 
 // featureCreateCmd creates a new feature
 var featureCreateCmd = &cobra.Command{
-	Use:   "create --epic=<key> <title>",
+	Use:   "create --epic=<key> [--filename=<path>] [--force] <title>",
 	Short: "Create a new feature",
 	Long: `Create a new feature with auto-assigned key, folder structure, and database entry.
 
 The feature key is automatically assigned as the next available F## number within the epic.
+By default, the feature file is created at docs/plan/{epic-key}/{feature-key}/feature.md.
+
+Use --filename to specify a custom file path (relative to project root, must end in .md).
+Use --force to reassign the file from another feature or epic if already claimed.
 
 Examples:
   shark feature create --epic=E01 "OAuth Login Integration"
-  shark feature create --epic=E01 "OAuth Login" --description="Add OAuth 2.0 support"`,
+  shark feature create --epic=E01 "OAuth Login" --description="Add OAuth 2.0 support"
+  shark feature create --epic=E01 --filename="docs/specs/auth.md" "OAuth Login"
+  shark feature create --epic=E01 --filename="docs/specs/auth.md" --force "OAuth Login"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFeatureCreate,
 }
@@ -99,6 +106,8 @@ var (
 	featureCreateEpic           string
 	featureCreateDescription    string
 	featureCreateExecutionOrder int
+	featureCreateFilename       string
+	featureCreateForce          bool
 )
 
 func init() {
@@ -117,9 +126,11 @@ func init() {
 	featureListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
 
 	// Add flags for create command
-	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01)")
+	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01) (required)")
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
 	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
+	featureCreateCmd.Flags().StringVar(&featureCreateFilename, "filename", "", "Custom filename path (relative to project root, must end in .md)")
+	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
 	featureCreateCmd.MarkFlagRequired("epic")
 
 	// Add flags for delete command
@@ -632,30 +643,102 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	slug := utils.GenerateSlug(featureTitle)
 	featureSlug := fmt.Sprintf("%s-%s-%s", featureCreateEpic, nextKey, slug)
 
-	// Find epic directory
-	epicPattern := fmt.Sprintf("docs/plan/%s-*", featureCreateEpic)
-	matches, err := filepath.Glob(epicPattern)
-	if err != nil || len(matches) == 0 {
-		cli.Error(fmt.Sprintf("Error: Epic directory not found for %s", featureCreateEpic))
-		cli.Info("The epic exists in the database but the directory structure is missing.")
+	// Get project root (current working directory)
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get working directory: %v", err))
 		os.Exit(1)
 	}
 
-	epicDir := matches[0]
+	// Create database entry with key (E##-F##) not full slug
+	featureKey := fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
 
-	// Create feature directory
-	featureDir := fmt.Sprintf("%s/%s", epicDir, featureSlug)
-
-	// Check if feature already exists
-	if _, err := os.Stat(featureDir); err == nil {
-		cli.Error(fmt.Sprintf("Error: Feature directory already exists: %s", featureDir))
-		os.Exit(1)
+	// Set execution_order only if provided (non-zero)
+	var executionOrder *int
+	if featureCreateExecutionOrder > 0 {
+		executionOrder = &featureCreateExecutionOrder
 	}
 
-	// Create feature directory
-	if err := os.MkdirAll(featureDir, 0755); err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to create feature directory: %v", err))
-		os.Exit(1)
+	// Handle custom filename if provided
+	var featureFilePath string
+	var customFilePath *string
+
+	if featureCreateFilename != "" {
+		// Validate custom filename
+		absPath, relPath, err := taskcreation.ValidateCustomFilename(featureCreateFilename, projectRoot)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Invalid filename: %v", err))
+			os.Exit(1)
+		}
+
+		// Check for collision with existing features
+		existingFeature, err := featureRepo.GetByFilePath(ctx, relPath)
+		if err == nil && existingFeature != nil {
+			if !featureCreateForce {
+				cli.Error(fmt.Sprintf("Error: file '%s' is already claimed by feature %s ('%s'). Use --force to reassign",
+					relPath, existingFeature.Key, existingFeature.Title))
+				os.Exit(1)
+			}
+			// Force reassignment: clear the old feature's file path
+			if err := featureRepo.UpdateFilePath(ctx, existingFeature.Key, nil); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to clear old feature's file path: %v", err))
+				os.Exit(1)
+			}
+		}
+
+		// Check for collision with existing epics (cross-entity collision)
+		existingEpic, err := epicRepo.GetByFilePath(ctx, relPath)
+		if err == nil && existingEpic != nil {
+			if !featureCreateForce {
+				cli.Error(fmt.Sprintf("Error: file '%s' is already claimed by epic %s ('%s'). Use --force to reassign",
+					relPath, existingEpic.Key, existingEpic.Title))
+				os.Exit(1)
+			}
+			// Force reassignment: clear the old epic's file path
+			if err := epicRepo.UpdateFilePath(ctx, existingEpic.Key, nil); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to clear old epic's file path: %v", err))
+				os.Exit(1)
+			}
+		}
+
+		// Create parent directories if they don't exist
+		dirPath := filepath.Dir(absPath)
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to create directory structure: %v", err))
+			os.Exit(1)
+		}
+
+		featureFilePath = absPath
+		customFilePath = &relPath
+	} else {
+		// Default behavior: create feature in standard directory structure
+		// Find epic directory
+		epicPattern := fmt.Sprintf("docs/plan/%s-*", featureCreateEpic)
+		matches, err := filepath.Glob(epicPattern)
+		if err != nil || len(matches) == 0 {
+			cli.Error(fmt.Sprintf("Error: Epic directory not found for %s", featureCreateEpic))
+			cli.Info("The epic exists in the database but the directory structure is missing.")
+			os.Exit(1)
+		}
+
+		epicDir := matches[0]
+
+		// Create feature directory
+		featureDir := fmt.Sprintf("%s/%s", epicDir, featureSlug)
+
+		// Check if feature already exists
+		if _, err := os.Stat(featureDir); err == nil {
+			cli.Error(fmt.Sprintf("Error: Feature directory already exists: %s", featureDir))
+			os.Exit(1)
+		}
+
+		// Create feature directory
+		if err := os.MkdirAll(featureDir, 0755); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to create feature directory: %v", err))
+			os.Exit(1)
+		}
+
+		featureFilePath = fmt.Sprintf("%s/feature.md", featureDir)
 	}
 
 	// Read feature template
@@ -674,7 +757,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		FeatureSlug: featureSlug,
 		Title:       featureTitle,
 		Description: featureCreateDescription,
-		FilePath:    fmt.Sprintf("%s/prd.md", featureDir),
+		FilePath:    featureFilePath,
 		Date:        time.Now().Format("2006-01-02"),
 	}
 
@@ -691,22 +774,13 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Write prd.md file
-	featureFilePath := fmt.Sprintf("%s/prd.md", featureDir)
+	// Write feature file
 	if err := os.WriteFile(featureFilePath, buf.Bytes(), 0644); err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to write feature file: %v", err))
 		os.Exit(1)
 	}
 
-	// Create database entry with key (E##-F##) not full slug
-	featureKey := fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
-
-	// Set execution_order only if provided (non-zero)
-	var executionOrder *int
-	if featureCreateExecutionOrder > 0 {
-		executionOrder = &featureCreateExecutionOrder
-	}
-
+	// Create feature with custom file path if provided
 	feature := &models.Feature{
 		EpicID:         epic.ID,
 		Key:            featureKey,
@@ -715,11 +789,12 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		Status:         models.FeatureStatusDraft,
 		ProgressPct:    0.0,
 		ExecutionOrder: executionOrder,
+		FilePath:       customFilePath,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {
-		// Rollback: delete the created directory
-		os.RemoveAll(featureDir)
+		// Rollback: delete the created file
+		os.Remove(featureFilePath)
 		cli.Error(fmt.Sprintf("Error: Failed to create feature in database: %v", err))
 		cli.Info("Rolled back file creation")
 		os.Exit(1)
@@ -730,11 +805,10 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Printf("Feature Key: %s\n", featureSlug)
 	fmt.Printf("Epic:        %s\n", featureCreateEpic)
-	fmt.Printf("Directory:   %s\n", featureDir)
 	fmt.Printf("File:        %s\n", featureFilePath)
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("1. Edit the prd.md file to add details")
+	fmt.Println("1. Edit the feature file to add details")
 	fmt.Printf("2. Create tasks with: shark task create --epic=%s --feature=%s --title=\"Task title\" --agent=backend\n", featureCreateEpic, nextKey)
 
 	return nil

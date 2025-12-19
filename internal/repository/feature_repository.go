@@ -26,8 +26,8 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 	}
 
 	query := `
-		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order, file_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -38,6 +38,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 		feature.Status,
 		feature.ProgressPct,
 		feature.ExecutionOrder,
+		feature.FilePath,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create feature: %w", err)
@@ -56,7 +57,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       execution_order, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE id = ?
 	`
@@ -71,6 +72,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 		&feature.Status,
 		&feature.ProgressPct,
 		&feature.ExecutionOrder,
+		&feature.FilePath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -89,7 +91,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       execution_order, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE key = ?
 	`
@@ -104,6 +106,7 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 		&feature.Status,
 		&feature.ProgressPct,
 		&feature.ExecutionOrder,
+		&feature.FilePath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -156,7 +159,7 @@ func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) 
 func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       execution_order, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE epic_id = ?
 		ORDER BY execution_order NULLS LAST, created_at
@@ -180,6 +183,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 			&feature.Status,
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
+			&feature.FilePath,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -200,7 +204,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       execution_order, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		ORDER BY execution_order NULLS LAST, created_at
 	`
@@ -223,6 +227,7 @@ func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error)
 			&feature.Status,
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
+			&feature.FilePath,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -381,7 +386,7 @@ func (r *FeatureRepository) UpdateProgressByKey(ctx context.Context, key string)
 func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.FeatureStatus) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       execution_order, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE status = ?
 		ORDER BY execution_order NULLS LAST, created_at
@@ -405,6 +410,7 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 			&feature.Status,
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
+			&feature.FilePath,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -425,7 +431,7 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int64, status models.FeatureStatus) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       execution_order, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE epic_id = ? AND status = ?
 		ORDER BY execution_order NULLS LAST, created_at
@@ -449,6 +455,7 @@ func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int6
 			&feature.Status,
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
+			&feature.FilePath,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
