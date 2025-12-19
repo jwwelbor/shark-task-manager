@@ -235,7 +235,9 @@ func (w *FrontmatterWriter) ReadFrontmatter(filePath string) (Frontmatter, error
 	var fm Frontmatter
 	yamlContent := strings.Join(frontmatterLines, "\n")
 	if err := yaml.Unmarshal([]byte(yamlContent), &fm); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML frontmatter: %w", err)
+		// Gracefully handle malformed YAML by returning empty frontmatter
+		// This allows sync to continue and generate a key even if YAML is malformed
+		fm = make(Frontmatter)
 	}
 
 	return fm, nil
