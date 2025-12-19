@@ -115,7 +115,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 
 	if input.Filename != "" {
 		// Custom filename - validate it
-		absPath, relPath, err := c.ValidateCustomFilename(input.Filename, c.projectRoot)
+		absPath, relPath, err := ValidateCustomFilename(input.Filename, c.projectRoot)
 		if err != nil {
 			return nil, fmt.Errorf("invalid filename: %w", err)
 		}
@@ -317,9 +317,21 @@ func (c *Creator) writeFileExclusive(path string, data []byte) error {
 	return nil
 }
 
-// ValidateCustomFilename validates and resolves a user-provided filename path
-// Returns absolute path for file operations and relative path for database storage
-func (c *Creator) ValidateCustomFilename(filename string, projectRoot string) (absPath string, relPath string, err error) {
+// ValidateCustomFilename validates custom file paths for tasks, epics, and features.
+// It enforces several security and naming constraints:
+// - Filenames must be relative to the project root (no absolute paths)
+// - Files must have a .md extension
+// - Path traversal attempts (containing "..") are rejected
+// - Resolved paths must stay within project boundaries
+//
+// Returns:
+// - absPath: Absolute path for file system operations
+// - relPath: Relative path for database storage (portable across systems)
+// - error: Validation error, if any
+//
+// This function is shared across task, epic, and feature creation to ensure
+// consistent filename validation across all entity types.
+func ValidateCustomFilename(filename string, projectRoot string) (absPath string, relPath string, err error) {
 	// 1. Reject absolute paths
 	if filepath.IsAbs(filename) {
 		return "", "", fmt.Errorf("filename must be relative to project root, got absolute path: %s", filename)

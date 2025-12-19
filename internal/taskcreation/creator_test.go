@@ -50,11 +50,7 @@ func TestValidateCustomFilename_ValidPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			creator := &Creator{
-				projectRoot: tt.projectRoot,
-			}
-
-			absPath, relPath, err := creator.ValidateCustomFilename(tt.filename, tt.projectRoot)
+			absPath, relPath, err := ValidateCustomFilename(tt.filename, tt.projectRoot)
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, absPath)
@@ -126,11 +122,7 @@ func TestValidateCustomFilename_InvalidPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			creator := &Creator{
-				projectRoot: tt.projectRoot,
-			}
-
-			absPath, relPath, err := creator.ValidateCustomFilename(tt.filename, tt.projectRoot)
+			absPath, relPath, err := ValidateCustomFilename(tt.filename, tt.projectRoot)
 
 			assert.Error(t, err)
 			assert.Empty(t, absPath)
@@ -166,11 +158,7 @@ func TestValidateCustomFilename_PathNormalization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			creator := &Creator{
-				projectRoot: "/project",
-			}
-
-			_, relPath, err := creator.ValidateCustomFilename(tt.filename, "/project")
+			_, relPath, err := ValidateCustomFilename(tt.filename, "/project")
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectRelPath, relPath)
@@ -180,11 +168,7 @@ func TestValidateCustomFilename_PathNormalization(t *testing.T) {
 
 // TestValidateCustomFilename_CasePreservation tests that case is preserved
 func TestValidateCustomFilename_CasePreservation(t *testing.T) {
-	creator := &Creator{
-		projectRoot: "/project",
-	}
-
-	_, relPath, err := creator.ValidateCustomFilename("Docs/Plan/MyTask.md", "/project")
+	_, relPath, err := ValidateCustomFilename("Docs/Plan/MyTask.md", "/project")
 
 	require.NoError(t, err)
 	// Case should be preserved in the relative path
@@ -224,11 +208,7 @@ func TestValidateCustomFilename_SpecialCharacters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			creator := &Creator{
-				projectRoot: "/project",
-			}
-
-			_, _, err := creator.ValidateCustomFilename(tt.filename, "/project")
+			_, _, err := ValidateCustomFilename(tt.filename, "/project")
 
 			if tt.valid {
 				assert.NoError(t, err)
@@ -241,12 +221,8 @@ func TestValidateCustomFilename_SpecialCharacters(t *testing.T) {
 
 // TestValidateCustomFilename_DeepNesting tests deeply nested paths
 func TestValidateCustomFilename_DeepNesting(t *testing.T) {
-	creator := &Creator{
-		projectRoot: "/project",
-	}
-
 	// Deep nesting should be valid
-	_, relPath, err := creator.ValidateCustomFilename(
+	_, relPath, err := ValidateCustomFilename(
 		"docs/plan/E01/E01-F01/E01-F01-sub/task.md",
 		"/project",
 	)
@@ -257,11 +233,7 @@ func TestValidateCustomFilename_DeepNesting(t *testing.T) {
 
 // TestValidateCustomFilename_AbsPathResolution tests absolute path resolution
 func TestValidateCustomFilename_AbsPathResolution(t *testing.T) {
-	creator := &Creator{
-		projectRoot: "/project",
-	}
-
-	absPath, _, err := creator.ValidateCustomFilename("docs/task.md", "/project")
+	absPath, _, err := ValidateCustomFilename("docs/task.md", "/project")
 
 	require.NoError(t, err)
 	// Absolute path should be absolute
@@ -272,16 +244,12 @@ func TestValidateCustomFilename_AbsPathResolution(t *testing.T) {
 
 // TestValidateCustomFilename_ConsistentResults tests that same input gives consistent output
 func TestValidateCustomFilename_ConsistentResults(t *testing.T) {
-	creator := &Creator{
-		projectRoot: "/project",
-	}
-
 	filename := "docs/plan/task.md"
 	projectRoot := "/project"
 
 	// Call multiple times
-	absPath1, relPath1, err1 := creator.ValidateCustomFilename(filename, projectRoot)
-	absPath2, relPath2, err2 := creator.ValidateCustomFilename(filename, projectRoot)
+	absPath1, relPath1, err1 := ValidateCustomFilename(filename, projectRoot)
+	absPath2, relPath2, err2 := ValidateCustomFilename(filename, projectRoot)
 
 	require.NoError(t, err1)
 	require.NoError(t, err2)
