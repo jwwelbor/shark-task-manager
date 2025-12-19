@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS epics (
     priority TEXT NOT NULL CHECK (priority IN ('high', 'medium', 'low')),
     business_value TEXT CHECK (business_value IN ('high', 'medium', 'low')),
     file_path TEXT,
+    custom_folder_path TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -90,6 +91,7 @@ CREATE TABLE IF NOT EXISTS epics (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_epics_key ON epics(key);
 CREATE INDEX IF NOT EXISTS idx_epics_status ON epics(status);
 CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);
+CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);
 
 -- Trigger to auto-update updated_at for epics
 CREATE TRIGGER IF NOT EXISTS epics_updated_at
@@ -112,6 +114,7 @@ CREATE TABLE IF NOT EXISTS features (
     progress_pct REAL NOT NULL DEFAULT 0.0 CHECK (progress_pct >= 0.0 AND progress_pct <= 100.0),
     execution_order INTEGER NULL,
     file_path TEXT,
+    custom_folder_path TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -123,6 +126,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_features_key ON features(key);
 CREATE INDEX IF NOT EXISTS idx_features_epic_id ON features(epic_id);
 CREATE INDEX IF NOT EXISTS idx_features_status ON features(status);
 CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);
+CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);
 
 -- Trigger to auto-update updated_at for features
 CREATE TRIGGER IF NOT EXISTS features_updated_at
@@ -291,6 +295,40 @@ func runMigrations(db *sql.DB) error {
 	if columnExists == 0 {
 		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN execution_order INTEGER NULL;`); err != nil {
 			return fmt.Errorf("failed to add execution_order to features: %w", err)
+		}
+	}
+
+	// Check if epics table has custom_folder_path column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'custom_folder_path'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check epics schema for custom_folder_path: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE epics ADD COLUMN custom_folder_path TEXT;`); err != nil {
+			return fmt.Errorf("failed to add custom_folder_path to epics: %w", err)
+		}
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);`); err != nil {
+			return fmt.Errorf("failed to create epics custom_folder_path index: %w", err)
+		}
+	}
+
+	// Check if features table has custom_folder_path column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'custom_folder_path'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for custom_folder_path: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN custom_folder_path TEXT;`); err != nil {
+			return fmt.Errorf("failed to add custom_folder_path to features: %w", err)
+		}
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`); err != nil {
+			return fmt.Errorf("failed to create features custom_folder_path index: %w", err)
 		}
 	}
 

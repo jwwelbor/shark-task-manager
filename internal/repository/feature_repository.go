@@ -26,8 +26,8 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 	}
 
 	query := `
-		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order, file_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order, file_path, custom_folder_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -39,6 +39,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 		feature.ProgressPct,
 		feature.ExecutionOrder,
 		feature.FilePath,
+		feature.CustomFolderPath,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create feature: %w", err)

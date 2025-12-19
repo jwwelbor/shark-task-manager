@@ -26,8 +26,8 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 	}
 
 	query := `
-		INSERT INTO epics (key, title, description, status, priority, business_value)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO epics (key, title, description, status, priority, business_value, custom_folder_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -37,6 +37,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 		epic.Status,
 		epic.Priority,
 		epic.BusinessValue,
+		epic.CustomFolderPath,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create epic: %w", err)
