@@ -173,12 +173,20 @@ Global flags available to all commands:
 - `shark init --non-interactive`: Setup project infrastructure (folders, database, config)
 
 #### Epic Management
+- `shark epic create --title="..." [--filename=<path>] [--force] [--priority=...] [--business-value=...] [--json]`
+  - `--filename`: Custom file path (relative to root, must include .md)
+  - `--force`: Reassign file if already claimed by another epic or feature
 - `shark epic list [--json]`
 - `shark epic get <epic-key> [--json]`
 
 #### Feature Management
+- `shark feature create --epic=<epic-key> --title="..." [--filename=<path>] [--force] [--execution-order=...] [--json]`
+  - `--filename`: Custom file path (relative to root, must include .md)
+  - `--force`: Reassign file if already claimed by another feature or epic
 - `shark feature list --epic=<epic-key> [--json]`
 - `shark feature get <feature-key> [--json]`
+
+**Note:** Epic and feature creation now support custom file paths (via `--filename`) and force reassignment (via `--force`), achieving feature parity with task creation. Refer to `docs/CLI_REFERENCE.md` for detailed examples and usage patterns.
 
 #### Task Management (Primary AI Interface)
 - `shark task next [--agent=<type>] [--epic=<epic>] [--json]`: Get next available task
