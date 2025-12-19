@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS epics (
     status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
     priority TEXT NOT NULL CHECK (priority IN ('high', 'medium', 'low')),
     business_value TEXT CHECK (business_value IN ('high', 'medium', 'low')),
+    file_path TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -83,6 +84,7 @@ CREATE TABLE IF NOT EXISTS epics (
 -- Indexes for epics
 CREATE UNIQUE INDEX IF NOT EXISTS idx_epics_key ON epics(key);
 CREATE INDEX IF NOT EXISTS idx_epics_status ON epics(status);
+CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);
 
 -- Trigger to auto-update updated_at for epics
 CREATE TRIGGER IF NOT EXISTS epics_updated_at
@@ -104,6 +106,7 @@ CREATE TABLE IF NOT EXISTS features (
     status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
     progress_pct REAL NOT NULL DEFAULT 0.0 CHECK (progress_pct >= 0.0 AND progress_pct <= 100.0),
     execution_order INTEGER NULL,
+    file_path TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -114,6 +117,7 @@ CREATE TABLE IF NOT EXISTS features (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_features_key ON features(key);
 CREATE INDEX IF NOT EXISTS idx_features_epic_id ON features(epic_id);
 CREATE INDEX IF NOT EXISTS idx_features_status ON features(status);
+CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);
 
 -- Trigger to auto-update updated_at for features
 CREATE TRIGGER IF NOT EXISTS features_updated_at

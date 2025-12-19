@@ -30,6 +30,7 @@ type Epic struct {
 	Status        EpicStatus `json:"status" db:"status"`
 	Priority      Priority   `json:"priority" db:"priority"`
 	BusinessValue *Priority  `json:"business_value,omitempty" db:"business_value"`
+	FilePath      *string    `json:"file_path,omitempty" db:"file_path"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 }

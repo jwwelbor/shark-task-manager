@@ -22,6 +22,7 @@ type Feature struct {
 	Status         FeatureStatus `json:"status" db:"status"`
 	ProgressPct    float64       `json:"progress_pct" db:"progress_pct"`
 	ExecutionOrder *int          `json:"execution_order,omitempty" db:"execution_order"`
+	FilePath       *string       `json:"file_path,omitempty" db:"file_path"`
 	CreatedAt      time.Time     `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time     `json:"updated_at" db:"updated_at"`
 }
