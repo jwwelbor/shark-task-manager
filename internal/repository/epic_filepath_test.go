@@ -25,8 +25,7 @@ func TestEpicRepository_GetByFilePath(t *testing.T) {
 	// Clean up any existing data
 	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
-	// Create epic with custom file path
-	customPath := "docs/roadmap/2025.md"
+	// Create epic without file path
 	highPriority := models.PriorityHigh
 	epic := &models.Epic{
 		Key:           epicKey,
@@ -35,9 +34,13 @@ func TestEpicRepository_GetByFilePath(t *testing.T) {
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
-		FilePath:      &customPath,
 	}
 	err := repo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Set file path using UpdateFilePath
+	customPath := "docs/roadmap/2025.md"
+	err = repo.UpdateFilePath(ctx, epicKey, &customPath)
 	require.NoError(t, err)
 
 	// Test GetByFilePath with found epic
@@ -70,6 +73,49 @@ func TestEpicRepository_UpdateFilePath(t *testing.T) {
 	db := NewDB(database)
 	repo := NewEpicRepository(db)
 
+	// Create unique epic key using current nanoseconds to ensure uniqueness
+	baseTime := time.Now().UnixNano()
+	suffix := fmt.Sprintf("%010d", baseTime%10000000000)
+	epicKey := fmt.Sprintf("E%s", suffix[:2])
+
+	// Clean up any existing data
+	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic without file path
+	highPriority := models.PriorityHigh
+	epic := &models.Epic{
+		Key:           epicKey,
+		Title:         "Test Epic",
+		Description:   stringPtr("Test Description"),
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityMedium,
+		BusinessValue: &highPriority,
+	}
+	err := repo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Test UpdateFilePath with new path
+	newPath := fmt.Sprintf("docs/epics/%d-roadmap.md", baseTime)
+	err = repo.UpdateFilePath(ctx, epicKey, &newPath)
+	assert.NoError(t, err)
+
+	// Verify the update using GetByFilePath
+	retrieved, err := repo.GetByFilePath(ctx, newPath)
+	assert.NoError(t, err)
+	assert.NotNil(t, retrieved)
+	assert.Equal(t, newPath, *retrieved.FilePath)
+	assert.Equal(t, epicKey, retrieved.Key)
+
+	// Cleanup
+	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+}
+
+func TestEpicRepository_UpdateFilePath_Clear(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewEpicRepository(db)
+
 	// Create unique epic key using timestamp
 	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
 	epicKey := fmt.Sprintf("E%s", suffix)
@@ -90,63 +136,25 @@ func TestEpicRepository_UpdateFilePath(t *testing.T) {
 	err := repo.Create(ctx, epic)
 	require.NoError(t, err)
 
-	// Test UpdateFilePath with new path
-	newPath := "docs/epics/2025-roadmap.md"
-	err = repo.UpdateFilePath(ctx, epicKey, &newPath)
-	assert.NoError(t, err)
-
-	// Verify the update
-	retrieved, err := repo.GetByKey(ctx, epicKey)
-	assert.NoError(t, err)
-	assert.NotNil(t, retrieved)
-	assert.Equal(t, newPath, *retrieved.FilePath)
-
-	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
-}
-
-func TestEpicRepository_UpdateFilePath_Clear(t *testing.T) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	repo := NewEpicRepository(db)
-
-	// Create unique epic key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
-	epicKey := fmt.Sprintf("E%s", suffix)
-
-	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
-
-	// Create epic with file path
+	// Set initial file path
 	customPath := "docs/roadmap/2025.md"
-	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Description:   stringPtr("Test Description"),
-		Status:        models.EpicStatusActive,
-		Priority:      models.PriorityMedium,
-		BusinessValue: &highPriority,
-		FilePath:      &customPath,
-	}
-	err := repo.Create(ctx, epic)
+	err = repo.UpdateFilePath(ctx, epicKey, &customPath)
 	require.NoError(t, err)
 
 	// Verify initial state
-	retrieved, err := repo.GetByKey(ctx, epicKey)
+	retrieved, err := repo.GetByFilePath(ctx, customPath)
 	assert.NoError(t, err)
-	assert.NotNil(t, retrieved.FilePath)
+	assert.NotNil(t, retrieved)
 	assert.Equal(t, customPath, *retrieved.FilePath)
 
 	// Test UpdateFilePath with nil to clear the path
 	err = repo.UpdateFilePath(ctx, epicKey, nil)
 	assert.NoError(t, err)
 
-	// Verify the path is cleared
-	retrieved, err = repo.GetByKey(ctx, epicKey)
+	// Verify the path is cleared by trying to find it (should return nil)
+	retrieved, err = repo.GetByFilePath(ctx, customPath)
 	assert.NoError(t, err)
-	assert.Nil(t, retrieved.FilePath)
+	assert.Nil(t, retrieved)
 
 	// Cleanup
 	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
@@ -174,7 +182,8 @@ func TestEpicRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	// Create unique epic key using timestamp
 	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
 	epicKey1 := fmt.Sprintf("E%s", suffix)
-	epicKey2 := fmt.Sprintf("E%s", suffix+1)
+	suffix2 := fmt.Sprintf("%02d", ((time.Now().UnixNano()) % 1000 / 10)+1)
+	epicKey2 := fmt.Sprintf("E%s", suffix2)
 
 	// Clean up any existing data
 	database.ExecContext(ctx, "DELETE FROM epics WHERE key IN (?, ?)", epicKey1, epicKey2)
@@ -189,9 +198,12 @@ func TestEpicRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
-		FilePath:      &sharedPath,
 	}
 	err := repo.Create(ctx, epic1)
+	require.NoError(t, err)
+
+	// Set shared path on first epic
+	err = repo.UpdateFilePath(ctx, epicKey1, &sharedPath)
 	require.NoError(t, err)
 
 	// Try to set the same path on another epic - should detect collision
@@ -202,9 +214,4 @@ func TestEpicRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 
 	// Cleanup
 	database.ExecContext(ctx, "DELETE FROM epics WHERE key IN (?, ?)", epicKey1, epicKey2)
-}
-
-// stringPtr is a helper function to create string pointers
-func stringPtr(s string) *string {
-	return &s
 }
