@@ -75,6 +75,7 @@ CREATE TABLE tasks (
     assigned_agent TEXT,
     file_path TEXT,
     blocked_reason TEXT,
+    execution_order INTEGER NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     started_at TIMESTAMP,
     completed_at TIMESTAMP,
@@ -91,12 +92,12 @@ CREATE TABLE tasks (
 	_, err = tx.Exec(`
 INSERT INTO tasks (
     id, feature_id, key, title, description, status, agent_type, priority,
-    depends_on, assigned_agent, file_path, blocked_reason, created_at,
+    depends_on, assigned_agent, file_path, blocked_reason, execution_order, created_at,
     started_at, completed_at, blocked_at, updated_at
 )
 SELECT
     id, feature_id, key, title, description, status, agent_type, priority,
-    depends_on, assigned_agent, file_path, blocked_reason, created_at,
+    depends_on, assigned_agent, file_path, blocked_reason, execution_order, created_at,
     started_at, completed_at, blocked_at, updated_at
 FROM tasks_old;`)
 	if err != nil {
@@ -111,6 +112,7 @@ FROM tasks_old;`)
 		`CREATE INDEX IF NOT EXISTS idx_tasks_agent_type ON tasks(agent_type);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_file_path ON tasks(file_path);`,
 	}
 
 	for _, idx := range indexes {
