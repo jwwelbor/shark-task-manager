@@ -40,8 +40,7 @@ func TestFeatureRepository_GetByFilePath(t *testing.T) {
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
-	// Create feature with custom file path
-	customPath := "docs/plan/E01/F01/feature.md"
+	// Create feature without file path
 	feature := &models.Feature{
 		EpicID:      epic.ID,
 		Key:         featureKey,
@@ -49,9 +48,13 @@ func TestFeatureRepository_GetByFilePath(t *testing.T) {
 		Description: stringPtr("Test Description"),
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
-		FilePath:    &customPath,
 	}
 	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Set file path using UpdateFilePath
+	customPath := "docs/plan/E01/F01/feature.md"
+	err = featureRepo.UpdateFilePath(ctx, featureKey, &customPath)
 	require.NoError(t, err)
 
 	// Test GetByFilePath with found feature
@@ -124,11 +127,12 @@ func TestFeatureRepository_UpdateFilePath(t *testing.T) {
 	err = featureRepo.UpdateFilePath(ctx, featureKey, &newPath)
 	assert.NoError(t, err)
 
-	// Verify the update
-	retrieved, err := featureRepo.GetByKey(ctx, featureKey)
+	// Verify the update using GetByFilePath
+	retrieved, err := featureRepo.GetByFilePath(ctx, newPath)
 	assert.NoError(t, err)
 	assert.NotNil(t, retrieved)
 	assert.Equal(t, newPath, *retrieved.FilePath)
+	assert.Equal(t, featureKey, retrieved.Key)
 
 	// Cleanup
 	database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
@@ -163,8 +167,7 @@ func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
-	// Create feature with file path
-	customPath := "docs/plan/E01/F01/feature.md"
+	// Create feature without file path
 	feature := &models.Feature{
 		EpicID:      epic.ID,
 		Key:         featureKey,
@@ -172,25 +175,29 @@ func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
 		Description: stringPtr("Test Description"),
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
-		FilePath:    &customPath,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
+	// Set initial file path
+	customPath := "docs/plan/E01/F01/feature.md"
+	err = featureRepo.UpdateFilePath(ctx, featureKey, &customPath)
+	require.NoError(t, err)
+
 	// Verify initial state
-	retrieved, err := featureRepo.GetByKey(ctx, featureKey)
+	retrieved, err := featureRepo.GetByFilePath(ctx, customPath)
 	assert.NoError(t, err)
-	assert.NotNil(t, retrieved.FilePath)
+	assert.NotNil(t, retrieved)
 	assert.Equal(t, customPath, *retrieved.FilePath)
 
 	// Test UpdateFilePath with nil to clear the path
 	err = featureRepo.UpdateFilePath(ctx, featureKey, nil)
 	assert.NoError(t, err)
 
-	// Verify the path is cleared
-	retrieved, err = featureRepo.GetByKey(ctx, featureKey)
+	// Verify the path is cleared by trying to find it (should return nil)
+	retrieved, err = featureRepo.GetByFilePath(ctx, customPath)
 	assert.NoError(t, err)
-	assert.Nil(t, retrieved.FilePath)
+	assert.Nil(t, retrieved)
 
 	// Cleanup
 	database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
@@ -239,17 +246,20 @@ func TestFeatureRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
-	// Create first feature with shared path
-	sharedPath := "docs/plan/E01/shared-feature.md"
+	// Create first feature without shared path
 	feature1 := &models.Feature{
 		EpicID:      epic.ID,
 		Key:         featureKey1,
 		Title:       "Feature 1",
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
-		FilePath:    &sharedPath,
 	}
 	err = featureRepo.Create(ctx, feature1)
+	require.NoError(t, err)
+
+	// Set shared path on first feature
+	sharedPath := "docs/plan/E01/shared-feature.md"
+	err = featureRepo.UpdateFilePath(ctx, featureKey1, &sharedPath)
 	require.NoError(t, err)
 
 	// Check collision detection - should find the existing feature
