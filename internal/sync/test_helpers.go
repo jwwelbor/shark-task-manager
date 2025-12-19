@@ -70,11 +70,12 @@ func setupTestDatabase(tb testing.TB, dbPath string) *sql.DB {
 		CREATE TABLE IF NOT EXISTS task_history (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			task_id INTEGER NOT NULL,
-			status_from TEXT,
-			status_to TEXT,
-			changed_by TEXT NOT NULL,
-			change_description TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			old_status TEXT,
+			new_status TEXT NOT NULL,
+			agent TEXT,
+			notes TEXT,
+			forced BOOLEAN DEFAULT FALSE,
+			timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (task_id) REFERENCES tasks(id)
 		);
 	`
