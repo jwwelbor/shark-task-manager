@@ -107,6 +107,7 @@ The epic key is automatically assigned as the next available E## number.
 
 Flags:
   --filename string    Custom file path relative to project root (must end in .md)
+  --path string        Custom base folder path for this epic and children (relative to project root)
   --force              Force reassignment if file already claimed by another entity
   --description string Epic description
   --priority string    Priority: high, medium, low (default: medium)
@@ -115,6 +116,7 @@ Flags:
 Examples:
   shark epic create "User Authentication System"
   shark epic create "User Auth" --description="Add OAuth and MFA"
+  shark epic create "Platform Roadmap" --path="docs/specs"
   shark epic create "Platform Roadmap" --filename="docs/roadmap/2025.md"
   shark epic create "Q1 Goals" --filename="docs/roadmap/q1.md" --force`,
 	Args: cobra.ExactArgs(1),
@@ -139,6 +141,7 @@ Examples:
 
 var (
 	epicCreateDescription string
+	epicCreatePath        string
 )
 
 func init() {
@@ -162,6 +165,7 @@ func init() {
 
 	// Add flags for create command
 	epicCreateCmd.Flags().StringVar(&epicCreateDescription, "description", "", "Epic description (optional)")
+	epicCreateCmd.Flags().StringVar(&epicCreatePath, "path", "", "Custom base folder path for this epic and children (relative to project root)")
 	epicCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must end in .md)")
 	epicCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another epic or feature")
 
@@ -597,6 +601,17 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
+	// Validate and process custom path if provided
+	var customFolderPath *string
+	if epicCreatePath != "" {
+		_, relPath, err := utils.ValidateFolderPath(epicCreatePath, projectRoot)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+		customFolderPath = &relPath
+	}
+
 	// Get repositories
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
@@ -736,13 +751,14 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	// Create database entry with key (E##) not full slug
 	epic := &models.Epic{
-		Key:           nextKey,
-		Title:         epicTitle,
-		Description:   &epicCreateDescription,
-		Status:        models.EpicStatusDraft,
-		Priority:      models.PriorityMedium,
-		BusinessValue: nil,
-		FilePath:      customFilePath,
+		Key:               nextKey,
+		Title:             epicTitle,
+		Description:       &epicCreateDescription,
+		Status:            models.EpicStatusDraft,
+		Priority:          models.PriorityMedium,
+		BusinessValue:     nil,
+		FilePath:          customFilePath,
+		CustomFolderPath:  customFolderPath,
 	}
 
 	if err := epicRepo.Create(ctx, epic); err != nil {

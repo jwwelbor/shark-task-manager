@@ -67,19 +67,21 @@ Examples:
 
 // featureCreateCmd creates a new feature
 var featureCreateCmd = &cobra.Command{
-	Use:   "create --epic=<key> [--filename=<path>] [--force] <title>",
+	Use:   "create --epic=<key> [--filename=<path>] [--path=<path>] [--force] <title>",
 	Short: "Create a new feature",
 	Long: `Create a new feature with auto-assigned key, folder structure, and database entry.
 
 The feature key is automatically assigned as the next available F## number within the epic.
 By default, the feature file is created at docs/plan/{epic-key}/{feature-key}/feature.md.
 
+Use --path to specify a custom base folder path for this feature and its tasks (overrides epic's path).
 Use --filename to specify a custom file path (relative to project root, must end in .md).
 Use --force to reassign the file from another feature or epic if already claimed.
 
 Examples:
   shark feature create --epic=E01 "OAuth Login Integration"
   shark feature create --epic=E01 "OAuth Login" --description="Add OAuth 2.0 support"
+  shark feature create --epic=E01 --path="docs/auth" "OAuth Login"
   shark feature create --epic=E01 --filename="docs/specs/auth.md" "OAuth Login"
   shark feature create --epic=E01 --filename="docs/specs/auth.md" --force "OAuth Login"`,
 	Args: cobra.ExactArgs(1),
@@ -123,6 +125,7 @@ var (
 	featureCreateDescription    string
 	featureCreateExecutionOrder int
 	featureCreateFilename       string
+	featureCreatePath           string
 	featureCreateForce          bool
 )
 
@@ -146,6 +149,7 @@ func init() {
 	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01) (required)")
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
 	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
+	featureCreateCmd.Flags().StringVar(&featureCreatePath, "path", "", "Custom base folder path for this feature and child tasks (overrides epic's path)")
 	featureCreateCmd.Flags().StringVar(&featureCreateFilename, "filename", "", "Custom filename path (relative to project root, must end in .md)")
 	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
 	featureCreateCmd.MarkFlagRequired("epic")
@@ -670,6 +674,17 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
+	// Validate and process custom path if provided
+	var customFolderPath *string
+	if featureCreatePath != "" {
+		_, relPath, err := utils.ValidateFolderPath(featureCreatePath, projectRoot)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+		customFolderPath = &relPath
+	}
+
 	// Create database entry with key (E##-F##) not full slug
 	featureKey := fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
 
@@ -802,14 +817,15 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 	// Create feature with custom file path if provided
 	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            featureKey,
-		Title:          featureTitle,
-		Description:    &featureCreateDescription,
-		Status:         models.FeatureStatusDraft,
-		ProgressPct:    0.0,
-		ExecutionOrder: executionOrder,
-		FilePath:       customFilePath,
+		EpicID:           epic.ID,
+		Key:              featureKey,
+		Title:            featureTitle,
+		Description:      &featureCreateDescription,
+		Status:           models.FeatureStatusDraft,
+		ProgressPct:      0.0,
+		ExecutionOrder:   executionOrder,
+		FilePath:         customFilePath,
+		CustomFolderPath: customFolderPath,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {
