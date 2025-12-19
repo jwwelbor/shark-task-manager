@@ -44,6 +44,61 @@ make clean             # Remove binaries and SQLite files
 
 ---
 
+## ⚠️ DATABASE MANAGEMENT - CRITICAL
+
+### DO NOT DELETE OR RECREATE THE DATABASE
+
+The database file (`shark-tasks.db`) is the single source of truth for all project data. **Deleting it will cause data loss and sync errors.**
+
+#### What To Do If Database Is Corrupted
+
+If you need to reset the database:
+
+1. **Backup first** (save the .db file elsewhere)
+2. **Delete ONLY the database file and WAL files:**
+   ```bash
+   rm shark-tasks.db shark-tasks.db-shm shark-tasks.db-wal
+   ```
+3. **Reinitialize:**
+   ```bash
+   ./bin/shark init --non-interactive
+   ```
+4. **Resync filesystem to database:**
+   ```bash
+   ./bin/shark sync --dry-run              # Preview changes
+   ./bin/shark sync --strategy=file-wins   # Apply changes
+   ```
+
+#### What NOT To Do
+
+❌ **DO NOT** run `make clean` during development (it deletes the database)
+❌ **DO NOT** use `rm shark*` or glob patterns that match the database
+❌ **DO NOT** delete the database to fix sync errors (fix the sync instead)
+❌ **DO NOT** modify task files while running sync operations
+
+#### If Sync Fails with "UNIQUE constraint failed: tasks.key"
+
+This means you're trying to create tasks that already exist. Options:
+
+1. **Check if database exists:**
+   ```bash
+   ls -lh shark-tasks.db
+   ```
+
+2. **If database was deleted, restore from backup:**
+   ```bash
+   cp /path/to/backup/shark-tasks.db .
+   ```
+
+3. **If files are out of sync with database:**
+   ```bash
+   ./bin/shark sync --dry-run --strategy=database-wins  # Use DB as source of truth
+   ```
+
+4. **If specific tasks are duplicated**, manually remove duplicate file or reset task in database
+
+---
+
 ## Project Architecture
 
 ### Directory Structure

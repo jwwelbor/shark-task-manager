@@ -81,6 +81,22 @@ var epicStatusCmd = &cobra.Command{
 	},
 }
 
+// epicCompleteCmd completes all tasks in an epic
+var epicCompleteCmd = &cobra.Command{
+	Use:   "complete <epic-key>",
+	Short: "Complete all tasks in an epic",
+	Long: `Mark all tasks across all features in an epic as completed, with safeguards against accidental completion.
+
+Without --force, shows a warning summary if any tasks are incomplete and fails.
+With --force, completes all tasks regardless of status.
+
+Examples:
+  shark epic complete E07       Complete epic (fails if tasks incomplete)
+  shark epic complete E07 --force  Force complete all tasks`,
+	Args: cobra.ExactArgs(1),
+	RunE: runEpicComplete,
+}
+
 // epicCreateCmd creates a new epic
 var epicCreateCmd = &cobra.Command{
 	Use:   "create <title>",
@@ -133,12 +149,16 @@ func init() {
 	epicCmd.AddCommand(epicListCmd)
 	epicCmd.AddCommand(epicGetCmd)
 	epicCmd.AddCommand(epicStatusCmd)
+	epicCmd.AddCommand(epicCompleteCmd)
 	epicCmd.AddCommand(epicCreateCmd)
 	epicCmd.AddCommand(epicDeleteCmd)
 
 	// Add flags for list command
 	epicListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
 	epicListCmd.Flags().String("status", "", "Filter by status: draft, active, completed, archived")
+
+	// Add flags for complete command
+	epicCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks regardless of status")
 
 	// Add flags for create command
 	epicCreateCmd.Flags().StringVar(&epicCreateDescription, "description", "", "Epic description (optional)")
@@ -765,6 +785,160 @@ func getNextEpicKey(ctx context.Context, epicRepo *repository.EpicRepository) (s
 	}
 
 	return fmt.Sprintf("E%02d", maxNum+1), nil
+}
+
+// runEpicComplete executes the epic complete command
+func runEpicComplete(cmd *cobra.Command, args []string) error {
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	epicKey := args[0]
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
+		return fmt.Errorf("database path error")
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		cli.Error("Error: Database error. Run with --verbose for details.")
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
+		}
+		os.Exit(2)
+	}
+	defer database.Close()
+
+	// Get repositories
+	repoDb := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(repoDb)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
+
+	// Get epic by key
+	epic, err := epicRepo.GetByKey(ctx, epicKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicKey))
+		cli.Info("Use 'shark epic list' to see available epics")
+		os.Exit(1)
+	}
+
+	// Get all features in epic
+	features, err := featureRepo.ListByEpic(ctx, epic.ID)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to list features: %v", err))
+		os.Exit(2)
+	}
+
+	// If no features, inform user
+	if len(features) == 0 {
+		cli.Info(fmt.Sprintf("Epic %s has no features to complete", epicKey))
+		return nil
+	}
+
+	// Collect all tasks from all features
+	var allTasks []*models.Task
+	totalStatusBreakdown := make(map[models.TaskStatus]int)
+
+	for _, feature := range features {
+		tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to list tasks in feature %s: %v", feature.Key, err))
+			os.Exit(2)
+		}
+
+		allTasks = append(allTasks, tasks...)
+
+		// Aggregate status breakdown
+		statusBreakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to get status breakdown for feature %s: %v", feature.Key, err))
+			os.Exit(2)
+		}
+
+		for status, count := range statusBreakdown {
+			totalStatusBreakdown[status] += count
+		}
+	}
+
+	// If no tasks, inform user
+	if len(allTasks) == 0 {
+		cli.Info(fmt.Sprintf("Epic %s has no tasks to complete", epicKey))
+		return nil
+	}
+
+	// Count completed and reviewed tasks
+	completedCount := totalStatusBreakdown[models.TaskStatusCompleted]
+	reviewedCount := totalStatusBreakdown[models.TaskStatusReadyForReview]
+	allDoneCount := completedCount + reviewedCount
+
+	// Check if all tasks are already completed/reviewed
+	hasIncomplete := allDoneCount < len(allTasks)
+
+	// Show warning if incomplete tasks exist
+	if hasIncomplete && !force {
+		cli.Warning(fmt.Sprintf("Epic %s has %d incomplete task(s) across %d feature(s)", epicKey, len(allTasks)-allDoneCount, len(features)))
+		fmt.Println("\nTask Status Breakdown:")
+		fmt.Printf("  Total Tasks: %d\n", len(allTasks))
+		fmt.Printf("  Completed: %d\n", completedCount)
+		fmt.Printf("  Ready for Review: %d\n", reviewedCount)
+		if count, ok := totalStatusBreakdown[models.TaskStatusTodo]; ok && count > 0 {
+			fmt.Printf("  Todo: %d\n", count)
+		}
+		if count, ok := totalStatusBreakdown[models.TaskStatusInProgress]; ok && count > 0 {
+			fmt.Printf("  In Progress: %d\n", count)
+		}
+		if count, ok := totalStatusBreakdown[models.TaskStatusBlocked]; ok && count > 0 {
+			fmt.Printf("  Blocked: %d\n", count)
+		}
+		cli.Info("Use --force to complete all tasks regardless of status")
+		os.Exit(1)
+	}
+
+	// Complete all tasks
+	agent := getAgentIdentifier("")
+	completedTaskCount := 0
+	for _, task := range allTasks {
+		// Skip already completed tasks
+		if task.Status == models.TaskStatusCompleted {
+			completedTaskCount++
+			continue
+		}
+
+		// Mark as completed
+		if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, true); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to complete task %s: %v", task.Key, err))
+			os.Exit(2)
+		}
+		completedTaskCount++
+	}
+
+	// Update progress for all features
+	for _, feature := range features {
+		if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update progress for feature %s: %v", feature.Key, err))
+			os.Exit(2)
+		}
+	}
+
+	// Output results
+	if cli.GlobalConfig.JSON {
+		result := map[string]interface{}{
+			"epic_key":          epicKey,
+			"tasks_completed":   completedTaskCount,
+			"total_tasks":       len(allTasks),
+			"features_affected": len(features),
+			"progress":          100.0,
+		}
+		return cli.OutputJSON(result)
+	}
+
+	cli.Success(fmt.Sprintf("Epic %s completed! All %d task(s) across %d feature(s) marked as completed.", epicKey, completedTaskCount, len(features)))
+	return nil
 }
 
 // runEpicDelete executes the epic delete command

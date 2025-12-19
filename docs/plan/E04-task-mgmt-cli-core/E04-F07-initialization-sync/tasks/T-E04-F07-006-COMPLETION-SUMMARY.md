@@ -1,3 +1,7 @@
+---
+task_key: T-E04-F07-001
+---
+
 # Task T-E04-F07-006 Completion Summary
 
 **Task**: Testing and Documentation for Initialization & Synchronization
