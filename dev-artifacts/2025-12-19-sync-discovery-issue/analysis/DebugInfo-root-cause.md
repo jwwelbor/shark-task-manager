@@ -60,7 +60,7 @@ This pattern matches task filenames with **optional descriptive suffix**: `T-E##
 -rw-r--r-- T-E04-F01-002.md
 ```
 
-## Issues Found (2)
+## Issues Found (3)
 
 ### Issue #1: Strict Regex Pattern (FIXED ✓)
 **File**: `internal/sync/scanner.go:36`
@@ -74,30 +74,54 @@ This pattern matches task filenames with **optional descriptive suffix**: `T-E##
 **Impact**: FileScanner couldn't read the directory, silently skipped it during filesystem walk
 **Solution**: Changed permissions to `755` (drwxr-xr-x)
 
+### Issue #3: Pattern Registry Not Updated (FIXED ✓)
+**File**: `internal/sync/patterns.go:37`
+**Problem**: The PatternRegistry used for filtering which files to scan still had the OLD strict regex pattern
+**Why it mattered**: Even though scanner.go and defaults.go were fixed, the PatternRegistry (used by FileScanner.getMatchingPattern) was still rejecting files with descriptive names
+**Impact**: Files matching T-E##-F##-###-description.md were FILTERED OUT by the scanner, so they never reached the parsing stage
+**Root cause**: Three separate pattern definitions that weren't kept in sync:
+  1. `scanner.go:36` - keyPattern (for extracting keys from filenames)
+  2. `patterns.go:37` - PatternRegistry Task pattern (for filtering which files to scan) ← **THE BOTTLENECK**
+  3. `defaults.go:48` - Default pattern (reference pattern in config)
+**Solution**: Updated PatternRegistry regex to `^T-E\d{2}-F\d{2}-\d{3}.*\.md$`
+
 ## Changes Made
 
-1. **Scanner regex updated** (internal/sync/scanner.go:36):
+1. **Scanner keyPattern regex updated** (internal/sync/scanner.go:36):
    ```go
    - keyPattern: regexp.MustCompile(`^T-(E\d{2})-(F\d{2})-\d{3}\.md$`)
    + keyPattern: regexp.MustCompile(`^T-(E\d{2})-(F\d{2})-\d{3}.*\.md$`)
    ```
 
-2. **Directory permissions fixed**:
+2. **Pattern Registry regex updated** (internal/sync/patterns.go:37):
+   ```go
+   - Regex:   regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}\.md$`),
+   + Regex:   regexp.MustCompile(`^T-E\d{2}-F\d{2}-\d{3}.*\.md$`),
+   ```
+
+3. **Directory permissions fixed**:
    ```bash
    chmod -R 755 docs/plan/E07-enhancements/E07-F08-custom-filenames-epics-features
    ```
 
 ## Verification
 
-The fixes enable the scanner to:
-- ✓ Match all E07-F08 filenames with descriptive suffixes
-- ✓ Access E07-F08 directory during filesystem walk
-- ✓ Import 6 E07-F08 tasks into database
+After applying all 3 fixes:
 
-Test results show the pattern now matches all task files:
-- ✓ T-E07-F08-001-database-schema-migration.md
-- ✓ T-E07-F08-002-repository-methods.md
-- ✓ T-E07-F08-003-validation-reuse.md
-- ✓ T-E07-F08-004-epic-cli-flags.md
-- ✓ T-E07-F08-005-feature-cli-flags.md
-- ✓ T-E07-F08-006-documentation-updates.md
+**Scanner improvements:**
+- Before: 68 total files scanned, E07-F08 files skipped
+- After: 97 total files scanned, all E07-F08 files found
+
+**Database imports:**
+- Before: 68 tasks imported (no E07-F08 tasks)
+- After: 74 tasks imported (includes 6 E07-F08 tasks)
+
+**E07-F08 tasks now discoverable:**
+- ✓ T-E07-F08-001 - Add file_path columns to epics and features tables
+- ✓ T-E07-F08-002 - Implement GetByFilePath and UpdateFilePath
+- ✓ T-E07-F08-003 - Make ValidateCustomFilename accessible
+- ✓ T-E07-F08-004 - Add --filename and --force flags to epic create
+- ✓ T-E07-F08-005 - Add --filename and --force flags to feature create
+- ✓ T-E07-F08-006 - Update CLI reference and user documentation
+
+**Test command:** `shark task get T-E07-F08-001` now works correctly
