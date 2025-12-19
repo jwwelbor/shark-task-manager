@@ -15,15 +15,18 @@ import (
 )
 
 var (
-	syncFolder        string
-	syncDryRun        bool
-	syncStrategy      string
-	syncCreateMissing bool
-	syncCleanup       bool
-	syncPatterns      []string
-	syncForceFullScan bool
-	syncOutput        string
-	syncQuiet         bool
+	syncFolder           string
+	syncDryRun           bool
+	syncStrategy         string
+	syncCreateMissing    bool
+	syncCleanup          bool
+	syncPatterns         []string
+	syncForceFullScan    bool
+	syncOutput           string
+	syncQuiet            bool
+	syncIndex            bool
+	syncDiscoveryStrategy string
+	syncValidationLevel  string
 )
 
 var syncCmd = &cobra.Command{
@@ -64,7 +67,16 @@ Status is managed exclusively in the database and is NOT synced from files.`,
   shark sync --output=json
 
   # Quiet mode (minimal output)
-  shark sync --quiet`,
+  shark sync --quiet
+
+  # Enable discovery mode with epic-index.md
+  shark sync --index
+
+  # Use index-only discovery strategy
+  shark sync --index --discovery-strategy=index-only
+
+  # Use merge strategy with permissive validation
+  shark sync --index --discovery-strategy=merge --validation-level=permissive`,
 	RunE: runSync,
 }
 
@@ -89,6 +101,12 @@ func init() {
 		"Output format: text, json")
 	syncCmd.Flags().BoolVar(&syncQuiet, "quiet", false,
 		"Quiet mode (only show errors, useful for scripting)")
+	syncCmd.Flags().BoolVar(&syncIndex, "index", false,
+		"Enable discovery mode (parse epic-index.md)")
+	syncCmd.Flags().StringVar(&syncDiscoveryStrategy, "discovery-strategy", "merge",
+		"Discovery strategy: index-only, folder-only, merge")
+	syncCmd.Flags().StringVar(&syncValidationLevel, "validation-level", "balanced",
+		"Validation level: strict, balanced, permissive")
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
@@ -112,6 +130,18 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid pattern: %w", err)
 	}
 
+	// Parse discovery strategy
+	discoveryStrategy, err := parseDiscoveryStrategy(syncDiscoveryStrategy)
+	if err != nil {
+		return fmt.Errorf("invalid discovery strategy: %w", err)
+	}
+
+	// Parse validation level
+	validationLevel, err := parseValidationLevel(syncValidationLevel)
+	if err != nil {
+		return fmt.Errorf("invalid validation level: %w", err)
+	}
+
 	// Default folder path
 	folderPath := syncFolder
 	if folderPath == "" {
@@ -129,14 +159,17 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	// Create sync options
 	opts := sync.SyncOptions{
-		DBPath:        dbPath,
-		FolderPath:    folderPath,
-		DryRun:        syncDryRun,
-		Strategy:      strategy,
-		CreateMissing: syncCreateMissing,
-		Cleanup:       syncCleanup,
-		ForceFullScan: syncForceFullScan,
-		LastSyncTime:  nil, // Will be set from config if available
+		DBPath:            dbPath,
+		FolderPath:        folderPath,
+		DryRun:            syncDryRun,
+		Strategy:          strategy,
+		CreateMissing:     syncCreateMissing,
+		Cleanup:           syncCleanup,
+		ForceFullScan:     syncForceFullScan,
+		LastSyncTime:      nil, // Will be set from config if available
+		EnableDiscovery:   syncIndex,
+		DiscoveryStrategy: discoveryStrategy,
+		ValidationLevel:   validationLevel,
 	}
 
 	// Set last sync time from config (if not forcing full scan)
@@ -234,6 +267,32 @@ func validatePatterns(patternStrings []string) ([]sync.PatternType, error) {
 	return result, nil
 }
 
+func parseDiscoveryStrategy(s string) (sync.DiscoveryStrategy, error) {
+	switch s {
+	case "index-only":
+		return sync.DiscoveryStrategyIndexOnly, nil
+	case "folder-only":
+		return sync.DiscoveryStrategyFolderOnly, nil
+	case "merge":
+		return sync.DiscoveryStrategyMerge, nil
+	default:
+		return "", fmt.Errorf("unknown discovery strategy: %s (valid: index-only, folder-only, merge)", s)
+	}
+}
+
+func parseValidationLevel(s string) (sync.ValidationLevel, error) {
+	switch s {
+	case "strict":
+		return sync.ValidationLevelStrict, nil
+	case "balanced":
+		return sync.ValidationLevelBalanced, nil
+	case "permissive":
+		return sync.ValidationLevelPermissive, nil
+	default:
+		return "", fmt.Errorf("unknown validation level: %s (valid: strict, balanced, permissive)", s)
+	}
+}
+
 // convertToScanReport converts a sync.SyncReport to reporting.ScanReport
 func convertToScanReport(syncReport *sync.SyncReport, startTime time.Time, folderPath string, patterns []sync.PatternType) *reporting.ScanReport {
 	scanReport := reporting.NewScanReport()
@@ -263,6 +322,15 @@ func convertToScanReport(syncReport *sync.SyncReport, startTime time.Time, folde
 	// Set entity counts (tasks only for now)
 	scanReport.Entities.Tasks.Matched = syncReport.TasksImported + syncReport.TasksUpdated
 	scanReport.Entities.Tasks.Skipped = len(syncReport.Errors)
+
+	// Add discovery information if enabled
+	if syncReport.DiscoveryReport != nil {
+		dr := syncReport.DiscoveryReport
+		scanReport.Entities.Epics.Matched = dr.EpicsImported
+		scanReport.Entities.Features.Matched = dr.FeaturesImported
+		// Note: Total discovered counts are in dr.EpicsDiscovered and dr.FeaturesDiscovered
+		// but the reporting structure doesn't have a field for "discovered" vs "imported"
+	}
 
 	// Convert warnings
 	for _, warning := range syncReport.Warnings {

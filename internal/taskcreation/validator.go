@@ -70,13 +70,15 @@ func (v *Validator) ValidateTaskInput(ctx context.Context, input TaskInput) (*Va
 		return nil, fmt.Errorf("feature %s does not belong to epic %s", normalizedFeatureKey, input.EpicKey)
 	}
 
-	// 4. Validate agent type
-	if err := models.ValidateAgentType(input.AgentType); err != nil {
-		return nil, fmt.Errorf("invalid agent type '%s'. Must be one of: frontend, backend, api, testing, devops, general", input.AgentType)
+	// 4. Validate and convert agent type (now optional and accepts any string)
+	var agentType models.AgentType
+	if input.AgentType != "" {
+		// Accept any string value for agent type
+		agentType = models.AgentType(input.AgentType)
+	} else {
+		// Default to general if not provided
+		agentType = models.AgentTypeGeneral
 	}
-
-	// Convert to AgentType
-	agentType := models.AgentType(input.AgentType)
 
 	// 5. Validate priority
 	if input.Priority < 1 || input.Priority > 10 {

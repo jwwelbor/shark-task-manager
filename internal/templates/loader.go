@@ -32,6 +32,7 @@ func NewLoader(templateDir string) *Loader {
 }
 
 // LoadTemplate loads a template for the given agent type
+// Falls back to general template if agent-specific template not found
 func (l *Loader) LoadTemplate(agentType models.AgentType) (string, error) {
 	filename := fmt.Sprintf("task-%s.md", agentType)
 
@@ -41,16 +42,72 @@ func (l *Loader) LoadTemplate(agentType models.AgentType) (string, error) {
 		if err == nil {
 			return string(content), nil
 		}
+
+		// If agent-specific template not found and it's not "general", try general template
+		if agentType != models.AgentTypeGeneral {
+			generalFilename := "task-general.md"
+			content, err := embeddedTemplates.ReadFile(filepath.Join("task_templates", generalFilename))
+			if err == nil {
+				return string(content), nil
+			}
+		}
 	}
 
 	// Try filesystem
 	path := filepath.Join(l.templateDir, filename)
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("template not found: %s", filename)
+		// If agent-specific template not found and it's not "general", try general template
+		if agentType != models.AgentTypeGeneral {
+			generalPath := filepath.Join(l.templateDir, "task-general.md")
+			content, err := os.ReadFile(generalPath)
+			if err == nil {
+				return string(content), nil
+			}
+		}
+		return "", fmt.Errorf("template not found: %s (and fallback to general template failed)", filename)
 	}
 
 	return string(content), nil
+}
+
+// LoadCustomTemplate loads a custom template from the specified path
+// with security validation to prevent directory traversal attacks
+func (l *Loader) LoadCustomTemplate(templatePath string) (string, error) {
+	// Security: Prevent directory traversal
+	cleanPath := filepath.Clean(templatePath)
+	if containsDirectoryTraversal(cleanPath) {
+		return "", fmt.Errorf("invalid template path: directory traversal not allowed")
+	}
+
+	// Check file exists
+	if _, err := os.Stat(cleanPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("template file not found: %s", cleanPath)
+		}
+		return "", fmt.Errorf("failed to access template file: %w", err)
+	}
+
+	// Load and return template
+	content, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read template: %w", err)
+	}
+
+	return string(content), nil
+}
+
+// containsDirectoryTraversal checks if a path contains directory traversal attempts
+func containsDirectoryTraversal(path string) bool {
+	// Check for .. in the path (after cleaning)
+	parts := filepath.SplitList(path)
+	for _, part := range parts {
+		if part == ".." {
+			return true
+		}
+	}
+	// Also check the full path string
+	return filepath.IsAbs(path) == false && (len(path) >= 2 && (path[0:2] == ".." || path[0:3] == "../"))
 }
 
 // GetAvailableAgentTypes returns all available agent types

@@ -25,8 +25,8 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 	}
 
 	query := `
-		INSERT INTO features (epic_id, key, title, description, status, progress_pct)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -36,6 +36,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 		feature.Description,
 		feature.Status,
 		feature.ProgressPct,
+		feature.ExecutionOrder,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create feature: %w", err)
@@ -54,7 +55,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, created_at, updated_at
 		FROM features
 		WHERE id = ?
 	`
@@ -68,6 +69,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 		&feature.Description,
 		&feature.Status,
 		&feature.ProgressPct,
+		&feature.ExecutionOrder,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -86,7 +88,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, created_at, updated_at
 		FROM features
 		WHERE key = ?
 	`
@@ -100,6 +102,7 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 		&feature.Description,
 		&feature.Status,
 		&feature.ProgressPct,
+		&feature.ExecutionOrder,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -118,10 +121,10 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, created_at, updated_at
 		FROM features
 		WHERE epic_id = ?
-		ORDER BY created_at DESC
+		ORDER BY execution_order NULLS LAST, created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, epicID)
@@ -141,6 +144,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
+			&feature.ExecutionOrder,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -161,9 +165,9 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, created_at, updated_at
 		FROM features
-		ORDER BY created_at DESC
+		ORDER BY execution_order NULLS LAST, created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -183,6 +187,7 @@ func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error)
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
+			&feature.ExecutionOrder,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -207,7 +212,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 
 	query := `
 		UPDATE features
-		SET title = ?, description = ?, status = ?, progress_pct = ?
+		SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?
 		WHERE id = ?
 	`
 
@@ -216,6 +221,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		feature.Description,
 		feature.Status,
 		feature.ProgressPct,
+		feature.ExecutionOrder,
 		feature.ID,
 	)
 	if err != nil {
@@ -316,10 +322,10 @@ func (r *FeatureRepository) UpdateProgressByKey(ctx context.Context, key string)
 func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.FeatureStatus) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, created_at, updated_at
 		FROM features
 		WHERE status = ?
-		ORDER BY created_at DESC
+		ORDER BY execution_order NULLS LAST, created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, status)
@@ -339,6 +345,7 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
+			&feature.ExecutionOrder,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -359,10 +366,10 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int64, status models.FeatureStatus) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, created_at, updated_at
 		FROM features
 		WHERE epic_id = ? AND status = ?
-		ORDER BY created_at DESC
+		ORDER BY execution_order NULLS LAST, created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, epicID, status)
@@ -382,6 +389,7 @@ func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int6
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
+			&feature.ExecutionOrder,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -434,8 +442,8 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 	}
 
 	query := `
-		INSERT INTO features (epic_id, key, title, description, status, progress_pct)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := tx.ExecContext(ctx, query,
@@ -445,6 +453,7 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 		feature.Description,
 		feature.Status,
 		feature.ProgressPct,
+		feature.ExecutionOrder,
 	)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create feature: %w", err)

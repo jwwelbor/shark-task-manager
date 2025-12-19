@@ -55,14 +55,20 @@ var taskGetCmd = &cobra.Command{
 
 // taskCreateCmd creates a new task
 var taskCreateCmd = &cobra.Command{
-	Use:   "create",
+	Use:   "create <title> [flags]",
 	Short: "Create a new task",
 	Long: `Create a new task with automatic key generation and file creation.
 
+The --agent flag is optional and accepts any string value. If not provided, defaults to "general".
+The --template flag allows using a custom task template file.
+
 Examples:
-  pm task create --epic=E01 --feature=F02 --title="Build Login" --agent=frontend
-  pm task create -e E01 -f F02 -t "Build Login" -a frontend -p 5
-  pm task create --epic=E01 --feature=F02 --title="User Service" --agent=backend --depends-on="T-E01-F01-001"`,
+  shark task create "Build Login" --epic=E01 --feature=F02
+  shark task create "Build Login" --epic=E01 --feature=F02 --agent=frontend
+  shark task create "User Service" --epic=E01 --feature=F02 --agent=backend --priority=5
+  shark task create "Database task" --epic=E01 --feature=F02 --agent=database-admin
+  shark task create "Custom task" --epic=E01 --feature=F02 --template=./my-template.md`,
+	Args: cobra.ExactArgs(1),
 	RunE: runTaskCreate,
 }
 
@@ -70,54 +76,72 @@ Examples:
 var taskStartCmd = &cobra.Command{
 	Use:   "start <task-key>",
 	Short: "Start working on a task",
-	Long:  `Mark a task as in_progress and update timestamps.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTaskStart,
+	Long: `Mark a task as in_progress and update timestamps.
+
+Use --force to bypass status transition validation. This allows starting a task
+from any status (not just 'todo'). Use with caution as this is an administrative override.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskStart,
 }
 
 // taskCompleteCmd marks a task as complete
 var taskCompleteCmd = &cobra.Command{
 	Use:   "complete <task-key>",
 	Short: "Mark task as complete",
-	Long:  `Mark a task as completed and update timestamps.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTaskComplete,
+	Long: `Mark a task as ready_for_review and update timestamps.
+
+Use --force to bypass status transition validation. This allows marking a task complete
+from any status (not just 'in_progress'). Use with caution as this is an administrative override.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskComplete,
 }
 
 // taskApproveCmd approves a task for completion
 var taskApproveCmd = &cobra.Command{
 	Use:   "approve <task-key>",
 	Short: "Approve task for completion",
-	Long:  `Approve a task that is ready for review and mark it as completed.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTaskApprove,
+	Long: `Approve a task that is ready for review and mark it as completed.
+
+Use --force to bypass status transition validation. This allows approving a task
+from any status (not just 'ready_for_review'). Use with caution as this is an administrative override.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskApprove,
 }
 
 // taskBlockCmd blocks a task
 var taskBlockCmd = &cobra.Command{
 	Use:   "block <task-key>",
 	Short: "Block a task",
-	Long:  `Mark a task as blocked with a required reason.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTaskBlock,
+	Long: `Mark a task as blocked with a required reason.
+
+Use --force to bypass status transition validation. This allows blocking a task
+from any status (not just 'todo' or 'in_progress'). Use with caution as this is an administrative override.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskBlock,
 }
 
 // taskUnblockCmd unblocks a task
 var taskUnblockCmd = &cobra.Command{
 	Use:   "unblock <task-key>",
 	Short: "Unblock a task",
-	Long:  `Unblock a task and return it to todo status.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTaskUnblock,
+	Long: `Unblock a task and return it to todo status.
+
+Use --force to bypass status transition validation. This allows unblocking a task
+from any status (not just 'blocked'). Use with caution as this is an administrative override.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskUnblock,
 }
 
 // taskReopenCmd reopens a task
 var taskReopenCmd = &cobra.Command{
 	Use:   "reopen <task-key>",
 	Short: "Reopen a task for rework",
-	Long:  `Reopen a task from ready_for_review status back to in_progress for additional work.`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTaskReopen,
+	Long: `Reopen a task from ready_for_review status back to in_progress for additional work.
+
+Use --force to bypass status transition validation. This allows reopening a task
+from any status (not just 'ready_for_review'). Use with caution as this is an administrative override.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskReopen,
 }
 
 // taskNextCmd finds the next available task
@@ -244,7 +268,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	headers := []string{"Key", "Title", "Status", "Priority", "Agent Type"}
+	headers := []string{"Key", "Title", "Status", "Priority", "Agent Type", "Order"}
 	rows := [][]string{}
 	for _, task := range tasks {
 		agentTypeStr := "-"
@@ -258,12 +282,19 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 			title = title[:37] + "..."
 		}
 
+		// Format execution_order (show "-" if NULL)
+		execOrder := "-"
+		if task.ExecutionOrder != nil {
+			execOrder = fmt.Sprintf("%d", *task.ExecutionOrder)
+		}
+
 		rows = append(rows, []string{
 			task.Key,
 			title,
 			string(task.Status),
 			fmt.Sprintf("%d", task.Priority),
 			agentTypeStr,
+			execOrder,
 		})
 	}
 
@@ -515,24 +546,35 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Get title from positional argument or flag
+	var title string
+	if len(args) > 0 {
+		title = args[0]
+	} else {
+		title, _ = cmd.Flags().GetString("title")
+	}
+
 	// Get required flags
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
-	title, _ := cmd.Flags().GetString("title")
-	agentType, _ := cmd.Flags().GetString("agent")
 
 	// Validate required flags
-	if epicKey == "" || featureKey == "" || title == "" || agentType == "" {
-		cli.Error("Error: Missing required flags. All of --epic, --feature, --title, and --agent are required.")
-		fmt.Println("\nExample:")
-		fmt.Println("  pm task create --epic=E01 --feature=F02 --title=\"Build Login\" --agent=frontend")
+	if epicKey == "" || featureKey == "" || title == "" {
+		cli.Error("Error: Missing required flags. --epic, --feature, and --title (or positional argument) are required.")
+		fmt.Println("\nExamples:")
+		fmt.Println("  shark task create \"Build Login\" --epic=E01 --feature=F02")
+		fmt.Println("  shark task create \"Build Login\" --epic=E01 --feature=F02 --agent=frontend")
+		fmt.Println("  shark task create \"Build Login\" --epic=E01 --feature=F02 --template=./my-template.md")
 		os.Exit(1)
 	}
 
 	// Get optional flags
+	agentType, _ := cmd.Flags().GetString("agent")
+	customTemplate, _ := cmd.Flags().GetString("template")
 	description, _ := cmd.Flags().GetString("description")
 	priority, _ := cmd.Flags().GetInt("priority")
 	dependsOn, _ := cmd.Flags().GetString("depends-on")
+	executionOrder, _ := cmd.Flags().GetInt("execution-order")
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -562,13 +604,15 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 
 	// Create task
 	input := taskcreation.CreateTaskInput{
-		EpicKey:     epicKey,
-		FeatureKey:  featureKey,
-		Title:       title,
-		Description: description,
-		AgentType:   agentType,
-		Priority:    priority,
-		DependsOn:   dependsOn,
+		EpicKey:        epicKey,
+		FeatureKey:     featureKey,
+		Title:          title,
+		Description:    description,
+		AgentType:      agentType,
+		CustomTemplate: customTemplate,
+		Priority:       priority,
+		DependsOn:      dependsOn,
+		ExecutionOrder: executionOrder,
 	}
 
 	result, err := creator.CreateTask(ctx, input)
@@ -620,9 +664,13 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Validate current status is "todo"
-	if task.Status != models.TaskStatusTodo {
+	// Get force flag
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Validate current status is "todo" unless forcing
+	if !force && task.Status != models.TaskStatusTodo {
 		cli.Error(fmt.Sprintf("Invalid state transition from %s to in_progress. Task must be in 'todo' status.", task.Status))
+		cli.Info("Use --force to bypass this validation")
 		os.Exit(3)
 	}
 
@@ -636,8 +684,12 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	agent := getAgentIdentifier(agentFlag)
 
 	// Update status
-	if err := repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil); err != nil {
+	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, &agent, nil, force); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	if force {
+		cli.Warning(fmt.Sprintf("Task %s force-started from %s status", taskKey, task.Status))
 	}
 
 	cli.Success(fmt.Sprintf("Task %s started. Status changed to in_progress.", taskKey))
@@ -674,9 +726,13 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Validate current status is "in_progress"
-	if task.Status != models.TaskStatusInProgress {
+	// Get force flag
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Validate current status is "in_progress" unless forcing
+	if !force && task.Status != models.TaskStatusInProgress {
 		cli.Error(fmt.Sprintf("Invalid state transition from %s to ready_for_review. Task must be in 'in_progress' status.", task.Status))
+		cli.Info("Use --force to bypass this validation")
 		os.Exit(3)
 	}
 
@@ -690,8 +746,12 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update status
-	if err := repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &agent, notes); err != nil {
+	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusReadyForReview, &agent, notes, force); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	if force {
+		cli.Warning(fmt.Sprintf("Task %s force-completed from %s status", taskKey, task.Status))
 	}
 
 	cli.Success(fmt.Sprintf("Task %s marked ready for review. Status changed to ready_for_review.", taskKey))
@@ -728,9 +788,13 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Validate current status is "ready_for_review"
-	if task.Status != models.TaskStatusReadyForReview {
+	// Get force flag
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Validate current status is "ready_for_review" unless forcing
+	if !force && task.Status != models.TaskStatusReadyForReview {
 		cli.Error(fmt.Sprintf("Invalid state transition from %s to completed. Task must be in 'ready_for_review' status.", task.Status))
+		cli.Info("Use --force to bypass this validation")
 		os.Exit(3)
 	}
 
@@ -744,8 +808,12 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update status
-	if err := repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, notes); err != nil {
+	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, force); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	if force {
+		cli.Warning(fmt.Sprintf("Task %s force-approved from %s status", taskKey, task.Status))
 	}
 
 	cli.Success(fmt.Sprintf("Task %s approved and completed.", taskKey))
@@ -800,9 +868,13 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Validate current status is "todo" or "in_progress"
-	if task.Status != models.TaskStatusTodo && task.Status != models.TaskStatusInProgress {
+	// Get force flag
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Validate current status is "todo" or "in_progress" unless forcing
+	if !force && task.Status != models.TaskStatusTodo && task.Status != models.TaskStatusInProgress {
 		cli.Error(fmt.Sprintf("Invalid state transition from %s to blocked. Task must be in 'todo' or 'in_progress' status.", task.Status))
+		cli.Info("Use --force to bypass this validation")
 		os.Exit(3)
 	}
 
@@ -811,8 +883,12 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	agent := getAgentIdentifier(agentFlag)
 
 	// Block the task atomically
-	if err := repo.BlockTask(ctx, task.ID, reason, &agent); err != nil {
+	if err := repo.BlockTaskForced(ctx, task.ID, reason, &agent, force); err != nil {
 		return fmt.Errorf("failed to block task: %w", err)
+	}
+
+	if force {
+		cli.Warning(fmt.Sprintf("Task %s force-blocked from %s status", taskKey, task.Status))
 	}
 
 	cli.Success(fmt.Sprintf("Task %s blocked. Reason: %s", taskKey, reason))
@@ -849,9 +925,13 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Validate current status is "blocked"
-	if task.Status != models.TaskStatusBlocked {
+	// Get force flag
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Validate current status is "blocked" unless forcing
+	if !force && task.Status != models.TaskStatusBlocked {
 		cli.Error(fmt.Sprintf("Invalid state transition from %s to todo. Task must be in 'blocked' status.", task.Status))
+		cli.Info("Use --force to bypass this validation")
 		os.Exit(3)
 	}
 
@@ -860,8 +940,12 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	agent := getAgentIdentifier(agentFlag)
 
 	// Unblock the task atomically
-	if err := repo.UnblockTask(ctx, task.ID, &agent); err != nil {
+	if err := repo.UnblockTaskForced(ctx, task.ID, &agent, force); err != nil {
 		return fmt.Errorf("failed to unblock task: %w", err)
+	}
+
+	if force {
+		cli.Warning(fmt.Sprintf("Task %s force-unblocked from %s status", taskKey, task.Status))
 	}
 
 	cli.Success(fmt.Sprintf("Task %s unblocked and returned to todo queue", taskKey))
@@ -898,9 +982,13 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Validate current status is "ready_for_review"
-	if task.Status != models.TaskStatusReadyForReview {
+	// Get force flag
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Validate current status is "ready_for_review" unless forcing
+	if !force && task.Status != models.TaskStatusReadyForReview {
 		cli.Error(fmt.Sprintf("Invalid state transition from %s to in_progress. Task must be in 'ready_for_review' status.", task.Status))
+		cli.Info("Use --force to bypass this validation")
 		os.Exit(3)
 	}
 
@@ -914,8 +1002,12 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	}
 
 	// Reopen the task atomically
-	if err := repo.ReopenTask(ctx, task.ID, &agent, notes); err != nil {
+	if err := repo.ReopenTaskForced(ctx, task.ID, &agent, notes, force); err != nil {
 		return fmt.Errorf("failed to reopen task: %w", err)
+	}
+
+	if force {
+		cli.Warning(fmt.Sprintf("Task %s force-reopened from %s status", taskKey, task.Status))
 	}
 
 	cli.Success(fmt.Sprintf("Task %s reopened for rework.", taskKey))
@@ -992,13 +1084,12 @@ func init() {
 	taskCreateCmd.MarkFlagRequired("epic")
 	taskCreateCmd.Flags().StringP("feature", "f", "", "Feature key (e.g., F02 or E01-F02) (required)")
 	taskCreateCmd.MarkFlagRequired("feature")
-	taskCreateCmd.Flags().StringP("title", "t", "", "Task title (required)")
-	taskCreateCmd.MarkFlagRequired("title")
-	taskCreateCmd.Flags().StringP("agent", "a", "", "Agent type: frontend, backend, api, testing, devops, general (required)")
-	taskCreateCmd.MarkFlagRequired("agent")
+	taskCreateCmd.Flags().StringP("agent", "a", "", "Agent type (optional, accepts any string)")
+	taskCreateCmd.Flags().StringP("template", "", "", "Path to custom task template (optional)")
 	taskCreateCmd.Flags().StringP("description", "d", "", "Detailed description (optional)")
 	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority (1-10, default 5)")
 	taskCreateCmd.Flags().String("depends-on", "", "Comma-separated dependency task keys (optional)")
+	taskCreateCmd.Flags().Int("execution-order", 0, "Execution order (optional, 0 = not set)")
 
 	// Add flags for next command
 	taskNextCmd.Flags().StringP("agent", "a", "", "Agent type to match")
@@ -1006,15 +1097,21 @@ func init() {
 
 	// Add flags for state transition commands
 	taskStartCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
+	taskStartCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 	taskCompleteCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskCompleteCmd.Flags().StringP("notes", "n", "", "Completion notes")
+	taskCompleteCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 	taskApproveCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskApproveCmd.Flags().StringP("notes", "n", "", "Approval notes")
+	taskApproveCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 
 	// Add flags for exception handling commands
 	taskBlockCmd.Flags().StringP("reason", "r", "", "Reason for blocking (required)")
 	taskBlockCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
+	taskBlockCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 	taskUnblockCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
+	taskUnblockCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 	taskReopenCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskReopenCmd.Flags().StringP("notes", "n", "", "Rework notes")
+	taskReopenCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 }
