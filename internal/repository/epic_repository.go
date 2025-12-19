@@ -369,3 +369,29 @@ func (r *EpicRepository) CreateIfNotExists(ctx context.Context, epic *models.Epi
 
 	return epic, true, nil
 }
+
+// GetCustomFolderPath retrieves the custom folder path for an epic by its key
+func (r *EpicRepository) GetCustomFolderPath(ctx context.Context, epicKey string) (*string, error) {
+	query := `
+		SELECT custom_folder_path
+		FROM epics
+		WHERE key = ?
+	`
+
+	var customFolderPath sql.NullString
+	err := r.db.QueryRowContext(ctx, query, epicKey).Scan(&customFolderPath)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("epic not found with key %s", epicKey)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get custom folder path: %w", err)
+	}
+
+	// Return nil if the value is NULL in the database
+	if !customFolderPath.Valid {
+		return nil, nil
+	}
+
+	return &customFolderPath.String, nil
+}

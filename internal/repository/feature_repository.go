@@ -540,3 +540,29 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 
 	return feature, true, nil
 }
+
+// GetCustomFolderPath retrieves the custom folder path for a feature by its key
+func (r *FeatureRepository) GetCustomFolderPath(ctx context.Context, featureKey string) (*string, error) {
+	query := `
+		SELECT custom_folder_path
+		FROM features
+		WHERE key = ?
+	`
+
+	var customFolderPath sql.NullString
+	err := r.db.QueryRowContext(ctx, query, featureKey).Scan(&customFolderPath)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("feature not found with key %s", featureKey)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get custom folder path: %w", err)
+	}
+
+	// Return nil if the value is NULL in the database
+	if !customFolderPath.Valid {
+		return nil, nil
+	}
+
+	return &customFolderPath.String, nil
+}
