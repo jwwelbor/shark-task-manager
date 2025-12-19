@@ -1,3 +1,7 @@
+---
+task_key: T-E06-F03-001
+---
+
 # T-E06-F03-004: Integration with Sync Engine - Implementation Summary
 
 ## Task Overview

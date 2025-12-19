@@ -86,6 +86,22 @@ Examples:
 	RunE: runFeatureCreate,
 }
 
+// featureCompleteCmd completes all tasks in a feature
+var featureCompleteCmd = &cobra.Command{
+	Use:   "complete <feature-key>",
+	Short: "Complete all tasks in a feature",
+	Long: `Mark all tasks in a feature as completed, with safeguards against accidental completion.
+
+Without --force, shows a warning summary if any tasks are incomplete and fails.
+With --force, completes all tasks regardless of status.
+
+Examples:
+  shark feature complete E04-F02       Complete feature (fails if tasks incomplete)
+  shark feature complete E04-F02 --force  Force complete all tasks`,
+	Args: cobra.ExactArgs(1),
+	RunE: runFeatureComplete,
+}
+
 // featureDeleteCmd deletes a feature
 var featureDeleteCmd = &cobra.Command{
 	Use:   "delete <feature-key>",
@@ -118,6 +134,7 @@ func init() {
 	featureCmd.AddCommand(featureListCmd)
 	featureCmd.AddCommand(featureGetCmd)
 	featureCmd.AddCommand(featureCreateCmd)
+	featureCmd.AddCommand(featureCompleteCmd)
 	featureCmd.AddCommand(featureDeleteCmd)
 
 	// Add flags for list command
@@ -132,6 +149,9 @@ func init() {
 	featureCreateCmd.Flags().StringVar(&featureCreateFilename, "filename", "", "Custom filename path (relative to project root, must end in .md)")
 	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
 	featureCreateCmd.MarkFlagRequired("epic")
+
+	// Add flags for complete command
+	featureCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks regardless of status")
 
 	// Add flags for delete command
 	featureDeleteCmd.Flags().Bool("force", false, "Force deletion even if feature has tasks")
@@ -836,6 +856,131 @@ func getNextFeatureKey(ctx context.Context, featureRepo *repository.FeatureRepos
 
 	// Return next available number
 	return fmt.Sprintf("F%02d", maxNum+1), nil
+}
+
+// runFeatureComplete executes the feature complete command
+func runFeatureComplete(cmd *cobra.Command, args []string) error {
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	featureKey := args[0]
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
+		return fmt.Errorf("database path error")
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		cli.Error("Error: Database error. Run with --verbose for details.")
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
+		}
+		os.Exit(2)
+	}
+	defer database.Close()
+
+	// Get repositories
+	repoDb := repository.NewDB(database)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
+
+	// Get feature by key
+	feature, err := featureRepo.GetByKey(ctx, featureKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
+		cli.Info("Use 'shark feature list' to see available features")
+		os.Exit(1)
+	}
+
+	// Get all tasks in feature
+	tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to list tasks: %v", err))
+		os.Exit(2)
+	}
+
+	// If no tasks, inform user
+	if len(tasks) == 0 {
+		cli.Info(fmt.Sprintf("Feature %s has no tasks to complete", featureKey))
+		return nil
+	}
+
+	// Check task status breakdown
+	statusBreakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get task status: %v", err))
+		os.Exit(2)
+	}
+
+	// Count completed and reviewed tasks
+	completedCount := statusBreakdown[models.TaskStatusCompleted]
+	reviewedCount := statusBreakdown[models.TaskStatusReadyForReview]
+	allDoneCount := completedCount + reviewedCount
+
+	// Check if all tasks are already completed/reviewed
+	hasIncomplete := allDoneCount < len(tasks)
+
+	// Show warning if incomplete tasks exist
+	if hasIncomplete && !force {
+		cli.Warning(fmt.Sprintf("Feature %s has %d incomplete task(s)", featureKey, len(tasks)-allDoneCount))
+		fmt.Println("\nTask Status Breakdown:")
+		fmt.Printf("  Completed: %d\n", completedCount)
+		fmt.Printf("  Ready for Review: %d\n", reviewedCount)
+		if count, ok := statusBreakdown[models.TaskStatusTodo]; ok && count > 0 {
+			fmt.Printf("  Todo: %d\n", count)
+		}
+		if count, ok := statusBreakdown[models.TaskStatusInProgress]; ok && count > 0 {
+			fmt.Printf("  In Progress: %d\n", count)
+		}
+		if count, ok := statusBreakdown[models.TaskStatusBlocked]; ok && count > 0 {
+			fmt.Printf("  Blocked: %d\n", count)
+		}
+		cli.Info("Use --force to complete all tasks regardless of status")
+		os.Exit(1)
+	}
+
+	// Complete all tasks
+	agent := getAgentIdentifier("")
+	completedCount = 0
+	for _, task := range tasks {
+		// Skip already completed tasks
+		if task.Status == models.TaskStatusCompleted {
+			completedCount++
+			continue
+		}
+
+		// Mark as completed
+		if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, true); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to complete task %s: %v", task.Key, err))
+			os.Exit(2)
+		}
+		completedCount++
+	}
+
+	// Update feature progress to 100%
+	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to update feature progress: %v", err))
+		os.Exit(2)
+	}
+
+	// Output results
+	if cli.GlobalConfig.JSON {
+		result := map[string]interface{}{
+			"feature_key":    featureKey,
+			"tasks_completed": completedCount,
+			"total_tasks":    len(tasks),
+			"progress":       100.0,
+		}
+		return cli.OutputJSON(result)
+	}
+
+	cli.Success(fmt.Sprintf("Feature %s completed! All %d task(s) marked as completed.", featureKey, completedCount))
+	return nil
 }
 
 // runFeatureDelete executes the feature delete command

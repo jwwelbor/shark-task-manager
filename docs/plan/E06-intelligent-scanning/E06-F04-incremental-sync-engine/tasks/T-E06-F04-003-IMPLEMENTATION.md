@@ -1,3 +1,7 @@
+---
+task_key: T-E06-F04-001
+---
+
 # T-E06-F04-003 Implementation Summary
 
 ## Task: Conflict Detection and Resolution System
