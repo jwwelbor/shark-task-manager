@@ -13,6 +13,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
@@ -95,8 +96,9 @@ Examples:
 }
 
 var (
-	featureCreateEpic        string
-	featureCreateDescription string
+	featureCreateEpic           string
+	featureCreateDescription    string
+	featureCreateExecutionOrder int
 )
 
 func init() {
@@ -117,6 +119,7 @@ func init() {
 	// Add flags for create command
 	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01)")
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
+	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
 	featureCreateCmd.MarkFlagRequired("epic")
 
 	// Add flags for delete command
@@ -399,7 +402,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) {
 	// Create table data
 	tableData := pterm.TableData{
-		{"Key", "Title", "Epic ID", "Status", "Progress", "Tasks"},
+		{"Key", "Title", "Epic ID", "Status", "Progress", "Tasks", "Order"},
 	}
 
 	for _, feature := range features {
@@ -412,6 +415,12 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 		// Format progress with 1 decimal place
 		progress := fmt.Sprintf("%.1f%%", feature.ProgressPct)
 
+		// Format execution_order (show "-" if NULL)
+		execOrder := "-"
+		if feature.ExecutionOrder != nil {
+			execOrder = fmt.Sprintf("%d", *feature.ExecutionOrder)
+		}
+
 		tableData = append(tableData, []string{
 			feature.Key,
 			title,
@@ -419,6 +428,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 			string(feature.Status),
 			progress,
 			fmt.Sprintf("%d", feature.TaskCount),
+			execOrder,
 		})
 	}
 
@@ -619,7 +629,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate slug from title
-	slug := generateSlug(featureTitle)
+	slug := utils.GenerateSlug(featureTitle)
 	featureSlug := fmt.Sprintf("%s-%s-%s", featureCreateEpic, nextKey, slug)
 
 	// Find epic directory
@@ -690,13 +700,21 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 	// Create database entry with key (E##-F##) not full slug
 	featureKey := fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
+
+	// Set execution_order only if provided (non-zero)
+	var executionOrder *int
+	if featureCreateExecutionOrder > 0 {
+		executionOrder = &featureCreateExecutionOrder
+	}
+
 	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey,
-		Title:       featureTitle,
-		Description: &featureCreateDescription,
-		Status:      models.FeatureStatusDraft,
-		ProgressPct: 0.0,
+		EpicID:         epic.ID,
+		Key:            featureKey,
+		Title:          featureTitle,
+		Description:    &featureCreateDescription,
+		Status:         models.FeatureStatusDraft,
+		ProgressPct:    0.0,
+		ExecutionOrder: executionOrder,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {

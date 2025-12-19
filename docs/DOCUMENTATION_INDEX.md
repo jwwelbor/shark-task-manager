@@ -7,7 +7,7 @@ Complete guide to all documentation for the Shark Task Manager project.
 Start here if you're new to the project:
 
 1. [README](../README.md) - Project overview and quick start
-2. [CLI Documentation](CLI.md) - Complete CLI command reference
+2. [CLI Documentation](CLI_REFERENCE.md) - Complete CLI command reference
 3. [Database Implementation](DATABASE_IMPLEMENTATION.md) - Database schema and design
 
 ## User Guides
@@ -58,17 +58,13 @@ docs/
 │   ├── E04-task-mgmt-cli-core/   # Epic E04 planning docs
 │   │   ├── epic.md               # Epic overview
 │   │   ├── E04-F01-*/            # Feature F01 planning
+│   │   │   └── tasks/                         # Task tracking
 │   │   ├── E04-F02-*/            # Feature F02 planning
+│   │   │   └── tasks/                         # Task tracking
 │   │   ├── E04-F04-*/            # Feature F04 planning (Epic queries)
+│   │   │   └── tasks/                         # Task tracking
 │   │   └── ...
 │   └── E05-task-mgmt-cli-capabilities/  # Epic E05 planning docs
-│
-├── tasks/                         # Task tracking
-│   ├── MASTER-TASK-INDEX.md      # Master index of all tasks
-│   ├── TASK-INDEX-E04-F04.md     # Task index for feature E04-F04
-│   ├── todo/                     # Tasks to do
-│   ├── created/                  # Tasks created but not started
-│   └── completed/                # Completed tasks
 │
 └── templates/                     # Document templates
 ```
@@ -93,11 +89,6 @@ docs/
 
 - [Master Task Index](tasks/MASTER-TASK-INDEX.md) - All tasks across all features
 - [Task Index E04-F04](tasks/TASK-INDEX-E04-F04.md) - Epic & Feature Query tasks
-
-Example task files:
-- [T-E04-F04-001](tasks/todo/T-E04-F04-001.md) - Progress Calculation Service
-- [T-E04-F04-002](tasks/todo/T-E04-F04-002.md) - Epic Query Commands
-- [T-E04-F04-006](tasks/todo/T-E04-F04-006.md) - Documentation (this task!)
 
 ## Future Enhancements
 

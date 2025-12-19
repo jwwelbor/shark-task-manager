@@ -167,6 +167,75 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 	return task, nil
 }
 
+// GetByFilePath retrieves a task by its file path
+// Returns sql.ErrNoRows if no task found with that file path
+func (r *TaskRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Task, error) {
+	query := `
+		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at
+		FROM tasks
+		WHERE file_path = ?
+	`
+
+	task := &models.Task{}
+	err := r.db.QueryRowContext(ctx, query, filePath).Scan(
+		&task.ID,
+		&task.FeatureID,
+		&task.Key,
+		&task.Title,
+		&task.Description,
+		&task.Status,
+		&task.AgentType,
+		&task.Priority,
+		&task.DependsOn,
+		&task.AssignedAgent,
+		&task.FilePath,
+		&task.BlockedReason,
+		&task.ExecutionOrder,
+		&task.CreatedAt,
+		&task.StartedAt,
+		&task.CompletedAt,
+		&task.BlockedAt,
+		&task.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, sql.ErrNoRows
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task by file path: %w", err)
+	}
+
+	return task, nil
+}
+
+// UpdateFilePath updates the file_path for a task
+// Pass nil to clear the file path
+func (r *TaskRepository) UpdateFilePath(ctx context.Context, taskKey string, newFilePath *string) error {
+	query := `
+		UPDATE tasks
+		SET file_path = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query, newFilePath, taskKey)
+	if err != nil {
+		return fmt.Errorf("failed to update file path: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("task not found: %s", taskKey)
+	}
+
+	return nil
+}
+
 // ListByFeature retrieves all tasks for a feature
 func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error) {
 	query := `

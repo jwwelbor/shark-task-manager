@@ -355,12 +355,15 @@ func (e *SyncEngine) importTask(ctx context.Context, tx *sql.Tx, taskData *TaskM
 	feature, err := e.featureRepo.GetByKey(ctx, featureKey)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			if opts.CreateMissing {
-				// Auto-create feature and epic
+			if opts.CreateMissing && !opts.EnableDiscovery {
+				// Auto-create feature and epic (only when discovery is disabled)
+				// When discovery is enabled, only discovered epics/features should exist
 				feature, err = e.createMissingFeature(ctx, tx, epicKey, featureKey)
 				if err != nil {
 					return fmt.Errorf("failed to create missing feature: %w", err)
 				}
+			} else if opts.EnableDiscovery {
+				return fmt.Errorf("feature %s not found (task references undiscovered feature - check epic-index.md or folder structure)", featureKey)
 			} else {
 				return fmt.Errorf("feature %s not found (use --create-missing to auto-create)", featureKey)
 			}

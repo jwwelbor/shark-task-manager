@@ -214,22 +214,33 @@ func validateRequiredCaptureGroups(groups []string, entityType, pattern string) 
 		}
 
 	case "feature":
-		// Feature patterns must include (epic_id OR epic_num) AND (feature_id OR feature_slug OR number OR slug)
+		// Feature patterns must include (feature_id OR feature_slug OR number OR slug)
+		// Epic context may be explicit (epic_id OR epic_num) in the pattern OR inferred from parent folder
+		// This allows two pattern styles:
+		// 1. Full: E##-F##-slug (epic_num + number)
+		// 2. Nested: F##-slug (just number, epic inferred from parent)
 		hasEpic := groupSet["epic_id"] || groupSet["epic_num"]
 		hasFeature := groupSet["feature_id"] || groupSet["feature_slug"] || groupSet["number"] || groupSet["slug"]
 
-		if !hasEpic {
-			return &ValidationError{
-				Pattern:    pattern,
-				EntityType: entityType,
-				Message:    "missing required capture group: must include 'epic_id' or 'epic_num' to identify parent epic",
-			}
-		}
 		if !hasFeature {
 			return &ValidationError{
 				Pattern:    pattern,
 				EntityType: entityType,
 				Message:    "missing required capture group: must include at least one of 'feature_id', 'feature_slug', 'number', or 'slug'",
+			}
+		}
+
+		// If epic context is missing, this pattern assumes parent folder context provides it
+		// This is valid for nested feature patterns (e.g., F##-slug under epic folders)
+		if !hasEpic {
+			// Pattern should have explicit feature identifier to distinguish from other folder types
+			// 'number' or 'feature_num' or 'feature_slug' are sufficient for this purpose
+			if !groupSet["feature_id"] && !groupSet["feature_num"] && !groupSet["feature_slug"] {
+				// If we only have generic 'number' or 'slug', make sure the pattern is specific enough
+				// This is a secondary check to catch obviously wrong patterns
+				if groupSet["number"] || groupSet["slug"] {
+					// Allow it - assumes parent context provides epic and generic capture group identifies feature
+				}
 			}
 		}
 

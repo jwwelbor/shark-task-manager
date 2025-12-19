@@ -21,17 +21,18 @@ func (r *ConflictResolver) Resolve(
 	folderFeatures []DiscoveredFeature,
 	conflicts []Conflict,
 	strategy ConflictStrategy,
+	indexFileExists bool,
 ) ([]DiscoveredEpic, []DiscoveredFeature, []string, error) {
 
 	switch strategy {
 	case ConflictStrategyIndexPrecedence:
-		return r.resolveIndexPrecedence(indexEpics, folderEpics, indexFeatures, folderFeatures, conflicts)
+		return r.resolveIndexPrecedence(indexEpics, folderEpics, indexFeatures, folderFeatures, conflicts, indexFileExists)
 
 	case ConflictStrategyFolderPrecedence:
-		return r.resolveFolderPrecedence(indexEpics, folderEpics, indexFeatures, folderFeatures, conflicts)
+		return r.resolveFolderPrecedence(indexEpics, folderEpics, indexFeatures, folderFeatures, conflicts, indexFileExists)
 
 	case ConflictStrategyMerge:
-		return r.resolveMerge(indexEpics, folderEpics, indexFeatures, folderFeatures, conflicts)
+		return r.resolveMerge(indexEpics, folderEpics, indexFeatures, folderFeatures, conflicts, indexFileExists)
 
 	default:
 		return nil, nil, nil, fmt.Errorf("unknown conflict resolution strategy: %s", strategy)
@@ -47,6 +48,7 @@ func (r *ConflictResolver) resolveIndexPrecedence(
 	indexFeatures []DiscoveredFeature,
 	folderFeatures []DiscoveredFeature,
 	conflicts []Conflict,
+	indexFileExists bool,
 ) ([]DiscoveredEpic, []DiscoveredFeature, []string, error) {
 
 	warnings := []string{}
@@ -61,13 +63,15 @@ func (r *ConflictResolver) resolveIndexPrecedence(
 		}
 	}
 
-	// Warn about folder-only items (will be skipped)
-	for _, conflict := range conflicts {
-		if conflict.Type == ConflictTypeEpicFolderOnly {
-			warnings = append(warnings, fmt.Sprintf("Epic %s in folders but not in index (skipped)", conflict.Key))
-		}
-		if conflict.Type == ConflictTypeFeatureFolderOnly {
-			warnings = append(warnings, fmt.Sprintf("Feature %s in folders but not in index (skipped)", conflict.Key))
+	// Warn about folder-only items (will be skipped) - only if index file exists
+	if indexFileExists {
+		for _, conflict := range conflicts {
+			if conflict.Type == ConflictTypeEpicFolderOnly {
+				warnings = append(warnings, fmt.Sprintf("Epic %s in folders but not in index (skipped)", conflict.Key))
+			}
+			if conflict.Type == ConflictTypeFeatureFolderOnly {
+				warnings = append(warnings, fmt.Sprintf("Feature %s in folders but not in index (skipped)", conflict.Key))
+			}
 		}
 	}
 
@@ -90,17 +94,20 @@ func (r *ConflictResolver) resolveFolderPrecedence(
 	indexFeatures []DiscoveredFeature,
 	folderFeatures []DiscoveredFeature,
 	conflicts []Conflict,
+	indexFileExists bool,
 ) ([]DiscoveredEpic, []DiscoveredFeature, []string, error) {
 
 	warnings := []string{}
 
-	// Warn about index-only items (will be skipped)
-	for _, conflict := range conflicts {
-		if conflict.Type == ConflictTypeEpicIndexOnly {
-			warnings = append(warnings, fmt.Sprintf("Epic %s in index but folder missing (skipped)", conflict.Key))
-		}
-		if conflict.Type == ConflictTypeFeatureIndexOnly {
-			warnings = append(warnings, fmt.Sprintf("Feature %s in index but folder missing (skipped)", conflict.Key))
+	// Warn about index-only items (will be skipped) - only if index file exists
+	if indexFileExists {
+		for _, conflict := range conflicts {
+			if conflict.Type == ConflictTypeEpicIndexOnly {
+				warnings = append(warnings, fmt.Sprintf("Epic %s in index but folder missing (skipped)", conflict.Key))
+			}
+			if conflict.Type == ConflictTypeFeatureIndexOnly {
+				warnings = append(warnings, fmt.Sprintf("Feature %s in index but folder missing (skipped)", conflict.Key))
+			}
 		}
 	}
 
@@ -123,6 +130,7 @@ func (r *ConflictResolver) resolveMerge(
 	indexFeatures []DiscoveredFeature,
 	folderFeatures []DiscoveredFeature,
 	conflicts []Conflict,
+	indexFileExists bool,
 ) ([]DiscoveredEpic, []DiscoveredFeature, []string, error) {
 
 	warnings := []string{}
@@ -161,18 +169,22 @@ func (r *ConflictResolver) resolveMerge(
 
 			resultEpicMap[key] = merged
 		} else {
-			// Index-only epic (folder missing)
-			warnings = append(warnings, fmt.Sprintf("Epic %s in index but folder missing (included anyway)", key))
+			// Index-only epic (folder missing) - only warn if index file exists
+			if indexFileExists {
+				warnings = append(warnings, fmt.Sprintf("Epic %s in index but folder missing (included anyway)", key))
+			}
 			indexEpicCopy := indexEpic
 			indexEpicCopy.Source = SourceIndex
 			resultEpicMap[key] = indexEpicCopy
 		}
 	}
 
-	// Warn about folder-only epics (already included from first pass)
-	for key := range folderEpicMap {
-		if _, existsInIndex := indexEpicMap[key]; !existsInIndex {
-			warnings = append(warnings, fmt.Sprintf("Epic %s in folders but not in index (included anyway)", key))
+	// Warn about folder-only epics (already included from first pass) - only if index file exists
+	if indexFileExists {
+		for key := range folderEpicMap {
+			if _, existsInIndex := indexEpicMap[key]; !existsInIndex {
+				warnings = append(warnings, fmt.Sprintf("Epic %s in folders but not in index (included anyway)", key))
+			}
 		}
 	}
 
@@ -212,18 +224,22 @@ func (r *ConflictResolver) resolveMerge(
 
 			resultFeatureMap[key] = merged
 		} else {
-			// Index-only feature (folder missing)
-			warnings = append(warnings, fmt.Sprintf("Feature %s in index but folder missing (included anyway)", key))
+			// Index-only feature (folder missing) - only warn if index file exists
+			if indexFileExists {
+				warnings = append(warnings, fmt.Sprintf("Feature %s in index but folder missing (included anyway)", key))
+			}
 			indexFeatureCopy := indexFeature
 			indexFeatureCopy.Source = SourceIndex
 			resultFeatureMap[key] = indexFeatureCopy
 		}
 	}
 
-	// Warn about folder-only features (already included from first pass)
-	for key := range folderFeatureMap {
-		if _, existsInIndex := indexFeatureMap[key]; !existsInIndex {
-			warnings = append(warnings, fmt.Sprintf("Feature %s in folders but not in index (included anyway)", key))
+	// Warn about folder-only features (already included from first pass) - only if index file exists
+	if indexFileExists {
+		for key := range folderFeatureMap {
+			if _, existsInIndex := indexFeatureMap[key]; !existsInIndex {
+				warnings = append(warnings, fmt.Sprintf("Feature %s in folders but not in index (included anyway)", key))
+			}
 		}
 	}
 

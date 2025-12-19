@@ -32,8 +32,8 @@ func NewFileScanner() *FileScanner {
 		featurePattern: regexp.MustCompile(`^(E\d{2})(-P\d{2})?-(F\d{2})`),
 		// Match epic directory: E##-*
 		epicPattern: regexp.MustCompile(`^(E\d{2})`),
-		// Extract keys from filename: T-E##-F##-###.md
-		keyPattern: regexp.MustCompile(`^T-(E\d{2})-(F\d{2})-\d{3}\.md$`),
+		// Extract keys from filename: T-E##-F##-###.md or T-E##-F##-###-descriptive.md (with optional description)
+		keyPattern: regexp.MustCompile(`^T-(E\d{2})-(F\d{2})-\d{3}.*\.md$`),
 	}
 }
 

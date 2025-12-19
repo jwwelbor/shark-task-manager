@@ -25,7 +25,7 @@ func TestConflictResolver_Resolve_IndexPrecedence_OnlyIndexItems(t *testing.T) {
 	// Act
 	resultEpics, resultFeatures, warnings, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyIndexPrecedence)
+		conflicts, ConflictStrategyIndexPrecedence, true)
 
 	// Assert
 	if err != nil {
@@ -68,7 +68,7 @@ func TestConflictResolver_Resolve_IndexPrecedence_FailsOnIndexOnlyEpic(t *testin
 	// Act
 	_, _, _, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyIndexPrecedence)
+		conflicts, ConflictStrategyIndexPrecedence, true)
 
 	// Assert
 	if err == nil {
@@ -99,7 +99,7 @@ func TestConflictResolver_Resolve_IndexPrecedence_WarnsOnFolderOnlyItems(t *test
 	// Act
 	resultEpics, resultFeatures, warnings, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyIndexPrecedence)
+		conflicts, ConflictStrategyIndexPrecedence, true)
 
 	// Assert
 	if err != nil {
@@ -145,7 +145,7 @@ func TestConflictResolver_Resolve_FolderPrecedence_OnlyFolderItems(t *testing.T)
 	// Act
 	resultEpics, resultFeatures, warnings, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyFolderPrecedence)
+		conflicts, ConflictStrategyFolderPrecedence, false)
 
 	// Assert
 	if err != nil {
@@ -194,7 +194,7 @@ func TestConflictResolver_Resolve_FolderPrecedence_WarnsOnIndexOnlyItems(t *test
 	// Act
 	resultEpics, resultFeatures, warnings, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyFolderPrecedence)
+		conflicts, ConflictStrategyFolderPrecedence, true)
 
 	// Assert
 	if err != nil {
@@ -246,7 +246,7 @@ func TestConflictResolver_Resolve_Merge_CombinesBothSources(t *testing.T) {
 	// Act
 	resultEpics, resultFeatures, warnings, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyMerge)
+		conflicts, ConflictStrategyMerge, true)
 
 	// Assert
 	if err != nil {
@@ -286,7 +286,7 @@ func TestConflictResolver_Resolve_Merge_IndexMetadataWins(t *testing.T) {
 	// Act
 	resultEpics, _, _, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyMerge)
+		conflicts, ConflictStrategyMerge, true)
 
 	// Assert
 	if err != nil {
@@ -327,7 +327,7 @@ func TestConflictResolver_Resolve_Merge_PreservesFolderFilePath(t *testing.T) {
 	// Act
 	resultEpics, _, _, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyMerge)
+		conflicts, ConflictStrategyMerge, true)
 
 	// Assert
 	if err != nil {
@@ -360,7 +360,7 @@ func TestConflictResolver_Resolve_UnknownStrategy_ReturnsError(t *testing.T) {
 	// Act
 	_, _, _, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategy("unknown-strategy"))
+		conflicts, ConflictStrategy("unknown-strategy"), true)
 
 	// Assert
 	if err == nil {
@@ -393,7 +393,7 @@ func TestConflictResolver_Resolve_Merge_HandlesRelationshipMismatch(t *testing.T
 	// Act
 	_, resultFeatures, warnings, err := resolver.Resolve(
 		indexEpics, folderEpics, indexFeatures, folderFeatures,
-		conflicts, ConflictStrategyMerge)
+		conflicts, ConflictStrategyMerge, true)
 
 	// Assert
 	if err != nil {
@@ -412,6 +412,88 @@ func TestConflictResolver_Resolve_Merge_HandlesRelationshipMismatch(t *testing.T
 	// Should have warning about relationship mismatch
 	if len(warnings) < 1 {
 		t.Errorf("expected at least 1 warning, got %d", len(warnings))
+	}
+}
+
+func TestConflictResolver_Resolve_IndexPrecedence_NoWarningsWhenIndexFileDoesNotExist(t *testing.T) {
+	resolver := NewConflictResolver()
+
+	// Arrange: Folder-only items but index file doesn't exist - should not warn
+	indexEpics := []DiscoveredEpic{}
+	folderEpics := []DiscoveredEpic{
+		{Key: "E05", Title: "Epic Five", Source: SourceFolder},
+	}
+	indexFeatures := []DiscoveredFeature{}
+	folderFeatures := []DiscoveredFeature{
+		{Key: "E05-F02", EpicKey: "E05", Title: "Feature Two", Source: SourceFolder},
+	}
+	conflicts := []Conflict{
+		{Type: ConflictTypeEpicFolderOnly, Key: "E05"},
+		{Type: ConflictTypeFeatureFolderOnly, Key: "E05-F02"},
+	}
+
+	// Act - indexFileExists = false
+	resultEpics, resultFeatures, warnings, err := resolver.Resolve(
+		indexEpics, folderEpics, indexFeatures, folderFeatures,
+		conflicts, ConflictStrategyIndexPrecedence, false)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// No epics/features should be included (index-precedence requires index)
+	if len(resultEpics) != 0 {
+		t.Fatalf("expected 0 epics, got %d", len(resultEpics))
+	}
+	if len(resultFeatures) != 0 {
+		t.Fatalf("expected 0 features, got %d", len(resultFeatures))
+	}
+
+	// Should NOT have warnings about folder-only items when index file doesn't exist
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings when index file doesn't exist, got %d: %v", len(warnings), warnings)
+	}
+}
+
+func TestConflictResolver_Resolve_Merge_NoWarningsWhenIndexFileDoesNotExist(t *testing.T) {
+	resolver := NewConflictResolver()
+
+	// Arrange: Folder-only items but index file doesn't exist - should not warn
+	indexEpics := []DiscoveredEpic{}
+	folderEpics := []DiscoveredEpic{
+		{Key: "E05", Title: "Epic Five", Source: SourceFolder},
+	}
+	indexFeatures := []DiscoveredFeature{}
+	folderFeatures := []DiscoveredFeature{
+		{Key: "E05-F02", EpicKey: "E05", Title: "Feature Two", Source: SourceFolder},
+	}
+	conflicts := []Conflict{
+		{Type: ConflictTypeEpicFolderOnly, Key: "E05"},
+		{Type: ConflictTypeFeatureFolderOnly, Key: "E05-F02"},
+	}
+
+	// Act - indexFileExists = false
+	resultEpics, resultFeatures, warnings, err := resolver.Resolve(
+		indexEpics, folderEpics, indexFeatures, folderFeatures,
+		conflicts, ConflictStrategyMerge, false)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// All folder items should be included
+	if len(resultEpics) != 1 {
+		t.Fatalf("expected 1 epic, got %d", len(resultEpics))
+	}
+	if len(resultFeatures) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(resultFeatures))
+	}
+
+	// Should NOT have warnings about folder-only items when index file doesn't exist
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings when index file doesn't exist, got %d: %v", len(warnings), warnings)
 	}
 }
 

@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS features (
     description TEXT,
     status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
     progress_pct REAL NOT NULL DEFAULT 0.0 CHECK (progress_pct >= 0.0 AND progress_pct <= 100.0),
+    execution_order INTEGER NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -132,12 +133,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     title TEXT NOT NULL,
     description TEXT,
     status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'blocked', 'ready_for_review', 'completed', 'archived')),
-    agent_type TEXT CHECK (agent_type IN ('frontend', 'backend', 'api', 'testing', 'devops', 'general')),
+    agent_type TEXT,
     priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 1 AND priority <= 10),
     depends_on TEXT,
     assigned_agent TEXT,
     file_path TEXT,
     blocked_reason TEXT,
+    execution_order INTEGER NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     started_at TIMESTAMP,
     completed_at TIMESTAMP,
@@ -154,6 +156,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent_type ON tasks(agent_type);
 CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority);
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
+CREATE INDEX IF NOT EXISTS idx_tasks_file_path ON tasks(file_path);
 
 -- Trigger to auto-update updated_at for tasks
 CREATE TRIGGER IF NOT EXISTS tasks_updated_at
@@ -173,6 +176,7 @@ CREATE TABLE IF NOT EXISTS task_history (
     new_status TEXT NOT NULL,
     agent TEXT,
     notes TEXT,
+    forced BOOLEAN DEFAULT FALSE,
     timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE

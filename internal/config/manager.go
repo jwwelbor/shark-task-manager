@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -115,11 +116,15 @@ func (m *Manager) UpdateLastSyncTime(syncTime time.Time) error {
 	// Update in-memory config
 	m.config.LastSyncTime = &syncTime
 
-	// Marshal to JSON
-	data, err := json.MarshalIndent(m.config.RawData, "", "  ")
-	if err != nil {
+	// Marshal to JSON with HTML escaping disabled for readability
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(m.config.RawData); err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
+	data := buf.Bytes()
 
 	// Write to temp file
 	tmpPath := m.configPath + ".tmp"
