@@ -2,6 +2,17 @@
 
 A task management system built with Go and SQLite, featuring both an HTTP API and a powerful CLI tool for AI-driven development workflows.
 
+## Key Features
+
+- **Hierarchical Task Organization**: Organize work into Epics → Features → Tasks with auto-generated keys
+- **AI-Driven Workflows**: Built-in support for multiple agent types with dependency-aware task selection
+- **Custom File Paths**: Organize epics, features, and tasks anywhere in your project with the `--filename` flag
+- **Bidirectional Sync**: Synchronize markdown files with SQLite database with conflict resolution
+- **Progress Tracking**: Automatic progress calculation from task completion to features and epics
+- **Audit Trail**: Complete history of all status changes with timestamps and agent tracking
+- **Dependency Management**: Express task dependencies and get warnings about blocking work
+- **JSON Output**: Machine-readable JSON output for all commands (with `--json` flag)
+
 ## Prerequisites
 
 - Go 1.23.4 or later

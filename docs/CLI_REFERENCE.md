@@ -141,16 +141,52 @@ shark sync
 Create a new epic with auto-assigned key, folder, and database entry.
 
 **Flags:**
-- `--description <text>` - Epic description (optional)
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--filename` | string | (empty) | Custom file path relative to project root. Must end in `.md`. Example: `docs/roadmap/2025.md` |
+| `--force` | bool | false | Force reassignment if file path already claimed by another epic or feature |
+| `--description` | string | (empty) | Epic description |
+| `--priority` | string | medium | Priority: `high`, `medium`, or `low` |
+| `--business-value` | string | (empty) | Business value: `high`, `medium`, or `low` |
+
+**Custom Filename:**
+
+By default, epics are created in `docs/plan/{epic-key}/` with filename `epic.md`.
+
+Use `--filename` to specify a custom path:
+
+```bash
+shark epic create "Platform Roadmap" --filename="docs/roadmap/2025.md"
+```
+
+**Rules:**
+- Path must be relative to project root
+- Must include `.md` extension
+- Existing files are automatically associated (not overwritten)
+- Use `--force` to reassign files from other epics
 
 **Examples:**
 
 ```bash
-# Basic epic creation
+# Default location (backward compatible)
 shark epic create "User Authentication System"
+# Created epic E01 at docs/plan/E01-user-authentication-system/epic.md
 
 # With description
 shark epic create "User Auth" --description="Add OAuth and MFA"
+
+# Custom location
+shark epic create "Platform Roadmap" --filename="docs/roadmap/2025-platform.md"
+# Created epic E02 at docs/roadmap/2025-platform.md
+
+# Associate existing file
+shark epic create "Q1 Roadmap" --filename="docs/shared-roadmap.md"
+# Created epic E03 at docs/shared-roadmap.md
+
+# Force reassignment from another epic
+shark epic create "SSO Integration" --filename="docs/roadmap/2025-platform.md" --force
+# Created epic E04 at docs/roadmap/2025-platform.md (reassigned from epic E02)
 ```
 
 ### `shark epic list`
@@ -217,17 +253,56 @@ shark epic delete E05 --force
 Create a new feature with auto-assigned key, folder, and database entry.
 
 **Flags:**
-- `--epic <key>` - Epic key (required, e.g., `E01`)
-- `--description <text>` - Feature description (optional)
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--epic` | string | (required) | Epic key (e.g., `E01`) |
+| `--filename` | string | (empty) | Custom file path relative to project root. Must end in `.md`. Example: `docs/specs/auth.md` |
+| `--force` | bool | false | Force reassignment if file path already claimed by another feature or epic |
+| `--description` | string | (empty) | Feature description |
+| `--execution-order` | int | 0 | Execution order (0 = not set) |
+
+**Custom Filename:**
+
+By default, features are created in `docs/plan/{epic-key}/{feature-key}/` with filename `feature.md`.
+
+Use `--filename` to specify a custom path:
+
+```bash
+shark feature create --epic=E01 --filename="docs/specs/auth.md" "OAuth Login"
+```
+
+**Rules:**
+- Path must be relative to project root
+- Must include `.md` extension
+- Existing files are automatically associated (not overwritten)
+- Use `--force` to reassign files from other features
 
 **Examples:**
 
 ```bash
-# Basic feature creation
+# Default location (backward compatible)
 shark feature create --epic=E01 "OAuth Login Integration"
+# Feature Key: E01-F01-oauth-login-integration
+# File: docs/plan/E01-user-authentication-system/E01-F01-oauth-login-integration/feature.md
 
 # With description
 shark feature create --epic=E01 "OAuth Login" --description="Add OAuth 2.0 support"
+
+# Custom location
+shark feature create --epic=E01 --filename="docs/specs/auth.md" "Security Hardening"
+# Feature Key: E01-F02-security-hardening
+# File: docs/specs/auth.md
+
+# Associate existing file
+shark feature create --epic=E01 --filename="docs/shared/integration.md" "Payment Integration"
+# Feature Key: E01-F03-payment-integration
+# File: docs/shared/integration.md
+
+# Force reassignment from another feature
+shark feature create --epic=E01 --filename="docs/specs/auth.md" --force "MFA Implementation"
+# Feature Key: E01-F04-mfa-implementation
+# File: docs/specs/auth.md (reassigned from E01-F02)
 ```
 
 ### `shark feature list`
