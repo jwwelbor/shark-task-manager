@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -112,6 +113,40 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get feature: %w", err)
+	}
+
+	return feature, nil
+}
+
+// GetByFilePath retrieves a feature by its file path for collision detection
+func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Feature, error) {
+	query := `
+		SELECT id, epic_id, key, title, description, status, progress_pct,
+		       execution_order, file_path, created_at, updated_at
+		FROM features
+		WHERE file_path = ?
+	`
+
+	feature := &models.Feature{}
+	err := r.db.QueryRowContext(ctx, query, filePath).Scan(
+		&feature.ID,
+		&feature.EpicID,
+		&feature.Key,
+		&feature.Title,
+		&feature.Description,
+		&feature.Status,
+		&feature.ProgressPct,
+		&feature.ExecutionOrder,
+		&feature.FilePath,
+		&feature.CreatedAt,
+		&feature.UpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // Not found is not an error
+		}
+		return nil, fmt.Errorf("get feature by file path: %w", err)
 	}
 
 	return feature, nil
@@ -254,6 +289,30 @@ func (r *FeatureRepository) Delete(ctx context.Context, id int64) error {
 	}
 	if rows == 0 {
 		return fmt.Errorf("feature not found with id %d", id)
+	}
+
+	return nil
+}
+
+// UpdateFilePath updates or clears the file path for a feature
+func (r *FeatureRepository) UpdateFilePath(ctx context.Context, featureKey string, newFilePath *string) error {
+	query := `
+		UPDATE features
+		SET file_path = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query, newFilePath, featureKey)
+	if err != nil {
+		return fmt.Errorf("update feature file path: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("feature not found: %s", featureKey)
 	}
 
 	return nil

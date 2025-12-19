@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -114,6 +115,39 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 	return epic, nil
 }
 
+// GetByFilePath retrieves an epic by its file path for collision detection
+func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error) {
+	query := `
+		SELECT id, key, title, description, status, priority, business_value, file_path,
+		       created_at, updated_at
+		FROM epics
+		WHERE file_path = ?
+	`
+
+	epic := &models.Epic{}
+	err := r.db.QueryRowContext(ctx, query, filePath).Scan(
+		&epic.ID,
+		&epic.Key,
+		&epic.Title,
+		&epic.Description,
+		&epic.Status,
+		&epic.Priority,
+		&epic.BusinessValue,
+		&epic.FilePath,
+		&epic.CreatedAt,
+		&epic.UpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // Not found is not an error
+		}
+		return nil, fmt.Errorf("get epic by file path: %w", err)
+	}
+
+	return epic, nil
+}
+
 // List retrieves all epics, optionally filtered by status
 func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
 	query := `
@@ -213,6 +247,30 @@ func (r *EpicRepository) Delete(ctx context.Context, id int64) error {
 	}
 	if rows == 0 {
 		return fmt.Errorf("epic not found with id %d", id)
+	}
+
+	return nil
+}
+
+// UpdateFilePath updates or clears the file path for an epic
+func (r *EpicRepository) UpdateFilePath(ctx context.Context, epicKey string, newFilePath *string) error {
+	query := `
+		UPDATE epics
+		SET file_path = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query, newFilePath, epicKey)
+	if err != nil {
+		return fmt.Errorf("update epic file path: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("epic not found: %s", epicKey)
 	}
 
 	return nil
