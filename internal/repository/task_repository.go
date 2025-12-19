@@ -51,9 +51,9 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 	query := `
 		INSERT INTO tasks (
 			feature_id, key, title, description, status, agent_type, priority,
-			depends_on, assigned_agent, file_path, blocked_reason
+			depends_on, assigned_agent, file_path, blocked_reason, execution_order
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -68,6 +68,7 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 		task.AssignedAgent,
 		task.FilePath,
 		task.BlockedReason,
+		task.ExecutionOrder,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create task: %w", err)
@@ -86,7 +87,7 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, error) {
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
-		       depends_on, assigned_agent, file_path, blocked_reason,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at
 		FROM tasks
 		WHERE id = ?
@@ -106,6 +107,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 		&task.AssignedAgent,
 		&task.FilePath,
 		&task.BlockedReason,
+		&task.ExecutionOrder,
 		&task.CreatedAt,
 		&task.StartedAt,
 		&task.CompletedAt,
@@ -127,7 +129,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task, error) {
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
-		       depends_on, assigned_agent, file_path, blocked_reason,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at
 		FROM tasks
 		WHERE key = ?
@@ -147,6 +149,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 		&task.AssignedAgent,
 		&task.FilePath,
 		&task.BlockedReason,
+		&task.ExecutionOrder,
 		&task.CreatedAt,
 		&task.StartedAt,
 		&task.CompletedAt,
@@ -168,11 +171,11 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error) {
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
-		       depends_on, assigned_agent, file_path, blocked_reason,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at
 		FROM tasks
 		WHERE feature_id = ?
-		ORDER BY priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
 	`
 
 	return r.queryTasks(ctx, query, featureID)
@@ -182,13 +185,13 @@ func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]
 func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status, t.agent_type, t.priority,
-		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason,
+		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at
 		FROM tasks t
 		INNER JOIN features f ON t.feature_id = f.id
 		INNER JOIN epics e ON f.epic_id = e.id
 		WHERE e.key = ?
-		ORDER BY t.priority ASC, t.created_at ASC
+		ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC
 	`
 
 	return r.queryTasks(ctx, query, epicKey)
@@ -198,11 +201,11 @@ func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*mod
 func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskStatus) ([]*models.Task, error) {
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
-		       depends_on, assigned_agent, file_path, blocked_reason,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at
 		FROM tasks
 		WHERE status = ?
-		ORDER BY priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
 	`
 
 	return r.queryTasks(ctx, query, status)
@@ -212,11 +215,11 @@ func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskS
 func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType models.AgentType) ([]*models.Task, error) {
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
-		       depends_on, assigned_agent, file_path, blocked_reason,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at
 		FROM tasks
 		WHERE agent_type = ?
-		ORDER BY priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
 	`
 
 	return r.queryTasks(ctx, query, agentType)
@@ -226,7 +229,7 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType models
 func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *models.AgentType, maxPriority *int) ([]*models.Task, error) {
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status, t.agent_type, t.priority,
-		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason,
+		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at
 		FROM tasks t
 	`
@@ -268,7 +271,7 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 		}
 	}
 
-	query += " ORDER BY t.priority ASC, t.created_at ASC"
+	query += " ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC"
 
 	return r.queryTasks(ctx, query, args...)
 }
@@ -277,10 +280,10 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
-		       depends_on, assigned_agent, file_path, blocked_reason,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at
 		FROM tasks
-		ORDER BY priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
 	`
 
 	return r.queryTasks(ctx, query)
@@ -295,7 +298,7 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 	query := `
 		UPDATE tasks
 		SET title = ?, description = ?, status = ?, agent_type = ?, priority = ?,
-		    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?
+		    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, execution_order = ?
 		WHERE id = ?
 	`
 
@@ -309,6 +312,7 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 		task.AssignedAgent,
 		task.FilePath,
 		task.BlockedReason,
+		task.ExecutionOrder,
 		task.ID,
 	)
 	if err != nil {
@@ -326,8 +330,75 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 	return nil
 }
 
+// isValidStatusEnum checks if a status is a valid TaskStatus enum value
+func isValidStatusEnum(status models.TaskStatus) bool {
+	validStatuses := []models.TaskStatus{
+		models.TaskStatusTodo,
+		models.TaskStatusInProgress,
+		models.TaskStatusBlocked,
+		models.TaskStatusReadyForReview,
+		models.TaskStatusCompleted,
+		models.TaskStatusArchived,
+	}
+	for _, valid := range validStatuses {
+		if status == valid {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidTransition checks if a status transition is allowed
+func isValidTransition(from models.TaskStatus, to models.TaskStatus) bool {
+	// Define valid transitions
+	validTransitions := map[models.TaskStatus][]models.TaskStatus{
+		models.TaskStatusTodo: {
+			models.TaskStatusInProgress,
+			models.TaskStatusBlocked,
+		},
+		models.TaskStatusInProgress: {
+			models.TaskStatusReadyForReview,
+			models.TaskStatusBlocked,
+		},
+		models.TaskStatusBlocked: {
+			models.TaskStatusTodo,
+		},
+		models.TaskStatusReadyForReview: {
+			models.TaskStatusCompleted,
+			models.TaskStatusInProgress, // reopen
+		},
+		models.TaskStatusCompleted: {
+			models.TaskStatusArchived,
+		},
+		models.TaskStatusArchived: {
+			// No transitions allowed from archived
+		},
+	}
+
+	allowedTargets, exists := validTransitions[from]
+	if !exists {
+		return false
+	}
+
+	for _, allowed := range allowedTargets {
+		if to == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateStatus atomically updates task status, timestamps, and creates history record
 func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
+	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, false)
+}
+
+// UpdateStatusForced atomically updates task status with optional validation bypass
+func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, force bool) error {
+	// Validate status is valid enum
+	if !isValidStatusEnum(newStatus) {
+		return fmt.Errorf("invalid status: %s", newStatus)
+	}
 	// Start transaction
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
@@ -345,6 +416,18 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 	}
 	if err != nil {
 		return fmt.Errorf("failed to get current task status: %w", err)
+	}
+
+	// Validate transition if not forcing
+	currentTaskStatus := models.TaskStatus(currentStatus)
+	if force {
+		// Log warning when force is used
+		fmt.Printf("WARNING: Forced status update from %s to %s (taskID=%d)\n", currentStatus, newStatus, taskID)
+	} else {
+		// Check if transition is valid
+		if !isValidTransition(currentTaskStatus, newStatus) {
+			return fmt.Errorf("invalid status transition from %s to %s", currentStatus, newStatus)
+		}
 	}
 
 	// Update status and timestamps
@@ -374,10 +457,10 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 
 	// Create history record
 	historyQuery := `
-		INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -392,6 +475,11 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 
 // BlockTask marks a task as blocked with a reason
 func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason string, agent *string) error {
+	return r.BlockTaskForced(ctx, taskID, reason, agent, false)
+}
+
+// BlockTaskForced marks a task as blocked with optional validation bypass
+func (r *TaskRepository) BlockTaskForced(ctx context.Context, taskID int64, reason string, agent *string, force bool) error {
 	// Start transaction
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
@@ -409,6 +497,17 @@ func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason str
 		return fmt.Errorf("failed to get current task status: %w", err)
 	}
 
+	// Validate transition if not forcing
+	currentTaskStatus := models.TaskStatus(currentStatus)
+	if force {
+		fmt.Printf("WARNING: Forced block from %s status (taskID=%d)\n", currentStatus, taskID)
+	} else {
+		// Only allow blocking from todo or in_progress
+		if currentTaskStatus != models.TaskStatusTodo && currentTaskStatus != models.TaskStatusInProgress {
+			return fmt.Errorf("invalid status transition from %s to blocked", currentStatus)
+		}
+	}
+
 	// Update status, blocked_at, and blocked_reason
 	now := time.Now()
 	query := `UPDATE tasks SET status = ?, blocked_at = ?, blocked_reason = ? WHERE id = ?`
@@ -418,8 +517,8 @@ func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason str
 	}
 
 	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes) VALUES (?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, reason)
+	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, reason, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -434,6 +533,11 @@ func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason str
 
 // UnblockTask unblocks a task and returns it to todo status
 func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *string) error {
+	return r.UnblockTaskForced(ctx, taskID, agent, false)
+}
+
+// UnblockTaskForced unblocks a task with optional validation bypass
+func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, agent *string, force bool) error {
 	// Start transaction
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
@@ -451,6 +555,17 @@ func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *s
 		return fmt.Errorf("failed to get current task status: %w", err)
 	}
 
+	// Validate transition if not forcing
+	currentTaskStatus := models.TaskStatus(currentStatus)
+	if force {
+		fmt.Printf("WARNING: Forced unblock from %s status (taskID=%d)\n", currentStatus, taskID)
+	} else {
+		// Only allow unblocking from blocked status
+		if currentTaskStatus != models.TaskStatusBlocked {
+			return fmt.Errorf("invalid status transition from %s to todo", currentStatus)
+		}
+	}
+
 	// Update status and clear blocked fields
 	query := `UPDATE tasks SET status = ?, blocked_at = NULL, blocked_reason = NULL WHERE id = ?`
 	_, err = tx.ExecContext(ctx, query, models.TaskStatusTodo, taskID)
@@ -459,8 +574,8 @@ func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *s
 	}
 
 	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes) VALUES (?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil)
+	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -475,6 +590,11 @@ func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *s
 
 // ReopenTask reopens a task from ready_for_review back to in_progress
 func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *string, notes *string) error {
+	return r.ReopenTaskForced(ctx, taskID, agent, notes, false)
+}
+
+// ReopenTaskForced reopens a task with optional validation bypass
+func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, force bool) error {
 	// Start transaction
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
@@ -492,6 +612,17 @@ func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *st
 		return fmt.Errorf("failed to get current task status: %w", err)
 	}
 
+	// Validate transition if not forcing
+	currentTaskStatus := models.TaskStatus(currentStatus)
+	if force {
+		fmt.Printf("WARNING: Forced reopen from %s status (taskID=%d)\n", currentStatus, taskID)
+	} else {
+		// Only allow reopening from ready_for_review
+		if currentTaskStatus != models.TaskStatusReadyForReview {
+			return fmt.Errorf("invalid status transition from %s to in_progress", currentStatus)
+		}
+	}
+
 	// Update status and clear completed_at
 	query := `UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?`
 	_, err = tx.ExecContext(ctx, query, models.TaskStatusInProgress, taskID)
@@ -500,8 +631,8 @@ func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *st
 	}
 
 	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes) VALUES (?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusInProgress, agent, notes)
+	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusInProgress, agent, notes, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -660,7 +791,7 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 	// Build dynamic IN clause
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
-		       depends_on, assigned_agent, file_path, blocked_reason,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at
 		FROM tasks
 		WHERE key IN (?` + strings.Repeat(", ?", len(keys)-1) + `)`
@@ -694,6 +825,7 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 			&task.AssignedAgent,
 			&task.FilePath,
 			&task.BlockedReason,
+		&task.ExecutionOrder,
 			&task.CreatedAt,
 			&task.StartedAt,
 			&task.CompletedAt,
@@ -793,6 +925,7 @@ func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...i
 			&task.AssignedAgent,
 			&task.FilePath,
 			&task.BlockedReason,
+		&task.ExecutionOrder,
 			&task.CreatedAt,
 			&task.StartedAt,
 			&task.CompletedAt,

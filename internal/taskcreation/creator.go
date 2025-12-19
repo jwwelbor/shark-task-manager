@@ -44,13 +44,15 @@ func NewCreator(
 
 // CreateTaskInput holds the input for creating a task
 type CreateTaskInput struct {
-	EpicKey     string
-	FeatureKey  string
-	Title       string
-	Description string
-	AgentType   string
-	Priority    int
-	DependsOn   string
+	EpicKey        string
+	FeatureKey     string
+	Title          string
+	Description    string
+	AgentType      string
+	CustomTemplate string
+	Priority       int
+	DependsOn      string
+	ExecutionOrder int
 }
 
 // CreateTaskResult holds the result of task creation
@@ -109,19 +111,26 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		description = &input.Description
 	}
 
+	// Prepare execution_order
+	var executionOrder *int
+	if input.ExecutionOrder > 0 {
+		executionOrder = &input.ExecutionOrder
+	}
+
 	// Create task record
 	task := &models.Task{
-		FeatureID:   validated.FeatureID,
-		Key:         key,
-		Title:       input.Title,
-		Description: description,
-		Status:      models.TaskStatusTodo,
-		AgentType:   &validated.AgentType,
-		Priority:    input.Priority,
-		DependsOn:   dependsOnJSON,
-		FilePath:    &filePath,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		FeatureID:      validated.FeatureID,
+		Key:            key,
+		Title:          input.Title,
+		Description:    description,
+		Status:         models.TaskStatusTodo,
+		AgentType:      &validated.AgentType,
+		Priority:       input.Priority,
+		DependsOn:      dependsOnJSON,
+		FilePath:       &filePath,
+		ExecutionOrder: executionOrder,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	// 5. Insert task into database
@@ -150,7 +159,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		return nil, fmt.Errorf("failed to create history record: %w", err)
 	}
 
-	// 7. Render template
+	// 7. Render template with selection priority: custom > agent > general
 	templateData := templates.TemplateData{
 		Key:         key,
 		Title:       input.Title,
@@ -163,7 +172,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		CreatedAt:   now,
 	}
 
-	markdown, err := c.renderer.Render(validated.AgentType, templateData)
+	markdown, err := c.renderer.RenderWithSelection(validated.AgentType, input.CustomTemplate, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render template: %w", err)
 	}

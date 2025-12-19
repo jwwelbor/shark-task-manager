@@ -145,6 +145,16 @@ func (e *SyncEngine) Sync(ctx context.Context, opts SyncOptions) (*SyncReport, e
 		PatternMatches: make(map[string]int),
 	}
 
+	// Step 0: Run discovery if enabled
+	if opts.EnableDiscovery {
+		discoveryReport, err := e.runDiscovery(ctx, opts)
+		if err != nil {
+			return nil, fmt.Errorf("discovery failed: %w", err)
+		}
+		report.DiscoveryReport = discoveryReport
+		report.Warnings = append(report.Warnings, discoveryReport.Warnings...)
+	}
+
 	// Step 1: Scan files
 	files, err := e.scanner.Scan(opts.FolderPath)
 	if err != nil {
