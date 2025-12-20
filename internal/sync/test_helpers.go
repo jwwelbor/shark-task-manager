@@ -27,6 +27,8 @@ func setupTestDatabase(tb testing.TB, dbPath string) *sql.DB {
 			status TEXT NOT NULL,
 			priority TEXT NOT NULL,
 			business_value TEXT,
+			file_path TEXT,
+			custom_folder_path TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -40,6 +42,8 @@ func setupTestDatabase(tb testing.TB, dbPath string) *sql.DB {
 			status TEXT NOT NULL,
 			progress_pct REAL NOT NULL DEFAULT 0.0,
 			execution_order INTEGER,
+			file_path TEXT,
+			custom_folder_path TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE

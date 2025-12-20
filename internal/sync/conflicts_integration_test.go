@@ -291,6 +291,8 @@ func initTestSchema(db *sql.DB) error {
 		status TEXT NOT NULL,
 		priority TEXT NOT NULL,
 		business_value TEXT,
+		file_path TEXT,
+		custom_folder_path TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
@@ -303,6 +305,8 @@ func initTestSchema(db *sql.DB) error {
 		description TEXT,
 		status TEXT NOT NULL,
 		progress_pct REAL NOT NULL DEFAULT 0.0,
+		file_path TEXT,
+		custom_folder_path TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE
@@ -321,6 +325,7 @@ func initTestSchema(db *sql.DB) error {
 		assigned_agent TEXT,
 		file_path TEXT,
 		blocked_reason TEXT,
+		execution_order INTEGER,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		started_at TIMESTAMP,
 		completed_at TIMESTAMP,

@@ -206,7 +206,7 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) error {
 
 	query := `
 		UPDATE epics
-		SET title = ?, description = ?, status = ?, priority = ?, business_value = ?
+		SET title = ?, description = ?, status = ?, priority = ?, business_value = ?, custom_folder_path = ?
 		WHERE id = ?
 	`
 
@@ -216,6 +216,7 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) error {
 		epic.Status,
 		epic.Priority,
 		epic.BusinessValue,
+		epic.CustomFolderPath,
 		epic.ID,
 	)
 	if err != nil {

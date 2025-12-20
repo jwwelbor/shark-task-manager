@@ -253,7 +253,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 
 	query := `
 		UPDATE features
-		SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?
+		SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?, custom_folder_path = ?
 		WHERE id = ?
 	`
 
@@ -263,6 +263,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		feature.Status,
 		feature.ProgressPct,
 		feature.ExecutionOrder,
+		feature.CustomFolderPath,
 		feature.ID,
 	)
 	if err != nil {
