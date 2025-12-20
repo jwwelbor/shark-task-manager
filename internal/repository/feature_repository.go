@@ -360,14 +360,31 @@ func (r *FeatureRepository) CalculateProgressByKey(ctx context.Context, key stri
 }
 
 // UpdateProgress recalculates and updates the cached progress_pct field
+// Automatically sets feature status to "completed" when progress reaches 100%
 func (r *FeatureRepository) UpdateProgress(ctx context.Context, featureID int64) error {
 	progress, err := r.CalculateProgress(ctx, featureID)
 	if err != nil {
 		return err
 	}
 
-	query := "UPDATE features SET progress_pct = ? WHERE id = ?"
-	_, err = r.db.ExecContext(ctx, query, progress, featureID)
+	// Auto-complete feature when all tasks are completed
+	var newStatus models.FeatureStatus
+	if progress >= 100.0 {
+		newStatus = models.FeatureStatusCompleted
+	} else {
+		// Keep existing status but update progress
+		// For features that are not yet 100% complete, don't change their status
+		query := "UPDATE features SET progress_pct = ? WHERE id = ?"
+		_, err = r.db.ExecContext(ctx, query, progress, featureID)
+		if err != nil {
+			return fmt.Errorf("failed to update feature progress: %w", err)
+		}
+		return nil
+	}
+
+	// Update both progress and status when reaching 100%
+	query := "UPDATE features SET progress_pct = ?, status = ? WHERE id = ?"
+	_, err = r.db.ExecContext(ctx, query, progress, newStatus, featureID)
 	if err != nil {
 		return fmt.Errorf("failed to update feature progress: %w", err)
 	}
