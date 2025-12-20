@@ -445,6 +445,12 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		os.Exit(2)
 	}
 
+	// Get filename from resolved path
+	var filename string
+	if resolvedPath != "" {
+		filename = filepath.Base(resolvedPath)
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
@@ -456,6 +462,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"status":           feature.Status,
 			"progress_pct":     feature.ProgressPct,
 			"path":             resolvedPath,
+			"filename":         filename,
 			"created_at":       feature.CreatedAt,
 			"updated_at":       feature.UpdatedAt,
 			"tasks":            tasks,
@@ -465,7 +472,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output as formatted text
-	renderFeatureDetails(feature, tasks, statusBreakdown, resolvedPath)
+	renderFeatureDetails(feature, tasks, statusBreakdown, resolvedPath, filename)
 	return nil
 }
 
@@ -508,7 +515,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 }
 
 // renderFeatureDetails renders feature details with tasks table
-func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int, path string) {
+func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int, path, filename string) {
 	// Print feature metadata
 	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
 	fmt.Println()
@@ -523,6 +530,10 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 
 	if path != "" {
 		info = append(info, []string{"Path", path})
+	}
+
+	if filename != "" {
+		info = append(info, []string{"Filename", filename})
 	}
 
 	if feature.Description != nil && *feature.Description != "" {
