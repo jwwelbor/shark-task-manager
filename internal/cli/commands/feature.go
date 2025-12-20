@@ -19,6 +19,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// getRelativePathFeature converts an absolute path to relative path from project root
+func getRelativePathFeature(absPath string, projectRoot string) string {
+	relPath, err := filepath.Rel(projectRoot, absPath)
+	if err != nil {
+		return absPath // Fall back to absolute path if conversion fails
+	}
+	return relPath
+}
+
 // FeatureWithTaskCount wraps a Feature with task count
 type FeatureWithTaskCount struct {
 	*models.Feature
@@ -32,9 +41,9 @@ var featureCmd = &cobra.Command{
 	Long: `Query and manage features within epics.
 
 Examples:
-  pm feature list              List all features
-  pm feature get E04-F02      Get feature details
-  pm feature list --epic=E04  List features in epic E04`,
+  shark feature list              List all features
+  shark feature get E04-F02      Get feature details
+  shark feature list --epic=E04  List features in epic E04`,
 }
 
 // featureListCmd lists features
@@ -44,11 +53,11 @@ var featureListCmd = &cobra.Command{
 	Long: `List features with optional filtering by epic.
 
 Examples:
-  pm feature list              List all features
-  pm feature list --epic=E04   List features in epic E04
-  pm feature list --json       Output as JSON
-  pm feature list --status=active  Filter by status
-  pm feature list --sort-by=progress  Sort by progress`,
+  shark feature list              List all features
+  shark feature list --epic=E04   List features in epic E04
+  shark feature list --json       Output as JSON
+  shark feature list --status=active  Filter by status
+  shark feature list --sort-by=progress  Sort by progress`,
 	RunE: runFeatureList,
 }
 
@@ -59,8 +68,8 @@ var featureGetCmd = &cobra.Command{
 	Long: `Display detailed information about a specific feature including all tasks and progress.
 
 Examples:
-  pm feature get E04-F02       Get feature details
-  pm feature get E04-F02 --json  Output as JSON`,
+  shark feature get E04-F02       Get feature details
+  shark feature get E04-F02 --json  Output as JSON`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFeatureGet,
 }
@@ -223,7 +232,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		epic, err := epicRepo.GetByKey(ctx, epicFilter)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicFilter))
-			cli.Info("Use 'pm epic list' to see available epics")
+			cli.Info("Use 'shark epic list' to see available epics")
 			os.Exit(1)
 		}
 
@@ -363,14 +372,40 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	// Get repositories
 	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
+	epicRepo := repository.NewEpicRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Get feature by key
 	feature, err := featureRepo.GetByKey(ctx, featureKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
-		cli.Info("Use 'pm feature list' to see available features")
+		cli.Info("Use 'shark feature list' to see available features")
 		os.Exit(1)
+	}
+
+	// Get epic to access its custom path (needed for path resolution)
+	epic, err := epicRepo.GetByID(ctx, feature.EpicID)
+	if err != nil {
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get epic for feature: %v\n", err)
+		}
+		epic = nil
+	}
+
+	// Get project root for path resolution
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		projectRoot = ""
+	}
+
+	// Resolve feature path
+	var resolvedPath string
+	if projectRoot != "" && epic != nil {
+		pathBuilder := utils.NewPathBuilder(projectRoot)
+		absPath, err := pathBuilder.ResolveFeaturePath(epic.Key, feature.Key, feature.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
+		if err == nil {
+			resolvedPath = getRelativePathFeature(absPath, projectRoot)
+		}
 	}
 
 	// Update feature progress
@@ -420,6 +455,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"description":      feature.Description,
 			"status":           feature.Status,
 			"progress_pct":     feature.ProgressPct,
+			"path":             resolvedPath,
 			"created_at":       feature.CreatedAt,
 			"updated_at":       feature.UpdatedAt,
 			"tasks":            tasks,
@@ -429,7 +465,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output as formatted text
-	renderFeatureDetails(feature, tasks, statusBreakdown)
+	renderFeatureDetails(feature, tasks, statusBreakdown, resolvedPath)
 	return nil
 }
 
@@ -472,7 +508,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 }
 
 // renderFeatureDetails renders feature details with tasks table
-func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int) {
+func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int, path string) {
 	// Print feature metadata
 	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
 	fmt.Println()
@@ -483,6 +519,10 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 		{"Epic ID", fmt.Sprintf("%d", feature.EpicID)},
 		{"Status", string(feature.Status)},
 		{"Progress", fmt.Sprintf("%.1f%%", feature.ProgressPct)},
+	}
+
+	if path != "" {
+		info = append(info, []string{"Path", path})
 	}
 
 	if feature.Description != nil && *feature.Description != "" {

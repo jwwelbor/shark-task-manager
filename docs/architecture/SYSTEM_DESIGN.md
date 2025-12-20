@@ -407,7 +407,7 @@ PRAGMA cache_size = -64000;         // 64MB cache
 #### Command Structure
 
 ```
-pm (root)
+shark (root)
 ├── epic
 │   ├── list
 │   ├── create
@@ -650,54 +650,54 @@ WHERE f.epic_id = ?
 
 ```bash
 # List epics with progress
-pm epic list [--status=active]
+shark epic list [--status=active]
 
 # Create epic
-pm epic create --key=E05 --title="New Epic" --priority=high
+shark epic create --key=E05 --title="New Epic" --priority=high
 
 # Show epic details with features
-pm epic show E04
+shark epic show E04
 
 # Delete epic (cascades to features and tasks)
-pm epic delete E04
+shark epic delete E04
 ```
 
 #### Feature Commands
 
 ```bash
 # List features for epic
-pm feature list --epic=E04
+shark feature list --epic=E04
 
 # Create feature
-pm feature create --epic=E04 --key=E04-F05 --title="New Feature"
+shark feature create --epic=E04 --key=E04-F05 --title="New Feature"
 
 # Show feature with tasks and progress
-pm feature show E04-F01
+shark feature show E04-F01
 
 # Update feature
-pm feature update E04-F01 --status=completed
+shark feature update E04-F01 --status=completed
 ```
 
 #### Task Commands
 
 ```bash
 # List tasks
-pm task list [--feature=E04-F01] [--status=todo] [--agent=backend]
+shark task list [--feature=E04-F01] [--status=todo] [--agent=backend]
 
 # Create task
-pm task create --feature=E04-F01 --key=E04-F01-T010 --title="Implement API" --priority=1
+shark task create --feature=E04-F01 --key=E04-F01-T010 --title="Implement API" --priority=1
 
 # Show task details
-pm task show E04-F01-T010
+shark task show E04-F01-T010
 
 # Status transitions
-pm task start E04-F01-T010
-pm task complete E04-F01-T010
-pm task block E04-F01-T010 --reason="Waiting for API key"
-pm task unblock E04-F01-T010
+shark task start E04-F01-T010
+shark task complete E04-F01-T010
+shark task block E04-F01-T010 --reason="Waiting for API key"
+shark task unblock E04-F01-T010
 
 # Update task
-pm task update E04-F01-T010 --priority=5 --agent-type=backend
+shark task update E04-F01-T010 --priority=5 --agent-type=backend
 ```
 
 ### HTTP API
@@ -839,9 +839,9 @@ cp shark-tasks.db shark-tasks.db.backup
 
 **Installation**:
 ```bash
-make install-pm  # Installs to ~/go/bin/pm
+make install-shark  # Installs to ~/go/bin/pm
 export PATH=$PATH:$HOME/go/bin
-pm --help
+shark --help
 ```
 
 **Advantages**:
@@ -979,7 +979,7 @@ logger.Error("failed to create task",
 curl http://localhost:8080/health
 
 # CLI health check
-pm epic list >/dev/null && echo "OK" || echo "FAIL"
+shark epic list >/dev/null && echo "OK" || echo "FAIL"
 ```
 
 **Metrics to Monitor** (future):

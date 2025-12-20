@@ -2,24 +2,24 @@
 
 ## Overview
 
-The `pm sync` command synchronizes task markdown files with the database, enabling Git-based workflows where task files are edited in text editors, merged via Git, and kept in sync with the Shark CLI database.
+The `shark sync` command synchronizes task markdown files with the database, enabling Git-based workflows where task files are edited in text editors, merged via Git, and kept in sync with the Shark CLI database.
 
 ## Quick Start
 
 ```bash
 # Preview what would change (dry-run)
-pm sync --dry-run
+shark sync --dry-run
 
 # Sync all task files
-pm sync
+shark sync
 
 # Sync and create missing epics/features
-pm sync --create-missing
+shark sync --create-missing
 ```
 
 ## When to Use Sync
 
-Use `pm sync` when:
+Use `shark sync` when:
 - You've pulled Git changes that include new or modified task files
 - You've edited task files directly in a text editor
 - You're migrating existing task markdown files to Shark CLI
@@ -56,7 +56,7 @@ docs/
 ### Basic Usage
 
 ```bash
-pm sync [flags]
+shark sync [flags]
 ```
 
 ### Available Flags
@@ -87,10 +87,10 @@ First-time import of existing markdown files:
 
 ```bash
 # Preview what will be imported
-pm sync --create-missing --dry-run
+shark sync --create-missing --dry-run
 
 # Import tasks, creating epics/features as needed
-pm sync --create-missing
+shark sync --create-missing
 ```
 
 ### After Git Pull
@@ -100,10 +100,10 @@ Sync database after pulling changes from collaborators:
 ```bash
 # Check what changed
 git pull
-pm sync --dry-run
+shark sync --dry-run
 
 # Apply changes
-pm sync
+shark sync
 ```
 
 ### Sync Specific Folder
@@ -111,7 +111,7 @@ pm sync
 Sync only a specific feature folder:
 
 ```bash
-pm sync --folder=docs/plan/E04-task-mgmt-cli/E04-F07-init-sync
+shark sync --folder=docs/plan/E04-task-mgmt-cli/E04-F07-init-sync
 ```
 
 ### Force File to Overwrite Database
@@ -119,9 +119,9 @@ pm sync --folder=docs/plan/E04-task-mgmt-cli/E04-F07-init-sync
 When file is authoritative source:
 
 ```bash
-pm sync --strategy=file-wins
+shark sync --strategy=file-wins
 # or shorthand:
-pm sync --force
+shark sync --force
 ```
 
 ### Preserve Database, Ignore File Changes
@@ -129,7 +129,7 @@ pm sync --force
 When database is authoritative:
 
 ```bash
-pm sync --strategy=database-wins
+shark sync --strategy=database-wins
 ```
 
 ### Use Timestamps to Resolve Conflicts
@@ -137,7 +137,7 @@ pm sync --strategy=database-wins
 Most recent edit wins:
 
 ```bash
-pm sync --strategy=newer-wins
+shark sync --strategy=newer-wins
 ```
 
 ### Clean Up Orphaned Tasks
@@ -146,10 +146,10 @@ Remove database tasks whose files no longer exist:
 
 ```bash
 # Preview orphaned tasks
-pm sync --cleanup --dry-run
+shark sync --cleanup --dry-run
 
 # Delete orphaned tasks
-pm sync --cleanup
+shark sync --cleanup
 ```
 
 ## Frontmatter Format
@@ -175,8 +175,8 @@ description: Create synchronization orchestration engine
 ### Fields NOT in Frontmatter
 
 These fields are managed **exclusively** in the database:
-- `status` - Use `pm task update-status` to change
-- `priority` - Use `pm task update` to change
+- `status` - Use `shark task update-status` to change
+- `priority` - Use `shark task update` to change
 - `agent_type` - Set during task creation
 - `depends_on` - Managed via CLI commands
 
@@ -278,7 +278,7 @@ Details:
 ### JSON Output
 
 ```bash
-pm sync --json
+shark sync --json
 ```
 
 ```json
@@ -302,16 +302,16 @@ Migrate existing task files to Shark CLI:
 
 ```bash
 # 1. Initialize Shark CLI
-pm init
+shark init
 
 # 2. Preview import
-pm sync --create-missing --dry-run
+shark sync --create-missing --dry-run
 
 # 3. Review output, then import
-pm sync --create-missing
+shark sync --create-missing
 
 # 4. Verify
-pm task list
+shark task list
 ```
 
 ### Workflow 2: Daily Development
@@ -323,10 +323,10 @@ Sync after git pull:
 git pull origin main
 
 # 2. Sync database
-pm sync
+shark sync
 
 # 3. Continue working
-pm task list --status=todo
+shark task list --status=todo
 ```
 
 ### Workflow 3: Resolve Conflicts
@@ -335,16 +335,16 @@ Handle conflicting changes:
 
 ```bash
 # 1. Preview conflicts
-pm sync --dry-run
+shark sync --dry-run
 
 # 2. Review conflict report
 
 # 3. Choose resolution strategy
-pm sync --strategy=file-wins    # Trust file
+shark sync --strategy=file-wins    # Trust file
 # or
-pm sync --strategy=database-wins # Trust database
+shark sync --strategy=database-wins # Trust database
 # or
-pm sync --strategy=newer-wins    # Use timestamps
+shark sync --strategy=newer-wins    # Use timestamps
 ```
 
 ### Workflow 4: Clean Up Project
@@ -353,12 +353,12 @@ Remove orphaned tasks:
 
 ```bash
 # 1. Preview orphaned tasks
-pm sync --cleanup --dry-run
+shark sync --cleanup --dry-run
 
 # 2. Review which tasks will be deleted
 
 # 3. Clean up
-pm sync --cleanup
+shark sync --cleanup
 ```
 
 ## Error Handling
@@ -456,18 +456,18 @@ Sync is optimized for large codebases:
 
 1. **Use --folder for large repos**:
    ```bash
-   pm sync --folder=docs/plan/E04-current-epic
+   shark sync --folder=docs/plan/E04-current-epic
    ```
 
 2. **Batch sync after multiple pulls**:
    ```bash
    git pull --rebase
-   pm sync  # Once after all merges
+   shark sync  # Once after all merges
    ```
 
 3. **Skip dry-run in automation**:
    ```bash
-   pm sync --json  # No dry-run overhead
+   shark sync --json  # No dry-run overhead
    ```
 
 ## Security
@@ -494,8 +494,8 @@ All database queries use parameterized statements (no SQL injection risk).
 ### 1. Always Dry-Run First
 
 ```bash
-pm sync --dry-run  # Preview changes
-pm sync            # Apply if OK
+shark sync --dry-run  # Preview changes
+shark sync            # Apply if OK
 ```
 
 ### 2. Commit Before Sync
@@ -503,7 +503,7 @@ pm sync            # Apply if OK
 ```bash
 git add .
 git commit -m "Before sync"
-pm sync
+shark sync
 ```
 
 ### 3. Use Consistent Strategies
@@ -517,7 +517,7 @@ Pick one strategy for your team:
 
 Read conflict output before accepting changes:
 ```bash
-pm sync --dry-run | grep "Conflict"
+shark sync --dry-run | grep "Conflict"
 ```
 
 ### 5. Keep Frontmatter Minimal

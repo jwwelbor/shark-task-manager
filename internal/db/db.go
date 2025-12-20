@@ -69,6 +69,8 @@ func configureSQLite(db *sql.DB) error {
 
 // createSchema creates all tables, indexes, and triggers
 func createSchema(db *sql.DB) error {
+	// First, create tables and triggers without indexes on new columns
+	// These new column indexes will be created after migrations add the columns
 	schema := `
 -- ============================================================================
 -- Table: epics
@@ -87,11 +89,9 @@ CREATE TABLE IF NOT EXISTS epics (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indexes for epics
+-- Indexes for epics (basic indexes only - new column indexes created after migrations)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_epics_key ON epics(key);
 CREATE INDEX IF NOT EXISTS idx_epics_status ON epics(status);
-CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);
-CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);
 
 -- Trigger to auto-update updated_at for epics
 CREATE TRIGGER IF NOT EXISTS epics_updated_at
@@ -121,12 +121,10 @@ CREATE TABLE IF NOT EXISTS features (
     FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE
 );
 
--- Indexes for features
+-- Indexes for features (basic indexes only - new column indexes created after migrations)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_features_key ON features(key);
 CREATE INDEX IF NOT EXISTS idx_features_epic_id ON features(epic_id);
 CREATE INDEX IF NOT EXISTS idx_features_status ON features(status);
-CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);
-CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);
 
 -- Trigger to auto-update updated_at for features
 CREATE TRIGGER IF NOT EXISTS features_updated_at
@@ -329,6 +327,21 @@ func runMigrations(db *sql.DB) error {
 		}
 		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`); err != nil {
 			return fmt.Errorf("failed to create features custom_folder_path index: %w", err)
+		}
+	}
+
+	// Create indexes on new columns that might not have existed before
+	// These are created here after migrations ensure the columns exist
+	newIndexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`,
+	}
+
+	for _, idx := range newIndexes {
+		if _, err := db.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
 		}
 	}
 

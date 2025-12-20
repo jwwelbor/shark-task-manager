@@ -7,7 +7,7 @@
 
 ## Overview
 
-This feature implements initialization (`pm init`) and synchronization (`pm sync`) commands for a Go-based CLI task manager. Implementation is organized into 5 phases with clear dependencies and success criteria.
+This feature implements initialization (`shark init`) and synchronization (`shark sync`) commands for a Go-based CLI task manager. Implementation is organized into 5 phases with clear dependencies and success criteria.
 
 ---
 
@@ -82,9 +82,9 @@ This feature implements initialization (`pm init`) and synchronization (`pm sync
 
 ---
 
-## Phase 2: Initialization - pm init Command
+## Phase 2: Initialization - shark init Command
 
-**Goals**: Implement `pm init` command to set up database, folders, config, and templates.
+**Goals**: Implement `shark init` command to set up database, folders, config, and templates.
 
 **Tasks**:
 - [ ] Create `internal/init/` package
@@ -141,7 +141,7 @@ This feature implements initialization (`pm init`) and synchronization (`pm sync
 - Phase 1 (repository extensions not strictly required, but good to have)
 
 **Success Criteria**:
-- `pm init` completes in <5 seconds
+- `shark init` completes in <5 seconds
 - Init is idempotent (safe to run multiple times)
 - Database created with correct schema
 - Folders created with correct permissions (0755)
@@ -264,7 +264,7 @@ This feature implements initialization (`pm init`) and synchronization (`pm sync
 
 ---
 
-## Phase 5: Sync Engine & pm sync Command
+## Phase 5: Sync Engine & shark sync Command
 
 **Goals**: Implement complete sync orchestration and CLI command.
 
@@ -353,7 +353,7 @@ This feature implements initialization (`pm init`) and synchronization (`pm sync
 - Phase 4: Conflict detection/resolution
 
 **Success Criteria**:
-- `pm sync` processes 100 files in <10 seconds
+- `shark sync` processes 100 files in <10 seconds
 - All acceptance criteria from PRD met
 - Dry-run mode works (preview without changes)
 - All conflict resolution strategies work correctly
@@ -400,8 +400,8 @@ This feature implements initialization (`pm init`) and synchronization (`pm sync
   - Context cancellation (Ctrl+C)
 
 - [ ] Update CLI documentation
-  - Update help text for `pm init`
-  - Update help text for `pm sync`
+  - Update help text for `shark init`
+  - Update help text for `shark sync`
   - Add examples to README
 
 - [ ] Create user guide
@@ -493,7 +493,7 @@ This feature implements initialization (`pm init`) and synchronization (`pm sync
 ## Next Steps
 
 1. Review this implementation plan with team
-2. Create tasks in task tracker (using `pm task create`)
+2. Create tasks in task tracker (using `shark task create`)
 3. Assign phases to developers
 4. Begin Phase 1 (Repository Extensions)
 5. Schedule daily standups to track progress

@@ -82,7 +82,7 @@ The AI Agent creates 3 new task files in a feature's tasks/ folder, updates fron
 **Reference**: Defined for this epic
 
 **Profile**:
-- **Role/Title**: Product Manager or Technical PM managing projects across multiple teams
+- **Role/Title**: Product Manager or Technical shark managing projects across multiple teams
 - **Experience Level**: 3-5 years in role, moderate technical proficiency, comfortable with markdown and Git
 - **Key Characteristics**:
   - Works with documentation from different teams/time periods with varied conventions

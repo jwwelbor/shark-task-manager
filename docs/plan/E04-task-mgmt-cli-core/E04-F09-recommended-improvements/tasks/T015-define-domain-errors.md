@@ -65,7 +65,7 @@ import "errors"
 //   // In CLI
 //   task, err := repo.GetByID(ctx, id)
 //   if errors.Is(err, domain.ErrTaskNotFound) {  // ← Check specific error
-//       fmt.Println("Task not found. Use 'pm task list' to see available tasks.")
+//       fmt.Println("Task not found. Use 'shark task list' to see available tasks.")
 //       return nil
 //   }
 //   if err != nil {
@@ -365,8 +365,8 @@ func (c *TaskCommands) ShowTask(taskKey string) error {
     // Check for specific error type
     if errors.Is(err, domain.ErrTaskNotFound) {
         fmt.Fprintf(os.Stderr, "Error: Task %s not found.\n", taskKey)
-        fmt.Fprintf(os.Stderr, "\nUse 'pm task list' to see available tasks.\n")
-        fmt.Fprintf(os.Stderr, "Or 'pm task list --feature=%s' to see tasks in this feature.\n", getFeatureKey(taskKey))
+        fmt.Fprintf(os.Stderr, "\nUse 'shark task list' to see available tasks.\n")
+        fmt.Fprintf(os.Stderr, "Or 'shark task list --feature=%s' to see tasks in this feature.\n", getFeatureKey(taskKey))
         return nil  // Exit gracefully with helpful message
     }
 

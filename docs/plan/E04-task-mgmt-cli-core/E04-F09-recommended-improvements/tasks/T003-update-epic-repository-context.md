@@ -46,7 +46,7 @@ Update the EpicRepository to follow the context-aware pattern defined in T001. T
 
 - **TaskRepository**: Epic operations may be called alongside task operations
 - **FeatureRepository**: Epics contain features, context propagates through queries
-- **CLI Commands**: `pm epic` commands will pass timeout context
+- **CLI Commands**: `shark epic` commands will pass timeout context
 - **HTTP Handlers**: Server handlers will pass request context
 
 Reference: [PRD - Affected Components](../01-feature-prd.md#affected-components)
@@ -68,8 +68,8 @@ Reference: [PRD - Affected Components](../01-feature-prd.md#affected-components)
 - Database queries use `*Context()` variants
 
 **Manual Testing**:
-- Run `pm epic list` and verify it works
-- Run `pm epic create` and verify it works
+- Run `shark epic list` and verify it works
+- Run `shark epic create` and verify it works
 - Verify no performance degradation
 
 ## Context & Resources

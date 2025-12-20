@@ -235,7 +235,7 @@ func (r *taskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 task, err := taskRepo.GetByID(ctx, taskID)
 if errors.Is(err, domain.ErrTaskNotFound) {
     fmt.Fprintf(os.Stderr, "Error: Task %s not found.\n", taskKey)
-    fmt.Fprintf(os.Stderr, "Use 'pm task list' to see available tasks.\n")
+    fmt.Fprintf(os.Stderr, "Use 'shark task list' to see available tasks.\n")
     return nil
 }
 if err != nil {

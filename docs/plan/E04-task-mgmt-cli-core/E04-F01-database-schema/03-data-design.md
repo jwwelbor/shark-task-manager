@@ -7,7 +7,7 @@
 
 ## Purpose
 
-This document provides the complete database schema specification for the PM task management system. It defines all tables, columns, constraints, indexes, and data relationships in detail. This schema serves as the single source of truth for all project state (epics, features, tasks, history).
+This document provides the complete database schema specification for the shark task management system. It defines all tables, columns, constraints, indexes, and data relationships in detail. This schema serves as the single source of truth for all project state (epics, features, tasks, history).
 
 ---
 
@@ -488,7 +488,7 @@ CREATE INDEX idx_task_history_timestamp ON task_history(timestamp DESC);
 ```sql
 -- Task creation
 INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
-VALUES (1, NULL, 'todo', 'system', 'Task created via pm task create');
+VALUES (1, NULL, 'todo', 'system', 'Task created via shark task create');
 
 -- Status change
 INSERT INTO task_history (task_id, old_status, new_status, agent, notes)

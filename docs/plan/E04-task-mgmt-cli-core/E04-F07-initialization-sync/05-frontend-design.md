@@ -7,29 +7,29 @@
 
 ## Purpose
 
-This document defines the CLI user experience, command-line interfaces, output formatting, and interaction patterns for `pm init` and `pm sync` commands.
+This document defines the CLI user experience, command-line interfaces, output formatting, and interaction patterns for `shark init` and `shark sync` commands.
 
 ---
 
-## Command: `pm init`
+## Command: `shark init`
 
 ### Basic Usage
 
 ```bash
 # Initialize with defaults
-pm init
+shark init
 
 # Non-interactive mode (for automation)
-pm init --non-interactive
+shark init --non-interactive
 
 # Force overwrite existing config
-pm init --force
+shark init --force
 
 # Specify custom database path
-pm init --db=custom.db
+shark init --db=custom.db
 
 # Specify custom config path
-pm init --config=.custom-config.json
+shark init --config=.custom-config.json
 ```
 
 ### Flags
@@ -56,8 +56,8 @@ Shark CLI initialized successfully!
 
 Next steps:
 1. Edit .pmconfig.json to set default epic and agent
-2. Create tasks with: pm task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
-3. Import existing tasks with: pm sync
+2. Create tasks with: shark task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
+3. Import existing tasks with: shark sync
 ```
 
 **Idempotent Run** (already initialized):
@@ -70,8 +70,8 @@ Shark CLI initialized successfully!
 
 Next steps:
 1. Edit .pmconfig.json to set default epic and agent
-2. Create tasks with: pm task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
-3. Import existing tasks with: pm sync
+2. Create tasks with: shark task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
+3. Import existing tasks with: shark sync
 ```
 
 **Interactive Prompt** (config exists, no --force):
@@ -116,37 +116,37 @@ Shark CLI initialized successfully!
 
 ---
 
-## Command: `pm sync`
+## Command: `shark sync`
 
 ### Basic Usage
 
 ```bash
 # Sync all feature folders
-pm sync
+shark sync
 
 # Sync specific folder
-pm sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
+shark sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
 
 # Sync legacy task folders
-pm sync --folder=docs/tasks/todo
+shark sync --folder=docs/tasks/todo
 
 # Preview changes (dry-run)
-pm sync --dry-run
+shark sync --dry-run
 
 # Use database-wins strategy
-pm sync --strategy=database-wins
+shark sync --strategy=database-wins
 
 # Auto-create missing epics/features
-pm sync --create-missing
+shark sync --create-missing
 
 # Delete orphaned database tasks
-pm sync --cleanup
+shark sync --cleanup
 
 # JSON output for automation
-pm sync --json
+shark sync --json
 
 # Combined: dry-run + file-wins + create-missing
-pm sync --dry-run --strategy=file-wins --create-missing
+shark sync --dry-run --strategy=file-wins --create-missing
 ```
 
 ### Flags
@@ -280,13 +280,13 @@ No changes needed. Database is up to date.
 ```
 ✗ Error: Sync failed: task T-E99-F99-001 references non-existent feature E99-F99
 Suggestion: Use --create-missing to auto-create missing epics/features, or create feature E99-F99 first with:
-  pm feature create --epic=E99 --key=E99-F99 --title="Feature Title"
+  shark feature create --epic=E99 --key=E99-F99 --title="Feature Title"
 ```
 
 **Database Connection Error**:
 ```
 ✗ Error: Failed to create sync engine: failed to open database: no such file or directory
-Suggestion: Run 'pm init' first to initialize the database.
+Suggestion: Run 'shark init' first to initialize the database.
 ```
 
 **Invalid Strategy**:
@@ -306,7 +306,7 @@ git clone https://github.com/user/project.git
 cd project
 
 # Step 2: Initialize Shark CLI
-pm init
+shark init
 
 Shark CLI initialized successfully!
 
@@ -317,11 +317,11 @@ Shark CLI initialized successfully!
 
 Next steps:
 1. Edit .pmconfig.json to set default epic and agent
-2. Create tasks with: pm task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
-3. Import existing tasks with: pm sync
+2. Create tasks with: shark task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
+3. Import existing tasks with: shark sync
 
 # Step 3: Import existing task files
-pm sync --create-missing
+shark sync --create-missing
 
 ✓ Sync completed:
   Files scanned: 120
@@ -353,7 +353,7 @@ Fast-forward
  2 files changed, 50 insertions(+), 10 deletions(-)
 
 # Step 2: Sync database with file changes
-pm sync
+shark sync
 
 ✓ Sync completed:
   Files scanned: 121
@@ -377,7 +377,7 @@ Conflicts:
 
 ```bash
 # Step 1: Run dry-run to preview
-pm sync --dry-run
+shark sync --dry-run
 
 ⚠ Dry-run mode: No changes will be made
 
@@ -397,7 +397,7 @@ Conflicts:
     Resolution: file-wins (title updated to "Add user authentication feature")
 
 # Step 2: Review changes, then apply if acceptable
-pm sync
+shark sync
 
 ✓ Sync completed:
   Files scanned: 47
@@ -461,13 +461,13 @@ Syncing with database... 40/45 tasks processed
 
 ## Help Text
 
-### pm init --help
+### shark init --help
 
 ```
 Initialize Shark CLI infrastructure
 
 Usage:
-  pm init [flags]
+  shark init [flags]
 
 Description:
   Initialize Shark CLI infrastructure by creating database schema,
@@ -477,13 +477,13 @@ Description:
 
 Examples:
   # Initialize with default settings
-  pm init
+  shark init
 
   # Initialize without prompts (for automation)
-  pm init --non-interactive
+  shark init --non-interactive
 
   # Force overwrite existing config
-  pm init --force
+  shark init --force
 
 Flags:
       --non-interactive    Skip all prompts (use defaults)
@@ -497,13 +497,13 @@ Global Flags:
   -v, --verbose            Enable verbose/debug output
 ```
 
-### pm sync --help
+### shark sync --help
 
 ```
 Synchronize task files with database
 
 Usage:
-  pm sync [flags]
+  shark sync [flags]
 
 Description:
   Synchronize task markdown files with the database by scanning feature folders,
@@ -513,22 +513,22 @@ Description:
 
 Examples:
   # Sync all feature folders
-  pm sync
+  shark sync
 
   # Sync specific folder
-  pm sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
+  shark sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
 
   # Preview changes without applying (dry-run)
-  pm sync --dry-run
+  shark sync --dry-run
 
   # Use database-wins strategy for conflicts
-  pm sync --strategy=database-wins
+  shark sync --strategy=database-wins
 
   # Auto-create missing epics/features
-  pm sync --create-missing
+  shark sync --create-missing
 
   # Delete orphaned database tasks (files deleted)
-  pm sync --cleanup
+  shark sync --cleanup
 
 Flags:
       --folder string      Sync specific folder only (default: docs/plan)
@@ -583,7 +583,7 @@ If terminal doesn't support Unicode symbols:
 When `-v` or `--verbose` flag is set:
 
 ```
-pm sync -v
+shark sync -v
 
 [DEBUG] Using database: /abs/path/to/shark-tasks.db
 [DEBUG] Scanning folder: docs/plan
@@ -615,7 +615,7 @@ pm sync -v
 
 ```bash
 # Use JSON output in scripts
-pm sync --json > sync-report.json
+shark sync --json > sync-report.json
 
 # Parse with jq
 FILES_SCANNED=$(jq '.files_scanned' sync-report.json)
@@ -631,10 +631,10 @@ fi
 
 ```bash
 # Initialize in CI/CD
-pm init --non-interactive --json
+shark init --non-interactive --json
 
 # Sync with auto-create missing
-pm sync --create-missing --json
+shark sync --create-missing --json
 ```
 
 ---
@@ -661,7 +661,7 @@ Always provide actionable suggestions:
 ```
 ✗ Error: task T-E99-F99-001 references non-existent feature E99-F99
 Suggestion: Use --create-missing to auto-create missing epics/features, or create feature E99-F99 first with:
-  pm feature create --epic=E99 --key=E99-F99 --title="Feature Title"
+  shark feature create --epic=E99 --key=E99-F99 --title="Feature Title"
 ```
 
 ---

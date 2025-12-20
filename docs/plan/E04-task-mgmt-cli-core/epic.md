@@ -102,7 +102,7 @@ This epic includes the following features:
 
 ### Deferred to E05 (Task Management CLI - Extended Capabilities)
 
-1. **Status Dashboard & Reporting** - The `pm status` command with progress bars, active tasks, and recent activity (E05-F01)
+1. **Status Dashboard & Reporting** - The `shark status` command with progress bars, active tasks, and recent activity (E05-F01)
 2. **Dependency Management** - Dependency tree visualization, circular dependency detection, and automatic blocking (E05-F02)
 3. **History & Audit Trail** - Detailed activity logs, history commands, and export capabilities (E05-F03)
 4. **Advanced Features** - Estimation, agent metrics, batch operations, custom views (E05-F04+)

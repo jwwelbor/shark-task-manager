@@ -67,7 +67,7 @@ if errors.Is(err, domain.ErrInvalidStatus) {
 if errors.Is(err, domain.ErrDependencyNotMet) {
     fmt.Fprintf(os.Stderr, "Error: Cannot complete task. Dependency not satisfied.\n")
     fmt.Fprintf(os.Stderr, "Task '%s' depends on: %s\n", task.Key, task.Dependencies)
-    fmt.Fprintf(os.Stderr, "Use 'pm task show %s' to check dependency status\n", dependencyKey)
+    fmt.Fprintf(os.Stderr, "Use 'shark task show %s' to check dependency status\n", dependencyKey)
     return nil
 }
 ```
@@ -76,7 +76,7 @@ if errors.Is(err, domain.ErrDependencyNotMet) {
 ```go
 if errors.Is(err, domain.ErrEmptyTitle) {
     fmt.Fprintf(os.Stderr, "Error: Task title cannot be empty\n")
-    fmt.Fprintf(os.Stderr, "Example: pm task create E01-F01-T001 'Implement user login'\n")
+    fmt.Fprintf(os.Stderr, "Example: shark task create E01-F01-T001 'Implement user login'\n")
     return nil
 }
 ```
@@ -86,7 +86,7 @@ if errors.Is(err, domain.ErrEmptyTitle) {
 if errors.Is(err, domain.ErrForeignKey) {
     fmt.Fprintf(os.Stderr, "Error: Cannot delete epic '%s'. It contains active features/tasks.\n", epicKey)
     fmt.Fprintf(os.Stderr, "To delete this epic:\n")
-    fmt.Fprintf(os.Stderr, "  1. List features: pm feature list --epic=%s\n", epicKey)
+    fmt.Fprintf(os.Stderr, "  1. List features: shark feature list --epic=%s\n", epicKey)
     fmt.Fprintf(os.Stderr, "  2. Complete or delete all features\n")
     fmt.Fprintf(os.Stderr, "  3. Try delete again\n")
     return nil

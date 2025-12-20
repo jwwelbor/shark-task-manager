@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -13,8 +14,18 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/spf13/cobra"
 )
+
+// getRelativePathTask converts an absolute path to relative path from project root
+func getRelativePathTask(absPath string, projectRoot string) string {
+	relPath, err := filepath.Rel(projectRoot, absPath)
+	if err != nil {
+		return absPath // Fall back to absolute path if conversion fails
+	}
+	return relPath
+}
 
 // taskCmd represents the task command group
 var taskCmd = &cobra.Command{
@@ -23,11 +34,11 @@ var taskCmd = &cobra.Command{
 	Long: `Task lifecycle operations including listing, creating, updating, and managing task status.
 
 Examples:
-  pm task list                 List all tasks
-  pm task get T-E01-F01-001   Get task details
-  pm task create              Create a new task
-  pm task start T-E01-F01-001 Start working on a task
-  pm task complete T-E01-F01-001  Mark task as complete`,
+  shark task list                 List all tasks
+  shark task get T-E01-F01-001   Get task details
+  shark task create              Create a new task
+  shark task start T-E01-F01-001 Start working on a task
+  shark task complete T-E01-F01-001  Mark task as complete`,
 }
 
 // taskListCmd lists tasks
@@ -37,10 +48,10 @@ var taskListCmd = &cobra.Command{
 	Long: `List tasks with optional filtering by status, epic, feature, or agent.
 
 Examples:
-  pm task list                      List all tasks
-  pm task list --status=todo        List tasks with status 'todo'
-  pm task list --epic=E04           List tasks in epic E04
-  pm task list --json               Output as JSON`,
+  shark task list                      List all tasks
+  shark task list --status=todo        List tasks with status 'todo'
+  shark task list --epic=E04           List tasks in epic E04
+  shark task list --json               Output as JSON`,
 	RunE: runTaskList,
 }
 
@@ -151,8 +162,8 @@ var taskNextCmd = &cobra.Command{
 	Long: `Find the next available task based on dependencies, priority, and agent type.
 
 Examples:
-  pm task next                     Get next task
-  pm task next --agent=frontend    Get next frontend task`,
+  shark task next                     Get next task
+  shark task next --agent=frontend    Get next frontend task`,
 	RunE: runTaskNext,
 }
 
@@ -322,14 +333,39 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
-	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	// Create repositories
+	repoDb := repository.NewDB(database)
+	taskRepo := repository.NewTaskRepository(repoDb)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	epicRepo := repository.NewEpicRepository(repoDb)
 
 	// Get task by key
-	task, err := repo.GetByKey(ctx, taskKey)
+	task, err := taskRepo.GetByKey(ctx, taskKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task not found: %s", taskKey))
 		os.Exit(1)
+	}
+
+	// Get project root for path resolution
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		projectRoot = ""
+	}
+
+	// Resolve task path (requires feature and epic info)
+	var resolvedPath string
+	if projectRoot != "" {
+		feature, err := featureRepo.GetByID(ctx, task.FeatureID)
+		if err == nil {
+			epic, err := epicRepo.GetByID(ctx, feature.EpicID)
+			if err == nil {
+				pathBuilder := utils.NewPathBuilder(projectRoot)
+				absPath, err := pathBuilder.ResolveTaskPath(epic.Key, feature.Key, task.Key, task.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
+				if err == nil {
+					resolvedPath = getRelativePathTask(absPath, projectRoot)
+				}
+			}
+		}
 	}
 
 	// Check dependencies and their status
@@ -338,7 +374,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		var deps []string
 		if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err == nil {
 			for _, depKey := range deps {
-				depTask, err := repo.GetByKey(ctx, depKey)
+				depTask, err := taskRepo.GetByKey(ctx, depKey)
 				if err == nil {
 					dependencyStatus[depKey] = string(depTask.Status)
 				} else {
@@ -353,6 +389,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		// Create enhanced output with dependency status
 		output := map[string]interface{}{
 			"task":              task,
+			"path":              resolvedPath,
 			"dependency_status": dependencyStatus,
 		}
 		return cli.OutputJSON(output)
@@ -363,6 +400,10 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Title: %s\n", task.Title)
 	fmt.Printf("Status: %s\n", task.Status)
 	fmt.Printf("Priority: %d\n", task.Priority)
+
+	if resolvedPath != "" {
+		fmt.Printf("Path: %s\n", resolvedPath)
+	}
 
 	if task.Description != nil {
 		fmt.Printf("Description: %s\n", *task.Description)
@@ -640,7 +681,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	// Human-readable output
 	cli.Success(fmt.Sprintf("Created task %s: %s", result.Task.Key, result.Task.Title))
 	fmt.Printf("File created at: %s\n", result.FilePath)
-	fmt.Printf("Start work with: pm task start %s\n", result.Task.Key)
+	fmt.Printf("Start work with: shark task start %s\n", result.Task.Key)
 
 	return nil
 }

@@ -45,7 +45,7 @@ Update the TaskHistoryRepository to follow the context-aware pattern defined in 
 ### Integration Points
 
 - **TaskRepository**: History entries are created when tasks change status
-- **CLI Commands**: `pm task history` commands will pass timeout context
+- **CLI Commands**: `shark task history` commands will pass timeout context
 - **HTTP Handlers**: Server handlers will pass request context for audit queries
 
 Reference: [PRD - Affected Components](../01-feature-prd.md#affected-components)
@@ -68,7 +68,7 @@ Reference: [PRD - Affected Components](../01-feature-prd.md#affected-components)
 
 **Manual Testing**:
 - Change task status and verify history entry created
-- Run `pm task history <key>` and verify it works
+- Run `shark task history <key>` and verify it works
 - Verify no performance degradation
 
 ## Context & Resources

@@ -40,7 +40,7 @@ pm/
 
 ```python
 """
-SQLAlchemy ORM models for PM task management system.
+SQLAlchemy ORM models for shark task management system.
 
 This module defines the database schema using SQLAlchemy 2.0+ declarative syntax
 with full type hints for IDE support and mypy validation.
@@ -1030,7 +1030,7 @@ class ValidationError(DatabaseError):
 
 ```python
 """
-Database configuration for PM task management system.
+Database configuration for shark task management system.
 """
 
 from pathlib import Path
@@ -1087,7 +1087,7 @@ default_config = DatabaseConfig()
 
 ```python
 """
-Database session management for PM task management system.
+Database session management for shark task management system.
 
 Provides session factory, context managers, and database initialization.
 """

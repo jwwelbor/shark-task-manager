@@ -95,7 +95,7 @@ shark task create "Implement validation logic" \
   --priority=1
 #  SUCCESS  Created task T-E01-F01-001: Implement validation logic
 # File created at: docs/tasks/todo/T-E01-F01-001.md
-# Start work with: pm task start T-E01-F01-001
+# Start work with: shark task start T-E01-F01-001
 
 # Discover next available task (JSON output)
 shark task next --agent=backend --json

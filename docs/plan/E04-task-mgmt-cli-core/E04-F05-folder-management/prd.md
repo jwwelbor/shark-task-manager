@@ -103,7 +103,7 @@ Implement a feature-based file organization system where task files live alongsi
 - As a backend developer, I want the system to automatically create `docs/plan/{epic}/{feature}/tasks/` when I create a task, so that I don't manually manage directories.
 
 **Story 3: Validate File Path Consistency**
-- As a user, I want to run `pm validate` to check if all task files exist at their database-recorded paths, so that I can detect inconsistencies.
+- As a user, I want to run `shark validate` to check if all task files exist at their database-recorded paths, so that I can detect inconsistencies.
 
 **Story 4: Cross-Platform Paths**
 - As a user on Windows, macOS, or Linux, I want all file path operations to work correctly, so that the tool is portable.
@@ -117,7 +117,7 @@ Implement a feature-based file organization system where task files live alongsi
 ### Should-Have User Stories
 
 **Story 7: Detect Missing Files**
-- As a user, I want `pm validate` to report tasks with missing files, so that I can identify and fix filesystem issues.
+- As a user, I want `shark validate` to report tasks with missing files, so that I can identify and fix filesystem issues.
 
 **Story 8: Handle Path Validation Errors**
 - As a backend developer, I want clear exceptions if a file path is invalid or inaccessible, so that I can handle edge cases properly.
@@ -128,7 +128,7 @@ Implement a feature-based file organization system where task files live alongsi
 ### Could-Have User Stories
 
 **Story 10: Auto-Repair Missing Files**
-- As a user, I want `pm validate --repair` to offer to recreate missing task files from database metadata, so that I can recover from accidental deletions.
+- As a user, I want `shark validate --repair` to offer to recreate missing task files from database metadata, so that I can recover from accidental deletions.
 
 **Story 11: Warn About Long Paths**
 - As a user on Windows, I want warnings if file paths exceed 260 characters (MAX_PATH), so that I can avoid path length issues.
@@ -189,7 +189,7 @@ Implement a feature-based file organization system where task files live alongsi
 
 18. Validation must not modify any files or database records
 
-19. The system must provide CLI command `pm validate` that runs validation and reports results
+19. The system must provide CLI command `shark validate` that runs validation and reports results
 
 20. Exit code must be 0 if all paths valid, 1 if validation found issues
 
@@ -284,23 +284,23 @@ Implement a feature-based file organization system where task files live alongsi
 
 **Given** database shows task T-E04-F01-001 with file_path="/correct/path/T-E04-F01-001.md"
 **And** file exists at that path
-**When** I run `pm validate`
+**When** I run `shark validate`
 **Then** task is reported as valid
 **And** exit code is 0
 
 **Given** database shows task T-E04-F01-002 with file_path="/expected/path/T-E04-F01-002.md"
 **And** file does NOT exist at that path
-**When** I run `pm validate`
+**When** I run `shark validate`
 **Then** task is reported in "missing_files" list
 **And** exit code is 1
 
 **Given** database shows task with file_path="wrong/pattern/file.md" (doesn't match expected pattern)
-**When** I run `pm validate`
+**When** I run `shark validate`
 **Then** task is reported in "invalid_paths" list
 **And** exit code is 1
 
 **Given** all 1,000 tasks have correct paths and existing files
-**When** I run `pm validate`
+**When** I run `shark validate`
 **Then** report shows "All 1,000 tasks valid"
 **And** validation completes in <2 seconds
 **And** exit code is 0

@@ -125,7 +125,7 @@ func runTaskList(repo domain.TaskRepository) error { ... }
 - Integration tests still work with SQLite implementations
 
 **Runtime Verification**:
-- Run CLI: `pm task list` works
+- Run CLI: `shark task list` works
 - Run server: `go run cmd/server/main.go` works
 - No runtime errors or panics
 

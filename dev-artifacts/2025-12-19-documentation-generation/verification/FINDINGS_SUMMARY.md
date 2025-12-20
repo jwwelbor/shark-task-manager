@@ -130,9 +130,9 @@ The feature create command supports `--execution-order` for sequencing, but this
 Some examples in command help text use `pm` instead of `shark`:
 
 **Examples:**
-- epic.go line 40: `pm epic list` should be `shark epic list`
-- feature.go line 34: `pm feature list` should be `shark feature list`
-- task.go line 26: `pm task list` should be `shark task list`
+- epic.go line 40: `shark epic list` should be `shark epic list`
+- feature.go line 34: `shark feature list` should be `shark feature list`
+- task.go line 26: `shark task list` should be `shark task list`
 
 **Note:** Workflow examples (CLI_REFERENCE.md line 65+) correctly use `shark`.
 
