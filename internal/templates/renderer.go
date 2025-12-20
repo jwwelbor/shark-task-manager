@@ -37,10 +37,15 @@ func NewRenderer(loader *Loader) *Renderer {
 
 // Render renders a task template with the given data
 func (r *Renderer) Render(agentType models.AgentType, data TemplateData) (string, error) {
+	// Validate agent type
+	if err := models.ValidateAgentType(string(agentType)); err != nil {
+		return "", fmt.Errorf("failed to load template: %w", err)
+	}
+
 	// Load template for agent type
 	tmplContent, err := r.loader.LoadTemplate(agentType)
 	if err != nil {
-		return "", fmt.Errorf("failed to load template for %s: %w", agentType, err)
+		return "", fmt.Errorf("failed to load template: %w", err)
 	}
 
 	// Create template with custom functions

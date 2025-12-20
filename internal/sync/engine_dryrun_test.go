@@ -348,6 +348,7 @@ func initTestDB(t *testing.T, dbPath string) *sql.DB {
 		description TEXT,
 		status TEXT NOT NULL,
 		progress_pct INTEGER DEFAULT 0,
+		execution_order INTEGER,
 		file_path TEXT,
 		custom_folder_path TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
