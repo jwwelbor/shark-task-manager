@@ -401,6 +401,12 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		})
 	}
 
+	// Get filename from resolved path
+	var filename string
+	if resolvedPath != "" {
+		filename = filepath.Base(resolvedPath)
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
@@ -413,6 +419,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"business_value": epic.BusinessValue,
 			"progress_pct":   epicProgress,
 			"path":           resolvedPath,
+			"filename":       filename,
 			"created_at":     epic.CreatedAt,
 			"updated_at":     epic.UpdatedAt,
 			"features":       featuresWithDetails,
@@ -421,7 +428,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output as formatted text
-	renderEpicDetails(epic, epicProgress, featuresWithDetails, resolvedPath)
+	renderEpicDetails(epic, epicProgress, featuresWithDetails, resolvedPath, filename)
 	return nil
 }
 
@@ -456,7 +463,7 @@ func renderEpicListTable(epics []EpicWithProgress) {
 }
 
 // renderEpicDetails renders epic details with features table
-func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path string) {
+func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path, filename string) {
 	// Print epic metadata
 	pterm.DefaultSection.Printf("Epic: %s", epic.Key)
 	fmt.Println()
@@ -471,6 +478,10 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 
 	if path != "" {
 		info = append(info, []string{"Path", path})
+	}
+
+	if filename != "" {
+		info = append(info, []string{"Filename", filename})
 	}
 
 	if epic.Description != nil && *epic.Description != "" {

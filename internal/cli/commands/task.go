@@ -384,12 +384,19 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Get filename from resolved path
+	var filename string
+	if resolvedPath != "" {
+		filename = filepath.Base(resolvedPath)
+	}
+
 	// Output results
 	if cli.GlobalConfig.JSON {
 		// Create enhanced output with dependency status
 		output := map[string]interface{}{
 			"task":              task,
 			"path":              resolvedPath,
+			"filename":          filename,
 			"dependency_status": dependencyStatus,
 		}
 		return cli.OutputJSON(output)
@@ -403,6 +410,10 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 
 	if resolvedPath != "" {
 		fmt.Printf("Path: %s\n", resolvedPath)
+	}
+
+	if filename != "" {
+		fmt.Printf("Filename: %s\n", filename)
 	}
 
 	if task.Description != nil {
