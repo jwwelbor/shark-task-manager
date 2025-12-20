@@ -75,7 +75,8 @@ func TestValidatePattern_MissingRequiredCaptureGroups_Epic(t *testing.T) {
 }
 
 func TestValidatePattern_MissingRequiredCaptureGroups_Feature(t *testing.T) {
-	// Feature patterns must include (epic_id OR epic_num) AND (feature_id OR feature_slug OR number)
+	// Feature patterns must include at least one of (feature_id OR feature_slug OR number OR slug)
+	// Epic context may be explicit (epic_id OR epic_num) in the pattern OR inferred from parent folder
 	tests := []struct {
 		name    string
 		pattern string
@@ -102,12 +103,12 @@ func TestValidatePattern_MissingRequiredCaptureGroups_Feature(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "missing epic identifier - invalid",
+			name:    "has number without epic (nested context) - valid",
 			pattern: `^F(?P<number>\d{2})-.*$`,
-			wantErr: true,
+			wantErr: false,
 		},
 		{
-			name:    "missing feature identifier - invalid",
+			name:    "missing feature identifier completely - invalid",
 			pattern: `^E(?P<epic_num>\d{2})-F\d{2}-.*$`,
 			wantErr: true,
 		},
@@ -280,7 +281,7 @@ func TestValidatePatternConfig_WithErrors(t *testing.T) {
 		},
 		Feature: EntityPatterns{
 			Folder: []string{
-				`^F(?P<number>\d{2})-.*$`, // Missing epic identifier
+				`^[a-z]+$`, // Missing feature identifier completely
 			},
 		},
 		Task: EntityPatterns{
