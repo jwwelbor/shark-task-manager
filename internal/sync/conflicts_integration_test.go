@@ -305,6 +305,7 @@ func initTestSchema(db *sql.DB) error {
 		description TEXT,
 		status TEXT NOT NULL,
 		progress_pct REAL NOT NULL DEFAULT 0.0,
+		execution_order INTEGER NULL,
 		file_path TEXT,
 		custom_folder_path TEXT,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -38,6 +38,8 @@ func setupTestDB(t *testing.T) (*repository.DB, func()) {
 			status TEXT NOT NULL,
 			priority TEXT NOT NULL,
 			business_value TEXT,
+			file_path TEXT,
+			custom_folder_path TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
@@ -50,6 +52,9 @@ func setupTestDB(t *testing.T) (*repository.DB, func()) {
 			description TEXT,
 			status TEXT NOT NULL,
 			progress_pct REAL NOT NULL DEFAULT 0.0,
+			execution_order INTEGER NULL,
+			file_path TEXT,
+			custom_folder_path TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE
@@ -68,6 +73,7 @@ func setupTestDB(t *testing.T) (*repository.DB, func()) {
 			assigned_agent TEXT,
 			file_path TEXT,
 			blocked_reason TEXT,
+			execution_order INTEGER NULL,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			started_at TIMESTAMP,
 			completed_at TIMESTAMP,

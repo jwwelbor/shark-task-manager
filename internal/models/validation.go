@@ -101,10 +101,16 @@ func ValidateTaskStatus(status string) error {
 // ValidateAgentType validates the agent type enum
 // Note: As of E07-F01, this accepts any non-empty string value
 func ValidateAgentType(agentType string) error {
-	// Accept any non-empty string value for agent type
-	// This allows for custom agent types beyond the predefined set
-	if agentType == "" {
-		return fmt.Errorf("agent type cannot be empty")
+	validTypes := map[string]bool{
+		"frontend": true,
+		"backend":  true,
+		"api":      true,
+		"testing":  true,
+		"devops":   true,
+		"general":  true,
+	}
+	if !validTypes[agentType] {
+		return fmt.Errorf("invalid agent type '%s'. Valid types are: frontend, backend, api, testing, devops, general", agentType)
 	}
 	return nil
 }
