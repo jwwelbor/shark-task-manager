@@ -1038,9 +1038,16 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		affectedTaskKeys = append(affectedTaskKeys, task.Key)
 	}
 
-	// Update feature progress
+	// Update feature progress (which now auto-completes at 100%)
 	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to update feature progress: %v", err))
+		os.Exit(2)
+	}
+
+	// Fetch updated feature to get the new status
+	feature, err = featureRepo.GetByKey(ctx, featureKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to fetch updated feature: %v", err))
 		os.Exit(2)
 	}
 
@@ -1065,6 +1072,11 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Human-readable output
+	statusMsg := ""
+	if feature.Status == models.FeatureStatusCompleted {
+		statusMsg = " (feature marked as completed)"
+	}
+
 	if hasIncomplete && force {
 		// Show what was force-completed
 		todoCount := statusBreakdown[models.TaskStatusTodo]
@@ -1075,11 +1087,11 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		statusCounts := fmt.Sprintf("%d todo, %d in_progress, %d blocked, %d ready_for_review",
 			todoCount, inProgressCount, blockedCount, reviewedCount)
 
-		cli.Success(fmt.Sprintf("Feature %s completed: Force-completed %d tasks (%s)",
-			featureKey, numCompleted, statusCounts))
+		cli.Success(fmt.Sprintf("Feature %s completed: Force-completed %d tasks (%s)%s",
+			featureKey, numCompleted, statusCounts, statusMsg))
 	} else {
 		// All tasks were already completed or in review
-		cli.Success(fmt.Sprintf("Feature %s completed: %d/%d tasks completed", featureKey, len(tasks), len(tasks)))
+		cli.Success(fmt.Sprintf("Feature %s completed: %d/%d tasks completed%s", featureKey, len(tasks), len(tasks), statusMsg))
 	}
 
 	return nil

@@ -254,7 +254,7 @@ func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]
 func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status, t.agent_type, t.priority,
-		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, execution_order,
+		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at
 		FROM tasks t
 		INNER JOIN features f ON t.feature_id = f.id
@@ -298,7 +298,7 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType models
 func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *models.AgentType, maxPriority *int) ([]*models.Task, error) {
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status, t.agent_type, t.priority,
-		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, execution_order,
+		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at
 		FROM tasks t
 	`
