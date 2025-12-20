@@ -105,6 +105,32 @@ func (r *DocumentRepository) getByTitleAndPath(ctx context.Context, title, fileP
 	return doc, nil
 }
 
+// GetByTitle retrieves a document by title only
+func (r *DocumentRepository) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
+	query := `
+		SELECT id, title, file_path, created_at
+		FROM documents
+		WHERE title = ?
+	`
+
+	doc := &models.Document{}
+	err := r.db.QueryRowContext(ctx, query, title).Scan(
+		&doc.ID,
+		&doc.Title,
+		&doc.FilePath,
+		&doc.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("document not found")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get document: %w", err)
+	}
+
+	return doc, nil
+}
+
 // Delete removes a document
 func (r *DocumentRepository) Delete(ctx context.Context, id int64) error {
 	query := `DELETE FROM documents WHERE id = ?`

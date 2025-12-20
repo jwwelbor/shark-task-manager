@@ -543,3 +543,44 @@ func TestGetByIDNotFound(t *testing.T) {
 		t.Error("Expected error for non-existent document")
 	}
 }
+
+// TestGetByTitle retrieves document by title only
+func TestGetByTitle(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	docRepo := NewDocumentRepository(db)
+
+	created, err := docRepo.CreateOrGet(ctx, "Title Only Doc", "docs/titleonly.md")
+	if err != nil {
+		t.Fatalf("CreateOrGet failed: %v", err)
+	}
+
+	retrieved, err := docRepo.GetByTitle(ctx, "Title Only Doc")
+	if err != nil {
+		t.Fatalf("GetByTitle failed: %v", err)
+	}
+
+	if retrieved.ID != created.ID {
+		t.Errorf("Expected ID %d, got %d", created.ID, retrieved.ID)
+	}
+	if retrieved.Title != "Title Only Doc" {
+		t.Errorf("Expected title 'Title Only Doc', got %q", retrieved.Title)
+	}
+	if retrieved.FilePath != "docs/titleonly.md" {
+		t.Errorf("Expected file path 'docs/titleonly.md', got %q", retrieved.FilePath)
+	}
+}
+
+// TestGetByTitleNotFound returns error for missing document title
+func TestGetByTitleNotFound(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	docRepo := NewDocumentRepository(db)
+
+	_, err := docRepo.GetByTitle(ctx, "NonexistentTitle")
+	if err == nil {
+		t.Error("Expected error for non-existent document title")
+	}
+}
