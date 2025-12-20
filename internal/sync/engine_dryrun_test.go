@@ -334,6 +334,8 @@ func initTestDB(t *testing.T, dbPath string) *sql.DB {
 		title TEXT NOT NULL,
 		status TEXT NOT NULL,
 		priority TEXT NOT NULL,
+		file_path TEXT,
+		custom_folder_path TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -346,6 +348,8 @@ func initTestDB(t *testing.T, dbPath string) *sql.DB {
 		description TEXT,
 		status TEXT NOT NULL,
 		progress_pct INTEGER DEFAULT 0,
+		file_path TEXT,
+		custom_folder_path TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (epic_id) REFERENCES epics(id)
@@ -365,6 +369,7 @@ func initTestDB(t *testing.T, dbPath string) *sql.DB {
 		file_path TEXT,
 		blocked_reason TEXT,
 		blocked_at DATETIME,
+		execution_order INTEGER,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		started_at DATETIME,
 		completed_at DATETIME,
