@@ -2,7 +2,7 @@
 
 ## Overview
 
-This folder contains agent-executable tasks that implement the E04-F07-initialization-sync feature in logical phases. The feature adds `pm init` and `pm sync` commands to set up the CLI infrastructure and synchronize task files with the database.
+This folder contains agent-executable tasks that implement the E04-F07-initialization-sync feature in logical phases. The feature adds `shark init` and `shark sync` commands to set up the CLI infrastructure and synchronize task files with the database.
 
 ## Active Tasks
 
@@ -62,11 +62,11 @@ Extends existing repository layer with methods optimized for sync operations: Bu
 - Performance benchmarks
 
 ### Task 002: Initialization Command Implementation
-Implements `pm init` command to set up Shark CLI infrastructure with database schema, folder structure, config file, and templates. Emphasizes idempotency and atomic operations for safety.
+Implements `shark init` command to set up Shark CLI infrastructure with database schema, folder structure, config file, and templates. Emphasizes idempotency and atomic operations for safety.
 
 **Key Deliverables**:
 - `internal/init/` package with orchestrator and sub-components
-- `pm init` CLI command with flags
+- `shark init` CLI command with flags
 - Embedded templates (go:embed)
 - Unit and integration tests
 
@@ -89,11 +89,11 @@ Implements conflict detection and resolution logic to handle discrepancies betwe
 - Comprehensive unit tests
 
 ### Task 005: Sync Engine and Command Implementation
-Implements complete sync orchestration and `pm sync` CLI command. Coordinates all sync phases, manages transactions, handles errors, and generates detailed reports.
+Implements complete sync orchestration and `shark sync` CLI command. Coordinates all sync phases, manages transactions, handles errors, and generates detailed reports.
 
 **Key Deliverables**:
 - `internal/sync/engine.go` - SyncEngine orchestrator
-- `pm sync` CLI command with all flags
+- `shark sync` CLI command with all flags
 - Transaction management
 - Integration tests
 
@@ -112,18 +112,18 @@ Task status is tracked in the database via `shark` CLI. Use these commands:
 
 ```bash
 # List tasks by status
-pm task list --status=created
-pm task list --status=todo
-pm task list --status=in_progress
+shark task list --status=created
+shark task list --status=todo
+shark task list --status=in_progress
 
 # Update task status
-pm task start T-E04-F07-001        # Mark as in_progress
-pm task complete T-E04-F07-001     # Mark as ready_for_review
-pm task approve T-E04-F07-001      # Mark as completed
+shark task start T-E04-F07-001        # Mark as in_progress
+shark task complete T-E04-F07-001     # Mark as ready_for_review
+shark task approve T-E04-F07-001      # Mark as completed
 
 # Block/unblock tasks
-pm task block T-E04-F07-002 --reason="Waiting for design approval"
-pm task unblock T-E04-F07-002
+shark task block T-E04-F07-002 --reason="Waiting for design approval"
+shark task unblock T-E04-F07-002
 ```
 
 Task files remain in this `/docs/plan/E04-task-mgmt-cli-core/E04-F07-initialization-sync/tasks/` directory regardless of status.
@@ -155,8 +155,8 @@ All tasks reference these design documents in the feature folder:
 ## Performance Targets
 
 From PRD requirements:
-- `pm init`: <5 seconds
-- `pm sync` with 100 files: <10 seconds
+- `shark init`: <5 seconds
+- `shark sync` with 100 files: <10 seconds
 - YAML parsing: <10ms per file
 - BulkCreate: 100 tasks in <1 second
 - GetByKeys: 100 lookups in <100ms
@@ -171,8 +171,8 @@ From PRD requirements:
 - Sync engine components (isolated)
 
 ### Integration Tests
-- Full `pm init` command execution
-- Full `pm sync` command execution
+- Full `shark init` command execution
+- Full `shark sync` command execution
 - Transaction rollback on errors
 - Epic/feature auto-creation with --create-missing
 - Orphaned task cleanup with --cleanup
@@ -196,11 +196,11 @@ To begin implementation:
 
 1. **Review design documents** in the feature folder
 2. **Start with Task 001, 002, or 003** (they can run in parallel)
-3. **Use `pm task start <key>`** to mark task as in-progress
+3. **Use `shark task start <key>`** to mark task as in-progress
 4. **Reference design docs** for implementation details (tasks provide WHAT, not HOW)
 5. **Write tests first** for critical paths (TDD approach recommended)
 6. **Complete validation gates** before marking task ready for review
-7. **Use `pm task complete <key>`** when done
+7. **Use `shark task complete <key>`** when done
 
 ## Notes for Implementers
 

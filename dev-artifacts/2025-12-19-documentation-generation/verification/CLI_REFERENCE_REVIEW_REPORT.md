@@ -88,8 +88,8 @@ var epicStatusCmd = &cobra.Command{
 
 **Documented in CLI_REFERENCE.md line 40:**
 ```
-pm epic list                 List all epics
-pm epic list --json          Output as JSON
+shark epic list                 List all epics
+shark epic list --json          Output as JSON
 ```
 
 **Should be:**

@@ -112,7 +112,7 @@ Reference: [PRD - Interface Example](../01-feature-prd.md#fr-2-repository-interf
 
 **Manual Verification**:
 - Build project: `go build ./cmd/...`
-- Run CLI: `pm task list`
+- Run CLI: `shark task list`
 - Run server: `go run cmd/server/main.go`
 - Verify no regressions
 

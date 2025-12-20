@@ -6,12 +6,12 @@ Fast reference guide for epic and feature query commands.
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `pm epic list` | List all epics | `pm epic list` |
-| `pm epic get <key>` | Get epic details | `pm epic get E04` |
-| `pm feature list` | List all features | `pm feature list` |
-| `pm feature list --epic=<key>` | List features in epic | `pm feature list --epic=E04` |
-| `pm feature list --status=<status>` | Filter by status | `pm feature list --status=active` |
-| `pm feature get <key>` | Get feature details | `pm feature get E04-F04` |
+| `shark epic list` | List all epics | `shark epic list` |
+| `shark epic get <key>` | Get epic details | `shark epic get E04` |
+| `shark feature list` | List all features | `shark feature list` |
+| `shark feature list --epic=<key>` | List features in epic | `shark feature list --epic=E04` |
+| `shark feature list --status=<status>` | Filter by status | `shark feature list --status=active` |
+| `shark feature get <key>` | Get feature details | `shark feature get E04-F04` |
 
 ## Common Use Cases
 
@@ -19,55 +19,55 @@ Fast reference guide for epic and feature query commands.
 
 ```bash
 # See all epics
-pm epic list
+shark epic list
 
 # Drill into specific epic
-pm epic get E04
+shark epic get E04
 
 # See active features
-pm feature list --status=active
+shark feature list --status=active
 ```
 
 ### Find Next Work Item
 
 ```bash
 # List active features
-pm feature list --status=active
+shark feature list --status=active
 
 # Get feature details to see tasks
-pm feature get E04-F04
+shark feature get E04-F04
 
 # Get next available task
-pm task next --feature=E04-F04
+shark task next --feature=E04-F04
 ```
 
 ### Generate Report for Stakeholders
 
 ```bash
 # Get all epics with progress (JSON)
-pm epic list --json > report.json
+shark epic list --json > report.json
 
 # Extract summary
-pm epic list --json | jq '.results[] | {key, title, progress_pct}'
+shark epic list --json | jq '.results[] | {key, title, progress_pct}'
 
 # Get detailed epic breakdown
-pm epic get E04 --json | jq '.features[] | {key, title, progress_pct, task_count}'
+shark epic get E04 --json | jq '.features[] | {key, title, progress_pct, task_count}'
 ```
 
 ### AI Agent Workflow
 
 ```bash
 # 1. Find active epic
-EPIC=$(pm epic list --json | jq -r '.results[] | select(.status == "active") | .key' | head -1)
+EPIC=$(shark epic list --json | jq -r '.results[] | select(.status == "active") | .key' | head -1)
 
 # 2. Get features in epic
-pm feature list --epic=$EPIC --json
+shark feature list --epic=$EPIC --json
 
 # 3. Find incomplete feature
-FEATURE=$(pm feature list --epic=$EPIC --json | jq -r '.results[] | select(.progress_pct < 100) | .key' | head -1)
+FEATURE=$(shark feature list --epic=$EPIC --json | jq -r '.results[] | select(.progress_pct < 100) | .key' | head -1)
 
 # 4. Get next task
-pm task next --feature=$FEATURE --json
+shark task next --feature=$FEATURE --json
 ```
 
 ## Flags Reference
@@ -76,17 +76,17 @@ pm task next --feature=$FEATURE --json
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `--json` | JSON output | `pm --json epic list` |
-| `--no-color` | Disable colors | `pm --no-color epic list` |
-| `--verbose` | Verbose output | `pm --verbose epic list` |
-| `--db <path>` | Database file | `pm --db=custom.db epic list` |
+| `--json` | JSON output | `shark --json epic list` |
+| `--no-color` | Disable colors | `shark --no-color epic list` |
+| `--verbose` | Verbose output | `shark --verbose epic list` |
+| `--db <path>` | Database file | `shark --db=custom.db epic list` |
 
 ### Command-Specific Flags
 
 | Command | Flag | Values | Example |
 |---------|------|--------|---------|
-| `pm feature list` | `--epic` | Epic key (e.g., E04) | `pm feature list --epic=E04` |
-| `pm feature list` | `--status` | draft, active, completed, archived | `pm feature list --status=active` |
+| `shark feature list` | `--epic` | Epic key (e.g., E04) | `shark feature list --epic=E04` |
+| `shark feature list` | `--status` | draft, active, completed, archived | `shark feature list --status=active` |
 
 ## Exit Codes
 
@@ -181,7 +181,7 @@ Tasks:
 ### Epic List JSON
 
 ```bash
-pm epic list --json
+shark epic list --json
 ```
 
 ```json
@@ -202,7 +202,7 @@ pm epic list --json
 ### Feature Get JSON
 
 ```bash
-pm feature get E04-F04 --json
+shark feature get E04-F04 --json
 ```
 
 ```json
@@ -228,37 +228,37 @@ pm feature get E04-F04 --json
 ### Filter Active Epics
 
 ```bash
-pm epic list --json | jq '.results[] | select(.status == "active")'
+shark epic list --json | jq '.results[] | select(.status == "active")'
 ```
 
 ### Get Epic with Lowest Progress
 
 ```bash
-pm epic list --json | jq '.results | sort_by(.progress_pct) | .[0]'
+shark epic list --json | jq '.results | sort_by(.progress_pct) | .[0]'
 ```
 
 ### Extract Feature Keys from Epic
 
 ```bash
-pm epic get E04 --json | jq -r '.features[].key'
+shark epic get E04 --json | jq -r '.features[].key'
 ```
 
 ### Count Tasks by Status
 
 ```bash
-pm feature get E04-F04 --json | jq '.task_breakdown'
+shark feature get E04-F04 --json | jq '.task_breakdown'
 ```
 
 ### Find Incomplete Active Features
 
 ```bash
-pm feature list --status=active --json | jq '.results[] | select(.progress_pct < 100)'
+shark feature list --status=active --json | jq '.results[] | select(.progress_pct < 100)'
 ```
 
 ### Get High Priority Epics
 
 ```bash
-pm epic list --json | jq '.results[] | select(.priority == "high")'
+shark epic list --json | jq '.results[] | select(.priority == "high")'
 ```
 
 ## Common Errors
@@ -267,19 +267,19 @@ pm epic list --json | jq '.results[] | select(.priority == "high")'
 
 ```
 Error: Epic E99 does not exist
-Use 'pm epic list' to see available epics
+Use 'shark epic list' to see available epics
 ```
 
-**Fix:** Check epic key with `pm epic list`
+**Fix:** Check epic key with `shark epic list`
 
 ### Feature Not Found
 
 ```
 Error: Feature E04-F99 does not exist
-Use 'pm feature list' to see available features
+Use 'shark feature list' to see available features
 ```
 
-**Fix:** Check feature key with `pm feature list`
+**Fix:** Check feature key with `shark feature list`
 
 ### Invalid Status
 
@@ -303,7 +303,7 @@ Error: Database error. Run with --verbose for details.
 
 ```bash
 # Check database file location
-pm --db=shark-tasks.db epic list
+shark --db=shark-tasks.db epic list
 
 # Verify database content
 sqlite3 shark-tasks.db "SELECT * FROM epics;"
@@ -313,10 +313,10 @@ sqlite3 shark-tasks.db "SELECT * FROM epics;"
 
 ```bash
 # Check task status breakdown
-pm feature get E04-F04
+shark feature get E04-F04
 
 # Verify task statuses
-pm task list --feature=E04-F04
+shark task list --feature=E04-F04
 
 # Remember: only "completed" and "archived" count
 ```
@@ -325,11 +325,11 @@ pm task list --feature=E04-F04
 
 ```bash
 # Don't use --verbose with --json
-pm --json epic list  # Good
-pm --verbose --json epic list  # Bad (mixes output)
+shark --json epic list  # Good
+shark --verbose --json epic list  # Bad (mixes output)
 
 # Check exit code first
-if pm epic get E04 --json > out.json; then
+if shark epic get E04 --json > out.json; then
   jq '.' out.json
 fi
 ```

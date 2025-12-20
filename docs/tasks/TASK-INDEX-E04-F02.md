@@ -52,7 +52,7 @@ docs/tasks/archived/       → Moved when no longer needed
 **Dependencies**: T-E04-F01-006 (Database layer complete)
 
 Create the foundational Click-based CLI framework:
-- Hierarchical command structure (`pm <resource> <action>`)
+- Hierarchical command structure (`shark <resource> <action>`)
 - Global flags (--json, --no-color, --verbose, --config)
 - Entry point configuration and package installation
 - Argument parsing with type validation
@@ -61,7 +61,7 @@ Create the foundational Click-based CLI framework:
 
 **Success Gates**:
 - `shark` command installed and accessible
-- Command hierarchy works (`pm --help`, `pm task --help`)
+- Command hierarchy works (`shark --help`, `shark task --help`)
 - Global flags inherited by all subcommands
 - CLI startup time <300ms
 
@@ -100,7 +100,7 @@ Implement .pmconfig.json system:
 - .pmconfig.json loads correctly
 - CLI flags override config values
 - Missing config doesn't cause errors
-- `pm config validate` reports clear errors
+- `shark config validate` reports clear errors
 
 ### Phase 4: Error Handling & Exit Codes (8 hours)
 
@@ -129,7 +129,7 @@ Implement comprehensive error handling:
 Integrate database layer with CLI:
 - Session factory integration with Click context
 - Session lifecycle management (commit/rollback/close)
-- Database initialization command (`pm init`)
+- Database initialization command (`shark init`)
 - Session access via `ctx.obj['db']`
 - Connection error handling
 

@@ -36,9 +36,9 @@ See [`docs/future-enhancements/output-formats.md`](../../docs/future-enhancement
 
 ### Usage Example (Future)
 ```bash
-pm task get T-E04-F01-001 --format=markdown > task.md
-pm task list --format=yaml > tasks.yaml
-pm task list --format=csv > tasks.csv
+shark task get T-E04-F01-001 --format=markdown > task.md
+shark task list --format=yaml > tasks.yaml
+shark task list --format=csv > tasks.csv
 ```
 
 ## Architecture

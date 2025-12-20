@@ -141,10 +141,10 @@ Implement atomic DB-file synchronization:
 **Dependencies**: T-E04-F05-003, T-E04-F05-004
 
 Implement user-facing validation commands:
-- `pm validate` command to check consistency
-- `pm validate --repair` to fix mismatches
-- `pm validate --dry-run` to preview repairs
-- `pm validate --json` for agent consumption
+- `shark validate` command to check consistency
+- `shark validate --repair` to fix mismatches
+- `shark validate --dry-run` to preview repairs
+- `shark validate --json` for agent consumption
 - Human-readable table output
 - Clear exit codes (0=valid, 1=mismatches)
 
@@ -286,7 +286,7 @@ Update database first, then move file. No concurrent access locking needed.
 **Impact**: Brief window (1-50ms) where DB is updated but file hasn't moved yet. If process crashes, validation will detect and repair.
 
 ### ADR-003: Validation as Safety Net
-Provide `pm validate` command to detect and repair inconsistencies.
+Provide `shark validate` command to detect and repair inconsistencies.
 
 **Rationale**: Handles edge cases (process crashes, manual file moves, bugs). Agent can run validation periodically or after errors.
 

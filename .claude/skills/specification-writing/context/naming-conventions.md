@@ -110,10 +110,10 @@ All tasks for a feature live in:
 
 **Status Management**:
 Task status is managed via `shark` CLI:
-- `pm task list --status=todo` - List todo tasks
-- `pm task start T-E01-F01-001` - Start task (status: in_progress)
-- `pm task complete T-E01-F01-001` - Complete task (status: ready_for_review)
-- `pm task approve T-E01-F01-001` - Approve task (status: completed)
+- `shark task list --status=todo` - List todo tasks
+- `shark task start T-E01-F01-001` - Start task (status: in_progress)
+- `shark task complete T-E01-F01-001` - Complete task (status: ready_for_review)
+- `shark task approve T-E01-F01-001` - Approve task (status: completed)
 
 ## Epic Files
 

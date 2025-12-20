@@ -15,9 +15,9 @@ This document tracks the implementation tasks (Product Requirement Prompts) for 
 - **Agent**: general-purpose
 
 **Scope**:
-- Implement `pm task list` command with filtering (status, epic, feature, agent, priority)
-- Implement `pm task get <task-key>` command for task details
-- Implement `pm task next` command for intelligent task discovery
+- Implement `shark task list` command with filtering (status, epic, feature, agent, priority)
+- Implement `shark task get <task-key>` command for task details
+- Implement `shark task next` command for intelligent task discovery
 - Support both human-readable tables and JSON output
 - Include dependency validation in next command
 - Meet performance targets (<100ms for list, <50ms for next)
@@ -39,9 +39,9 @@ This document tracks the implementation tasks (Product Requirement Prompts) for 
 - **Agent**: general-purpose
 
 **Scope**:
-- Implement `pm task start <task-key>` command (todo → in_progress)
-- Implement `pm task complete <task-key>` command (in_progress → ready_for_review)
-- Implement `pm task approve <task-key>` command (ready_for_review → completed)
+- Implement `shark task start <task-key>` command (todo → in_progress)
+- Implement `shark task complete <task-key>` command (in_progress → ready_for_review)
+- Implement `shark task approve <task-key>` command (ready_for_review → completed)
 - State transition validation (reject invalid transitions)
 - History recording for all state changes
 - Atomic transactions (database + file operations)
@@ -64,9 +64,9 @@ This document tracks the implementation tasks (Product Requirement Prompts) for 
 - **Agent**: general-purpose
 
 **Scope**:
-- Implement `pm task block <task-key> --reason="..."` command
-- Implement `pm task unblock <task-key>` command
-- Implement `pm task reopen <task-key>` command for rework
+- Implement `shark task block <task-key> --reason="..."` command
+- Implement `shark task unblock <task-key>` command
+- Implement `shark task reopen <task-key>` command for rework
 - Block from todo or in_progress states
 - Unblock returns to todo state
 - Reopen returns from ready_for_review to in_progress

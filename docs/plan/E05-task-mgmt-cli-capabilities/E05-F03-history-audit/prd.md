@@ -12,7 +12,7 @@ While E04-F01 creates task_history records for every status change, there's no w
 
 ### Solution
 
-Implement comprehensive history query and export commands built on E04-F01's task_history table. Provide `pm task history <task-key>` to show complete lifecycle of a single task with all status transitions, timestamps, agents, and notes. Provide `pm history` for project-wide activity log showing recent changes across all tasks. Support filtering by agent (`--agent=<name>`), timeframe (`--since=7d`), task/epic/feature (`--epic=E01`), and status transitions (`--status-change=todo->in_progress`). Enable export to CSV and JSON formats for external analysis, stakeholder reporting, and compliance. Display human-readable timeline format in terminal and structured data for programmatic access. Build on E04-F02 (CLI Framework) for consistent output formatting and E04-F01 (Database) for efficient history queries.
+Implement comprehensive history query and export commands built on E04-F01's task_history table. Provide `shark task history <task-key>` to show complete lifecycle of a single task with all status transitions, timestamps, agents, and notes. Provide `shark history` for project-wide activity log showing recent changes across all tasks. Support filtering by agent (`--agent=<name>`), timeframe (`--since=7d`), task/epic/feature (`--epic=E01`), and status transitions (`--status-change=todo->in_progress`). Enable export to CSV and JSON formats for external analysis, stakeholder reporting, and compliance. Display human-readable timeline format in terminal and structured data for programmatic access. Build on E04-F02 (CLI Framework) for consistent output formatting and E04-F01 (Database) for efficient history queries.
 
 ### Impact
 
@@ -100,22 +100,22 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 ### Must-Have User Stories
 
 **Story 1: View Task History**
-- As a developer, I want to run `pm task history T-E01-F02-003`, so that I see complete lifecycle of that task with all status changes, timestamps, and agents.
+- As a developer, I want to run `shark task history T-E01-F02-003`, so that I see complete lifecycle of that task with all status changes, timestamps, and agents.
 
 **Story 2: View Project Activity Log**
-- As a manager, I want to run `pm history`, so that I see recent activity across all tasks (last 50 events by default).
+- As a manager, I want to run `shark history`, so that I see recent activity across all tasks (last 50 events by default).
 
 **Story 3: Filter History by Agent**
-- As a manager, I want to run `pm history --agent=backend-agent`, so that I see all changes made by specific agent.
+- As a manager, I want to run `shark history --agent=backend-agent`, so that I see all changes made by specific agent.
 
 **Story 4: Filter History by Timeframe**
-- As a developer, I want to run `pm history --since=7d`, so that I see activity from last 7 days.
+- As a developer, I want to run `shark history --since=7d`, so that I see activity from last 7 days.
 
 **Story 5: Export History to CSV**
-- As a manager, I want to run `pm history --format=csv > activity.csv`, so that I can analyze data in spreadsheets.
+- As a manager, I want to run `shark history --format=csv > activity.csv`, so that I can analyze data in spreadsheets.
 
 **Story 6: Export History to JSON**
-- As a developer, I want to run `pm history --format=json`, so that I can process data programmatically.
+- As a developer, I want to run `shark history --format=json`, so that I can process data programmatically.
 
 **Story 7: Show History with Notes**
 - As a developer, I want status change notes to be displayed in history (e.g., "Reopened: Add error handling"), so that I understand context of changes.
@@ -126,21 +126,21 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 ### Should-Have User Stories
 
 **Story 9: Filter by Epic/Feature**
-- As a manager, I want to run `pm history --epic=E01`, so that I see activity for specific epic only.
+- As a manager, I want to run `shark history --epic=E01`, so that I see activity for specific epic only.
 
 **Story 10: Filter by Status Transition**
-- As a developer, I want to run `pm history --status-change=ready_for_review->in_progress`, so that I find all task reopens.
+- As a developer, I want to run `shark history --status-change=ready_for_review->in_progress`, so that I find all task reopens.
 
 **Story 11: Show Time in Status**
 - As a manager, I want task history to calculate time spent in each status, so that I can identify slow stages in workflow.
 
 **Story 12: Pagination**
-- As a user, I want `pm history --limit=100 --offset=50` to paginate large result sets, so that I can browse historical data efficiently.
+- As a user, I want `shark history --limit=100 --offset=50` to paginate large result sets, so that I can browse historical data efficiently.
 
 ### Could-Have User Stories
 
 **Story 13: Aggregate Statistics**
-- As a manager, I want `pm history --stats` to show summary statistics (total changes, most active agents, average time-in-status), so that I get quick insights.
+- As a manager, I want `shark history --stats` to show summary statistics (total changes, most active agents, average time-in-status), so that I get quick insights.
 
 **Story 14: Compare Time Periods**
 - As a manager, I want to compare activity between time periods (this week vs last week), so that I can track velocity trends.
@@ -149,9 +149,9 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 
 ### Functional Requirements
 
-**Task History Command (pm task history):**
+**Task History Command (shark task history):**
 
-1. The system must provide `pm task history <task-key>` command that displays complete lifecycle of single task
+1. The system must provide `shark task history <task-key>` command that displays complete lifecycle of single task
 
 2. The command must query task_history table for all records with matching task_id
 
@@ -204,9 +204,9 @@ Implement comprehensive history query and export commands built on E04-F01's tas
    • ready_for_review: Currently (1 hour so far)
    ```
 
-**Project Activity Log (pm history):**
+**Project Activity Log (shark history):**
 
-8. The system must provide `pm history` command that displays recent activity across all tasks
+8. The system must provide `shark history` command that displays recent activity across all tasks
 
 9. The command must default to showing last 50 history records (configurable with --limit)
 
@@ -240,13 +240,13 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 
 18. The system must support `--feature=<feature-key>` to filter to tasks in specific feature
 
-19. The system must support `--task=<task-key>` to filter to specific task (alias for `pm task history`)
+19. The system must support `--task=<task-key>` to filter to specific task (alias for `shark task history`)
 
 20. The system must support `--status-change=<old>-><new>` to filter by specific transitions (e.g., `--status-change=ready_for_review->in_progress` for reopens)
 
 21. Multiple filters must combine with AND logic
 
-22. Example: `pm history --agent=backend-agent --since=7d --epic=E01` shows backend-agent changes in Epic E01 from last 7 days
+22. Example: `shark history --agent=backend-agent --since=7d --epic=E01` shows backend-agent changes in Epic E01 from last 7 days
 
 **Pagination:**
 
@@ -338,8 +338,8 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 
 **Performance:**
 
-- `pm task history` must complete in <100ms for tasks with 50 history records
-- `pm history` must complete in <200ms for 50 most recent events
+- `shark task history` must complete in <100ms for tasks with 50 history records
+- `shark history` must complete in <200ms for 50 most recent events
 - CSV export of 1,000 records must complete in <2 seconds
 - JSON export of 1,000 records must complete in <1 second
 
@@ -369,7 +369,7 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 ### Task History Display
 
 **Given** task T-E01-F02-003 has 5 history records
-**When** I run `pm task history T-E01-F02-003`
+**When** I run `shark task history T-E01-F02-003`
 **Then** all 5 records are displayed in chronological order
 **And** each record shows timestamp, status transition, agent, and notes
 **And** time spent in each status is calculated and displayed
@@ -378,41 +378,41 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 ### Project Activity Log
 
 **Given** project has 100 recent history records
-**When** I run `pm history`
+**When** I run `shark history`
 **Then** last 50 records are displayed (default limit)
 **And** records are in reverse chronological order (most recent first)
 **And** pagination info shows "Showing 1-50 of 100 total events"
 
-**Given** I run `pm history --limit=10`
+**Given** I run `shark history --limit=10`
 **When** the command completes
 **Then** only 10 most recent records are shown
 
 ### Agent Filtering
 
 **Given** project history includes changes by multiple agents
-**When** I run `pm history --agent=backend-agent`
+**When** I run `shark history --agent=backend-agent`
 **Then** only records with agent="backend-agent" are shown
 **And** other agents' changes are excluded
 
 ### Timeframe Filtering
 
 **Given** project has history records spanning 30 days
-**When** I run `pm history --since=7d`
+**When** I run `shark history --since=7d`
 **Then** only records from last 7 days are shown
 
-**Given** I run `pm history --since=2025-12-01 --until=2025-12-07`
+**Given** I run `shark history --since=2025-12-01 --until=2025-12-07`
 **When** the command completes
 **Then** only records between Dec 1-7 are shown
 
 ### Status Transition Filtering
 
 **Given** project history includes various status transitions
-**When** I run `pm history --status-change=ready_for_review->in_progress`
+**When** I run `shark history --status-change=ready_for_review->in_progress`
 **Then** only records showing reopens (ready_for_review → in_progress) are displayed
 
 ### CSV Export
 
-**Given** I run `pm history --format=csv`
+**Given** I run `shark history --format=csv`
 **When** the command completes
 **Then** output is valid CSV with header row
 **And** each history record is a CSV row
@@ -421,7 +421,7 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 
 ### JSON Export
 
-**Given** I run `pm history --format=json`
+**Given** I run `shark history --format=json`
 **When** the command completes
 **Then** output is valid JSON array
 **And** each element is a history record object
@@ -449,13 +449,13 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 
 ### Epic/Feature Filtering
 
-**Given** I run `pm history --epic=E01`
+**Given** I run `shark history --epic=E01`
 **When** the command completes
 **Then** only history for tasks in Epic E01 is shown
 
 ### Pagination
 
-**Given** I run `pm history --limit=50 --offset=50`
+**Given** I run `shark history --limit=50 --offset=50`
 **When** the command completes
 **Then** records 51-100 are displayed
 **And** pagination info shows "Showing 51-100 of <total>"
@@ -468,28 +468,28 @@ Implement comprehensive history query and export commands built on E04-F01's tas
 **And** blocked transitions are red
 **And** reopened transitions are yellow
 
-**Given** I run `pm history --no-color`
+**Given** I run `shark history --no-color`
 **When** displayed
 **Then** no ANSI color codes are present
 
 ### Performance
 
 **Given** task has 50 history records
-**When** I run `pm task history <key>`
+**When** I run `shark task history <key>`
 **Then** output is displayed in <100ms
 
 **Given** I export 1,000 history records to CSV
-**When** I run `pm history --format=csv --limit=1000`
+**When** I run `shark history --format=csv --limit=1000`
 **Then** export completes in <2 seconds
 
 ### Error Handling
 
-**Given** I run `pm task history T-E99-F99-999` (non-existent task)
+**Given** I run `shark task history T-E99-F99-999` (non-existent task)
 **When** the command executes
 **Then** error is displayed: "Error: Task T-E99-F99-999 does not exist"
 **And** exit code is 1
 
-**Given** I run `pm history --since=invalid-date`
+**Given** I run `shark history --since=invalid-date`
 **When** the command executes
 **Then** error is displayed: "Error: Invalid date format. Use: YYYY-MM-DD, 7d, 48h, or 2w"
 **And** exit code is 1

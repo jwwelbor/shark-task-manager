@@ -8,11 +8,11 @@
 
 ### Problem
 
-The PM tool needs a robust command-line interface that both human developers and AI agents can use effectively. Developers need intuitive command structure with comprehensive help text, while agents require machine-readable JSON output and fast startup times. The CLI must support complex command hierarchies (`pm task list`, `pm epic get`, etc.), handle errors gracefully with actionable messages, and work consistently across Linux, macOS, and Windows. Without proper infrastructure, every feature would need to reimplement argument parsing, output formatting, error handling, and configuration management, leading to inconsistent behavior and maintenance nightmares.
+The shark tool needs a robust command-line interface that both human developers and AI agents can use effectively. Developers need intuitive command structure with comprehensive help text, while agents require machine-readable JSON output and fast startup times. The CLI must support complex command hierarchies (`shark task list`, `shark epic get`, etc.), handle errors gracefully with actionable messages, and work consistently across Linux, macOS, and Windows. Without proper infrastructure, every feature would need to reimplement argument parsing, output formatting, error handling, and configuration management, leading to inconsistent behavior and maintenance nightmares.
 
 ### Solution
 
-Build a Go CLI framework using Cobra (command routing) and pterm (terminal formatting) that provides the foundation for all PM commands. The framework implements a hierarchical command structure (`pm <resource> <action>`), global flags (--json, --no-color, --verbose), standardized output formatting (tables, JSON, colored terminal), and comprehensive error handling with exit codes. It includes a configuration system (.pmconfig.json) for user defaults, context management for database sessions, and utilities for progress indicators and input validation. All commands use consistent patterns for argument parsing, output rendering, and error reporting, ensuring that agents can reliably parse outputs and developers get helpful, actionable feedback.
+Build a Go CLI framework using Cobra (command routing) and pterm (terminal formatting) that provides the foundation for all shark commands. The framework implements a hierarchical command structure (`shark <resource> <action>`), global flags (--json, --no-color, --verbose), standardized output formatting (tables, JSON, colored terminal), and comprehensive error handling with exit codes. It includes a configuration system (.pmconfig.json) for user defaults, context management for database sessions, and utilities for progress indicators and input validation. All commands use consistent patterns for argument parsing, output rendering, and error reporting, ensuring that agents can reliably parse outputs and developers get helpful, actionable feedback.
 
 ### Impact
 
@@ -113,7 +113,7 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 - As a backend developer, I want exceptions automatically converted to appropriate exit codes (1=user error, 2=system error), so that agents can detect failures.
 
 **Story 6: Generate Help Text**
-- As a user, I want to run `pm --help`, `pm task --help`, or `pm task list --help` and see comprehensive documentation with examples, so that I can learn commands without reading source code.
+- As a user, I want to run `shark --help`, `shark task --help`, or `shark task list --help` and see comprehensive documentation with examples, so that I can learn commands without reading source code.
 
 **Story 7: Configure Defaults**
 - As a developer, I want to set default epic or agent type in `.pmconfig.json`, so that I don't repeat `--epic=E01 --agent=frontend` on every command.
@@ -133,12 +133,12 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 - As a developer, I want success messages in green, errors in red, and warnings in yellow, so that I can quickly identify command results.
 
 **Story 12: Validate Config File**
-- As a user, I want to run `pm config validate` to check `.pmconfig.json` for errors, so that I catch typos before they cause cryptic errors.
+- As a user, I want to run `shark config validate` to check `.pmconfig.json` for errors, so that I catch typos before they cause cryptic errors.
 
 ### Could-Have User Stories
 
 **Story 13: Support Command Aliases**
-- As a developer, I want to define aliases like `pm t` for `pm task`, so that I can save keystrokes for frequent commands.
+- As a developer, I want to define aliases like `shark t` for `shark task`, so that I can save keystrokes for frequent commands.
 
 **Story 14: Dry-Run Mode**
 - As a developer, I want to add `--dry-run` to destructive commands, so that I can preview changes before committing.
@@ -149,10 +149,10 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 
 **Command Structure:**
 
-1. The CLI must use a hierarchical command structure: `pm <resource> <action> [arguments] [flags]`
+1. The CLI must use a hierarchical command structure: `shark <resource> <action> [arguments] [flags]`
    - Resources: task, epic, feature, config, sync, backup
    - Actions: list, get, create, update, delete (CRUD operations)
-   - Example: `pm task list --status=todo`
+   - Example: `shark task list --status=todo`
 
 2. The CLI must be implemented using Cobra framework for command routing and argument parsing
 
@@ -210,7 +210,7 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
     - 2: System error (database error, file not found)
     - 3: Validation error (constraint violation, invalid state transition)
 
-24. User errors must display actionable messages: "Error: Task T-E01-F01-001 does not exist. Use 'pm task list' to see available tasks."
+24. User errors must display actionable messages: "Error: Task T-E01-F01-001 does not exist. Use 'shark task list' to see available tasks."
 
 25. System errors must display error message and suggest running with `--verbose` for details
 
@@ -268,7 +268,7 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 
 **Installation:**
 
-46. The system must be buildable via `go build -o pm .` for development
+46. The system must be buildable via `go build -o shark .` for development
 
 47. The system must define dependencies in `go.mod`: cobra, pterm, gorm, golang-migrate
 
@@ -288,7 +288,7 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 **Usability:**
 
 - All error messages must be written in plain English (no technical jargon)
-- Error messages must suggest next steps: "Run 'pm task list' to see available tasks"
+- Error messages must suggest next steps: "Run 'shark task list' to see available tasks"
 - Help text must include examples for every command
 - Commands must follow Unix conventions (lowercase, hyphen-separated: `task-list` not `taskList`)
 
@@ -317,61 +317,61 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 - Must work on Linux, macOS, Windows
 - Must work in bash, zsh, fish, PowerShell
 - Must work in non-interactive mode (scripts, CI/CD)
-- Must work with piped output: `pm task list --json | jq '.results[0]'`
+- Must work with piped output: `shark task list --json | jq '.results[0]'`
 
 ## Acceptance Criteria
 
 ### Command Registration
 
 **Given** I define a new command using `&cobra.Command{}`
-**When** I run `pm --help`
+**When** I run `shark --help`
 **Then** the new command appears in the command list
 **And** the command's Short description is shown
 
 ### Argument Parsing
 
-**Given** I run `pm task get T-E01-F01-001`
+**Given** I run `shark task get T-E01-F01-001`
 **When** the command executes
 **Then** the argument "T-E01-F01-001" is passed to the handler function as a string
 
-**Given** I run `pm task list --status=todo --agent=frontend`
+**Given** I run `shark task list --status=todo --agent=frontend`
 **When** the command executes
 **Then** status="todo" and agent="frontend" are passed as parameters
 
-**Given** I run `pm task list` without required argument `--epic`
+**Given** I run `shark task list` without required argument `--epic`
 **When** the command executes
 **Then** an error is displayed: "Error: Missing required option '--epic'"
 **And** exit code is 1
 
 ### JSON Output
 
-**Given** I run `pm task list --json`
+**Given** I run `shark task list --json`
 **When** the command executes
 **Then** the output is valid JSON
 **And** the JSON contains keys: `results`, `count`
 **And** each result is a dictionary with task fields
 
-**Given** I run `pm task get T-E01-F01-001 --json`
+**Given** I run `shark task get T-E01-F01-001 --json`
 **When** the task exists
 **Then** the output is a JSON object with task details
 **And** `jq '.key'` successfully extracts the task key
 
 ### Table Formatting
 
-**Given** I run `pm task list` (without --json)
+**Given** I run `shark task list` (without --json)
 **When** results are returned
 **Then** output is a formatted table with columns: Key, Title, Status, Priority, Agent
 **And** column widths adjust to terminal width
 **And** long titles are truncated with "..." ellipsis
 
 **Given** terminal width is 80 columns
-**When** I run `pm task list`
+**When** I run `shark task list`
 **Then** the table fits within 80 columns
 **And** no line wrapping occurs
 
 ### Error Handling
 
-**Given** I run `pm task get INVALID-KEY`
+**Given** I run `shark task get INVALID-KEY`
 **When** the task does not exist
 **Then** error message is displayed: "Error: Task INVALID-KEY does not exist"
 **And** exit code is 1 (user error)
@@ -381,7 +381,7 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 **Then** error message is displayed: "Error: Database error. Run with --verbose for details."
 **And** exit code is 2 (system error)
 
-**Given** I run `pm task start T-E01-F01-001` and task status is already "in_progress"
+**Given** I run `shark task start T-E01-F01-001` and task status is already "in_progress"
 **When** the command executes
 **Then** error message is displayed: "Error: Cannot start task with status 'in_progress'. Task must be 'todo'."
 **And** exit code is 3 (validation error)
@@ -389,11 +389,11 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 ### Configuration Loading
 
 **Given** `.pmconfig.json` contains `{"default_epic": "E01"}`
-**When** I run `pm task list` (without --epic flag)
+**When** I run `shark task list` (without --epic flag)
 **Then** the command uses epic "E01" from config
 
 **Given** `.pmconfig.json` contains `{"default_epic": "E01"}`
-**When** I run `pm task list --epic=E02`
+**When** I run `shark task list --epic=E02`
 **Then** the command uses epic "E02" from CLI (overrides config)
 
 **Given** `.pmconfig.json` contains invalid JSON
@@ -403,12 +403,12 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 
 ### Help Text
 
-**Given** I run `pm --help`
+**Given** I run `shark --help`
 **When** the command executes
 **Then** a list of all top-level commands is displayed
 **And** each command has a brief description
 
-**Given** I run `pm task list --help`
+**Given** I run `shark task list --help`
 **When** the command executes
 **Then** detailed help is displayed including:
 - Command description
@@ -418,13 +418,13 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 
 ### Colorized Output
 
-**Given** I run `pm task list` in a color-supporting terminal
+**Given** I run `shark task list` in a color-supporting terminal
 **When** results are displayed
 **Then** status "completed" is shown in green
 **And** status "blocked" is shown in red
 **And** status "todo" is shown in yellow
 
-**Given** I run `pm task list --no-color`
+**Given** I run `shark task list --no-color`
 **When** results are displayed
 **Then** no ANSI color codes are present in output
 **And** plain text is displayed
@@ -459,9 +459,9 @@ Build a Go CLI framework using Cobra (command routing) and pterm (terminal forma
 
 ### Explicitly NOT Included in This Feature
 
-1. **Actual Task Commands** - This feature provides the CLI framework only. Commands like `pm task list`, `pm task start`, etc. are implemented in E04-F03 (Task Lifecycle Operations).
+1. **Actual Task Commands** - This feature provides the CLI framework only. Commands like `shark task list`, `shark task start`, etc. are implemented in E04-F03 (Task Lifecycle Operations).
 
-2. **Epic and Feature Commands** - Commands like `pm epic list`, `pm feature get` are in E04-F04 (Epic & Feature Queries).
+2. **Epic and Feature Commands** - Commands like `shark epic list`, `shark feature get` are in E04-F04 (Epic & Feature Queries).
 
 3. **Business Logic** - Validation of task status transitions, dependency checking, and progress calculation are in other features.
 

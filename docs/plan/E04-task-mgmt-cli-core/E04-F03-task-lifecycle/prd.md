@@ -12,11 +12,11 @@ AI agents and developers need efficient, reliable commands to manage task lifecy
 
 ### Solution
 
-Implement comprehensive CLI commands for task lifecycle management built on E04-F01 (Database) and E04-F02 (CLI Framework). Provide commands for querying tasks (`pm task list`, `pm task get`), discovering work (`pm task next`), transitioning states (`pm task start`, `pm task complete`, `pm task approve`, `pm task block`, `pm task unblock`, `pm task reopen`), and viewing metadata. Each command validates state transitions, updates the database atomically, records history, triggers file operations (via E04-F05), and returns both human-readable and JSON output. The `pm task next` command implements intelligent task selection based on agent type, epic filter, priority, and basic dependency checking (ensures dependencies are not in "todo" or "blocked" status).
+Implement comprehensive CLI commands for task lifecycle management built on E04-F01 (Database) and E04-F02 (CLI Framework). Provide commands for querying tasks (`shark task list`, `shark task get`), discovering work (`shark task next`), transitioning states (`shark task start`, `shark task complete`, `shark task approve`, `shark task block`, `shark task unblock`, `shark task reopen`), and viewing metadata. Each command validates state transitions, updates the database atomically, records history, triggers file operations (via E04-F05), and returns both human-readable and JSON output. The `shark task next` command implements intelligent task selection based on agent type, epic filter, priority, and basic dependency checking (ensures dependencies are not in "todo" or "blocked" status).
 
 ### Impact
 
-- **Agent Efficiency**: Reduce task discovery time from 120 seconds to <5 seconds with `pm task next --agent=frontend --json`
+- **Agent Efficiency**: Reduce task discovery time from 120 seconds to <5 seconds with `shark task next --agent=frontend --json`
 - **State Consistency**: 100% database/file consistency through validated state transitions and atomic updates
 - **Workflow Automation**: Agents can fully automate task selection, execution, and completion without human intervention
 - **Developer Productivity**: Single commands replace manual folder navigation, file reading, and status checking
@@ -36,10 +36,10 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 - Requires atomic status updates (no partial states)
 
 **Goals**:
-- Run `pm task next --agent=backend --json` to get next task instantly
-- Update status with single command: `pm task start <key>`
-- Mark task ready for review: `pm task complete <key>`
-- Block tasks when prerequisites are missing: `pm task block <key> --reason="..."`
+- Run `shark task next --agent=backend --json` to get next task instantly
+- Update status with single command: `shark task start <key>`
+- Mark task ready for review: `shark task complete <key>`
+- Block tasks when prerequisites are missing: `shark task block <key> --reason="..."`
 
 **Pain Points this Feature Addresses**:
 - Current system requires reading 20+ files to find available tasks
@@ -59,11 +59,11 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 - Requires visibility into task status
 
 **Goals**:
-- List tasks by status: `pm task list --status=ready-for-review`
-- Review specific task: `pm task get T-E01-F02-003`
-- Approve completed work: `pm task approve <key>`
-- Reopen for rework: `pm task reopen <key> --notes="Add error handling"`
-- Unblock tasks: `pm task unblock <key>`
+- List tasks by status: `shark task list --status=ready-for-review`
+- Review specific task: `shark task get T-E01-F02-003`
+- Approve completed work: `shark task approve <key>`
+- Reopen for rework: `shark task reopen <key> --notes="Add error handling"`
+- Unblock tasks: `shark task unblock <key>`
 
 **Pain Points this Feature Addresses**:
 - No easy way to filter tasks by multiple criteria
@@ -76,31 +76,31 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 ### Must-Have User Stories
 
 **Story 1: List Tasks with Filters**
-- As a developer, I want to run `pm task list --status=todo --agent=frontend --epic=E01`, so that I can see all available frontend tasks for Epic E01.
+- As a developer, I want to run `shark task list --status=todo --agent=frontend --epic=E01`, so that I can see all available frontend tasks for Epic E01.
 
 **Story 2: Get Task Details**
-- As a developer or agent, I want to run `pm task get T-E01-F02-003 --json`, so that I can retrieve full task details including file path, dependencies, and status.
+- As a developer or agent, I want to run `shark task get T-E01-F02-003 --json`, so that I can retrieve full task details including file path, dependencies, and status.
 
 **Story 3: Find Next Available Task**
-- As an AI agent, I want to run `pm task next --agent=backend --epic=E01 --json`, so that I can get the highest-priority available task without reading multiple files.
+- As an AI agent, I want to run `shark task next --agent=backend --epic=E01 --json`, so that I can get the highest-priority available task without reading multiple files.
 
 **Story 4: Start a Task**
-- As an AI agent, I want to run `pm task start T-E01-F02-003`, so that the task status updates to "in_progress" and I'm assigned as the agent.
+- As an AI agent, I want to run `shark task start T-E01-F02-003`, so that the task status updates to "in_progress" and I'm assigned as the agent.
 
 **Story 5: Complete a Task**
-- As an AI agent, I want to run `pm task complete T-E01-F02-003 --notes="Implemented user authentication"`, so that the task moves to "ready_for_review" status and I can record completion notes.
+- As an AI agent, I want to run `shark task complete T-E01-F02-003 --notes="Implemented user authentication"`, so that the task moves to "ready_for_review" status and I can record completion notes.
 
 **Story 6: Approve a Task**
-- As a developer, I want to run `pm task approve T-E01-F02-003`, so that reviewed work moves to "completed" status.
+- As a developer, I want to run `shark task approve T-E01-F02-003`, so that reviewed work moves to "completed" status.
 
 **Story 7: Block a Task**
-- As an AI agent, I want to run `pm task block T-E01-F02-003 --reason="Missing API specification"`, so that the task is marked as blocked with a clear reason.
+- As an AI agent, I want to run `shark task block T-E01-F02-003 --reason="Missing API specification"`, so that the task is marked as blocked with a clear reason.
 
 **Story 8: Unblock a Task**
-- As a developer, I want to run `pm task unblock T-E01-F02-003`, so that a previously blocked task returns to "todo" status and becomes available again.
+- As a developer, I want to run `shark task unblock T-E01-F02-003`, so that a previously blocked task returns to "todo" status and becomes available again.
 
 **Story 9: Reopen a Task**
-- As a developer, I want to run `pm task reopen T-E01-F02-003 --notes="Add error handling"`, so that a task in "ready_for_review" returns to "in_progress" for additional work.
+- As a developer, I want to run `shark task reopen T-E01-F02-003 --notes="Add error handling"`, so that a task in "ready_for_review" returns to "in_progress" for additional work.
 
 **Story 10: Validate State Transitions**
 - As a user, I want invalid state transitions (e.g., "completed" → "in_progress") to be rejected with clear error messages, so that task state remains consistent.
@@ -108,32 +108,32 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 ### Should-Have User Stories
 
 **Story 11: Filter by Multiple Statuses**
-- As a developer, I want to run `pm task list --status=todo,in_progress`, so that I can see all active work.
+- As a developer, I want to run `shark task list --status=todo,in_progress`, so that I can see all active work.
 
 **Story 12: Filter by Priority Range**
-- As a developer, I want to run `pm task list --priority-max=3`, so that I can see only high-priority tasks.
+- As a developer, I want to run `shark task list --priority-max=3`, so that I can see only high-priority tasks.
 
 **Story 13: Sort Task Results**
-- As a developer, I want to run `pm task list --sort-by=priority --sort-order=asc`, so that tasks are ordered by priority.
+- As a developer, I want to run `shark task list --sort-by=priority --sort-order=asc`, so that tasks are ordered by priority.
 
 **Story 14: Check Task Dependencies**
-- As an AI agent, I want `pm task next` to automatically exclude tasks with incomplete dependencies, so that I don't start work that will be blocked.
+- As an AI agent, I want `shark task next` to automatically exclude tasks with incomplete dependencies, so that I don't start work that will be blocked.
 
 ### Could-Have User Stories
 
 **Story 15: Bulk Status Updates**
-- As a developer, I want to run `pm task bulk-update --status=todo --epic=E01 --new-status=blocked`, so that I can handle epic-wide blockers efficiently.
+- As a developer, I want to run `shark task bulk-update --status=todo --epic=E01 --new-status=blocked`, so that I can handle epic-wide blockers efficiently.
 
 **Story 16: Task Assignment**
-- As a developer, I want to run `pm task assign T-E01-F02-003 --agent=frontend-specialist`, so that I can manually assign tasks to specific agents.
+- As a developer, I want to run `shark task assign T-E01-F02-003 --agent=frontend-specialist`, so that I can manually assign tasks to specific agents.
 
 ## Requirements
 
 ### Functional Requirements
 
-**Task Listing (pm task list):**
+**Task Listing (shark task list):**
 
-1. The system must provide `pm task list` command that returns all tasks
+1. The system must provide `shark task list` command that returns all tasks
 
 2. The system must support filtering by `--status` (single or multiple values: `--status=todo,in_progress`)
 
@@ -153,9 +153,9 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 10. JSON output must return: `{"results": [<task objects>], "count": <integer>}`
 
-**Task Details (pm task get):**
+**Task Details (shark task get):**
 
-11. The system must provide `pm task get <task-key>` command that returns a single task by key
+11. The system must provide `shark task get <task-key>` command that returns a single task by key
 
 12. If task does not exist, exit with code 1 and message "Error: Task <key> does not exist"
 
@@ -165,9 +165,9 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 15. The system must include dependency status in output (whether each dependency is complete)
 
-**Task Discovery (pm task next):**
+**Task Discovery (shark task next):**
 
-16. The system must provide `pm task next` command that returns the highest-priority available task
+16. The system must provide `shark task next` command that returns the highest-priority available task
 
 17. The system must filter by `--agent` (optional): only return tasks matching agent_type
 
@@ -183,9 +183,9 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 23. JSON output must include: task key, title, file_path, dependencies, dependency_status
 
-**Task Start (pm task start):**
+**Task Start (shark task start):**
 
-24. The system must provide `pm task start <task-key>` command that transitions task to "in_progress"
+24. The system must provide `shark task start <task-key>` command that transitions task to "in_progress"
 
 25. The command must validate current status is "todo" (reject if status is not "todo")
 
@@ -199,9 +199,9 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 30. The command must update feature progress calculation
 
-**Task Complete (pm task complete):**
+**Task Complete (shark task complete):**
 
-31. The system must provide `pm task complete <task-key>` command that transitions task to "ready_for_review"
+31. The system must provide `shark task complete <task-key>` command that transitions task to "ready_for_review"
 
 32. The command must validate current status is "in_progress" (reject if not)
 
@@ -215,9 +215,9 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 37. The command must update feature progress calculation
 
-**Task Approve (pm task approve):**
+**Task Approve (shark task approve):**
 
-38. The system must provide `pm task approve <task-key>` command that transitions task to "completed"
+38. The system must provide `shark task approve <task-key>` command that transitions task to "completed"
 
 39. The command must validate current status is "ready_for_review" (reject if not)
 
@@ -231,9 +231,9 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 44. The command must update feature progress calculation (completed task contributes to 100%)
 
-**Task Block (pm task block):**
+**Task Block (shark task block):**
 
-45. The system must provide `pm task block <task-key>` command that transitions task to "blocked"
+45. The system must provide `shark task block <task-key>` command that transitions task to "blocked"
 
 46. The command must accept required `--reason` flag explaining why task is blocked
 
@@ -245,9 +245,9 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 50. File path remains unchanged (status tracked in database only)
 
-**Task Unblock (pm task unblock):**
+**Task Unblock (shark task unblock):**
 
-51. The system must provide `pm task unblock <task-key>` command that removes block
+51. The system must provide `shark task unblock <task-key>` command that removes block
 
 52. The command must validate current status is "blocked" (reject if not)
 
@@ -259,9 +259,9 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 56. File path remains unchanged (status tracked in database only)
 
-**Task Reopen (pm task reopen):**
+**Task Reopen (shark task reopen):**
 
-57. The system must provide `pm task reopen <task-key>` command that returns task to "in_progress"
+57. The system must provide `shark task reopen <task-key>` command that returns task to "in_progress"
 
 58. The command must validate current status is "ready_for_review" (reject if not)
 
@@ -310,14 +310,14 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 **Performance:**
 
-- `pm task list` must return results in <100ms for 1,000 tasks
-- `pm task next` must return result in <50ms
+- `shark task list` must return results in <100ms for 1,000 tasks
+- `shark task next` must return result in <50ms
 - Status update commands must complete in <200ms (including database + file operations)
 - Filtering and sorting must not cause full table scans (use indexes)
 
 **Usability:**
 
-- Error messages must be specific: "Cannot start task T-E01-F02-003 because status is 'in_progress'. Use 'pm task get' to see current status."
+- Error messages must be specific: "Cannot start task T-E01-F02-003 because status is 'in_progress'. Use 'shark task get' to see current status."
 - Success messages must confirm action: "Task T-E01-F02-003 started. Status: in_progress"
 - JSON output must be parseable by agents without ambiguity
 - Table output must fit in 80-column terminal width
@@ -341,33 +341,33 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 ### Task Listing
 
 **Given** the database contains 50 tasks across 3 epics
-**When** I run `pm task list --status=todo --epic=E01`
+**When** I run `shark task list --status=todo --epic=E01`
 **Then** only tasks with status="todo" and epic="E01" are returned
 **And** the query completes in <100ms
 
-**Given** I run `pm task list --json`
+**Given** I run `shark task list --json`
 **When** the command completes
 **Then** output is valid JSON with structure: `{"results": [...], "count": N}`
 
 ### Task Discovery
 
 **Given** Epic E01 has 5 frontend tasks with status="todo" and priorities [1, 3, 5, 7, 9]
-**When** I run `pm task next --agent=frontend --epic=E01`
+**When** I run `shark task next --agent=frontend --epic=E01`
 **Then** the task with priority=1 is returned (highest priority)
 
 **Given** all tasks have incomplete dependencies
-**When** I run `pm task next --agent=frontend`
+**When** I run `shark task next --agent=frontend`
 **Then** result is empty with message "No available tasks found"
 
 **Given** no tasks match the filters
-**When** I run `pm task next --agent=nonexistent`
+**When** I run `shark task next --agent=nonexistent`
 **Then** exit code is 0 (not an error)
 **And** message is "No available tasks found"
 
 ### Task Start
 
 **Given** task T-E01-F02-003 has status="todo"
-**When** I run `pm task start T-E01-F02-003`
+**When** I run `shark task start T-E01-F02-003`
 **Then** task status is updated to "in_progress"
 **And** started_at is set to current UTC time
 **And** assigned_agent is set
@@ -376,7 +376,7 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 **And** success message is displayed
 
 **Given** task T-E01-F02-003 has status="in_progress"
-**When** I run `pm task start T-E01-F02-003`
+**When** I run `shark task start T-E01-F02-003`
 **Then** error is displayed: "Invalid state transition from in_progress to in_progress"
 **And** exit code is 3 (validation error)
 **And** no database changes occur
@@ -384,21 +384,21 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 ### Task Complete
 
 **Given** task T-E01-F02-003 has status="in_progress"
-**When** I run `pm task complete T-E01-F02-003 --notes="Implemented user auth"`
+**When** I run `shark task complete T-E01-F02-003 --notes="Implemented user auth"`
 **Then** task status is updated to "ready_for_review"
 **And** completed_at is set to current UTC time
 **And** history record includes notes "Implemented user auth"
 **And** file path remains unchanged
 
 **Given** task T-E01-F02-003 has status="todo"
-**When** I run `pm task complete T-E01-F02-003`
+**When** I run `shark task complete T-E01-F02-003`
 **Then** error is displayed: "Cannot complete task with status 'todo'. Task must be 'in_progress'."
 **And** exit code is 3
 
 ### Task Approve
 
 **Given** task T-E01-F02-003 has status="ready_for_review"
-**When** I run `pm task approve T-E01-F02-003`
+**When** I run `shark task approve T-E01-F02-003`
 **Then** task status is updated to "completed"
 **And** history record is created
 **And** file path remains unchanged
@@ -407,13 +407,13 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 ### Task Block
 
 **Given** task T-E01-F02-003 has status="in_progress"
-**When** I run `pm task block T-E01-F02-003 --reason="Missing API docs"`
+**When** I run `shark task block T-E01-F02-003 --reason="Missing API docs"`
 **Then** task status is updated to "blocked"
 **And** blocked_reason is "Missing API docs"
 **And** blocked_at is set to current UTC time
 **And** file path remains unchanged
 
-**Given** I run `pm task block T-E01-F02-003` without --reason flag
+**Given** I run `shark task block T-E01-F02-003` without --reason flag
 **When** the command executes
 **Then** error is displayed: "Missing required option '--reason'"
 **And** exit code is 1 (user error)
@@ -421,7 +421,7 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 ### Task Unblock
 
 **Given** task T-E01-F02-003 has status="blocked"
-**When** I run `pm task unblock T-E01-F02-003`
+**When** I run `shark task unblock T-E01-F02-003`
 **Then** task status is updated to "todo"
 **And** blocked_reason is cleared (NULL)
 **And** blocked_at is cleared (NULL)
@@ -430,7 +430,7 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 ### Task Reopen
 
 **Given** task T-E01-F02-003 has status="ready_for_review"
-**When** I run `pm task reopen T-E01-F02-003 --notes="Add error handling"`
+**When** I run `shark task reopen T-E01-F02-003 --notes="Add error handling"`
 **Then** task status is updated to "in_progress"
 **And** completed_at is cleared (NULL)
 **And** history record includes notes
@@ -445,7 +445,7 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 ### History Recording
 
-**Given** I run `pm task start T-E01-F02-003`
+**Given** I run `shark task start T-E01-F02-003`
 **When** the command completes successfully
 **Then** a task_history record exists with:
 - task_id = <id of T-E01-F02-003>
@@ -457,7 +457,7 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 ### Atomic Transactions
 
 **Given** database update succeeds but file operation fails
-**When** I run `pm task start T-E01-F02-003`
+**When** I run `shark task start T-E01-F02-003`
 **Then** the database transaction is rolled back
 **And** task status remains "todo"
 **And** no history record is created
@@ -475,7 +475,7 @@ Implement comprehensive CLI commands for task lifecycle management built on E04-
 
 4. **Advanced Dependency Validation** - Circular dependency detection and deep dependency checking are in E05-F02.
 
-5. **Status Dashboard** - The `pm status` command showing progress bars and metrics is in E05-F01 (Status Dashboard).
+5. **Status Dashboard** - The `shark status` command showing progress bars and metrics is in E05-F01 (Status Dashboard).
 
 6. **Batch Operations** - Bulk status updates are in optional E05 features.
 

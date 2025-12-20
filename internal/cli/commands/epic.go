@@ -20,6 +20,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// getRelativePath converts an absolute path to relative path from project root
+func getRelativePath(absPath string, projectRoot string) string {
+	relPath, err := filepath.Rel(projectRoot, absPath)
+	if err != nil {
+		return absPath // Fall back to absolute path if conversion fails
+	}
+	return relPath
+}
+
 // EpicWithProgress wraps an Epic with its calculated progress
 type EpicWithProgress struct {
 	*models.Epic
@@ -39,9 +48,9 @@ var epicCmd = &cobra.Command{
 	Long: `Query and manage epics with automatic progress calculation.
 
 Examples:
-  pm epic list                 List all epics
-  pm epic get E04             Get epic details with progress
-  pm epic status              Show status of all epics`,
+  shark epic list                 List all epics
+  shark epic get E04             Get epic details with progress
+  shark epic status              Show status of all epics`,
 }
 
 // epicListCmd lists epics
@@ -51,8 +60,8 @@ var epicListCmd = &cobra.Command{
 	Long: `List all epics with progress information.
 
 Examples:
-  pm epic list                 List all epics
-  pm epic list --json          Output as JSON`,
+  shark epic list                 List all epics
+  shark epic list --json          Output as JSON`,
 	RunE: runEpicList,
 }
 
@@ -63,8 +72,8 @@ var epicGetCmd = &cobra.Command{
 	Long: `Display detailed information about a specific epic including all features and progress.
 
 Examples:
-  pm epic get E04              Get epic details
-  pm epic get E04 --json       Output as JSON`,
+  shark epic get E04              Get epic details
+  shark epic get E04 --json       Output as JSON`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicGet,
 }
@@ -321,8 +330,24 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	epic, err := epicRepo.GetByKey(ctx, epicKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicKey))
-		cli.Info("Use 'pm epic list' to see available epics")
+		cli.Info("Use 'shark epic list' to see available epics")
 		os.Exit(1)
+	}
+
+	// Get project root for path resolution
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		projectRoot = ""
+	}
+
+	// Resolve epic path
+	var resolvedPath string
+	if projectRoot != "" {
+		pathBuilder := utils.NewPathBuilder(projectRoot)
+		absPath, err := pathBuilder.ResolveEpicPath(epic.Key, epic.FilePath, epic.CustomFolderPath)
+		if err == nil {
+			resolvedPath = getRelativePath(absPath, projectRoot)
+		}
 	}
 
 	// Calculate epic progress
@@ -387,6 +412,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"priority":       epic.Priority,
 			"business_value": epic.BusinessValue,
 			"progress_pct":   epicProgress,
+			"path":           resolvedPath,
 			"created_at":     epic.CreatedAt,
 			"updated_at":     epic.UpdatedAt,
 			"features":       featuresWithDetails,
@@ -395,7 +421,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output as formatted text
-	renderEpicDetails(epic, epicProgress, featuresWithDetails)
+	renderEpicDetails(epic, epicProgress, featuresWithDetails, resolvedPath)
 	return nil
 }
 
@@ -430,7 +456,7 @@ func renderEpicListTable(epics []EpicWithProgress) {
 }
 
 // renderEpicDetails renders epic details with features table
-func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails) {
+func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path string) {
 	// Print epic metadata
 	pterm.DefaultSection.Printf("Epic: %s", epic.Key)
 	fmt.Println()
@@ -441,6 +467,10 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 		{"Status", string(epic.Status)},
 		{"Priority", string(epic.Priority)},
 		{"Progress", fmt.Sprintf("%.1f%%", progress)},
+	}
+
+	if path != "" {
+		info = append(info, []string{"Path", path})
 	}
 
 	if epic.Description != nil && *epic.Description != "" {

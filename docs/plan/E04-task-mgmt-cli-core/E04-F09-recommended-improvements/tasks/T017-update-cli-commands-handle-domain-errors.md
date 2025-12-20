@@ -34,7 +34,7 @@ Now that repositories return typed domain errors (T016), update CLI commands to 
 
 - Use `errors.Is(err, domain.ErrTaskNotFound)` to check error types
 - Provide context-specific help messages for each error type
-- Include suggestions for next steps (e.g., "Use 'pm task list' to see available tasks")
+- Include suggestions for next steps (e.g., "Use 'shark task list' to see available tasks")
 - Keep error messages concise but informative
 - Maintain consistent error message format across commands
 
@@ -63,7 +63,7 @@ if err != nil {
 task, err := taskRepo.GetByKey(ctx, taskKey)
 if errors.Is(err, domain.ErrTaskNotFound) {
     fmt.Fprintf(os.Stderr, "Error: Task '%s' not found.\n", taskKey)
-    fmt.Fprintf(os.Stderr, "Use 'pm task list' to see available tasks.\n")
+    fmt.Fprintf(os.Stderr, "Use 'shark task list' to see available tasks.\n")
     return nil
 }
 if err != nil {
@@ -81,7 +81,7 @@ if errors.Is(err, domain.ErrInvalidTaskKey) {
 }
 if errors.Is(err, domain.ErrDuplicateKey) {
     fmt.Fprintf(os.Stderr, "Error: Task with key '%s' already exists.\n", task.Key)
-    fmt.Fprintf(os.Stderr, "Use 'pm task show %s' to view the existing task.\n", task.Key)
+    fmt.Fprintf(os.Stderr, "Use 'shark task show %s' to view the existing task.\n", task.Key)
     return nil
 }
 ```
@@ -93,7 +93,7 @@ Reference: [PRD - Error Usage Example](../01-feature-prd.md#fr-3-domain-specific
 **Not Found Errors**:
 - State what wasn't found
 - Suggest command to list available items
-- Example: "Task 'E01-F01-T001' not found. Use 'pm task list' to see available tasks."
+- Example: "Task 'E01-F01-T001' not found. Use 'shark task list' to see available tasks."
 
 **Validation Errors**:
 - Explain what's invalid
@@ -126,7 +126,7 @@ Reference: [PRD - Error Usage Example](../01-feature-prd.md#fr-3-domain-specific
 
 **Manual Testing**:
 - Test each error scenario with CLI:
-  - Try to get non-existent task: `pm task show INVALID-KEY`
+  - Try to get non-existent task: `shark task show INVALID-KEY`
   - Try to create duplicate task
   - Try invalid status transition
   - Try to delete epic with features

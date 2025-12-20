@@ -54,7 +54,7 @@ func (v *Validator) ValidateTaskInput(ctx context.Context, input TaskInput) (*Va
 	// 1. Validate epic exists
 	epic, err := v.epicRepo.GetByKey(ctx, input.EpicKey)
 	if err != nil {
-		return nil, fmt.Errorf("epic %s does not exist. Use 'pm epic list' to see available epics", input.EpicKey)
+		return nil, fmt.Errorf("epic %s does not exist. Use 'shark epic list' to see available epics", input.EpicKey)
 	}
 
 	// 2. Normalize feature key
@@ -145,7 +145,7 @@ func (v *Validator) validateDependencies(ctx context.Context, dependsOn string) 
 func (v *Validator) ValidateEpic(ctx context.Context, epicKey string) error {
 	_, err := v.epicRepo.GetByKey(ctx, epicKey)
 	if err != nil {
-		return fmt.Errorf("epic %s does not exist. Use 'pm epic list' to see available epics", epicKey)
+		return fmt.Errorf("epic %s does not exist. Use 'shark epic list' to see available epics", epicKey)
 	}
 	return nil
 }

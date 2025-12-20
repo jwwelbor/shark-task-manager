@@ -17,7 +17,7 @@ This document defines the high-level architecture of the database layer, includi
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      PM Task Management CLI                      │
+│                      shark Task Management CLI                      │
 │                                                                  │
 │  ┌─────────────────┐   ┌──────────────────┐   ┌──────────────┐ │
 │  │   CLI Layer     │   │   File Layer     │   │  Sync Layer  │ │

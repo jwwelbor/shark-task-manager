@@ -1,6 +1,6 @@
 # Task Creation Examples
 
-This document provides practical examples and common patterns for creating tasks using the `pm task create` command.
+This document provides practical examples and common patterns for creating tasks using the `shark task create` command.
 
 ## Basic Usage
 
@@ -9,7 +9,7 @@ This document provides practical examples and common patterns for creating tasks
 Create a task with only the required fields:
 
 ```bash
-pm task create \
+shark task create \
   --epic=E01 \
   --feature=F02 \
   --title="Build Login Component" \
@@ -20,7 +20,7 @@ Output:
 ```
 ✓ Created task T-E01-F02-001: Build Login Component
 File created at: docs/tasks/todo/T-E01-F02-001.md
-Start work with: pm task start T-E01-F02-001
+Start work with: shark task start T-E01-F02-001
 ```
 
 ### Using Short Flags
@@ -28,7 +28,7 @@ Start work with: pm task start T-E01-F02-001
 The same command using short flag names:
 
 ```bash
-pm task create -e E01 -f F02 -t "Build Login Component" -a frontend
+shark task create -e E01 -f F02 -t "Build Login Component" -a frontend
 ```
 
 ## Common Patterns
@@ -38,7 +38,7 @@ pm task create -e E01 -f F02 -t "Build Login Component" -a frontend
 Creating a backend task with description and priority:
 
 ```bash
-pm task create \
+shark task create \
   --epic=E01 \
   --feature=F03 \
   --title="Implement User Service" \
@@ -52,7 +52,7 @@ pm task create \
 Creating a task that depends on another task:
 
 ```bash
-pm task create \
+shark task create \
   --epic=E01 \
   --feature=F02 \
   --title="Integrate Login with Auth Service" \
@@ -65,7 +65,7 @@ pm task create \
 When a task depends on multiple other tasks:
 
 ```bash
-pm task create \
+shark task create \
   --epic=E02 \
   --feature=F05 \
   --title="End-to-End Integration Test" \
@@ -80,7 +80,7 @@ Note: Dependencies are comma-separated without spaces.
 Creating an urgent task with high priority:
 
 ```bash
-pm task create \
+shark task create \
   --epic=E01 \
   --feature=F01 \
   --title="Fix Critical Security Bug" \
@@ -96,7 +96,7 @@ Priority scale: 1-10, where 10 is highest priority.
 ### Frontend Development
 
 ```bash
-pm task create \
+shark task create \
   --epic=E03 \
   --feature=F02 \
   --title="Create Dashboard Component" \
@@ -114,7 +114,7 @@ The generated task file will include frontend-specific sections:
 ### API Development
 
 ```bash
-pm task create \
+shark task create \
   --epic=E03 \
   --feature=F03 \
   --title="Implement User Registration Endpoint" \
@@ -132,7 +132,7 @@ The generated task file will include:
 ### Testing
 
 ```bash
-pm task create \
+shark task create \
   --epic=E03 \
   --feature=F04 \
   --title="Test User Authentication Flow" \
@@ -150,7 +150,7 @@ The generated task file will include:
 ### DevOps
 
 ```bash
-pm task create \
+shark task create \
   --epic=E04 \
   --feature=F01 \
   --title="Configure CI/CD Pipeline" \
@@ -167,7 +167,7 @@ The generated task file will include:
 ### General Purpose
 
 ```bash
-pm task create \
+shark task create \
   --epic=E05 \
   --feature=F01 \
   --title="Research Database Options" \
@@ -185,13 +185,13 @@ You can provide the feature key in either short or full form:
 ### Short Form
 
 ```bash
-pm task create --epic=E01 --feature=F02 --title="My Task" --agent=backend
+shark task create --epic=E01 --feature=F02 --title="My Task" --agent=backend
 ```
 
 ### Full Form
 
 ```bash
-pm task create --epic=E01 --feature=E01-F02 --title="My Task" --agent=backend
+shark task create --epic=E01 --feature=E01-F02 --title="My Task" --agent=backend
 ```
 
 Both commands produce identical results. The system automatically normalizes the feature key.
@@ -201,7 +201,7 @@ Both commands produce identical results. The system automatically normalizes the
 Get machine-readable output for scripting:
 
 ```bash
-pm task create \
+shark task create \
   --epic=E01 \
   --feature=F02 \
   --title="Automated Task" \
@@ -232,22 +232,22 @@ When breaking down a feature into tasks:
 
 ```bash
 # Step 1: Database schema
-pm task create -e E02 -f F01 -t "Design Database Schema" -a backend -p 8
+shark task create -e E02 -f F01 -t "Design Database Schema" -a backend -p 8
 
 # Step 2: API implementation (depends on schema)
-pm task create -e E02 -f F01 -t "Implement API Endpoints" -a api -p 7 --depends-on="T-E02-F01-001"
+shark task create -e E02 -f F01 -t "Implement API Endpoints" -a api -p 7 --depends-on="T-E02-F01-001"
 
 # Step 3: Frontend integration (depends on API)
-pm task create -e E02 -f F01 -t "Build Frontend Interface" -a frontend -p 6 --depends-on="T-E02-F01-002"
+shark task create -e E02 -f F01 -t "Build Frontend Interface" -a frontend -p 6 --depends-on="T-E02-F01-002"
 
 # Step 4: Testing (depends on all previous)
-pm task create -e E02 -f F01 -t "Write Integration Tests" -a testing -p 5 --depends-on="T-E02-F01-001,T-E02-F01-002,T-E02-F01-003"
+shark task create -e E02 -f F01 -t "Write Integration Tests" -a testing -p 5 --depends-on="T-E02-F01-001,T-E02-F01-002,T-E02-F01-003"
 ```
 
 ### Creating a Task from a Bug Report
 
 ```bash
-pm task create \
+shark task create \
   --epic=E99 \
   --feature=F01 \
   --title="Fix: Login Button Not Responsive on Mobile" \
@@ -261,18 +261,18 @@ pm task create \
 ### Invalid Epic
 
 ```bash
-pm task create -e E99 -f F01 -t "Test" -a backend
+shark task create -e E99 -f F01 -t "Test" -a backend
 ```
 
 Error:
 ```
-✗ Failed to create task: epic E99 does not exist. Use 'pm epic list' to see available epics
+✗ Failed to create task: epic E99 does not exist. Use 'shark epic list' to see available epics
 ```
 
 ### Invalid Agent Type
 
 ```bash
-pm task create -e E01 -f F02 -t "Test" -a invalid-agent
+shark task create -e E01 -f F02 -t "Test" -a invalid-agent
 ```
 
 Error:
@@ -283,7 +283,7 @@ Error:
 ### Invalid Priority
 
 ```bash
-pm task create -e E01 -f F02 -t "Test" -a backend -p 15
+shark task create -e E01 -f F02 -t "Test" -a backend -p 15
 ```
 
 Error:
@@ -294,7 +294,7 @@ Error:
 ### Non-Existent Dependency
 
 ```bash
-pm task create -e E01 -f F02 -t "Test" -a backend --depends-on="T-E01-F02-999"
+shark task create -e E01 -f F02 -t "Test" -a backend --depends-on="T-E01-F02-999"
 ```
 
 Error:
@@ -319,21 +319,21 @@ Error:
 
 5. **Choose the Right Agent Type**: Select the agent type that best matches the primary skill needed
 
-6. **Validate Before Creating**: Use `pm epic list` and `pm feature list` to verify epic and feature keys exist
+6. **Validate Before Creating**: Use `shark epic list` and `shark feature list` to verify epic and feature keys exist
 
 ## Next Steps
 
 After creating a task:
 
 1. **Review the generated file**: Check `docs/tasks/todo/T-XXX-XXX-XXX.md`
-2. **Start working**: `pm task start T-E01-F02-001`
-3. **Update progress**: `pm task complete T-E01-F02-001`
-4. **Track status**: `pm task list --status=in_progress`
+2. **Start working**: `shark task start T-E01-F02-001`
+3. **Update progress**: `shark task complete T-E01-F02-001`
+4. **Track status**: `shark task list --status=in_progress`
 
 ## See Also
 
-- `pm task list` - List and filter tasks
-- `pm task get <key>` - View task details
-- `pm task start <key>` - Begin work on a task
-- `pm epic list` - View available epics
-- `pm feature list` - View available features
+- `shark task list` - List and filter tasks
+- `shark task get <key>` - View task details
+- `shark task start <key>` - Begin work on a task
+- `shark epic list` - View available epics
+- `shark feature list` - View available features

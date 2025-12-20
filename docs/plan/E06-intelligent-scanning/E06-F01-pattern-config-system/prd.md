@@ -85,7 +85,7 @@ The Technical Lead edits .sharkconfig.json to add a pattern for "tech-debt" epic
 ### Persona 2: Product Manager (Multi-Style Documentation)
 
 **Profile**:
-- **Role**: Product Manager or Technical PM managing projects across multiple teams
+- **Role**: Product Manager or Technical shark managing projects across multiple teams
 - **Experience**: 3-5 years in role, moderate technical proficiency, comfortable with markdown and Git
 - **Context**: Works with documentation from different teams/time periods with varied conventions, needs flexibility over strict standardization
 - **Technical Skills**: Can edit JSON configuration files with examples, prefers presets over writing regex
