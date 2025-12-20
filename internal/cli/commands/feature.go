@@ -922,51 +922,110 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 
 	// If no tasks, inform user
 	if len(tasks) == 0 {
+		if cli.GlobalConfig.JSON {
+			result := map[string]interface{}{
+				"feature_key":      featureKey,
+				"completed_count":  0,
+				"total_count":      0,
+				"status_breakdown": map[string]int{},
+				"affected_tasks":   []string{},
+			}
+			return cli.OutputJSON(result)
+		}
 		cli.Info(fmt.Sprintf("Feature %s has no tasks to complete", featureKey))
 		return nil
 	}
 
-	// Check task status breakdown
+	// Get task status breakdown
 	statusBreakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to get task status: %v", err))
 		os.Exit(2)
 	}
 
-	// Count completed and reviewed tasks
+	// Count completed and reviewed tasks (tasks that don't need completion)
 	completedCount := statusBreakdown[models.TaskStatusCompleted]
 	reviewedCount := statusBreakdown[models.TaskStatusReadyForReview]
 	allDoneCount := completedCount + reviewedCount
 
-	// Check if all tasks are already completed/reviewed
-	hasIncomplete := allDoneCount < len(tasks)
-
-	// Show warning if incomplete tasks exist
-	if hasIncomplete && !force {
-		cli.Warning(fmt.Sprintf("Feature %s has %d incomplete task(s)", featureKey, len(tasks)-allDoneCount))
-		fmt.Println("\nTask Status Breakdown:")
-		fmt.Printf("  Completed: %d\n", completedCount)
-		fmt.Printf("  Ready for Review: %d\n", reviewedCount)
-		if count, ok := statusBreakdown[models.TaskStatusTodo]; ok && count > 0 {
-			fmt.Printf("  Todo: %d\n", count)
+	// Identify incomplete tasks (any status NOT in {completed, ready_for_review})
+	var incompleteTasks []*models.Task
+	for _, task := range tasks {
+		if task.Status != models.TaskStatusCompleted && task.Status != models.TaskStatusReadyForReview {
+			incompleteTasks = append(incompleteTasks, task)
 		}
-		if count, ok := statusBreakdown[models.TaskStatusInProgress]; ok && count > 0 {
-			fmt.Printf("  In Progress: %d\n", count)
-		}
-		if count, ok := statusBreakdown[models.TaskStatusBlocked]; ok && count > 0 {
-			fmt.Printf("  Blocked: %d\n", count)
-		}
-		cli.Info("Use --force to complete all tasks regardless of status")
-		os.Exit(1)
 	}
 
-	// Complete all tasks
+	hasIncomplete := len(incompleteTasks) > 0
+
+	// Show warning if incomplete tasks exist and no --force
+	if hasIncomplete && !force {
+		// Build status breakdown summary
+		statusSummary := ""
+		todoCount := statusBreakdown[models.TaskStatusTodo]
+		inProgressCount := statusBreakdown[models.TaskStatusInProgress]
+		blockedCount := statusBreakdown[models.TaskStatusBlocked]
+
+		statusSummary = fmt.Sprintf("%d todo, %d in_progress, %d blocked, %d ready_for_review",
+			todoCount, inProgressCount, blockedCount, reviewedCount)
+
+		cli.Warning("Cannot complete feature with incomplete tasks")
+		fmt.Printf("  Status breakdown: %s\n", statusSummary)
+
+		// Show affected tasks (up to 10)
+		fmt.Println("\nAffected tasks:")
+		maxTasks := 10
+		if len(incompleteTasks) < maxTasks {
+			maxTasks = len(incompleteTasks)
+		}
+		for i := 0; i < maxTasks; i++ {
+			task := incompleteTasks[i]
+			fmt.Printf("  - %s (%s)\n", task.Key, task.Status)
+		}
+
+		if len(incompleteTasks) > 10 {
+			fmt.Printf("  ... and %d more\n", len(incompleteTasks)-10)
+		}
+
+		cli.Info("Use --force to complete all tasks regardless of status")
+
+		// If JSON output requested, return error with details
+		if cli.GlobalConfig.JSON {
+			// Convert status breakdown to map with string keys
+			breakdown := make(map[string]int)
+			breakdown["todo"] = todoCount
+			breakdown["in_progress"] = inProgressCount
+			breakdown["blocked"] = blockedCount
+			breakdown["ready_for_review"] = reviewedCount
+			breakdown["completed"] = completedCount
+
+			affectedKeys := make([]string, len(incompleteTasks))
+			for i, task := range incompleteTasks {
+				affectedKeys[i] = task.Key
+			}
+
+			result := map[string]interface{}{
+				"feature_key":      featureKey,
+				"completed_count":  allDoneCount,
+				"total_count":      len(tasks),
+				"status_breakdown": breakdown,
+				"affected_tasks":   affectedKeys,
+				"requires_force":   true,
+			}
+			return cli.OutputJSON(result)
+		}
+
+		os.Exit(3)
+	}
+
+	// Complete all tasks in a transaction
 	agent := getAgentIdentifier("")
-	completedCount = 0
+	numCompleted := 0
+	affectedTaskKeys := make([]string, 0)
+
 	for _, task := range tasks {
 		// Skip already completed tasks
 		if task.Status == models.TaskStatusCompleted {
-			completedCount++
 			continue
 		}
 
@@ -975,10 +1034,11 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 			cli.Error(fmt.Sprintf("Error: Failed to complete task %s: %v", task.Key, err))
 			os.Exit(2)
 		}
-		completedCount++
+		numCompleted++
+		affectedTaskKeys = append(affectedTaskKeys, task.Key)
 	}
 
-	// Update feature progress to 100%
+	// Update feature progress
 	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to update feature progress: %v", err))
 		os.Exit(2)
@@ -986,16 +1046,42 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 
 	// Output results
 	if cli.GlobalConfig.JSON {
+		// Convert status breakdown to map with string keys
+		breakdown := make(map[string]int)
+		breakdown["todo"] = statusBreakdown[models.TaskStatusTodo]
+		breakdown["in_progress"] = statusBreakdown[models.TaskStatusInProgress]
+		breakdown["blocked"] = statusBreakdown[models.TaskStatusBlocked]
+		breakdown["ready_for_review"] = statusBreakdown[models.TaskStatusReadyForReview]
+		breakdown["completed"] = statusBreakdown[models.TaskStatusCompleted]
+
 		result := map[string]interface{}{
-			"feature_key":    featureKey,
-			"tasks_completed": completedCount,
-			"total_tasks":    len(tasks),
-			"progress":       100.0,
+			"feature_key":      featureKey,
+			"completed_count":  len(tasks), // All tasks are now completed
+			"total_count":      len(tasks),
+			"status_breakdown": breakdown,
+			"affected_tasks":   affectedTaskKeys,
 		}
 		return cli.OutputJSON(result)
 	}
 
-	cli.Success(fmt.Sprintf("Feature %s completed! All %d task(s) marked as completed.", featureKey, completedCount))
+	// Human-readable output
+	if hasIncomplete && force {
+		// Show what was force-completed
+		todoCount := statusBreakdown[models.TaskStatusTodo]
+		inProgressCount := statusBreakdown[models.TaskStatusInProgress]
+		blockedCount := statusBreakdown[models.TaskStatusBlocked]
+		reviewedCount := statusBreakdown[models.TaskStatusReadyForReview]
+
+		statusCounts := fmt.Sprintf("%d todo, %d in_progress, %d blocked, %d ready_for_review",
+			todoCount, inProgressCount, blockedCount, reviewedCount)
+
+		cli.Success(fmt.Sprintf("Feature %s completed: Force-completed %d tasks (%s)",
+			featureKey, numCompleted, statusCounts))
+	} else {
+		// All tasks were already completed or in review
+		cli.Success(fmt.Sprintf("Feature %s completed: %d/%d tasks completed", featureKey, len(tasks), len(tasks)))
+	}
+
 	return nil
 }
 
