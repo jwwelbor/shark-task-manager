@@ -196,6 +196,72 @@ CREATE TABLE IF NOT EXISTS task_history (
 -- Indexes for task_history
 CREATE INDEX IF NOT EXISTS idx_task_history_task_id ON task_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_history_timestamp ON task_history(timestamp DESC);
+
+-- ============================================================================
+-- Table: documents
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(title, file_path)
+);
+
+-- Indexes for documents
+CREATE INDEX IF NOT EXISTS idx_documents_title ON documents(title);
+CREATE INDEX IF NOT EXISTS idx_documents_file_path ON documents(file_path);
+
+-- ============================================================================
+-- Table: epic_documents
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS epic_documents (
+    epic_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (epic_id, document_id),
+    FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+-- Indexes for epic_documents
+CREATE INDEX IF NOT EXISTS idx_epic_documents_epic_id ON epic_documents(epic_id);
+CREATE INDEX IF NOT EXISTS idx_epic_documents_document_id ON epic_documents(document_id);
+
+-- ============================================================================
+-- Table: feature_documents
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS feature_documents (
+    feature_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (feature_id, document_id),
+    FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+-- Indexes for feature_documents
+CREATE INDEX IF NOT EXISTS idx_feature_documents_feature_id ON feature_documents(feature_id);
+CREATE INDEX IF NOT EXISTS idx_feature_documents_document_id ON feature_documents(document_id);
+
+-- ============================================================================
+-- Table: task_documents
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS task_documents (
+    task_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (task_id, document_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+-- Indexes for task_documents
+CREATE INDEX IF NOT EXISTS idx_task_documents_task_id ON task_documents(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_documents_document_id ON task_documents(document_id);
 `
 
 	_, err := db.Exec(schema)
@@ -343,6 +409,32 @@ func runMigrations(db *sql.DB) error {
 		if _, err := db.Exec(idx); err != nil {
 			return fmt.Errorf("failed to create index: %w", err)
 		}
+	}
+
+	// Run document tables migration
+	if err := migrateDocumentTables(db); err != nil {
+		return fmt.Errorf("failed to migrate document tables: %w", err)
+	}
+
+	return nil
+}
+
+// migrateDocumentTables handles any future migrations to the document tables
+func migrateDocumentTables(db *sql.DB) error {
+	// Currently, the document tables are created by createSchema with IF NOT EXISTS.
+	// This function is a placeholder for future migrations such as adding new columns.
+	// Check if tables exist to ensure schema was created
+	var tablesExist int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type='table' AND name IN ('documents', 'epic_documents', 'feature_documents', 'task_documents')
+	`).Scan(&tablesExist)
+	if err != nil {
+		return fmt.Errorf("failed to check document tables: %w", err)
+	}
+
+	if tablesExist != 4 {
+		return fmt.Errorf("document tables not created: expected 4 tables, found %d", tablesExist)
 	}
 
 	return nil
