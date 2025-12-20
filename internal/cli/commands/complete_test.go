@@ -16,9 +16,9 @@ func TestFeatureComplete_CompletedTasks(t *testing.T) {
 	database := test.GetTestDB()
 
 	// Clean up test data
-	database.Exec("DELETE FROM tasks WHERE key LIKE 'T-FC-001%'")
-	database.Exec("DELETE FROM features WHERE key = 'E-FC-F01'")
-	database.Exec("DELETE FROM epics WHERE key = 'E-FC'")
+	database.Exec("DELETE FROM tasks WHERE key LIKE 'T-E71-F01%'")
+	database.Exec("DELETE FROM features WHERE key = 'E71-F01'")
+	database.Exec("DELETE FROM epics WHERE key = 'E71'")
 
 	// Get repositories
 	repoDb := repository.NewDB(database)
@@ -28,7 +28,7 @@ func TestFeatureComplete_CompletedTasks(t *testing.T) {
 
 	// Create test epic
 	epic := &models.Epic{
-		Key:      "E-FC",
+		Key:      "E71",
 		Title:    "Test Feature Complete",
 		Status:   models.EpicStatusActive,
 		Priority: models.PriorityMedium,
@@ -40,7 +40,7 @@ func TestFeatureComplete_CompletedTasks(t *testing.T) {
 	// Create test feature
 	feature := &models.Feature{
 		EpicID: epic.ID,
-		Key:    "E-FC-F01",
+		Key:    "E71-F01",
 		Title:  "Test Feature",
 		Status: models.FeatureStatusActive,
 	}
@@ -52,7 +52,7 @@ func TestFeatureComplete_CompletedTasks(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		task := &models.Task{
 			FeatureID: feature.ID,
-			Key:       "T-FC-001-00" + string(rune(48+i)),
+			Key:       "T-E71-F01-00" + string(rune(49+i)),
 			Title:     "Task " + string(rune(49+i)),
 			Status:    models.TaskStatusCompleted,
 			Priority:  5,
@@ -85,33 +85,30 @@ func TestFeatureComplete_MixedStatuses(t *testing.T) {
 	database := test.GetTestDB()
 
 	// Clean up
-	database.Exec("DELETE FROM tasks WHERE key LIKE 'T-FC-002%'")
-	database.Exec("DELETE FROM features WHERE key = 'E-FC-F02'")
+	database.Exec("DELETE FROM tasks WHERE key LIKE 'T-E72-F02%'")
+	database.Exec("DELETE FROM features WHERE key = 'E72-F02'")
+	database.Exec("DELETE FROM epics WHERE key = 'E72'")
 
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
 
-	// Get existing test epic or create new one
-	epic, err := epicRepo.GetByKey(ctx, "E-FC")
-	if err != nil {
-		// Create new epic if it doesn't exist
-		epic = &models.Epic{
-			Key:      "E-FC",
-			Title:    "Feature Complete Test",
-			Status:   models.EpicStatusActive,
-			Priority: models.PriorityMedium,
-		}
-		if err := epicRepo.Create(ctx, epic); err != nil {
-			t.Fatalf("Failed to create epic: %v", err)
-		}
+	// Create epic
+	epic := &models.Epic{
+		Key:      "E72",
+		Title:    "Feature Complete Test",
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityMedium,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("Failed to create epic: %v", err)
 	}
 
 	// Create feature
 	feature := &models.Feature{
 		EpicID: epic.ID,
-		Key:    "E-FC-F02",
+		Key:    "E72-F02",
 		Title:  "Mixed Status Feature",
 		Status: models.FeatureStatusActive,
 	}
@@ -129,7 +126,7 @@ func TestFeatureComplete_MixedStatuses(t *testing.T) {
 	for i, status := range statuses {
 		task := &models.Task{
 			FeatureID: feature.ID,
-			Key:       "T-FC-002-00" + string(rune(48+i)),
+			Key:       "T-E72-F02-00" + string(rune(49+i)),
 			Title:     "Task",
 			Status:    status,
 			Priority:  5,
@@ -193,9 +190,9 @@ func TestEpicComplete_MultipleFeatures(t *testing.T) {
 	database := test.GetTestDB()
 
 	// Clean up
-	database.Exec("DELETE FROM tasks WHERE key LIKE 'T-EC-%'")
-	database.Exec("DELETE FROM features WHERE key LIKE 'E-EC-F%'")
-	database.Exec("DELETE FROM epics WHERE key = 'E-EC'")
+	database.Exec("DELETE FROM tasks WHERE key LIKE 'T-E73-F%'")
+	database.Exec("DELETE FROM features WHERE key LIKE 'E73-F%'")
+	database.Exec("DELETE FROM epics WHERE key = 'E73'")
 
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
@@ -204,7 +201,7 @@ func TestEpicComplete_MultipleFeatures(t *testing.T) {
 
 	// Create epic
 	epic := &models.Epic{
-		Key:      "E-EC",
+		Key:      "E73",
 		Title:    "Epic Complete Test",
 		Status:   models.EpicStatusActive,
 		Priority: models.PriorityMedium,
@@ -220,7 +217,7 @@ func TestEpicComplete_MultipleFeatures(t *testing.T) {
 	for f := 0; f < numFeatures; f++ {
 		feature := &models.Feature{
 			EpicID: epic.ID,
-			Key:    "E-EC-F0" + string(rune(49+f)),
+			Key:    "E73-F0" + string(rune(49+f)),
 			Title:  "Feature",
 			Status: models.FeatureStatusActive,
 		}
@@ -232,7 +229,7 @@ func TestEpicComplete_MultipleFeatures(t *testing.T) {
 		for taskIdx := 0; taskIdx < tasksPerFeature; taskIdx++ {
 			task := &models.Task{
 				FeatureID: feature.ID,
-				Key:       "T-EC-F0" + string(rune(49+f)) + "-00" + string(rune(48+taskIdx)),
+				Key:       "T-E73-F0" + string(rune(49+f)) + "-00" + string(rune(49+taskIdx)),
 				Title:     "Task",
 				Status:    models.TaskStatusTodo,
 				Priority:  5,
@@ -328,9 +325,9 @@ func TestEpicComplete_StatusBreakdown(t *testing.T) {
 	database := test.GetTestDB()
 
 	// Clean up
-	database.Exec("DELETE FROM tasks WHERE key LIKE 'T-SB-%'")
-	database.Exec("DELETE FROM features WHERE key LIKE 'E-SB-F%'")
-	database.Exec("DELETE FROM epics WHERE key = 'E-SB'")
+	database.Exec("DELETE FROM tasks WHERE key LIKE 'T-E74-F%'")
+	database.Exec("DELETE FROM features WHERE key LIKE 'E74-F%'")
+	database.Exec("DELETE FROM epics WHERE key = 'E74'")
 
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
@@ -339,7 +336,7 @@ func TestEpicComplete_StatusBreakdown(t *testing.T) {
 
 	// Create epic
 	epic := &models.Epic{
-		Key:      "E-SB",
+		Key:      "E74",
 		Title:    "Status Breakdown Test",
 		Status:   models.EpicStatusActive,
 		Priority: models.PriorityMedium,
@@ -359,7 +356,7 @@ func TestEpicComplete_StatusBreakdown(t *testing.T) {
 	for f, statuses := range featureStatuses {
 		feature := &models.Feature{
 			EpicID: epic.ID,
-			Key:    "E-SB-F0" + string(rune(49+f)),
+			Key:    "E74-F0" + string(rune(49+f)),
 			Title:  "Feature",
 			Status: models.FeatureStatusActive,
 		}
@@ -371,7 +368,7 @@ func TestEpicComplete_StatusBreakdown(t *testing.T) {
 		for taskIdx, status := range statuses {
 			task := &models.Task{
 				FeatureID: feature.ID,
-				Key:       "T-SB-F0" + string(rune(49+f)) + "-00" + string(rune(48+taskIdx)),
+				Key:       "T-E74-F0" + string(rune(49+f)) + "-00" + string(rune(49+taskIdx)),
 				Title:     "Task",
 				Status:    status,
 				Priority:  5,
