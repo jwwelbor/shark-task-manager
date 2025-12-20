@@ -144,7 +144,8 @@ Create a new epic with auto-assigned key, folder, and database entry.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--filename` | string | (empty) | Custom file path relative to project root. Must end in `.md`. Example: `docs/roadmap/2025.md` |
+| `--path` | string | (empty) | Custom folder base path for organizing epic and child features. Relative to project root. Example: `docs/roadmap/2025-q1` |
+| `--filename` | string | (empty) | Custom file path relative to project root. Must end in `.md`. Example: `docs/roadmap/2025.md`. **Note:** Takes precedence over `--path` |
 | `--force` | bool | false | Force reassignment if file path already claimed by another epic or feature |
 | `--description` | string | (empty) | Epic description |
 | `--priority` | string | medium | Priority: `high`, `medium`, or `low` |
@@ -187,6 +188,71 @@ shark epic create "Q1 Roadmap" --filename="docs/shared-roadmap.md"
 # Force reassignment from another epic
 shark epic create "SSO Integration" --filename="docs/roadmap/2025-platform.md" --force
 # Created epic E04 at docs/roadmap/2025-platform.md (reassigned from epic E02)
+```
+
+**Custom Folder Path (`--path`):**
+
+Use `--path` to define a base folder where epic files and child features will be organized:
+
+```bash
+shark epic create "Q1 2025 Roadmap" --path="docs/roadmap/2025-q1"
+```
+
+This allows flexible organization of your project structure:
+
+```
+docs/
+├── roadmap/                    # Custom folder base path
+│   ├── 2025-q1/                # Epic's custom path
+│   │   ├── epic.md             # Epic file
+│   │   ├── user-growth/        # Feature inherits parent path
+│   │   │   └── feature.md
+│   │   └── retention/
+│   │       └── feature.md
+│   └── 2025-q2/
+│       └── epic.md
+└── plan/                       # Default location (backward compatible)
+    └── E03-other-epic/
+        └── epic.md
+```
+
+**Path Resolution Order:**
+
+1. `--filename` - Explicit file path (highest priority)
+2. `--path` - Custom folder base path
+3. Default: `docs/plan/{epic-key}/`
+
+**Inheritance Rules:**
+
+- Features created under an epic inherit the epic's custom folder path
+- Features can override the inherited path with their own `--path`
+- Tasks inherit the feature's path, which inherits from the epic
+- Path override only applies to direct path, not concatenated
+
+**Path Normalization:**
+
+- Paths are stored relative to project root
+- Trailing slashes are normalized
+- Empty strings are treated as NULL (use default)
+- Paths must not contain `..` (path traversal protection)
+
+**Examples:**
+
+```bash
+# Organize by quarter/year
+shark epic create "Q1 2025 Initiative" --path="docs/roadmap/2025-q1"
+
+# Feature inherits epic path
+shark feature create --epic=E01 "User Growth"
+# Stored in docs/roadmap/2025-q1/ directory
+
+# Feature overrides epic path
+shark feature create --epic=E01 "Legacy API" --path="docs/legacy-api"
+# Stored in docs/legacy-api/ directory
+
+# Mix organization styles in same project
+shark epic create "Core Product" --path="docs/core"
+shark epic create "Platform Services"  # Uses default: docs/plan/E02-platform-services/
 ```
 
 ### `shark epic list`
@@ -257,7 +323,8 @@ Create a new feature with auto-assigned key, folder, and database entry.
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--epic` | string | (required) | Epic key (e.g., `E01`) |
-| `--filename` | string | (empty) | Custom file path relative to project root. Must end in `.md`. Example: `docs/specs/auth.md` |
+| `--path` | string | (empty) | Custom folder base path for this feature (inherited from epic if not specified). Relative to project root. Example: `docs/features/auth` |
+| `--filename` | string | (empty) | Custom file path relative to project root. Must end in `.md`. Example: `docs/specs/auth.md`. **Note:** Takes precedence over `--path` |
 | `--force` | bool | false | Force reassignment if file path already claimed by another feature or epic |
 | `--description` | string | (empty) | Feature description |
 | `--execution-order` | int | 0 | Execution order (0 = not set) |
@@ -303,6 +370,41 @@ shark feature create --epic=E01 --filename="docs/shared/integration.md" "Payment
 shark feature create --epic=E01 --filename="docs/specs/auth.md" --force "MFA Implementation"
 # Feature Key: E01-F04-mfa-implementation
 # File: docs/specs/auth.md (reassigned from E01-F02)
+```
+
+**Custom Folder Path (`--path`):**
+
+Features inherit the epic's custom folder path but can override it:
+
+```bash
+# Epic with custom path
+shark epic create "Q1 Initiative" --path="docs/roadmap/2025-q1"
+
+# Feature inherits epic's custom path
+shark feature create --epic=E01 "User Growth"
+# Stored in docs/roadmap/2025-q1/ directory (inherited)
+
+# Feature overrides epic's custom path
+shark feature create --epic=E01 "Mobile App" --path="docs/mobile/app"
+# Stored in docs/mobile/app/ directory (override)
+```
+
+**Examples:**
+
+```bash
+# Default location (no custom paths)
+shark feature create --epic=E01 "Payment Integration"
+
+# Inherit epic's custom path
+shark epic create "Mobile Strategy" --path="docs/mobile/2025"
+shark feature create --epic=E02 "iOS App"
+# Stored in docs/mobile/2025/ directory
+
+# Mix --path and --filename (filename takes precedence)
+shark feature create --epic=E02 "Backend API" \
+  --path="docs/mobile/backend" \
+  --filename="docs/api/spec.md"
+# File stored at docs/api/spec.md (filename wins)
 ```
 
 ### `shark feature list`
