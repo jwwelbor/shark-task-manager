@@ -83,7 +83,7 @@ func TestEpicListingIntegration(t *testing.T) {
 				status = models.TaskStatusCompleted
 			}
 			taskKey := fmt.Sprintf("T-%s-%03d", featureKey, ti+1)
-			database.Exec(`
+			_, _ = database.Exec(`
 				INSERT OR IGNORE INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 				VALUES (?, ?, ?, ?, 'testing', 1, '[]')
 			`, feature.ID, taskKey, fmt.Sprintf("Task %d", ti+1), status)
@@ -424,7 +424,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 		// Create 5 completed tasks
 		for i := 0; i < 5; i++ {
 			taskKey := fmt.Sprintf("T-%s-F01-%03d", epicKey, i+1)
-			database.Exec(`
+			_, _ = database.Exec(`
 				INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 				VALUES (?, ?, ?, 'completed', 'testing', 1, '[]')
 			`, feature.ID, taskKey, fmt.Sprintf("Task %d", i+1))

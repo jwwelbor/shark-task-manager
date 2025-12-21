@@ -56,7 +56,7 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 	}
 
 	// Clean up any existing feature with this specific key from previous test runs to ensure test isolation
-	database.Exec("DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.Exec("DELETE FROM features WHERE key = ?", featureKey)
 
 	// Create feature via SQL with INSERT OR IGNORE
 	if epicID == 0 {
@@ -78,7 +78,7 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 	}
 
 	// Delete and recreate tasks for this feature (so we can control task statuses)
-	database.Exec("DELETE FROM tasks WHERE feature_id = ?", featureID)
+	_, _ = database.Exec("DELETE FROM tasks WHERE feature_id = ?", featureID)
 
 	// Create tasks
 	for i, status := range taskStatuses {

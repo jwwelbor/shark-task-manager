@@ -136,7 +136,7 @@ func BenchmarkFeatureGetWithTasks(b *testing.B) {
 
 	// Count tasks
 	var taskCount int
-	database.QueryRow("SELECT COUNT(*) FROM tasks WHERE feature_id = ?", feature.ID).Scan(&taskCount)
+	_ = database.QueryRow("SELECT COUNT(*) FROM tasks WHERE feature_id = ?", feature.ID).Scan(&taskCount)
 
 	b.Logf("Average feature get (with %d tasks) time: %.2f ms (target: <200ms)", taskCount, avgMs)
 
