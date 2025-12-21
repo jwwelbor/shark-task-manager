@@ -61,11 +61,15 @@ dev:
 test:
 	@echo "Cleaning test database..."
 	@rm -f internal/repository/test-shark-tasks.db*
+	@rm -f /tmp/shark-test-tasks.db*
 	@echo "Running tests..."
 	@export PATH=$$PATH:$$HOME/go/bin && go test -v ./...
 
 # Run tests with coverage
 test-coverage:
+	@echo "Cleaning test database..."
+	@rm -f internal/repository/test-shark-tasks.db*
+	@rm -f /tmp/shark-test-tasks.db*
 	@echo "Running tests with coverage..."
 	@export PATH=$$PATH:$$HOME/go/bin && go test -v -coverprofile=coverage.out ./...
 	@export PATH=$$PATH:$$HOME/go/bin && go tool cover -html=coverage.out -o coverage.html

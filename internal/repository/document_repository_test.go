@@ -378,7 +378,7 @@ func TestUnlinkFromTask(t *testing.T) {
 
 	testTask := &models.Task{
 		FeatureID: testFeature.ID,
-		Key:       "T-E72-F01-001",
+		Key:       "T-E72-F01-999",
 		Title:     "Test Task",
 		Status:    "todo",
 		Priority:  1,
@@ -541,7 +541,7 @@ func TestListForTask(t *testing.T) {
 
 	testTask := &models.Task{
 		FeatureID: testFeature.ID,
-		Key:       "T-E75-F01-001",
+		Key:       "T-E75-F01-999",
 		Title:     "Test Task",
 		Status:    "todo",
 		Priority:  1,
