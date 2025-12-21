@@ -1,0 +1,136 @@
+# GitHub Actions CI Workflow for Shark Task Manager
+# This workflow runs on every push to validate code quality
+# Runs tests and verifies the build succeeds
+#
+# Trigger: Push to any branch
+
+name: CI
+
+on:
+  push:
+    branches: ['*'] # Run on all branches
+  pull_request:
+    branches: ['main'] # Also run on PRs to main
+
+permissions:
+  contents: read
+
+jobs:
+  # Run tests as quality gate
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23' # Match version from go.mod
+          cache: true # Cache Go modules for faster builds
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Run tests with coverage
+        run: go test -v -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.out
+          flags: unittests
+          fail_ci_if_error: false # Don't fail if codecov is down
+
+  # Verify build succeeds
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            go-os: linux
+            go-arch: amd64
+          - os: macos-latest
+            go-os: darwin
+            go-arch: amd64
+          - os: windows-latest
+            go-os: windows
+            go-arch: amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Build shark CLI
+        env:
+          GOOS: ${{ matrix.go-os }}
+          GOARCH: ${{ matrix.go-arch }}
+        run: go build -v -o shark-${{ matrix.go-os }}-${{ matrix.go-arch }} ./cmd/shark/main.go
+
+      - name: Verify binary
+        if: matrix.go-os != 'windows'
+        run: |
+          file shark-${{ matrix.go-os }}-${{ matrix.go-arch }}
+          ls -lh shark-${{ matrix.go-os }}-${{ matrix.go-arch }}
+
+      - name: Verify binary (Windows)
+        if: matrix.go-os == 'windows'
+        run: |
+          dir shark-*.exe
+          powershell -Command "Get-Item shark-*.exe | ForEach-Object { Write-Host $_.FullName, $_.Length }"
+
+  # Code quality checks
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout=5m
+
+  # Summary job that requires all other jobs to pass
+  ci-success:
+    name: CI Passed
+    needs: [test, build, lint]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Check CI status
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "❌ CI Failed"
+            exit 1
+          fi
+          echo "✅ All CI checks passed"
