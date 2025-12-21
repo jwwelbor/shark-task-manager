@@ -71,7 +71,7 @@ This will install `air` if not already installed and run the application with ho
 
 ### CLI Tools
 - `make shark` - Build the Shark CLI tool
-- `make install-shark` - Install Shark CLI to ~/go/bin ⭐
+- `make install-shark` - Install Shark CLI to ~/go/bin
 
 ### Application
 - `make help` - Show all available commands
