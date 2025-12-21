@@ -27,7 +27,8 @@ builds:
       - CGO_ENABLED=1 # Enable CGO for go-sqlite3 support
 
     # Build for multiple platforms
-    # Covers Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64)
+    # Note: ARM64 excluded due to cross-compilation issues with CGO on GitHub Actions
+    # Can be re-enabled with cross-compilation toolchain setup
     goos:
       - linux
       - darwin
@@ -35,13 +36,6 @@ builds:
 
     goarch:
       - amd64
-      - arm64
-
-    # Platform-specific configurations
-    # Exclude invalid platform combinations
-    ignore:
-      - goos: windows
-        goarch: arm64 # Windows ARM64 not commonly used yet
 
 # Archive configuration
 archives:
