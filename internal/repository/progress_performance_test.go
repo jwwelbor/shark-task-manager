@@ -154,7 +154,7 @@ func BenchmarkEpicProgress(b *testing.B) {
 	`, epicKey)
 	epicID, _ := result.LastInsertId()
 	if epicID == 0 {
-		database.QueryRow("SELECT id FROM epics WHERE key = ?", epicKey).Scan(&epicID)
+		_ = database.QueryRow("SELECT id FROM epics WHERE key = ?", epicKey).Scan(&epicID)
 	}
 
 	// Create 50 features, each with 10 tasks (5 completed, 5 todo)

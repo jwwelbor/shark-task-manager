@@ -103,7 +103,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// 4. Prepare task data
 	now := time.Now().UTC()

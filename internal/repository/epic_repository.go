@@ -325,7 +325,7 @@ func (r *EpicRepository) CreateIfNotExists(ctx context.Context, epic *models.Epi
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Check if epic already exists
 	existing, err := r.GetByKey(ctx, epic.Key)

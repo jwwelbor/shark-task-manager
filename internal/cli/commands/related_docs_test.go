@@ -193,9 +193,7 @@ func TestRelatedDocsDeleteIdempotent(t *testing.T) {
 	cmd.SetArgs([]string{"delete", "NonExistent", "--epic=E01"})
 
 	// Should not error - delete is idempotent
-	if err := cmd.Execute(); err != nil {
-		// This is acceptable - some implementations may not care
-	}
+	_ = cmd.Execute()
 }
 
 // TestRelatedDocsListEpic tests listing documents for an epic
@@ -309,7 +307,7 @@ func createRelatedDocsAddCmd(
 		Short: "Add related document",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {
-				cmd.Usage()
+				_ = cmd.Usage()
 				return nil
 			}
 			title := args[0]
@@ -331,7 +329,7 @@ func createRelatedDocsAddCmd(
 			}
 
 			if count != 1 {
-				cmd.Usage()
+				_ = cmd.Usage()
 				return nil
 			}
 
@@ -399,21 +397,21 @@ func createRelatedDocsDeleteCmd(
 			if epic != "" {
 				e, _ := epicRepo.GetByKey(ctx, epic)
 				if e != nil {
-					docRepo.UnlinkFromEpic(ctx, e.ID, 0)
+					_ = docRepo.UnlinkFromEpic(ctx, e.ID, 0)
 				}
 			}
 
 			if feature != "" {
 				f, _ := featureRepo.GetByKey(ctx, feature)
 				if f != nil {
-					docRepo.UnlinkFromFeature(ctx, f.ID, 0)
+					_ = docRepo.UnlinkFromFeature(ctx, f.ID, 0)
 				}
 			}
 
 			if task != "" {
 				t, _ := taskRepo.GetByKey(ctx, task)
 				if t != nil {
-					docRepo.UnlinkFromTask(ctx, t.ID, 0)
+					_ = docRepo.UnlinkFromTask(ctx, t.ID, 0)
 				}
 			}
 

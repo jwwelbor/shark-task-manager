@@ -512,7 +512,7 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Check if feature already exists
 	existing, err := r.GetByKey(ctx, feature.Key)

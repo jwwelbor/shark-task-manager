@@ -161,7 +161,7 @@ func init() {
 	featureCreateCmd.Flags().StringVar(&featureCreatePath, "path", "", "Custom base folder path for this feature and child tasks (overrides epic's path)")
 	featureCreateCmd.Flags().StringVar(&featureCreateFilename, "filename", "", "Custom filename path (relative to project root, must end in .md)")
 	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
-	featureCreateCmd.MarkFlagRequired("epic")
+	_ = featureCreateCmd.MarkFlagRequired("epic")
 
 	// Add flags for complete command
 	featureCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks regardless of status")
@@ -511,7 +511,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 	}
 
 	// Render table
-	pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
+	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
 // renderFeatureDetails renders feature details with tasks table
@@ -541,7 +541,7 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	}
 
 	// Render info table
-	pterm.DefaultTable.WithData(info).Render()
+	_ = pterm.DefaultTable.WithData(info).Render()
 	fmt.Println()
 
 	// Task status breakdown
@@ -555,7 +555,7 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 				fmt.Sprintf("%d", count),
 			})
 		}
-		pterm.DefaultTable.WithData(breakdownData).Render()
+		_ = pterm.DefaultTable.WithData(breakdownData).Render()
 		fmt.Println()
 	}
 
@@ -596,7 +596,7 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	}
 
 	// Render tasks table
-	pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
+	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
 // sortFeatures sorts features by the specified field
@@ -888,7 +888,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Success output
-	cli.Success(fmt.Sprintf("Feature created successfully!"))
+	cli.Success("Feature created successfully!")
 	fmt.Println()
 	fmt.Printf("Feature Key: %s\n", featureSlug)
 	fmt.Printf("Epic:        %s\n", featureCreateEpic)

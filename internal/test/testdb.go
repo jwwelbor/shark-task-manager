@@ -58,7 +58,7 @@ func SeedTestData() (int64, int64) {
 	`)
 	epicID, _ := result.LastInsertId()
 	if epicID == 0 {
-		database.QueryRow("SELECT id FROM epics WHERE key = 'E99'").Scan(&epicID)
+		_ = database.QueryRow("SELECT id FROM epics WHERE key = 'E99'").Scan(&epicID)
 	}
 
 	// Create feature
@@ -68,11 +68,11 @@ func SeedTestData() (int64, int64) {
 	`, epicID)
 	featureID, _ := result.LastInsertId()
 	if featureID == 0 {
-		database.QueryRow("SELECT id FROM features WHERE key = 'E99-F99'").Scan(&featureID)
+		_ = database.QueryRow("SELECT id FROM features WHERE key = 'E99-F99'").Scan(&featureID)
 	}
 
 	// Create test tasks
-	database.Exec(`
+	_, _ = database.Exec(`
 		INSERT OR IGNORE INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 		VALUES
 			(?, 'T-E99-F99-001', 'Completed Task', 'completed', 'backend', 1, '[]'),
@@ -82,11 +82,11 @@ func SeedTestData() (int64, int64) {
 	`, featureID, featureID, featureID, featureID)
 
 	// Create E04 epic and feature for sync tests
-	database.Exec(`INSERT OR IGNORE INTO epics (key, title, description, status, priority) VALUES ('E04', 'Task Management CLI Core', 'Core CLI functionality', 'active', 'high')`)
+	_, _ = database.Exec(`INSERT OR IGNORE INTO epics (key, title, description, status, priority) VALUES ('E04', 'Task Management CLI Core', 'Core CLI functionality', 'active', 'high')`)
 	var e04ID int64
-	database.QueryRow("SELECT id FROM epics WHERE key = 'E04'").Scan(&e04ID)
+	_ = database.QueryRow("SELECT id FROM epics WHERE key = 'E04'").Scan(&e04ID)
 
-	database.Exec(`INSERT OR IGNORE INTO features (epic_id, key, title, description, status) VALUES (?, 'E04-F05', 'Task File Management', 'Task CRUD operations', 'active')`, e04ID)
+	_, _ = database.Exec(`INSERT OR IGNORE INTO features (epic_id, key, title, description, status) VALUES (?, 'E04-F05', 'Task File Management', 'Task CRUD operations', 'active')`, e04ID)
 
 	return epicID, featureID
 }

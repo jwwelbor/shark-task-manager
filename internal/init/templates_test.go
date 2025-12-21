@@ -59,7 +59,7 @@ func TestCopyTemplates(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to get working directory: %v", err)
 			}
-			defer os.Chdir(originalDir)
+			defer func() { _ = os.Chdir(originalDir) }()
 
 			if err := os.Chdir(tempDir); err != nil {
 				t.Fatalf("Failed to change to temp directory: %v", err)
@@ -102,7 +102,7 @@ func TestCopyTemplatesCreatesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalDir)
+	defer func() { _ = os.Chdir(originalDir) }()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
@@ -134,7 +134,7 @@ func TestCopyTemplatesFilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalDir)
+	defer func() { _ = os.Chdir(originalDir) }()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)

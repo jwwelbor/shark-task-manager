@@ -167,7 +167,7 @@ func TestInitialize(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to get working directory: %v", err)
 			}
-			defer os.Chdir(originalDir)
+			defer func() { _ = os.Chdir(originalDir) }()
 
 			if err := os.Chdir(tempDir); err != nil {
 				t.Fatalf("Failed to change to temp directory: %v", err)
@@ -212,7 +212,7 @@ func TestInitializeWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalDir)
+	defer func() { _ = os.Chdir(originalDir) }()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
@@ -286,7 +286,7 @@ func TestInitializeErrorHandling(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to get working directory: %v", err)
 			}
-			defer os.Chdir(originalDir)
+			defer func() { _ = os.Chdir(originalDir) }()
 
 			if err := os.Chdir(tempDir); err != nil {
 				t.Fatalf("Failed to change to temp directory: %v", err)
@@ -329,7 +329,7 @@ func TestInitializePerformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalDir)
+	defer func() { _ = os.Chdir(originalDir) }()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)

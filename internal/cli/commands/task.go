@@ -1144,9 +1144,9 @@ func init() {
 
 	// Add flags for create command
 	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) (required)")
-	taskCreateCmd.MarkFlagRequired("epic")
+	_ = taskCreateCmd.MarkFlagRequired("epic")
 	taskCreateCmd.Flags().StringP("feature", "f", "", "Feature key (e.g., F02 or E01-F02) (required)")
-	taskCreateCmd.MarkFlagRequired("feature")
+	_ = taskCreateCmd.MarkFlagRequired("feature")
 	taskCreateCmd.Flags().StringP("agent", "a", "", "Agent type (optional, accepts any string)")
 	taskCreateCmd.Flags().StringP("template", "", "", "Path to custom task template (optional)")
 	taskCreateCmd.Flags().StringP("description", "d", "", "Detailed description (optional)")

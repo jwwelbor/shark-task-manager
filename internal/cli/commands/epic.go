@@ -459,7 +459,7 @@ func renderEpicListTable(epics []EpicWithProgress) {
 	}
 
 	// Render table
-	pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
+	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
 // renderEpicDetails renders epic details with features table
@@ -493,7 +493,7 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 	}
 
 	// Render info table
-	pterm.DefaultTable.WithData(info).Render()
+	_ = pterm.DefaultTable.WithData(info).Render()
 	fmt.Println()
 
 	// Features section
@@ -530,18 +530,7 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 	}
 
 	// Render features table
-	pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
-}
-
-// truncateString truncates a string to maxLen and adds ellipsis
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return strings.Repeat(".", maxLen)
-	}
-	return s[:maxLen-3] + "..."
+	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
 // sortEpics sorts epics by the specified field
