@@ -37,4 +37,6 @@ tmp/
 dist/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 build-errors.log
