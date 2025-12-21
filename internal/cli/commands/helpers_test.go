@@ -261,7 +261,7 @@ func BenchmarkIsFeatureKeySuffix(b *testing.B) {
 // BenchmarkParseFeatureKey benchmarks the ParseFeatureKey function
 func BenchmarkParseFeatureKey(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		ParseFeatureKey("E04-F01")
+		_, _, _ = ParseFeatureKey("E04-F01")
 	}
 }
 

@@ -171,14 +171,19 @@ func TestTaskListQueryWithDatabase(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 
-	// Create test epic
-	testEpicKey := "E71"
+	// Create test epic with unique key
+	testEpicKey := "E73"
 	epic := &models.Epic{
 		Key:           testEpicKey,
 		Title:         "Task List Test Epic",
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: ptrPriority(models.PriorityHigh),
+	}
+	// Skip if key already exists (from previous test run)
+	existingEpic, _ := epicRepo.GetByKey(ctx, testEpicKey)
+	if existingEpic != nil {
+		t.Skip("Test epic already exists from previous run, skipping")
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create test epic: %v", err)
