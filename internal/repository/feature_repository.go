@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -25,8 +26,8 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 	}
 
 	query := `
-		INSERT INTO features (epic_id, key, title, description, status, progress_pct)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order, file_path, custom_folder_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -36,6 +37,9 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 		feature.Description,
 		feature.Status,
 		feature.ProgressPct,
+		feature.ExecutionOrder,
+		feature.FilePath,
+		feature.CustomFolderPath,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create feature: %w", err)
@@ -54,7 +58,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE id = ?
 	`
@@ -68,6 +72,8 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 		&feature.Description,
 		&feature.Status,
 		&feature.ProgressPct,
+		&feature.ExecutionOrder,
+		&feature.FilePath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -86,7 +92,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE key = ?
 	`
@@ -100,6 +106,8 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 		&feature.Description,
 		&feature.Status,
 		&feature.ProgressPct,
+		&feature.ExecutionOrder,
+		&feature.FilePath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -114,14 +122,48 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 	return feature, nil
 }
 
+// GetByFilePath retrieves a feature by its file path for collision detection
+func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Feature, error) {
+	query := `
+		SELECT id, epic_id, key, title, description, status, progress_pct,
+		       execution_order, file_path, created_at, updated_at
+		FROM features
+		WHERE file_path = ?
+	`
+
+	feature := &models.Feature{}
+	err := r.db.QueryRowContext(ctx, query, filePath).Scan(
+		&feature.ID,
+		&feature.EpicID,
+		&feature.Key,
+		&feature.Title,
+		&feature.Description,
+		&feature.Status,
+		&feature.ProgressPct,
+		&feature.ExecutionOrder,
+		&feature.FilePath,
+		&feature.CreatedAt,
+		&feature.UpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // Not found is not an error
+		}
+		return nil, fmt.Errorf("get feature by file path: %w", err)
+	}
+
+	return feature, nil
+}
+
 // ListByEpic retrieves all features for an epic
 func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE epic_id = ?
-		ORDER BY created_at DESC
+		ORDER BY execution_order NULLS LAST, created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, epicID)
@@ -141,6 +183,8 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
+			&feature.ExecutionOrder,
+			&feature.FilePath,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -161,9 +205,9 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
-		ORDER BY created_at DESC
+		ORDER BY execution_order NULLS LAST, created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -183,6 +227,8 @@ func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error)
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
+			&feature.ExecutionOrder,
+			&feature.FilePath,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -207,7 +253,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 
 	query := `
 		UPDATE features
-		SET title = ?, description = ?, status = ?, progress_pct = ?
+		SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?, custom_folder_path = ?
 		WHERE id = ?
 	`
 
@@ -216,6 +262,8 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		feature.Description,
 		feature.Status,
 		feature.ProgressPct,
+		feature.ExecutionOrder,
+		feature.CustomFolderPath,
 		feature.ID,
 	)
 	if err != nil {
@@ -248,6 +296,30 @@ func (r *FeatureRepository) Delete(ctx context.Context, id int64) error {
 	}
 	if rows == 0 {
 		return fmt.Errorf("feature not found with id %d", id)
+	}
+
+	return nil
+}
+
+// UpdateFilePath updates or clears the file path for a feature
+func (r *FeatureRepository) UpdateFilePath(ctx context.Context, featureKey string, newFilePath *string) error {
+	query := `
+		UPDATE features
+		SET file_path = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query, newFilePath, featureKey)
+	if err != nil {
+		return fmt.Errorf("update feature file path: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("feature not found: %s", featureKey)
 	}
 
 	return nil
@@ -288,14 +360,31 @@ func (r *FeatureRepository) CalculateProgressByKey(ctx context.Context, key stri
 }
 
 // UpdateProgress recalculates and updates the cached progress_pct field
+// Automatically sets feature status to "completed" when progress reaches 100%
 func (r *FeatureRepository) UpdateProgress(ctx context.Context, featureID int64) error {
 	progress, err := r.CalculateProgress(ctx, featureID)
 	if err != nil {
 		return err
 	}
 
-	query := "UPDATE features SET progress_pct = ? WHERE id = ?"
-	_, err = r.db.ExecContext(ctx, query, progress, featureID)
+	// Auto-complete feature when all tasks are completed
+	var newStatus models.FeatureStatus
+	if progress >= 100.0 {
+		newStatus = models.FeatureStatusCompleted
+	} else {
+		// Keep existing status but update progress
+		// For features that are not yet 100% complete, don't change their status
+		query := "UPDATE features SET progress_pct = ? WHERE id = ?"
+		_, err = r.db.ExecContext(ctx, query, progress, featureID)
+		if err != nil {
+			return fmt.Errorf("failed to update feature progress: %w", err)
+		}
+		return nil
+	}
+
+	// Update both progress and status when reaching 100%
+	query := "UPDATE features SET progress_pct = ?, status = ? WHERE id = ?"
+	_, err = r.db.ExecContext(ctx, query, progress, newStatus, featureID)
 	if err != nil {
 		return fmt.Errorf("failed to update feature progress: %w", err)
 	}
@@ -316,10 +405,10 @@ func (r *FeatureRepository) UpdateProgressByKey(ctx context.Context, key string)
 func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.FeatureStatus) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE status = ?
-		ORDER BY created_at DESC
+		ORDER BY execution_order NULLS LAST, created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, status)
@@ -339,6 +428,8 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
+			&feature.ExecutionOrder,
+			&feature.FilePath,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -359,10 +450,10 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int64, status models.FeatureStatus) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, description, status, progress_pct,
-		       created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE epic_id = ? AND status = ?
-		ORDER BY created_at DESC
+		ORDER BY execution_order NULLS LAST, created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, epicID, status)
@@ -382,6 +473,8 @@ func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int6
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
+			&feature.ExecutionOrder,
+			&feature.FilePath,
 			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
@@ -434,8 +527,8 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 	}
 
 	query := `
-		INSERT INTO features (epic_id, key, title, description, status, progress_pct)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := tx.ExecContext(ctx, query,
@@ -445,6 +538,7 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 		feature.Description,
 		feature.Status,
 		feature.ProgressPct,
+		feature.ExecutionOrder,
 	)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to create feature: %w", err)
@@ -463,4 +557,30 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 	}
 
 	return feature, true, nil
+}
+
+// GetCustomFolderPath retrieves the custom folder path for a feature by its key
+func (r *FeatureRepository) GetCustomFolderPath(ctx context.Context, featureKey string) (*string, error) {
+	query := `
+		SELECT custom_folder_path
+		FROM features
+		WHERE key = ?
+	`
+
+	var customFolderPath sql.NullString
+	err := r.db.QueryRowContext(ctx, query, featureKey).Scan(&customFolderPath)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("feature not found with key %s", featureKey)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get custom folder path: %w", err)
+	}
+
+	// Return nil if the value is NULL in the database
+	if !customFolderPath.Valid {
+		return nil, nil
+	}
+
+	return &customFolderPath.String, nil
 }

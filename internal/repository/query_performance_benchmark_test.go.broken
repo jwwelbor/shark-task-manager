@@ -11,9 +11,9 @@ import (
 
 // Performance Benchmark Tests for Epic and Feature Queries
 // These tests validate that query performance meets PRD targets:
-// - pm epic list: <100ms for 100 epics
-// - pm epic get: <200ms for epics with 50 features
-// - pm feature get: <200ms for features with 100 tasks
+// - shark epic list: <100ms for 100 epics
+// - shark epic get: <200ms for epics with 50 features
+// - shark feature get: <200ms for features with 100 tasks
 
 // BenchmarkEpicList measures epic list query performance
 // PRD Target: <100ms for 100 epics
@@ -107,7 +107,7 @@ func BenchmarkEpicGetWithFeatures(b *testing.B) {
 	epic := &models.Epic{
 		Key:           epicKey,
 		Title:         "Benchmark Epic with 50 Features",
-		Description:   "Epic for testing pm epic get performance",
+		Description:   "Epic for testing shark epic get performance",
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: models.BusinessValueHigh,
@@ -207,7 +207,7 @@ func BenchmarkFeatureGetWithTasks(b *testing.B) {
 		EpicID:      epic.ID,
 		Key:         featureKey,
 		Title:       "Benchmark Feature with 100 Tasks",
-		Description: "Feature for testing pm feature get performance",
+		Description: "Feature for testing shark feature get performance",
 		Status:      models.FeatureStatusActive,
 	}
 	featureRepo.Create(feature)

@@ -76,16 +76,16 @@ type TableFormatter struct{}
 ### Usage Examples
 ```bash
 # Get task in markdown
-pm task get T-E04-F01-001 --format=markdown > task.md
+shark task get T-E04-F01-001 --format=markdown > task.md
 
 # Export all tasks to YAML
-pm task list --format=yaml > tasks.yaml
+shark task list --format=yaml > tasks.yaml
 
 # Generate CSV for spreadsheet import
-pm task list --format=csv > tasks.csv
+shark task list --format=csv > tasks.csv
 
 # Pipe markdown to documentation
-pm task list --epic=E04 --format=markdown >> project-status.md
+shark task list --epic=E04 --format=markdown >> project-status.md
 ```
 
 ## Benefits

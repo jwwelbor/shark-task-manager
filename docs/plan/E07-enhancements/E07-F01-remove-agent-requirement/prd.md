@@ -21,41 +21,42 @@ description:
 ## Goal
 
 ### Problem
-[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]
+Currently, when creating a new task, the `--agent` flag is required and the agent type values are constrained to a predefined set (frontend, backend, api, testing, devops, general). This creates unnecessary friction when creating tasks that don't fit these categories or when the agent type needs to be determined later. Additionally, agent types are tightly coupled to template selection, making it inflexible to use custom templates or no template at all.
 
 ### Solution
-[Explain how this feature solves the problem. Focus on the "what" not the "how."]
+Make the `--agent` field optional when creating tasks. Allow any string value for agent type (not just the predefined set). When an unknown agent type is specified, allow users to specify a custom template path via `--template` flag, or default to using the general template if no template is specified.
 
 ### Impact
-[Define expected outcomes with specific, measurable metrics.]
-
-**Examples**:
-- Reduce user onboarding time by 40%
-- Increase feature adoption to 60% of active users within 3 months
+- Reduce task creation friction by eliminating required agent field
+- Enable flexible workflow where agent assignment happens after task creation
+- Support custom agent types beyond the predefined list
+- Improve extensibility for teams with custom agent roles or workflows
 
 ---
 
 ## User Personas
 
-### Persona 1: [Persona Name/Role]
+### Persona 1: Product Manager / Technical Lead
 
 **Profile**:
-- **Role/Title**: [e.g., "Marketing Manager at mid-size B2B SaaS company"]
-- **Experience Level**: [e.g., "3-5 years in role, moderate technical proficiency"]
+- **Role/Title**: Product Manager or Technical Lead planning implementation work
+- **Experience Level**: Experienced with task management CLIs, defining project structure
 - **Key Characteristics**:
-  - [Characteristic 1]
-  - [Characteristic 2]
+  - Creates task structures before implementation details are known
+  - Works with diverse team structures that may not fit predefined agent types
+  - Needs flexibility in workflow and task assignment
 
 **Goals Related to This Feature**:
-1. [Specific goal 1]
-2. [Specific goal 2]
+1. Quickly create task placeholders without needing to assign agents immediately
+2. Support custom agent types specific to their team's workflow
 
 **Pain Points This Feature Addresses**:
-- [Pain point 1]
-- [Pain point 2]
+- Forced to specify agent type when creating tasks, even when assignment is TBD
+- Cannot use custom agent types beyond the predefined set
+- Template selection is too rigid and coupled to agent type
 
 **Success Looks Like**:
-[2-3 sentences describing success from this persona's perspective]
+Can create tasks rapidly without being blocked by required agent field. Can use custom agent types that match their team structure. Can specify custom templates or use defaults flexibly.
 
 ---
 
@@ -63,34 +64,53 @@ description:
 
 ### Must-Have Stories
 
-**Story 1**: As a [user persona], I want to [perform an action] so that I can [achieve a benefit].
+**Story 1**: As a product manager, I want to create tasks without specifying an agent type so that I can quickly define task structures before assignments are made.
 
 **Acceptance Criteria**:
-- [ ] [Specific testable criterion 1]
-- [ ] [Specific testable criterion 2]
-- [ ] [Specific testable criterion 3]
+- [ ] `shark task create` command works without `--agent` flag
+- [ ] Tasks created without agent have NULL agent_type in database
+- [ ] Default general template is used when no agent type specified
+
+**Story 2**: As a technical lead, I want to use custom agent type values so that I can match my team's specific roles.
+
+**Acceptance Criteria**:
+- [ ] Any string value is accepted for `--agent` flag
+- [ ] Custom agent types are stored correctly in database
+- [ ] System provides appropriate template fallback for unknown agent types
+
+**Story 3**: As a user, I want to specify a custom template for task creation so that I can use my own task file formats.
+
+**Acceptance Criteria**:
+- [ ] New `--template` flag accepts path to custom template file
+- [ ] Custom template is used when specified, regardless of agent type
+- [ ] System validates template file exists before creating task
 
 ---
 
 ### Should-Have Stories
 
-[Follow same format for important but not critical stories]
+**Story 4**: As a user, when I use an unknown agent type, I want clear messaging about which template is being used so that I understand the file that was created.
+
+**Acceptance Criteria**:
+- [ ] CLI output indicates which template was selected
+- [ ] Helpful message when falling back to general template
 
 ---
 
 ### Could-Have Stories
 
-[Follow same format for nice-to-have stories]
+None identified for this feature.
 
 ---
 
 ### Edge Case & Error Stories
 
-**Error Story 1**: As a [user persona], when [error condition], I want to [see/receive] so that I can [recover/understand].
+**Error Story 1**: As a user, when I specify a custom template that doesn't exist, I want to see a clear error message so that I can fix the path.
 
 **Acceptance Criteria**:
-- [ ] [How error is presented]
-- [ ] [How user can recover]
+- [ ] Error message includes the invalid path specified
+- [ ] Suggests checking template path exists
+- [ ] Task creation is aborted, no database entry created
 
 ---
 
@@ -98,42 +118,62 @@ description:
 
 ### Functional Requirements
 
-**Category: [e.g., Core Functionality]**
+**Category: Task Creation**
 
-1. **REQ-F-001**: [Requirement Title]
-   - **Description**: [Clear, specific, testable requirement statement]
-   - **User Story**: Links to Story [#]
-   - **Priority**: [Must-Have | Should-Have | Could-Have]
+1. **REQ-F-001**: Optional Agent Field
+   - **Description**: The `--agent` flag must be optional when creating tasks via `shark task create`
+   - **User Story**: Links to Story 1
+   - **Priority**: Must-Have
    - **Acceptance Criteria**:
-     - [ ] [Specific criterion 1]
-     - [ ] [Specific criterion 2]
+     - [ ] Remove `MarkFlagRequired("agent")` from task create command
+     - [ ] Database accepts NULL for agent_type field
+     - [ ] Task creation succeeds without agent specified
+
+2. **REQ-F-002**: Unrestricted Agent Values
+   - **Description**: Any string value must be accepted for agent type (not limited to predefined set)
+   - **User Story**: Links to Story 2
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] Validation removed for agent type enum
+     - [ ] Custom agent strings stored in database
+     - [ ] Agent type displayed correctly in task list/get commands
+
+3. **REQ-F-003**: Custom Template Support
+   - **Description**: Users can specify custom template file path via `--template` flag
+   - **User Story**: Links to Story 3
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] New `--template` flag added to task create command
+     - [ ] Template file validation before task creation
+     - [ ] Custom template rendered correctly with task data
+
+4. **REQ-F-004**: Template Fallback Logic
+   - **Description**: When agent type is unknown or not specified, use general template; custom template overrides all
+   - **User Story**: Links to Story 2, 3
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] Priority: custom template > agent-specific template > general template
+     - [ ] General template used when no agent specified
+     - [ ] General template used for unknown agent types
 
 ---
 
 ### Non-Functional Requirements
 
-**Performance**
+**Backward Compatibility**
 
-1. **REQ-NF-001**: [Performance Requirement]
-   - **Description**: [Specific performance target]
-   - **Measurement**: [How it will be measured]
-   - **Target**: [Quantitative threshold, e.g., "Page load < 2 seconds on 3G"]
-   - **Justification**: [Why this matters]
+1. **REQ-NF-001**: Existing Behavior Preserved
+   - **Description**: Existing tasks with agent types continue to work unchanged
+   - **Measurement**: All existing tests pass
+   - **Target**: 100% backward compatibility
+   - **Justification**: Don't break existing workflows
 
-**Security**
+**Usability**
 
-1. **REQ-NF-010**: [Security Requirement]
-   - **Description**: [Specific security control]
-   - **Implementation**: [High-level approach]
-   - **Compliance**: [Relevant standards: OWASP, SOC2, etc.]
-   - **Risk Mitigation**: [What threat this addresses]
-
-**Accessibility**
-
-1. **REQ-NF-020**: [Accessibility Requirement]
-   - **Description**: [Specific WCAG criterion]
-   - **Standard**: [WCAG 2.1 Level AA, etc.]
-   - **Testing**: [How compliance will be verified]
+1. **REQ-NF-002**: Clear User Feedback
+   - **Description**: CLI provides clear feedback about template selection
+   - **Implementation**: Output message indicating which template was used
+   - **Justification**: Users should understand what file was created
 
 ---
 
@@ -141,19 +181,29 @@ description:
 
 ### Feature-Level Acceptance
 
-**Given/When/Then Format**:
+**Scenario 1: Create Task Without Agent**
+- **Given** a user wants to create a task placeholder
+- **When** they run `shark task create --epic=E01 --feature=F02 "Task Title"`
+- **Then** the task is created successfully with NULL agent_type
+- **And** the general template is used for the task file
 
-**Scenario 1: [Primary Use Case]**
-- **Given** [initial context/state]
-- **When** [user action is performed]
-- **Then** [expected outcome]
-- **And** [additional outcome]
+**Scenario 2: Create Task With Custom Agent Type**
+- **Given** a user has a custom agent role called "data-scientist"
+- **When** they run `shark task create --epic=E01 --feature=F02 "Task Title" --agent=data-scientist`
+- **Then** the task is created with agent_type="data-scientist"
+- **And** the general template is used (fallback for unknown agent type)
 
-**Scenario 2: [Error Handling]**
-- **Given** [error precondition]
-- **When** [action that triggers error]
-- **Then** [error is handled gracefully]
-- **And** [user can recover]
+**Scenario 3: Create Task With Custom Template**
+- **Given** a user has a custom template at "my-templates/special-task.md"
+- **When** they run `shark task create --epic=E01 --feature=F02 "Task Title" --template=my-templates/special-task.md`
+- **Then** the task is created using the specified custom template
+- **And** success message indicates custom template was used
+
+**Scenario 4: Error Handling - Invalid Template Path**
+- **Given** a user specifies a non-existent template path
+- **When** they run `shark task create --epic=E01 --feature=F02 "Task Title" --template=invalid/path.md`
+- **Then** an error message is displayed with the invalid path
+- **And** task creation is aborted, no database record created
 
 ---
 
@@ -161,18 +211,32 @@ description:
 
 ### Explicitly Excluded
 
-1. **[Feature/Capability]**
-   - **Why**: [Reasoning - complexity, dependencies, prioritization]
-   - **Future**: [Will this be addressed later? If so, when/why?]
-   - **Workaround**: [How users can accomplish this currently, if applicable]
+1. **Changing existing agent type enum in database schema**
+   - **Why**: Database already supports arbitrary strings via TEXT type
+   - **Future**: No changes needed
+   - **Workaround**: N/A - agent_type field already flexible
+
+2. **Auto-assignment of agents based on task characteristics**
+   - **Why**: Out of scope for this feature, focused on making field optional
+   - **Future**: Could be a separate E07 feature if desired
+   - **Workaround**: Manually assign agents via task update (future feature)
+
+3. **Template auto-discovery from agent type**
+   - **Why**: Adds complexity, fallback to general template is sufficient
+   - **Future**: Could enhance template loader in future iterations
+   - **Workaround**: Use `--template` flag for custom templates
 
 ---
 
 ### Alternative Approaches Rejected
 
-**Alternative 1: [Approach Name]**
-- **Description**: [Brief overview]
-- **Why Rejected**: [Reasoning]
+**Alternative 1: Keep Agent Required, Add "TBD" Value**
+- **Description**: Keep --agent required but allow special "TBD" value
+- **Why Rejected**: Still forces users to specify something; making it optional is cleaner
+
+**Alternative 2: Strict Agent Type Validation with Registry**
+- **Description**: Maintain allowed agent types in config file or database table
+- **Why Rejected**: Adds complexity and maintenance burden; unrestricted strings are simpler
 
 ---
 
@@ -180,17 +244,17 @@ description:
 
 ### Primary Metrics
 
-1. **[Metric Name]**
-   - **What**: [What data point is tracked]
-   - **Target**: [Specific goal]
-   - **Timeline**: [When to achieve]
-   - **Measurement**: [How to measure]
+1. **Task Creation Flexibility**
+   - **What**: Percentage of tasks created without agent specified
+   - **Target**: >20% of tasks created use optional agent field
+   - **Measurement**: Query tasks where agent_type IS NULL
 
 ---
 
 ### Secondary Metrics
 
-- **[Metric]**: [Brief description and target]
+- **Custom Agent Types**: Count of distinct agent_type values beyond predefined set
+- **Template Usage**: Number of task creates using --template flag
 
 ---
 
@@ -198,20 +262,19 @@ description:
 
 ### Dependencies
 
-- **[System/Feature/Service]**: [Description of dependency]
+- **Task Create Command** (internal/cli/commands/task.go): Command flag changes
+- **Task Creation Package** (internal/taskcreation/): Template selection logic
+- **Database Schema**: agent_type field already allows NULL/any string
 
 ### Integration Requirements
 
-- **[External System]**: [What data/functionality is exchanged]
+None - purely internal changes to CLI and task creation logic
 
 ---
 
 ## Compliance & Security Considerations
 
-[If applicable, note specific requirements]:
-- **Regulatory**: [GDPR, HIPAA, SOC2, etc.]
-- **Data Protection**: [Encryption, access controls]
-- **Audit**: [Logging, audit trail requirements]
+No specific regulatory, data protection, or audit requirements for this feature.
 
 ---
 

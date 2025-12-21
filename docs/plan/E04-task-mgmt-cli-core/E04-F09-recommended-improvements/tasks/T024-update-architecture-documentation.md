@@ -150,7 +150,7 @@ task, err := repo.GetByID(ctx, id)
 if errors.Is(err, domain.ErrTaskNotFound) {
     // Handle not found specifically
     fmt.Fprintf(os.Stderr, "Task not found: %s\n", taskKey)
-    fmt.Fprintf(os.Stderr, "Use 'pm task list' to see available tasks.\n")
+    fmt.Fprintf(os.Stderr, "Use 'shark task list' to see available tasks.\n")
     return nil
 }
 if err != nil {

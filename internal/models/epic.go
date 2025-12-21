@@ -23,15 +23,17 @@ const (
 
 // Epic represents a top-level project organization unit
 type Epic struct {
-	ID            int64      `json:"id" db:"id"`
-	Key           string     `json:"key" db:"key"`
-	Title         string     `json:"title" db:"title"`
-	Description   *string    `json:"description,omitempty" db:"description"`
-	Status        EpicStatus `json:"status" db:"status"`
-	Priority      Priority   `json:"priority" db:"priority"`
-	BusinessValue *Priority  `json:"business_value,omitempty" db:"business_value"`
-	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+	ID                int64      `json:"id" db:"id"`
+	Key               string     `json:"key" db:"key"`
+	Title             string     `json:"title" db:"title"`
+	Description       *string    `json:"description,omitempty" db:"description"`
+	Status            EpicStatus `json:"status" db:"status"`
+	Priority          Priority   `json:"priority" db:"priority"`
+	BusinessValue     *Priority  `json:"business_value,omitempty" db:"business_value"`
+	FilePath          *string    `json:"file_path,omitempty" db:"file_path"`
+	CustomFolderPath  *string    `json:"custom_folder_path,omitempty" db:"custom_folder_path"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // Validate validates the Epic fields

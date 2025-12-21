@@ -3,6 +3,8 @@ package test
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
@@ -11,12 +13,30 @@ import (
 var (
 	testDB   *sql.DB
 	dbOnce   sync.Once
-	dbPath   = "test-shark-tasks.db"
+	dbPath   string
 )
+
+// init determines the test database path
+func init() {
+	// Try to find the project root by looking for internal/repository directory
+	// If it doesn't exist, create a temp directory
+	if _, err := os.Stat("internal/repository"); err == nil {
+		dbPath = "internal/repository/test-shark-tasks.db"
+	} else if _, err := os.Stat("../../internal/repository"); err == nil {
+		dbPath = "../../internal/repository/test-shark-tasks.db"
+	} else {
+		// Fallback to temp directory
+		dbPath = filepath.Join(os.TempDir(), "shark-test-tasks.db")
+	}
+}
 
 // GetTestDB returns a shared test database
 func GetTestDB() *sql.DB {
 	dbOnce.Do(func() {
+		// Ensure directory exists
+		dir := filepath.Dir(dbPath)
+		_ = os.MkdirAll(dir, 0755)
+
 		var err error
 		testDB, err = db.InitDB(dbPath)
 		if err != nil {

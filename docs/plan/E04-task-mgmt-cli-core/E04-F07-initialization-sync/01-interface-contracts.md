@@ -17,7 +17,7 @@ This document defines the contracts between system components for initialization
 ┌─────────────────────────────────────────────────────────────────┐
 │                         CLI Layer                                │
 │  ┌──────────────────┐              ┌──────────────────┐         │
-│  │  pm init         │              │  pm sync         │         │
+│  │  shark init         │              │  shark sync         │         │
 │  │  (init command)  │              │  (sync command)  │         │
 │  └────────┬─────────┘              └────────┬─────────┘         │
 │           │                                  │                    │
@@ -78,7 +78,7 @@ This document defines the contracts between system components for initialization
 
 ### 1.1 Init Command
 
-**Command**: `pm init`
+**Command**: `shark init`
 
 **Flags**:
 ```go
@@ -104,8 +104,8 @@ Shark CLI initialized successfully!
 
 Next steps:
 1. Edit .pmconfig.json to set default epic and agent
-2. Create tasks with: pm task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
-3. Import existing tasks with: pm sync
+2. Create tasks with: shark task create --epic=E01 --feature=F01 --title="Task title" --agent=backend
+3. Import existing tasks with: shark sync
 ```
 
 **Output (JSON)**:
@@ -123,7 +123,7 @@ Next steps:
 
 ### 1.2 Sync Command
 
-**Command**: `pm sync`
+**Command**: `shark sync`
 
 **Flags**:
 ```go
@@ -708,8 +708,8 @@ const (
 
 ### 11.2 Integration Test Requirements
 
-- Test full `pm init` command (database + folders + config)
-- Test full `pm sync` command (filesystem + database)
+- Test full `shark init` command (database + folders + config)
+- Test full `shark sync` command (filesystem + database)
 - Test sync with conflicts (apply strategies)
 - Test transaction rollback (error during sync)
 - Test --create-missing flag (auto-create epics/features)
@@ -717,8 +717,8 @@ const (
 
 ### 11.3 Performance Test Requirements
 
-- Test `pm init` completes in <5 seconds
-- Test `pm sync` with 100 files completes in <10 seconds
+- Test `shark init` completes in <5 seconds
+- Test `shark sync` with 100 files completes in <10 seconds
 - Test YAML parsing <10ms per file
 - Test bulk insert 100 tasks in <1 second
 

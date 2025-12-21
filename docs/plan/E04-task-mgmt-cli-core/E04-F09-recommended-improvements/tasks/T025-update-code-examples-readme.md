@@ -80,7 +80,7 @@ export SHARK_DATABASE_PATH=/data/tasks.db
 SHARK_SERVER_PORT=9090 shark-server
 
 # Disable colored output
-SHARK_CLI_COLOR_OUTPUT=false pm task list
+SHARK_CLI_COLOR_OUTPUT=false shark task list
 ```
 
 ### Using Config File
@@ -124,7 +124,7 @@ cli:
 make build
 
 # Or manually
-go build -o pm ./cmd/pm
+go build -o shark ./cmd/pm
 
 # Build server
 go build -o shark-server ./cmd/server

@@ -105,7 +105,7 @@ func TestConfigTestPatternFailure(t *testing.T) {
 	}
 }
 
-// TestConfigTestPatternValidation tests pattern validation warnings
+// TestConfigTestPatternValidation tests pattern validation
 func TestConfigTestPatternValidation(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -115,11 +115,10 @@ func TestConfigTestPatternValidation(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name:        "Feature pattern missing epic identifier",
+			name:        "Feature pattern with generic slug (nested context allowed)",
 			pattern:     `F(?P<slug>[a-z-]+)`,
 			entityType:  "feature",
-			expectError: true,
-			errorMsg:    "missing required capture group",
+			expectError: false,
 		},
 		{
 			name:        "Task pattern missing feature identifier",
@@ -133,6 +132,13 @@ func TestConfigTestPatternValidation(t *testing.T) {
 			pattern:     `E(?P<number>\d{2})-(?P<slug>[a-z0-9-]+)`,
 			entityType:  "epic",
 			expectError: false,
+		},
+		{
+			name:        "Feature pattern missing feature identifier completely",
+			pattern:     `^[a-z-]+$`,
+			entityType:  "feature",
+			expectError: true,
+			errorMsg:    "missing required capture group",
 		},
 	}
 
@@ -191,7 +197,7 @@ func TestConfigValidatePatternsCommand(t *testing.T) {
 			config: &patterns.PatternConfig{
 				Epic: patterns.GetDefaultPatterns().Epic,
 				Feature: patterns.EntityPatterns{
-					Folder: []string{`F(?P<slug>[a-z-]+)`}, // Missing epic identifier
+					Folder: []string{`^[a-z-]+$`}, // Missing feature identifier completely
 					File:   []string{`prd\.md`},
 					Generation: patterns.GenerationFormat{
 						Format: "E{epic:02d}-F{number:02d}-{slug}",
@@ -516,10 +522,10 @@ func TestConfigAddPatternCommand(t *testing.T) {
 		// Create a config with valid patterns
 		baseConfig := patterns.GetDefaultPatterns()
 
-		// Create a preset with invalid pattern (missing required capture group)
+		// Create a preset with invalid pattern (missing required capture group completely)
 		invalidPreset := &patterns.PatternConfig{
 			Feature: patterns.EntityPatterns{
-				Folder: []string{`F(?P<slug>[a-z-]+)`}, // Missing epic identifier
+				Folder: []string{`^[a-z]+$`}, // Missing feature identifier capture group
 			},
 		}
 

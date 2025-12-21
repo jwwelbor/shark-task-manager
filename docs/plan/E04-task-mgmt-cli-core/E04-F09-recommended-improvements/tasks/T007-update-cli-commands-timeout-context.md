@@ -68,11 +68,11 @@ Reference: [PRD - Affected Components](../01-feature-prd.md#affected-components)
 
 **Integration Tests**:
 - Test all commands with real database:
-  - `pm task list`
-  - `pm task create`
-  - `pm task start <key>`
-  - `pm epic list`
-  - `pm feature list`
+  - `shark task list`
+  - `shark task create`
+  - `shark task start <key>`
+  - `shark epic list`
+  - `shark feature list`
 - Verify all commands complete successfully
 - Verify timeout behavior (if possible to test)
 

@@ -7,7 +7,7 @@
 
 ## Purpose
 
-This document defines the system architecture for initialization and synchronization features. It describes component interactions, data flows, and architectural patterns for `pm init` and `pm sync` commands.
+This document defines the system architecture for initialization and synchronization features. It describes component interactions, data flows, and architectural patterns for `shark init` and `shark sync` commands.
 
 ---
 
@@ -20,7 +20,7 @@ This document defines the system architecture for initialization and synchroniza
 │                              CLI Layer (Cobra)                               │
 │                                                                               │
 │  ┌──────────────────────┐                  ┌─────────────────────────────┐  │
-│  │   pm init            │                  │   pm sync                    │  │
+│  │   shark init            │                  │   shark sync                    │  │
 │  │   (init.go)          │                  │   (sync.go)                  │  │
 │  │                      │                  │                              │  │
 │  │  Flags:              │                  │  Flags:                      │  │
@@ -799,7 +799,7 @@ Similar to Epic repository, add `CreateIfNotExists` and `GetByKey` methods.
 ```
 User
  │
- ├─> pm init --non-interactive
+ ├─> shark init --non-interactive
  │
  ▼
 InitCommand (CLI)
@@ -840,7 +840,7 @@ InitCommand
 ```
 User
  │
- ├─> pm sync --strategy=file-wins --dry-run
+ ├─> shark sync --strategy=file-wins --dry-run
  │
  ▼
 SyncCommand (CLI)
@@ -1349,7 +1349,7 @@ func BenchmarkSync100Files(b *testing.B) {
 **First Run**:
 ```bash
 # User runs init command
-pm init
+shark init
 
 # Database created with schema
 # Folders created: docs/plan/, templates/
@@ -1359,7 +1359,7 @@ pm init
 **Subsequent Runs**:
 ```bash
 # Init is idempotent (safe to re-run)
-pm init
+shark init
 
 # Skips existing database (no error)
 # Skips existing folders (no error)
@@ -1371,18 +1371,18 @@ pm init
 **From Legacy System** (with status-based folders):
 ```bash
 # Sync legacy folders first
-pm sync --folder=docs/tasks/todo
-pm sync --folder=docs/tasks/active
-pm sync --folder=docs/tasks/completed
+shark sync --folder=docs/tasks/todo
+shark sync --folder=docs/tasks/active
+shark sync --folder=docs/tasks/completed
 
 # Then sync feature folders (new structure)
-pm sync --folder=docs/plan
+shark sync --folder=docs/plan
 ```
 
 **After Git Pull** (new/modified tasks from collaborators):
 ```bash
 # Sync to update database with file changes
-pm sync
+shark sync
 ```
 
 ---
@@ -1402,7 +1402,7 @@ pm sync
 
 **2. Watch Mode** (continuous sync):
 ```go
-// New command: pm sync --watch
+// New command: shark sync --watch
 // Use fsnotify to watch for file changes
 // Auto-sync when files modified
 ```

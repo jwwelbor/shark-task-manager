@@ -1,0 +1,396 @@
+================================================================================
+E07-F05 COMPREHENSIVE MASTER IMPLEMENTATION PLAN - SUMMARY
+================================================================================
+
+FEATURE: Add Related Documents
+Created: 2025-12-20
+Status: Ready for Implementation
+
+================================================================================
+DELIVERABLES CREATED
+================================================================================
+
+5 comprehensive planning documents totaling ~100KB:
+
+1. README.md (7.4 KB)
+   - Index and navigation guide
+   - Overview of all documents
+   - Quick links to relevant sections
+
+2. QUICK-START.md (9.7 KB)
+   - 10-minute quick reference
+   - Implementation overview
+   - Common pitfalls
+   - Code patterns
+
+3. EXECUTIVE-SUMMARY.md (10 KB)
+   - High-level overview
+   - Timeline and effort estimates
+   - Risk mitigation matrix
+   - Success criteria
+
+4. MASTER-IMPLEMENTATION-PLAN.md (51 KB)
+   - 14-section comprehensive guide
+   - Detailed task breakdown
+   - Step-by-step implementation
+   - Quality gates
+   - Integration testing approach
+   - Risk assessment
+   - Appendices with patterns
+
+5. REQUIREMENT-TRACEABILITY-MATRIX.md (12 KB)
+   - 49 requirements mapped to tasks
+   - 55+ test cases identified
+   - Scenario-based acceptance criteria
+   - Completion checklist
+
+LOCATION: /home/jwwelbor/projects/shark-task-manager/docs/plan/E07/E07-F05/
+
+================================================================================
+IMPLEMENTATION OVERVIEW
+================================================================================
+
+FEATURE GOAL:
+Link supporting documents (architecture diagrams, design docs, QA reports) to
+epics, features, and tasks via CLI commands.
+
+COMMANDS:
+  shark related-docs add "Title" "path" --epic=E01
+  shark related-docs list --epic=E01
+  shark related-docs delete "Title" --epic=E01
+
+ARCHITECTURE:
+- 4-table database (documents + 3 link tables)
+- DocumentRepository with 14 methods
+- CLI command group with 3 subcommands
+- 30+ integration tests
+- 25+ CLI tests
+
+TIMELINE: ~50 hours over ~2 weeks
+
+================================================================================
+5 SEQUENTIAL TASKS
+================================================================================
+
+T-E07-F05-001: Design and implement documents database schema
+  - Hours: 5-6
+  - Deliverable: 4 tables + migration + indexes
+  - Quality Gate: Schema verified, migration tested
+
+T-E07-F05-002: Implement DocumentRepository with CRUD and link operations
+  - Hours: 8-10
+  - Deliverable: 14 methods (CRUD + Link/Unlink + List)
+  - Quality Gate: All methods callable, lint passes
+
+T-E07-F05-003: Implement related-docs CLI commands (add, delete, list)
+  - Hours: 6-8
+  - Deliverable: 3 commands with validation
+  - Quality Gate: Manual testing passes
+
+T-E07-F05-004: Write integration tests for document repository operations
+  - Hours: 8-10
+  - Deliverable: 30+ tests, >90% coverage
+  - Quality Gate: All tests passing, no flaky tests
+
+T-E07-F05-005: Write CLI command tests and validation
+  - Hours: 8-10
+  - Deliverable: 25+ tests with mocked repos
+  - Quality Gate: All tests passing, mocked repos
+
+TOTAL: 40-50 hours
+
+================================================================================
+KEY REQUIREMENTS (49 TOTAL)
+================================================================================
+
+SCHEMA REQUIREMENTS (10)
+- documents table (id, title, file_path, created_at)
+- UNIQUE constraint on (title, file_path)
+- epic_documents, feature_documents, task_documents link tables
+- Composite primary keys on link tables
+- ON DELETE CASCADE for all foreign keys
+- Indexes on all foreign key columns
+- Idempotent migrations
+- Performance: <100ms for 10k documents
+
+REPOSITORY REQUIREMENTS (18)
+- Document model struct with validation
+- CreateOrGet (upsert) method
+- GetByID, Delete methods
+- LinkToEpic, LinkToFeature, LinkToTask methods
+- UnlinkFromEpic, UnlinkFromFeature, UnlinkFromTask methods
+- ListForEpic, ListForFeature, ListForTask methods
+- Error wrapping (fmt.Errorf with %w)
+- Parameterized queries (prevent SQL injection)
+- Transaction support for multi-statement ops
+- Performance: <50ms for typical operations
+
+CLI REQUIREMENTS (18)
+- related-docs add command with title, path arguments
+- add: --epic, --feature, --task flags (mutually exclusive, 1 required)
+- add: Parent existence validation
+- add: Success message with document ID
+- related-docs delete command (idempotent)
+- delete: Optional parent flags
+- delete: Confirmation message
+- related-docs list command with optional filtering
+- list: Table format by default
+- list: JSON output support
+- All commands: --json flag support
+- All commands: --verbose flag support
+- All commands: Proper exit codes (0, 1, 2)
+- Cobra pattern compliance
+- Error messages with context
+
+TESTING REQUIREMENTS (55+)
+- 30+ integration tests (T-004)
+- 25+ CLI tests (T-005)
+- >90% code coverage
+- All error conditions tested
+- All flag combinations tested
+- Cascade delete verified
+- Mocked repositories in CLI tests
+- JSON output validation
+
+================================================================================
+CRITICAL IMPLEMENTATION CONSTRAINTS (NON-NEGOTIABLE)
+================================================================================
+
+1. PARAMETERIZED QUERIES ONLY
+   No SQL string concatenation. Use ? placeholders.
+
+2. ERROR WRAPPING
+   All database errors: fmt.Errorf("context: %w", err)
+
+3. TRANSACTION SUPPORT
+   Multi-statement operations wrapped in transactions with defer tx.Rollback()
+
+4. IDEMPOTENT MIGRATIONS
+   All CREATE TABLE and CREATE INDEX use IF NOT EXISTS
+
+5. FOREIGN KEY CONSTRAINTS
+   ON DELETE CASCADE properly tested and verified
+
+6. COMPOSITE PRIMARY KEYS
+   (parent_id, document_id) on all link tables
+
+================================================================================
+QUALITY GATES BETWEEN TASKS
+================================================================================
+
+After T-001: Schema verification
+  - sqlite3 commands verify all tables
+  - Migration tested on clean + existing database
+  - Constraints and indexes verified
+
+After T-002: Repository review
+  - All 14 methods callable
+  - Lint passes (make lint)
+  - Code follows project patterns
+  - No SQL injection vulnerabilities
+
+After T-003: CLI validation
+  - Manual testing of all 3 commands
+  - Flag validation enforced
+  - Parent validation working
+  - Error messages helpful
+
+After T-004: Integration test coverage
+  - 30+ tests passing
+  - >90% code coverage
+  - No flaky tests
+  - All error conditions tested
+
+After T-005: CLI test validation
+  - 25+ tests passing
+  - Mocked repositories (no DB)
+  - All commands validated
+  - JSON output valid
+
+================================================================================
+TESTING STRATEGY
+================================================================================
+
+T-004 INTEGRATION TESTS (30+):
+- Fresh test database per test
+- CRUD operations (CreateOrGet, GetByID, Delete)
+- Link/Unlink operations (6 methods)
+- List operations (3 methods)
+- Error conditions (FK, UNIQUE, not found)
+- Cascade delete behavior
+- Transaction rollback behavior
+- Target: >90% coverage
+
+T-005 CLI TESTS (25+):
+- Mocked repositories (no real database)
+- Command parsing and arguments
+- Flag validation (mutually exclusive, required)
+- Parent existence validation
+- Output formatting (table, JSON)
+- Error handling and exit codes
+- Idempotent behavior
+
+================================================================================
+INTEGRATION TESTING SCENARIOS
+================================================================================
+
+Scenario 1: Add-List-Delete Workflow
+  shark related-docs add "OAuth Spec" "docs/oauth.md" --task=T-E01-F01-001
+  shark related-docs list --task=T-E01-F01-001
+  shark related-docs delete "OAuth Spec" --task=T-E01-F01-001
+
+Scenario 2: Document Reuse
+  Same document linked to epic, feature, and task
+  Verified: Same document ID across all links
+
+Scenario 3: Error Handling
+  - Non-existent parent: Error "Epic E99 not found"
+  - Missing required flag: Error "exactly one parent flag"
+  - Multiple flags: Error "mutually exclusive"
+  - Idempotent delete: Success both times
+
+Scenario 4: JSON Output
+  All commands support --json flag with valid JSON
+
+================================================================================
+FILE STRUCTURE
+================================================================================
+
+NEW FILES TO CREATE:
+  internal/models/document.go (T-002)
+  internal/repository/document_repository.go (T-002)
+  internal/repository/document_repository_test.go (T-004)
+  internal/cli/commands/related_docs.go (T-003)
+  internal/cli/commands/related_docs_test.go (T-005)
+
+FILES TO MODIFY:
+  internal/db/db.go (T-001: Add migration function)
+  internal/cli/commands/root.go (T-003: Register command group)
+
+================================================================================
+QUICK START FOR IMPLEMENTERS
+================================================================================
+
+1. READ: README.md (index and navigation)
+2. SKIM: QUICK-START.md (10-minute overview)
+3. READ: EXECUTIVE-SUMMARY.md (15-minute summary)
+4. IMPLEMENT: Start with T-001 (use MASTER-IMPLEMENTATION-PLAN.md)
+5. REFERENCE: REQUIREMENT-TRACEABILITY-MATRIX.md while implementing
+
+For detailed steps: See MASTER-IMPLEMENTATION-PLAN.md (Sections 4.1-4.5)
+
+================================================================================
+ESTIMATED TIMELINE
+================================================================================
+
+T-001: 1-2 days (5-6 hours)
+T-002: 2-3 days (8-10 hours) - Depends on T-001
+T-003: 2 days (6-8 hours) - Depends on T-002
+T-004: 2-3 days (8-10 hours) - Parallel with T-003, depends on T-002
+T-005: 2-3 days (8-10 hours) - After T-003
+
+Total: ~2 weeks with focused development
+
+================================================================================
+RISK MITIGATION
+================================================================================
+
+Risk: Migration idempotency issues
+Mitigation: Test on clean + existing DB; use IF NOT EXISTS everywhere
+
+Risk: Foreign key cascade affects wrong data
+Mitigation: Test cascade manually; verify unrelated data unaffected
+
+Risk: SQL injection vulnerability
+Mitigation: Parameterized queries only; code review all SQL
+
+Risk: Performance issues with large datasets
+Mitigation: Create indexes on all FK columns; test with 10k documents
+
+Risk: Mock repositories don't match real behavior
+Mitigation: Keep mocks in sync with real repo; use same interface
+
+Risk: T-002 takes longer
+Mitigation: Start with CRUD methods, add Link/Unlink after
+
+Risk: Testing reveals design flaws
+Mitigation: Get schema review before starting T-002
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+FEATURE-LEVEL:
+- All 5 tasks completed with no blockers
+- 49+ requirements implemented
+- Database schema created correctly
+- DocumentRepository fully functional (14 methods)
+- CLI commands working (add, delete, list)
+- 30+ integration tests passing
+- 25+ CLI tests passing
+- >90% code coverage
+- Database integrity verified
+- make test passes all tests
+- make build succeeds
+
+PER-TASK:
+- T-001: Schema verified, migration tested
+- T-002: All methods callable, lint passes, patterns followed
+- T-003: Manual testing passes, validation working
+- T-004: 30+ tests, >90% coverage, deterministic
+- T-005: 25+ tests, mocked repos, commands validated
+
+================================================================================
+DOCUMENT LOCATIONS
+================================================================================
+
+All documents in: /home/jwwelbor/projects/shark-task-manager/docs/plan/E07/E07-F05/
+
+- README.md (navigation index)
+- QUICK-START.md (quick reference)
+- EXECUTIVE-SUMMARY.md (high-level overview)
+- MASTER-IMPLEMENTATION-PLAN.md (detailed guide)
+- REQUIREMENT-TRACEABILITY-MATRIX.md (requirements mapping)
+- tasks/T-E07-F05-001.md through T-E07-F05-005.md (task specs)
+
+Feature PRD: /docs/plan/E07-enhancements/E07-F05-add-related-documents/prd.md
+
+================================================================================
+KEY CONTACTS
+================================================================================
+
+For implementation questions:
+1. Check the relevant task file (T-E07-F05-001 through 005)
+2. Review project patterns in internal/repository/ and internal/cli/commands/
+3. Check CLAUDE.md for project-specific guidelines
+4. Consult MASTER-IMPLEMENTATION-PLAN.md for detailed steps
+
+Project standards: CLAUDE.md
+Code patterns: Existing task_repository.go, epic_repository.go, task.go commands
+
+================================================================================
+DOCUMENT METADATA
+================================================================================
+
+Created: 2025-12-20
+Status: Ready for Implementation
+Feature: E07-F05 (Add Related Documents)
+Epic: E07 (Enhancements)
+Complexity: Medium
+Estimated Effort: 40-50 hours over ~2 weeks
+Priority: P0 (Must-Have)
+
+Total Requirements: 49
+Total Tests: 55+
+Documentation: 5 comprehensive planning documents, 5 task files
+
+================================================================================
+END OF SUMMARY
+================================================================================
+
+For full details, see MASTER-IMPLEMENTATION-PLAN.md (51 KB)
+For quick overview, see EXECUTIVE-SUMMARY.md (10 KB)
+For quick start, see QUICK-START.md (9.7 KB)
+
+Ready to implement.
+

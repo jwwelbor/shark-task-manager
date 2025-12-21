@@ -15,13 +15,13 @@
 
 ### Init Command Hangs in CI/CD
 
-**Symptom**: `pm init` hangs waiting for input in automated environments
+**Symptom**: `shark init` hangs waiting for input in automated environments
 
 **Cause**: Config file exists and init is prompting for overwrite confirmation
 
 **Solution**: Use `--non-interactive` flag
 ```bash
-pm init --non-interactive
+shark init --non-interactive
 ```
 
 **Prevention**: Always use `--non-interactive` in scripts and CI/CD pipelines
@@ -41,13 +41,13 @@ Error: Cannot create database: permission denied
 ```bash
 ls -la
 chmod 755 .  # Make directory writable
-pm init
+shark init
 ```
 
 **Alternative**: Use custom database path
 ```bash
 mkdir -p data
-pm init --db-path=data/tasks.db
+shark init --db-path=data/tasks.db
 ```
 
 ---
@@ -70,7 +70,7 @@ ls -la docs/
 mkdir -p docs
 
 # Retry init
-pm init
+shark init
 ```
 
 ---
@@ -83,7 +83,7 @@ pm init
 
 **Solution**: Re-run with `--force`
 ```bash
-pm init --force
+shark init --force
 ```
 
 ---
@@ -103,7 +103,7 @@ Error: Cannot parse config file: invalid JSON
 cat .pmconfig.json | jq .
 
 # If invalid, regenerate with force
-pm init --force
+shark init --force
 ```
 
 **Example Valid Config**:
@@ -159,14 +159,14 @@ Warnings: Task references non-existent feature
 
 **Solution**: Use `--create-missing` flag
 ```bash
-pm sync --create-missing
+shark sync --create-missing
 ```
 
 **Alternative**: Create epic/feature manually
 ```bash
-pm epic create --key=E04 --title="Epic Title"
-pm feature create --epic=E04 --key=E04-F07 --title="Feature Title"
-pm sync
+shark epic create --key=E04 --title="Epic Title"
+shark feature create --epic=E04 --key=E04-F07 --title="Feature Title"
+shark sync
 ```
 
 ---
@@ -249,15 +249,15 @@ sqlite3 shark-tasks.db "PRAGMA integrity_check;"
 
 **Solution**: Use `file-wins` strategy
 ```bash
-pm sync --strategy=file-wins
+shark sync --strategy=file-wins
 # or shorthand:
-pm sync --force
+shark sync --force
 ```
 
 **Verify Strategy**:
 ```bash
 # Preview with dry-run
-pm sync --strategy=file-wins --dry-run
+shark sync --strategy=file-wins --dry-run
 ```
 
 ---
@@ -282,7 +282,7 @@ cat docs/plan/E04-cli/E04-F07/T-E04-F07-001.md
 sqlite3 shark-tasks.db "SELECT key, title FROM tasks WHERE key='T-E04-F07-001';"
 
 # Force sync
-pm sync --force
+shark sync --force
 ```
 
 ---
@@ -365,8 +365,8 @@ cp shark-tasks.db.backup shark-tasks.db
 ```bash
 # If database unrecoverable, start fresh
 rm shark-tasks.db
-pm init
-pm sync --create-missing
+shark init
+shark sync --create-missing
 ```
 
 ---
@@ -382,14 +382,14 @@ Error: FOREIGN KEY constraint failed
 
 **Solution**: Create missing epic/feature
 ```bash
-pm sync --create-missing
+shark sync --create-missing
 ```
 
 **Or manually**:
 ```bash
-pm epic create --key=E04 --title="Epic"
-pm feature create --epic=E04 --key=E04-F07 --title="Feature"
-pm sync
+shark epic create --key=E04 --title="Epic"
+shark feature create --epic=E04 --key=E04-F07 --title="Feature"
+shark sync
 ```
 
 ---
@@ -484,7 +484,7 @@ find docs/plan -name "*.md" -size +1M
 
 3. **Use selective sync**:
 ```bash
-pm sync --folder=docs/plan/E04-current-feature
+shark sync --folder=docs/plan/E04-current-feature
 ```
 
 4. **Enable WAL mode**:
@@ -525,11 +525,11 @@ df -h .
 **Solution**: Use selective sync
 ```bash
 # Instead of syncing all files
-pm sync
+shark sync
 
 # Sync folder by folder
-pm sync --folder=docs/plan/E04-epic/E04-F07-feature
-pm sync --folder=docs/plan/E04-epic/E04-F08-feature
+shark sync --folder=docs/plan/E04-epic/E04-F07-feature
+shark sync --folder=docs/plan/E04-epic/E04-F08-feature
 ```
 
 ---
@@ -548,13 +548,13 @@ Error: Task key T-E04-F07-001 already exists in database
 **Solution**:
 ```bash
 # Check existing task
-pm task show T-E04-F07-001
+shark task show T-E04-F07-001
 
 # If duplicate file, rename or remove it
 mv duplicate.md duplicate.md.bak
 
 # Or update with sync
-pm sync --strategy=file-wins
+shark sync --strategy=file-wins
 ```
 
 ---
@@ -595,14 +595,14 @@ Please specify --epic=<key> --feature=<key> or use --create-missing
 
 **Option 1**: Use `--create-missing`
 ```bash
-pm sync --create-missing
+shark sync --create-missing
 ```
 
 **Option 2**: Create epic/feature first
 ```bash
-pm epic create --key=E99 --title="New Epic"
-pm feature create --epic=E99 --key=E99-F01 --title="New Feature"
-pm sync
+shark epic create --key=E99 --title="New Epic"
+shark feature create --epic=E99 --key=E99-F01 --title="New Feature"
+shark sync
 ```
 
 **Option 3**: Move file to correct location
@@ -632,7 +632,7 @@ Error: context canceled
 
 ```bash
 # Retry with longer timeout (if timeout issue)
-pm sync  # No timeout flag in current version
+shark sync  # No timeout flag in current version
 ```
 
 ---
@@ -691,7 +691,7 @@ If you encounter an issue not covered here:
 
 1. **Check verbose output**:
 ```bash
-pm sync --dry-run  # See detailed preview
+shark sync --dry-run  # See detailed preview
 ```
 
 2. **Check database directly**:
@@ -704,7 +704,7 @@ sqlite> SELECT * FROM tasks WHERE key='T-E04-F07-001';
 3. **Enable debug logging** (if available):
 ```bash
 export PM_DEBUG=1
-pm sync
+shark sync
 ```
 
 4. **Check file with less**:
@@ -714,7 +714,7 @@ less docs/plan/E04-cli/E04-F07/T-E04-F07-001.md
 
 5. **Validate JSON output**:
 ```bash
-pm sync --json | jq .
+shark sync --json | jq .
 ```
 
 6. **Review recent commits**:
@@ -738,8 +738,8 @@ cp shark-tasks.db backups/shark-tasks-$(date +%Y%m%d).db
 
 ```bash
 # Always preview before sync
-pm sync --dry-run
-pm sync
+shark sync --dry-run
+shark sync
 ```
 
 ### 3. Commit Before Sync
@@ -747,7 +747,7 @@ pm sync
 ```bash
 git add .
 git commit -m "Before sync"
-pm sync
+shark sync
 ```
 
 ### 4. Keep Clean Frontmatter

@@ -156,7 +156,7 @@ Task status is tracked in the database via the `shark` CLI tool. Task files rema
 ### Status Definitions
 
 - **created**: Task has been defined, ready to be started
-- **todo**: Task is in the backlog (use `pm task start <key>`)
+- **todo**: Task is in the backlog (use `shark task start <key>`)
 - **in_progress**: Currently being worked on
 - **blocked**: Cannot proceed due to dependency or issue
 - **ready_for_review**: Implementation complete, awaiting review
@@ -167,23 +167,23 @@ Task status is tracked in the database via the `shark` CLI tool. Task files rema
 
 ```bash
 # List tasks by status
-pm task list --status=created
-pm task list --status=in_progress
+shark task list --status=created
+shark task list --status=in_progress
 
 # Start a task
-pm task start T-E04-F09-001
+shark task start T-E04-F09-001
 
 # Complete a task (ready for review)
-pm task complete T-E04-F09-001
+shark task complete T-E04-F09-001
 
 # Approve a reviewed task
-pm task approve T-E04-F09-001
+shark task approve T-E04-F09-001
 
 # Block a task
-pm task block T-E04-F09-001 --reason="Waiting for design decision"
+shark task block T-E04-F09-001 --reason="Waiting for design decision"
 
 # Unblock a task
-pm task unblock T-E04-F09-001
+shark task unblock T-E04-F09-001
 ```
 
 ## Design Documentation

@@ -1,6 +1,7 @@
 package init
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -35,11 +36,14 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 	// Get default patterns
 	defaultPatterns := patterns.GetDefaultPatterns()
 
-	// Marshal patterns to JSON
-	patternsData, err := json.Marshal(defaultPatterns)
-	if err != nil {
+	// Marshal patterns to JSON without HTML escaping
+	var patternsBuf bytes.Buffer
+	patternsEncoder := json.NewEncoder(&patternsBuf)
+	patternsEncoder.SetEscapeHTML(false)
+	if err := patternsEncoder.Encode(defaultPatterns); err != nil {
 		return false, fmt.Errorf("failed to marshal patterns: %w", err)
 	}
+	patternsData := patternsBuf.Bytes()
 
 	// Create default config with patterns
 	config := ConfigDefaults{
@@ -50,11 +54,15 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 		PatternsRaw:  patternsData,
 	}
 
-	// Marshal to JSON
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
+	// Marshal to JSON without HTML escaping for readability
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(config); err != nil {
 		return false, fmt.Errorf("failed to marshal config: %w", err)
 	}
+	data := buf.Bytes()
 
 	// Write to temp file
 	tmpPath := configPath + ".tmp"

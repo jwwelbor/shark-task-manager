@@ -651,7 +651,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*Task, error) {
 // CLI handles specific errors
 task, err := repo.GetByID(ctx, id)
 if errors.Is(err, domain.ErrTaskNotFound) {
-    fmt.Println("Task not found. Use 'pm task list' to see available tasks.")
+    fmt.Println("Task not found. Use 'shark task list' to see available tasks.")
     return
 }
 ```

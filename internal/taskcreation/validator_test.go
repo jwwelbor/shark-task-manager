@@ -73,7 +73,7 @@ func TestValidator_ValidateTaskInput_InvalidEpic(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "epic E99 does not exist")
-	assert.Contains(t, err.Error(), "pm epic list")
+	assert.Contains(t, err.Error(), "shark epic list")
 }
 
 func TestValidator_ValidateTaskInput_InvalidFeature(t *testing.T) {

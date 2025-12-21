@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-This feature implements initialization (`pm init`) and synchronization (`pm sync`) for a Go-based CLI task manager with SQLite database. The project has an established Go codebase with Cobra CLI framework, SQLite database schema, task file parsing, and repository patterns. This feature bridges filesystem-based task markdown files with the database, enabling safe project setup and bidirectional sync.
+This feature implements initialization (`shark init`) and synchronization (`shark sync`) for a Go-based CLI task manager with SQLite database. The project has an established Go codebase with Cobra CLI framework, SQLite database schema, task file parsing, and repository patterns. This feature bridges filesystem-based task markdown files with the database, enabling safe project setup and bidirectional sync.
 
 **Key Findings**:
 - Existing database schema is production-ready (from E04-F01)
@@ -75,7 +75,7 @@ This feature implements initialization (`pm init`) and synchronization (`pm sync
 
 From the PRD, this feature must provide:
 
-1. **Initialization**: `pm init` command to set up database, folders, config, templates
+1. **Initialization**: `shark init` command to set up database, folders, config, templates
 2. **File Scanning**: Recursive scan of feature folders for task markdown files
 3. **Frontmatter Parsing**: Extract task metadata from YAML frontmatter
 4. **Database Sync**: Import new tasks, update existing tasks, detect conflicts
@@ -205,8 +205,8 @@ var taskCmd = &cobra.Command{
 ### New Naming for This Feature
 
 **Commands**:
-- `pm init` - Initialization command
-- `pm sync` - Synchronization command
+- `shark init` - Initialization command
+- `shark sync` - Synchronization command
 
 **Packages**:
 - `internal/sync/` - Sync orchestration
@@ -280,7 +280,7 @@ shark-task-manager/
 │       └── completed/
 ├── templates/                         # Task templates (markdown)
 ├── shark-tasks.db                     # SQLite database
-└── .pmconfig.json                     # Config file (created by pm init)
+└── .pmconfig.json                     # Config file (created by shark init)
 ```
 
 ### Proposed Structure for This Feature
@@ -288,8 +288,8 @@ shark-task-manager/
 ```
 internal/
 ├── cli/commands/
-│   ├── init.go                # NEW: pm init command
-│   └── sync.go                # NEW: pm sync command
+│   ├── init.go                # NEW: shark init command
+│   └── sync.go                # NEW: shark sync command
 ├── sync/
 │   ├── engine.go              # NEW: Sync orchestration
 │   ├── scanner.go             # NEW: File scanning
@@ -333,8 +333,8 @@ func TeardownTestDB(t *testing.T, db *sql.DB)
 
 **1. Init Command Tests**:
 - Unit: Test folder creation, config generation
-- Integration: Test full `pm init` execution
-- Idempotency: Test running `pm init` multiple times
+- Integration: Test full `shark init` execution
+- Idempotency: Test running `shark init` multiple times
 
 **2. Sync Command Tests**:
 - Unit: Test file scanning, frontmatter parsing, conflict detection
@@ -615,7 +615,7 @@ defer db.Close()
 
 ### New Commands for This Feature
 
-**1. Init Command** (`pm init`):
+**1. Init Command** (`shark init`):
 ```go
 var initCmd = &cobra.Command{
     Use:   "init",
@@ -631,7 +631,7 @@ var initCmd = &cobra.Command{
 // --force: Overwrite existing config
 ```
 
-**2. Sync Command** (`pm sync`):
+**2. Sync Command** (`shark sync`):
 ```go
 var syncCmd = &cobra.Command{
     Use:   "sync",
@@ -658,7 +658,7 @@ var syncCmd = &cobra.Command{
 
 ### Performance Requirements (from PRD)
 
-1. **Init Performance**: `pm init` must complete in <5 seconds
+1. **Init Performance**: `shark init` must complete in <5 seconds
 2. **Sync Performance**: Process 100 files in <10 seconds
 3. **YAML Parsing**: <10ms per file
 4. **Database Operations**: Use bulk inserts for efficiency
@@ -733,7 +733,7 @@ for _, file := range files {
 - File writes are atomic (temp file + rename pattern exists)
 
 **4. Backup Strategy**:
-- `pm sync --backup` flag to create database backup before sync
+- `shark sync --backup` flag to create database backup before sync
 - Store backup with timestamp: `shark-tasks.db.backup.2025-12-16T10-30-00`
 
 ---
@@ -800,23 +800,23 @@ type Conflict struct {
 **E04-F01: Database Schema**
 - Provides tables: epics, features, tasks, task_history
 - Provides db.InitDB() for schema creation
-- Used by: `pm init` for database setup
+- Used by: `shark init` for database setup
 
 **E04-F02: CLI Framework**
 - Provides Cobra command structure
 - Provides config management (Viper)
 - Provides CLI utilities (Success, Error, Warning, OutputJSON)
-- Used by: `pm init` and `pm sync` commands
+- Used by: `shark init` and `shark sync` commands
 
 **E04-F05: Folder Management**
 - Provides folder structure patterns
-- Used by: `pm init` for creating folders
+- Used by: `shark init` for creating folders
 
 **E04-F06: Task Creation**
 - Provides task validation logic
 - Provides key generation patterns
 - Provides file writing patterns (atomic writes)
-- Used by: `pm sync` for validating imported tasks
+- Used by: `shark sync` for validating imported tasks
 
 ### Integration Points
 

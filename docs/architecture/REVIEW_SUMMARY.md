@@ -152,7 +152,7 @@ if err == sql.ErrNoRows {
 
 // CLI
 if errors.Is(err, domain.ErrTaskNotFound) {
-    fmt.Println("Task not found. Use 'pm task list' to see available tasks.")
+    fmt.Println("Task not found. Use 'shark task list' to see available tasks.")
 }
 ```
 

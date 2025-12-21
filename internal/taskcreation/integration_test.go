@@ -35,7 +35,7 @@ func TestTaskCreation_EndToEnd(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
 
 	// Create temporary directory for test files
 	tempDir := t.TempDir()
@@ -87,7 +87,7 @@ func TestTaskCreation_WithDependencies(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
 
 	// Create task with dependency
 	input := CreateTaskInput{
@@ -126,7 +126,7 @@ func TestTaskCreation_SequentialKeys(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
 
 	// Create multiple tasks
 	for i := 1; i <= 5; i++ {
@@ -163,7 +163,7 @@ func TestTaskCreation_AllAgentTypes(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
 
 	agentTypes := []string{"frontend", "backend", "api", "testing", "devops", "general"}
 
@@ -201,7 +201,7 @@ func TestTaskCreation_ValidationErrors(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
 
 	tests := []struct {
 		name        string
@@ -305,7 +305,7 @@ func TestTaskCreation_FileGeneration(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
 
 	// Create task
 	input := CreateTaskInput{
@@ -320,8 +320,9 @@ func TestTaskCreation_FileGeneration(t *testing.T) {
 	result, err := creator.CreateTask(context.Background(), input)
 	require.NoError(t, err)
 
-	// Check file path is set
-	assert.Contains(t, result.FilePath, "docs/tasks/todo")
+	// Check file path uses hierarchical pattern
+	assert.Contains(t, result.FilePath, "docs/plan")
+	assert.Contains(t, result.FilePath, "/tasks/")
 	assert.Contains(t, result.FilePath, result.Task.Key)
 	assert.Contains(t, result.FilePath, ".md")
 }
@@ -344,7 +345,7 @@ func TestTaskCreation_HistoryRecord(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
 
 	// Create task
 	input := CreateTaskInput{

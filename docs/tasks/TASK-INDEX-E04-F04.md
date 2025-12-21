@@ -70,9 +70,9 @@ Create the core progress calculation engine:
 **Task**: T-E04-F04-002
 **Dependencies**: T-E04-F04-001
 
-Implement `pm epic list` and `pm epic get` commands:
-- `pm epic list` - List all epics with status, progress, priority
-- `pm epic get <epic-key>` - Show epic details with feature breakdown
+Implement `shark epic list` and `shark epic get` commands:
+- `shark epic list` - List all epics with status, progress, priority
+- `shark epic get <epic-key>` - Show epic details with feature breakdown
 - Rich table formatting (80-column width, progress right-aligned)
 - Error handling for non-existent epics
 - Integration with progress calculation service
@@ -89,11 +89,11 @@ Implement `pm epic list` and `pm epic get` commands:
 **Task**: T-E04-F04-003
 **Dependencies**: T-E04-F04-001
 
-Implement `pm feature list` and `pm feature get` commands:
-- `pm feature list` - List all features with epic, status, progress
-- `pm feature list --epic=<key>` - Filter features by epic
-- `pm feature list --status=<status>` - Filter features by status
-- `pm feature get <feature-key>` - Show feature details with task breakdown
+Implement `shark feature list` and `shark feature get` commands:
+- `shark feature list` - List all features with epic, status, progress
+- `shark feature list --epic=<key>` - Filter features by epic
+- `shark feature list --status=<status>` - Filter features by status
+- `shark feature get <feature-key>` - Show feature details with task breakdown
 - Task status breakdown (completed: X, in_progress: Y, etc.)
 - Rich table formatting
 
@@ -118,7 +118,7 @@ Add JSON output and advanced filtering:
 
 **Success Gates**:
 - JSON output is valid and parseable
-- jq queries work correctly (e.g., `pm epic get E01 --json | jq '.features[0].progress_pct'`)
+- jq queries work correctly (e.g., `shark epic get E01 --json | jq '.features[0].progress_pct'`)
 - Sorting produces correct order
 - JSON and table output show same data
 - Agent can consume JSON without errors
@@ -132,9 +132,9 @@ Validate end-to-end functionality and performance:
 - Integration tests for all commands with realistic data
 - Progress calculation accuracy tests (all acceptance criteria scenarios)
 - Performance benchmarks against PRD targets:
-  - `pm epic list` <100ms for 100 epics
-  - `pm epic get` <200ms for epics with 50 features
-  - `pm feature get` <200ms for features with 100 tasks
+  - `shark epic list` <100ms for 100 epics
+  - `shark epic get` <200ms for epics with 50 features
+  - `shark feature get` <200ms for features with 100 tasks
 - Error handling tests (non-existent keys, database errors)
 - Empty result tests
 
@@ -233,10 +233,10 @@ Once all tasks are completed, these features can begin:
 - **Overall**: >90% code coverage
 
 **Performance Targets** (from PRD):
-- `pm epic list`: <100ms for 100 epics
-- `pm epic get`: <200ms for epics with 50 features
-- `pm feature list`: <100ms for 100 features
-- `pm feature get`: <200ms for features with 100 tasks
+- `shark epic list`: <100ms for 100 epics
+- `shark epic get`: <200ms for epics with 50 features
+- `shark feature list`: <100ms for 100 features
+- `shark feature get`: <200ms for features with 100 tasks
 - Progress calculations: No N+1 queries
 
 ## Notes
@@ -245,7 +245,7 @@ Once all tasks are completed, these features can begin:
 - **Progress Calculation Critical**: Accuracy of progress percentages is critical for project visibility and reporting. All edge cases must be handled.
 - **Performance Focus**: Queries must be efficient (use JOINs, avoid N+1). Progress calculation must not load all data into memory.
 - **Agent-Friendly**: JSON output must be clean and parseable for AI agent consumption. Structure must be consistent across all commands.
-- **Error Messages**: Clear, helpful error messages with suggestions (e.g., "Use 'pm epic list' to see available epics").
+- **Error Messages**: Clear, helpful error messages with suggestions (e.g., "Use 'shark epic list' to see available epics").
 - **Formatting**: Table output must fit in 80-column terminals. Long titles truncated with "...".
 
 ---

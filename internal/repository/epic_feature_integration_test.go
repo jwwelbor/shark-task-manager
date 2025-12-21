@@ -34,7 +34,7 @@ func strPtr(s string) *string {
 }
 
 // TestEpicListingIntegration verifies listing all epics with progress
-// Acceptance Criteria: Given 5 epics in database, pm epic list displays all 5 with progress
+// Acceptance Criteria: Given 5 epics in database, shark epic list displays all 5 with progress
 func TestEpicListingIntegration(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()

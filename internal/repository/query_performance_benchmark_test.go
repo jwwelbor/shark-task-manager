@@ -10,9 +10,9 @@ import (
 
 // Performance Benchmark Tests for Epic and Feature Queries
 // These tests validate that query performance meets PRD targets:
-// - pm epic list: <100ms for 100 epics
-// - pm epic get: <200ms for epics with 50 features
-// - pm feature get: <200ms for features with 100 tasks
+// - shark epic list: <100ms for 100 epics
+// - shark epic get: <200ms for epics with 50 features
+// - shark feature get: <200ms for features with 100 tasks
 
 // BenchmarkEpicList measures epic list query performance
 // PRD Target: <100ms for 100 epics

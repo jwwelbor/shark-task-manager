@@ -2,12 +2,12 @@
 
 ## Overview
 
-The `pm init` command sets up the Shark CLI infrastructure for your project, creating the necessary database, folder structure, configuration file, and task templates in a single operation.
+The `shark init` command sets up the Shark CLI infrastructure for your project, creating the necessary database, folder structure, configuration file, and task templates in a single operation.
 
 ## Quick Start
 
 ```bash
-pm init
+shark init
 ```
 
 This command will:
@@ -21,7 +21,7 @@ This command will:
 ### Basic Usage
 
 ```bash
-pm init [flags]
+shark init [flags]
 ```
 
 ### Available Flags
@@ -38,27 +38,27 @@ pm init [flags]
 
 #### Initialize with defaults
 ```bash
-pm init
+shark init
 ```
 
 #### Initialize without prompts (for CI/CD)
 ```bash
-pm init --non-interactive
+shark init --non-interactive
 ```
 
 #### Force overwrite existing config
 ```bash
-pm init --force
+shark init --force
 ```
 
 #### Use custom paths
 ```bash
-pm init --db-path=./data/tasks.db --config-path=./config/pm.json
+shark init --db-path=./data/tasks.db --config-path=./config/pm.json
 ```
 
 #### JSON output for automation
 ```bash
-pm init --json --non-interactive
+shark init --json --non-interactive
 ```
 
 ## What Gets Created
@@ -85,7 +85,10 @@ docs/
 └── plan/
     ├── E01-epic-name/
     │   └── E01-F01-feature-name/
-    │       └── T-E01-F01-001.md
+    │       └── tasks/
+    │           ├──T-E01-F01-001-task-name.md
+    │           ├──T-E01-F01-002-task-name.md
+    │           └── ...
     └── ...
 templates/
 └── task-template.md
@@ -119,7 +122,7 @@ Templates are copied to the `templates/` directory for easy task creation:
 
 ## Idempotency
 
-The `pm init` command is idempotent - you can run it multiple times safely:
+The `shark init` command is idempotent - you can run it multiple times safely:
 
 - **Existing database**: Skipped (not overwritten)
 - **Existing folders**: Skipped (not recreated)
@@ -130,18 +133,18 @@ The `pm init` command is idempotent - you can run it multiple times safely:
 
 ```bash
 # Safe to run again - skips existing files
-pm init
+shark init
 
 # Force overwrite config and templates
-pm init --force
+shark init --force
 
 # No prompts, skip existing files
-pm init --non-interactive
+shark init --non-interactive
 ```
 
 ## Performance
 
-`pm init` completes in **< 5 seconds** on typical systems, including:
+`shark init` completes in **< 5 seconds** on typical systems, including:
 - Database schema creation
 - Folder creation
 - Config file generation
@@ -158,22 +161,22 @@ After initialization, you can:
 
 2. **Create your first epic**:
    ```bash
-   pm epic create --key=E01 --title="My First Epic"
+   shark epic create --key=E01 --title="My First Epic"
    ```
 
 3. **Create a feature**:
    ```bash
-   pm feature create --epic=E01 --key=E01-F01 --title="My First Feature"
+   shark feature create --epic=E01 --key=E01-F01 --title="My First Feature"
    ```
 
 4. **Create tasks**:
    ```bash
-   pm task create --feature=E01-F01 --title="My First Task" --agent=backend
+   shark task create --feature=E01-F01 --title="My First Task" --agent=backend
    ```
 
 5. **Import existing tasks** (if you have markdown files):
    ```bash
-   pm sync --create-missing
+   shark sync --create-missing
    ```
 
 ## Troubleshooting
@@ -187,7 +190,7 @@ After initialization, you can:
 If you want to start fresh:
 ```bash
 rm shark-tasks.db
-pm init
+shark init
 ```
 
 ### Permission Denied
@@ -206,7 +209,7 @@ chmod 755 .  # For directory
 
 **Solution**: Use `--non-interactive` flag:
 ```bash
-pm init --non-interactive
+shark init --non-interactive
 ```
 
 ### Templates Not Copied
@@ -215,7 +218,7 @@ pm init --non-interactive
 
 **Solution**: Re-run with `--force` to copy templates:
 ```bash
-pm init --force
+shark init --force
 ```
 
 ## Integration with Existing Projects
@@ -224,13 +227,13 @@ If you have an existing project with task files:
 
 1. **Initialize Shark CLI**:
    ```bash
-   pm init
+   shark init
    ```
 
 2. **Sync existing task files**:
    ```bash
-   pm sync --create-missing --dry-run  # Preview changes
-   pm sync --create-missing             # Import tasks
+   shark sync --create-missing --dry-run  # Preview changes
+   shark sync --create-missing             # Import tasks
    ```
 
 See the [Synchronization Guide](synchronization.md) for details on importing existing tasks.
@@ -287,7 +290,7 @@ Store database in a dedicated data directory:
 
 ```bash
 mkdir -p data
-pm init --db-path=data/project-tasks.db
+shark init --db-path=data/project-tasks.db
 ```
 
 ### Multiple Projects
@@ -297,11 +300,11 @@ Use different databases for different projects:
 ```bash
 # Project A
 cd ~/projects/project-a
-pm init --db-path=tasks-a.db
+shark init --db-path=tasks-a.db
 
 # Project B
 cd ~/projects/project-b
-pm init --db-path=tasks-b.db
+shark init --db-path=tasks-b.db
 ```
 
 ### Programmatic Access
@@ -309,7 +312,7 @@ pm init --db-path=tasks-b.db
 Use JSON output for programmatic access:
 
 ```bash
-result=$(pm init --json --non-interactive)
+result=$(shark init --json --non-interactive)
 echo $result | jq '.database_created'
 ```
 
