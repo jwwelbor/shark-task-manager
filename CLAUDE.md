@@ -557,11 +557,11 @@ dev-artifacts/2025-12-18-fix-database-bug/
 - Adjust all tests to work with refactored code
 
 #### Testing
-- Use `unittest.TestCase` style classes
-- Implement real DI in container tests
-- Use `MockServiceFactory` for service tests
-- Focus on testing business logic and contracts
-- Use protocol-based mocking for external dependencies
+- Use the standard `testing` package for creating tests.
+- Prefer table-driven tests for covering multiple cases.
+- Use interfaces for mocking dependencies, a common Go practice.
+- Focus on testing business logic and public APIs.
+- Organize related checks within a single test function using `t.Run` for sub-tests.
 
 ---
 
