@@ -44,14 +44,31 @@ builds:
       - goos: darwin
         goarch: arm64 # Cannot cross-compile to macOS from Linux; Apple Silicon users can use amd64 + Rosetta 2
 
-    # Cross-compilation settings for ARM64 on Linux
+    # Cross-compilation settings
     overrides:
+      # Linux amd64 with CGO (native build)
+      - goos: linux
+        goarch: amd64
+        env:
+          - CGO_ENABLED=1
+
+      # Linux ARM64 with CGO and cross-compiler
       - goos: linux
         goarch: arm64
         env:
           - CGO_ENABLED=1
           - CC=aarch64-linux-gnu-gcc
           - CXX=aarch64-linux-gnu-g++
+
+      # Windows: disable CGO (cross-compilation from Linux is problematic)
+      - goos: windows
+        env:
+          - CGO_ENABLED=0
+
+      # macOS: disable CGO (cannot cross-compile from Linux without Apple SDK)
+      - goos: darwin
+        env:
+          - CGO_ENABLED=0
 
 # Archive configuration
 archives:
