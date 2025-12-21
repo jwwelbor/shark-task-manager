@@ -22,7 +22,7 @@ func TestCompleteWorkflow(t *testing.T) {
 	}
 
 	// Reset task to todo status in case a previous test modified it
-	database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
 
 	agent := "workflow-test-agent"
 
@@ -94,7 +94,7 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	}
 
 	// Reset task to todo status in case a previous test modified it
-	database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
 
 	agent := "block-test-agent"
 
@@ -153,7 +153,7 @@ func TestReopenWorkflow(t *testing.T) {
 	}
 
 	// Reset task to todo status in case a previous test modified it
-	database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
 
 	agent := "reopen-test-agent"
 
