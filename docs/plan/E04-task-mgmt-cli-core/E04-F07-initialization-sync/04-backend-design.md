@@ -17,8 +17,8 @@ This document provides detailed implementation guidance for the backend Go packa
 internal/
 ├── cli/
 │   └── commands/
-│       ├── init.go                 # NEW: pm init command
-│       └── sync.go                 # NEW: pm sync command
+│       ├── init.go                 # NEW: shark init command
+│       └── sync.go                 # NEW: shark sync command
 │
 ├── init/                           # NEW PACKAGE
 │   ├── initializer.go              # Main orchestrator
@@ -78,13 +78,13 @@ folder structure, configuration file, and task templates.
 
 This command is idempotent and safe to run multiple times.`,
     Example: `  # Initialize with default settings
-  pm init
+  shark init
 
   # Initialize without prompts (for automation)
-  pm init --non-interactive
+  shark init --non-interactive
 
   # Force overwrite existing config
-  pm init --force`,
+  shark init --force`,
     RunE: runInit,
 }
 
@@ -166,8 +166,8 @@ func displayInitSuccess(result *init.InitResult) {
     fmt.Println()
     fmt.Println("Next steps:")
     fmt.Println("1. Edit .pmconfig.json to set default epic and agent")
-    fmt.Println("2. Create tasks with: pm task create --epic=E01 --feature=F01 --title=\"Task title\" --agent=backend")
-    fmt.Println("3. Import existing tasks with: pm sync")
+    fmt.Println("2. Create tasks with: shark task create --epic=E01 --feature=F01 --title=\"Task title\" --agent=backend")
+    fmt.Println("3. Import existing tasks with: shark sync")
 }
 ```
 
@@ -202,22 +202,22 @@ parsing frontmatter, detecting conflicts, and applying resolution strategies.
 
 Status is managed exclusively in the database and is NOT synced from files.`,
     Example: `  # Sync all feature folders
-  pm sync
+  shark sync
 
   # Sync specific folder
-  pm sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
+  shark sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation
 
   # Preview changes without applying (dry-run)
-  pm sync --dry-run
+  shark sync --dry-run
 
   # Use database-wins strategy for conflicts
-  pm sync --strategy=database-wins
+  shark sync --strategy=database-wins
 
   # Auto-create missing epics/features
-  pm sync --create-missing
+  shark sync --create-missing
 
   # Delete orphaned database tasks (files deleted)
-  pm sync --cleanup`,
+  shark sync --cleanup`,
     RunE: runSync,
 }
 

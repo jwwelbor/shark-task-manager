@@ -36,6 +36,9 @@ const (
 
 	// ConflictStrategyNewerWins compares timestamps and uses newer value
 	ConflictStrategyNewerWins ConflictStrategy = "newer-wins"
+
+	// ConflictStrategyManual prompts user interactively for each conflict
+	ConflictStrategyManual ConflictStrategy = "manual"
 )
 
 // Conflict represents a detected difference between file and database
@@ -48,22 +51,72 @@ type Conflict struct {
 
 // SyncOptions contains configuration for sync operations
 type SyncOptions struct {
-	DBPath        string           // Database file path
-	FolderPath    string           // Folder to sync (default: docs/plan)
-	DryRun        bool             // Preview changes only
-	Strategy      ConflictStrategy // Conflict resolution strategy
-	CreateMissing bool             // Auto-create missing epics/features
-	Cleanup       bool             // Delete orphaned database tasks
+	DBPath            string            // Database file path
+	FolderPath        string            // Folder to sync (default: docs/plan)
+	DryRun            bool              // Preview changes only
+	Strategy          ConflictStrategy  // Conflict resolution strategy
+	CreateMissing     bool              // Auto-create missing epics/features
+	Cleanup           bool              // Delete orphaned database tasks
+	LastSyncTime      *time.Time        // Last sync time for incremental filtering (nil = full scan)
+	ForceFullScan     bool              // Force full scan even if LastSyncTime is set
+	EnableDiscovery   bool              // Enable discovery mode (parse epic-index.md)
+	DiscoveryStrategy DiscoveryStrategy // Discovery strategy (index-only, folder-only, merge)
+	ValidationLevel   ValidationLevel   // Validation level (strict, balanced, permissive)
 }
+
+// DiscoveryStrategy defines how to handle discovery conflicts
+type DiscoveryStrategy string
+
+const (
+	// DiscoveryStrategyIndexOnly uses epic-index.md as source of truth
+	DiscoveryStrategyIndexOnly DiscoveryStrategy = "index-only"
+
+	// DiscoveryStrategyFolderOnly uses folder structure as source of truth
+	DiscoveryStrategyFolderOnly DiscoveryStrategy = "folder-only"
+
+	// DiscoveryStrategyMerge combines both sources
+	DiscoveryStrategyMerge DiscoveryStrategy = "merge"
+)
+
+// ValidationLevel defines strictness of validation during discovery
+type ValidationLevel string
+
+const (
+	// ValidationLevelStrict requires exact E##-F## naming conventions
+	ValidationLevelStrict ValidationLevel = "strict"
+
+	// ValidationLevelBalanced accepts patterns defined in config (default)
+	ValidationLevelBalanced ValidationLevel = "balanced"
+
+	// ValidationLevelPermissive accepts any reasonable folder structure
+	ValidationLevelPermissive ValidationLevel = "permissive"
+)
 
 // SyncReport contains the results of a sync operation
 type SyncReport struct {
-	FilesScanned      int        `json:"files_scanned"`
-	TasksImported     int        `json:"tasks_imported"`
-	TasksUpdated      int        `json:"tasks_updated"`
-	TasksDeleted      int        `json:"tasks_deleted"`
-	ConflictsResolved int        `json:"conflicts_resolved"`
-	Warnings          []string   `json:"warnings"`
-	Errors            []string   `json:"errors"`
-	Conflicts         []Conflict `json:"conflicts"`
+	DryRun            bool                   `json:"dry_run"`
+	FilesScanned      int                    `json:"files_scanned"`
+	FilesFiltered     int                    `json:"files_filtered"`     // Files processed after incremental filtering
+	FilesSkipped      int                    `json:"files_skipped"`      // Files skipped due to incremental filtering
+	TasksImported     int                    `json:"tasks_imported"`
+	TasksUpdated      int                    `json:"tasks_updated"`
+	TasksDeleted      int                    `json:"tasks_deleted"`
+	ConflictsResolved int                    `json:"conflicts_resolved"`
+	KeysGenerated     int                    `json:"keys_generated"`     // Number of task keys generated for PRP files
+	PatternMatches    map[string]int         `json:"pattern_matches"`    // Count of files matched by each pattern
+	Warnings          []string               `json:"warnings"`
+	Errors            []string               `json:"errors"`
+	Conflicts         []Conflict             `json:"conflicts"`
+	DiscoveryReport   *DiscoveryReport       `json:"discovery_report,omitempty"` // Discovery results if enabled
+}
+
+// DiscoveryReport contains results from epic-index discovery
+type DiscoveryReport struct {
+	EpicsDiscovered    int      `json:"epics_discovered"`
+	FeaturesDiscovered int      `json:"features_discovered"`
+	EpicsImported      int      `json:"epics_imported"`
+	FeaturesImported   int      `json:"features_imported"`
+	ConflictsDetected  int      `json:"conflicts_detected"`
+	ConflictsResolved  int      `json:"conflicts_resolved"`
+	Warnings           []string `json:"warnings"`
 }

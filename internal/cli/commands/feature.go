@@ -13,9 +13,20 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
+
+// getRelativePathFeature converts an absolute path to relative path from project root
+func getRelativePathFeature(absPath string, projectRoot string) string {
+	relPath, err := filepath.Rel(projectRoot, absPath)
+	if err != nil {
+		return absPath // Fall back to absolute path if conversion fails
+	}
+	return relPath
+}
 
 // FeatureWithTaskCount wraps a Feature with task count
 type FeatureWithTaskCount struct {
@@ -30,9 +41,9 @@ var featureCmd = &cobra.Command{
 	Long: `Query and manage features within epics.
 
 Examples:
-  pm feature list              List all features
-  pm feature get E04-F02      Get feature details
-  pm feature list --epic=E04  List features in epic E04`,
+  shark feature list              List all features
+  shark feature get E04-F02      Get feature details
+  shark feature list --epic=E04  List features in epic E04`,
 }
 
 // featureListCmd lists features
@@ -42,11 +53,11 @@ var featureListCmd = &cobra.Command{
 	Long: `List features with optional filtering by epic.
 
 Examples:
-  pm feature list              List all features
-  pm feature list --epic=E04   List features in epic E04
-  pm feature list --json       Output as JSON
-  pm feature list --status=active  Filter by status
-  pm feature list --sort-by=progress  Sort by progress`,
+  shark feature list              List all features
+  shark feature list --epic=E04   List features in epic E04
+  shark feature list --json       Output as JSON
+  shark feature list --status=active  Filter by status
+  shark feature list --sort-by=progress  Sort by progress`,
 	RunE: runFeatureList,
 }
 
@@ -57,25 +68,49 @@ var featureGetCmd = &cobra.Command{
 	Long: `Display detailed information about a specific feature including all tasks and progress.
 
 Examples:
-  pm feature get E04-F02       Get feature details
-  pm feature get E04-F02 --json  Output as JSON`,
+  shark feature get E04-F02       Get feature details
+  shark feature get E04-F02 --json  Output as JSON`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFeatureGet,
 }
 
 // featureCreateCmd creates a new feature
 var featureCreateCmd = &cobra.Command{
-	Use:   "create --epic=<key> <title>",
+	Use:   "create --epic=<key> [--filename=<path>] [--path=<path>] [--force] <title>",
 	Short: "Create a new feature",
 	Long: `Create a new feature with auto-assigned key, folder structure, and database entry.
 
 The feature key is automatically assigned as the next available F## number within the epic.
+By default, the feature file is created at docs/plan/{epic-key}/{feature-key}/feature.md.
+
+Use --path to specify a custom base folder path for this feature and its tasks (overrides epic's path).
+Use --filename to specify a custom file path (relative to project root, must end in .md).
+Use --force to reassign the file from another feature or epic if already claimed.
 
 Examples:
   shark feature create --epic=E01 "OAuth Login Integration"
-  shark feature create --epic=E01 "OAuth Login" --description="Add OAuth 2.0 support"`,
+  shark feature create --epic=E01 "OAuth Login" --description="Add OAuth 2.0 support"
+  shark feature create --epic=E01 --path="docs/auth" "OAuth Login"
+  shark feature create --epic=E01 --filename="docs/specs/auth.md" "OAuth Login"
+  shark feature create --epic=E01 --filename="docs/specs/auth.md" --force "OAuth Login"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFeatureCreate,
+}
+
+// featureCompleteCmd completes all tasks in a feature
+var featureCompleteCmd = &cobra.Command{
+	Use:   "complete <feature-key>",
+	Short: "Complete all tasks in a feature",
+	Long: `Mark all tasks in a feature as completed, with safeguards against accidental completion.
+
+Without --force, shows a warning summary if any tasks are incomplete and fails.
+With --force, completes all tasks regardless of status.
+
+Examples:
+  shark feature complete E04-F02       Complete feature (fails if tasks incomplete)
+  shark feature complete E04-F02 --force  Force complete all tasks`,
+	Args: cobra.ExactArgs(1),
+	RunE: runFeatureComplete,
 }
 
 // featureDeleteCmd deletes a feature
@@ -95,8 +130,12 @@ Examples:
 }
 
 var (
-	featureCreateEpic        string
-	featureCreateDescription string
+	featureCreateEpic           string
+	featureCreateDescription    string
+	featureCreateExecutionOrder int
+	featureCreateFilename       string
+	featureCreatePath           string
+	featureCreateForce          bool
 )
 
 func init() {
@@ -107,6 +146,7 @@ func init() {
 	featureCmd.AddCommand(featureListCmd)
 	featureCmd.AddCommand(featureGetCmd)
 	featureCmd.AddCommand(featureCreateCmd)
+	featureCmd.AddCommand(featureCompleteCmd)
 	featureCmd.AddCommand(featureDeleteCmd)
 
 	// Add flags for list command
@@ -115,9 +155,16 @@ func init() {
 	featureListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
 
 	// Add flags for create command
-	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01)")
+	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01) (required)")
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
+	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
+	featureCreateCmd.Flags().StringVar(&featureCreatePath, "path", "", "Custom base folder path for this feature and child tasks (overrides epic's path)")
+	featureCreateCmd.Flags().StringVar(&featureCreateFilename, "filename", "", "Custom filename path (relative to project root, must end in .md)")
+	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
 	featureCreateCmd.MarkFlagRequired("epic")
+
+	// Add flags for complete command
+	featureCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks regardless of status")
 
 	// Add flags for delete command
 	featureDeleteCmd.Flags().Bool("force", false, "Force deletion even if feature has tasks")
@@ -185,7 +232,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		epic, err := epicRepo.GetByKey(ctx, epicFilter)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicFilter))
-			cli.Info("Use 'pm epic list' to see available epics")
+			cli.Info("Use 'shark epic list' to see available epics")
 			os.Exit(1)
 		}
 
@@ -325,14 +372,40 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	// Get repositories
 	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
+	epicRepo := repository.NewEpicRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Get feature by key
 	feature, err := featureRepo.GetByKey(ctx, featureKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
-		cli.Info("Use 'pm feature list' to see available features")
+		cli.Info("Use 'shark feature list' to see available features")
 		os.Exit(1)
+	}
+
+	// Get epic to access its custom path (needed for path resolution)
+	epic, err := epicRepo.GetByID(ctx, feature.EpicID)
+	if err != nil {
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get epic for feature: %v\n", err)
+		}
+		epic = nil
+	}
+
+	// Get project root for path resolution
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		projectRoot = ""
+	}
+
+	// Resolve feature path
+	var resolvedPath string
+	if projectRoot != "" && epic != nil {
+		pathBuilder := utils.NewPathBuilder(projectRoot)
+		absPath, err := pathBuilder.ResolveFeaturePath(epic.Key, feature.Key, feature.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
+		if err == nil {
+			resolvedPath = getRelativePathFeature(absPath, projectRoot)
+		}
 	}
 
 	// Update feature progress
@@ -372,6 +445,12 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		os.Exit(2)
 	}
 
+	// Get filename from resolved path
+	var filename string
+	if resolvedPath != "" {
+		filename = filepath.Base(resolvedPath)
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
@@ -382,6 +461,8 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"description":      feature.Description,
 			"status":           feature.Status,
 			"progress_pct":     feature.ProgressPct,
+			"path":             resolvedPath,
+			"filename":         filename,
 			"created_at":       feature.CreatedAt,
 			"updated_at":       feature.UpdatedAt,
 			"tasks":            tasks,
@@ -391,7 +472,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output as formatted text
-	renderFeatureDetails(feature, tasks, statusBreakdown)
+	renderFeatureDetails(feature, tasks, statusBreakdown, resolvedPath, filename)
 	return nil
 }
 
@@ -399,7 +480,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) {
 	// Create table data
 	tableData := pterm.TableData{
-		{"Key", "Title", "Epic ID", "Status", "Progress", "Tasks"},
+		{"Key", "Title", "Epic ID", "Status", "Progress", "Tasks", "Order"},
 	}
 
 	for _, feature := range features {
@@ -412,6 +493,12 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 		// Format progress with 1 decimal place
 		progress := fmt.Sprintf("%.1f%%", feature.ProgressPct)
 
+		// Format execution_order (show "-" if NULL)
+		execOrder := "-"
+		if feature.ExecutionOrder != nil {
+			execOrder = fmt.Sprintf("%d", *feature.ExecutionOrder)
+		}
+
 		tableData = append(tableData, []string{
 			feature.Key,
 			title,
@@ -419,6 +506,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 			string(feature.Status),
 			progress,
 			fmt.Sprintf("%d", feature.TaskCount),
+			execOrder,
 		})
 	}
 
@@ -427,7 +515,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 }
 
 // renderFeatureDetails renders feature details with tasks table
-func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int) {
+func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int, path, filename string) {
 	// Print feature metadata
 	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
 	fmt.Println()
@@ -438,6 +526,14 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 		{"Epic ID", fmt.Sprintf("%d", feature.EpicID)},
 		{"Status", string(feature.Status)},
 		{"Progress", fmt.Sprintf("%.1f%%", feature.ProgressPct)},
+	}
+
+	if path != "" {
+		info = append(info, []string{"Path", path})
+	}
+
+	if filename != "" {
+		info = append(info, []string{"Filename", filename})
 	}
 
 	if feature.Description != nil && *feature.Description != "" {
@@ -619,33 +715,116 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate slug from title
-	slug := generateSlug(featureTitle)
+	slug := utils.GenerateSlug(featureTitle)
 	featureSlug := fmt.Sprintf("%s-%s-%s", featureCreateEpic, nextKey, slug)
 
-	// Find epic directory
-	epicPattern := fmt.Sprintf("docs/plan/%s-*", featureCreateEpic)
-	matches, err := filepath.Glob(epicPattern)
-	if err != nil || len(matches) == 0 {
-		cli.Error(fmt.Sprintf("Error: Epic directory not found for %s", featureCreateEpic))
-		cli.Info("The epic exists in the database but the directory structure is missing.")
+	// Get project root (current working directory)
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get working directory: %v", err))
 		os.Exit(1)
 	}
 
-	epicDir := matches[0]
-
-	// Create feature directory
-	featureDir := fmt.Sprintf("%s/%s", epicDir, featureSlug)
-
-	// Check if feature already exists
-	if _, err := os.Stat(featureDir); err == nil {
-		cli.Error(fmt.Sprintf("Error: Feature directory already exists: %s", featureDir))
-		os.Exit(1)
+	// Validate and process custom path if provided
+	var customFolderPath *string
+	if featureCreatePath != "" {
+		_, relPath, err := utils.ValidateFolderPath(featureCreatePath, projectRoot)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+		customFolderPath = &relPath
 	}
 
-	// Create feature directory
-	if err := os.MkdirAll(featureDir, 0755); err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to create feature directory: %v", err))
-		os.Exit(1)
+	// Create database entry with key (E##-F##) not full slug
+	featureKey := fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
+
+	// Set execution_order only if provided (non-zero)
+	var executionOrder *int
+	if featureCreateExecutionOrder > 0 {
+		executionOrder = &featureCreateExecutionOrder
+	}
+
+	// Handle custom filename if provided
+	var featureFilePath string
+	var customFilePath *string
+
+	if featureCreateFilename != "" {
+		// Validate custom filename
+		absPath, relPath, err := taskcreation.ValidateCustomFilename(featureCreateFilename, projectRoot)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Invalid filename: %v", err))
+			os.Exit(1)
+		}
+
+		// Check for collision with existing features
+		existingFeature, err := featureRepo.GetByFilePath(ctx, relPath)
+		if err == nil && existingFeature != nil {
+			if !featureCreateForce {
+				cli.Error(fmt.Sprintf("Error: file '%s' is already claimed by feature %s ('%s'). Use --force to reassign",
+					relPath, existingFeature.Key, existingFeature.Title))
+				os.Exit(1)
+			}
+			// Force reassignment: clear the old feature's file path
+			if err := featureRepo.UpdateFilePath(ctx, existingFeature.Key, nil); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to clear old feature's file path: %v", err))
+				os.Exit(1)
+			}
+		}
+
+		// Check for collision with existing epics (cross-entity collision)
+		existingEpic, err := epicRepo.GetByFilePath(ctx, relPath)
+		if err == nil && existingEpic != nil {
+			if !featureCreateForce {
+				cli.Error(fmt.Sprintf("Error: file '%s' is already claimed by epic %s ('%s'). Use --force to reassign",
+					relPath, existingEpic.Key, existingEpic.Title))
+				os.Exit(1)
+			}
+			// Force reassignment: clear the old epic's file path
+			if err := epicRepo.UpdateFilePath(ctx, existingEpic.Key, nil); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to clear old epic's file path: %v", err))
+				os.Exit(1)
+			}
+		}
+
+		// Create parent directories if they don't exist
+		dirPath := filepath.Dir(absPath)
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to create directory structure: %v", err))
+			os.Exit(1)
+		}
+
+		featureFilePath = absPath
+		customFilePath = &relPath
+	} else {
+		// Default behavior: create feature in standard directory structure
+		// Find epic directory
+		epicPattern := fmt.Sprintf("docs/plan/%s-*", featureCreateEpic)
+		matches, err := filepath.Glob(epicPattern)
+		if err != nil || len(matches) == 0 {
+			cli.Error(fmt.Sprintf("Error: Epic directory not found for %s", featureCreateEpic))
+			cli.Info("The epic exists in the database but the directory structure is missing.")
+			os.Exit(1)
+		}
+
+		epicDir := matches[0]
+
+		// Create feature directory
+		featureDir := fmt.Sprintf("%s/%s", epicDir, featureSlug)
+
+		// Check if feature already exists
+		if _, err := os.Stat(featureDir); err == nil {
+			cli.Error(fmt.Sprintf("Error: Feature directory already exists: %s", featureDir))
+			os.Exit(1)
+		}
+
+		// Create feature directory
+		if err := os.MkdirAll(featureDir, 0755); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to create feature directory: %v", err))
+			os.Exit(1)
+		}
+
+		featureFilePath = fmt.Sprintf("%s/feature.md", featureDir)
 	}
 
 	// Read feature template
@@ -664,7 +843,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		FeatureSlug: featureSlug,
 		Title:       featureTitle,
 		Description: featureCreateDescription,
-		FilePath:    fmt.Sprintf("%s/prd.md", featureDir),
+		FilePath:    featureFilePath,
 		Date:        time.Now().Format("2006-01-02"),
 	}
 
@@ -681,27 +860,28 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Write prd.md file
-	featureFilePath := fmt.Sprintf("%s/prd.md", featureDir)
+	// Write feature file
 	if err := os.WriteFile(featureFilePath, buf.Bytes(), 0644); err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to write feature file: %v", err))
 		os.Exit(1)
 	}
 
-	// Create database entry with key (E##-F##) not full slug
-	featureKey := fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
+	// Create feature with custom file path if provided
 	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey,
-		Title:       featureTitle,
-		Description: &featureCreateDescription,
-		Status:      models.FeatureStatusDraft,
-		ProgressPct: 0.0,
+		EpicID:           epic.ID,
+		Key:              featureKey,
+		Title:            featureTitle,
+		Description:      &featureCreateDescription,
+		Status:           models.FeatureStatusDraft,
+		ProgressPct:      0.0,
+		ExecutionOrder:   executionOrder,
+		FilePath:         customFilePath,
+		CustomFolderPath: customFolderPath,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {
-		// Rollback: delete the created directory
-		os.RemoveAll(featureDir)
+		// Rollback: delete the created file
+		os.Remove(featureFilePath)
 		cli.Error(fmt.Sprintf("Error: Failed to create feature in database: %v", err))
 		cli.Info("Rolled back file creation")
 		os.Exit(1)
@@ -712,11 +892,10 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Printf("Feature Key: %s\n", featureSlug)
 	fmt.Printf("Epic:        %s\n", featureCreateEpic)
-	fmt.Printf("Directory:   %s\n", featureDir)
 	fmt.Printf("File:        %s\n", featureFilePath)
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("1. Edit the prd.md file to add details")
+	fmt.Println("1. Edit the feature file to add details")
 	fmt.Printf("2. Create tasks with: shark task create --epic=%s --feature=%s --title=\"Task title\" --agent=backend\n", featureCreateEpic, nextKey)
 
 	return nil
@@ -744,6 +923,229 @@ func getNextFeatureKey(ctx context.Context, featureRepo *repository.FeatureRepos
 
 	// Return next available number
 	return fmt.Sprintf("F%02d", maxNum+1), nil
+}
+
+// runFeatureComplete executes the feature complete command
+func runFeatureComplete(cmd *cobra.Command, args []string) error {
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	featureKey := args[0]
+	force, _ := cmd.Flags().GetBool("force")
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
+		return fmt.Errorf("database path error")
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		cli.Error("Error: Database error. Run with --verbose for details.")
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
+		}
+		os.Exit(2)
+	}
+	defer database.Close()
+
+	// Get repositories
+	repoDb := repository.NewDB(database)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
+
+	// Get feature by key
+	feature, err := featureRepo.GetByKey(ctx, featureKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
+		cli.Info("Use 'shark feature list' to see available features")
+		os.Exit(1)
+	}
+
+	// Get all tasks in feature
+	tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to list tasks: %v", err))
+		os.Exit(2)
+	}
+
+	// If no tasks, inform user
+	if len(tasks) == 0 {
+		if cli.GlobalConfig.JSON {
+			result := map[string]interface{}{
+				"feature_key":      featureKey,
+				"completed_count":  0,
+				"total_count":      0,
+				"status_breakdown": map[string]int{},
+				"affected_tasks":   []string{},
+			}
+			return cli.OutputJSON(result)
+		}
+		cli.Info(fmt.Sprintf("Feature %s has no tasks to complete", featureKey))
+		return nil
+	}
+
+	// Get task status breakdown
+	statusBreakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get task status: %v", err))
+		os.Exit(2)
+	}
+
+	// Count completed and reviewed tasks (tasks that don't need completion)
+	completedCount := statusBreakdown[models.TaskStatusCompleted]
+	reviewedCount := statusBreakdown[models.TaskStatusReadyForReview]
+	allDoneCount := completedCount + reviewedCount
+
+	// Identify incomplete tasks (any status NOT in {completed, ready_for_review})
+	var incompleteTasks []*models.Task
+	for _, task := range tasks {
+		if task.Status != models.TaskStatusCompleted && task.Status != models.TaskStatusReadyForReview {
+			incompleteTasks = append(incompleteTasks, task)
+		}
+	}
+
+	hasIncomplete := len(incompleteTasks) > 0
+
+	// Show warning if incomplete tasks exist and no --force
+	if hasIncomplete && !force {
+		// Build status breakdown summary
+		statusSummary := ""
+		todoCount := statusBreakdown[models.TaskStatusTodo]
+		inProgressCount := statusBreakdown[models.TaskStatusInProgress]
+		blockedCount := statusBreakdown[models.TaskStatusBlocked]
+
+		statusSummary = fmt.Sprintf("%d todo, %d in_progress, %d blocked, %d ready_for_review",
+			todoCount, inProgressCount, blockedCount, reviewedCount)
+
+		cli.Warning("Cannot complete feature with incomplete tasks")
+		fmt.Printf("  Status breakdown: %s\n", statusSummary)
+
+		// Show affected tasks (up to 10)
+		fmt.Println("\nAffected tasks:")
+		maxTasks := 10
+		if len(incompleteTasks) < maxTasks {
+			maxTasks = len(incompleteTasks)
+		}
+		for i := 0; i < maxTasks; i++ {
+			task := incompleteTasks[i]
+			fmt.Printf("  - %s (%s)\n", task.Key, task.Status)
+		}
+
+		if len(incompleteTasks) > 10 {
+			fmt.Printf("  ... and %d more\n", len(incompleteTasks)-10)
+		}
+
+		cli.Info("Use --force to complete all tasks regardless of status")
+
+		// If JSON output requested, return error with details
+		if cli.GlobalConfig.JSON {
+			// Convert status breakdown to map with string keys
+			breakdown := make(map[string]int)
+			breakdown["todo"] = todoCount
+			breakdown["in_progress"] = inProgressCount
+			breakdown["blocked"] = blockedCount
+			breakdown["ready_for_review"] = reviewedCount
+			breakdown["completed"] = completedCount
+
+			affectedKeys := make([]string, len(incompleteTasks))
+			for i, task := range incompleteTasks {
+				affectedKeys[i] = task.Key
+			}
+
+			result := map[string]interface{}{
+				"feature_key":      featureKey,
+				"completed_count":  allDoneCount,
+				"total_count":      len(tasks),
+				"status_breakdown": breakdown,
+				"affected_tasks":   affectedKeys,
+				"requires_force":   true,
+			}
+			return cli.OutputJSON(result)
+		}
+
+		os.Exit(3)
+	}
+
+	// Complete all tasks in a transaction
+	agent := getAgentIdentifier("")
+	numCompleted := 0
+	affectedTaskKeys := make([]string, 0)
+
+	for _, task := range tasks {
+		// Skip already completed tasks
+		if task.Status == models.TaskStatusCompleted {
+			continue
+		}
+
+		// Mark as completed
+		if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, true); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to complete task %s: %v", task.Key, err))
+			os.Exit(2)
+		}
+		numCompleted++
+		affectedTaskKeys = append(affectedTaskKeys, task.Key)
+	}
+
+	// Update feature progress (which now auto-completes at 100%)
+	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to update feature progress: %v", err))
+		os.Exit(2)
+	}
+
+	// Fetch updated feature to get the new status
+	feature, err = featureRepo.GetByKey(ctx, featureKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to fetch updated feature: %v", err))
+		os.Exit(2)
+	}
+
+	// Output results
+	if cli.GlobalConfig.JSON {
+		// Convert status breakdown to map with string keys
+		breakdown := make(map[string]int)
+		breakdown["todo"] = statusBreakdown[models.TaskStatusTodo]
+		breakdown["in_progress"] = statusBreakdown[models.TaskStatusInProgress]
+		breakdown["blocked"] = statusBreakdown[models.TaskStatusBlocked]
+		breakdown["ready_for_review"] = statusBreakdown[models.TaskStatusReadyForReview]
+		breakdown["completed"] = statusBreakdown[models.TaskStatusCompleted]
+
+		result := map[string]interface{}{
+			"feature_key":      featureKey,
+			"completed_count":  len(tasks), // All tasks are now completed
+			"total_count":      len(tasks),
+			"status_breakdown": breakdown,
+			"affected_tasks":   affectedTaskKeys,
+		}
+		return cli.OutputJSON(result)
+	}
+
+	// Human-readable output
+	statusMsg := ""
+	if feature.Status == models.FeatureStatusCompleted {
+		statusMsg = " (feature marked as completed)"
+	}
+
+	if hasIncomplete && force {
+		// Show what was force-completed
+		todoCount := statusBreakdown[models.TaskStatusTodo]
+		inProgressCount := statusBreakdown[models.TaskStatusInProgress]
+		blockedCount := statusBreakdown[models.TaskStatusBlocked]
+		reviewedCount := statusBreakdown[models.TaskStatusReadyForReview]
+
+		statusCounts := fmt.Sprintf("%d todo, %d in_progress, %d blocked, %d ready_for_review",
+			todoCount, inProgressCount, blockedCount, reviewedCount)
+
+		cli.Success(fmt.Sprintf("Feature %s completed: Force-completed %d tasks (%s)%s",
+			featureKey, numCompleted, statusCounts, statusMsg))
+	} else {
+		// All tasks were already completed or in review
+		cli.Success(fmt.Sprintf("Feature %s completed: %d/%d tasks completed%s", featureKey, len(tasks), len(tasks), statusMsg))
+	}
+
+	return nil
 }
 
 // runFeatureDelete executes the feature delete command

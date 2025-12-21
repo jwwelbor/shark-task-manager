@@ -46,7 +46,7 @@ Update the FeatureRepository to follow the context-aware pattern defined in T001
 
 - **EpicRepository**: Features belong to epics, context propagates through queries
 - **TaskRepository**: Features contain tasks, context flows through operations
-- **CLI Commands**: `pm feature` commands will pass timeout context
+- **CLI Commands**: `shark feature` commands will pass timeout context
 - **HTTP Handlers**: Server handlers will pass request context
 
 Reference: [PRD - Affected Components](../01-feature-prd.md#affected-components)
@@ -68,8 +68,8 @@ Reference: [PRD - Affected Components](../01-feature-prd.md#affected-components)
 - Database queries use `*Context()` variants
 
 **Manual Testing**:
-- Run `pm feature list` and verify it works
-- Run `pm feature create` and verify it works
+- Run `shark feature list` and verify it works
+- Run `shark feature create` and verify it works
 - Verify no performance degradation
 
 ## Context & Resources

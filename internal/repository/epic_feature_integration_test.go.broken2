@@ -14,7 +14,7 @@ import (
 // and validate all acceptance criteria from the PRD.
 
 // TestEpicListingIntegration verifies listing all epics with progress
-// Acceptance Criteria: Given 5 epics in database, pm epic list displays all 5 with progress
+// Acceptance Criteria: Given 5 epics in database, shark epic list displays all 5 with progress
 func TestEpicListingIntegration(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)

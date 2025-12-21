@@ -242,7 +242,7 @@ func TestInitCommand_JSONOutput(t *testing.T)
 tmpDir := t.TempDir()
 os.Chdir(tmpDir)
 
-// Execute: Run pm init
+// Execute: Run shark init
 cmd := exec.Command("pm", "init", "--non-interactive")
 output, err := cmd.CombinedOutput()
 assert.NoError(t, err)
@@ -300,7 +300,7 @@ createTestTaskFile(t, "docs/plan/E04-epic/E04-F07-feature/T-E04-F07-001.md",
 createTestTaskFile(t, "docs/plan/E04-epic/E04-F07-feature/T-E04-F07-002.md",
     "T-E04-F07-002", "Test Task 2", "Description 2")
 
-// Execute: Run pm sync
+// Execute: Run shark sync
 cmd := exec.Command("pm", "sync", "--create-missing")
 output, err := cmd.CombinedOutput()
 assert.NoError(t, err)
@@ -448,7 +448,7 @@ description: Test description
 **AC1**: Initialize New Project
 ```
 GIVEN: A new project with no Shark CLI infrastructure
-WHEN: I run `pm init`
+WHEN: I run `shark init`
 THEN: Database file `shark-tasks.db` is created with schema
 AND: Folder structure `docs/plan/`, `templates/` is created
 AND: Config file `.pmconfig.json` is created with defaults
@@ -459,7 +459,7 @@ AND: Success message displays next steps
 **AC2**: Idempotent Init
 ```
 GIVEN: Shark CLI is already initialized
-WHEN: I run `pm init` again
+WHEN: I run `shark init` again
 THEN: Command completes without errors (idempotent)
 AND: Existing database is not modified
 AND: Existing config is not overwritten (unless --force)
@@ -470,7 +470,7 @@ AND: Existing config is not overwritten (unless --force)
 **AC3**: Scan Multiple Folders
 ```
 GIVEN: I have 10 task markdown files across multiple features under docs/plan/
-WHEN: I run `pm sync`
+WHEN: I run `shark sync`
 THEN: All 10 files are scanned and parsed
 AND: Sync report shows "Files scanned: 10"
 ```
@@ -478,7 +478,7 @@ AND: Sync report shows "Files scanned: 10"
 **AC4**: Sync Specific Folder
 ```
 GIVEN: I have task files in multiple folders
-WHEN: I run `pm sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation`
+WHEN: I run `shark sync --folder=docs/plan/E04-task-mgmt-cli-core/E04-F06-task-creation`
 THEN: Only task files in the specified folder are scanned
 AND: Files in other folders are ignored
 ```
@@ -489,7 +489,7 @@ AND: Files in other folders are ignored
 ```
 GIVEN: File `docs/plan/E01-epic/E01-F02-feature/T-E01-F02-003.md` exists with valid frontmatter
 AND: Task T-E01-F02-003 does not exist in database
-WHEN: I run `pm sync --create-missing`
+WHEN: I run `shark sync --create-missing`
 THEN: Task T-E01-F02-003 is created in database
 AND: All metadata from frontmatter (key, title, description) is imported
 AND: Status is set to "todo" (default for new tasks)
@@ -500,7 +500,7 @@ AND: Sync report shows "New tasks imported: 1"
 **AC6**: Skip Invalid Frontmatter
 ```
 GIVEN: File has invalid frontmatter (bad YAML)
-WHEN: I run `pm sync`
+WHEN: I run `shark sync`
 THEN: Warning is logged: "Invalid frontmatter in <file>"
 AND: File is skipped
 AND: Sync continues with other files
@@ -512,7 +512,7 @@ AND: Sync continues with other files
 ```
 GIVEN: Database shows task T-E01-F02-003 has title="Implement authentication"
 AND: File frontmatter shows title="Add user authentication"
-WHEN: I run `pm sync --strategy=file-wins`
+WHEN: I run `shark sync --strategy=file-wins`
 THEN: Database title is updated to "Add user authentication"
 AND: Conflict is reported in sync output
 AND: Task_history record is created
@@ -522,7 +522,7 @@ AND: Task_history record is created
 ```
 GIVEN: Database shows task T-E01-F02-003 has title="Implement authentication"
 AND: File frontmatter shows title="Add user authentication"
-WHEN: I run `pm sync --strategy=database-wins`
+WHEN: I run `shark sync --strategy=database-wins`
 THEN: Database title remains "Implement authentication"
 AND: Conflict is reported but database not modified
 ```
@@ -533,7 +533,7 @@ AND: Conflict is reported but database not modified
 ```
 GIVEN: Database shows task T-E01-F02-003 at file_path="docs/tasks/created/T-E01-F02-003.md"
 AND: Actual file is at `docs/plan/E01-epic/E01-F02-feature/T-E01-F02-003.md`
-WHEN: I run `pm sync`
+WHEN: I run `shark sync`
 THEN: Database file_path is updated to match actual location
 AND: Task remains in feature folder (not moved)
 AND: Sync report shows file path conflict resolved
@@ -544,7 +544,7 @@ AND: Sync report shows file path conflict resolved
 **AC10**: Dry-Run Preview
 ```
 GIVEN: 5 files would be imported during sync
-WHEN: I run `pm sync --dry-run --create-missing`
+WHEN: I run `shark sync --dry-run --create-missing`
 THEN: Sync report shows "New tasks imported: 5"
 AND: Message shows "Dry-run mode: No changes will be made"
 AND: Database is not modified
@@ -556,7 +556,7 @@ AND: Files are not moved
 **AC11**: Skip Task Without Feature
 ```
 GIVEN: File references feature "E99-F99" that doesn't exist in database
-WHEN: I run `pm sync` (without --create-missing)
+WHEN: I run `shark sync` (without --create-missing)
 THEN: Warning is logged: "Task references non-existent feature E99-F99"
 AND: Task is skipped (not imported)
 ```
@@ -564,7 +564,7 @@ AND: Task is skipped (not imported)
 **AC12**: Auto-Create Missing Feature
 ```
 GIVEN: File references non-existent feature E99-F99
-WHEN: I run `pm sync --create-missing`
+WHEN: I run `shark sync --create-missing`
 THEN: Epic E99 is auto-created (if doesn't exist)
 AND: Feature E99-F99 is auto-created
 AND: Task is imported successfully
@@ -586,7 +586,7 @@ AND: Error message explains the failure
 
 **AC14**: JSON Output
 ```
-GIVEN: I run `pm sync --json --create-missing`
+GIVEN: I run `shark sync --json --create-missing`
 WHEN: Sync completes
 THEN: Output is valid JSON
 AND: JSON contains: files_scanned, tasks_imported, tasks_updated, conflicts_resolved, warnings, errors
@@ -596,7 +596,7 @@ AND: JSON contains: files_scanned, tasks_imported, tasks_updated, conflicts_reso
 
 **AC15**: Non-Interactive Init
 ```
-GIVEN: I run `pm init --non-interactive` in CI/CD
+GIVEN: I run `shark init --non-interactive` in CI/CD
 WHEN: Config file already exists
 THEN: No prompt is shown (skip config creation)
 AND: Command completes successfully

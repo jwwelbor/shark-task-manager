@@ -6,7 +6,7 @@
 
 ## Overview
 
-Implements `pm init` command for new project setup (database schema, folder structure, config) and `pm sync` command for bidirectional synchronization between task markdown files and the SQLite database. Enables zero-data-loss migration of existing task files and maintains database consistency after external file edits or Git operations.
+Implements `shark init` command for new project setup (database schema, folder structure, config) and `shark sync` command for bidirectional synchronization between task markdown files and the SQLite database. Enables zero-data-loss migration of existing task files and maintains database consistency after external file edits or Git operations.
 
 ## Documentation
 

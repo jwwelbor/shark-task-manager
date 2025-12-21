@@ -65,7 +65,7 @@ internal/
 //
 // Package Relationships:
 //
-//   cmd/server, cmd/pm  →  internal/domain (interfaces)
+//   cmd/server, cmd/shark  →  internal/domain (interfaces)
 //                      ↓
 //   internal/repository/sqlite  →  internal/domain (implements)
 //   internal/repository/mock    →  internal/domain (implements)

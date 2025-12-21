@@ -20,6 +20,10 @@ func TestCompleteWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get test task: %v", err)
 	}
+
+	// Reset task to todo status in case a previous test modified it
+	database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+
 	agent := "workflow-test-agent"
 
 	// Workflow: todo -> in_progress -> ready_for_review -> completed
@@ -88,6 +92,10 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get test task: %v", err)
 	}
+
+	// Reset task to todo status in case a previous test modified it
+	database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+
 	agent := "block-test-agent"
 
 	// Start the task
@@ -141,6 +149,10 @@ func TestReopenWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get test task: %v", err)
 	}
+
+	// Reset task to todo status in case a previous test modified it
+	database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+
 	agent := "reopen-test-agent"
 
 	// Complete workflow to ready_for_review

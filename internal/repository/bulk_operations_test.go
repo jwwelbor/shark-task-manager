@@ -462,6 +462,9 @@ func TestBulkCreatePerformance(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 	feature, _ := featureRepo.GetByKey(ctx, "E04-F05")
 
+	// Clean up any existing performance test tasks
+	database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E04-F05-2%'")
+
 	// Create 100 tasks
 	tasks := make([]*models.Task, 100)
 	for i := 0; i < 100; i++ {

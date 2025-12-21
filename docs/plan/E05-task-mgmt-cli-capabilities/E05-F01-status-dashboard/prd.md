@@ -8,17 +8,17 @@
 
 ### Problem
 
-Developers and managers need quick, comprehensive visibility into project health across multiple epics without running multiple commands or parsing JSON output. Answering simple questions like "What's the overall project status?" or "Which tasks are currently active?" requires running `pm epic list`, `pm task list --status=active`, `pm task list --status=blocked`, and mentally aggregating results. There's no single view showing epic progress, active work, blockers, and recent activity. Stakeholders need progress reports that currently require manual effort: querying multiple commands, exporting JSON, and formatting in external tools. Without a unified dashboard, users spend 5+ minutes gathering information that should be available instantly, and decision-making is delayed by lack of visibility into bottlenecks and project health.
+Developers and managers need quick, comprehensive visibility into project health across multiple epics without running multiple commands or parsing JSON output. Answering simple questions like "What's the overall project status?" or "Which tasks are currently active?" requires running `shark epic list`, `shark task list --status=active`, `shark task list --status=blocked`, and mentally aggregating results. There's no single view showing epic progress, active work, blockers, and recent activity. Stakeholders need progress reports that currently require manual effort: querying multiple commands, exporting JSON, and formatting in external tools. Without a unified dashboard, users spend 5+ minutes gathering information that should be available instantly, and decision-making is delayed by lack of visibility into bottlenecks and project health.
 
 ### Solution
 
-Implement `pm status` command that provides a comprehensive, at-a-glance dashboard of entire project state with optional epic-level filtering. Display project summary (total epics/features/tasks), epic-level breakdown with ASCII progress bars showing completion percentages, active tasks grouped by agent type, blocked tasks with blocking reasons, and recently completed tasks (last 24 hours). Support filtering to specific epics (`pm status --epic=E01`) for focused views. Provide JSON output mode for generating external reports or feeding into other tools. Use Rich library for terminal formatting with tables, progress bars, and color-coded status indicators (green for on-track, yellow for warnings, red for blockers). Build on E04-F01 (Database queries), E04-F02 (CLI Framework), and E04-F04 (Epic/Feature queries) to efficiently aggregate and display data.
+Implement `shark status` command that provides a comprehensive, at-a-glance dashboard of entire project state with optional epic-level filtering. Display project summary (total epics/features/tasks), epic-level breakdown with ASCII progress bars showing completion percentages, active tasks grouped by agent type, blocked tasks with blocking reasons, and recently completed tasks (last 24 hours). Support filtering to specific epics (`shark status --epic=E01`) for focused views. Provide JSON output mode for generating external reports or feeding into other tools. Use Rich library for terminal formatting with tables, progress bars, and color-coded status indicators (green for on-track, yellow for warnings, red for blockers). Build on E04-F01 (Database queries), E04-F02 (CLI Framework), and E04-F04 (Epic/Feature queries) to efficiently aggregate and display data.
 
 ### Impact
 
 - **Decision Speed**: Reduce time to answer "what's the project status?" from 5+ minutes to <5 seconds
 - **Bottleneck Visibility**: Immediately identify blocked tasks and epics needing attention through color-coded indicators
-- **Stakeholder Reporting**: Generate progress reports instantly with `pm status --json | jq` instead of manual aggregation
+- **Stakeholder Reporting**: Generate progress reports instantly with `shark status --json | jq` instead of manual aggregation
 - **Team Coordination**: See active work distribution across agent types to balance workload
 - **Progress Transparency**: Real-time progress bars eliminate stale status reports and manual calculations
 
@@ -36,7 +36,7 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 - Coordinates work across multiple agent types
 
 **Goals**:
-- See project status at a glance: `pm status`
+- See project status at a glance: `shark status`
 - Identify blocked work immediately
 - Understand epic completion percentages
 - See what each agent is working on
@@ -60,7 +60,7 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 - Provides structured status in messages
 
 **Goals**:
-- Get comprehensive status: `pm status --json`
+- Get comprehensive status: `shark status --json`
 - Parse and present status to users
 - Identify incomplete work
 - Report blockers and active tasks
@@ -76,7 +76,7 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 ### Must-Have User Stories
 
 **Story 1: View Project Dashboard**
-- As a developer, I want to run `pm status`, so that I see a comprehensive dashboard with epic progress, active tasks, blocked tasks, and recent completions.
+- As a developer, I want to run `shark status`, so that I see a comprehensive dashboard with epic progress, active tasks, blocked tasks, and recent completions.
 
 **Story 2: See Epic Progress Bars**
 - As a developer, I want to see visual progress bars for each epic showing completion percentage, so that I can quickly identify epics needing attention.
@@ -91,10 +91,10 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 - As a developer, I want to see recently completed tasks (last 24 hours), so that I understand recent progress and momentum.
 
 **Story 6: Filter by Epic**
-- As a developer, I want to run `pm status --epic=E01`, so that I can focus on a single epic's status without noise from other epics.
+- As a developer, I want to run `shark status --epic=E01`, so that I can focus on a single epic's status without noise from other epics.
 
 **Story 7: Export JSON for Reports**
-- As a developer, I want to run `pm status --json`, so that I can generate stakeholder reports or feed data into external tools.
+- As a developer, I want to run `shark status --json`, so that I can generate stakeholder reports or feed data into external tools.
 
 **Story 8: Color-Coded Status Indicators**
 - As a developer, I want color-coded indicators (green=on-track, yellow=warnings, red=blockers), so that I can quickly identify issues.
@@ -111,7 +111,7 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 - As a developer, I want epics with >50% blocked tasks marked as "unhealthy", so that I can identify problematic epics.
 
 **Story 12: Recent Activity Timeframe**
-- As a developer, I want to specify `pm status --recent=7d` to see completions from last 7 days, so that I can customize recency window.
+- As a developer, I want to specify `shark status --recent=7d` to see completions from last 7 days, so that I can customize recency window.
 
 ### Could-Have User Stories
 
@@ -125,9 +125,9 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 
 ### Functional Requirements
 
-**Status Command (pm status):**
+**Status Command (shark status):**
 
-1. The system must provide `pm status` command that displays comprehensive project dashboard
+1. The system must provide `shark status` command that displays comprehensive project dashboard
 
 2. The dashboard must include these sections (in order):
    - Project Summary
@@ -371,7 +371,7 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 ### Full Dashboard Display
 
 **Given** a project with 3 epics, 15 features, 127 tasks
-**When** I run `pm status`
+**When** I run `shark status`
 **Then** dashboard displays all sections:
 - Project Summary with correct counts
 - Epic Breakdown with 3 epics and progress bars
@@ -406,7 +406,7 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 **When** dashboard is displayed
 **Then** epic is marked red (unhealthy due to blockers)
 
-**Given** I run `pm status --no-color`
+**Given** I run `shark status --no-color`
 **When** dashboard is displayed
 **Then** no ANSI color codes are present
 **And** output is plain text
@@ -445,7 +445,7 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 
 ### Epic-Filtered View
 
-**Given** I run `pm status --epic=E01`
+**Given** I run `shark status --epic=E01`
 **When** dashboard is displayed
 **Then** only Epic E01 data is shown
 **And** project summary shows E01-specific counts
@@ -455,7 +455,7 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 
 ### JSON Output
 
-**Given** I run `pm status --json`
+**Given** I run `shark status --json`
 **When** the command completes
 **Then** output is valid JSON
 **And** JSON structure matches documented schema
@@ -465,19 +465,19 @@ Implement `pm status` command that provides a comprehensive, at-a-glance dashboa
 ### Performance
 
 **Given** project has 100 epics, 500 features, 2000 tasks
-**When** I run `pm status`
+**When** I run `shark status`
 **Then** dashboard renders in <500ms
 **And** no database N+1 query problems occur
 
 ### Error Handling
 
 **Given** database connection fails
-**When** I run `pm status`
+**When** I run `shark status`
 **Then** error message is displayed: "Error: Database connection failed"
 **And** exit code is 2 (system error)
 
 **Given** project has no epics
-**When** I run `pm status`
+**When** I run `shark status`
 **Then** dashboard shows: "No epics found. Create epics to get started."
 **And** exit code is 0 (not an error)
 

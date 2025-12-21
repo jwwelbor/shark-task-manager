@@ -19,7 +19,7 @@ Real-world examples and scenarios for using epic and feature query commands.
 View all epics in your project with their progress.
 
 ```bash
-pm epic list
+shark epic list
 ```
 
 **Output:**
@@ -44,7 +44,7 @@ pm epic list
 Drill into a specific epic to see its features.
 
 ```bash
-pm epic get E04
+shark epic get E04
 ```
 
 **Output:**
@@ -88,7 +88,7 @@ Total Tasks: 39
 See all features across all epics.
 
 ```bash
-pm feature list
+shark feature list
 ```
 
 **Output:**
@@ -112,7 +112,7 @@ pm feature list
 See only features in a specific epic.
 
 ```bash
-pm feature list --epic=E04
+shark feature list --epic=E04
 ```
 
 **Output:**
@@ -134,7 +134,7 @@ pm feature list --epic=E04
 See only active features.
 
 ```bash
-pm feature list --status=active
+shark feature list --status=active
 ```
 
 **Output:**
@@ -156,7 +156,7 @@ pm feature list --status=active
 See detailed information about a specific feature.
 
 ```bash
-pm feature get E04-F04
+shark feature get E04-F04
 ```
 
 **Output:**
@@ -205,16 +205,16 @@ Prepare for daily standup by checking your progress.
 
 ```bash
 # Step 1: Check what features are active
-pm feature list --status=active
+shark feature list --status=active
 
 # Step 2: Get details on your current feature
-pm feature get E04-F04
+shark feature get E04-F04
 
 # Step 3: See which tasks you completed
-pm task list --feature=E04-F04 --status=completed
+shark task list --feature=E04-F04 --status=completed
 
 # Step 4: See what's next
-pm task list --feature=E04-F04 --status=todo
+shark task list --feature=E04-F04 --status=todo
 ```
 
 **Standup Summary:**
@@ -229,16 +229,16 @@ Understand project status before sprint planning.
 
 ```bash
 # Step 1: See all epics
-pm epic list
+shark epic list
 
 # Step 2: Drill into active epic
-pm epic get E04
+shark epic get E04
 
 # Step 3: Identify incomplete features
-pm feature list --epic=E04 --status=draft
+shark feature list --epic=E04 --status=draft
 
 # Step 4: Check feature details to estimate work
-pm feature get E04-F05
+shark feature get E04-F05
 ```
 
 **Planning Insights:**
@@ -254,7 +254,7 @@ Generate a summary of work completed today.
 
 ```bash
 # Step 1: Check feature progress
-pm feature get E04-F04
+shark feature get E04-F04
 
 # Step 2: Compare with morning snapshot
 # (assuming you saved morning progress)
@@ -276,13 +276,13 @@ Find features that might be blocked.
 
 ```bash
 # Step 1: List active features
-pm feature list --status=active
+shark feature list --status=active
 
 # Step 2: Get details on each active feature
-pm feature get E04-F04
+shark feature get E04-F04
 
 # Step 3: Check for blocked tasks
-pm task list --feature=E04-F04 --status=blocked
+shark task list --feature=E04-F04 --status=blocked
 
 # Step 4: If no blocked tasks, feature is healthy
 # If blocked tasks exist, investigate dependencies
@@ -294,12 +294,12 @@ Decide which feature to work on next.
 
 ```bash
 # Step 1: List draft features in current epic
-pm feature list --epic=E04 --status=draft
+shark feature list --epic=E04 --status=draft
 
 # Step 2: Get details on each candidate
-pm feature get E04-F05
-pm feature get E04-F06
-pm feature get E04-F07
+shark feature get E04-F05
+shark feature get E04-F06
+shark feature get E04-F07
 
 # Step 3: Consider:
 # - Task count (complexity)
@@ -321,7 +321,7 @@ AI agent determines which epic to focus on.
 #!/bin/bash
 
 # Step 1: Get all epics with progress
-EPICS=$(pm epic list --json)
+EPICS=$(shark epic list --json)
 
 # Step 2: Find active epic with lowest progress
 ACTIVE_EPIC=$(echo "$EPICS" | jq -r '.results[] | select(.status == "active") | select(.priority == "high") | .key' | head -1)
@@ -329,7 +329,7 @@ ACTIVE_EPIC=$(echo "$EPICS" | jq -r '.results[] | select(.status == "active") | 
 echo "Selected Epic: $ACTIVE_EPIC"
 
 # Step 3: Get epic details
-pm epic get "$ACTIVE_EPIC" --json
+shark epic get "$ACTIVE_EPIC" --json
 ```
 
 **Agent Logic:**
@@ -348,7 +348,7 @@ AI agent chooses which feature to work on.
 EPIC="E04"
 
 # Step 1: Get all features in epic
-FEATURES=$(pm feature list --epic="$EPIC" --json)
+FEATURES=$(shark feature list --epic="$EPIC" --json)
 
 # Step 2: Find incomplete active features
 ACTIVE_FEATURE=$(echo "$FEATURES" | jq -r '.results[] | select(.status == "active") | select(.progress_pct < 100) | .key' | head -1)
@@ -361,7 +361,7 @@ fi
 echo "Selected Feature: $ACTIVE_FEATURE"
 
 # Step 4: Get feature details with tasks
-pm feature get "$ACTIVE_FEATURE" --json
+shark feature get "$ACTIVE_FEATURE" --json
 ```
 
 **Agent Logic:**
@@ -378,7 +378,7 @@ AI agent generates a progress report.
 #!/bin/bash
 
 # Step 1: Get epic progress
-EPIC_DATA=$(pm epic get E04 --json)
+EPIC_DATA=$(shark epic get E04 --json)
 EPIC_PROGRESS=$(echo "$EPIC_DATA" | jq -r '.progress_pct')
 
 # Step 2: Count features by status
@@ -416,7 +416,7 @@ AI agent checks if a task can be marked complete.
 FEATURE="E04-F04"
 
 # Step 1: Get feature details
-FEATURE_DATA=$(pm feature get "$FEATURE" --json)
+FEATURE_DATA=$(shark feature get "$FEATURE" --json)
 
 # Step 2: Check task breakdown
 COMPLETED=$(echo "$FEATURE_DATA" | jq '.task_breakdown.completed')
@@ -440,22 +440,22 @@ AI agent learns about project structure before starting work.
 
 # Step 1: Discover all epics
 echo "=== PROJECT EPICS ==="
-pm epic list --json | jq -r '.results[] | "\(.key): \(.title) (\(.progress_pct)%)"'
+shark epic list --json | jq -r '.results[] | "\(.key): \(.title) (\(.progress_pct)%)"'
 
 # Step 2: Get active epic details
-ACTIVE_EPIC=$(pm epic list --json | jq -r '.results[] | select(.status == "active") | .key' | head -1)
+ACTIVE_EPIC=$(shark epic list --json | jq -r '.results[] | select(.status == "active") | .key' | head -1)
 echo ""
 echo "=== ACTIVE EPIC: $ACTIVE_EPIC ==="
-pm epic get "$ACTIVE_EPIC" --json | jq -r '.features[] | "\(.key): \(.title) (\(.progress_pct)%)"'
+shark epic get "$ACTIVE_EPIC" --json | jq -r '.features[] | "\(.key): \(.title) (\(.progress_pct)%)"'
 
 # Step 3: Find current work
-CURRENT_FEATURE=$(pm feature list --status=active --json | jq -r '.results[0].key')
+CURRENT_FEATURE=$(shark feature list --status=active --json | jq -r '.results[0].key')
 echo ""
 echo "=== CURRENT FEATURE: $CURRENT_FEATURE ==="
-pm feature get "$CURRENT_FEATURE" --json | jq -r '.tasks[] | "\(.key): \(.title) [\(.status)]"'
+shark feature get "$CURRENT_FEATURE" --json | jq -r '.tasks[] | "\(.key): \(.title) [\(.status)]"'
 
 # Step 4: Identify next task
-NEXT_TASK=$(pm feature get "$CURRENT_FEATURE" --json | jq -r '.tasks[] | select(.status == "todo") | .key' | head -1)
+NEXT_TASK=$(shark feature get "$CURRENT_FEATURE" --json | jq -r '.tasks[] | select(.status == "todo") | .key' | head -1)
 echo ""
 echo "=== NEXT TASK TO WORK ON ==="
 echo "$NEXT_TASK"
@@ -481,7 +481,7 @@ cat > "$REPORT" <<EOF
 EOF
 
 # Add epic progress
-pm epic list --json | jq -r '.results[] | "- **\(.key)**: \(.title) - \(.progress_pct)% complete"' >> "$REPORT"
+shark epic list --json | jq -r '.results[] | "- **\(.key)**: \(.title) - \(.progress_pct)% complete"' >> "$REPORT"
 
 cat >> "$REPORT" <<EOF
 
@@ -490,7 +490,7 @@ cat >> "$REPORT" <<EOF
 EOF
 
 # Add active features
-pm feature list --status=active --json | jq -r '.results[] | "- **\(.key)**: \(.title) - \(.progress_pct)% complete (\(.task_count) tasks)"' >> "$REPORT"
+shark feature list --status=active --json | jq -r '.results[] | "- **\(.key)**: \(.title) - \(.progress_pct)% complete (\(.task_count) tasks)"' >> "$REPORT"
 
 cat >> "$REPORT" <<EOF
 
@@ -499,7 +499,7 @@ cat >> "$REPORT" <<EOF
 EOF
 
 # Add recently completed features (would need task history for actual dates)
-pm feature list --status=completed --json | jq -r '.results[] | "- \(.key): \(.title)"' | tail -3 >> "$REPORT"
+shark feature list --status=completed --json | jq -r '.results[] | "- \(.key): \(.title)"' | tail -3 >> "$REPORT"
 
 echo "Report generated: $REPORT"
 cat "$REPORT"
@@ -534,15 +534,15 @@ Generate a high-level executive summary.
 #!/bin/bash
 
 # Get metrics
-TOTAL_EPICS=$(pm epic list --json | jq '.count')
-ACTIVE_EPICS=$(pm epic list --json | jq '[.results[] | select(.status == "active")] | length')
-COMPLETED_EPICS=$(pm epic list --json | jq '[.results[] | select(.status == "completed")] | length')
+TOTAL_EPICS=$(shark epic list --json | jq '.count')
+ACTIVE_EPICS=$(shark epic list --json | jq '[.results[] | select(.status == "active")] | length')
+COMPLETED_EPICS=$(shark epic list --json | jq '[.results[] | select(.status == "completed")] | length')
 
-TOTAL_FEATURES=$(pm feature list --json | jq '.count')
-COMPLETED_FEATURES=$(pm feature list --json | jq '[.results[] | select(.progress_pct == 100)] | length')
+TOTAL_FEATURES=$(shark feature list --json | jq '.count')
+COMPLETED_FEATURES=$(shark feature list --json | jq '[.results[] | select(.progress_pct == 100)] | length')
 
 # Calculate overall progress
-OVERALL_PROGRESS=$(pm epic list --json | jq '[.results[].progress_pct] | add / length')
+OVERALL_PROGRESS=$(shark epic list --json | jq '[.results[].progress_pct] | add / length')
 
 # Generate summary
 cat <<EOF
@@ -563,10 +563,10 @@ Features:
 - Completed: $COMPLETED_FEATURES ($((COMPLETED_FEATURES * 100 / TOTAL_FEATURES))%)
 
 Key Highlights:
-$(pm epic list --json | jq -r '.results[] | select(.status == "active") | "- \(.title): \(.progress_pct)% complete"')
+$(shark epic list --json | jq -r '.results[] | select(.status == "active") | "- \(.title): \(.progress_pct)% complete"')
 
 Risks:
-$(pm feature list --status=active --json | jq -r '.results[] | select(.progress_pct == 0) | "- \(.title) - not started"')
+$(shark feature list --status=active --json | jq -r '.results[] | select(.progress_pct == 0) | "- \(.title) - not started"')
 EOF
 ```
 
@@ -578,12 +578,12 @@ Extract data for creating a burndown chart.
 #!/bin/bash
 
 # Get total tasks across all active epics
-ACTIVE_EPICS=$(pm epic list --json | jq -r '.results[] | select(.status == "active") | .key')
+ACTIVE_EPICS=$(shark epic list --json | jq -r '.results[] | select(.status == "active") | .key')
 
 echo "Epic,Total Tasks,Completed Tasks,Remaining Tasks"
 
 for EPIC in $ACTIVE_EPICS; do
-  EPIC_DATA=$(pm epic get "$EPIC" --json)
+  EPIC_DATA=$(shark epic get "$EPIC" --json)
   TOTAL_TASKS=$(echo "$EPIC_DATA" | jq '[.features[].task_count] | add')
 
   # Calculate completed tasks (features at 100% * their task count)
@@ -617,7 +617,7 @@ echo "Investigating feature: $FEATURE"
 echo ""
 
 # Get feature data
-FEATURE_DATA=$(pm feature get "$FEATURE" --json)
+FEATURE_DATA=$(shark feature get "$FEATURE" --json)
 
 # Extract task breakdown
 echo "Task Breakdown:"
@@ -626,12 +626,12 @@ echo ""
 
 # List all tasks with status
 echo "Task Status:"
-pm task list --feature="$FEATURE" --json | jq -r '.results[] | "\(.key): \(.status)"'
+shark task list --feature="$FEATURE" --json | jq -r '.results[] | "\(.key): \(.status)"'
 echo ""
 
 # Calculate expected progress
-TOTAL_TASKS=$(pm task list --feature="$FEATURE" --json | jq '.count')
-COMPLETED_TASKS=$(pm task list --feature="$FEATURE" --status=completed --json | jq '.count')
+TOTAL_TASKS=$(shark task list --feature="$FEATURE" --json | jq '.count')
+COMPLETED_TASKS=$(shark task list --feature="$FEATURE" --status=completed --json | jq '.count')
 EXPECTED_PROGRESS=$(echo "scale=1; $COMPLETED_TASKS * 100 / $TOTAL_TASKS" | bc)
 
 ACTUAL_PROGRESS=$(echo "$FEATURE_DATA" | jq '.progress_pct')
@@ -656,7 +656,7 @@ Identify features that haven't been started.
 echo "Features with 0% Progress:"
 echo ""
 
-pm feature list --json | jq -r '.results[] | select(.progress_pct == 0) | "\(.key): \(.title) (\(.status))"'
+shark feature list --json | jq -r '.results[] | select(.progress_pct == 0) | "\(.key): \(.title) (\(.status))"'
 
 echo ""
 echo "Action Items:"
@@ -677,23 +677,23 @@ echo "===================="
 echo ""
 
 # Check epic count
-EPIC_COUNT=$(pm epic list --json | jq '.count')
+EPIC_COUNT=$(shark epic list --json | jq '.count')
 echo "Epics: $EPIC_COUNT"
 
 # Check feature count
-FEATURE_COUNT=$(pm feature list --json | jq '.count')
+FEATURE_COUNT=$(shark feature list --json | jq '.count')
 echo "Features: $FEATURE_COUNT"
 
 # Check for orphaned features (features without epic)
 # (Would need direct DB query)
 
 # Check for features with invalid progress
-INVALID_PROGRESS=$(pm feature list --json | jq '[.results[] | select(.progress_pct > 100 or .progress_pct < 0)] | length')
+INVALID_PROGRESS=$(shark feature list --json | jq '[.results[] | select(.progress_pct > 100 or .progress_pct < 0)] | length')
 echo "Features with invalid progress: $INVALID_PROGRESS"
 
 if [ "$INVALID_PROGRESS" -gt 0 ]; then
   echo "ERROR: Invalid progress values found!"
-  pm feature list --json | jq '.results[] | select(.progress_pct > 100 or .progress_pct < 0)'
+  shark feature list --json | jq '.results[] | select(.progress_pct > 100 or .progress_pct < 0)'
 fi
 
 echo ""
@@ -705,44 +705,44 @@ echo "Health check complete."
 ### Pattern 1: Sort Epics by Progress (Lowest First)
 
 ```bash
-pm epic list --json | jq '.results | sort_by(.progress_pct)'
+shark epic list --json | jq '.results | sort_by(.progress_pct)'
 ```
 
 ### Pattern 2: Find High-Priority Epics Under 50% Complete
 
 ```bash
-pm epic list --json | jq '.results[] | select(.priority == "high" and .progress_pct < 50)'
+shark epic list --json | jq '.results[] | select(.priority == "high" and .progress_pct < 50)'
 ```
 
 ### Pattern 3: Get Feature Keys for Active Epic
 
 ```bash
-pm epic get E04 --json | jq -r '.features[].key'
+shark epic get E04 --json | jq -r '.features[].key'
 ```
 
 ### Pattern 4: Count Tasks by Status Across All Features
 
 ```bash
-pm feature list --json | jq '[.results[]] | group_by(.status) | map({status: .[0].status, count: length})'
+shark feature list --json | jq '[.results[]] | group_by(.status) | map({status: .[0].status, count: length})'
 ```
 
 ### Pattern 5: Calculate Total Task Count Across Project
 
 ```bash
-pm feature list --json | jq '[.results[].task_count] | add'
+shark feature list --json | jq '[.results[].task_count] | add'
 ```
 
 ### Pattern 6: Find Features with Most Tasks
 
 ```bash
-pm feature list --json | jq '.results | sort_by(.task_count) | reverse | .[0:3]'
+shark feature list --json | jq '.results | sort_by(.task_count) | reverse | .[0:3]'
 ```
 
 ### Pattern 7: Generate CSV of Feature Progress
 
 ```bash
 echo "Key,Title,Progress,Tasks"
-pm feature list --json | jq -r '.results[] | "\(.key),\(.title),\(.progress_pct),\(.task_count)"'
+shark feature list --json | jq -r '.results[] | "\(.key),\(.title),\(.progress_pct),\(.task_count)"'
 ```
 
 ## Shell Script Integration
@@ -762,7 +762,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 SNAPSHOT_FILE="$SNAPSHOT_DIR/progress-$TIMESTAMP.json"
 
 # Save epic progress
-pm epic list --json > "$SNAPSHOT_FILE"
+shark epic list --json > "$SNAPSHOT_FILE"
 
 echo "Progress snapshot saved: $SNAPSHOT_FILE"
 
@@ -786,7 +786,7 @@ Send notification when feature reaches 100%.
 #!/bin/bash
 # check-feature-completion.sh
 
-FEATURES=$(pm feature list --status=active --json)
+FEATURES=$(shark feature list --status=active --json)
 
 # Check each active feature
 echo "$FEATURES" | jq -r '.results[] | select(.progress_pct == 100) | .key' | while read FEATURE; do
@@ -815,7 +815,7 @@ echo "Velocity: $VELOCITY tasks/sprint"
 echo ""
 
 # Get incomplete features
-INCOMPLETE_FEATURES=$(pm feature list --epic="$EPIC" --json | jq -r '.results[] | select(.progress_pct < 100)')
+INCOMPLETE_FEATURES=$(shark feature list --epic="$EPIC" --json | jq -r '.results[] | select(.progress_pct < 100)')
 
 echo "Incomplete Features:"
 echo "$INCOMPLETE_FEATURES" | jq -r '"\(.key): \(.title) - \(.task_count) tasks remaining"'

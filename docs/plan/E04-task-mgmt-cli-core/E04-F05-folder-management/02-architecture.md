@@ -56,7 +56,7 @@ docs/plan/
 ```
 
 **Trade-offs**:
-- Cannot use `ls docs/tasks/todo/` to see todo tasks (must use `pm task list --status=todo`)
+- Cannot use `ls docs/tasks/todo/` to see todo tasks (must use `shark task list --status=todo`)
 - But: Database queries are faster and more capable than filesystem scans
 
 ---
@@ -86,13 +86,13 @@ def update_task_status(task_key: str, new_status: str):
 
 **Trade-offs**:
 - No visual indication of status via folder location
-- But: `pm task list --status=X` provides instant filtered views
+- But: `shark task list --status=X` provides instant filtered views
 
 ---
 
 ### ADR-003: Validation Without Auto-Repair
 
-**Decision**: `pm validate` detects inconsistencies but does not automatically fix them.
+**Decision**: `shark validate` detects inconsistencies but does not automatically fix them.
 
 **Rationale**:
 - Missing files likely indicate larger issues (accidental deletion, corrupted sync)
@@ -108,16 +108,16 @@ def update_task_status(task_key: str, new_status: str):
 **Manual Repair Process**:
 ```bash
 # User discovers missing file
-pm validate  # Reports: "T-E04-F01-001: missing file"
+shark validate  # Reports: "T-E04-F01-001: missing file"
 
 # User investigates (Git history, backups, etc.)
 git log -- docs/plan/E04-task-mgmt-cli-core/F01-database-schema/tasks/T-E04-F01-001.md
 
 # User recovers file manually or recreates it
-pm task create E04-F01 "Database Foundation" --key=T-E04-F01-001
+shark task create E04-F01 "Database Foundation" --key=T-E04-F01-001
 
 # Verify fix
-pm validate  # Reports: "All tasks valid"
+shark validate  # Reports: "All tasks valid"
 ```
 
 ---
@@ -129,8 +129,8 @@ pm validate  # Reports: "All tasks valid"
 ```
 ┌─────────────────────────────────────────┐
 │         CLI Commands (E04-F02)          │
-│   pm task create/get/list               │
-│   pm validate                           │
+│   shark task create/get/list               │
+│   shark validate                           │
 └──────────────────┬──────────────────────┘
                    │
 ┌──────────────────▼──────────────────────┐
@@ -503,7 +503,7 @@ def pm_sync():
 
     if result.missing_files or result.invalid_paths:
         print(f"⚠️  Found {len(result.missing_files + result.invalid_paths)} issues")
-        print("Run 'pm validate' for details")
+        print("Run 'shark validate' for details")
     else:
         print(f"✅ All {result.total_tasks} tasks valid")
 ```
@@ -518,7 +518,7 @@ def pm_sync():
 
 ```python
 # User runs command outside project directory
-pm task create ...
+shark task create ...
 
 # Error:
 ProjectRootNotFound: Cannot find project root (.git or pyproject.toml not found)
@@ -813,7 +813,7 @@ def validate_file_paths() -> ValidationResult:
 - [ ] Handle edge cases (missing files, invalid paths)
 
 ### Phase 4: CLI Integration
-- [ ] Add `pm validate` command
+- [ ] Add `shark validate` command
 - [ ] Format validation output
 - [ ] Set appropriate exit codes
 - [ ] Add CLI integration tests

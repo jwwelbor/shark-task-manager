@@ -59,7 +59,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 - Requires specific versions (not just "latest")
 
 **Goals**:
-- Install specific PM version in <5 seconds
+- Install specific shark version in <5 seconds
 - Use pre-built binaries (no compilation)
 - Verify checksums automatically
 - Cache binaries for faster builds
@@ -72,7 +72,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 
 ### Tertiary Persona: Release Manager
 
-**Role**: Developer responsible for cutting new PM releases
+**Role**: Developer responsible for cutting new shark releases
 **Environment**: Git workflow, GitHub repository
 
 **Key Characteristics**:
@@ -127,7 +127,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 - As a user, I want to see auto-generated release notes on GitHub releases, so that I know what changed in each version.
 
 **Story 10: Installation Verification**
-- As a user, I want to run `pm --version` after installation, so that I can confirm the installation succeeded and check the version.
+- As a user, I want to run `shark --version` after installation, so that I can confirm the installation succeeded and check the version.
 
 **Story 11: Installation Documentation**
 - As a new user, I want clear installation instructions in README.md for all platforms, so that I know the recommended installation method.
@@ -141,7 +141,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 - As a Linux user, I want to install via `snap install shark`, so that I can use my preferred package manager.
 
 **Story 14: Docker Image**
-- As a CI/CD user, I want a Docker image (`pm:latest`), so that I can use PM in containerized environments without installation.
+- As a CI/CD user, I want a Docker image (`pm:latest`), so that I can use shark in containerized environments without installation.
 
 **Story 15: Version Pinning in CI**
 - As a CI user, I want to download specific versions via URL pattern (e.g., `releases/download/v1.2.0/pm_linux_amd64`), so that my builds are reproducible.
@@ -218,7 +218,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
     - SHA256 checksum
     - Installation instructions
 
-21. The manifest must support `scoop bucket add pm <user>/scoop-shark` followed by `scoop install shark`
+21. The manifest must support `scoop bucket add shark <user>/scoop-shark` followed by `scoop install shark`
 
 22. The bucket must auto-update when GoReleaser publishes a new release
 
@@ -226,7 +226,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 
 23. The system must read version from Git tags (format: `v1.2.3`)
 
-24. The CLI must display version with `pm --version` command (value embedded at build time)
+24. The CLI must display version with `shark --version` command (value embedded at build time)
 
 25. The version must follow semantic versioning (MAJOR.MINOR.PATCH)
 
@@ -256,7 +256,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
     - Homebrew installation (macOS/Linux)
     - Scoop installation (Windows)
     - Manual binary download
-    - Installation verification (`pm --version`)
+    - Installation verification (`shark --version`)
 
 33. Instructions must include adding package manager repositories (tap/bucket) if needed
 
@@ -286,7 +286,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 **Usability:**
 
 - Installation instructions must be platform-specific (don't show macOS steps to Windows users)
-- Error messages from package managers must be clear (e.g., "pm not found" → suggests adding tap/bucket)
+- Error messages from package managers must be clear (e.g., "shark not found" → suggests adding tap/bucket)
 - Release notes must be readable by non-technical users
 - Version numbering must be consistent across all platforms
 
@@ -326,21 +326,21 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 **Given** a new release `v1.0.0` is published
 **When** I run `brew install <user>/pm/shark`
 **Then** the `shark` binary is installed to `/opt/homebrew/bin/shark` (Apple Silicon) or `/usr/local/bin/shark` (Intel)
-**And** running `pm --version` outputs `v1.0.0`
+**And** running `shark --version` outputs `v1.0.0`
 
 ### Scoop Installation
 
 **Given** a new release `v1.0.0` is published
-**When** I run `scoop bucket add pm <user>/scoop-shark` and `scoop install shark`
+**When** I run `scoop bucket add shark <user>/scoop-shark` and `scoop install shark`
 **Then** the `pm.exe` binary is installed to `~/scoop/apps/pm/current/pm.exe`
-**And** running `pm --version` outputs `v1.0.0`
+**And** running `shark --version` outputs `v1.0.0`
 
 ### Manual Binary Download
 
 **Given** I navigate to GitHub releases page
 **When** I download `pm_linux_amd64.tar.gz`
 **And** I verify checksum matches entry in `checksums.txt`
-**And** I extract and run `pm --version`
+**And** I extract and run `shark --version`
 **Then** the output is `v1.0.0`
 
 ### Checksum Verification
@@ -360,7 +360,7 @@ Implement automated multi-platform distribution using GoReleaser, a Go-specific 
 ### Version Embedding
 
 **Given** I build with `-ldflags "-X main.Version=v1.0.0"`
-**When** I run `pm --version`
+**When** I run `shark --version`
 **Then** the output is exactly `v1.0.0` (not "dev" or "unknown")
 
 ### GitHub Actions Workflow

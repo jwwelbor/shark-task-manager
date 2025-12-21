@@ -24,6 +24,8 @@ func GetDefaultPatterns() *PatternConfig {
 			Folder: []string{
 				// Standard E##-F##-slug format
 				`^E(?P<epic_num>\d{2})-F(?P<number>\d{2})-(?P<slug>[a-z0-9-]+)$`,
+				// Nested format: F##-slug (when features are nested under intermediate folders)
+				`^F(?P<number>\d{2})-(?P<slug>[a-z0-9-]+)$`,
 			},
 			File: []string{
 				// Priority: prd.md (most common)

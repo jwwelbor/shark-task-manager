@@ -282,12 +282,12 @@ This folder contains agent-executable tasks that implement the {feature-key} fea
 ## Status Definitions
 
 Status is tracked in database via `shark` CLI. Use these commands:
-- `pm task list --status=todo` - Show todo tasks
-- `pm task start <key>` - Start a task (status: in_progress)
-- `pm task complete <key>` - Complete a task (status: ready_for_review)
-- `pm task approve <key>` - Approve a task (status: completed)
-- `pm task block <key> --reason="..."` - Block a task
-- `pm task unblock <key>` - Unblock a task
+- `shark task list --status=todo` - Show todo tasks
+- `shark task start <key>` - Start a task (status: in_progress)
+- `shark task complete <key>` - Complete a task (status: ready_for_review)
+- `shark task approve <key>` - Approve a task (status: completed)
+- `shark task block <key> --reason="..."` - Block a task
+- `shark task unblock <key>` - Unblock a task
 
 Task files remain in `/docs/plan/{epic}/{feature}/tasks/` regardless of status.
 

@@ -78,7 +78,7 @@ Design and implement a normalized SQLite database schema (project.db) with four 
 - As a backend developer, I want foreign key constraints to prevent orphaned tasks, so that every task always belongs to a valid feature and epic.
 
 **Story 3: Query Tasks with Filters**
-- As a backend developer, I want to query tasks by status, epic, feature, agent type, and priority, so that I can implement CLI commands like `pm task list --status=todo --agent=frontend`.
+- As a backend developer, I want to query tasks by status, epic, feature, agent type, and priority, so that I can implement CLI commands like `shark task list --status=todo --agent=frontend`.
 
 **Story 4: Calculate Progress Automatically**
 - As a backend developer, I want feature progress to be calculated automatically as (completed tasks / total tasks × 100), so that the CLI can display accurate progress without manual updates.

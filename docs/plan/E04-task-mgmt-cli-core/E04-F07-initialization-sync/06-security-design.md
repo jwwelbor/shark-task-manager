@@ -534,7 +534,7 @@ func copyFile(src, dst string) error {
 **Usage**:
 ```bash
 # Create backup before sync
-pm sync --backup
+shark sync --backup
 
 # If sync fails, restore from backup
 cp shark-tasks.db.backup.2025-12-16T10-30-00 shark-tasks.db

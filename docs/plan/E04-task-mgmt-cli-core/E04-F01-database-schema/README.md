@@ -7,7 +7,7 @@
 
 ## Overview
 
-This feature provides the foundational database layer for the PM task management system. It implements a SQLite-backed relational database with SQLAlchemy ORM, supporting the full task lifecycle from epic planning through feature implementation to task completion tracking.
+This feature provides the foundational database layer for the shark task management system. It implements a SQLite-backed relational database with SQLAlchemy ORM, supporting the full task lifecycle from epic planning through feature implementation to task completion tracking.
 
 **Key Capabilities**:
 - SQLite database with 4 normalized tables (epics, features, tasks, task_history)
@@ -502,7 +502,7 @@ Before declaring feature complete:
 
 ## Summary
 
-This feature provides a robust, performant, and secure database foundation for the PM task management system. With comprehensive design documentation, clear implementation phases, and extensive test coverage, it is ready for development and integration with downstream features.
+This feature provides a robust, performant, and secure database foundation for the shark task management system. With comprehensive design documentation, clear implementation phases, and extensive test coverage, it is ready for development and integration with downstream features.
 
 **Key Strengths**:
 - Fully documented (9 design docs, 2,400+ lines)

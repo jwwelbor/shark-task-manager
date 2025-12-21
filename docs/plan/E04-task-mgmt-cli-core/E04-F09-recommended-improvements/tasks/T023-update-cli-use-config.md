@@ -156,15 +156,15 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 - No hardcoded values remain (verify with grep)
 
 **Manual Testing**:
-- Run CLI with defaults: `pm task list`
+- Run CLI with defaults: `shark task list`
 - Test with environment variables:
   ```bash
-  SHARK_DATABASE_PATH=/tmp/test.db pm task list
+  SHARK_DATABASE_PATH=/tmp/test.db shark task list
   ```
 - Test with config file: Create `.shark.yaml`, verify settings used
 - Test that CLI flags override config:
   ```bash
-  pm task list --format=json  # Should use json even if config says table
+  shark task list --format=json  # Should use json even if config says table
   ```
 
 **Integration Testing**:

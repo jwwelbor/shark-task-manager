@@ -21,7 +21,7 @@ Build on E04's foundation to add sophisticated project management capabilities: 
 ### Impact
 
 - **Dependency Safety**: Prevent 100% of circular dependency issues and reduce blocked task starts by 90% through automatic validation
-- **Project Visibility**: Reduce time to answer "what's the project status?" from 5+ minutes (checking multiple folders/files) to <5 seconds with `pm status`
+- **Project Visibility**: Reduce time to answer "what's the project status?" from 5+ minutes (checking multiple folders/files) to <5 seconds with `shark status`
 - **Bottleneck Identification**: Enable developers to identify blocking issues 3x faster through dependency visualization and blocked task reports
 - **Historical Analysis**: Support retrospectives and process improvement through detailed audit trails showing task duration, bottlenecks, and agent performance
 - **Informed Prioritization**: Enable data-driven task prioritization based on dependency chains and blocking relationships
@@ -82,7 +82,7 @@ Build on E04's foundation to add sophisticated project management capabilities: 
 
 This epic includes the following features:
 
-1. **F01: Status Dashboard & Reporting** - Comprehensive `pm status` command with progress visualization, active tasks, blocked tasks, and recent activity
+1. **F01: Status Dashboard & Reporting** - Comprehensive `shark status` command with progress visualization, active tasks, blocked tasks, and recent activity
 2. **F02: Dependency Management** - Dependency tree visualization, circular dependency detection, automatic blocking, and upstream/downstream analysis
 3. **F03: History & Audit Trail** - Task history tracking, project activity logs, agent-based filtering, and CSV/JSON exports
 4. **F04: Advanced Search & Filtering** (Optional P1) - Full-text search, complex filters, sort options, and saved filter profiles
@@ -116,7 +116,7 @@ This epic includes the following features:
 **Timeline**: Track all dependency additions during first 90 days
 
 ### 2. Status Query Frequency (Leading Indicator)
-**What**: Number of times per week developers run `pm status` or dashboard commands
+**What**: Number of times per week developers run `shark status` or dashboard commands
 **Baseline**: N/A (new capability)
 **Target**: >10 queries per week per active developer
 **Timeline**: Track for 90 days post-launch
@@ -124,7 +124,7 @@ This epic includes the following features:
 ### 3. Blocked Task Identification Time (Leading Indicator)
 **What**: Time to identify which tasks are blocked and why
 **Baseline**: 5+ minutes (manually checking task files and dependencies)
-**Target**: <5 seconds with `pm status` or `pm task list --status=blocked`
+**Target**: <5 seconds with `shark status` or `shark task list --status=blocked`
 **Timeline**: Measure across 50+ blocked task scenarios
 
 ### 4. Historical Analysis Usage (Lagging Indicator)
@@ -181,7 +181,7 @@ This epic includes the following features:
 
 **Justification**:
 
-While E04 provides the foundational infrastructure, E05 delivers the insights and workflow intelligence that make the PM tool truly valuable for production use. These capabilities transform the tool from a basic database interface into a comprehensive project management system.
+While E04 provides the foundational infrastructure, E05 delivers the insights and workflow intelligence that make the shark tool truly valuable for production use. These capabilities transform the tool from a basic database interface into a comprehensive project management system.
 
 **Direct Impact**:
 - Prevents costly workflow errors (circular dependencies, starting blocked tasks)
@@ -190,13 +190,13 @@ While E04 provides the foundational infrastructure, E05 delivers the insights an
 - Provides stakeholder-ready progress reports via JSON/CSV export
 
 **Strategic Value**:
-- Positions PM tool as enterprise-grade project management solution
+- Positions shark tool as enterprise-grade project management solution
 - Enables advanced agent workflows (intelligent task selection based on dependencies)
 - Provides foundation for future ML-based features (task duration prediction, risk analysis)
 - Differentiates from simple task tracking tools through sophisticated dependency and historical analysis
 
 **Developer Experience**:
-- Single-command visibility into project health (`pm status`)
+- Single-command visibility into project health (`shark status`)
 - Confidence that dependency issues will be caught automatically
 - Historical context for understanding project evolution
 - Reduced cognitive load through visual progress indicators

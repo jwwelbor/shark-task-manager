@@ -12,7 +12,7 @@ Developers and AI agents need to create new tasks programmatically with consiste
 
 ### Solution
 
-Implement `pm task create` command that automates the entire task creation workflow: automatically generates the next available task key, creates database record, generates markdown file from agent-specific template, saves file to the feature's tasks/ directory, and returns the new task key. Provide customizable Jinja2 templates for each agent type (frontend, backend, api, testing, devops, general) that include appropriate frontmatter, description structure, and boilerplate content. Support required flags (--epic, --feature, --title, --agent) and optional metadata (--priority, --depends-on, --description). Validate all inputs before creation (epic/feature exist, dependency tasks exist, key format is valid). Integrate with E04-F01 (Database), E04-F05 (File Path Management), and E04-F02 (CLI Framework) to ensure atomic creation and consistent error handling.
+Implement `shark task create` command that automates the entire task creation workflow: automatically generates the next available task key, creates database record, generates markdown file from agent-specific template, saves file to the feature's tasks/ directory, and returns the new task key. Provide customizable Jinja2 templates for each agent type (frontend, backend, api, testing, devops, general) that include appropriate frontmatter, description structure, and boilerplate content. Support required flags (--epic, --feature, --title, --agent) and optional metadata (--priority, --depends-on, --description). Validate all inputs before creation (epic/feature exist, dependency tasks exist, key format is valid). Integrate with E04-F01 (Database), E04-F05 (File Path Management), and E04-F02 (CLI Framework) to ensure atomic creation and consistent error handling.
 
 ### Impact
 
@@ -36,7 +36,7 @@ Implement `pm task create` command that automates the entire task creation workf
 - Requires JSON output for created task
 
 **Goals**:
-- Run `pm task create --epic=E01 --feature=F02 --title="Document API contract" --agent=api-developer --json` and get task key
+- Run `shark task create --epic=E01 --feature=F02 --title="Document API contract" --agent=api-developer --json` and get task key
 - Create tasks with dependencies: `--depends-on=T-E01-F01-005`
 - Use returned task key to reference new task
 - Create multiple related tasks in sequence
@@ -59,7 +59,7 @@ Implement `pm task create` command that automates the entire task creation workf
 - Requires consistent frontmatter format
 
 **Goals**:
-- Create task with single command: `pm task create --epic=E01 --feature=F02 --title="Build login form" --agent=frontend`
+- Create task with single command: `shark task create --epic=E01 --feature=F02 --title="Build login form" --agent=frontend`
 - Have frontend template automatically applied
 - Get properly formatted markdown file ready to edit
 - See task created in feature's tasks/ directory
@@ -75,7 +75,7 @@ Implement `pm task create` command that automates the entire task creation workf
 ### Must-Have User Stories
 
 **Story 1: Create Task with Required Fields**
-- As a user, I want to run `pm task create --epic=E01 --feature=F02 --title="Build auth middleware" --agent=backend`, so that a new task is created with automatic key generation.
+- As a user, I want to run `shark task create --epic=E01 --feature=F02 --title="Build auth middleware" --agent=backend`, so that a new task is created with automatic key generation.
 
 **Story 2: Automatic Key Generation**
 - As a user, I want task keys generated automatically (next available number in sequence), so that I don't manually calculate T-E01-F02-003, T-E01-F02-004, etc.
@@ -84,7 +84,7 @@ Implement `pm task create` command that automates the entire task creation workf
 - As a user, I want tasks for `--agent=frontend` to use the frontend template (different from backend template), so that task files have appropriate structure.
 
 **Story 4: Create Database Record**
-- As a user, I want the task automatically inserted into the database with all metadata, so that `pm task list` shows the new task immediately.
+- As a user, I want the task automatically inserted into the database with all metadata, so that `shark task list` shows the new task immediately.
 
 **Story 5: Create Markdown File**
 - As a user, I want the task markdown file created in the feature's tasks/ directory with proper frontmatter, so that the file is ready to edit.
@@ -113,23 +113,23 @@ Implement `pm task create` command that automates the entire task creation workf
 - As a user, I want the system to verify that dependency task IDs exist before creating the task, so that I don't create tasks with broken dependency links.
 
 **Story 13: Bulk Task Creation**
-- As a user, I want to create multiple tasks from a CSV file with `pm task import tasks.csv`, so that I can quickly populate a feature with tasks.
+- As a user, I want to create multiple tasks from a CSV file with `shark task import tasks.csv`, so that I can quickly populate a feature with tasks.
 
 ### Could-Have User Stories
 
 **Story 14: Interactive Task Creation**
-- As a user, I want to run `pm task create --interactive` and be prompted for all fields, so that I don't memorize all flag names.
+- As a user, I want to run `shark task create --interactive` and be prompted for all fields, so that I don't memorize all flag names.
 
 **Story 15: Clone Existing Task**
-- As a user, I want to run `pm task clone T-E01-F01-005 --title="New title"` to duplicate a task's structure, so that I can create similar tasks quickly.
+- As a user, I want to run `shark task clone T-E01-F01-005 --title="New title"` to duplicate a task's structure, so that I can create similar tasks quickly.
 
 ## Requirements
 
 ### Functional Requirements
 
-**Task Creation Command (pm task create):**
+**Task Creation Command (shark task create):**
 
-1. The system must provide `pm task create` command with required flags:
+1. The system must provide `shark task create` command with required flags:
    - `--epic=<epic-key>` (e.g., --epic=E01)
    - `--feature=<feature-key>` (e.g., --feature=E01-F02 or --feature=F02)
    - `--title="<task title>"` (quoted string)
@@ -288,7 +288,7 @@ Implement `pm task create` command that automates the entire task creation workf
 
 39. The command must use E04-F05 file path management for file path generation and directory creation
 
-40. Created tasks must immediately be visible in `pm task list` output
+40. Created tasks must immediately be visible in `shark task list` output
 
 ### Non-Functional Requirements
 
@@ -301,8 +301,8 @@ Implement `pm task create` command that automates the entire task creation workf
 
 **Usability:**
 
-- Error messages must be specific: "Epic E99 does not exist. Use 'pm epic list' to see available epics."
-- Success messages must include next steps: "Task created. Start work with: pm task start T-E01-F02-003"
+- Error messages must be specific: "Epic E99 does not exist. Use 'shark epic list' to see available epics."
+- Success messages must include next steps: "Task created. Start work with: shark task start T-E01-F02-003"
 - Template output must be well-formatted and ready to edit
 - Generated markdown must have consistent indentation and spacing
 
@@ -331,7 +331,7 @@ Implement `pm task create` command that automates the entire task creation workf
 
 **Given** Epic E01 and Feature E01-F02 exist
 **And** no tasks exist for Feature E01-F02
-**When** I run `pm task create --epic=E01 --feature=F02 --title="Build login form" --agent=frontend`
+**When** I run `shark task create --epic=E01 --feature=F02 --title="Build login form" --agent=frontend`
 **Then** a task is created with key "T-E01-F02-001"
 **And** database contains the task with status="todo"
 **And** file exists at the feature's tasks/ directory
@@ -341,7 +341,7 @@ Implement `pm task create` command that automates the entire task creation workf
 ### Automatic Key Sequencing
 
 **Given** Feature E01-F02 already has tasks T-E01-F02-001 and T-E01-F02-002
-**When** I run `pm task create --epic=E01 --feature=F02 --title="New task" --agent=backend`
+**When** I run `shark task create --epic=E01 --feature=F02 --title="New task" --agent=backend`
 **Then** a task is created with key "T-E01-F02-003" (next in sequence)
 
 **Given** Feature E01-F02 has task T-E01-F02-099
@@ -351,18 +351,18 @@ Implement `pm task create` command that automates the entire task creation workf
 ### Input Validation
 
 **Given** Epic E99 does not exist
-**When** I run `pm task create --epic=E99 --feature=F01 --title="Test" --agent=backend`
+**When** I run `shark task create --epic=E99 --feature=F01 --title="Test" --agent=backend`
 **Then** error is displayed: "Error: Epic E99 does not exist"
 **And** exit code is 1
 **And** no database record is created
 **And** no file is created
 
-**Given** I run `pm task create` without --title flag
+**Given** I run `shark task create` without --title flag
 **When** the command executes
 **Then** error is displayed: "Error: Missing required option '--title'"
 **And** exit code is 1
 
-**Given** I run `pm task create` with `--agent=invalid-agent`
+**Given** I run `shark task create` with `--agent=invalid-agent`
 **When** the command executes
 **Then** error is displayed: "Error: Invalid agent type. Must be one of: frontend, backend, api, testing, devops, general"
 **And** exit code is 1
@@ -370,12 +370,12 @@ Implement `pm task create` command that automates the entire task creation workf
 ### Dependency Validation
 
 **Given** task T-E01-F01-005 exists
-**When** I run `pm task create --epic=E01 --feature=F02 --title="Task with dep" --agent=backend --depends-on=T-E01-F01-005`
+**When** I run `shark task create --epic=E01 --feature=F02 --title="Task with dep" --agent=backend --depends-on=T-E01-F01-005`
 **Then** task is created successfully
 **And** depends_on field contains ["T-E01-F01-005"]
 
 **Given** task T-E01-F99-999 does not exist
-**When** I run `pm task create` with `--depends-on=T-E01-F99-999`
+**When** I run `shark task create` with `--depends-on=T-E01-F99-999`
 **Then** error is displayed: "Error: Dependency task T-E01-F99-999 does not exist"
 **And** no task is created
 
@@ -413,7 +413,7 @@ created_at: 2025-12-14T10:30:00Z
 ### Atomic Creation
 
 **Given** database is available but filesystem has permission error on feature tasks/ directory
-**When** I run `pm task create`
+**When** I run `shark task create`
 **Then** database transaction is rolled back
 **And** no database record exists
 **And** no file exists
@@ -426,7 +426,7 @@ created_at: 2025-12-14T10:30:00Z
 
 ### JSON Output
 
-**Given** I run `pm task create --epic=E01 --feature=F02 --title="Test" --agent=backend --json`
+**Given** I run `shark task create --epic=E01 --feature=F02 --title="Test" --agent=backend --json`
 **When** the command completes successfully
 **Then** output is valid JSON
 **And** JSON contains created task object with key, title, status, file_path, etc.
@@ -454,13 +454,13 @@ created_at: 2025-12-14T10:30:00Z
 **Then** output includes:
 - "Created task T-E01-F02-003: Build auth middleware"
 - "File created at: docs/plan/{epic}/{feature}/tasks/T-E01-F02-003.md"
-- "Start work with: pm task start T-E01-F02-003"
+- "Start work with: shark task start T-E01-F02-003"
 
 ## Out of Scope
 
 ### Explicitly NOT Included in This Feature
 
-1. **Task Editing** - Updating existing tasks is done by editing markdown files manually or via future commands. No `pm task update` in this feature.
+1. **Task Editing** - Updating existing tasks is done by editing markdown files manually or via future commands. No `shark task update` in this feature.
 
 2. **Task Deletion** - Deleting tasks is out of scope for E04.
 
