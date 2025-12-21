@@ -43,14 +43,21 @@ Examples:
 
 // taskListCmd lists tasks
 var taskListCmd = &cobra.Command{
-	Use:   "list",
+	Use:   "list [EPIC] [FEATURE]",
 	Short: "List tasks",
 	Long: `List tasks with optional filtering by status, epic, feature, or agent.
 
+Positional Arguments:
+  EPIC      Optional epic key (E##) to filter by epic (e.g., E04)
+  FEATURE   Optional feature key (F## or E##-F##) to filter by feature (e.g., F01 or E04-F01)
+
 Examples:
   shark task list                      List all tasks
+  shark task list E04                  List all tasks in epic E04
+  shark task list E04 F01              List tasks in epic E04, feature F01
+  shark task list E04-F01              Same as above (combined format)
   shark task list --status=todo        List tasks with status 'todo'
-  shark task list --epic=E04           List tasks in epic E04
+  shark task list --epic=E04           Flag syntax (still supported)
   shark task list --json               Output as JSON`,
 	RunE: runTaskList,
 }
@@ -187,6 +194,13 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Parse positional arguments first
+	positionalEpic, positionalFeature, err := ParseTaskListArgs(args)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
+
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
 	if err != nil {
@@ -205,10 +219,19 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	// Get filter flags
 	statusStr, _ := cmd.Flags().GetString("status")
 	epicKey, _ := cmd.Flags().GetString("epic")
+	featureKey, _ := cmd.Flags().GetString("feature")
 	agentStr, _ := cmd.Flags().GetString("agent")
 	priorityMin, _ := cmd.Flags().GetInt("priority-min")
 	priorityMax, _ := cmd.Flags().GetInt("priority-max")
 	blocked, _ := cmd.Flags().GetBool("blocked")
+
+	// Positional arguments take priority over flags
+	if positionalEpic != nil {
+		epicKey = *positionalEpic
+	}
+	if positionalFeature != nil {
+		featureKey = *positionalFeature
+	}
 
 	// Build filters
 	var status *models.TaskStatus
@@ -252,6 +275,28 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	// Filter by feature if requested
+	if featureKey != "" {
+		filteredTasks := []*models.Task{}
+		// Get feature ID from the feature key
+		featureRepo := repository.NewFeatureRepository(repository.NewDB(database))
+		feature, err := featureRepo.GetByKey(ctx, featureKey)
+		if err != nil {
+			return fmt.Errorf("failed to find feature: %w", err)
+		}
+		if feature != nil {
+			for _, task := range tasks {
+				if task.FeatureID == feature.ID {
+					filteredTasks = append(filteredTasks, task)
+				}
+			}
+			tasks = filteredTasks
+		} else {
+			// Feature doesn't exist - return empty list
+			tasks = []*models.Task{}
+		}
 	}
 
 	// Filter by blocked status if requested
