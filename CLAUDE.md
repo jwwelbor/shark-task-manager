@@ -333,7 +333,9 @@ Global flags available to all commands:
   - `--path`: Custom folder path for feature. Inherits epic's path if not specified. Example: `docs/features/auth`
   - `--filename`: Custom file path (relative to root, must include .md). Takes precedence over `--path`
   - `--force`: Reassign file if already claimed by another feature or epic
-- `shark feature list --epic=<epic-key> [--json]`
+- `shark feature list [EPIC] [--json]` - List features, optionally filter by epic key
+  - Examples: `shark feature list`, `shark feature list E04`, `shark feature list E04 --json`
+  - Flag syntax still works: `shark feature list --epic=E04`
 - `shark feature get <feature-key> [--json]`
 
 **Custom Folder Path Organization:**
@@ -361,7 +363,9 @@ Refer to `docs/CLI_REFERENCE.md` for detailed examples, `docs/MIGRATION_CUSTOM_P
 
 #### Task Management (Primary AI Interface)
 - `shark task next [--agent=<type>] [--epic=<epic>] [--json]`: Get next available task
-- `shark task list [--status=<status>] [--epic=<epic>] [--agent=<type>] [--json]`
+- `shark task list [EPIC] [FEATURE] [--status=<status>] [--agent=<type>] [--json]` - List tasks with flexible positional filtering
+  - Examples: `shark task list`, `shark task list E04`, `shark task list E04 F01`, `shark task list E04-F01`
+  - Flag syntax still works: `shark task list --epic=E04 --feature=F01`
 - `shark task get <task-key> [--json]`
 - `shark task create --epic=E04 --feature=F06 --title="..." [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--filename=<path>] [--force]`
   - `--filename`: Custom file path (relative to root, must include .md)

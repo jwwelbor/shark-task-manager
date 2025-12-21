@@ -370,6 +370,12 @@ shark epic get E04 --json
 
 **List features in an epic:**
 ```bash
+# Using positional argument (recommended, shorter syntax)
+shark feature list E04
+shark feature list E04 --json
+shark feature list E04 --status=active --json
+
+# Using flag syntax (still supported, backward compatible)
 shark feature list --epic=E04 --json
 shark feature list --epic=E04 --status=active --json
 ```
@@ -416,7 +422,14 @@ shark task list --status=blocked --json
 
 **Filter by epic or agent:**
 ```bash
+# Using positional arguments (recommended, shorter syntax)
+shark task list E04                    # Filter by epic
+shark task list E04 F01                # Filter by epic and feature
+shark task list E04-F01                # Alternative combined format
+
+# Using flag syntax (still supported, backward compatible)
 shark task list --epic=E04 --json
+shark task list --epic=E04 --feature=F01 --json
 shark task list --agent=backend --json
 shark task list --epic=E04 --agent=backend --status=todo --json
 ```
