@@ -687,6 +687,49 @@ Generate coverage report:
 make test-coverage
 ```
 
+## CI/CD Pipeline
+
+The project uses GitHub Actions for continuous integration and automated releases.
+
+### Continuous Integration (Every Push)
+
+The CI workflow (`.github/workflows/ci.yml`) runs automatically on every push and pull request:
+
+- **Tests**: Full test suite with coverage reporting
+- **Build**: Verifies builds succeed on Linux, macOS, and Windows
+- **Lint**: Code quality checks with golangci-lint
+
+All checks must pass before merging to main.
+
+### Release Pipeline (Tagged Versions Only)
+
+Releases are triggered by pushing a version tag matching `v*` (e.g., `v1.0.0`, `v0.2.0-beta`):
+
+```bash
+# Create a signed tag
+git tag -a v1.0.0 -m "Release version 1.0.0"
+git push origin v1.0.0
+```
+
+The release workflow (`.github/workflows/release.yml`) automatically:
+
+1. Runs all tests as a quality gate
+2. Builds multi-platform binaries using GoReleaser
+3. Creates a GitHub release with all assets
+4. Publishes to Homebrew (macOS)
+5. Publishes to Scoop (Windows)
+
+**Only push v-tags to publish releases.** Don't use tags for testing.
+
+### Release Testing
+
+Post-release testing (`.github/workflows/release-test.yml`) can be triggered manually or runs automatically after a release:
+
+- Tests manual downloads
+- Validates Homebrew installation (macOS)
+- Validates Scoop installation (Windows)
+- Performance benchmarking
+
 ## Environment Setup
 
 Go is installed in `~/go/bin`. Make sure your PATH includes this directory:
