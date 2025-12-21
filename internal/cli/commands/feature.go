@@ -48,13 +48,17 @@ Examples:
 
 // featureListCmd lists features
 var featureListCmd = &cobra.Command{
-	Use:   "list",
+	Use:   "list [EPIC]",
 	Short: "List features",
 	Long: `List features with optional filtering by epic.
 
+Positional Arguments:
+  EPIC    Optional epic key (E##) to filter features (e.g., E04)
+
 Examples:
   shark feature list              List all features
-  shark feature list --epic=E04   List features in epic E04
+  shark feature list E04          List features in epic E04
+  shark feature list --epic=E04   Same as above (flag syntax still works)
   shark feature list --json       Output as JSON
   shark feature list --status=active  Filter by status
   shark feature list --sort-by=progress  Sort by progress`,
@@ -176,10 +180,22 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Parse positional arguments first
+	positionalEpic, err := ParseFeatureListArgs(args)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
+
 	// Get flags
 	epicFilter, _ := cmd.Flags().GetString("epic")
 	statusFilter, _ := cmd.Flags().GetString("status")
 	sortBy, _ := cmd.Flags().GetString("sort-by")
+
+	// Positional argument takes priority over flag
+	if positionalEpic != nil {
+		epicFilter = *positionalEpic
+	}
 
 	// Validate status filter
 	if statusFilter != "" {
