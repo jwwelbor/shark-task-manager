@@ -306,7 +306,7 @@ func TestValidator_ValidationSummary(t *testing.T) {
 			wantSuccess:      false,
 		},
 		{
-			name: "no entities to validate",
+			name:             "no entities to validate",
 			epics:            []*models.Epic{},
 			features:         []*models.Feature{},
 			tasks:            []*models.Task{},

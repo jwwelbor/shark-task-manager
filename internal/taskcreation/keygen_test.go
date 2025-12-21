@@ -423,9 +423,9 @@ func TestNormalizeFeatureKey(t *testing.T) {
 
 func TestExtractFeaturePart(t *testing.T) {
 	tests := []struct {
-		name             string
-		fullFeatureKey   string
-		expected         string
+		name           string
+		fullFeatureKey string
+		expected       string
 	}{
 		{
 			name:           "Standard format",

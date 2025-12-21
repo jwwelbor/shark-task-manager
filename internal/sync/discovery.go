@@ -157,11 +157,11 @@ func (e *SyncEngine) importDiscoveredEntities(ctx context.Context, epics []disco
 		} else {
 			// Create new epic
 			newEpic := &models.Epic{
-				Key:               epic.Key,
-				Title:             epic.Title,
-				Status:            models.EpicStatusActive,
-				Priority:          models.PriorityMedium,
-				CustomFolderPath:  epic.CustomFolderPath,
+				Key:              epic.Key,
+				Title:            epic.Title,
+				Status:           models.EpicStatusActive,
+				Priority:         models.PriorityMedium,
+				CustomFolderPath: epic.CustomFolderPath,
 			}
 			if epic.Description != nil {
 				newEpic.Description = epic.Description
@@ -217,11 +217,11 @@ func (e *SyncEngine) importDiscoveredEntities(ctx context.Context, epics []disco
 		} else {
 			// Create new feature
 			newFeature := &models.Feature{
-				EpicID:             epic.ID,
-				Key:                feature.Key,
-				Title:              feature.Title,
-				Status:             models.FeatureStatusActive,
-				CustomFolderPath:   feature.CustomFolderPath,
+				EpicID:           epic.ID,
+				Key:              feature.Key,
+				Title:            feature.Title,
+				Status:           models.FeatureStatusActive,
+				CustomFolderPath: feature.CustomFolderPath,
 			}
 			if feature.Description != nil {
 				newFeature.Description = feature.Description

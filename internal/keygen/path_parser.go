@@ -65,9 +65,9 @@ func (p *PathParser) ParsePath(filePath string) (*PathComponents, error) {
 		return nil, fmt.Errorf("cannot infer epic/feature from path '%s': expected directory structure like docs/plan/{E##-epic-slug}/{E##-F##-feature-slug}/tasks/{file}", absPath)
 	}
 
-	epicKey := featureMatches[1]      // E##
-	projectNum := featureMatches[2]   // -P## or empty string
-	featureNum := featureMatches[3]   // F##
+	epicKey := featureMatches[1]    // E##
+	projectNum := featureMatches[2] // -P## or empty string
+	featureNum := featureMatches[3] // F##
 
 	// Build feature key: E##-F## or E##-P##-F## (includes project if present)
 	featureKey := epicKey + projectNum + "-" + featureNum

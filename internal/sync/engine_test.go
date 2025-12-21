@@ -485,21 +485,21 @@ func TestSyncEngine_Sync_ConflictStrategies(t *testing.T) {
 			taskRepo := repository.NewTaskRepository(repoDb)
 
 			epic := &models.Epic{
-		Key:      "E04",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
-		Priority: models.PriorityMedium,
-	}
+				Key:      "E04",
+				Title:    "Test Epic",
+				Status:   models.EpicStatusActive,
+				Priority: models.PriorityMedium,
+			}
 			if err := epicRepo.Create(ctx, epic); err != nil {
 				t.Fatalf("Failed to create epic: %v", err)
 			}
 
 			feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E04-F07",
-		Title:  "Test Feature",
-		Status: models.FeatureStatusActive,
-	}
+				EpicID: epic.ID,
+				Key:    "E04-F07",
+				Title:  "Test Feature",
+				Status: models.FeatureStatusActive,
+			}
 			if err := featureRepo.Create(ctx, feature); err != nil {
 				t.Fatalf("Failed to create feature: %v", err)
 			}

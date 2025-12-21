@@ -46,8 +46,8 @@ func TestFirstMatchWins(t *testing.T) {
 		config := &PatternConfig{
 			Epic: EntityPatterns{
 				Folder: []string{
-					`^E(?P<number>\d{2})-(?P<slug>.+)$`,      // First pattern - should match
-					`^(?P<epic_id>tech-debt|bugs)$`,           // Second pattern - should not be evaluated
+					`^E(?P<number>\d{2})-(?P<slug>.+)$`, // First pattern - should match
+					`^(?P<epic_id>tech-debt|bugs)$`,     // Second pattern - should not be evaluated
 				},
 			},
 		}
@@ -77,8 +77,8 @@ func TestFirstMatchWins(t *testing.T) {
 		config := &PatternConfig{
 			Epic: EntityPatterns{
 				Folder: []string{
-					`^E(?P<number>\d{2})-(?P<slug>.+)$`,      // First pattern - won't match
-					`^(?P<epic_id>tech-debt|bugs)$`,           // Second pattern - should match
+					`^E(?P<number>\d{2})-(?P<slug>.+)$`, // First pattern - won't match
+					`^(?P<epic_id>tech-debt|bugs)$`,     // Second pattern - should match
 				},
 			},
 		}
@@ -355,10 +355,10 @@ func TestMatchAllEntityTypes(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name         string
-		matchFunc    func(string) *MatchResult
-		input        string
-		shouldMatch  bool
+		name           string
+		matchFunc      func(string) *MatchResult
+		input          string
+		shouldMatch    bool
 		expectedGroups map[string]string
 	}{
 		{
@@ -443,8 +443,8 @@ func TestIntegration_ConfigLoadToPatternMatching(t *testing.T) {
 
 		// 4. Test pattern matching for various entity types
 		testFiles := []struct {
-			entityType string
-			input      string
+			entityType  string
+			input       string
 			shouldMatch bool
 		}{
 			{"epic", "E04-task-management", true},

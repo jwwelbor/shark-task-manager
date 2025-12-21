@@ -58,25 +58,25 @@ func TestDefaultEpicFolderPattern(t *testing.T) {
 	re := regexp.MustCompile(DefaultEpicFolderPattern)
 
 	tests := []struct {
-		name      string
-		input     string
-		wantMatch bool
+		name       string
+		input      string
+		wantMatch  bool
 		wantEpicID string
-		wantSlug  string
+		wantSlug   string
 	}{
 		{
-			name:      "valid E04",
-			input:     "E04-task-mgmt-cli-core",
-			wantMatch: true,
+			name:       "valid E04",
+			input:      "E04-task-mgmt-cli-core",
+			wantMatch:  true,
 			wantEpicID: "E04",
-			wantSlug:  "task-mgmt-cli-core",
+			wantSlug:   "task-mgmt-cli-core",
 		},
 		{
-			name:      "valid E06",
-			input:     "E06-intelligent-scanning",
-			wantMatch: true,
+			name:       "valid E06",
+			input:      "E06-intelligent-scanning",
+			wantMatch:  true,
 			wantEpicID: "E06",
-			wantSlug:  "intelligent-scanning",
+			wantSlug:   "intelligent-scanning",
 		},
 		{
 			name:      "invalid single digit",
@@ -120,27 +120,27 @@ func TestDefaultEpicSpecialPattern(t *testing.T) {
 	re := regexp.MustCompile(DefaultEpicSpecialPattern)
 
 	tests := []struct {
-		name      string
-		input     string
-		wantMatch bool
+		name       string
+		input      string
+		wantMatch  bool
 		wantEpicID string
 	}{
 		{
-			name:      "tech-debt",
-			input:     "tech-debt",
-			wantMatch: true,
+			name:       "tech-debt",
+			input:      "tech-debt",
+			wantMatch:  true,
 			wantEpicID: "tech-debt",
 		},
 		{
-			name:      "bugs",
-			input:     "bugs",
-			wantMatch: true,
+			name:       "bugs",
+			input:      "bugs",
+			wantMatch:  true,
 			wantEpicID: "bugs",
 		},
 		{
-			name:      "change-cards",
-			input:     "change-cards",
-			wantMatch: true,
+			name:       "change-cards",
+			input:      "change-cards",
+			wantMatch:  true,
 			wantEpicID: "change-cards",
 		},
 		{
@@ -176,12 +176,12 @@ func TestDefaultFeatureFolderPattern(t *testing.T) {
 	re := regexp.MustCompile(DefaultFeatureFolderPattern)
 
 	tests := []struct {
-		name           string
-		input          string
-		wantMatch      bool
-		wantEpicID     string
-		wantFeatureID  string
-		wantSlug       string
+		name          string
+		input         string
+		wantMatch     bool
+		wantEpicID    string
+		wantFeatureID string
+		wantSlug      string
 	}{
 		{
 			name:          "valid E04-F07",

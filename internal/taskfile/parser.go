@@ -160,12 +160,12 @@ func (m *TaskMetadata) Validate() error {
 
 	// Validate status is one of the valid values
 	validStatuses := map[string]bool{
-		"todo":            true,
-		"in_progress":     true,
-		"blocked":         true,
+		"todo":             true,
+		"in_progress":      true,
+		"blocked":          true,
 		"ready_for_review": true,
-		"completed":       true,
-		"archived":        true,
+		"completed":        true,
+		"archived":         true,
 	}
 
 	if !validStatuses[m.Status] {

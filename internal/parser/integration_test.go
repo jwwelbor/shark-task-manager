@@ -16,10 +16,10 @@ func TestIntegrationWithRealTaskFiles(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		filePath     string
-		wantTitle    string
-		wantTaskKey  string
+		name        string
+		filePath    string
+		wantTitle   string
+		wantTaskKey string
 	}{
 		{
 			name:        "T-E06-F03-002 task file",

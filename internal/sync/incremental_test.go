@@ -144,12 +144,12 @@ func TestFilter_MtimeComparison(t *testing.T) {
 	ctx := context.Background()
 	for i, f := range files {
 		task := &models.Task{
-			FeatureID:  1,
-			Key:        fmt.Sprintf("T-E04-F07-%03d", i+1),
-			Title:      "Test Task",
-			Status:     models.TaskStatusTodo,
-			Priority:   5,
-			FilePath:   &f.FilePath,
+			FeatureID: 1,
+			Key:       fmt.Sprintf("T-E04-F07-%03d", i+1),
+			Title:     "Test Task",
+			Status:    models.TaskStatusTodo,
+			Priority:  5,
+			FilePath:  &f.FilePath,
 		}
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create task: %v", err)
@@ -281,8 +281,8 @@ func TestFilter_ClockSkewTolerance(t *testing.T) {
 
 	// Create files with different future mtimes
 	now := time.Now()
-	file1 := createTestFileWithMtime(t, tmpDir, "file1.md", now.Add(30*time.Second))  // Small skew (30s)
-	file2 := createTestFileWithMtime(t, tmpDir, "file2.md", now.Add(90*time.Second))  // Large skew (90s)
+	file1 := createTestFileWithMtime(t, tmpDir, "file1.md", now.Add(30*time.Second)) // Small skew (30s)
+	file2 := createTestFileWithMtime(t, tmpDir, "file2.md", now.Add(90*time.Second)) // Large skew (90s)
 
 	files := []TaskFileInfo{file1, file2}
 

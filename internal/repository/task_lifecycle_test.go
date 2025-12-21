@@ -99,7 +99,9 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	agent := "block-test-agent"
 
 	// Start the task
-	taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil); err != nil {
+		t.Fatalf("Failed to update task status to in_progress: %v", err)
+	}
 
 	// Block it
 	reason := "Waiting for API specification"
@@ -156,8 +158,12 @@ func TestReopenWorkflow(t *testing.T) {
 	agent := "reopen-test-agent"
 
 	// Complete workflow to ready_for_review
-	taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
-	taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &agent, nil)
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil); err != nil {
+		t.Fatalf("Failed to update task status to in_progress: %v", err)
+	}
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &agent, nil); err != nil {
+		t.Fatalf("Failed to update task status to ready_for_review: %v", err)
+	}
 
 	// Reopen for rework
 	reworkNotes := "Need to add error handling"
@@ -180,4 +186,3 @@ func TestReopenWorkflow(t *testing.T) {
 		t.Errorf("Should be able to complete task again after reopen: %v", err)
 	}
 }
-

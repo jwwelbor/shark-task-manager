@@ -9,18 +9,18 @@ import (
 
 // Validation errors
 var (
-	ErrInvalidEpicKey      = errors.New("invalid epic key format: must match ^E\\d{2}$")
-	ErrInvalidFeatureKey   = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
-	ErrInvalidTaskKey      = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
-	ErrInvalidEpicStatus   = errors.New("invalid epic status: must be draft, active, completed, or archived")
+	ErrInvalidEpicKey       = errors.New("invalid epic key format: must match ^E\\d{2}$")
+	ErrInvalidFeatureKey    = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
+	ErrInvalidTaskKey       = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
+	ErrInvalidEpicStatus    = errors.New("invalid epic status: must be draft, active, completed, or archived")
 	ErrInvalidFeatureStatus = errors.New("invalid feature status: must be draft, active, completed, or archived")
-	ErrInvalidTaskStatus   = errors.New("invalid task status: must be todo, in_progress, blocked, ready_for_review, completed, or archived")
-	ErrInvalidAgentType    = errors.New("invalid agent type: must be frontend, backend, api, testing, devops, or general")
-	ErrInvalidPriority     = errors.New("invalid priority: must be between 1 and 10")
-	ErrInvalidProgressPct  = errors.New("invalid progress_pct: must be between 0.0 and 100.0")
-	ErrInvalidDependsOn    = errors.New("invalid depends_on: must be a valid JSON array of strings")
-	ErrEmptyTitle          = errors.New("title cannot be empty")
-	ErrEmptyNewStatus      = errors.New("new_status cannot be empty")
+	ErrInvalidTaskStatus    = errors.New("invalid task status: must be todo, in_progress, blocked, ready_for_review, completed, or archived")
+	ErrInvalidAgentType     = errors.New("invalid agent type: must be frontend, backend, api, testing, devops, or general")
+	ErrInvalidPriority      = errors.New("invalid priority: must be between 1 and 10")
+	ErrInvalidProgressPct   = errors.New("invalid progress_pct: must be between 0.0 and 100.0")
+	ErrInvalidDependsOn     = errors.New("invalid depends_on: must be a valid JSON array of strings")
+	ErrEmptyTitle           = errors.New("title cannot be empty")
+	ErrEmptyNewStatus       = errors.New("new_status cannot be empty")
 )
 
 // Key format regex patterns

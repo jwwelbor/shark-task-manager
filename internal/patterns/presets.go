@@ -76,7 +76,7 @@ var presetRegistry = map[string]*presetDefinition{
 						// Special epic types
 						`^(?P<epic_id>tech-debt|bugs|change-cards)$`,
 					},
-					File: []string{},
+					File:       []string{},
 					Generation: GenerationFormat{},
 				},
 				Feature: EntityPatterns{},

@@ -79,8 +79,8 @@ func TestInitCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "idempotent initialization",
-			args:    []string{"init", "--non-interactive", "--db", "shark-tasks.db"},
+			name: "idempotent initialization",
+			args: []string{"init", "--non-interactive", "--db", "shark-tasks.db"},
 			setup: func(tempDir string) error {
 				// Run init once first
 				cli.RootCmd.SetArgs([]string{"init", "--non-interactive", "--db", "shark-tasks.db"})

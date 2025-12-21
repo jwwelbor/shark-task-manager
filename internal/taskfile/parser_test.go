@@ -8,12 +8,12 @@ import (
 
 func TestParseTaskFileContent(t *testing.T) {
 	tests := []struct {
-		name       string
-		content    string
-		wantErr    bool
+		name        string
+		content     string
+		wantErr     bool
 		wantTaskKey string
-		wantStatus string
-		wantTitle  string
+		wantStatus  string
+		wantTitle   string
 	}{
 		{
 			name: "valid task file",
@@ -29,10 +29,10 @@ created: 2025-12-16
 
 This is the task content.
 `,
-			wantErr:    false,
+			wantErr:     false,
 			wantTaskKey: "T-E04-F05-001",
-			wantStatus: "todo",
-			wantTitle:  "Implement file path utilities",
+			wantStatus:  "todo",
+			wantTitle:   "Implement file path utilities",
 		},
 		{
 			name: "minimal valid task",
@@ -42,10 +42,10 @@ status: in_progress
 title: Simple task
 ---
 `,
-			wantErr:    false,
+			wantErr:     false,
 			wantTaskKey: "T-E01-F01-001",
-			wantStatus: "in_progress",
-			wantTitle:  "Simple task",
+			wantStatus:  "in_progress",
+			wantTitle:   "Simple task",
 		},
 		{
 			name: "task with dependencies",
@@ -62,10 +62,10 @@ dependencies:
 
 Details here.
 `,
-			wantErr:    false,
+			wantErr:     false,
 			wantTaskKey: "T-E04-F05-002",
-			wantStatus: "blocked",
-			wantTitle:  "Advanced task",
+			wantStatus:  "blocked",
+			wantTitle:   "Advanced task",
 		},
 		{
 			name:    "missing frontmatter",

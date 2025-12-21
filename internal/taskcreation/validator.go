@@ -42,11 +42,11 @@ type TaskInput struct {
 
 // ValidatedTaskData represents validated task creation data
 type ValidatedTaskData struct {
-	EpicID              int64
-	FeatureID           int64
-	NormalizedFeatureKey string
+	EpicID                int64
+	FeatureID             int64
+	NormalizedFeatureKey  string
 	ValidatedDependencies []string
-	AgentType           models.AgentType
+	AgentType             models.AgentType
 }
 
 // ValidateTaskInput validates all input fields for task creation

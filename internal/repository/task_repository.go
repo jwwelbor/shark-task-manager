@@ -751,12 +751,12 @@ func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64
 
 	// Initialize breakdown with all statuses set to 0
 	breakdown := map[models.TaskStatus]int{
-		models.TaskStatusTodo:          0,
-		models.TaskStatusInProgress:    0,
-		models.TaskStatusBlocked:       0,
+		models.TaskStatusTodo:           0,
+		models.TaskStatusInProgress:     0,
+		models.TaskStatusBlocked:        0,
 		models.TaskStatusReadyForReview: 0,
-		models.TaskStatusCompleted:     0,
-		models.TaskStatusArchived:      0,
+		models.TaskStatusCompleted:      0,
+		models.TaskStatusArchived:       0,
 	}
 
 	// Fill in actual counts from query
@@ -894,7 +894,7 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 			&task.AssignedAgent,
 			&task.FilePath,
 			&task.BlockedReason,
-		&task.ExecutionOrder,
+			&task.ExecutionOrder,
 			&task.CreatedAt,
 			&task.StartedAt,
 			&task.CompletedAt,
@@ -994,7 +994,7 @@ func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...i
 			&task.AssignedAgent,
 			&task.FilePath,
 			&task.BlockedReason,
-		&task.ExecutionOrder,
+			&task.ExecutionOrder,
 			&task.CreatedAt,
 			&task.StartedAt,
 			&task.CompletedAt,

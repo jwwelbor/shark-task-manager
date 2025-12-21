@@ -328,14 +328,14 @@ func (m *ManualConflictResolver) ResolveManually(
 ) (*models.Task, []ConflictResolution, error) {
 	// Create copy of database task
 	resolved := &models.Task{
-		ID:          dbTask.ID,
-		FeatureID:   dbTask.FeatureID,
-		Key:         dbTask.Key,
-		Title:       dbTask.Title,
-		Status:      dbTask.Status,
-		Priority:    dbTask.Priority,
-		CreatedAt:   dbTask.CreatedAt,
-		UpdatedAt:   dbTask.UpdatedAt,
+		ID:        dbTask.ID,
+		FeatureID: dbTask.FeatureID,
+		Key:       dbTask.Key,
+		Title:     dbTask.Title,
+		Status:    dbTask.Status,
+		Priority:  dbTask.Priority,
+		CreatedAt: dbTask.CreatedAt,
+		UpdatedAt: dbTask.UpdatedAt,
 	}
 
 	if dbTask.Description != nil {

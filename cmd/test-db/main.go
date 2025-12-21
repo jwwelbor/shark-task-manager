@@ -41,11 +41,11 @@ func main() {
 
 	businessValue := models.PriorityHigh
 	epic := &models.Epic{
-		Key:         "E04",
-		Title:       "Task Management CLI - Core Functionality",
-		Description: strPtr("Complete database schema and repositories"),
-		Status:      models.EpicStatusActive,
-		Priority:    models.PriorityHigh,
+		Key:           "E04",
+		Title:         "Task Management CLI - Core Functionality",
+		Description:   strPtr("Complete database schema and repositories"),
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
 		BusinessValue: &businessValue,
 	}
 

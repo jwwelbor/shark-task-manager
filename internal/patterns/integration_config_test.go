@@ -19,7 +19,7 @@ func TestIntegration_LoadActualSharkConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to load registry from .sharkconfig.json: %v", err)
 	}
-	
+
 	t.Run("Epic folder patterns work", func(t *testing.T) {
 		result := registry.MatchEpicFolder("E04-task-management")
 		if !result.Matched {
@@ -32,7 +32,7 @@ func TestIntegration_LoadActualSharkConfig(t *testing.T) {
 			t.Errorf("Expected slug=task-management, got %s", result.CaptureGroups["slug"])
 		}
 	})
-	
+
 	t.Run("Task file standard format works", func(t *testing.T) {
 		result := registry.MatchTaskFile("T-E04-F05-001.md")
 		if !result.Matched {
@@ -48,7 +48,7 @@ func TestIntegration_LoadActualSharkConfig(t *testing.T) {
 			t.Errorf("Expected number=001, got %s", result.CaptureGroups["number"])
 		}
 	})
-	
+
 	t.Run("Task file numbered format works", func(t *testing.T) {
 		result := registry.MatchTaskFile("042-implement-feature.md")
 		if !result.Matched {
@@ -61,7 +61,7 @@ func TestIntegration_LoadActualSharkConfig(t *testing.T) {
 			t.Errorf("Expected slug=implement-feature, got %s", result.CaptureGroups["slug"])
 		}
 	})
-	
+
 	t.Run("Task file PRP format works", func(t *testing.T) {
 		result := registry.MatchTaskFile("auth-middleware.prp.md")
 		if !result.Matched {
@@ -71,7 +71,7 @@ func TestIntegration_LoadActualSharkConfig(t *testing.T) {
 			t.Errorf("Expected slug=auth-middleware, got %s", result.CaptureGroups["slug"])
 		}
 	})
-	
+
 	t.Run("Feature folder patterns work", func(t *testing.T) {
 		result := registry.MatchFeatureFolder("E06-F03-task-recognition-import")
 		if !result.Matched {
@@ -87,7 +87,7 @@ func TestIntegration_LoadActualSharkConfig(t *testing.T) {
 			t.Errorf("Expected slug=task-recognition-import, got %s", result.CaptureGroups["slug"])
 		}
 	})
-	
+
 	t.Run("Special epic patterns work", func(t *testing.T) {
 		result := registry.MatchEpicFolder("tech-debt")
 		if !result.Matched {

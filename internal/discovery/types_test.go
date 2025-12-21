@@ -252,13 +252,13 @@ func TestDiscoveredEpic(t *testing.T) {
 		Source:      SourceMerged,
 		Features: []DiscoveredFeature{
 			{
-				Key:          "E04-F07",
-				EpicKey:      "E04",
-				Title:        "Initialization Sync",
-				Description:  strPtr("Initialization and sync functionality"),
-				FilePath:     strPtr("docs/plan/E04-task-mgmt-cli-core/E04-F07-initialization-sync/prd.md"),
-				RelatedDocs:  []string{"docs/plan/E04-task-mgmt-cli-core/E04-F07-initialization-sync/02-architecture.md"},
-				Source:       SourceMerged,
+				Key:         "E04-F07",
+				EpicKey:     "E04",
+				Title:       "Initialization Sync",
+				Description: strPtr("Initialization and sync functionality"),
+				FilePath:    strPtr("docs/plan/E04-task-mgmt-cli-core/E04-F07-initialization-sync/prd.md"),
+				RelatedDocs: []string{"docs/plan/E04-task-mgmt-cli-core/E04-F07-initialization-sync/02-architecture.md"},
+				Source:      SourceMerged,
 			},
 		},
 	}

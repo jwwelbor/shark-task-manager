@@ -8,11 +8,11 @@ import (
 
 func TestCopyTemplates(t *testing.T) {
 	tests := []struct {
-		name        string
-		force       bool
-		setupFunc   func(string) error
-		wantCount   int // Minimum expected count
-		wantErr     bool
+		name      string
+		force     bool
+		setupFunc func(string) error
+		wantCount int // Minimum expected count
+		wantErr   bool
 	}{
 		{
 			name:      "copies templates to new directory",

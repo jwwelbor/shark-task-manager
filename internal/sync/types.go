@@ -17,11 +17,11 @@ type TaskFileInfo struct {
 // TaskMetadata represents metadata parsed from a task file
 // Used for conflict detection and resolution
 type TaskMetadata struct {
-	Key          string    // Task key (required)
-	Title        string    // Task title (optional in file, conflicts with DB if present)
-	Description  *string   // Task description (optional)
-	FilePath     string    // Actual file path (used for conflict detection)
-	ModifiedAt   time.Time // File modified timestamp (for newer-wins strategy)
+	Key         string    // Task key (required)
+	Title       string    // Task title (optional in file, conflicts with DB if present)
+	Description *string   // Task description (optional)
+	FilePath    string    // Actual file path (used for conflict detection)
+	ModifiedAt  time.Time // File modified timestamp (for newer-wins strategy)
 }
 
 // ConflictStrategy defines how to resolve conflicts between file and database
@@ -94,20 +94,20 @@ const (
 
 // SyncReport contains the results of a sync operation
 type SyncReport struct {
-	DryRun            bool                   `json:"dry_run"`
-	FilesScanned      int                    `json:"files_scanned"`
-	FilesFiltered     int                    `json:"files_filtered"`     // Files processed after incremental filtering
-	FilesSkipped      int                    `json:"files_skipped"`      // Files skipped due to incremental filtering
-	TasksImported     int                    `json:"tasks_imported"`
-	TasksUpdated      int                    `json:"tasks_updated"`
-	TasksDeleted      int                    `json:"tasks_deleted"`
-	ConflictsResolved int                    `json:"conflicts_resolved"`
-	KeysGenerated     int                    `json:"keys_generated"`     // Number of task keys generated for PRP files
-	PatternMatches    map[string]int         `json:"pattern_matches"`    // Count of files matched by each pattern
-	Warnings          []string               `json:"warnings"`
-	Errors            []string               `json:"errors"`
-	Conflicts         []Conflict             `json:"conflicts"`
-	DiscoveryReport   *DiscoveryReport       `json:"discovery_report,omitempty"` // Discovery results if enabled
+	DryRun            bool             `json:"dry_run"`
+	FilesScanned      int              `json:"files_scanned"`
+	FilesFiltered     int              `json:"files_filtered"` // Files processed after incremental filtering
+	FilesSkipped      int              `json:"files_skipped"`  // Files skipped due to incremental filtering
+	TasksImported     int              `json:"tasks_imported"`
+	TasksUpdated      int              `json:"tasks_updated"`
+	TasksDeleted      int              `json:"tasks_deleted"`
+	ConflictsResolved int              `json:"conflicts_resolved"`
+	KeysGenerated     int              `json:"keys_generated"`  // Number of task keys generated for PRP files
+	PatternMatches    map[string]int   `json:"pattern_matches"` // Count of files matched by each pattern
+	Warnings          []string         `json:"warnings"`
+	Errors            []string         `json:"errors"`
+	Conflicts         []Conflict       `json:"conflicts"`
+	DiscoveryReport   *DiscoveryReport `json:"discovery_report,omitempty"` // Discovery results if enabled
 }
 
 // DiscoveryReport contains results from epic-index discovery

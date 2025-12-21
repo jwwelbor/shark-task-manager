@@ -24,25 +24,25 @@ type DocumentRepositoryInterface interface {
 
 // MockDocumentRepository for testing
 type MockDocumentRepository struct {
-	documents           map[int64]*models.Document
-	EpicDocuments       map[int64][]*models.Document
-	FeatureDocuments    map[int64][]*models.Document
-	TaskDocuments       map[int64][]*models.Document
-	nextID              int64
-	CreateOrGetCalls    int
-	GetByIDCalls        int
-	DeleteCalls         int
-	LinkToEpicCalls     int
-	LinkToFeatureCalls  int
-	LinkToTaskCalls     int
-	UnlinkFromEpicCalls int
+	documents              map[int64]*models.Document
+	EpicDocuments          map[int64][]*models.Document
+	FeatureDocuments       map[int64][]*models.Document
+	TaskDocuments          map[int64][]*models.Document
+	nextID                 int64
+	CreateOrGetCalls       int
+	GetByIDCalls           int
+	DeleteCalls            int
+	LinkToEpicCalls        int
+	LinkToFeatureCalls     int
+	LinkToTaskCalls        int
+	UnlinkFromEpicCalls    int
 	UnlinkFromFeatureCalls int
-	UnlinkFromTaskCalls int
-	ListForEpicCalls    int
-	ListForFeatureCalls int
-	ListForTaskCalls    int
-	LastCreateOrGetTitle string
-	LastCreateOrGetPath  string
+	UnlinkFromTaskCalls    int
+	ListForEpicCalls       int
+	ListForFeatureCalls    int
+	ListForTaskCalls       int
+	LastCreateOrGetTitle   string
+	LastCreateOrGetPath    string
 }
 
 // NewMockDocumentRepository creates a new mock

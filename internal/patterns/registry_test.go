@@ -320,7 +320,7 @@ func TestRegistryFirstMatchWins(t *testing.T) {
 			Task: EntityPatterns{
 				File: []string{
 					`^T-E(?P<epic_num>\d{2})-F(?P<feature_num>\d{2})-(?P<number>\d{3}).*\.md$`, // Should match
-					`^(?P<number>\d{3})-(?P<slug>.+)\.md$`,                                       // Should not be evaluated
+					`^(?P<number>\d{3})-(?P<slug>.+)\.md$`,                                     // Should not be evaluated
 				},
 			},
 		}
@@ -345,7 +345,7 @@ func TestRegistryFirstMatchWins(t *testing.T) {
 			Task: EntityPatterns{
 				File: []string{
 					`^T-E(?P<epic_num>\d{2})-F(?P<feature_num>\d{2})-(?P<number>\d{3}).*\.md$`, // Won't match
-					`^(?P<slug>.+)\.prp\.md$`,                                                    // Should match
+					`^(?P<slug>.+)\.prp\.md$`, // Should match
 				},
 			},
 		}

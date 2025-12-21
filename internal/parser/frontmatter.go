@@ -10,16 +10,16 @@ import (
 // Frontmatter represents parsed YAML frontmatter from a task file
 type Frontmatter struct {
 	HasFrontmatter bool
-	TaskKey        string `yaml:"task_key"`
-	Title          string `yaml:"title"`
-	Description    string `yaml:"description"`
-	Status         string `yaml:"status"`
-	Feature        string `yaml:"feature"`
-	AssignedAgent  string `yaml:"assigned_agent"`
-	Priority       int    `yaml:"priority"`
-	BlockedReason  string `yaml:"blocked_reason"`
-	AgentType      string `yaml:"agent_type"`
-	Created        string `yaml:"created"`
+	TaskKey        string   `yaml:"task_key"`
+	Title          string   `yaml:"title"`
+	Description    string   `yaml:"description"`
+	Status         string   `yaml:"status"`
+	Feature        string   `yaml:"feature"`
+	AssignedAgent  string   `yaml:"assigned_agent"`
+	Priority       int      `yaml:"priority"`
+	BlockedReason  string   `yaml:"blocked_reason"`
+	AgentType      string   `yaml:"agent_type"`
+	Created        string   `yaml:"created"`
 	Dependencies   []string `yaml:"dependencies"`
 }
 

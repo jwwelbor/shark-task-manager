@@ -77,9 +77,6 @@ func (r *ConflictResolver) ResolveConflicts(
 				resolved.FilePath = &path
 			}
 		}
-	} else {
-		// Keep database values (already in resolved copy)
-		// No action needed since we copied the database task
 	}
 
 	return resolved, nil

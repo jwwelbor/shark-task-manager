@@ -9,9 +9,9 @@ type Config struct {
 	LastSyncTime *time.Time `json:"last_sync_time,omitempty"`
 
 	// Other config fields (can be extended as needed)
-	ColorEnabled  *bool              `json:"color_enabled,omitempty"`
-	DefaultEpic   *string            `json:"default_epic,omitempty"`
-	DefaultAgent  *string            `json:"default_agent,omitempty"`
-	JSONOutput    *bool              `json:"json_output,omitempty"`
-	RawData       map[string]interface{} `json:"-"` // Store raw config data to preserve unknown fields
+	ColorEnabled *bool                  `json:"color_enabled,omitempty"`
+	DefaultEpic  *string                `json:"default_epic,omitempty"`
+	DefaultAgent *string                `json:"default_agent,omitempty"`
+	JSONOutput   *bool                  `json:"json_output,omitempty"`
+	RawData      map[string]interface{} `json:"-"` // Store raw config data to preserve unknown fields
 }

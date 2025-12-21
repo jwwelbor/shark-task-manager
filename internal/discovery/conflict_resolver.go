@@ -202,10 +202,10 @@ func (r *ConflictResolver) resolveMerge(
 			// Both sources have this feature - merge with index metadata winning
 			merged := DiscoveredFeature{
 				Key:         key,
-				EpicKey:     indexFeature.EpicKey,     // Index wins
-				Title:       indexFeature.Title,       // Index wins
-				Description: indexFeature.Description, // Index wins
-				FilePath:    folderFeature.FilePath,   // Keep folder file path
+				EpicKey:     indexFeature.EpicKey,      // Index wins
+				Title:       indexFeature.Title,        // Index wins
+				Description: indexFeature.Description,  // Index wins
+				FilePath:    folderFeature.FilePath,    // Keep folder file path
 				RelatedDocs: folderFeature.RelatedDocs, // Keep folder related docs
 				Source:      SourceMerged,
 			}

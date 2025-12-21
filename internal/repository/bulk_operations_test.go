@@ -34,7 +34,7 @@ func TestBulkCreate(t *testing.T) {
 			FeatureID:   feature.ID,
 			Key:         "T-E04-F05-100",
 			Title:       "Bulk Test Task 1",
-			Description:  test.StringPtr("First bulk task"),
+			Description: test.StringPtr("First bulk task"),
 			Status:      models.TaskStatusTodo,
 			Priority:    1,
 			FilePath:    test.StringPtr("/path/to/task1.md"),

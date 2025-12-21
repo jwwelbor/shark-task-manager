@@ -29,8 +29,8 @@ func NewIncrementalFilter(taskRepo *repository.TaskRepository) *IncrementalFilte
 
 // FilterOptions contains options for file filtering
 type FilterOptions struct {
-	LastSyncTime   *time.Time // nil triggers full scan
-	ForceFullScan  bool       // Bypass incremental filtering
+	LastSyncTime  *time.Time // nil triggers full scan
+	ForceFullScan bool       // Bypass incremental filtering
 }
 
 // FilterResult contains statistics about the filtering operation

@@ -264,11 +264,11 @@ func TestConfigGetFormatCommand(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name           string
-		entityType     string
-		expectFormat   string
-		expectExample  string
-		jsonOutput     bool
+		name          string
+		entityType    string
+		expectFormat  string
+		expectExample string
+		jsonOutput    bool
 	}{
 		{
 			name:          "Get epic format",

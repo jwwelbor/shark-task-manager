@@ -1,7 +1,8 @@
 // Package filepath provides utilities for resolving task file paths.
 //
 // Task files are organized in a feature-based structure:
-//   docs/plan/{epic-key}/{feature-key}/tasks/{task-key}.md
+//
+//	docs/plan/{epic-key}/{feature-key}/tasks/{task-key}.md
 //
 // Files NEVER move - they stay in their feature folder regardless of status changes.
 // Status is tracked in the database and YAML frontmatter, not folder location.
@@ -27,8 +28,9 @@ var (
 // GetTaskFilePath returns the absolute file path for a task based on its epic, feature, and task key.
 //
 // Example:
-//   GetTaskFilePath("E04-task-mgmt-cli-core", "F05-file-path-management", "T-E04-F05-001")
-//   Returns: /home/user/project/docs/plan/E04-task-mgmt-cli-core/F05-file-path-management/tasks/T-E04-F05-001.md
+//
+//	GetTaskFilePath("E04-task-mgmt-cli-core", "F05-file-path-management", "T-E04-F05-001")
+//	Returns: /home/user/project/docs/plan/E04-task-mgmt-cli-core/F05-file-path-management/tasks/T-E04-F05-001.md
 //
 // The path is deterministic - given the same inputs, it always returns the same path.
 // The file may or may not exist; this function only constructs the path.
@@ -53,8 +55,9 @@ func GetTaskFilePath(epicKey, featureKey, taskKey string) (string, error) {
 // GetTasksDirectory returns the tasks directory path for a feature.
 //
 // Example:
-//   GetTasksDirectory("E04-task-mgmt-cli-core", "F05-file-path-management")
-//   Returns: /home/user/project/docs/plan/E04-task-mgmt-cli-core/F05-file-path-management/tasks
+//
+//	GetTasksDirectory("E04-task-mgmt-cli-core", "F05-file-path-management")
+//	Returns: /home/user/project/docs/plan/E04-task-mgmt-cli-core/F05-file-path-management/tasks
 func GetTasksDirectory(epicKey, featureKey string) (string, error) {
 	root, err := FindProjectRoot()
 	if err != nil {
@@ -140,7 +143,8 @@ func IsValidTaskKey(taskKey string) bool {
 // Returns error if the task key is invalid.
 //
 // Example:
-//   ParseTaskKey("T-E04-F05-001") returns ("E04", "F05", "001", nil)
+//
+//	ParseTaskKey("T-E04-F05-001") returns ("E04", "F05", "001", nil)
 func ParseTaskKey(taskKey string) (epic, feature, sequence string, err error) {
 	matches := taskKeyPattern.FindStringSubmatch(taskKey)
 	if matches == nil {

@@ -440,9 +440,7 @@ func (e *SyncEngine) updateTask(ctx context.Context, tx *sql.Tx, taskData *TaskM
 	}
 
 	// Add conflicts to report
-	for _, conflict := range conflicts {
-		report.Conflicts = append(report.Conflicts, conflict)
-	}
+	report.Conflicts = append(report.Conflicts, conflicts...)
 
 	report.TasksUpdated++
 	report.ConflictsResolved += len(conflicts)

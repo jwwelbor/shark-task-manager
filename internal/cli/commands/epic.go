@@ -792,14 +792,14 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	// Create database entry with key (E##) not full slug
 	epic := &models.Epic{
-		Key:               nextKey,
-		Title:             epicTitle,
-		Description:       &epicCreateDescription,
-		Status:            models.EpicStatusDraft,
-		Priority:          models.PriorityMedium,
-		BusinessValue:     nil,
-		FilePath:          customFilePath,
-		CustomFolderPath:  customFolderPath,
+		Key:              nextKey,
+		Title:            epicTitle,
+		Description:      &epicCreateDescription,
+		Status:           models.EpicStatusDraft,
+		Priority:         models.PriorityMedium,
+		BusinessValue:    nil,
+		FilePath:         customFilePath,
+		CustomFolderPath: customFolderPath,
 	}
 
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -901,7 +901,7 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 	var allTasks []*models.Task
 	totalStatusBreakdown := make(map[models.TaskStatus]int)
 	featureTaskBreakdown := make(map[string]map[models.TaskStatus]int) // feature.Key -> status breakdown
-	featureTaskCounts := make(map[string]int)                            // feature.Key -> total task count
+	featureTaskCounts := make(map[string]int)                          // feature.Key -> total task count
 
 	for _, feature := range features {
 		tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
@@ -1077,13 +1077,13 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		statusBreakdownMap["completed"] = completedCount + completedTaskCount
 
 		result := map[string]interface{}{
-			"epic_key":           epicKey,
-			"feature_count":      len(features),
-			"total_task_count":   len(allTasks),
-			"completed_count":    completedCount + completedTaskCount,
-			"status_breakdown":   statusBreakdownMap,
-			"affected_tasks":     affectedTaskKeys,
-			"force_completed":    force && hasIncomplete,
+			"epic_key":         epicKey,
+			"feature_count":    len(features),
+			"total_task_count": len(allTasks),
+			"completed_count":  completedCount + completedTaskCount,
+			"status_breakdown": statusBreakdownMap,
+			"affected_tasks":   affectedTaskKeys,
+			"force_completed":  force && hasIncomplete,
 		}
 		return cli.OutputJSON(result)
 	}

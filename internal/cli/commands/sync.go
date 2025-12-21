@@ -15,18 +15,18 @@ import (
 )
 
 var (
-	syncFolder           string
-	syncDryRun           bool
-	syncStrategy         string
-	syncCreateMissing    bool
-	syncCleanup          bool
-	syncPatterns         []string
-	syncForceFullScan    bool
-	syncOutput           string
-	syncQuiet            bool
-	syncIndex            bool
+	syncFolder            string
+	syncDryRun            bool
+	syncStrategy          string
+	syncCreateMissing     bool
+	syncCleanup           bool
+	syncPatterns          []string
+	syncForceFullScan     bool
+	syncOutput            string
+	syncQuiet             bool
+	syncIndex             bool
 	syncDiscoveryStrategy string
-	syncValidationLevel  string
+	syncValidationLevel   string
 )
 
 var syncCmd = &cobra.Command{

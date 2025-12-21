@@ -40,13 +40,13 @@ func InitDB(filepath string) (*sql.DB, error) {
 // configureSQLite sets SQLite PRAGMA settings for optimal operation
 func configureSQLite(db *sql.DB) error {
 	pragmas := []string{
-		"PRAGMA foreign_keys = ON;",           // Enable foreign key constraints
-		"PRAGMA journal_mode = WAL;",          // Use Write-Ahead Logging for better concurrency
-		"PRAGMA busy_timeout = 5000;",         // 5 second timeout for locks
-		"PRAGMA synchronous = NORMAL;",        // Balance safety and performance
-		"PRAGMA cache_size = -64000;",         // 64MB cache
-		"PRAGMA temp_store = MEMORY;",         // Store temp tables in memory
-		"PRAGMA mmap_size = 30000000000;",     // Use memory-mapped I/O
+		"PRAGMA foreign_keys = ON;",       // Enable foreign key constraints
+		"PRAGMA journal_mode = WAL;",      // Use Write-Ahead Logging for better concurrency
+		"PRAGMA busy_timeout = 5000;",     // 5 second timeout for locks
+		"PRAGMA synchronous = NORMAL;",    // Balance safety and performance
+		"PRAGMA cache_size = -64000;",     // 64MB cache
+		"PRAGMA temp_store = MEMORY;",     // Store temp tables in memory
+		"PRAGMA mmap_size = 30000000000;", // Use memory-mapped I/O
 	}
 
 	for _, pragma := range pragmas {

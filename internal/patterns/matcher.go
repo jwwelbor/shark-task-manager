@@ -23,8 +23,8 @@ type MatchResult struct {
 
 // PatternMatcher handles pattern matching with first-match-wins semantics
 type PatternMatcher struct {
-	epicFolderPatterns   []*CompiledPattern
-	epicFilePatterns     []*CompiledPattern
+	epicFolderPatterns    []*CompiledPattern
+	epicFilePatterns      []*CompiledPattern
 	featureFolderPatterns []*CompiledPattern
 	featureFilePatterns   []*CompiledPattern
 	taskFolderPatterns    []*CompiledPattern

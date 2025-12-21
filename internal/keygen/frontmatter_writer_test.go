@@ -11,11 +11,11 @@ func TestFrontmatterWriter_WriteTaskKey(t *testing.T) {
 	writer := NewFrontmatterWriter()
 
 	tests := []struct {
-		name          string
+		name           string
 		initialContent string
-		taskKey       string
-		wantContent   string
-		wantErr       bool
+		taskKey        string
+		wantContent    string
+		wantErr        bool
 	}{
 		{
 			name: "add task_key to existing frontmatter",
@@ -161,11 +161,11 @@ func TestFrontmatterWriter_ReadFrontmatter(t *testing.T) {
 	writer := NewFrontmatterWriter()
 
 	tests := []struct {
-		name         string
-		fileContent  string
-		wantTaskKey  string
-		wantHasKey   bool
-		wantErr      bool
+		name        string
+		fileContent string
+		wantTaskKey string
+		wantHasKey  bool
+		wantErr     bool
 	}{
 		{
 			name: "read existing task_key",
