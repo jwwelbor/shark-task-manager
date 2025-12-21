@@ -41,6 +41,8 @@ builds:
     ignore:
       - goos: windows
         goarch: arm64 # Windows ARM64 not commonly used yet
+      - goos: darwin
+        goarch: arm64 # Cannot cross-compile to macOS from Linux; Apple Silicon users can use amd64 + Rosetta 2
 
     # Cross-compilation settings for ARM64 on Linux
     overrides:
