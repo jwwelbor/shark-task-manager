@@ -30,7 +30,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to begin transaction: %v", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Get epic info before deletion
 	var epicID int

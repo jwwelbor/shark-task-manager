@@ -130,14 +130,18 @@ func main() {
 
 	// Mark first task as in progress
 	if len(createdTasks) > 0 && createdTasks[0].Status == models.TaskStatusTodo {
-		taskRepo.UpdateStatus(ctx, createdTasks[0].ID, models.TaskStatusInProgress, &agent, strPtr("Starting implementation"))
+		if err := taskRepo.UpdateStatus(ctx, createdTasks[0].ID, models.TaskStatusInProgress, &agent, strPtr("Starting implementation")); err != nil {
+			log.Fatal("Failed to update task status:", err)
+		}
 		fmt.Printf("   ✓ %s → in_progress\n", createdTasks[0].Key)
 	}
 
 	// Mark first three tasks as completed
 	for i := 0; i < 3 && i < len(createdTasks); i++ {
 		if createdTasks[i].Status != models.TaskStatusCompleted {
-			taskRepo.UpdateStatus(ctx, createdTasks[i].ID, models.TaskStatusCompleted, &agent, strPtr("Implementation complete"))
+			if err := taskRepo.UpdateStatus(ctx, createdTasks[i].ID, models.TaskStatusCompleted, &agent, strPtr("Implementation complete")); err != nil {
+				log.Fatal("Failed to update task status:", err)
+			}
 			fmt.Printf("   ✓ %s → completed\n", createdTasks[i].Key)
 		}
 	}

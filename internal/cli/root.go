@@ -13,11 +13,11 @@ import (
 
 // Config holds the global CLI configuration
 type Config struct {
-	JSON     bool
-	NoColor  bool
-	Verbose  bool
+	JSON       bool
+	NoColor    bool
+	Verbose    bool
 	ConfigFile string
-	DBPath   string
+	DBPath     string
 }
 
 // GlobalConfig is the shared configuration instance
@@ -72,10 +72,18 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&GlobalConfig.DBPath, "db", "shark-tasks.db", "Database file path")
 
 	// Bind flags to viper for config file support
-	viper.BindPFlag("json", RootCmd.PersistentFlags().Lookup("json"))
-	viper.BindPFlag("no-color", RootCmd.PersistentFlags().Lookup("no-color"))
-	viper.BindPFlag("verbose", RootCmd.PersistentFlags().Lookup("verbose"))
-	viper.BindPFlag("db", RootCmd.PersistentFlags().Lookup("db"))
+	if err := viper.BindPFlag("json", RootCmd.PersistentFlags().Lookup("json")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("no-color", RootCmd.PersistentFlags().Lookup("no-color")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("verbose", RootCmd.PersistentFlags().Lookup("verbose")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("db", RootCmd.PersistentFlags().Lookup("db")); err != nil {
+		panic(err)
+	}
 }
 
 // initConfig reads in config file and ENV variables if set
@@ -135,7 +143,9 @@ func OutputTable(headers []string, rows [][]string) {
 		tableData = append(tableData, row)
 	}
 
-	pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
+	if err := pterm.DefaultTable.WithHasHeader().WithData(tableData).Render(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to render table: %v\n", err)
+	}
 }
 
 // Success prints a success message

@@ -197,13 +197,21 @@ func TestValidateFilePath(t *testing.T) {
 	tasksDir := filepath.Join(tmpDir, "docs", "tasks")
 	templatesDir := filepath.Join(tmpDir, "shark-templates")
 
-	os.MkdirAll(planDir, 0755)
-	os.MkdirAll(tasksDir, 0755)
-	os.MkdirAll(templatesDir, 0755)
+	if err := os.MkdirAll(planDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+	if err := os.MkdirAll(tasksDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
 
 	// Create a file outside allowed directories
 	outsideDir := filepath.Join(tmpDir, "outside")
-	os.MkdirAll(outsideDir, 0755)
+	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
 
 	tests := []struct {
 		name     string
@@ -268,7 +276,9 @@ func TestValidateFileSize(t *testing.T) {
 	// Create a small file (< 1MB)
 	smallFile := filepath.Join(tmpDir, "small.md")
 	smallContent := []byte("# Small file\n\nContent here")
-	os.WriteFile(smallFile, smallContent, 0644)
+	if err := os.WriteFile(smallFile, smallContent, 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
 
 	// Create a large file (> 1MB)
 	largeFile := filepath.Join(tmpDir, "large.md")
@@ -276,7 +286,9 @@ func TestValidateFileSize(t *testing.T) {
 	for i := range largeContent {
 		largeContent[i] = 'a'
 	}
-	os.WriteFile(largeFile, largeContent, 0644)
+	if err := os.WriteFile(largeFile, largeContent, 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
 
 	tests := []struct {
 		name     string
@@ -317,16 +329,22 @@ func TestValidateFileIsRegular(t *testing.T) {
 
 	// Create a regular file
 	regularFile := filepath.Join(tmpDir, "regular.md")
-	os.WriteFile(regularFile, []byte("content"), 0644)
+	if err := os.WriteFile(regularFile, []byte("content"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
 
 	// Create a directory
 	dirPath := filepath.Join(tmpDir, "directory")
-	os.Mkdir(dirPath, 0755)
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
 
 	// Create a symlink (only on Unix systems)
 	symlinkPath := filepath.Join(tmpDir, "symlink.md")
 	targetPath := filepath.Join(tmpDir, "target.md")
-	os.WriteFile(targetPath, []byte("target"), 0644)
+	if err := os.WriteFile(targetPath, []byte("target"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
 	_ = os.Symlink(targetPath, symlinkPath) // Ignore error on Windows
 
 	tests := []struct {
@@ -446,7 +464,9 @@ func TestScan_SingleFile(t *testing.T) {
 	// Create a single task file
 	taskFile := filepath.Join(tmpDir, "T-E04-F07-001.md")
 	content := []byte("---\nkey: T-E04-F07-001\ntitle: Test Task\n---\n")
-	os.WriteFile(taskFile, content, 0644)
+	if err := os.WriteFile(taskFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
 
 	// Get file mod time for comparison
 	info, _ := os.Stat(taskFile)
@@ -493,17 +513,19 @@ func TestScan_IgnoresNonTaskFiles(t *testing.T) {
 
 	// Create various files, only one is a valid task file
 	files := []string{
-		"T-E04-F07-001.md",      // Valid - should be found
-		"README.md",              // Invalid - not a task file
-		"notes.txt",              // Invalid - wrong extension
-		"T-E04-F07-001.txt",      // Invalid - wrong extension
-		"E04-F07-001.md",         // Invalid - missing T prefix
-		".hidden.md",             // Invalid - hidden file
+		"T-E04-F07-001.md",  // Valid - should be found
+		"README.md",         // Invalid - not a task file
+		"notes.txt",         // Invalid - wrong extension
+		"T-E04-F07-001.txt", // Invalid - wrong extension
+		"E04-F07-001.md",    // Invalid - missing T prefix
+		".hidden.md",        // Invalid - hidden file
 	}
 
 	for _, file := range files {
 		path := filepath.Join(tmpDir, file)
-		os.WriteFile(path, []byte("content"), 0644)
+		if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to write file: %v", err)
+		}
 	}
 
 	scanner := NewFileScanner()
@@ -527,19 +549,29 @@ func TestScan_RecursiveTraversal(t *testing.T) {
 
 	// Create nested directory structure
 	planDir := filepath.Join(tmpDir, "docs", "plan", "E04-epic", "E04-F07-feature")
-	os.MkdirAll(planDir, 0755)
+	if err := os.MkdirAll(planDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
 
 	tasksDir := filepath.Join(tmpDir, "docs", "tasks", "todo")
-	os.MkdirAll(tasksDir, 0755)
+	if err := os.MkdirAll(tasksDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
 
 	// Create task files in different locations
 	file1 := filepath.Join(planDir, "T-E04-F07-001.md")
 	file2 := filepath.Join(planDir, "T-E04-F07-002.md")
 	file3 := filepath.Join(tasksDir, "T-E01-F01-001.md")
 
-	os.WriteFile(file1, []byte("task 1"), 0644)
-	os.WriteFile(file2, []byte("task 2"), 0644)
-	os.WriteFile(file3, []byte("task 3"), 0644)
+	if err := os.WriteFile(file1, []byte("task 1"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+	if err := os.WriteFile(file2, []byte("task 2"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+	if err := os.WriteFile(file3, []byte("task 3"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
 
 	scanner := NewFileScanner()
 	results, err := scanner.Scan(tmpDir)
@@ -575,11 +607,15 @@ func TestScan_RejectsOversizedFiles(t *testing.T) {
 	for i := range largeContent {
 		largeContent[i] = 'a'
 	}
-	os.WriteFile(largeFile, largeContent, 0644)
+	if err := os.WriteFile(largeFile, largeContent, 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
 
 	// Create a normal-sized file
 	normalFile := filepath.Join(tmpDir, "T-E04-F07-002.md")
-	os.WriteFile(normalFile, []byte("normal content"), 0644)
+	if err := os.WriteFile(normalFile, []byte("normal content"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
 
 	scanner := NewFileScanner()
 	results, err := scanner.Scan(tmpDir)

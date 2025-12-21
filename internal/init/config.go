@@ -26,7 +26,9 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 			// Prompt user (in interactive mode)
 			fmt.Printf("Config file already exists at %s. Overwrite? (y/N): ", configPath)
 			var response string
-			fmt.Scanln(&response)
+			if _, err := fmt.Scanln(&response); err != nil {
+				return false, fmt.Errorf("failed to read user input: %w", err)
+			}
 			if response != "y" && response != "Y" {
 				return false, nil
 			}

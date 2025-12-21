@@ -12,7 +12,9 @@ func MigrateAddExecutionOrder(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Add execution_order to features table
 	_, err = tx.Exec(`ALTER TABLE features ADD COLUMN execution_order INTEGER NULL;`)
@@ -45,14 +47,18 @@ func MigrateRemoveAgentTypeConstraint(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to disable foreign keys: %w", err)
 	}
-	defer db.Exec("PRAGMA foreign_keys = ON;")
+	defer func() {
+		_, _ = db.Exec("PRAGMA foreign_keys = ON;")
+	}()
 
 	// Start transaction
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Step 1: Rename old table
 	_, err = tx.Exec(`ALTER TABLE tasks RENAME TO tasks_old;`)

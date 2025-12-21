@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // ANSI color codes
@@ -230,6 +233,6 @@ func formatErrorTypeName(errorType string) string {
 	case "file_access_error":
 		return "File Access Errors"
 	default:
-		return strings.Title(strings.ReplaceAll(errorType, "_", " "))
+		return cases.Title(language.English).String(strings.ReplaceAll(errorType, "_", " "))
 	}
 }

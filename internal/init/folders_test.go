@@ -8,17 +8,17 @@ import (
 
 func TestCreateFolders(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupFunc      func(string) error
-		wantFolders    []string
-		wantErr        bool
-		expectedPerms  os.FileMode
+		name          string
+		setupFunc     func(string) error
+		wantFolders   []string
+		wantErr       bool
+		expectedPerms os.FileMode
 	}{
 		{
-			name:        "creates all folders successfully",
-			setupFunc:   nil,
-			wantFolders: []string{"docs/plan", "shark-templates"},
-			wantErr:     false,
+			name:          "creates all folders successfully",
+			setupFunc:     nil,
+			wantFolders:   []string{"docs/plan", "shark-templates"},
+			wantErr:       false,
 			expectedPerms: 0755,
 		},
 		{
@@ -37,10 +37,10 @@ func TestCreateFolders(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:        "creates nested folders",
-			setupFunc:   nil,
-			wantFolders: []string{"docs/plan", "shark-templates"},
-			wantErr:     false,
+			name:          "creates nested folders",
+			setupFunc:     nil,
+			wantFolders:   []string{"docs/plan", "shark-templates"},
+			wantErr:       false,
 			expectedPerms: 0755,
 		},
 	}
@@ -53,7 +53,9 @@ func TestCreateFolders(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to get working directory: %v", err)
 			}
-			defer os.Chdir(originalDir)
+			defer func() {
+				_ = os.Chdir(originalDir)
+			}()
 
 			if err := os.Chdir(tempDir); err != nil {
 				t.Fatalf("Failed to change to temp directory: %v", err)
@@ -113,7 +115,11 @@ func TestCreateFoldersInvalidPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalDir)
+	defer func() {
+
+		_ = os.Chdir(originalDir)
+
+	}()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
@@ -141,7 +147,11 @@ func TestCreateFoldersAbsolutePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalDir)
+	defer func() {
+
+		_ = os.Chdir(originalDir)
+
+	}()
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
