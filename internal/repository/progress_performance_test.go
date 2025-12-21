@@ -64,13 +64,13 @@ func TestEpicProgressPerformance(t *testing.T) {
 		models.TaskStatusCompleted,
 		models.TaskStatusTodo,
 	})
-	featureRepo.UpdateProgress(ctx, feature1ID)
+	_ = featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Create second feature with 1 completed task using setupProgressTest helper
 	_, feature2ID := setupProgressTest(t, 84, 2, []models.TaskStatus{
 		models.TaskStatusCompleted,
 	})
-	featureRepo.UpdateProgress(ctx, feature2ID)
+	_ = featureRepo.UpdateProgress(ctx, feature2ID)
 
 	// Get the SQL query plan for epic progress
 	query := `
@@ -168,11 +168,11 @@ func BenchmarkEpicProgress(b *testing.B) {
 		`, epicID, featureKey, fmt.Sprintf("Benchmark Feature %d", f))
 		featureID, _ := result.LastInsertId()
 		if featureID == 0 {
-			database.QueryRow("SELECT id FROM features WHERE key = ?", featureKey).Scan(&featureID)
+			_ = database.QueryRow("SELECT id FROM features WHERE key = ?", featureKey).Scan(&featureID)
 		}
 
 		// Delete and recreate tasks for this feature
-		database.Exec("DELETE FROM tasks WHERE feature_id = ?", featureID)
+		_, _ = database.Exec("DELETE FROM tasks WHERE feature_id = ?", featureID)
 
 		// Create 10 tasks (5 completed, 5 todo)
 		for t := 1; t <= 10; t++ {
@@ -180,13 +180,13 @@ func BenchmarkEpicProgress(b *testing.B) {
 			if t <= 5 {
 				status = models.TaskStatusCompleted
 			}
-			database.Exec(`
+			_, _ = database.Exec(`
 				INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 				VALUES (?, ?, ?, ?, 'testing', 1, '[]')
 			`, featureID, fmt.Sprintf("%s-T%03d", featureKey, t), fmt.Sprintf("Task %d", t), status)
 		}
 
-		featureRepo.UpdateProgress(ctx, featureID)
+		_ = featureRepo.UpdateProgress(ctx, featureID)
 	}
 
 	b.ResetTimer()
