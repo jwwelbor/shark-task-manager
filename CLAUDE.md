@@ -382,6 +382,66 @@ Refer to `docs/CLI_REFERENCE.md` for detailed examples, `docs/MIGRATION_CUSTOM_P
 
 ---
 
+## Task & Feature Creation Standards
+
+### Creating Tasks for Development Work
+
+**All development tasks MUST be created through shark** following this workflow:
+
+1. **Create Feature** (if new feature area):
+   ```bash
+   ./bin/shark feature create --epic=E07 "Feature Title" --execution-order=1
+   ```
+
+2. **Create Tasks** in the feature:
+   ```bash
+   ./bin/shark task create --epic=E07 --feature=F01 "Task Title" --priority=5
+   ```
+
+3. **Update task file** at `docs/plan/{epic}/{feature}/tasks/{task-key}.md`:
+   - Add implementation details to task frontmatter
+   - Include specification, acceptance criteria, test plan
+   - Link related documents using `related-docs:` frontmatter field
+   - Example:
+     ```yaml
+     ---
+     task_key: T-E07-F06-001
+     status: todo
+     feature: /path/to/feature
+     priority: 5
+     dependencies: []
+     related-docs:
+       - path/to/design-doc.md
+       - path/to/specification.md
+     ---
+     ```
+
+4. **Generate related documentation** separately:
+   - Design documents go in `docs/plan/{epic}/{feature}/`
+   - Implementation guides go in `docs/plan/{epic}/{feature}/implementation/`
+   - Link these in task `related-docs:` field
+
+5. **DO NOT** create standalone documentation files unless they're referenced in shark tasks
+
+### Task Status & Lifecycle
+
+Tasks flow through these states:
+- **todo**: Created but not started
+- **in_progress**: Work has begun
+- **ready_for_review**: Implementation complete, awaiting approval
+- **completed**: Approved and merged
+- **blocked**: Waiting on external dependency
+
+Update status with:
+```bash
+./bin/shark task start <task-key>
+./bin/shark task complete <task-key>
+./bin/shark task approve <task-key>
+./bin/shark task block <task-key> --reason="..."
+```
+
+---
+
 ## Common Development Tasks
 
 ### Adding a New CLI Command
