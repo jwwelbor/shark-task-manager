@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // createDatabase creates database schema if it doesn't exist

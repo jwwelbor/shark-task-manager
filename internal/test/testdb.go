@@ -11,9 +11,9 @@ import (
 )
 
 var (
-	testDB   *sql.DB
-	dbOnce   sync.Once
-	dbPath   string
+	testDB *sql.DB
+	dbOnce sync.Once
+	dbPath string
 )
 
 // init determines the test database path

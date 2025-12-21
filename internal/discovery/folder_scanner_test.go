@@ -13,15 +13,15 @@ import (
 
 func TestFolderScanner_Scan(t *testing.T) {
 	tests := []struct {
-		name              string
-		setupFunc         func(t *testing.T) string // Returns temp dir path
-		patternOverrides  *patterns.PatternConfig
-		expectedEpics     int
-		expectedFeatures  int
-		expectedStats     ScanStats
-		validateEpics     func(t *testing.T, epics []FolderEpic)
-		validateFeatures  func(t *testing.T, features []FolderFeature)
-		shouldError       bool
+		name             string
+		setupFunc        func(t *testing.T) string // Returns temp dir path
+		patternOverrides *patterns.PatternConfig
+		expectedEpics    int
+		expectedFeatures int
+		expectedStats    ScanStats
+		validateEpics    func(t *testing.T, epics []FolderEpic)
+		validateFeatures func(t *testing.T, features []FolderFeature)
+		shouldError      bool
 	}{
 		{
 			name: "scan standard E##-epic-slug folders",
@@ -313,10 +313,10 @@ func TestFolderScanner_MatchEpicFolder(t *testing.T) {
 	scanner := NewFolderScanner()
 
 	tests := []struct {
-		name       string
-		folderName string
-		shouldMatch bool
-		expectedKey string
+		name         string
+		folderName   string
+		shouldMatch  bool
+		expectedKey  string
 		expectedSlug string
 	}{
 		{
@@ -372,13 +372,13 @@ func TestFolderScanner_MatchFeatureFolder(t *testing.T) {
 	scanner := NewFolderScanner()
 
 	tests := []struct {
-		name           string
-		folderName     string
-		epicFolderName string
-		shouldMatch    bool
-		expectedKey    string
+		name            string
+		folderName      string
+		epicFolderName  string
+		shouldMatch     bool
+		expectedKey     string
 		expectedEpicKey string
-		expectedSlug   string
+		expectedSlug    string
 	}{
 		{
 			name:            "match standard E##-F##-slug format",

@@ -8,10 +8,10 @@ import (
 
 // Path validation error types
 var (
-	ErrAbsolutePath      = fmt.Errorf("path must be relative to project root")
-	ErrPathTraversal     = fmt.Errorf("path contains '..' (path traversal not allowed)")
+	ErrAbsolutePath       = fmt.Errorf("path must be relative to project root")
+	ErrPathTraversal      = fmt.Errorf("path contains '..' (path traversal not allowed)")
 	ErrPathOutsideProject = fmt.Errorf("resolves outside project root")
-	ErrEmptyPath         = fmt.Errorf("path is empty or whitespace only")
+	ErrEmptyPath          = fmt.Errorf("path is empty or whitespace only")
 )
 
 // ValidateFolderPath validates a custom folder path for security and correctness.

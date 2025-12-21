@@ -109,8 +109,8 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	now := time.Now().UTC()
 
 	// Determine file path based on custom filename or default
-	var filePath string        // Relative path for database
-	var fullFilePath string    // Absolute path for file operations
+	var filePath string     // Relative path for database
+	var fullFilePath string // Absolute path for file operations
 	var fileExists bool
 
 	if input.Filename != "" {

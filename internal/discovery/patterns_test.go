@@ -13,10 +13,10 @@ func TestPatternMatcher_MatchEpicPattern(t *testing.T) {
 	matcher := NewPatternMatcher(config)
 
 	tests := []struct {
-		name        string
-		input       string
-		shouldMatch bool
-		expectedKey string
+		name         string
+		input        string
+		shouldMatch  bool
+		expectedKey  string
 		expectedSlug string
 	}{
 		{

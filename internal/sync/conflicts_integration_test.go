@@ -10,9 +10,9 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // TestConcurrentFileAndDatabaseChanges tests the complete scenario where:

@@ -207,8 +207,8 @@ func TestStateTransitionLogic(t *testing.T) {
 	}
 
 	tests := []struct {
-		from   models.TaskStatus
-		to     models.TaskStatus
+		from    models.TaskStatus
+		to      models.TaskStatus
 		isValid bool
 	}{
 		// Valid transitions
@@ -346,9 +346,9 @@ func TestJSONDependencyFormat(t *testing.T) {
 // TestAgentIdentification tests the agent identifier logic
 func TestAgentIdentification(t *testing.T) {
 	tests := []struct {
-		name        string
-		flagValue   string
-		expectedID  string
+		name       string
+		flagValue  string
+		expectedID string
 	}{
 		{
 			name:       "flag_provided",

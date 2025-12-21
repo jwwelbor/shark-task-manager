@@ -61,7 +61,7 @@ var taskGetCmd = &cobra.Command{
 	Short: "Get task details",
 	Long:  `Display detailed information about a specific task.`,
 	Args:  cobra.ExactArgs(1),
-	RunE: runTaskGet,
+	RunE:  runTaskGet,
 }
 
 // taskCreateCmd creates a new task

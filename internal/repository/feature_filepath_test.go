@@ -20,7 +20,7 @@ func TestFeatureRepository_GetByFilePath(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
 	epicKey := fmt.Sprintf("E%s", suffix)
 	featureKey := fmt.Sprintf("E%s-F01", suffix)
 
@@ -90,7 +90,7 @@ func TestFeatureRepository_UpdateFilePath(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
 	epicKey := fmt.Sprintf("E%s", suffix)
 	featureKey := fmt.Sprintf("E%s-F01", suffix)
 
@@ -147,7 +147,7 @@ func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
 	epicKey := fmt.Sprintf("E%s", suffix)
 	featureKey := fmt.Sprintf("E%s-F01", suffix)
 
@@ -225,7 +225,7 @@ func TestFeatureRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
 	epicKey := fmt.Sprintf("E%s", suffix)
 	featureKey1 := fmt.Sprintf("E%s-F01", suffix)
 	featureKey2 := fmt.Sprintf("E%s-F02", suffix)

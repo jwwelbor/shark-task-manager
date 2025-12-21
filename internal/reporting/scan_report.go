@@ -6,12 +6,12 @@ import (
 
 // ScanReport represents a comprehensive scan report
 type ScanReport struct {
-	SchemaVersion string            `json:"schema_version"`
-	Status        string            `json:"status"`
-	DryRun        bool              `json:"dry_run"`
-	Metadata      ScanMetadata      `json:"metadata"`
-	Counts        ScanCounts        `json:"counts"`
-	Entities      EntityBreakdown   `json:"entities"`
+	SchemaVersion string             `json:"schema_version"`
+	Status        string             `json:"status"`
+	DryRun        bool               `json:"dry_run"`
+	Metadata      ScanMetadata       `json:"metadata"`
+	Counts        ScanCounts         `json:"counts"`
+	Entities      EntityBreakdown    `json:"entities"`
 	SkippedFiles  []SkippedFileEntry `json:"skipped_files,omitempty"`
 	Errors        []SkippedFileEntry `json:"errors,omitempty"`
 	Warnings      []SkippedFileEntry `json:"warnings,omitempty"`
@@ -49,11 +49,11 @@ type EntityCounts struct {
 
 // SkippedFileEntry represents a file that was skipped during scanning
 type SkippedFileEntry struct {
-	FilePath     string  `json:"file_path"`
-	Reason       string  `json:"reason"`
-	SuggestedFix string  `json:"suggested_fix"`
-	ErrorType    string  `json:"error_type"`
-	LineNumber   *int    `json:"line_number,omitempty"`
+	FilePath     string `json:"file_path"`
+	Reason       string `json:"reason"`
+	SuggestedFix string `json:"suggested_fix"`
+	ErrorType    string `json:"error_type"`
+	LineNumber   *int   `json:"line_number,omitempty"`
 }
 
 // NewScanReport creates a new ScanReport with initialized fields

@@ -7,14 +7,14 @@ import (
 
 func TestParseFrontmatter(t *testing.T) {
 	tests := []struct {
-		name          string
-		content       string
-		wantTitle     string
-		wantDesc      string
-		wantTaskKey   string
-		wantStatus    string
-		wantErr       bool
-		wantHasFM     bool
+		name        string
+		content     string
+		wantTitle   string
+		wantDesc    string
+		wantTaskKey string
+		wantStatus  string
+		wantErr     bool
+		wantHasFM   bool
 	}{
 		{
 			name: "valid frontmatter with all fields",

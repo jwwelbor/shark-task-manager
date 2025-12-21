@@ -70,11 +70,11 @@ func TestScanReport_AddSkipped(t *testing.T) {
 	// Arrange
 	report := NewScanReport()
 	entry := SkippedFileEntry{
-		FilePath:      "/path/to/file.md",
-		Reason:        "Pattern mismatch",
-		SuggestedFix:  "Rename to match pattern",
-		ErrorType:     "pattern_mismatch",
-		LineNumber:    nil,
+		FilePath:     "/path/to/file.md",
+		Reason:       "Pattern mismatch",
+		SuggestedFix: "Rename to match pattern",
+		ErrorType:    "pattern_mismatch",
+		LineNumber:   nil,
 	}
 
 	// Act
@@ -100,11 +100,11 @@ func TestScanReport_AddError(t *testing.T) {
 	report := NewScanReport()
 	lineNum := 5
 	entry := SkippedFileEntry{
-		FilePath:      "/path/to/error.md",
-		Reason:        "Parse error",
-		SuggestedFix:  "Fix YAML syntax",
-		ErrorType:     "parse_error",
-		LineNumber:    &lineNum,
+		FilePath:     "/path/to/error.md",
+		Reason:       "Parse error",
+		SuggestedFix: "Fix YAML syntax",
+		ErrorType:    "parse_error",
+		LineNumber:   &lineNum,
 	}
 
 	// Act
@@ -128,11 +128,11 @@ func TestScanReport_AddWarning(t *testing.T) {
 	// Arrange
 	report := NewScanReport()
 	entry := SkippedFileEntry{
-		FilePath:      "/path/to/warning.md",
-		Reason:        "Missing optional metadata",
-		SuggestedFix:  "Add description field",
-		ErrorType:     "validation_warning",
-		LineNumber:    nil,
+		FilePath:     "/path/to/warning.md",
+		Reason:       "Missing optional metadata",
+		SuggestedFix: "Add description field",
+		ErrorType:    "validation_warning",
+		LineNumber:   nil,
 	}
 
 	// Act

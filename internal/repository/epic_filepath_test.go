@@ -19,7 +19,7 @@ func TestEpicRepository_GetByFilePath(t *testing.T) {
 	repo := NewEpicRepository(db)
 
 	// Create unique epic key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
 	epicKey := fmt.Sprintf("E%s", suffix)
 
 	// Clean up any existing data
@@ -117,7 +117,7 @@ func TestEpicRepository_UpdateFilePath_Clear(t *testing.T) {
 	repo := NewEpicRepository(db)
 
 	// Create unique epic key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
 	epicKey := fmt.Sprintf("E%s", suffix)
 
 	// Clean up any existing data
@@ -180,9 +180,9 @@ func TestEpicRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	repo := NewEpicRepository(db)
 
 	// Create unique epic key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano()) % 1000 / 10)
+	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
 	epicKey1 := fmt.Sprintf("E%s", suffix)
-	suffix2 := fmt.Sprintf("%02d", ((time.Now().UnixNano()) % 1000 / 10)+1)
+	suffix2 := fmt.Sprintf("%02d", ((time.Now().UnixNano())%1000/10)+1)
 	epicKey2 := fmt.Sprintf("E%s", suffix2)
 
 	// Clean up any existing data

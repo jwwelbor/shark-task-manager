@@ -17,7 +17,7 @@ func TestFormatEpicListJSON(t *testing.T) {
 		validate func(t *testing.T, output string)
 	}{
 		{
-			name: "empty list",
+			name:  "empty list",
 			epics: []*EpicWithProgress{},
 			validate: func(t *testing.T, output string) {
 				var result struct {

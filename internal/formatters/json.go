@@ -39,8 +39,8 @@ type EpicGetResponse struct {
 // FeatureGetResponse represents the JSON structure for feature get output
 type FeatureGetResponse struct {
 	*models.Feature
-	Tasks           []*models.Task             `json:"tasks"`
-	StatusBreakdown map[models.TaskStatus]int  `json:"status_breakdown"`
+	Tasks           []*models.Task            `json:"tasks"`
+	StatusBreakdown map[models.TaskStatus]int `json:"status_breakdown"`
 }
 
 // FormatEpicListJSON formats a list of epics as JSON

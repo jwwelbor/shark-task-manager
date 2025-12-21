@@ -8,7 +8,7 @@ import "github.com/jwwelbor/shark-task-manager/internal/models"
 type TaskFormatter interface {
 	// FormatTask formats a single task
 	FormatTask(task *models.Task) (string, error)
-	
+
 	// FormatTaskList formats a list of tasks
 	FormatTaskList(tasks []*models.Task) (string, error)
 }

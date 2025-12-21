@@ -218,7 +218,11 @@ func TestScanHandlesPermissionErrors(t *testing.T) {
 	if err := os.Mkdir(noReadDir, 0000); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
-	defer os.Chmod(noReadDir, 0755) // Restore permissions for cleanup
+	defer func() {
+		if err := os.Chmod(noReadDir, 0755); err != nil {
+			t.Logf("Warning: Failed to restore permissions for cleanup: %v", err)
+		}
+	}()
 
 	// Create a task file in the restricted directory
 	if err := os.Chmod(noReadDir, 0755); err != nil {

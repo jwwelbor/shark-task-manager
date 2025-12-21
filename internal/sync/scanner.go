@@ -145,7 +145,7 @@ func (s *FileScanner) inferEpicFeature(filePath string) (string, string, error) 
 	// Pattern: E##-F##-* or E##-P##-F##-* (e.g., E04-F07-initialization-sync or E09-P02-F01-character-management)
 	// Captures: [1]=E##, [2]=-P## (optional), [3]=F##
 	if matches := s.featurePattern.FindStringSubmatch(parentDir); len(matches) >= 4 {
-		epicKey := matches[1]   // E##
+		epicKey := matches[1]    // E##
 		projectNum := matches[2] // -P## or empty string
 		featureNum := matches[3] // F##
 
@@ -184,7 +184,7 @@ func (s *FileScanner) extractKeyFromFilename(filename string) (string, string) {
 		return "", ""
 	}
 
-	epicKey := matches[1]                   // E##
+	epicKey := matches[1]                       // E##
 	featureKey := matches[1] + "-" + matches[2] // E##-F##
 
 	return epicKey, featureKey

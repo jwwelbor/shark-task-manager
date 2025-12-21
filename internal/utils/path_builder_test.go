@@ -10,12 +10,12 @@ func TestPathBuilder_ResolveEpicPath(t *testing.T) {
 	pb := NewPathBuilder(projectRoot)
 
 	tests := []struct {
-		name               string
-		epicKey            string
-		filename           *string
-		customFolderPath   *string
-		wantPath           string
-		wantErr            bool
+		name             string
+		epicKey          string
+		filename         *string
+		customFolderPath *string
+		wantPath         string
+		wantErr          bool
 	}{
 		{
 			name:             "default path",
@@ -88,74 +88,74 @@ func TestPathBuilder_ResolveFeaturePath(t *testing.T) {
 	pb := NewPathBuilder(projectRoot)
 
 	tests := []struct {
-		name                string
-		epicKey             string
-		featureKey          string
-		filename            *string
-		featureCustomPath   *string
-		epicCustomPath      *string
-		wantPath            string
-		wantErr             bool
+		name              string
+		epicKey           string
+		featureKey        string
+		filename          *string
+		featureCustomPath *string
+		epicCustomPath    *string
+		wantPath          string
+		wantErr           bool
 	}{
 		{
-			name:               "default path",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			filename:           nil,
-			featureCustomPath:  nil,
-			epicCustomPath:     nil,
-			wantPath:           filepath.Join(projectRoot, "docs", "plan", "E01", "F01", "feature.md"),
-			wantErr:            false,
+			name:              "default path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			filename:          nil,
+			featureCustomPath: nil,
+			epicCustomPath:    nil,
+			wantPath:          filepath.Join(projectRoot, "docs", "plan", "E01", "F01", "feature.md"),
+			wantErr:           false,
 		},
 		{
-			name:               "inherit epic custom path",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			filename:           nil,
-			featureCustomPath:  nil,
-			epicCustomPath:     strPtr("docs/custom"),
-			wantPath:           filepath.Join(projectRoot, "docs", "custom", "E01", "F01", "feature.md"),
-			wantErr:            false,
+			name:              "inherit epic custom path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			filename:          nil,
+			featureCustomPath: nil,
+			epicCustomPath:    strPtr("docs/custom"),
+			wantPath:          filepath.Join(projectRoot, "docs", "custom", "E01", "F01", "feature.md"),
+			wantErr:           false,
 		},
 		{
-			name:               "feature custom path overrides epic",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			filename:           nil,
-			featureCustomPath:  strPtr("docs/feature-custom"),
-			epicCustomPath:     strPtr("docs/epic-custom"),
-			wantPath:           filepath.Join(projectRoot, "docs", "feature-custom", "F01", "feature.md"),
-			wantErr:            false,
+			name:              "feature custom path overrides epic",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			filename:          nil,
+			featureCustomPath: strPtr("docs/feature-custom"),
+			epicCustomPath:    strPtr("docs/epic-custom"),
+			wantPath:          filepath.Join(projectRoot, "docs", "feature-custom", "F01", "feature.md"),
+			wantErr:           false,
 		},
 		{
-			name:               "filename overrides all paths",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			filename:           strPtr("docs/override.md"),
-			featureCustomPath:  strPtr("docs/feature-custom"),
-			epicCustomPath:     strPtr("docs/epic-custom"),
-			wantPath:           "docs/override.md",
-			wantErr:            false,
+			name:              "filename overrides all paths",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			filename:          strPtr("docs/override.md"),
+			featureCustomPath: strPtr("docs/feature-custom"),
+			epicCustomPath:    strPtr("docs/epic-custom"),
+			wantPath:          "docs/override.md",
+			wantErr:           false,
 		},
 		{
-			name:               "feature custom path with multiple levels",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			filename:           nil,
-			featureCustomPath:  strPtr("docs/roadmap/2025-q1/modules/auth"),
-			epicCustomPath:     nil,
-			wantPath:           filepath.Join(projectRoot, "docs", "roadmap", "2025-q1", "modules", "auth", "F01", "feature.md"),
-			wantErr:            false,
+			name:              "feature custom path with multiple levels",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			filename:          nil,
+			featureCustomPath: strPtr("docs/roadmap/2025-q1/modules/auth"),
+			epicCustomPath:    nil,
+			wantPath:          filepath.Join(projectRoot, "docs", "roadmap", "2025-q1", "modules", "auth", "F01", "feature.md"),
+			wantErr:           false,
 		},
 		{
-			name:               "empty feature custom path uses epic path",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			filename:           nil,
-			featureCustomPath:  strPtr(""),
-			epicCustomPath:     strPtr("docs/epic-custom"),
-			wantPath:           filepath.Join(projectRoot, "docs", "epic-custom", "E01", "F01", "feature.md"),
-			wantErr:            false,
+			name:              "empty feature custom path uses epic path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			filename:          nil,
+			featureCustomPath: strPtr(""),
+			epicCustomPath:    strPtr("docs/epic-custom"),
+			wantPath:          filepath.Join(projectRoot, "docs", "epic-custom", "E01", "F01", "feature.md"),
+			wantErr:           false,
 		},
 	}
 
@@ -180,81 +180,81 @@ func TestPathBuilder_ResolveTaskPath(t *testing.T) {
 	pb := NewPathBuilder(projectRoot)
 
 	tests := []struct {
-		name               string
-		epicKey            string
-		featureKey         string
-		taskKey            string
-		filename           *string
-		featureCustomPath  *string
-		epicCustomPath     *string
-		wantPath           string
-		wantErr            bool
+		name              string
+		epicKey           string
+		featureKey        string
+		taskKey           string
+		filename          *string
+		featureCustomPath *string
+		epicCustomPath    *string
+		wantPath          string
+		wantErr           bool
 	}{
 		{
-			name:               "default path",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			taskKey:            "T-E01-F01-001",
-			filename:           nil,
-			featureCustomPath:  nil,
-			epicCustomPath:     nil,
-			wantPath:           filepath.Join(projectRoot, "docs", "plan", "E01", "F01", "tasks", "T-E01-F01-001.md"),
-			wantErr:            false,
+			name:              "default path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			taskKey:           "T-E01-F01-001",
+			filename:          nil,
+			featureCustomPath: nil,
+			epicCustomPath:    nil,
+			wantPath:          filepath.Join(projectRoot, "docs", "plan", "E01", "F01", "tasks", "T-E01-F01-001.md"),
+			wantErr:           false,
 		},
 		{
-			name:               "inherit epic custom path",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			taskKey:            "T-E01-F01-001",
-			filename:           nil,
-			featureCustomPath:  nil,
-			epicCustomPath:     strPtr("docs/custom"),
-			wantPath:           filepath.Join(projectRoot, "docs", "custom", "E01", "F01", "tasks", "T-E01-F01-001.md"),
-			wantErr:            false,
+			name:              "inherit epic custom path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			taskKey:           "T-E01-F01-001",
+			filename:          nil,
+			featureCustomPath: nil,
+			epicCustomPath:    strPtr("docs/custom"),
+			wantPath:          filepath.Join(projectRoot, "docs", "custom", "E01", "F01", "tasks", "T-E01-F01-001.md"),
+			wantErr:           false,
 		},
 		{
-			name:               "inherit feature custom path",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			taskKey:            "T-E01-F01-001",
-			filename:           nil,
-			featureCustomPath:  strPtr("docs/feature-custom"),
-			epicCustomPath:     strPtr("docs/epic-custom"),
-			wantPath:           filepath.Join(projectRoot, "docs", "feature-custom", "F01", "tasks", "T-E01-F01-001.md"),
-			wantErr:            false,
+			name:              "inherit feature custom path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			taskKey:           "T-E01-F01-001",
+			filename:          nil,
+			featureCustomPath: strPtr("docs/feature-custom"),
+			epicCustomPath:    strPtr("docs/epic-custom"),
+			wantPath:          filepath.Join(projectRoot, "docs", "feature-custom", "F01", "tasks", "T-E01-F01-001.md"),
+			wantErr:           false,
 		},
 		{
-			name:               "filename overrides all paths",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			taskKey:            "T-E01-F01-001",
-			filename:           strPtr("docs/investigation.md"),
-			featureCustomPath:  strPtr("docs/feature-custom"),
-			epicCustomPath:     strPtr("docs/epic-custom"),
-			wantPath:           "docs/investigation.md",
-			wantErr:            false,
+			name:              "filename overrides all paths",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			taskKey:           "T-E01-F01-001",
+			filename:          strPtr("docs/investigation.md"),
+			featureCustomPath: strPtr("docs/feature-custom"),
+			epicCustomPath:    strPtr("docs/epic-custom"),
+			wantPath:          "docs/investigation.md",
+			wantErr:           false,
 		},
 		{
-			name:               "feature path overrides epic path",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			taskKey:            "T-E01-F01-001",
-			filename:           nil,
-			featureCustomPath:  strPtr("docs/feature-custom"),
-			epicCustomPath:     strPtr("docs/epic-custom"),
-			wantPath:           filepath.Join(projectRoot, "docs", "feature-custom", "F01", "tasks", "T-E01-F01-001.md"),
-			wantErr:            false,
+			name:              "feature path overrides epic path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			taskKey:           "T-E01-F01-001",
+			filename:          nil,
+			featureCustomPath: strPtr("docs/feature-custom"),
+			epicCustomPath:    strPtr("docs/epic-custom"),
+			wantPath:          filepath.Join(projectRoot, "docs", "feature-custom", "F01", "tasks", "T-E01-F01-001.md"),
+			wantErr:           false,
 		},
 		{
-			name:               "empty feature custom path uses epic path",
-			epicKey:            "E01",
-			featureKey:         "F01",
-			taskKey:            "T-E01-F01-001",
-			filename:           nil,
-			featureCustomPath:  strPtr(""),
-			epicCustomPath:     strPtr("docs/epic-custom"),
-			wantPath:           filepath.Join(projectRoot, "docs", "epic-custom", "E01", "F01", "tasks", "T-E01-F01-001.md"),
-			wantErr:            false,
+			name:              "empty feature custom path uses epic path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			taskKey:           "T-E01-F01-001",
+			filename:          nil,
+			featureCustomPath: strPtr(""),
+			epicCustomPath:    strPtr("docs/epic-custom"),
+			wantPath:          filepath.Join(projectRoot, "docs", "epic-custom", "E01", "F01", "tasks", "T-E01-F01-001.md"),
+			wantErr:           false,
 		},
 	}
 

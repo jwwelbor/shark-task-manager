@@ -12,10 +12,10 @@ import (
 // TestValidateCustomFilename_ValidPaths tests successful validation of valid paths
 func TestValidateCustomFilename_ValidPaths(t *testing.T) {
 	tests := []struct {
-		name         string
-		filename     string
-		projectRoot  string
-		expectAbsEnd string // Expected end of absolute path (platform-agnostic)
+		name          string
+		filename      string
+		projectRoot   string
+		expectAbsEnd  string // Expected end of absolute path (platform-agnostic)
 		expectRelPath string
 	}{
 		{

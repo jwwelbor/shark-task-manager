@@ -52,11 +52,6 @@ func (kg *KeyGenerator) GenerateKeyForFile(ctx context.Context, filePath string)
 		return "", err
 	}
 
-	// Log warning if key wasn't written to file
-	if result.Error != nil {
-		// Warning logged by caller
-	}
-
 	return result.TaskKey, nil
 }
 

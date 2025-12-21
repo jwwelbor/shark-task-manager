@@ -9,10 +9,10 @@ import (
 
 func TestExtractTitleFromFilename(t *testing.T) {
 	tests := []struct {
-		name           string
-		filename       string
-		patternMatch   *patterns.MatchResult
-		wantTitle      string
+		name         string
+		filename     string
+		patternMatch *patterns.MatchResult
+		wantTitle    string
 	}{
 		{
 			name:     "standard format with slug",
@@ -192,8 +192,8 @@ Content here.`,
 
 func TestExtractDescriptionFromMarkdown(t *testing.T) {
 	tests := []struct {
-		name    string
-		content string
+		name     string
+		content  string
 		wantDesc string
 	}{
 		{

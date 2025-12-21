@@ -220,11 +220,11 @@ func TestUpdateLastSyncTime_PreservesExistingFields(t *testing.T) {
 
 	// Create config with multiple fields
 	configData := map[string]interface{}{
-		"color_enabled":  true,
-		"default_epic":   "E01",
-		"default_agent":  "backend",
-		"json_output":    false,
-		"custom_field":   "custom_value",
+		"color_enabled": true,
+		"default_epic":  "E01",
+		"default_agent": "backend",
+		"json_output":   false,
+		"custom_field":  "custom_value",
 	}
 
 	data, err := json.MarshalIndent(configData, "", "  ")
