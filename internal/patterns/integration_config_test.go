@@ -1,13 +1,19 @@
 package patterns
 
 import (
+	"os"
 	"testing"
 )
 
 // TestIntegration_LoadActualSharkConfig tests loading the actual .sharkconfig.json from the project root
 func TestIntegration_LoadActualSharkConfig(t *testing.T) {
-	configPath := "/home/jwwelbor/projects/shark-task-manager/.sharkconfig.json"
-	
+	configPath := ".sharkconfig.json"
+
+	// Skip test if config file doesn't exist (common in CI without project root)
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Skipf("Config file %s not found, skipping integration test", configPath)
+	}
+
 	// Load registry from actual config
 	registry, err := LoadPatternRegistryFromFile(configPath, false)
 	if err != nil {
