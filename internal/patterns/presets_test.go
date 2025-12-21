@@ -53,7 +53,7 @@ func TestGetPresetInfo(t *testing.T) {
 				if info == nil {
 					t.Errorf("Expected preset info, got nil")
 				}
-				if info.Name != tt.presetName {
+				if info != nil && info.Name != tt.presetName {
 					t.Errorf("Expected name '%s', got '%s'", tt.presetName, info.Name)
 				}
 				if info.Description == "" {

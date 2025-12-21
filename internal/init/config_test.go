@@ -9,12 +9,12 @@ import (
 
 func TestCreateConfig(t *testing.T) {
 	tests := []struct {
-		name          string
-		opts          InitOptions
-		setupFunc     func(string) error
-		wantCreated   bool
-		wantErr       bool
-		userInput     string
+		name        string
+		opts        InitOptions
+		setupFunc   func(string) error
+		wantCreated bool
+		wantErr     bool
+		userInput   string
 	}{
 		{
 			name: "creates new config file",
@@ -67,7 +67,9 @@ func TestCreateConfig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to get working directory: %v", err)
 			}
-			defer os.Chdir(originalDir)
+			defer func() {
+				_ = os.Chdir(originalDir)
+			}()
 
 			if err := os.Chdir(tempDir); err != nil {
 				t.Fatalf("Failed to change to temp directory: %v", err)
@@ -225,7 +227,9 @@ func TestCreateConfigValidJSON(t *testing.T) {
 
 	// Verify required fields exist
 	var actual map[string]interface{}
-	json.Unmarshal(data, &actual)
+	if err := json.Unmarshal(data, &actual); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
 
 	requiredFields := []string{"default_epic", "default_agent", "color_enabled", "json_output"}
 	for _, field := range requiredFields {

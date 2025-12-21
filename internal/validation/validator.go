@@ -39,10 +39,10 @@ func (v *Validator) Validate(ctx context.Context) (*ValidationResult, error) {
 		BrokenFilePaths: []ValidationFailure{},
 		OrphanedRecords: []ValidationFailure{},
 		Summary: ValidationSummary{
-			TotalChecked:     0,
-			TotalIssues:      0,
-			BrokenFilePaths:  0,
-			OrphanedRecords:  0,
+			TotalChecked:    0,
+			TotalIssues:     0,
+			BrokenFilePaths: 0,
+			OrphanedRecords: 0,
 		},
 	}
 
@@ -95,11 +95,11 @@ func (v *Validator) validateTaskFilePaths(tasks []*models.Task, result *Validati
 		// Check if file exists
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			result.BrokenFilePaths = append(result.BrokenFilePaths, ValidationFailure{
-				EntityType:  "task",
-				EntityKey:   task.Key,
-				FilePath:    filePath,
-				Issue:       "File does not exist (may have been moved or deleted)",
-				SuggestedFix: fmt.Sprintf("Re-scan to update file paths: 'shark sync --incremental' or update path manually in database"),
+				EntityType:   "task",
+				EntityKey:    task.Key,
+				FilePath:     filePath,
+				Issue:        "File does not exist (may have been moved or deleted)",
+				SuggestedFix: "Re-scan to update file paths: 'shark sync --incremental' or update path manually in database",
 			})
 		}
 	}
@@ -112,12 +112,12 @@ func (v *Validator) validateFeatureRelationships(ctx context.Context, features [
 		_, err := v.repo.GetEpicByID(ctx, feature.EpicID)
 		if err == sql.ErrNoRows {
 			result.OrphanedRecords = append(result.OrphanedRecords, ValidationFailure{
-				EntityType:      "feature",
-				EntityKey:       feature.Key,
+				EntityType:        "feature",
+				EntityKey:         feature.Key,
 				MissingParentType: "epic",
 				MissingParentID:   feature.EpicID,
-				Issue:           fmt.Sprintf("Orphaned feature: parent epic with ID %d does not exist", feature.EpicID),
-				SuggestedFix:    fmt.Sprintf("Create missing parent epic or delete orphaned feature: 'shark feature delete %s'", feature.Key),
+				Issue:             fmt.Sprintf("Orphaned feature: parent epic with ID %d does not exist", feature.EpicID),
+				SuggestedFix:      fmt.Sprintf("Create missing parent epic or delete orphaned feature: 'shark feature delete %s'", feature.Key),
 			})
 		} else if err != nil {
 			// Log error but continue validation
@@ -133,12 +133,12 @@ func (v *Validator) validateTaskRelationships(ctx context.Context, tasks []*mode
 		_, err := v.repo.GetFeatureByID(ctx, task.FeatureID)
 		if err == sql.ErrNoRows {
 			result.OrphanedRecords = append(result.OrphanedRecords, ValidationFailure{
-				EntityType:      "task",
-				EntityKey:       task.Key,
+				EntityType:        "task",
+				EntityKey:         task.Key,
 				MissingParentType: "feature",
 				MissingParentID:   task.FeatureID,
-				Issue:           fmt.Sprintf("Orphaned task: parent feature with ID %d does not exist", task.FeatureID),
-				SuggestedFix:    fmt.Sprintf("Create missing parent feature or delete orphaned task: 'shark task delete %s'", task.Key),
+				Issue:             fmt.Sprintf("Orphaned task: parent feature with ID %d does not exist", task.FeatureID),
+				SuggestedFix:      fmt.Sprintf("Create missing parent feature or delete orphaned task: 'shark task delete %s'", task.Key),
 			})
 		} else if err != nil {
 			// Log error but continue validation

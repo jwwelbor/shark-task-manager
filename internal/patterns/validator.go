@@ -238,9 +238,8 @@ func validateRequiredCaptureGroups(groups []string, entityType, pattern string) 
 			if !groupSet["feature_id"] && !groupSet["feature_num"] && !groupSet["feature_slug"] {
 				// If we only have generic 'number' or 'slug', make sure the pattern is specific enough
 				// This is a secondary check to catch obviously wrong patterns
-				if groupSet["number"] || groupSet["slug"] {
-					// Allow it - assumes parent context provides epic and generic capture group identifies feature
-				}
+				// Allow it - assumes parent context provides epic and generic capture group identifies feature
+				_ = groupSet["number"] || groupSet["slug"]
 			}
 		}
 
@@ -287,11 +286,7 @@ func hasCatastrophicBacktracking(pattern string) bool {
 
 	// Check for patterns like (...)+ or (...)* where ... contains + or *
 	nestedQuantifierPattern := regexp.MustCompile(`\([^)]*[+*][^)]*\)[+*]`)
-	if nestedQuantifierPattern.MatchString(simplified) {
-		return true
-	}
-
-	return false
+	return nestedQuantifierPattern.MatchString(simplified)
 }
 
 // findSimilarNames finds similar names to suggest as alternatives

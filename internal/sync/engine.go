@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/keygen"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -532,48 +531,4 @@ func parseTaskKey(taskKey string) (string, string, error) {
 	}
 
 	return epicKey, featureKey, nil
-}
-
-// extractTitleFromFilename extracts title from filename
-// Expected formats:
-// - "T-E04-F07-001-repository-extensions.md" -> "Repository Extensions"
-// - "T-E04-F07-001.md" -> "" (no descriptive part)
-func extractTitleFromFilename(filePath string) string {
-	// Get base filename without path
-	parts := strings.Split(filePath, "/")
-	filename := parts[len(parts)-1]
-
-	// Remove .md extension
-	filename = strings.TrimSuffix(filename, ".md")
-
-	// Expected pattern: T-E##-F##-###-descriptive-name
-	// Task key is 13 characters (T-E04-F07-001), descriptive part starts at position 14 with a hyphen
-	if len(filename) > 14 && filename[13] == '-' {
-		descriptive := filename[14:]
-		// Convert hyphens to spaces and title-case
-		descriptive = strings.ReplaceAll(descriptive, "-", " ")
-		return strings.Title(descriptive)
-	}
-
-	return ""
-}
-
-// extractTitleFromMarkdown extracts the title from the first H1 heading
-// Expected formats:
-// - "# Task: Title Text" -> "Title Text"
-// - "# Title Text" -> "Title Text"
-// - "# PRP: Title Text" -> "Title Text"
-func extractTitleFromMarkdown(content string) string {
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "# ") {
-			title := strings.TrimPrefix(line, "# ")
-			// Remove common prefixes
-			title = strings.TrimPrefix(title, "Task: ")
-			title = strings.TrimPrefix(title, "PRP: ")
-			return strings.TrimSpace(title)
-		}
-	}
-	return ""
 }

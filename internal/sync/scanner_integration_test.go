@@ -215,14 +215,22 @@ func TestScanHandlesPermissionErrors(t *testing.T) {
 
 	// Create a directory with no read permissions
 	noReadDir := filepath.Join(tmpDir, "no-read")
-	os.Mkdir(noReadDir, 0000)
+	if err := os.Mkdir(noReadDir, 0000); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
 	defer os.Chmod(noReadDir, 0755) // Restore permissions for cleanup
 
 	// Create a task file in the restricted directory
-	os.Chmod(noReadDir, 0755) // Temporarily allow write
+	if err := os.Chmod(noReadDir, 0755); err != nil {
+		t.Fatalf("Failed to chmod: %v", err)
+	}
 	taskFile := filepath.Join(noReadDir, "T-E04-F07-001.md")
-	os.WriteFile(taskFile, []byte("content"), 0644)
-	os.Chmod(noReadDir, 0000) // Remove permissions
+	if err := os.WriteFile(taskFile, []byte("content"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+	if err := os.Chmod(noReadDir, 0000); err != nil {
+		t.Fatalf("Failed to chmod: %v", err)
+	}
 
 	scanner := NewFileScanner()
 	files, err := scanner.Scan(tmpDir)
@@ -246,7 +254,9 @@ func TestScanWithNestedSubdirectories(t *testing.T) {
 
 	// Create a deeply nested structure
 	nestedDir := filepath.Join(tmpDir, "docs", "plan", "E04-epic", "E04-F07-feature", "tasks", "active")
-	os.MkdirAll(nestedDir, 0755)
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
 
 	// Create task files at various levels
 	files := []struct {
@@ -272,7 +282,9 @@ func TestScanWithNestedSubdirectories(t *testing.T) {
 	}
 
 	for _, f := range files {
-		os.WriteFile(f.path, []byte("content"), 0644)
+		if err := os.WriteFile(f.path, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to write file: %v", err)
+		}
 	}
 
 	scanner := NewFileScanner()
