@@ -22,10 +22,6 @@ builds:
       - -s -w # Strip debug symbols to reduce binary size
       - -X main.Version={{.Version}} # Inject version from git tag
 
-    # Environment variables for build
-    env:
-      - CGO_ENABLED=1 # Enable CGO for go-sqlite3 support
-
     # Build for multiple platforms
     goos:
       - linux
@@ -41,8 +37,6 @@ builds:
     ignore:
       - goos: windows
         goarch: arm64 # Windows ARM64 not commonly used yet
-      - goos: darwin
-        goarch: arm64 # Cannot cross-compile to macOS from Linux; Apple Silicon users can use amd64 + Rosetta 2
 
     # Cross-compilation settings
     overrides:
