@@ -155,12 +155,34 @@ func TestLinkToFeature(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	docRepo := NewDocumentRepository(db)
+	epicRepo := NewEpicRepository(db)
 	featureRepo := NewFeatureRepository(db)
 
-	_, featureID := test.SeedTestData()
-	feature, err := featureRepo.GetByID(ctx, featureID)
+	// Create or get test epic
+	testEpic := &models.Epic{
+		Key:         "E76",
+		Title:       "Test Link Feature",
+		Description: test.StringPtr("Test"),
+		Status:      "active",
+		Priority:    "high",
+	}
+	var err error
+	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
 	if err != nil {
-		t.Fatalf("GetByID failed: %v", err)
+		t.Fatalf("Failed to create test epic: %v", err)
+	}
+
+	// Create or get feature (handles duplicate key case)
+	feature := &models.Feature{
+		EpicID:      testEpic.ID,
+		Key:         "E76-F01",
+		Title:       "Test Feature",
+		Description: test.StringPtr("Test"),
+		Status:      "active",
+	}
+	feature, _, err = featureRepo.CreateIfNotExists(ctx, feature)
+	if err != nil {
+		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
 	doc, err := docRepo.CreateOrGet(ctx, "Feature Doc", "docs/feature.md")
@@ -267,12 +289,34 @@ func TestUnlinkFromFeature(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	docRepo := NewDocumentRepository(db)
+	epicRepo := NewEpicRepository(db)
 	featureRepo := NewFeatureRepository(db)
 
-	_, featureID := test.SeedTestData()
-	feature, err := featureRepo.GetByID(ctx, featureID)
+	// Create or get test epic
+	testEpic := &models.Epic{
+		Key:         "E77",
+		Title:       "Test Unlink Feature",
+		Description: test.StringPtr("Test"),
+		Status:      "active",
+		Priority:    "high",
+	}
+	var err error
+	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
 	if err != nil {
-		t.Fatalf("GetByID failed: %v", err)
+		t.Fatalf("Failed to create test epic: %v", err)
+	}
+
+	// Create or get feature (handles duplicate key case)
+	feature := &models.Feature{
+		EpicID:      testEpic.ID,
+		Key:         "E77-F01",
+		Title:       "Test Feature",
+		Description: test.StringPtr("Test"),
+		Status:      "active",
+	}
+	feature, _, err = featureRepo.CreateIfNotExists(ctx, feature)
+	if err != nil {
+		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
 	doc, err := docRepo.CreateOrGet(ctx, "Unlink Feature Doc", "docs/unlink-f.md")
@@ -306,7 +350,7 @@ func TestUnlinkFromTask(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 	taskRepo := NewTaskRepository(db)
 
-	// Create a unique test epic and feature and task
+	// Create or get a unique test epic and feature and task
 	testEpic := &models.Epic{
 		Key:         "E72",
 		Title:       "Test Unlink Task",
@@ -314,7 +358,9 @@ func TestUnlinkFromTask(t *testing.T) {
 		Status:      "active",
 		Priority:    "high",
 	}
-	if err := epicRepo.Create(ctx, testEpic); err != nil {
+	var err error
+	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
+	if err != nil {
 		t.Fatalf("Failed to create test epic: %v", err)
 	}
 
@@ -325,7 +371,8 @@ func TestUnlinkFromTask(t *testing.T) {
 		Description: test.StringPtr("Test"),
 		Status:      "active",
 	}
-	if err := featureRepo.Create(ctx, testFeature); err != nil {
+	testFeature, _, err = featureRepo.CreateIfNotExists(ctx, testFeature)
+	if err != nil {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
@@ -411,7 +458,7 @@ func TestListForFeature(t *testing.T) {
 	epicRepo := NewEpicRepository(db)
 	featureRepo := NewFeatureRepository(db)
 
-	// Create or get test epic (handles duplicate key case in test reruns)
+	// Create or get test epic and feature (handles duplicate key case in test reruns)
 	testEpic := &models.Epic{
 		Key:         "E74",
 		Title:       "Test List Feature",
@@ -432,7 +479,8 @@ func TestListForFeature(t *testing.T) {
 		Description: test.StringPtr("Test"),
 		Status:      "active",
 	}
-	if err := featureRepo.Create(ctx, testFeature); err != nil {
+	testFeature, _, err = featureRepo.CreateIfNotExists(ctx, testFeature)
+	if err != nil {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
@@ -465,7 +513,7 @@ func TestListForTask(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 	taskRepo := NewTaskRepository(db)
 
-	// Create a unique test epic, feature, and task
+	// Create or get a unique test epic, feature, and task
 	testEpic := &models.Epic{
 		Key:         "E75",
 		Title:       "Test List Task",
@@ -473,7 +521,9 @@ func TestListForTask(t *testing.T) {
 		Status:      "active",
 		Priority:    "high",
 	}
-	if err := epicRepo.Create(ctx, testEpic); err != nil {
+	var err error
+	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
+	if err != nil {
 		t.Fatalf("Failed to create test epic: %v", err)
 	}
 
@@ -484,7 +534,8 @@ func TestListForTask(t *testing.T) {
 		Description: test.StringPtr("Test"),
 		Status:      "active",
 	}
-	if err := featureRepo.Create(ctx, testFeature); err != nil {
+	testFeature, _, err = featureRepo.CreateIfNotExists(ctx, testFeature)
+	if err != nil {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
