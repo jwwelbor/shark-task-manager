@@ -24,7 +24,7 @@ builds:
 
     # Environment variables for build
     env:
-      - CGO_ENABLED=0 # Disable CGO for static binaries
+      - CGO_ENABLED=1 # Enable CGO for go-sqlite3 support
 
     # Build for multiple platforms
     # Covers Linux (amd64, arm64), macOS (amd64, arm64), Windows (amd64)
