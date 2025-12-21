@@ -69,7 +69,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
