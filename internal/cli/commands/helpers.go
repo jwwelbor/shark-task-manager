@@ -49,6 +49,95 @@ func ParseFeatureKey(s string) (epic, feature string, err error) {
 	return epic, feature, nil
 }
 
+// ParseFeatureListArgs parses positional arguments for feature list command
+// Returns (epicKey, nil) if valid, or (nil, error) if invalid
+// Handles 0 or 1 positional arguments
+func ParseFeatureListArgs(args []string) (*string, error) {
+	if len(args) == 0 {
+		// No filter
+		return nil, nil
+	}
+
+	if len(args) > 1 {
+		return nil, fmt.Errorf("too many positional arguments: feature list accepts at most 1 positional argument (got %d). Use --help for syntax examples", len(args))
+	}
+
+	// Check if first arg is a valid epic key
+	epicKey := args[0]
+	if !IsEpicKey(epicKey) {
+		return nil, fmt.Errorf("invalid epic key format: %q (expected E##, e.g., E04). Use --help for syntax examples", epicKey)
+	}
+
+	return &epicKey, nil
+}
+
+// ParseTaskListArgs parses positional arguments for task list command
+// Supports 0-2 arguments with multiple syntaxes:
+// - No args: list all tasks
+// - 1 arg (E##): filter by epic
+// - 1 arg (E##-F##): filter by epic and feature
+// - 2 args (E## and F## or E##-F##): filter by epic and feature
+// Returns (epicKey, featureKey, nil) on success, or (nil, nil, error) on failure
+func ParseTaskListArgs(args []string) (*string, *string, error) {
+	if len(args) == 0 {
+		// No filter
+		return nil, nil, nil
+	}
+
+	if len(args) > 2 {
+		return nil, nil, fmt.Errorf("too many positional arguments: task list accepts at most 2 positional arguments (got %d). Use --help for syntax examples", len(args))
+	}
+
+	// Single argument case
+	if len(args) == 1 {
+		arg := args[0]
+
+		// Check if it's a combined feature key (E##-F##)
+		if IsFeatureKey(arg) {
+			epic, feature, err := ParseFeatureKey(arg)
+			if err != nil {
+				return nil, nil, fmt.Errorf("invalid feature key format: %q (expected E##-F##, e.g., E04-F01). Use --help for syntax examples", arg)
+			}
+			return &epic, &feature, nil
+		}
+
+		// Check if it's just an epic key (E##)
+		if IsEpicKey(arg) {
+			return &arg, nil, nil
+		}
+
+		// Invalid format
+		return nil, nil, fmt.Errorf("invalid key format: %q (expected E## or E##-F##, e.g., E04 or E04-F01). Use --help for syntax examples", arg)
+	}
+
+	// Two argument case
+	arg1 := args[0]
+	arg2 := args[1]
+
+	// First argument must be an epic key
+	if !IsEpicKey(arg1) {
+		return nil, nil, fmt.Errorf("invalid epic key format: %q (expected E##, e.g., E04). Use --help for syntax examples", arg1)
+	}
+
+	// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
+	if IsFeatureKeySuffix(arg2) {
+		// Just feature suffix - arg2 is already F##
+		return &arg1, &arg2, nil
+	}
+
+	if IsFeatureKey(arg2) {
+		// Full feature key - extract the feature suffix
+		_, featureSuffix, err := ParseFeatureKey(arg2)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid feature key format: %q (expected F## or E##-F##). Use --help for syntax examples", arg2)
+		}
+		return &arg1, &featureSuffix, nil
+	}
+
+	// Invalid feature format
+	return nil, nil, fmt.Errorf("invalid feature key format: %q (expected F## or E##-F##, e.g., F01 or E04-F01). Use --help for syntax examples", arg2)
+}
+
 // Deprecated: Use IsEpicKey instead
 // isValidEpicKey validates epic key format (E##)
 func isValidEpicKey(key string) bool {

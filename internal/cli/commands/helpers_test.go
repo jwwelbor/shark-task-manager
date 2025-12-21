@@ -264,3 +264,124 @@ func BenchmarkParseFeatureKey(b *testing.B) {
 		ParseFeatureKey("E04-F01")
 	}
 }
+
+// TestParseFeatureListArgs tests the ParseFeatureListArgs parsing function
+func TestParseFeatureListArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantKey *string
+		wantErr bool
+	}{
+		// No args - list all
+		{"No args", []string{}, nil, false},
+
+		// Valid single epic arg
+		{"Valid epic E04", []string{"E04"}, strPtr("E04"), false},
+		{"Valid epic E01", []string{"E01"}, strPtr("E01"), false},
+		{"Valid epic E99", []string{"E99"}, strPtr("E99"), false},
+
+		// Invalid formats
+		{"Invalid E1", []string{"E1"}, nil, true},
+		{"Invalid e04", []string{"e04"}, nil, true},
+		{"Invalid feature key", []string{"E04-F01"}, nil, true},
+		{"Invalid F01", []string{"F01"}, nil, true},
+
+		// Too many args
+		{"Two args", []string{"E04", "F01"}, nil, true},
+		{"Three args", []string{"E04", "F01", "extra"}, nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotKey, err := ParseFeatureListArgs(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseFeatureListArgs(%v) error = %v, wantErr %v", tt.args, err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if (gotKey == nil) != (tt.wantKey == nil) {
+				t.Errorf("ParseFeatureListArgs(%v) = %v, want %v", tt.args, gotKey, tt.wantKey)
+				return
+			}
+			if gotKey != nil && tt.wantKey != nil && *gotKey != *tt.wantKey {
+				t.Errorf("ParseFeatureListArgs(%v) = %q, want %q", tt.args, *gotKey, *tt.wantKey)
+			}
+		})
+	}
+}
+
+// TestParseTaskListArgs tests the ParseTaskListArgs parsing function
+func TestParseTaskListArgs(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantEpic    *string
+		wantFeature *string
+		wantErr     bool
+	}{
+		// No args - list all
+		{"No args", []string{}, nil, nil, false},
+
+		// Single epic arg
+		{"Single epic E04", []string{"E04"}, strPtr("E04"), nil, false},
+		{"Single epic E01", []string{"E01"}, strPtr("E01"), nil, false},
+
+		// Single combined feature key
+		{"Combined E04-F01", []string{"E04-F01"}, strPtr("E04"), strPtr("F01"), false},
+		{"Combined E01-F99", []string{"E01-F99"}, strPtr("E01"), strPtr("F99"), false},
+
+		// Two args - epic and feature suffix
+		{"Two args E04 F01", []string{"E04", "F01"}, strPtr("E04"), strPtr("F01"), false},
+		{"Two args E01 F99", []string{"E01", "F99"}, strPtr("E01"), strPtr("F99"), false},
+
+		// Two args - epic and full feature key
+		{"Two args E04 E04-F01", []string{"E04", "E04-F01"}, strPtr("E04"), strPtr("F01"), false},
+		{"Two args E01 E01-F99", []string{"E01", "E01-F99"}, strPtr("E01"), strPtr("F99"), false},
+
+		// Invalid formats
+		{"Invalid E1", []string{"E1"}, nil, nil, true},
+		{"Invalid e04", []string{"e04"}, nil, nil, true},
+		{"Invalid F01 only", []string{"F01"}, nil, nil, true},
+		{"Invalid two E04 F", []string{"E04", "F"}, nil, nil, true},
+		{"Invalid two E E04-F01", []string{"E", "E04-F01"}, nil, nil, true},
+
+		// Too many args
+		{"Three args", []string{"E04", "F01", "extra"}, nil, nil, true},
+		{"Four args", []string{"E04", "F01", "extra", "more"}, nil, nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotEpic, gotFeature, err := ParseTaskListArgs(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseTaskListArgs(%v) error = %v, wantErr %v", tt.args, err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if (gotEpic == nil) != (tt.wantEpic == nil) {
+				t.Errorf("ParseTaskListArgs(%v) epic = %v, want %v", tt.args, gotEpic, tt.wantEpic)
+				return
+			}
+			if gotEpic != nil && tt.wantEpic != nil && *gotEpic != *tt.wantEpic {
+				t.Errorf("ParseTaskListArgs(%v) epic = %q, want %q", tt.args, *gotEpic, *tt.wantEpic)
+			}
+			if (gotFeature == nil) != (tt.wantFeature == nil) {
+				t.Errorf("ParseTaskListArgs(%v) feature = %v, want %v", tt.args, gotFeature, tt.wantFeature)
+				return
+			}
+			if gotFeature != nil && tt.wantFeature != nil && *gotFeature != *tt.wantFeature {
+				t.Errorf("ParseTaskListArgs(%v) feature = %q, want %q", tt.args, *gotFeature, *tt.wantFeature)
+			}
+		})
+	}
+}
+
+// Helper function to create string pointers for test comparisons
+func strPtr(s string) *string {
+	return &s
+}
