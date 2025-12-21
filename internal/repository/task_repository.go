@@ -473,7 +473,7 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Get current task state
 	var currentStatus string
@@ -554,7 +554,7 @@ func (r *TaskRepository) BlockTaskForced(ctx context.Context, taskID int64, reas
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Get current task state
 	var currentStatus string
@@ -612,7 +612,7 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Get current task state
 	var currentStatus string
@@ -669,7 +669,7 @@ func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, age
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Get current task state
 	var currentStatus string
@@ -796,7 +796,7 @@ func (r *TaskRepository) BulkCreate(ctx context.Context, tasks []*models.Task) (
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Prepare statement for efficiency
 	query := `

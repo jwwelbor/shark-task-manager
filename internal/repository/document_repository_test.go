@@ -267,7 +267,7 @@ func TestUnlinkFromEpic(t *testing.T) {
 		t.Fatalf("CreateOrGet failed: %v", err)
 	}
 
-	docRepo.LinkToEpic(ctx, testEpic.ID, doc.ID)
+	_ = docRepo.LinkToEpic(ctx, testEpic.ID, doc.ID)
 
 	err = docRepo.UnlinkFromEpic(ctx, testEpic.ID, doc.ID)
 	if err != nil {
@@ -324,7 +324,7 @@ func TestUnlinkFromFeature(t *testing.T) {
 		t.Fatalf("CreateOrGet failed: %v", err)
 	}
 
-	docRepo.LinkToFeature(ctx, feature.ID, doc.ID)
+	_ = docRepo.LinkToFeature(ctx, feature.ID, doc.ID)
 
 	err = docRepo.UnlinkFromFeature(ctx, feature.ID, doc.ID)
 	if err != nil {
@@ -392,7 +392,7 @@ func TestUnlinkFromTask(t *testing.T) {
 		t.Fatalf("CreateOrGet failed: %v", err)
 	}
 
-	docRepo.LinkToTask(ctx, testTask.ID, doc.ID)
+	_ = docRepo.LinkToTask(ctx, testTask.ID, doc.ID)
 
 	err = docRepo.UnlinkFromTask(ctx, testTask.ID, doc.ID)
 	if err != nil {
@@ -582,7 +582,7 @@ func TestDocumentReuseSameTitlePath(t *testing.T) {
 
 	// Link same document to different parents (via CreateOrGet)
 	doc1, _ := docRepo.CreateOrGet(ctx, "SharedDoc", "docs/shared.md")
-	docRepo.LinkToEpic(ctx, epic.ID, doc1.ID)
+	_ = docRepo.LinkToEpic(ctx, epic.ID, doc1.ID)
 
 	doc2, _ := docRepo.CreateOrGet(ctx, "SharedDoc", "docs/shared.md")
 	if doc1.ID != doc2.ID {

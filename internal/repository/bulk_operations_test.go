@@ -26,7 +26,7 @@ func TestBulkCreate(t *testing.T) {
 	}
 
 	// Delete any existing test tasks first (for test isolation)
-	database.Exec("DELETE FROM tasks WHERE key IN ('T-E04-F05-100', 'T-E04-F05-101', 'T-E04-F05-102')")
+	_, _ = database.Exec("DELETE FROM tasks WHERE key IN ('T-E04-F05-100', 'T-E04-F05-101', 'T-E04-F05-102')")
 
 	// Create tasks for bulk insert
 	tasks := []*models.Task{
@@ -463,7 +463,7 @@ func TestBulkCreatePerformance(t *testing.T) {
 	feature, _ := featureRepo.GetByKey(ctx, "E04-F05")
 
 	// Clean up any existing performance test tasks
-	database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E04-F05-2%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E04-F05-2%'")
 
 	// Create 100 tasks
 	tasks := make([]*models.Task, 100)
@@ -523,7 +523,7 @@ func TestGetByKeysPerformance(t *testing.T) {
 			Priority:  5, // Valid priority
 		}
 	}
-	taskRepo.BulkCreate(ctx, tasks)
+	_, _ = taskRepo.BulkCreate(ctx, tasks)
 
 	// Build keys list
 	keys := make([]string, 100)

@@ -113,7 +113,7 @@ func (e *SyncEngine) importDiscoveredEntities(ctx context.Context, epics []disco
 	if err != nil {
 		return 0, 0, nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	epicsImported := 0
 	featuresImported := 0

@@ -196,7 +196,7 @@ func TestPatternMatchingLogic(t *testing.T) {
 	// Change to temp directory
 	oldDir, err := os.Getwd()
 	require.NoError(t, err)
-	defer os.Chdir(oldDir)
+	defer func() { _ = os.Chdir(oldDir) }()
 	require.NoError(t, os.Chdir(tempDir))
 
 	// Load pattern registry

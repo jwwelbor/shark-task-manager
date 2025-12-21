@@ -95,7 +95,7 @@ func runRelatedDocsAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if count != 1 {
-		cmd.Usage()
+		_ = cmd.Usage()
 		return nil
 	}
 

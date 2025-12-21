@@ -213,7 +213,7 @@ func (e *SyncEngine) Sync(ctx context.Context, opts SyncOptions) (*SyncReport, e
 			return nil, fmt.Errorf("failed to begin transaction: %w", err)
 		}
 		// Defer rollback - will be no-op if we commit successfully
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 	}
 
 	// Step 5: Process each task

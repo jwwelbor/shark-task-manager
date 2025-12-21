@@ -23,7 +23,7 @@ func TestEpicRepository_GetByFilePath(t *testing.T) {
 	epicKey := fmt.Sprintf("E%s", suffix)
 
 	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic without file path
 	highPriority := models.PriorityHigh
@@ -52,7 +52,7 @@ func TestEpicRepository_GetByFilePath(t *testing.T) {
 	assert.Equal(t, "Test Epic", found.Title)
 
 	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 }
 
 func TestEpicRepository_GetByFilePath_NotFound(t *testing.T) {
@@ -79,7 +79,7 @@ func TestEpicRepository_UpdateFilePath(t *testing.T) {
 	epicKey := fmt.Sprintf("E%s", suffix[:2])
 
 	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic without file path
 	highPriority := models.PriorityHigh
@@ -107,7 +107,7 @@ func TestEpicRepository_UpdateFilePath(t *testing.T) {
 	assert.Equal(t, epicKey, retrieved.Key)
 
 	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 }
 
 func TestEpicRepository_UpdateFilePath_Clear(t *testing.T) {
@@ -121,7 +121,7 @@ func TestEpicRepository_UpdateFilePath_Clear(t *testing.T) {
 	epicKey := fmt.Sprintf("E%s", suffix)
 
 	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic without file path
 	highPriority := models.PriorityHigh
@@ -157,7 +157,7 @@ func TestEpicRepository_UpdateFilePath_Clear(t *testing.T) {
 	assert.Nil(t, retrieved)
 
 	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 }
 
 func TestEpicRepository_UpdateFilePath_NotFound(t *testing.T) {
@@ -186,7 +186,7 @@ func TestEpicRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	epicKey2 := fmt.Sprintf("E%s", suffix2)
 
 	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key IN (?, ?)", epicKey1, epicKey2)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN (?, ?)", epicKey1, epicKey2)
 
 	// Create two epics with same file path (simulating collision scenario)
 	sharedPath := "docs/shared-epic-path.md"
@@ -213,5 +213,5 @@ func TestEpicRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	assert.Equal(t, epicKey1, found.Key)
 
 	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key IN (?, ?)", epicKey1, epicKey2)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN (?, ?)", epicKey1, epicKey2)
 }

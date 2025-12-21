@@ -107,7 +107,7 @@ func containsDirectoryTraversal(path string) bool {
 		}
 	}
 	// Also check the full path string
-	return filepath.IsAbs(path) == false && (len(path) >= 2 && (path[0:2] == ".." || path[0:3] == "../"))
+	return !filepath.IsAbs(path) && (len(path) >= 2 && (path[0:2] == ".." || path[0:3] == "../"))
 }
 
 // GetAvailableAgentTypes returns all available agent types

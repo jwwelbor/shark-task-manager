@@ -25,8 +25,8 @@ func TestFeatureRepository_GetByFilePath(t *testing.T) {
 	featureKey := fmt.Sprintf("E%s-F01", suffix)
 
 	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create parent epic
 	highPriority := models.PriorityHigh
@@ -66,8 +66,8 @@ func TestFeatureRepository_GetByFilePath(t *testing.T) {
 	assert.Equal(t, "Test Feature", found.Title)
 
 	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 }
 
 func TestFeatureRepository_GetByFilePath_NotFound(t *testing.T) {
@@ -95,8 +95,8 @@ func TestFeatureRepository_UpdateFilePath(t *testing.T) {
 	featureKey := fmt.Sprintf("E%s-F01", suffix)
 
 	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create parent epic
 	highPriority := models.PriorityHigh
@@ -135,8 +135,8 @@ func TestFeatureRepository_UpdateFilePath(t *testing.T) {
 	assert.Equal(t, featureKey, retrieved.Key)
 
 	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 }
 
 func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
@@ -152,8 +152,8 @@ func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
 	featureKey := fmt.Sprintf("E%s-F01", suffix)
 
 	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create parent epic
 	highPriority := models.PriorityHigh
@@ -200,8 +200,8 @@ func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
 	assert.Nil(t, retrieved)
 
 	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 }
 
 func TestFeatureRepository_UpdateFilePath_NotFound(t *testing.T) {
@@ -231,8 +231,8 @@ func TestFeatureRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	featureKey2 := fmt.Sprintf("E%s-F02", suffix)
 
 	// Clean up any existing data
-	database.ExecContext(ctx, "DELETE FROM features WHERE key IN (?, ?)", featureKey1, featureKey2)
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN (?, ?)", featureKey1, featureKey2)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create parent epic
 	highPriority := models.PriorityHigh
@@ -269,6 +269,6 @@ func TestFeatureRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	assert.Equal(t, featureKey1, found.Key)
 
 	// Cleanup
-	database.ExecContext(ctx, "DELETE FROM features WHERE key IN (?, ?)", featureKey1, featureKey2)
-	database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN (?, ?)", featureKey1, featureKey2)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 }

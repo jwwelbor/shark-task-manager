@@ -507,7 +507,7 @@ Examples:
 		// Read full config
 		var fullConfig map[string]interface{}
 		if data, err := os.ReadFile(configPath); err == nil {
-			json.Unmarshal(data, &fullConfig)
+			_ = json.Unmarshal(data, &fullConfig)
 		} else {
 			fullConfig = make(map[string]interface{})
 		}

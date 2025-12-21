@@ -70,7 +70,7 @@ func TestEpicListingIntegration(t *testing.T) {
 			Description: strPtr("Test feature"),
 			Status:      models.FeatureStatusActive,
 		}
-		err = featureRepo.Create(ctx, feature)
+		_ = featureRepo.Create(ctx, feature)
 		if err != nil {
 			t.Logf("Failed to create feature (may already exist): %v", err)
 			continue
@@ -90,7 +90,7 @@ func TestEpicListingIntegration(t *testing.T) {
 		}
 
 		// Update feature progress
-		featureRepo.UpdateProgress(ctx, feature.ID)
+		_ = featureRepo.UpdateProgress(ctx, feature.ID)
 	}
 
 	// Retrieve all epics
@@ -141,7 +141,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 		Description: strPtr("Test feature"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(ctx, feature1)
+	_ = featureRepo.Create(ctx, feature1)
 
 	for i := 0; i < 10; i++ {
 		status := models.TaskStatusTodo
@@ -149,12 +149,12 @@ func TestEpicDetailsIntegration(t *testing.T) {
 			status = models.TaskStatusCompleted
 		}
 		taskKey := fmt.Sprintf("T-%s-F01-%03d", epicKey, i+1)
-		database.Exec(`
+		_, _ = database.Exec(`
 			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 			VALUES (?, ?, ?, ?, 'testing', 1, '[]')
 		`, feature1.ID, taskKey, fmt.Sprintf("Task %d", i+1), status)
 	}
-	featureRepo.UpdateProgress(ctx, feature1.ID)
+	_ = featureRepo.UpdateProgress(ctx, feature1.ID)
 
 	// Feature 2: 75% progress (6 of 8 tasks completed)
 	feature2 := &models.Feature{
@@ -164,7 +164,7 @@ func TestEpicDetailsIntegration(t *testing.T) {
 		Description: strPtr("Test feature"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(ctx, feature2)
+	_ = featureRepo.Create(ctx, feature2)
 
 	for i := 0; i < 8; i++ {
 		status := models.TaskStatusTodo
@@ -172,12 +172,12 @@ func TestEpicDetailsIntegration(t *testing.T) {
 			status = models.TaskStatusCompleted
 		}
 		taskKey := fmt.Sprintf("T-%s-F02-%03d", epicKey, i+1)
-		database.Exec(`
+		_, _ = database.Exec(`
 			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 			VALUES (?, ?, ?, ?, 'testing', 1, '[]')
 		`, feature2.ID, taskKey, fmt.Sprintf("Task %d", i+1), status)
 	}
-	featureRepo.UpdateProgress(ctx, feature2.ID)
+	_ = featureRepo.UpdateProgress(ctx, feature2.ID)
 
 	// Feature 3: 100% progress (2 of 2 tasks completed)
 	feature3 := &models.Feature{
@@ -187,16 +187,16 @@ func TestEpicDetailsIntegration(t *testing.T) {
 		Description: strPtr("Test feature"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(ctx, feature3)
+	_ = featureRepo.Create(ctx, feature3)
 
 	for i := 0; i < 2; i++ {
 		taskKey := fmt.Sprintf("T-%s-F03-%03d", epicKey, i+1)
-		database.Exec(`
+		_, _ = database.Exec(`
 			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 			VALUES (?, ?, ?, 'completed', 'testing', 1, '[]')
 		`, feature3.ID, taskKey, fmt.Sprintf("Task %d", i+1))
 	}
-	featureRepo.UpdateProgress(ctx, feature3.ID)
+	_ = featureRepo.UpdateProgress(ctx, feature3.ID)
 
 	// Calculate epic progress
 	// Weighted average: (50*10 + 75*8 + 100*2) / (10+8+2) = (500 + 600 + 200) / 20 = 1300/20 = 65.0
@@ -258,7 +258,7 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 		Description: strPtr("Testing task breakdown"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(ctx, feature)
+	_ = featureRepo.Create(ctx, feature)
 
 	// Create 10 tasks: 7 completed, 2 in_progress, 1 todo
 	taskStatuses := []models.TaskStatus{
@@ -276,7 +276,7 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 
 	for i, status := range taskStatuses {
 		taskKey := fmt.Sprintf("T-%s-%03d", featureKey, i+1)
-		database.Exec(`
+		_, _ = database.Exec(`
 			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 			VALUES (?, ?, ?, ?, 'testing', 1, '[]')
 		`, feature.ID, taskKey, fmt.Sprintf("Task %d", i+1), status)
@@ -329,7 +329,7 @@ func TestFeatureListFilteringIntegration(t *testing.T) {
 			Description: strPtr("Test feature"),
 			Status:      models.FeatureStatusActive,
 		}
-		featureRepo.Create(ctx, feature)
+		_ = featureRepo.Create(ctx, feature)
 	}
 
 	// Test filtering by epic
@@ -384,7 +384,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			Description: strPtr("Edge case"),
 			Status:      models.FeatureStatusActive,
 		}
-		featureRepo.Create(ctx, feature)
+		_ = featureRepo.Create(ctx, feature)
 
 		progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
 		if err != nil {
@@ -419,7 +419,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			Description: strPtr("Edge case"),
 			Status:      models.FeatureStatusActive,
 		}
-		featureRepo.Create(ctx, feature)
+		_ = featureRepo.Create(ctx, feature)
 
 		// Create 5 completed tasks
 		for i := 0; i < 5; i++ {
@@ -476,7 +476,7 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 		Description: strPtr("Test feature"),
 		Status:      models.FeatureStatusActive,
 	}
-	featureRepo.Create(ctx, feature)
+	_ = featureRepo.Create(ctx, feature)
 
 	// Create 4 todo tasks
 	taskIDs := make([]int64, 4)
@@ -493,17 +493,17 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 	}
 
 	// Initial progress should be 0%
-	featureRepo.UpdateProgress(ctx, feature.ID)
+	_ = featureRepo.UpdateProgress(ctx, feature.ID)
 	feature, _ = featureRepo.GetByKey(ctx, feature.Key)
 	if feature.ProgressPct != 0.0 {
 		t.Errorf("Initial feature progress: expected 0.0%%, got %.1f%%", feature.ProgressPct)
 	}
 
 	// Complete 2 tasks = 50% progress
-	database.Exec("UPDATE tasks SET status = 'completed' WHERE id = ?", taskIDs[0])
-	database.Exec("UPDATE tasks SET status = 'completed' WHERE id = ?", taskIDs[1])
+	_, _ = database.Exec("UPDATE tasks SET status = 'completed' WHERE id = ?", taskIDs[0])
+	_, _ = database.Exec("UPDATE tasks SET status = 'completed' WHERE id = ?", taskIDs[1])
 
-	featureRepo.UpdateProgress(ctx, feature.ID)
+	_ = featureRepo.UpdateProgress(ctx, feature.ID)
 	feature, _ = featureRepo.GetByKey(ctx, feature.Key)
 	if feature.ProgressPct != 50.0 {
 		t.Errorf("After completing 2/4 tasks: expected 50.0%% progress, got %.1f%%", feature.ProgressPct)

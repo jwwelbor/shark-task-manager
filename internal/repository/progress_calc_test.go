@@ -270,7 +270,7 @@ func TestEpicProgress_NoFeatures(t *testing.T) {
 	epicID, _ := setupProgressTest(t, 96, 1, []models.TaskStatus{})
 
 	// Delete the feature so epic has none
-	test.GetTestDB().Exec("DELETE FROM features WHERE epic_id = ?", epicID)
+	_, _ = test.GetTestDB().Exec("DELETE FROM features WHERE epic_id = ?", epicID)
 
 	progress, err := epicRepo.CalculateProgress(ctx, epicID)
 	if err != nil {
@@ -299,7 +299,7 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 		}
 	}
 	epicID, feature1ID := setupProgressTest(t, 97, 1, statuses1)
-	featureRepo.UpdateProgress(ctx, feature1ID)
+	_ = featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Feature 2: 100% with 10 tasks (E97-F02)
 	statuses2 := make([]models.TaskStatus, 10)
@@ -307,7 +307,7 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 		statuses2[i] = models.TaskStatusCompleted
 	}
 	_, feature2ID := setupProgressTest(t, 97, 2, statuses2)
-	featureRepo.UpdateProgress(ctx, feature2ID)
+	_ = featureRepo.UpdateProgress(ctx, feature2ID)
 
 	// Weighted average: (50×10 + 100×10) / (10+10) = 1500/20 = 75.0
 	progress, err := epicRepo.CalculateProgress(ctx, epicID)
@@ -332,7 +332,7 @@ func TestEpicProgress_TaskCountWeighting(t *testing.T) {
 	epicID, feature1ID := setupProgressTest(t, 98, 1, []models.TaskStatus{
 		models.TaskStatusCompleted,
 	})
-	featureRepo.UpdateProgress(ctx, feature1ID)
+	_ = featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Feature 2: 0% with 9 tasks (E98-F02)
 	statuses2 := make([]models.TaskStatus, 9)
@@ -340,7 +340,7 @@ func TestEpicProgress_TaskCountWeighting(t *testing.T) {
 		statuses2[i] = models.TaskStatusTodo
 	}
 	_, feature2ID := setupProgressTest(t, 98, 2, statuses2)
-	featureRepo.UpdateProgress(ctx, feature2ID)
+	_ = featureRepo.UpdateProgress(ctx, feature2ID)
 
 	// Weighted average: (100×1 + 0×9) / (1+9) = 100/10 = 10.0
 	// NOT simple average of (100+0)/2 = 50.0
@@ -403,7 +403,7 @@ func TestEpicProgressByKey(t *testing.T) {
 	_, featureID := setupProgressTest(t, 81, 1, statuses)
 
 	// Update feature progress first
-	featureRepo.UpdateProgress(ctx, featureID)
+	_ = featureRepo.UpdateProgress(ctx, featureID)
 
 	// Calculate epic progress by key
 	progress, err := epicRepo.CalculateProgressByKey(ctx, "E81")
