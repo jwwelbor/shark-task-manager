@@ -383,7 +383,11 @@ func TestUnlinkFromTask(t *testing.T) {
 		Status:    "todo",
 		Priority:  1,
 	}
-	if err := taskRepo.Create(ctx, testTask); err != nil {
+	// Try to get existing task first to handle test reruns
+	existing, _ := taskRepo.GetByKey(ctx, testTask.Key)
+	if existing != nil {
+		testTask = existing
+	} else if err := taskRepo.Create(ctx, testTask); err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
 
@@ -546,7 +550,11 @@ func TestListForTask(t *testing.T) {
 		Status:    "todo",
 		Priority:  1,
 	}
-	if err := taskRepo.Create(ctx, testTask); err != nil {
+	// Try to get existing task first to handle test reruns
+	existing, _ := taskRepo.GetByKey(ctx, testTask.Key)
+	if existing != nil {
+		testTask = existing
+	} else if err := taskRepo.Create(ctx, testTask); err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
 
