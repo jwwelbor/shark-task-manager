@@ -233,6 +233,12 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		featureKey = *positionalFeature
 	}
 
+	// If we have both epic and a feature suffix (F##), construct the full key
+	// This applies to both flag-based and positional argument syntax
+	if epicKey != "" && featureKey != "" && IsFeatureKeySuffix(featureKey) {
+		featureKey = epicKey + "-" + featureKey
+	}
+
 	// Build filters
 	var status *models.TaskStatus
 	var agentType *models.AgentType
