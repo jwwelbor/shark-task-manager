@@ -8,12 +8,12 @@ import (
 // full feature keys when combining epic and feature positional arguments
 func TestTaskListFeatureKeyConstruction(t *testing.T) {
 	tests := []struct {
-		name                string
-		args                []string
-		expectedEpic        *string
-		expectedFeature     *string
-		expectedFeatureKey  string // The key that should be passed to featureRepo.GetByKey
-		shouldError         bool
+		name               string
+		args               []string
+		expectedEpic       *string
+		expectedFeature    *string
+		expectedFeatureKey string // The key that should be passed to featureRepo.GetByKey
+		shouldError        bool
 	}{
 		{
 			name:               "No arguments",
@@ -118,13 +118,13 @@ func TestTaskListFeatureKeyConstruction(t *testing.T) {
 // filter is applied (epic is passed to FilterCombined, feature is used for post-filtering)
 func TestFeatureFilteringLogic(t *testing.T) {
 	tests := []struct {
-		name            string
-		positionalEpic  *string
-		positionalFeature *string
-		flagEpic        string
-		flagFeature     string
-		expectedEpicFilter    *string  // What should be passed to FilterCombined
-		expectedFeatureFilter string    // What should be passed to featureRepo.GetByKey
+		name                  string
+		positionalEpic        *string
+		positionalFeature     *string
+		flagEpic              string
+		flagFeature           string
+		expectedEpicFilter    *string // What should be passed to FilterCombined
+		expectedFeatureFilter string  // What should be passed to featureRepo.GetByKey
 	}{
 		{
 			name:                  "Positional epic and feature",
@@ -203,4 +203,3 @@ func TestFeatureFilteringLogic(t *testing.T) {
 		})
 	}
 }
-
