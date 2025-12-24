@@ -88,85 +88,87 @@ jobs:
           retention-days: 7
 
   # Test Homebrew installation (macOS only)
-  test-homebrew:
-    name: Test Homebrew Installation
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+  # DISABLED: Enable when homebrew-shark repository is set up
+  # test-homebrew:
+  #   name: Test Homebrew Installation
+  #   runs-on: ${{ matrix.os }}
+  #   timeout-minutes: 15
 
-    strategy:
-      matrix:
-        include:
-          - os: macos-13 # Intel Mac
-            arch: x86_64
-          - os: macos-14 # Apple Silicon Mac
-            arch: arm64
+  #   strategy:
+  #     matrix:
+  #       include:
+  #         - os: macos-13 # Intel Mac
+  #           arch: x86_64
+  #         - os: macos-14 # Apple Silicon Mac
+  #           arch: arm64
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
 
-      - name: Set version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-          fi
+  #     - name: Set version
+  #       id: version
+  #       run: |
+  #         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+  #           echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+  #         else
+  #           echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+  #         fi
 
-      - name: Test Homebrew installation
-        run: |
-          chmod +x ./scripts/test-homebrew.sh
-          ./scripts/test-homebrew.sh ${{ steps.version.outputs.version }}
+  #     - name: Test Homebrew installation
+  #       run: |
+  #         chmod +x ./scripts/test-homebrew.sh
+  #         ./scripts/test-homebrew.sh ${{ steps.version.outputs.version }}
 
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: homebrew-test-results-${{ matrix.arch }}
-          path: homebrew-test-results.txt
-          retention-days: 7
+  #     - name: Upload test results
+  #       uses: actions/upload-artifact@v4
+  #       if: always()
+  #       with:
+  #         name: homebrew-test-results-${{ matrix.arch }}
+  #         path: homebrew-test-results.txt
+  #         retention-days: 7
 
   # Test Scoop installation (Windows only)
-  test-scoop:
-    name: Test Scoop Installation
-    runs-on: windows-latest
-    timeout-minutes: 15
+  # DISABLED: Enable when scoop-shark repository is set up
+  # test-scoop:
+  #   name: Test Scoop Installation
+  #   runs-on: windows-latest
+  #   timeout-minutes: 15
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
 
-      - name: Set version
-        id: version
-        run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            echo "version=${{ inputs.version }}" >> $env:GITHUB_OUTPUT
-          } else {
-            echo "version=${{ github.event.release.tag_name }}" >> $env:GITHUB_OUTPUT
-          }
-        shell: pwsh
+  #     - name: Set version
+  #       id: version
+  #       run: |
+  #         if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+  #           echo "version=${{ inputs.version }}" >> $env:GITHUB_OUTPUT
+  #         } else {
+  #           echo "version=${{ github.event.release.tag_name }}" >> $env:GITHUB_OUTPUT
+  #         }
+  #       shell: pwsh
 
-      - name: Install Scoop
-        run: |
-          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-          if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
-            Invoke-RestMethod get.scoop.sh | Invoke-Expression
-          }
-        shell: pwsh
+  #     - name: Install Scoop
+  #       run: |
+  #         Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+  #         if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
+  #           Invoke-RestMethod get.scoop.sh | Invoke-Expression
+  #         }
+  #       shell: pwsh
 
-      - name: Test Scoop installation
-        run: |
-          .\scripts\test-scoop.ps1 -ExpectedVersion ${{ steps.version.outputs.version }}
-        shell: pwsh
+  #     - name: Test Scoop installation
+  #       run: |
+  #         .\scripts\test-scoop.ps1 -ExpectedVersion ${{ steps.version.outputs.version }}
+  #       shell: pwsh
 
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: scoop-test-results
-          path: scoop-test-results.txt
-          retention-days: 7
+  #     - name: Upload test results
+  #       uses: actions/upload-artifact@v4
+  #       if: always()
+  #       with:
+  #         name: scoop-test-results
+  #         path: scoop-test-results.txt
+  #         retention-days: 7
 
   # Performance benchmarking
   performance-benchmark:
@@ -227,7 +229,7 @@ jobs:
   # Collect and report results
   report-results:
     name: Report Test Results
-    needs: [test-manual-download, test-homebrew, test-scoop, performance-benchmark]
+    needs: [test-manual-download, performance-benchmark]
     runs-on: ubuntu-latest
     if: always()
 
@@ -251,9 +253,9 @@ jobs:
           echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Manual Download | ${{ needs.test-manual-download.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Homebrew | ${{ needs.test-homebrew.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Scoop | ${{ needs.test-scoop.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Performance | ${{ needs.performance-benchmark.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Note: Homebrew and Scoop tests are disabled until package managers are set up._" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Detailed Results" >> $GITHUB_STEP_SUMMARY
