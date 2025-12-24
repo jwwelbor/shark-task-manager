@@ -99,6 +99,61 @@ This means you're trying to create tasks that already exist. Options:
 
 ---
 
+## Project Root Auto-Detection
+
+Shark automatically finds the project root by walking up the directory tree, so you can run commands from any subdirectory within your project without specifying `--db`.
+
+### How It Works
+
+When you run any `shark` command, it automatically searches upward from your current directory looking for:
+
+1. `.sharkconfig.json` (primary marker)
+2. `shark-tasks.db` (secondary marker)
+3. `.git/` directory (fallback for Git projects)
+
+Once found, shark uses that directory as the project root for:
+- Database location (`shark-tasks.db`)
+- Configuration file (`.sharkconfig.json`)
+- All relative file paths
+
+### Examples
+
+```bash
+# All these commands work the same, regardless of your current directory:
+
+# From project root
+./bin/shark task list
+
+# From docs/plan subdirectory
+cd docs/plan
+../../bin/shark task list  # Still finds shark-tasks.db in root
+
+# From deeply nested directory
+cd docs/plan/E04-task-mgmt-cli-core/features
+../../../../bin/shark task list  # Still works!
+```
+
+### Override Behavior
+
+You can still explicitly specify paths when needed:
+
+```bash
+# Use specific database file
+shark --db=/path/to/other-project/shark-tasks.db task list
+
+# Use specific config file
+shark --config=/path/to/custom-config.json task list
+```
+
+### Benefits for AI Agents
+
+This feature is particularly useful when AI agents are working in subdirectories:
+- No need to track or compute the path to project root
+- No risk of creating duplicate databases in subdirectories
+- Consistent behavior across all project directories
+
+---
+
 ## Database Migrations & Custom Folder Paths
 
 ### Auto-Migration System

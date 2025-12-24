@@ -7,6 +7,7 @@ A task management system built with Go and SQLite, featuring both an HTTP API an
 - **Hierarchical Task Organization**: Organize work into Epics → Features → Tasks with auto-generated keys
 - **AI-Driven Workflows**: Built-in support for multiple agent types with dependency-aware task selection
 - **Flexible Organization**: Organize with custom folder base paths (`--path` flag) or specific file paths (`--filename` flag)
+- **Auto-Detect Project Root**: Run shark commands from any subdirectory - automatically finds database and config
 - **Bidirectional Sync**: Synchronize markdown files with SQLite database with conflict resolution
 - **Progress Tracking**: Automatic progress calculation from task completion to features and epics
 - **Audit Trail**: Complete history of all status changes with timestamps and agent tracking
