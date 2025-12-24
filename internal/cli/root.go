@@ -86,16 +86,73 @@ func init() {
 	}
 }
 
+// FindProjectRoot walks up the directory tree to find the project root.
+// It looks for markers in this order:
+// 1. .sharkconfig.json (primary marker)
+// 2. shark-tasks.db (secondary marker)
+// 3. .git/ directory (fallback for git projects)
+// Returns the project root directory, or current directory if no markers found.
+func FindProjectRoot() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	currentDir := wd
+	for {
+		// Check for .sharkconfig.json (strongest signal)
+		if _, err := os.Stat(filepath.Join(currentDir, ".sharkconfig.json")); err == nil {
+			return currentDir, nil
+		}
+
+		// Check for shark-tasks.db
+		if _, err := os.Stat(filepath.Join(currentDir, "shark-tasks.db")); err == nil {
+			return currentDir, nil
+		}
+
+		// Check for .git directory (fallback)
+		if _, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
+			return currentDir, nil
+		}
+
+		// Move up one directory
+		parentDir := filepath.Dir(currentDir)
+
+		// If we've reached the root (parent == current), stop
+		if parentDir == currentDir {
+			// No project root found, use original working directory
+			return wd, nil
+		}
+
+		currentDir = parentDir
+	}
+}
+
 // initConfig reads in config file and ENV variables if set
 func initConfig() error {
-	if GlobalConfig.ConfigFile != "" {
+	// Find project root (unless explicit config path was given)
+	if GlobalConfig.ConfigFile == "" {
+		projectRoot, err := FindProjectRoot()
+		if err != nil {
+			return fmt.Errorf("failed to find project root: %w", err)
+		}
+
+		if GlobalConfig.Verbose {
+			pterm.Debug.Printf("Project root: %s\n", projectRoot)
+		}
+
+		// Look for config in project root
+		viper.AddConfigPath(projectRoot)
+		viper.SetConfigType("json")
+		viper.SetConfigName(".sharkconfig")
+
+		// If DBPath is still the default relative path, make it relative to project root
+		if GlobalConfig.DBPath == "shark-tasks.db" {
+			GlobalConfig.DBPath = filepath.Join(projectRoot, "shark-tasks.db")
+		}
+	} else {
 		// Use config file from the flag
 		viper.SetConfigFile(GlobalConfig.ConfigFile)
-	} else {
-		// Search for config in current directory
-		viper.AddConfigPath(".")
-		viper.SetConfigType("json")
-		viper.SetConfigName(".pmconfig")
 	}
 
 	// Read environment variables with PM_ prefix
@@ -117,7 +174,11 @@ func initConfig() error {
 	GlobalConfig.JSON = viper.GetBool("json")
 	GlobalConfig.NoColor = viper.GetBool("no-color")
 	GlobalConfig.Verbose = viper.GetBool("verbose")
-	GlobalConfig.DBPath = viper.GetString("db")
+
+	// Only override DBPath from viper if it was explicitly set (not default)
+	if viper.IsSet("db") {
+		GlobalConfig.DBPath = viper.GetString("db")
+	}
 
 	return nil
 }
@@ -204,10 +265,11 @@ const (
 )
 
 // GetDBPath returns the database file path, ensuring parent directory exists
+// The path is already resolved to the project root by initConfig()
 func GetDBPath() (string, error) {
 	dbPath := GlobalConfig.DBPath
 
-	// If relative path, make it absolute
+	// If still relative (user explicitly set a relative path), make it absolute from cwd
 	if !filepath.IsAbs(dbPath) {
 		wd, err := os.Getwd()
 		if err != nil {
