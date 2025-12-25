@@ -325,6 +325,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
+	documentRepo := repository.NewDocumentRepository(repoDb)
 
 	// Get epic by key
 	epic, err := epicRepo.GetByKey(ctx, epicKey)
@@ -401,34 +402,45 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Get filename from resolved path
-	var filename string
+	// Extract directory path and filename
+	var dirPath, filename string
 	if resolvedPath != "" {
+		dirPath = filepath.Dir(resolvedPath) + "/"
 		filename = filepath.Base(resolvedPath)
+	}
+
+	// Get related documents
+	relatedDocs, err := documentRepo.ListForEpic(ctx, epic.ID)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch related documents: %v\n", err)
+	}
+	if relatedDocs == nil {
+		relatedDocs = []*models.Document{}
 	}
 
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
-			"id":             epic.ID,
-			"key":            epic.Key,
-			"title":          epic.Title,
-			"description":    epic.Description,
-			"status":         epic.Status,
-			"priority":       epic.Priority,
-			"business_value": epic.BusinessValue,
-			"progress_pct":   epicProgress,
-			"path":           resolvedPath,
-			"filename":       filename,
-			"created_at":     epic.CreatedAt,
-			"updated_at":     epic.UpdatedAt,
-			"features":       featuresWithDetails,
+			"id":                epic.ID,
+			"key":               epic.Key,
+			"title":             epic.Title,
+			"description":       epic.Description,
+			"status":            epic.Status,
+			"priority":          epic.Priority,
+			"business_value":    epic.BusinessValue,
+			"progress_pct":      epicProgress,
+			"path":              dirPath,
+			"filename":          filename,
+			"created_at":        epic.CreatedAt,
+			"updated_at":        epic.UpdatedAt,
+			"features":          featuresWithDetails,
+			"related_documents": relatedDocs,
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
-	renderEpicDetails(epic, epicProgress, featuresWithDetails, resolvedPath, filename)
+	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs)
 	return nil
 }
 
@@ -463,7 +475,7 @@ func renderEpicListTable(epics []EpicWithProgress) {
 }
 
 // renderEpicDetails renders epic details with features table
-func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path, filename string) {
+func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path, filename string, relatedDocs []*models.Document) {
 	// Print epic metadata
 	pterm.DefaultSection.Printf("Epic: %s", epic.Key)
 	fmt.Println()
@@ -495,6 +507,16 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 	// Render info table
 	_ = pterm.DefaultTable.WithData(info).Render()
 	fmt.Println()
+
+	// Related documents section
+	if len(relatedDocs) > 0 {
+		pterm.DefaultSection.Println("Related Documents")
+		fmt.Println()
+		for _, doc := range relatedDocs {
+			fmt.Printf("  - %s (%s)\n", doc.Title, doc.FilePath)
+		}
+		fmt.Println()
+	}
 
 	// Features section
 	if len(features) == 0 {
