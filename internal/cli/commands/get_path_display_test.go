@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -432,8 +431,4 @@ func getEpicNum(n int) string {
 		return "0" + string(rune('0'+n))
 	}
 	return string(rune('0'+n/10)) + string(rune('0'+n%10))
-}
-
-func timePtr(t time.Time) *time.Time {
-	return &t
 }
