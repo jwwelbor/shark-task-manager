@@ -389,6 +389,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	taskRepo := repository.NewTaskRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	epicRepo := repository.NewEpicRepository(repoDb)
+	documentRepo := repository.NewDocumentRepository(repoDb)
 
 	// Get task by key
 	task, err := taskRepo.GetByKey(ctx, taskKey)
@@ -435,20 +436,31 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get filename from resolved path
-	var filename string
+	// Extract directory path and filename
+	var dirPath, filename string
 	if resolvedPath != "" {
+		dirPath = filepath.Dir(resolvedPath) + "/"
 		filename = filepath.Base(resolvedPath)
+	}
+
+	// Get related documents
+	relatedDocs, err := documentRepo.ListForTask(ctx, task.ID)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch related documents: %v\n", err)
+	}
+	if relatedDocs == nil {
+		relatedDocs = []*models.Document{}
 	}
 
 	// Output results
 	if cli.GlobalConfig.JSON {
-		// Create enhanced output with dependency status
+		// Create enhanced output with dependency status and related docs
 		output := map[string]interface{}{
 			"task":              task,
-			"path":              resolvedPath,
+			"path":              dirPath,
 			"filename":          filename,
 			"dependency_status": dependencyStatus,
+			"related_documents": relatedDocs,
 		}
 		return cli.OutputJSON(output)
 	}
@@ -459,8 +471,8 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Status: %s\n", task.Status)
 	fmt.Printf("Priority: %d\n", task.Priority)
 
-	if resolvedPath != "" {
-		fmt.Printf("Path: %s\n", resolvedPath)
+	if dirPath != "" {
+		fmt.Printf("Path: %s\n", dirPath)
 	}
 
 	if filename != "" {
@@ -477,10 +489,6 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 
 	if task.AssignedAgent != nil {
 		fmt.Printf("Assigned Agent: %s\n", *task.AssignedAgent)
-	}
-
-	if task.FilePath != nil {
-		fmt.Printf("File Path: %s\n", *task.FilePath)
 	}
 
 	if task.BlockedReason != nil {
@@ -504,6 +512,14 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		fmt.Println("\nDependencies:")
 		for depKey, status := range dependencyStatus {
 			fmt.Printf("  - %s: %s\n", depKey, status)
+		}
+	}
+
+	// Display related documents
+	if len(relatedDocs) > 0 {
+		fmt.Println("\nRelated Documents:")
+		for _, doc := range relatedDocs {
+			fmt.Printf("  - %s (%s)\n", doc.Title, doc.FilePath)
 		}
 	}
 

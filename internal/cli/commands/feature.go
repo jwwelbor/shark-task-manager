@@ -390,6 +390,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
+	documentRepo := repository.NewDocumentRepository(repoDb)
 
 	// Get feature by key
 	feature, err := featureRepo.GetByKey(ctx, featureKey)
@@ -461,34 +462,45 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		os.Exit(2)
 	}
 
-	// Get filename from resolved path
-	var filename string
+	// Extract directory path and filename
+	var dirPath, filename string
 	if resolvedPath != "" {
+		dirPath = filepath.Dir(resolvedPath) + "/"
 		filename = filepath.Base(resolvedPath)
+	}
+
+	// Get related documents
+	relatedDocs, err := documentRepo.ListForFeature(ctx, feature.ID)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch related documents: %v\n", err)
+	}
+	if relatedDocs == nil {
+		relatedDocs = []*models.Document{}
 	}
 
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
-			"id":               feature.ID,
-			"epic_id":          feature.EpicID,
-			"key":              feature.Key,
-			"title":            feature.Title,
-			"description":      feature.Description,
-			"status":           feature.Status,
-			"progress_pct":     feature.ProgressPct,
-			"path":             resolvedPath,
-			"filename":         filename,
-			"created_at":       feature.CreatedAt,
-			"updated_at":       feature.UpdatedAt,
-			"tasks":            tasks,
-			"status_breakdown": statusBreakdown,
+			"id":                feature.ID,
+			"epic_id":           feature.EpicID,
+			"key":               feature.Key,
+			"title":             feature.Title,
+			"description":       feature.Description,
+			"status":            feature.Status,
+			"progress_pct":      feature.ProgressPct,
+			"path":              dirPath,
+			"filename":          filename,
+			"created_at":        feature.CreatedAt,
+			"updated_at":        feature.UpdatedAt,
+			"tasks":             tasks,
+			"status_breakdown":  statusBreakdown,
+			"related_documents": relatedDocs,
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
-	renderFeatureDetails(feature, tasks, statusBreakdown, resolvedPath, filename)
+	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs)
 	return nil
 }
 
@@ -531,7 +543,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 }
 
 // renderFeatureDetails renders feature details with tasks table
-func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int, path, filename string) {
+func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int, path, filename string, relatedDocs []*models.Document) {
 	// Print feature metadata
 	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
 	fmt.Println()
@@ -559,6 +571,16 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	// Render info table
 	_ = pterm.DefaultTable.WithData(info).Render()
 	fmt.Println()
+
+	// Related documents section
+	if len(relatedDocs) > 0 {
+		pterm.DefaultSection.Println("Related Documents")
+		fmt.Println()
+		for _, doc := range relatedDocs {
+			fmt.Printf("  - %s (%s)\n", doc.Title, doc.FilePath)
+		}
+		fmt.Println()
+	}
 
 	// Task status breakdown
 	if len(statusBreakdown) > 0 {
