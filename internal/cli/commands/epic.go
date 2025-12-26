@@ -751,7 +751,10 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 
+		// Set both actualFilePath and customFilePath
 		actualFilePath = fmt.Sprintf("%s/epic.md", epicDir)
+		relPath := actualFilePath // This is already a relative path from project root
+		customFilePath = &relPath
 	}
 
 	// Read epic template
@@ -822,9 +825,11 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	// Success output
 	cli.Success(fmt.Sprintf("Created epic %s '%s' at %s", nextKey, epicTitle, actualFilePath))
-	if customFilePath != nil {
+	if filename != "" {
+		// Custom filename was provided
 		fmt.Printf("Start work with: shark epic get %s\n", nextKey)
 	} else {
+		// Default path was used
 		fmt.Println()
 		fmt.Println("Next steps:")
 		fmt.Println("1. Edit the epic.md file to add details")

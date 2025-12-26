@@ -862,7 +862,10 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 
+		// Set both featureFilePath and customFilePath
 		featureFilePath = fmt.Sprintf("%s/feature.md", featureDir)
+		relPath := featureFilePath // This is already a relative path from project root
+		customFilePath = &relPath
 	}
 
 	// Read feature template
