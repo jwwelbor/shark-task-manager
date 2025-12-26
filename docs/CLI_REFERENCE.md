@@ -544,6 +544,8 @@ shark task create "New Task" \
 
 List tasks with optional filtering.
 
+**Default Behavior:** Completed tasks are hidden by default to focus on active work. Use `--show-all` to include them.
+
 **Flags:**
 - `-s, --status <status>` - Filter by: `todo`, `in_progress`, `completed`, `blocked`, `ready_for_review`, `archived`
 - `-e, --epic <key>` - Filter by epic key
@@ -552,18 +554,26 @@ List tasks with optional filtering.
 - `--priority-min <n>` - Minimum priority (1-10)
 - `--priority-max <n>` - Maximum priority (1-10)
 - `-b, --blocked` - Show only blocked tasks
+- `--show-all` - Show all tasks including completed (by default, completed tasks are hidden)
 
 **Examples:**
 
 ```bash
-# List all tasks
+# List all non-completed tasks (default)
 shark task list
 
-# Filter by status
-shark task list --status=todo
+# List ALL tasks including completed
+shark task list --show-all
 
-# Filter by epic
+# Filter by status (explicit filter overrides default hiding)
+shark task list --status=todo
+shark task list --status=completed  # Shows only completed tasks
+
+# Filter by epic (still hides completed by default)
 shark task list --epic=E04
+
+# Filter by epic, show all including completed
+shark task list --epic=E04 --show-all
 
 # Filter by agent
 shark task list --agent=backend
@@ -574,8 +584,9 @@ shark task list --priority-min=1 --priority-max=3
 # Only blocked tasks
 shark task list --blocked
 
-# JSON output
+# JSON output (respects --show-all flag)
 shark task list --json
+shark task list --show-all --json
 ```
 
 ### `shark task get <task-key>`

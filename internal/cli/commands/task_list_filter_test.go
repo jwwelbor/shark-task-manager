@@ -10,11 +10,11 @@ import (
 // are hidden by default unless --show-all flag is used
 func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 	tests := []struct {
-		name                 string
-		inputTasks           []*models.Task
-		showAllFlag          bool
-		statusFlag           string // If set, explicit status filter overrides default behavior
-		expectedTaskCount    int
+		name                      string
+		inputTasks                []*models.Task
+		showAllFlag               bool
+		statusFlag                string // If set, explicit status filter overrides default behavior
+		expectedTaskCount         int
 		expectedIncludesCompleted bool
 	}{
 		{
@@ -26,9 +26,9 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 				{Key: "T-E01-F01-004", Status: models.TaskStatusReadyForReview, Title: "Task 4"},
 				{Key: "T-E01-F01-005", Status: models.TaskStatusCompleted, Title: "Task 5"},
 			},
-			showAllFlag:          false,
-			statusFlag:           "",
-			expectedTaskCount:    3, // Should exclude 2 completed tasks
+			showAllFlag:               false,
+			statusFlag:                "",
+			expectedTaskCount:         3, // Should exclude 2 completed tasks
 			expectedIncludesCompleted: false,
 		},
 		{
@@ -40,9 +40,9 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 				{Key: "T-E01-F01-004", Status: models.TaskStatusReadyForReview, Title: "Task 4"},
 				{Key: "T-E01-F01-005", Status: models.TaskStatusCompleted, Title: "Task 5"},
 			},
-			showAllFlag:          true,
-			statusFlag:           "",
-			expectedTaskCount:    5, // Should include all tasks
+			showAllFlag:               true,
+			statusFlag:                "",
+			expectedTaskCount:         5, // Should include all tasks
 			expectedIncludesCompleted: true,
 		},
 		{
@@ -54,9 +54,9 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 				{Key: "T-E01-F01-002", Status: models.TaskStatusCompleted, Title: "Task 2"},
 				{Key: "T-E01-F01-003", Status: models.TaskStatusCompleted, Title: "Task 3"},
 			},
-			showAllFlag:          false,
-			statusFlag:           "completed",
-			expectedTaskCount:    2, // Repository already filtered, we pass through
+			showAllFlag:               false,
+			statusFlag:                "completed",
+			expectedTaskCount:         2, // Repository already filtered, we pass through
 			expectedIncludesCompleted: true,
 		},
 		{
@@ -65,9 +65,9 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 				{Key: "T-E01-F01-001", Status: models.TaskStatusCompleted, Title: "Task 1"},
 				{Key: "T-E01-F01-002", Status: models.TaskStatusCompleted, Title: "Task 2"},
 			},
-			showAllFlag:          false,
-			statusFlag:           "",
-			expectedTaskCount:    0, // All tasks hidden
+			showAllFlag:               false,
+			statusFlag:                "",
+			expectedTaskCount:         0, // All tasks hidden
 			expectedIncludesCompleted: false,
 		},
 		{
@@ -76,17 +76,17 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 				{Key: "T-E01-F01-001", Status: models.TaskStatusCompleted, Title: "Task 1"},
 				{Key: "T-E01-F01-002", Status: models.TaskStatusCompleted, Title: "Task 2"},
 			},
-			showAllFlag:          true,
-			statusFlag:           "",
-			expectedTaskCount:    2, // All tasks shown
+			showAllFlag:               true,
+			statusFlag:                "",
+			expectedTaskCount:         2, // All tasks shown
 			expectedIncludesCompleted: true,
 		},
 		{
-			name: "No tasks",
-			inputTasks:           []*models.Task{},
-			showAllFlag:          false,
-			statusFlag:           "",
-			expectedTaskCount:    0,
+			name:                      "No tasks",
+			inputTasks:                []*models.Task{},
+			showAllFlag:               false,
+			statusFlag:                "",
+			expectedTaskCount:         0,
 			expectedIncludesCompleted: false,
 		},
 		{
@@ -96,9 +96,9 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 				{Key: "T-E01-F01-002", Status: models.TaskStatusInProgress, Title: "Task 2"},
 				{Key: "T-E01-F01-003", Status: models.TaskStatusBlocked, Title: "Task 3"},
 			},
-			showAllFlag:          false,
-			statusFlag:           "",
-			expectedTaskCount:    3, // All tasks shown (none are completed)
+			showAllFlag:               false,
+			statusFlag:                "",
+			expectedTaskCount:         3, // All tasks shown (none are completed)
 			expectedIncludesCompleted: false,
 		},
 	}
@@ -143,39 +143,39 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 // take precedence over the default hiding behavior
 func TestTaskListFiltering_StatusFilterPrecedence(t *testing.T) {
 	tests := []struct {
-		name              string
-		showAllFlag       bool
-		statusFilter      string
+		name                  string
+		showAllFlag           bool
+		statusFilter          string
 		shouldFilterCompleted bool // Should completed tasks be filtered out?
 	}{
 		{
-			name:              "Default: hide completed",
-			showAllFlag:       false,
-			statusFilter:      "",
+			name:                  "Default: hide completed",
+			showAllFlag:           false,
+			statusFilter:          "",
 			shouldFilterCompleted: true,
 		},
 		{
-			name:              "show-all: don't hide completed",
-			showAllFlag:       true,
-			statusFilter:      "",
+			name:                  "show-all: don't hide completed",
+			showAllFlag:           true,
+			statusFilter:          "",
 			shouldFilterCompleted: false,
 		},
 		{
-			name:              "status=completed: show completed (overrides default)",
-			showAllFlag:       false,
-			statusFilter:      "completed",
+			name:                  "status=completed: show completed (overrides default)",
+			showAllFlag:           false,
+			statusFilter:          "completed",
 			shouldFilterCompleted: false, // Explicit filter overrides default
 		},
 		{
-			name:              "status=todo: only show todo (other filters active)",
-			showAllFlag:       false,
-			statusFilter:      "todo",
+			name:                  "status=todo: only show todo (other filters active)",
+			showAllFlag:           false,
+			statusFilter:          "todo",
 			shouldFilterCompleted: false, // Status filter takes precedence
 		},
 		{
-			name:              "show-all + status=todo: show todo only",
-			showAllFlag:       true,
-			statusFilter:      "todo",
+			name:                  "show-all + status=todo: show todo only",
+			showAllFlag:           true,
+			statusFilter:          "todo",
 			shouldFilterCompleted: false, // Status filter takes precedence
 		},
 	}
