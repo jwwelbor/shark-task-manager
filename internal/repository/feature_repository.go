@@ -584,3 +584,33 @@ func (r *FeatureRepository) GetCustomFolderPath(ctx context.Context, featureKey 
 
 	return &customFolderPath.String, nil
 }
+
+// UpdateKey updates the key of a feature
+func (r *FeatureRepository) UpdateKey(ctx context.Context, oldKey string, newKey string) error {
+	// Validate new key doesn't already exist
+	existing, err := r.GetByKey(ctx, newKey)
+	if err == nil && existing != nil {
+		return fmt.Errorf("feature with key %s already exists", newKey)
+	}
+
+	query := `
+		UPDATE features
+		SET key = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query, newKey, oldKey)
+	if err != nil {
+		return fmt.Errorf("update feature key: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("feature not found: %s", oldKey)
+	}
+
+	return nil
+}
