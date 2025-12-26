@@ -133,6 +133,23 @@ Examples:
 	RunE: runFeatureDelete,
 }
 
+// featureUpdateCmd updates a feature's properties
+var featureUpdateCmd = &cobra.Command{
+	Use:   "update <feature-key>",
+	Short: "Update a feature",
+	Long: `Update a feature's properties such as title, description, status, execution order, or file path.
+
+Examples:
+  shark feature update E04-F02 --title "New Title"
+  shark feature update E04-F02 --description "New description"
+  shark feature update E04-F02 --status active
+  shark feature update E04-F02 --execution-order 2
+  shark feature update E04-F02 --filename "docs/specs/feature.md"
+  shark feature update E04-F02 --path "docs/custom"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runFeatureUpdate,
+}
+
 var (
 	featureCreateEpic           string
 	featureCreateDescription    string
@@ -140,6 +157,7 @@ var (
 	featureCreateFilename       string
 	featureCreatePath           string
 	featureCreateForce          bool
+	featureCreateKey            string
 )
 
 func init() {
@@ -152,6 +170,7 @@ func init() {
 	featureCmd.AddCommand(featureCreateCmd)
 	featureCmd.AddCommand(featureCompleteCmd)
 	featureCmd.AddCommand(featureDeleteCmd)
+	featureCmd.AddCommand(featureUpdateCmd)
 
 	// Add flags for list command
 	featureListCmd.Flags().StringP("epic", "e", "", "Filter by epic key")
@@ -163,6 +182,7 @@ func init() {
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
 	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
 	featureCreateCmd.Flags().StringVar(&featureCreatePath, "path", "", "Custom base folder path for this feature and child tasks (overrides epic's path)")
+	featureCreateCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature (e.g., auth, F00). If not provided, auto-generates next F## number")
 	featureCreateCmd.Flags().StringVar(&featureCreateFilename, "filename", "", "Custom filename path (relative to project root, must end in .md)")
 	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
 	_ = featureCreateCmd.MarkFlagRequired("epic")
@@ -172,6 +192,16 @@ func init() {
 
 	// Add flags for delete command
 	featureDeleteCmd.Flags().Bool("force", false, "Force deletion even if feature has tasks")
+
+	// Add flags for update command
+	featureUpdateCmd.Flags().String("title", "", "New title for the feature")
+	featureUpdateCmd.Flags().String("description", "", "New description for the feature")
+	featureUpdateCmd.Flags().String("status", "", "New status: draft, active, completed, archived")
+	featureUpdateCmd.Flags().Int("execution-order", -1, "New execution order (-1 = no change)")
+	featureUpdateCmd.Flags().String("key", "", "New key for the feature (must be unique, cannot contain spaces)")
+	featureUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
+	featureUpdateCmd.Flags().String("path", "", "New custom folder base path")
+	featureUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
 }
 
 // runFeatureList executes the feature list command
@@ -745,16 +775,49 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Auto-assign next feature key for this epic
-	nextKey, err := getNextFeatureKey(ctx, featureRepo, epic.ID)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to generate feature key: %v", err))
-		os.Exit(1)
+	// Get feature key (custom or auto-generated)
+	var nextKey string
+	if featureCreateKey != "" {
+		// Validate custom key: no spaces allowed
+		if containsSpace(featureCreateKey) {
+			cli.Error("Error: Feature key cannot contain spaces")
+			os.Exit(1)
+		}
+
+		// For custom keys, construct full key as E##-<custom-key>
+		// If custom key already has E## prefix, use as-is, otherwise add epic prefix
+		if len(featureCreateKey) >= 3 && featureCreateKey[0] == 'F' {
+			// Custom key is just F## or similar, prepend epic
+			nextKey = fmt.Sprintf("%s-%s", featureCreateEpic, featureCreateKey)
+		} else if len(featureCreateKey) >= 7 && featureCreateKey[:3] == featureCreateEpic {
+			// Custom key already has epic prefix (e.g., E01-auth)
+			nextKey = featureCreateKey
+		} else {
+			// Custom key is a simple string (e.g., "auth"), construct full key
+			nextKey = fmt.Sprintf("%s-%s", featureCreateEpic, featureCreateKey)
+		}
+
+		// Check if key already exists
+		existing, err := featureRepo.GetByKey(ctx, nextKey)
+		if err == nil && existing != nil {
+			cli.Error(fmt.Sprintf("Error: Feature with key '%s' already exists", nextKey))
+			os.Exit(1)
+		}
+	} else {
+		// Auto-generate next feature key
+		var err error
+		nextKey, err = getNextFeatureKey(ctx, featureRepo, epic.ID)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to generate feature key: %v", err))
+			os.Exit(1)
+		}
+		// Prepend epic to auto-generated key
+		nextKey = fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
 	}
 
 	// Generate slug from title
 	slug := utils.GenerateSlug(featureTitle)
-	featureSlug := fmt.Sprintf("%s-%s-%s", featureCreateEpic, nextKey, slug)
+	featureSlug := fmt.Sprintf("%s-%s", nextKey, slug)
 
 	// Get project root (current working directory)
 	projectRoot, err := os.Getwd()
@@ -774,8 +837,8 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		customFolderPath = &relPath
 	}
 
-	// Create database entry with key (E##-F##) not full slug
-	featureKey := fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
+	// Use the nextKey which is already in full format (E##-F## or E##-<custom>)
+	featureKey := nextKey
 
 	// Set execution_order only if provided (non-zero)
 	var executionOrder *int
@@ -1251,5 +1314,142 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 	if len(tasks) > 0 {
 		cli.Warning(fmt.Sprintf("Cascade deleted %d task(s) and their history", len(tasks)))
 	}
+	return nil
+}
+
+// runFeatureUpdate executes the feature update command
+func runFeatureUpdate(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	featureKey := args[0]
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
+		return fmt.Errorf("database path error")
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		cli.Error("Error: Database error. Run with --verbose for details.")
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
+		}
+		os.Exit(2)
+	}
+
+	// Get repositories
+	repoDb := repository.NewDB(database)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+
+	// Get feature by key to verify it exists
+	feature, err := featureRepo.GetByKey(ctx, featureKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
+		cli.Info("Use 'shark feature list' to see available features")
+		os.Exit(1)
+	}
+
+	// Track if any changes were made
+	changed := false
+
+	// Update title if provided
+	title, _ := cmd.Flags().GetString("title")
+	if title != "" {
+		feature.Title = title
+		changed = true
+	}
+
+	// Update description if provided
+	description, _ := cmd.Flags().GetString("description")
+	if description != "" {
+		feature.Description = &description
+		changed = true
+	}
+
+	// Update status if provided
+	status, _ := cmd.Flags().GetString("status")
+	if status != "" {
+		feature.Status = models.FeatureStatus(status)
+		changed = true
+	}
+
+	// Update execution order if provided
+	execOrder, _ := cmd.Flags().GetInt("execution-order")
+	if execOrder != -1 {
+		feature.ExecutionOrder = &execOrder
+		changed = true
+	}
+
+	// Update custom folder path if provided
+	customPath, _ := cmd.Flags().GetString("path")
+	if customPath != "" {
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
+			os.Exit(1)
+		}
+
+		_, relPath, err := utils.ValidateFolderPath(customPath, projectRoot)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+		feature.CustomFolderPath = &relPath
+		changed = true
+	}
+
+	// Apply core field updates if any changed
+	if changed {
+		if err := featureRepo.Update(ctx, feature); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update feature: %v", err))
+			os.Exit(1)
+		}
+	}
+
+	// Handle key update separately (requires unique validation)
+	newKey, _ := cmd.Flags().GetString("key")
+	if newKey != "" {
+		// Validate new key: no spaces allowed
+		if containsSpace(newKey) {
+			cli.Error("Error: Feature key cannot contain spaces")
+			os.Exit(1)
+		}
+
+		// Check if new key already exists (and is different from current key)
+		if newKey != featureKey {
+			existing, err := featureRepo.GetByKey(ctx, newKey)
+			if err == nil && existing != nil {
+				cli.Error(fmt.Sprintf("Error: Feature with key '%s' already exists", newKey))
+				os.Exit(1)
+			}
+
+			// Update the key
+			if err := featureRepo.UpdateKey(ctx, featureKey, newKey); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to update feature key: %v", err))
+				os.Exit(1)
+			}
+			changed = true
+		}
+	}
+
+	// Handle filename update separately
+	filename, _ := cmd.Flags().GetString("filename")
+	if filename != "" {
+		if err := featureRepo.UpdateFilePath(ctx, featureKey, &filename); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update feature file path: %v", err))
+			os.Exit(1)
+		}
+		changed = true
+	}
+
+	if !changed {
+		cli.Warning("No changes specified. Use --help to see available flags.")
+		return nil
+	}
+
+	cli.Success(fmt.Sprintf("Feature %s updated successfully", featureKey))
 	return nil
 }

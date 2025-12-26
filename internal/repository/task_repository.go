@@ -970,6 +970,36 @@ func (r *TaskRepository) GetMaxSequenceForFeature(ctx context.Context, featureKe
 	return maxSequence, nil
 }
 
+// UpdateKey updates the key of a task
+func (r *TaskRepository) UpdateKey(ctx context.Context, oldKey string, newKey string) error {
+	// Validate new key doesn't already exist
+	existing, err := r.GetByKey(ctx, newKey)
+	if err == nil && existing != nil {
+		return fmt.Errorf("task with key %s already exists", newKey)
+	}
+
+	query := `
+		UPDATE tasks
+		SET key = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query, newKey, oldKey)
+	if err != nil {
+		return fmt.Errorf("update task key: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("task not found: %s", oldKey)
+	}
+
+	return nil
+}
+
 // queryTasks is a helper function to execute task queries
 func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...interface{}) ([]*models.Task, error) {
 	rows, err := r.db.QueryContext(ctx, query, args...)

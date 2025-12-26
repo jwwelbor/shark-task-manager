@@ -47,16 +47,20 @@ var taskListCmd = &cobra.Command{
 	Short: "List tasks",
 	Long: `List tasks with optional filtering by status, epic, feature, or agent.
 
+By default, completed tasks are hidden. Use --show-all to include them.
+
 Positional Arguments:
   EPIC      Optional epic key (E##) to filter by epic (e.g., E04)
   FEATURE   Optional feature key (F## or E##-F##) to filter by feature (e.g., F01 or E04-F01)
 
 Examples:
-  shark task list                      List all tasks
-  shark task list E04                  List all tasks in epic E04
+  shark task list                      List all non-completed tasks
+  shark task list --show-all           List all tasks including completed
+  shark task list E04                  List all non-completed tasks in epic E04
   shark task list E04 F01              List tasks in epic E04, feature F01
   shark task list E04-F01              Same as above (combined format)
   shark task list --status=todo        List tasks with status 'todo'
+  shark task list --status=completed   List only completed tasks
   shark task list --epic=E04           Flag syntax (still supported)
   shark task list --json               Output as JSON`,
 	RunE: runTaskList,
@@ -188,6 +192,23 @@ Examples:
 	RunE: runTaskDelete,
 }
 
+// taskUpdateCmd updates a task's properties
+var taskUpdateCmd = &cobra.Command{
+	Use:   "update <task-key>",
+	Short: "Update a task",
+	Long: `Update a task's properties such as title, description, priority, agent, or dependencies.
+
+Examples:
+  shark task update T-E04-F01-001 --title "New Title"
+  shark task update T-E04-F01-001 --description "New description"
+  shark task update T-E04-F01-001 --priority 1
+  shark task update T-E04-F01-001 --agent backend
+  shark task update T-E04-F01-001 --filename "docs/tasks/custom.md"
+  shark task update T-E04-F01-001 --depends-on "T-E04-F01-002,T-E04-F01-003"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskUpdate,
+}
+
 // runTaskList executes the task list command
 func runTaskList(cmd *cobra.Command, args []string) error {
 	// Create context with timeout
@@ -315,6 +336,10 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		}
 		tasks = filteredTasks
 	}
+
+	// Filter out completed tasks by default (unless --show-all or explicit status filter)
+	showAll, _ := cmd.Flags().GetBool("show-all")
+	tasks = filterTasksByCompletedStatus(tasks, showAll, statusStr)
 
 	// Output results
 	// TODO: Support multiple output formats (markdown, yaml, csv)
@@ -659,6 +684,30 @@ func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.Ta
 	return true
 }
 
+// filterTasksByCompletedStatus filters out completed tasks unless showAll is true
+// or an explicit status filter is set
+func filterTasksByCompletedStatus(tasks []*models.Task, showAll bool, statusFilter string) []*models.Task {
+	// If an explicit status filter is set, don't apply default filtering
+	// The status filter will be handled by the repository query
+	if statusFilter != "" {
+		return tasks
+	}
+
+	// If showAll is true, return all tasks
+	if showAll {
+		return tasks
+	}
+
+	// Default behavior: filter out completed tasks
+	filtered := make([]*models.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Status != models.TaskStatusCompleted {
+			filtered = append(filtered, task)
+		}
+	}
+	return filtered
+}
+
 // runTaskCreate executes the task create command
 func runTaskCreate(cmd *cobra.Command, args []string) error {
 	// Create context with timeout
@@ -694,8 +743,15 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	priority, _ := cmd.Flags().GetInt("priority")
 	dependsOn, _ := cmd.Flags().GetString("depends-on")
 	executionOrder, _ := cmd.Flags().GetInt("execution-order")
+	customKey, _ := cmd.Flags().GetString("key")
 	filename, _ := cmd.Flags().GetString("filename")
 	force, _ := cmd.Flags().GetBool("force")
+
+	// Validate custom key if provided
+	if customKey != "" && containsSpace(customKey) {
+		cli.Error("Error: Task key cannot contain spaces")
+		os.Exit(1)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -741,6 +797,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		Priority:       priority,
 		DependsOn:      dependsOn,
 		ExecutionOrder: executionOrder,
+		CustomKey:      customKey,
 		Filename:       filename,
 		Force:          force,
 	}
@@ -1199,6 +1256,7 @@ func init() {
 	taskCmd.AddCommand(taskReopenCmd)
 	taskCmd.AddCommand(taskNextCmd)
 	taskCmd.AddCommand(taskDeleteCmd)
+	taskCmd.AddCommand(taskUpdateCmd)
 
 	// Add flags for list command
 	taskListCmd.Flags().StringP("status", "s", "", "Filter by status (todo, in_progress, completed, blocked)")
@@ -1208,6 +1266,7 @@ func init() {
 	taskListCmd.Flags().IntP("priority-min", "", 0, "Minimum priority (1-10)")
 	taskListCmd.Flags().IntP("priority-max", "", 0, "Maximum priority (1-10)")
 	taskListCmd.Flags().BoolP("blocked", "b", false, "Show only blocked tasks")
+	taskListCmd.Flags().Bool("show-all", false, "Show all tasks including completed (by default, completed tasks are hidden)")
 
 	// Add flags for create command
 	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) (required)")
@@ -1220,6 +1279,7 @@ func init() {
 	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority (1-10, default 5)")
 	taskCreateCmd.Flags().String("depends-on", "", "Comma-separated dependency task keys (optional)")
 	taskCreateCmd.Flags().Int("execution-order", 0, "Execution order (optional, 0 = not set)")
+	taskCreateCmd.Flags().String("key", "", "Custom key for the task (e.g., T-E01-F01-custom). If not provided, auto-generates next sequence number")
 	taskCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must include .md extension)")
 	taskCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
 
@@ -1246,4 +1306,200 @@ func init() {
 	taskReopenCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskReopenCmd.Flags().StringP("notes", "n", "", "Rework notes")
 	taskReopenCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
+
+	// Add flags for update command
+	taskUpdateCmd.Flags().String("title", "", "New title for the task")
+	taskUpdateCmd.Flags().StringP("description", "d", "", "New description for the task")
+	taskUpdateCmd.Flags().IntP("priority", "p", -1, "New priority (1-10, -1 = no change)")
+	taskUpdateCmd.Flags().StringP("agent", "a", "", "New agent type")
+	taskUpdateCmd.Flags().String("key", "", "New key for the task (must be unique, cannot contain spaces)")
+	taskUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
+	taskUpdateCmd.Flags().String("depends-on", "", "New comma-separated dependency task keys")
+	taskUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
+}
+
+// runTaskUpdate executes the task update command
+func runTaskUpdate(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	taskKey := args[0]
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		return fmt.Errorf("failed to get database path: %w", err)
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer database.Close()
+
+	// Create repository
+	repo := repository.NewTaskRepository(repository.NewDB(database))
+
+	// Get task by key to verify it exists
+	task, err := repo.GetByKey(ctx, taskKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Task not found: %s", taskKey))
+		os.Exit(1)
+	}
+
+	// Track if any changes were made
+	changed := false
+
+	// Update title if provided
+	title, _ := cmd.Flags().GetString("title")
+	if title != "" {
+		task.Title = title
+		changed = true
+	}
+
+	// Update description if provided
+	description, _ := cmd.Flags().GetString("description")
+	if description != "" {
+		task.Description = &description
+		changed = true
+	}
+
+	// Update priority if provided
+	priority, _ := cmd.Flags().GetInt("priority")
+	if priority != -1 {
+		task.Priority = priority
+		changed = true
+	}
+
+	// Update agent type if provided
+	agent, _ := cmd.Flags().GetString("agent")
+	if agent != "" {
+		agentType := models.AgentType(agent)
+		task.AgentType = &agentType
+		changed = true
+	}
+
+	// Update dependencies if provided
+	dependsOn, _ := cmd.Flags().GetString("depends-on")
+	if dependsOn != "" {
+		// Parse dependencies and convert to JSON string
+		deps := splitDependencies(dependsOn)
+		depsJSON, err := json.Marshal(deps)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to marshal dependencies: %v", err))
+			os.Exit(1)
+		}
+		depsStr := string(depsJSON)
+		task.DependsOn = &depsStr
+		changed = true
+	}
+
+	// Apply core field updates if any changed
+	if changed {
+		if err := repo.Update(ctx, task); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update task: %v", err))
+			os.Exit(1)
+		}
+	}
+
+	// Handle key update separately (requires unique validation)
+	newKey, _ := cmd.Flags().GetString("key")
+	if newKey != "" {
+		// Validate new key: no spaces allowed
+		if containsSpace(newKey) {
+			cli.Error("Error: Task key cannot contain spaces")
+			os.Exit(1)
+		}
+
+		// Check if new key already exists (and is different from current key)
+		if newKey != taskKey {
+			existing, err := repo.GetByKey(ctx, newKey)
+			if err == nil && existing != nil {
+				cli.Error(fmt.Sprintf("Error: Task with key '%s' already exists", newKey))
+				os.Exit(1)
+			}
+
+			// Update the key
+			if err := repo.UpdateKey(ctx, taskKey, newKey); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to update task key: %v", err))
+				os.Exit(1)
+			}
+			changed = true
+		}
+	}
+
+	// Handle filename update separately
+	filename, _ := cmd.Flags().GetString("filename")
+	if filename != "" {
+		if err := repo.UpdateFilePath(ctx, taskKey, &filename); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update task file path: %v", err))
+			os.Exit(1)
+		}
+		changed = true
+	}
+
+	if !changed {
+		cli.Warning("No changes specified. Use --help to see available flags.")
+		return nil
+	}
+
+	cli.Success(fmt.Sprintf("Task %s updated successfully", taskKey))
+	return nil
+}
+
+// splitDependencies splits a comma-separated string into task keys
+func splitDependencies(deps string) []string {
+	if deps == "" {
+		return []string{}
+	}
+	parts := []string{}
+	for _, part := range splitAndTrim(deps, ",") {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
+}
+
+// splitAndTrim splits a string by delimiter and trims whitespace
+func splitAndTrim(s string, delimiter string) []string {
+	parts := []string{}
+	for _, part := range splitString(s, delimiter) {
+		trimmed := trimSpace(part)
+		if trimmed != "" {
+			parts = append(parts, trimmed)
+		}
+	}
+	return parts
+}
+
+// splitString splits a string by delimiter
+func splitString(s string, delimiter string) []string {
+	result := []string{}
+	current := ""
+	for _, ch := range s {
+		if string(ch) == delimiter {
+			result = append(result, current)
+			current = ""
+		} else {
+			current += string(ch)
+		}
+	}
+	if current != "" || len(result) == 0 {
+		result = append(result, current)
+	}
+	return result
+}
+
+// trimSpace removes leading and trailing whitespace
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
+	}
+	return s[start:end]
 }

@@ -148,9 +148,26 @@ Examples:
 	RunE: runEpicDelete,
 }
 
+// epicUpdateCmd updates an epic's properties
+var epicUpdateCmd = &cobra.Command{
+	Use:   "update <epic-key>",
+	Short: "Update an epic",
+	Long: `Update an epic's properties such as title, description, status, priority, or file path.
+
+Examples:
+  shark epic update E01 --title "New Title"
+  shark epic update E01 --description "New description"
+  shark epic update E01 --status active
+  shark epic update E01 --filename "docs/roadmap/2025.md"
+  shark epic update E01 --path "docs/roadmap"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runEpicUpdate,
+}
+
 var (
 	epicCreateDescription string
 	epicCreatePath        string
+	epicCreateKey         string
 )
 
 func init() {
@@ -164,6 +181,7 @@ func init() {
 	epicCmd.AddCommand(epicCompleteCmd)
 	epicCmd.AddCommand(epicCreateCmd)
 	epicCmd.AddCommand(epicDeleteCmd)
+	epicCmd.AddCommand(epicUpdateCmd)
 
 	// Add flags for list command
 	epicListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
@@ -175,11 +193,23 @@ func init() {
 	// Add flags for create command
 	epicCreateCmd.Flags().StringVar(&epicCreateDescription, "description", "", "Epic description (optional)")
 	epicCreateCmd.Flags().StringVar(&epicCreatePath, "path", "", "Custom base folder path for this epic and children (relative to project root)")
+	epicCreateCmd.Flags().StringVar(&epicCreateKey, "key", "", "Custom key for the epic (e.g., E00, bugs). If not provided, auto-generates next E## number")
 	epicCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must end in .md)")
 	epicCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another epic or feature")
 
 	// Add flags for delete command
 	epicDeleteCmd.Flags().Bool("force", false, "Force deletion even if epic has features")
+
+	// Add flags for update command
+	epicUpdateCmd.Flags().String("title", "", "New title for the epic")
+	epicUpdateCmd.Flags().String("description", "", "New description for the epic")
+	epicUpdateCmd.Flags().String("status", "", "New status: draft, active, completed, archived")
+	epicUpdateCmd.Flags().String("priority", "", "New priority: low, medium, high")
+	epicUpdateCmd.Flags().String("business-value", "", "New business value: low, medium, high")
+	epicUpdateCmd.Flags().String("key", "", "New key for the epic (must be unique, cannot contain spaces)")
+	epicUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
+	epicUpdateCmd.Flags().String("path", "", "New custom folder base path")
+	epicUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
 }
 
 // runEpicList executes the epic list command
@@ -669,11 +699,31 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
-	// Get next epic key
-	nextKey, err := getNextEpicKey(ctx, epicRepo)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get next epic key: %v", err))
-		os.Exit(1)
+	// Get epic key (custom or auto-generated)
+	var nextKey string
+	if epicCreateKey != "" {
+		// Validate custom key: no spaces allowed
+		if containsSpace(epicCreateKey) {
+			cli.Error("Error: Epic key cannot contain spaces")
+			os.Exit(1)
+		}
+
+		// Check if key already exists
+		existing, err := epicRepo.GetByKey(ctx, epicCreateKey)
+		if err == nil && existing != nil {
+			cli.Error(fmt.Sprintf("Error: Epic with key '%s' already exists", epicCreateKey))
+			os.Exit(1)
+		}
+
+		nextKey = epicCreateKey
+	} else {
+		// Auto-generate next epic key
+		var err error
+		nextKey, err = getNextEpicKey(ctx, epicRepo)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to get next epic key: %v", err))
+			os.Exit(1)
+		}
 	}
 
 	// Validate and process custom filename if provided
@@ -1184,5 +1234,162 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 	if len(features) > 0 {
 		cli.Warning(fmt.Sprintf("Cascade deleted %d feature(s) and their tasks", len(features)))
 	}
+	return nil
+}
+
+// containsSpace checks if a string contains any whitespace characters
+func containsSpace(s string) bool {
+	for _, ch := range s {
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+			return true
+		}
+	}
+	return false
+}
+
+// runEpicUpdate executes the epic update command
+func runEpicUpdate(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	epicKey := args[0]
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
+		return fmt.Errorf("database path error")
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		cli.Error("Error: Database error. Run with --verbose for details.")
+		if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
+		}
+		os.Exit(2)
+	}
+
+	// Get repositories
+	repoDb := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(repoDb)
+
+	// Get epic by key to verify it exists
+	epic, err := epicRepo.GetByKey(ctx, epicKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicKey))
+		cli.Info("Use 'shark epic list' to see available epics")
+		os.Exit(1)
+	}
+
+	// Track if any changes were made
+	changed := false
+
+	// Update title if provided
+	title, _ := cmd.Flags().GetString("title")
+	if title != "" {
+		epic.Title = title
+		changed = true
+	}
+
+	// Update description if provided
+	description, _ := cmd.Flags().GetString("description")
+	if description != "" {
+		epic.Description = &description
+		changed = true
+	}
+
+	// Update status if provided
+	status, _ := cmd.Flags().GetString("status")
+	if status != "" {
+		epic.Status = models.EpicStatus(status)
+		changed = true
+	}
+
+	// Update priority if provided
+	priority, _ := cmd.Flags().GetString("priority")
+	if priority != "" {
+		epic.Priority = models.Priority(priority)
+		changed = true
+	}
+
+	// Update business value if provided
+	businessValue, _ := cmd.Flags().GetString("business-value")
+	if businessValue != "" {
+		bv := models.Priority(businessValue)
+		epic.BusinessValue = &bv
+		changed = true
+	}
+
+	// Update custom folder path if provided
+	customPath, _ := cmd.Flags().GetString("path")
+	if customPath != "" {
+		projectRoot, err := os.Getwd()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
+			os.Exit(1)
+		}
+
+		_, relPath, err := utils.ValidateFolderPath(customPath, projectRoot)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+		epic.CustomFolderPath = &relPath
+		changed = true
+	}
+
+	// Apply core field updates if any changed
+	if changed {
+		if err := epicRepo.Update(ctx, epic); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update epic: %v", err))
+			os.Exit(1)
+		}
+	}
+
+	// Handle key update separately (requires unique validation)
+	newKey, _ := cmd.Flags().GetString("key")
+	if newKey != "" {
+		// Validate new key: no spaces allowed
+		if containsSpace(newKey) {
+			cli.Error("Error: Epic key cannot contain spaces")
+			os.Exit(1)
+		}
+
+		// Check if new key already exists (and is different from current key)
+		if newKey != epicKey {
+			existing, err := epicRepo.GetByKey(ctx, newKey)
+			if err == nil && existing != nil {
+				cli.Error(fmt.Sprintf("Error: Epic with key '%s' already exists", newKey))
+				os.Exit(1)
+			}
+
+			// Update the key
+			if err := epicRepo.UpdateKey(ctx, epicKey, newKey); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to update epic key: %v", err))
+				os.Exit(1)
+			}
+			changed = true
+		}
+	}
+
+	// Handle filename update separately (uses different repository method)
+	filename, _ := cmd.Flags().GetString("filename")
+	if filename != "" {
+		// This is handled separately as it may involve file reassignment
+		// For now, just update the file path in the database
+		if err := epicRepo.UpdateFilePath(ctx, epicKey, &filename); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update epic file path: %v", err))
+			os.Exit(1)
+		}
+		changed = true
+	}
+
+	if !changed {
+		cli.Warning("No changes specified. Use --help to see available flags.")
+		return nil
+	}
+
+	cli.Success(fmt.Sprintf("Epic %s updated successfully", epicKey))
 	return nil
 }

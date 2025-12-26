@@ -66,6 +66,7 @@ type CreateTaskInput struct {
 	Priority       int
 	DependsOn      string
 	ExecutionOrder int
+	CustomKey      string // Custom key override (optional)
 	Filename       string // Custom filename path (relative to project root)
 	Force          bool   // Force reassignment if file already claimed
 }
@@ -92,10 +93,22 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		return nil, err
 	}
 
-	// 2. Generate task key
-	key, err := c.keygen.GenerateTaskKey(ctx, input.EpicKey, validated.NormalizedFeatureKey)
-	if err != nil {
-		return nil, err
+	// 2. Generate or use custom task key
+	var key string
+	if input.CustomKey != "" {
+		// Validate custom key doesn't already exist
+		existing, err := c.taskRepo.GetByKey(ctx, input.CustomKey)
+		if err == nil && existing != nil {
+			return nil, fmt.Errorf("task with key %s already exists", input.CustomKey)
+		}
+		key = input.CustomKey
+	} else {
+		// Auto-generate task key
+		var err error
+		key, err = c.keygen.GenerateTaskKey(ctx, input.EpicKey, validated.NormalizedFeatureKey)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// 3. Begin database transaction
