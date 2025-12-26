@@ -52,15 +52,19 @@ var featureListCmd = &cobra.Command{
 	Short: "List features",
 	Long: `List features with optional filtering by epic.
 
+By default, completed features are hidden. Use --show-all to include them.
+
 Positional Arguments:
   EPIC    Optional epic key (E##) to filter features (e.g., E04)
 
 Examples:
-  shark feature list              List all features
-  shark feature list E04          List features in epic E04
+  shark feature list              List all non-completed features
+  shark feature list --show-all   List all features including completed
+  shark feature list E04          List non-completed features in epic E04
   shark feature list --epic=E04   Same as above (flag syntax still works)
   shark feature list --json       Output as JSON
   shark feature list --status=active  Filter by status
+  shark feature list --status=completed  List only completed features
   shark feature list --sort-by=progress  Sort by progress`,
 	RunE: runFeatureList,
 }
@@ -176,6 +180,7 @@ func init() {
 	featureListCmd.Flags().StringP("epic", "e", "", "Filter by epic key")
 	featureListCmd.Flags().String("status", "", "Filter by status: draft, active, completed, archived")
 	featureListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
+	featureListCmd.Flags().Bool("show-all", false, "Show all features including completed (by default, completed features are hidden)")
 
 	// Add flags for create command
 	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01) (required)")
@@ -373,6 +378,10 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 			TaskCount: taskCount,
 		})
 	}
+
+	// Filter out completed features by default (unless --show-all or explicit status filter)
+	showAll, _ := cmd.Flags().GetBool("show-all")
+	featuresWithTaskCount = filterFeaturesByCompletedStatus(featuresWithTaskCount, showAll, statusFilter)
 
 	// Apply sorting
 	sortFeatures(featuresWithTaskCount, sortBy)
@@ -718,6 +727,29 @@ func sortFeaturesByStatus(features []FeatureWithTaskCount) {
 			}
 		}
 	}
+}
+
+// filterFeaturesByCompletedStatus filters out completed features unless showAll is true
+// or an explicit status filter is set
+func filterFeaturesByCompletedStatus(features []FeatureWithTaskCount, showAll bool, statusFilter string) []FeatureWithTaskCount {
+	// If an explicit status filter is set, don't apply default filtering
+	if statusFilter != "" {
+		return features
+	}
+
+	// If showAll is true, return all features
+	if showAll {
+		return features
+	}
+
+	// Default behavior: filter out completed features
+	filtered := make([]FeatureWithTaskCount, 0, len(features))
+	for _, feature := range features {
+		if feature.Status != models.FeatureStatusCompleted {
+			filtered = append(filtered, feature)
+		}
+	}
+	return filtered
 }
 
 // FeatureTemplateData holds data for feature template rendering
@@ -1075,8 +1107,15 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		os.Exit(2)
 	}
 
-	// If no tasks, inform user
+	// If no tasks, set feature status to completed and inform user
 	if len(tasks) == 0 {
+		// Set feature status to completed even with no tasks
+		feature.Status = models.FeatureStatusCompleted
+		if err := featureRepo.Update(ctx, feature); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update feature status: %v", err))
+			os.Exit(2)
+		}
+
 		if cli.GlobalConfig.JSON {
 			result := map[string]interface{}{
 				"feature_key":      featureKey,
@@ -1087,7 +1126,7 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 			}
 			return cli.OutputJSON(result)
 		}
-		cli.Info(fmt.Sprintf("Feature %s has no tasks to complete", featureKey))
+		cli.Success(fmt.Sprintf("Feature %s completed (no tasks)", featureKey))
 		return nil
 	}
 

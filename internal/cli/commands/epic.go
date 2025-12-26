@@ -1132,6 +1132,13 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 
 	// Epic progress is calculated on-demand, no need to update
 
+	// Set epic status to completed
+	epic.Status = models.EpicStatusCompleted
+	if err := epicRepo.Update(ctx, epic); err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to update epic status: %v", err))
+		os.Exit(2)
+	}
+
 	// Output results
 	if cli.GlobalConfig.JSON {
 		// Build status breakdown map for JSON
