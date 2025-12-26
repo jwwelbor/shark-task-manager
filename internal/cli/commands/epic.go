@@ -1122,11 +1122,29 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		affectedTaskKeys = append(affectedTaskKeys, task.Key)
 	}
 
-	// Update progress for all features
+	// Update progress for all features and mark them as completed
 	for _, feature := range features {
+		// Update progress first (will auto-complete if all tasks are done)
 		if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update progress for feature %s: %v", feature.Key, err))
 			os.Exit(2)
+		}
+
+		// Fetch the updated feature to check its status
+		updatedFeature, err := featureRepo.GetByID(ctx, feature.ID)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to get updated feature %s: %v", feature.Key, err))
+			os.Exit(2)
+		}
+
+		// Explicitly mark feature as completed if not already
+		// (This handles features with no tasks or other edge cases)
+		if updatedFeature.Status != models.FeatureStatusCompleted {
+			updatedFeature.Status = models.FeatureStatusCompleted
+			if err := featureRepo.Update(ctx, updatedFeature); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to complete feature %s: %v", updatedFeature.Key, err))
+				os.Exit(2)
+			}
 		}
 	}
 
