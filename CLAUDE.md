@@ -514,6 +514,10 @@ Update status with:
    ```
 4. Handle `cli.GlobalConfig` for JSON/verbose output
 5. Call appropriate repository methods for data operations
+6. **CRITICAL**: Write tests using MOCKED repositories (never use real database in CLI tests)
+   - Create `my_command_test.go` with mock repository
+   - Test command logic, argument parsing, output formatting
+   - See "Testing Architecture" section below for patterns
 
 ### Adding a Repository Method
 1. Open the relevant repository file (`task_repository.go`, `epic_repository.go`, etc.)
@@ -574,28 +578,196 @@ make dev  # Starts air which watches for file changes and rebuilds
 
 ---
 
-## Testing Notes
+## Testing Architecture - CRITICAL PATTERNS
+
+### ⚠️ TESTING GOLDEN RULE ⚠️
+
+**ONLY repository tests should use the real database. Everything else MUST use mocked repositories.**
+
+This rule is critical for:
+- Test isolation (no data pollution between tests)
+- Test speed (in-memory mocks are 100x faster)
+- Test reliability (no flaky tests from database state)
+- Parallel test execution (no database contention)
+
+### Test Categories
+
+#### 1. Repository Tests (`internal/repository/*_test.go`)
+**✅ USE REAL DATABASE - MUST CLEAN UP**
+
+These tests verify database operations (CRUD, transactions, queries).
+
+**Requirements:**
+- Create test database using `test.GetTestDB()`
+- Clean up test data BEFORE each test (DELETE existing records)
+- Use `test.SeedTestData()` for consistent fixtures
+- Never rely on data from previous tests
+- Verify database constraints, triggers, indexes
+
+**Example:**
+```go
+func TestTaskRepository_Create(t *testing.T) {
+    ctx := context.Background()
+    database := test.GetTestDB()
+    db := NewDB(database)
+    repo := NewTaskRepository(db)
+
+    // CRITICAL: Clean up existing data first
+    _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-%'")
+
+    // Seed fresh test data
+    epicID, featureID := test.SeedTestData()
+
+    // Run test
+    task := &models.Task{...}
+    err := repo.Create(ctx, task)
+    assert.NoError(t, err)
+
+    // Cleanup at end (optional, but good practice)
+    defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+}
+```
+
+#### 2. CLI Command Tests (`internal/cli/commands/*_test.go`)
+**❌ NEVER USE REAL DATABASE - USE MOCKS**
+
+These tests verify command logic, argument parsing, and output formatting.
+
+**Requirements:**
+- Create mock repository interfaces
+- Inject mocks into command handlers
+- Test command behavior without database
+- Verify JSON/table output formatting
+- Test error handling
+
+**Example:**
+```go
+type MockTaskRepository struct {
+    CreateFunc func(ctx context.Context, task *models.Task) error
+    GetFunc    func(ctx context.Context, id int64) (*models.Task, error)
+}
+
+func TestTaskCreateCommand(t *testing.T) {
+    // Create mock
+    mockRepo := &MockTaskRepository{
+        CreateFunc: func(ctx context.Context, task *models.Task) error {
+            task.ID = 123
+            return nil
+        },
+    }
+
+    // Inject mock into command handler
+    // Test command execution
+    // Verify mock was called correctly
+    // Verify output format
+}
+```
+
+#### 3. Service Layer Tests (`internal/sync/*_test.go`, `internal/status/*_test.go`)
+**❌ NEVER USE REAL DATABASE - USE MOCKS**
+
+These tests verify business logic and service orchestration.
+
+**Requirements:**
+- Mock all repository dependencies
+- Test service logic in isolation
+- Verify correct repository method calls
+- Test error propagation and handling
+
+#### 4. Unit Tests (models, utils, parsers)
+**❌ NO DATABASE - PURE LOGIC**
+
+These test pure functions with no dependencies.
+
+**Requirements:**
+- No database, no file system, no network
+- Test data transformations, validations, parsing
+- Fast, deterministic, parallel-safe
 
 ### Test Organization
-- Tests live alongside implementation: `foo.go` + `foo_test.go`
-- Test database: `internal/repository/test-shark-tasks.db` (auto-cleaned before test run)
-- Use `make test` to clean and run all tests
 
-### Integration Tests
-- `internal/repository/*_test.go`: Database-backed tests with real SQLite
-- Use `internal/test/testdb.go` to create fresh test database
-- Transaction rollback between tests ensures isolation
+```
+internal/
+├── repository/
+│   ├── task_repository.go
+│   └── task_repository_test.go       # ✅ Uses real DB + cleanup
+├── cli/commands/
+│   ├── task.go
+│   ├── task_test.go                  # ❌ Uses mocks only
+│   └── mock_task_repository.go       # Mock interface
+├── sync/
+│   ├── sync.go
+│   └── sync_test.go                  # ❌ Uses mocks only
+└── models/
+    ├── task.go
+    └── task_test.go                  # ❌ Pure logic only
+```
 
-### Mock Objects
-- `mock_task_repository.go`: Used for command testing without database
+### Common Testing Mistakes
+
+❌ **WRONG: CLI test using real database**
+```go
+func TestTaskCommand(t *testing.T) {
+    database := test.GetTestDB()  // DON'T DO THIS
+    // This causes test pollution and flaky tests
+}
+```
+
+✅ **CORRECT: CLI test using mock**
+```go
+func TestTaskCommand(t *testing.T) {
+    mockRepo := &MockTaskRepository{...}
+    // Test command logic in isolation
+}
+```
+
+❌ **WRONG: Repository test without cleanup**
+```go
+func TestCreate(t *testing.T) {
+    database := test.GetTestDB()
+    repo := NewTaskRepository(db)
+    repo.Create(ctx, task)  // Leaves data in DB
+    // Next test will see this data!
+}
+```
+
+✅ **CORRECT: Repository test with cleanup**
+```go
+func TestCreate(t *testing.T) {
+    database := test.GetTestDB()
+    repo := NewTaskRepository(db)
+
+    // Clean first
+    database.ExecContext(ctx, "DELETE FROM tasks WHERE key = ?", task.Key)
+
+    repo.Create(ctx, task)
+
+    // Verify and cleanup
+    defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+}
+```
 
 ### Running Tests
+
 ```bash
 make test              # Full suite
 make test-coverage     # With coverage HTML report
 go test -v ./...       # Manual verbose run
 go test -run TestName  # Specific test
+
+# Run only repository tests (with DB)
+go test -v ./internal/repository
+
+# Run only CLI tests (no DB, fast)
+go test -v ./internal/cli/commands
 ```
+
+### Test Database
+
+- Location: `internal/repository/test-shark-tasks.db`
+- Created by: `internal/test/testdb.go`
+- Shared across repository tests (fast, avoids recreation)
+- MUST be cleaned before each test to avoid pollution
 
 ---
 
@@ -678,9 +850,11 @@ dev-artifacts/2025-12-18-fix-database-bug/
 #### Testing
 - Use the standard `testing` package for creating tests.
 - Prefer table-driven tests for covering multiple cases.
+- **CRITICAL**: Only repository tests use real database; everything else uses mocks (see "Testing Architecture" section)
 - Use interfaces for mocking dependencies, a common Go practice.
 - Focus on testing business logic and public APIs.
 - Organize related checks within a single test function using `t.Run` for sub-tests.
+- Repository tests MUST clean up data before each test to ensure isolation
 
 ---
 
