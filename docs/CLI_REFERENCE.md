@@ -666,6 +666,11 @@ Start working on a task (todo → in_progress).
 **Flags:**
 - `--agent <identifier>` - Agent identifier (defaults to `$USER`)
 
+**Auto-tracking:**
+- Automatically creates a work session to track time spent
+- Session is associated with the task and agent
+- Use `shark task sessions <task-key>` to view work session history
+
 **Examples:**
 
 ```bash
@@ -674,6 +679,11 @@ shark task start T-E04-F06-001
 
 # With agent identifier
 shark task start T-E04-F06-001 --agent="ai-agent-001"
+
+# Output:
+#  SUCCESS  Task T-E04-F06-001 started
+# Status changed: todo → in_progress
+# Work session started (ID: 42)
 ```
 
 ### `shark task complete <task-key>`
@@ -686,6 +696,15 @@ Mark task ready for review (in_progress → ready_for_review).
 **Flags:**
 - `--agent <identifier>` - Agent identifier (defaults to `$USER`)
 - `-n, --notes <text>` - Completion notes
+- `--files-created <files>` - Comma-separated list of files created
+- `--files-modified <files>` - Comma-separated list of files modified
+- `--tests` - Mark that tests were written/updated
+- `--verified` - Mark that implementation was verified
+
+**Auto-tracking:**
+- Automatically ends the active work session
+- Records session outcome as "completed"
+- Stores completion metadata for future reference
 
 **Examples:**
 
@@ -695,6 +714,20 @@ shark task complete T-E04-F06-001
 
 # With notes
 shark task complete T-E04-F06-001 --notes="All tests passing"
+
+# With completion metadata (recommended for AI agents)
+shark task complete T-E04-F06-001 \
+  --files-created="internal/api/login.go,internal/api/login_test.go" \
+  --files-modified="internal/router/routes.go" \
+  --tests \
+  --verified \
+  --notes="Implemented login endpoint with JWT auth"
+
+# Output:
+#  SUCCESS  Task T-E04-F06-001 marked ready for review
+# Status changed: in_progress → ready_for_review
+# Work session ended (Duration: 2h 15m)
+# Completion metadata saved
 ```
 
 ### `shark task approve <task-key>`
@@ -775,6 +808,538 @@ Unblock a task (blocked → todo).
 ```bash
 # Unblock task
 shark task unblock T-E04-F06-001
+```
+
+## Task Intelligence Commands (E10 Features)
+
+The following commands provide advanced task intelligence, context management, and progress tracking capabilities.
+
+### Task Notes & Activity Tracking
+
+#### `shark task note add <task-key> <note-text>`
+
+Add a categorized note to a task for tracking progress, blockers, decisions, questions, or context.
+
+**Flags:**
+- `-c, --category <type>` - Note category: `progress`, `blocker`, `question`, `decision`, `context` (default: `progress`)
+
+**Examples:**
+
+```bash
+# Add progress note
+shark task note add T-E01-F01-001 "Implemented user validation logic"
+
+# Add blocker note
+shark task note add T-E01-F01-001 "Waiting for API spec" --category=blocker
+
+# Add question note
+shark task note add T-E01-F01-001 "Should we support OAuth 2.1?" --category=question
+
+# Add decision note
+shark task note add T-E01-F01-001 "Decided to use bcrypt for password hashing" --category=decision
+
+# Add context note
+shark task note add T-E01-F01-001 "Related to security audit findings" --category=context
+```
+
+#### `shark task notes <task-key>`
+
+View all notes for a task, grouped by category.
+
+**Examples:**
+
+```bash
+# View all notes
+shark task notes T-E01-F01-001
+
+# JSON output
+shark task notes T-E01-F01-001 --json
+```
+
+#### `shark task timeline <task-key>`
+
+View chronological timeline of task activity (status changes + notes).
+
+**Examples:**
+
+```bash
+# View task timeline
+shark task timeline T-E01-F01-001
+
+# Output:
+# Task Timeline: T-E01-F01-001
+#
+# 2025-12-24 10:00:00 | STATUS  | todo → in_progress
+# 2025-12-24 10:15:00 | PROGRESS| Implemented user validation logic
+# 2025-12-24 11:30:00 | BLOCKER | Waiting for API spec
+# 2025-12-24 14:00:00 | DECISION| Decided to use bcrypt for password hashing
+# 2025-12-24 16:00:00 | STATUS  | in_progress → ready_for_review
+
+# JSON output
+shark task timeline T-E01-F01-001 --json
+```
+
+#### `shark notes search <query>`
+
+Search all task notes across the project using full-text search.
+
+**Flags:**
+- `-c, --category <type>` - Filter by category: `progress`, `blocker`, `question`, `decision`, `context`
+- `-e, --epic <key>` - Filter by epic
+- `-f, --feature <key>` - Filter by feature
+
+**Examples:**
+
+```bash
+# Search all notes
+shark notes search "validation"
+
+# Search only blockers
+shark notes search "API" --category=blocker
+
+# Search within epic
+shark notes search "authentication" --epic=E01
+
+# JSON output
+shark notes search "bcrypt" --json
+```
+
+### Task Relationships & Dependencies
+
+#### `shark task link <source-key> <target-key>`
+
+Create a relationship between two tasks.
+
+**Flags:**
+- `-t, --type <relationship>` - Relationship type: `depends-on`, `blocks`, `relates-to`, `duplicates` (default: `depends-on`)
+
+**Examples:**
+
+```bash
+# Create dependency (source depends on target)
+shark task link T-E01-F01-002 T-E01-F01-001
+
+# Specify relationship type
+shark task link T-E01-F01-003 T-E01-F01-001 --type=blocks
+
+# Create related-to relationship
+shark task link T-E01-F01-004 T-E01-F01-002 --type=relates-to
+
+# Mark as duplicate
+shark task link T-E01-F02-001 T-E01-F01-001 --type=duplicates
+```
+
+**Cycle Detection:**
+- Automatically prevents circular dependencies
+- Returns error if relationship would create a cycle
+
+#### `shark task unlink <source-key> <target-key>`
+
+Remove a relationship between two tasks.
+
+**Examples:**
+
+```bash
+# Remove relationship
+shark task unlink T-E01-F01-002 T-E01-F01-001
+```
+
+#### `shark task deps <task-key>`
+
+View all dependencies for a task (tasks this task depends on).
+
+**Examples:**
+
+```bash
+# View dependencies
+shark task deps T-E01-F01-003
+
+# Output:
+# Dependencies for T-E01-F01-003:
+#
+# T-E01-F01-001 | completed  | Implement login API endpoint
+# T-E01-F01-002 | in_progress| Design login UI components
+
+# JSON output
+shark task deps T-E01-F01-003 --json
+```
+
+#### `shark task blocked-by <task-key>`
+
+View all tasks that block this task.
+
+**Examples:**
+
+```bash
+# View blockers
+shark task blocked-by T-E01-F01-005
+
+# JSON output
+shark task blocked-by T-E01-F01-005 --json
+```
+
+#### `shark task blocks <task-key>`
+
+View all tasks that this task blocks.
+
+**Examples:**
+
+```bash
+# View blocked tasks
+shark task blocks T-E01-F01-001
+
+# JSON output
+shark task blocks T-E01-F01-001 --json
+```
+
+### Acceptance Criteria
+
+#### `shark task criteria import <task-key>`
+
+Import acceptance criteria from task markdown file.
+
+**Examples:**
+
+```bash
+# Import criteria from task file
+shark task criteria import T-E01-F01-001
+
+# Output:
+#  SUCCESS  Imported 5 acceptance criteria from T-E01-F01-001
+```
+
+**Task file format:**
+
+```markdown
+---
+task_key: T-E01-F01-001
+---
+
+## Acceptance Criteria
+
+- [ ] User can log in with email and password
+- [ ] Invalid credentials return 401 error
+- [ ] JWT token is returned on successful login
+- [ ] Password is validated against bcrypt hash
+- [ ] Login attempts are rate limited
+```
+
+#### `shark task criteria check <task-key> <criterion-text>`
+
+Mark an acceptance criterion as passed.
+
+**Examples:**
+
+```bash
+# Mark criterion as passed
+shark task criteria check T-E01-F01-001 "User can log in with email and password"
+
+# Output:
+#  SUCCESS  Criterion marked as passed
+```
+
+#### `shark task criteria fail <task-key> <criterion-text>`
+
+Mark an acceptance criterion as failed.
+
+**Examples:**
+
+```bash
+# Mark criterion as failed
+shark task criteria fail T-E01-F01-001 "Login attempts are rate limited"
+
+# Output:
+#  SUCCESS  Criterion marked as failed
+```
+
+#### `shark feature criteria <feature-key>`
+
+View aggregated acceptance criteria status for all tasks in a feature.
+
+**Examples:**
+
+```bash
+# View feature criteria
+shark feature criteria E01-F01
+
+# Output:
+# Acceptance Criteria for Feature E01-F01:
+#
+# Task T-E01-F01-001 (3/5 passed):
+#   ✓ User can log in with email and password
+#   ✓ Invalid credentials return 401 error
+#   ✓ JWT token is returned on successful login
+#   ✗ Password is validated against bcrypt hash
+#   ○ Login attempts are rate limited
+
+# JSON output
+shark feature criteria E01-F01 --json
+```
+
+### Work Sessions & Resume Context
+
+#### `shark task context set <task-key>`
+
+Save structured resume context for a task (progress, decisions, questions, blockers, acceptance criteria status).
+
+**Flags:**
+- `--progress <text>` - Current progress description
+- `--decisions <text>` - Key decisions made (JSON array or newline-separated)
+- `--questions <text>` - Open questions (JSON array or newline-separated)
+- `--blockers <text>` - Current blockers (JSON array or newline-separated)
+- `--acceptance-criteria <text>` - AC status summary
+
+**Examples:**
+
+```bash
+# Set progress only
+shark task context set T-E01-F01-001 --progress="Implemented 3 of 5 endpoints"
+
+# Set multiple fields
+shark task context set T-E01-F01-001 \
+  --progress="Login API complete, UI 50% done" \
+  --decisions='["Using JWT with 24h expiry", "Bcrypt rounds set to 12"]' \
+  --questions='["Should we support refresh tokens?"]' \
+  --blockers='["Waiting for UI mockups"]'
+
+# Context is automatically merged (doesn't overwrite other fields)
+shark task context set T-E01-F01-001 --acceptance-criteria="3 of 5 criteria passing"
+```
+
+#### `shark task context get <task-key>`
+
+Retrieve saved context for a task.
+
+**Examples:**
+
+```bash
+# Get context
+shark task context get T-E01-F01-001
+
+# Output:
+# Context for T-E01-F01-001:
+#
+# Progress: Login API complete, UI 50% done
+#
+# Decisions:
+#   - Using JWT with 24h expiry
+#   - Bcrypt rounds set to 12
+#
+# Questions:
+#   - Should we support refresh tokens?
+#
+# Blockers:
+#   - Waiting for UI mockups
+
+# JSON output
+shark task context get T-E01-F01-001 --json
+```
+
+#### `shark task context clear <task-key>`
+
+Clear saved context for a task.
+
+**Examples:**
+
+```bash
+# Clear context
+shark task context clear T-E01-F01-001
+```
+
+#### `shark task resume <task-key>`
+
+Get comprehensive resume context for a task (aggregates all context for quick resumption).
+
+**Includes:**
+1. Task details (title, status, priority, agent)
+2. Saved context data (progress, decisions, questions, blockers)
+3. Recent notes (last 10)
+4. Last work session details
+5. Dependencies status
+6. Related tasks
+7. Acceptance criteria summary
+8. Files touched (from completion metadata)
+9. Timeline highlights
+10. Suggested next actions
+
+**Examples:**
+
+```bash
+# Get resume context
+shark task resume T-E01-F01-001
+
+# Output:
+# ═══════════════════════════════════════════════════════════
+# Resume Context: T-E01-F01-001
+# Implement login API endpoint
+# ═══════════════════════════════════════════════════════════
+#
+# [1] TASK OVERVIEW
+# Status:       in_progress
+# Priority:     8 (high)
+# Agent:        backend
+# Epic:         E01 - User Authentication System
+# Feature:      E01-F01 - Login Flow
+#
+# [2] CURRENT PROGRESS
+# Login API complete, UI 50% done
+#
+# [3] KEY DECISIONS MADE
+#   • Using JWT with 24h expiry
+#   • Bcrypt rounds set to 12
+#
+# [4] OPEN QUESTIONS ⚠️
+#   ? Should we support refresh tokens?
+#
+# [5] BLOCKERS ⚠️
+#   ! Waiting for UI mockups
+#
+# [6] LAST WORK SESSION
+# Started: 2025-12-24 14:00:00
+# Duration: 2h 15m (ongoing)
+# Agent: backend-agent-1
+#
+# [7] RECENT NOTES (last 5)
+# 2025-12-24 15:30 | PROGRESS | JWT validation working
+# 2025-12-24 14:45 | DECISION | Using bcrypt for passwords
+# 2025-12-24 14:15 | PROGRESS | Started API implementation
+#
+# [8] DEPENDENCIES
+# ✓ T-E01-F01-001 (completed) - Set up authentication database
+# ○ T-E01-F01-002 (todo) - Design login UI
+#
+# [9] ACCEPTANCE CRITERIA (3/5 passing)
+# ✓ User can log in with email and password
+# ✓ Invalid credentials return 401 error
+# ✓ JWT token is returned on successful login
+# ✗ Password is validated against bcrypt hash
+# ○ Login attempts are rate limited
+#
+# [10] FILES TOUCHED
+# Created: internal/api/login.go, internal/api/login_test.go
+# Modified: internal/router/routes.go
+#
+# [11] SUGGESTED NEXT ACTIONS
+#   • Complete remaining acceptance criteria (2 pending)
+#   • Resolve blocker: Waiting for UI mockups
+#   • Answer question: Should we support refresh tokens?
+#   • Add tests for rate limiting
+
+# JSON output (all data structured)
+shark task resume T-E01-F01-001 --json
+```
+
+#### `shark task sessions <task-key>`
+
+View all work sessions for a task with statistics.
+
+**Examples:**
+
+```bash
+# View sessions
+shark task sessions T-E01-F01-001
+
+# Output:
+# Work Sessions for T-E01-F01-001:
+#
+# Session #1
+# Started:  2025-12-24 10:00:00
+# Ended:    2025-12-24 12:30:00
+# Duration: 2h 30m
+# Agent:    backend-agent-1
+# Outcome:  paused
+#
+# Session #2
+# Started:  2025-12-24 14:00:00
+# Ended:    2025-12-24 16:15:00
+# Duration: 2h 15m
+# Agent:    backend-agent-1
+# Outcome:  completed
+#
+# Statistics:
+# Total sessions: 2
+# Total time:     4h 45m
+# Average:        2h 22m
+# Outcomes:       1 completed, 1 paused
+
+# JSON output
+shark task sessions T-E01-F01-001 --json
+```
+
+### Analytics
+
+#### `shark analytics sessions`
+
+Analyze work session patterns for estimation and planning.
+
+**Flags:**
+- `--session-duration` - Analyze session duration patterns
+- `--pause-frequency` - Analyze pause/resume frequency
+- `-e, --epic <key>` - Filter by epic
+- `-f, --feature <key>` - Filter by feature
+- `-a, --agent <type>` - Filter by agent type
+
+**Examples:**
+
+```bash
+# Session duration analysis
+shark analytics sessions --session-duration
+
+# Output:
+# ═══════════════════════════════════════════════════════════
+# Session Duration Analysis
+# ═══════════════════════════════════════════════════════════
+#
+# Overall Metrics:
+#   Total Sessions:        47
+#   Tasks with Sessions:   23
+#   Sessions per Task:     2.0
+#
+# Time Investment:
+#   Total Time:            87h 15m
+#   Average Session:       1h 51m
+#   Median Session:        1h 30m
+#
+# Distribution:
+#   < 1 hour:     12 sessions (26%)
+#   1-2 hours:    18 sessions (38%)
+#   2-4 hours:    14 sessions (30%)
+#   > 4 hours:     3 sessions (6%)
+#
+# Estimation Insights:
+#   • Most tasks require 1-2 hour sessions
+#   • Consider breaking tasks into <2 hour chunks
+
+# Pause frequency analysis
+shark analytics sessions --pause-frequency --epic=E01
+
+# Filter by agent type
+shark analytics sessions --session-duration --agent=backend
+
+# JSON output
+shark analytics sessions --session-duration --json
+```
+
+### Enhanced Search
+
+#### `shark search --file <file-path>`
+
+Search tasks by files they touched (created or modified).
+
+**Examples:**
+
+```bash
+# Find tasks that touched a file
+shark search --file="internal/api/login.go"
+
+# Output:
+# Tasks that touched internal/api/login.go:
+#
+# T-E01-F01-001 | completed | Implement login API endpoint
+# T-E01-F01-005 | completed | Add rate limiting to login
+
+# JSON output
+shark search --file="internal/api/login.go" --json
 ```
 
 ## Sync Commands

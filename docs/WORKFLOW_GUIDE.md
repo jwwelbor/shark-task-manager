@@ -659,6 +659,457 @@ shark epic get E03
 # Progress: 25.0% (1 of 4 total tasks completed)
 ```
 
+## AI Agent Workflow: Long-Running Tasks Across Sessions
+
+This section demonstrates how AI agents use Shark to manage complex, multi-session tasks with full context preservation.
+
+### Scenario: Complex Feature Implementation
+
+An AI agent is implementing a user authentication system that will span multiple chat sessions due to complexity.
+
+#### Session 1: Starting Work and Capturing Initial Context
+
+```bash
+# Agent starts a new chat session and picks up next task
+shark task next --agent=backend --json
+# Returns: T-E01-F01-001 "Implement login API endpoint"
+
+# Start the task (automatically creates work session)
+shark task start T-E01-F01-001 --agent="claude-sonnet-001"
+#  SUCCESS  Task started
+# Work session #1 created
+
+# Agent begins implementation...
+# After 2 hours of work, agent has made progress but isn't done
+
+# Save progress notes as work progresses
+shark task note add T-E01-F01-001 \
+  "Created login endpoint skeleton at internal/api/login.go" \
+  --category=progress
+
+shark task note add T-E01-F01-001 \
+  "Decided to use JWT with 24h expiry based on security requirements" \
+  --category=decision
+
+shark task note add T-E01-F01-001 \
+  "How many failed login attempts before lockout?" \
+  --category=question
+
+# Agent encounters a blocker
+shark task note add T-E01-F01-001 \
+  "Need database schema for user_sessions table from DBA" \
+  --category=blocker
+
+# Before ending session, save structured context for easy resume
+shark task context set T-E01-F01-001 \
+  --progress="Created API endpoint structure, JWT generation implemented, password validation pending" \
+  --decisions='["JWT with 24h expiry", "Bcrypt cost factor 12", "Rate limiting at middleware level"]' \
+  --questions='["Failed login lockout threshold?", "Should we log failed attempts?"]' \
+  --blockers='["Need user_sessions table schema from DBA"]' \
+  --acceptance-criteria="2 of 5 criteria passing"
+
+# Mark task as blocked (automatically ends work session)
+shark task block T-E01-F01-001 \
+  --reason="Waiting for user_sessions table schema"
+#  SUCCESS  Task blocked
+# Work session #1 ended (Duration: 2h 15m, Outcome: blocked)
+
+# Session 1 ends - context preserved ✓
+```
+
+#### Session 2: Resuming After Blocker Resolved (Days Later)
+
+```bash
+# New chat session starts, different agent instance
+# Agent needs to quickly understand where work was left off
+
+# Get comprehensive resume context
+shark task resume T-E01-F01-001
+
+# Output shows:
+# ═══════════════════════════════════════════════════════════
+# Resume Context: T-E01-F01-001
+# Implement login API endpoint
+# ═══════════════════════════════════════════════════════════
+#
+# [1] TASK OVERVIEW
+# Status:       blocked
+# Priority:     8 (high)
+# Agent:        backend
+#
+# [2] CURRENT PROGRESS
+# Created API endpoint structure, JWT generation implemented,
+# password validation pending
+#
+# [3] KEY DECISIONS MADE
+#   • JWT with 24h expiry
+#   • Bcrypt cost factor 12
+#   • Rate limiting at middleware level
+#
+# [4] OPEN QUESTIONS ⚠️
+#   ? Failed login lockout threshold?
+#   ? Should we log failed attempts?
+#
+# [5] BLOCKERS ⚠️
+#   ! Need user_sessions table schema from DBA
+#
+# [6] LAST WORK SESSION
+# Started: 2025-12-24 14:00:00
+# Ended:   2025-12-24 16:15:00
+# Duration: 2h 15m
+# Outcome: blocked
+#
+# [7] RECENT NOTES (last 5)
+# 2025-12-24 16:10 | BLOCKER | Need user_sessions schema from DBA
+# 2025-12-24 15:30 | QUESTION| How many failed login attempts before lockout?
+# 2025-12-24 15:00 | DECISION| Decided to use JWT with 24h expiry
+# 2025-12-24 14:30 | PROGRESS| Created login endpoint skeleton
+#
+# [8] ACCEPTANCE CRITERIA (2/5 passing)
+# ✓ JWT token generation works
+# ✓ Password bcrypt validation
+# ○ Rate limiting implemented
+# ○ Failed login tracking
+# ○ Session management
+#
+# [9] SUGGESTED NEXT ACTIONS
+#   • Resolve blocker: user_sessions table schema
+#   • Answer questions about lockout policy
+#   • Complete remaining 3 acceptance criteria
+
+# Agent confirms blocker is resolved
+shark task unblock T-E01-F01-001
+#  SUCCESS  Task unblocked (blocked → todo)
+
+# Resume work (creates new work session)
+shark task start T-E01-F01-001 --agent="claude-sonnet-002"
+#  SUCCESS  Task started
+# Work session #2 created
+
+# Agent implements remaining functionality...
+
+# Add progress notes
+shark task note add T-E01-F01-001 \
+  "Implemented rate limiting: 5 attempts per 15 minutes" \
+  --category=progress
+
+shark task note add T-E01-F01-001 \
+  "Confirmed with product: lockout after 5 failed attempts for 1 hour" \
+  --category=decision
+
+# Update context as work progresses
+shark task context set T-E01-F01-001 \
+  --progress="All functionality complete, tests passing" \
+  --acceptance-criteria="5 of 5 criteria passing"
+
+# Mark complete with metadata
+shark task complete T-E01-F01-001 \
+  --files-created="internal/api/login.go,internal/api/login_test.go,internal/middleware/rate_limit.go" \
+  --files-modified="internal/router/routes.go,docs/api/auth.md" \
+  --tests \
+  --verified \
+  --notes="Login API complete with JWT auth, rate limiting, and session management"
+#  SUCCESS  Task ready for review
+# Work session #2 ended (Duration: 1h 45m, Outcome: completed)
+```
+
+#### Session 3: Code Review and Approval (Another Agent)
+
+```bash
+# Reviewer agent in new session picks up task for review
+shark task list --status=ready_for_review --json
+# Returns: T-E01-F01-001
+
+# Get full context for review
+shark task resume T-E01-F01-001 --json | jq '{
+  title: .title,
+  progress: .context.progress,
+  decisions: .context.decisions,
+  files_created: .completion_metadata.files_created,
+  files_modified: .completion_metadata.files_modified,
+  tests_written: .completion_metadata.tests_written
+}'
+
+# Review passes, approve task
+shark task approve T-E01-F01-001 \
+  --agent="reviewer-001" \
+  --notes="Code review passed. Tests comprehensive, security reviewed."
+#  SUCCESS  Task approved and completed
+```
+
+### Multi-Task Workflow: Managing Dependencies
+
+```bash
+# Agent working on feature with dependent tasks
+
+# View all tasks in feature
+shark task list E01 F01 --json
+
+# Create dependency relationships
+shark task link T-E01-F01-003 T-E01-F01-001 --type=depends-on
+shark task link T-E01-F01-004 T-E01-F01-002 --type=depends-on
+shark task link T-E01-F01-005 T-E01-F01-003 --type=depends-on
+
+# Get next available task (respects dependencies)
+shark task next --epic=E01 --json
+# Returns only tasks with all dependencies completed
+
+# Start task
+shark task start T-E01-F01-003 --agent="backend-agent"
+
+# Check what dependencies were required
+shark task deps T-E01-F01-003
+# Shows: T-E01-F01-001 (completed)
+
+# Check what tasks are blocked by current work
+shark task blocks T-E01-F01-003
+# Shows: T-E01-F01-005 (todo) - waiting for this task
+```
+
+### Pattern: Systematic Progress Tracking
+
+```bash
+# Session 1: Start complex multi-file refactoring
+shark task start T-E04-F02-001 --agent="refactor-agent"
+
+# Add progress notes after each file
+shark task note add T-E04-F02-001 "Refactored user.go - extracted validation" --category=progress
+shark task note add T-E04-F02-001 "Refactored auth.go - simplified token logic" --category=progress
+shark task note add T-E04-F02-001 "Updated 15 test files to match new structure" --category=progress
+
+# Document architectural decision
+shark task note add T-E04-F02-001 \
+  "Moved validation to separate package for reusability" \
+  --category=decision
+
+# Save context before pausing
+shark task context set T-E04-F02-001 \
+  --progress="Refactored 12 of 20 files, all tests passing" \
+  --decisions='["Validation in separate package", "Kept backward compat wrappers"]'
+
+# End session (task stays in_progress)
+# Work session auto-ended when agent stops
+
+# ─────────────────────────────────────────────────────────
+
+# Session 2: Resume next day
+shark task resume T-E04-F02-001
+# Shows exactly where we left off: 12 of 20 files done
+
+# Continue work...
+# Complete remaining 8 files...
+
+shark task complete T-E04-F02-001 \
+  --files-modified="internal/user/*.go,internal/auth/*.go,internal/validation/*.go" \
+  --tests \
+  --verified
+```
+
+### Pattern: Handling Interruptions and Context Switches
+
+```bash
+# Working on Task A
+shark task start T-E01-F01-006 --agent="agent-001"
+
+# 30 minutes in, urgent Task B needs attention
+# Save context for Task A first
+shark task context set T-E01-F01-006 \
+  --progress="Database migration written, needs testing" \
+  --questions='["Should we add rollback procedure?"]'
+
+# Switch to urgent task (Task A work session auto-paused)
+shark task start T-E01-F02-001 --agent="agent-001"
+# ... complete urgent work ...
+shark task complete T-E01-F02-001
+
+# Return to Task A
+shark task resume T-E01-F01-006
+# Shows: "Database migration written, needs testing"
+# Question: "Should we add rollback procedure?"
+
+# Continue Task A (new work session created)
+shark task start T-E01-F01-006 --agent="agent-001"
+```
+
+### Pattern: Team Handoff
+
+```bash
+# Agent A starts task, does initial research
+shark task start T-E03-F01-001 --agent="research-agent"
+
+shark task note add T-E03-F01-001 \
+  "Researched 3 payment providers: Stripe (best fit), Square, PayPal" \
+  --category=progress
+
+shark task note add T-E03-F01-001 \
+  "Stripe chosen: better API, lower fees, better docs" \
+  --category=decision
+
+shark task context set T-E03-F01-001 \
+  --progress="Research complete, ready for implementation" \
+  --decisions='["Use Stripe", "Store payment methods in vault"]' \
+  --questions='["PCI compliance requirements?"]'
+
+# Agent A blocks task for compliance review
+shark task block T-E03-F01-001 --reason="Awaiting PCI compliance review"
+
+# ─────────────────────────────────────────────────────────
+
+# Agent B picks up after compliance approved
+shark task unblock T-E03-F01-001
+
+# Agent B gets full context from Agent A's work
+shark task resume T-E03-F01-001
+# Shows all research, decisions, and questions
+
+# Agent B starts implementation with full context
+shark task start T-E03-F01-001 --agent="backend-agent"
+```
+
+### Best Practices for AI Agents
+
+#### 1. Always Use `task resume` at Session Start
+
+```bash
+# ❌ BAD: Starting without context
+shark task get T-E01-F01-001 --json  # Missing context, notes, sessions
+shark task start T-E01-F01-001
+
+# ✅ GOOD: Get full resume context first
+shark task resume T-E01-F01-001 --json
+# Review context, then start
+shark task start T-E01-F01-001 --agent="agent-id"
+```
+
+#### 2. Capture Context Continuously
+
+```bash
+# ✅ GOOD: Add notes as decisions are made
+shark task note add T-E01-F01-001 "Using Redis for session store" --category=decision
+shark task note add T-E01-F01-001 "Completed user service integration" --category=progress
+shark task note add T-E01-F01-001 "Need Redis connection string" --category=blocker
+
+# ✅ GOOD: Save structured context before pausing
+shark task context set T-E01-F01-001 \
+  --progress="3 of 5 services integrated" \
+  --decisions='["Redis for sessions", "JWT in Authorization header"]' \
+  --blockers='["Need Redis connection string"]'
+```
+
+#### 3. Use Complete Command with Metadata
+
+```bash
+# ❌ BAD: Missing valuable tracking data
+shark task complete T-E01-F01-001
+
+# ✅ GOOD: Full metadata for future reference
+shark task complete T-E01-F01-001 \
+  --files-created="internal/auth/service.go,internal/auth/service_test.go" \
+  --files-modified="cmd/server/main.go,go.mod" \
+  --tests \
+  --verified \
+  --notes="Auth service complete with Redis sessions"
+```
+
+#### 4. Leverage Analytics for Planning
+
+```bash
+# Check historical session duration for similar tasks
+shark analytics sessions --session-duration --agent=backend --json
+
+# Use insights to estimate remaining work
+# If average session is 2h and we're 50% done, expect 2h more
+```
+
+#### 5. Use Search to Find Related Work
+
+```bash
+# Before starting auth work, check what touched auth files
+shark search --file="internal/auth/*.go" --json
+
+# Learn from previous tasks' notes
+shark notes search "authentication" --json
+
+# Check dependencies
+shark task deps T-E01-F01-005 --json
+```
+
+### Complete Example: Week-Long Feature Implementation
+
+```bash
+# ═══════════════════════════════════════════════════════════
+# MONDAY: Session 1 (2 hours)
+# ═══════════════════════════════════════════════════════════
+
+shark task next --epic=E01 --json
+# Returns: T-E01-F01-001 "Implement OAuth integration"
+
+shark task start T-E01-F01-001 --agent="agent-monday-am"
+
+# Import acceptance criteria from task file
+shark task criteria import T-E01-F01-001
+#  SUCCESS  Imported 8 acceptance criteria
+
+# Work for 2 hours, make progress on research
+shark task note add T-E01-F01-001 "Evaluated OAuth providers" --category=progress
+shark task note add T-E01-F01-001 "Auth0 selected for managed solution" --category=decision
+
+shark task context set T-E01-F01-001 \
+  --progress="Provider research complete, starting integration" \
+  --decisions='["Auth0 for OAuth", "PKCE flow for mobile"]'
+
+# Block due to external dependency
+shark task block T-E01-F01-001 --reason="Waiting for Auth0 account setup"
+# Work session ends: 2h 0m, outcome: blocked
+
+# ═══════════════════════════════════════════════════════════
+# WEDNESDAY: Session 2 (3 hours)
+# ═══════════════════════════════════════════════════════════
+
+shark task unblock T-E01-F01-001
+shark task resume T-E01-F01-001 --json  # Review context from Monday
+
+shark task start T-E01-F01-001 --agent="agent-wed-pm"
+
+# Implement OAuth callback
+shark task note add T-E01-F01-001 "OAuth callback endpoint implemented" --category=progress
+shark task criteria check T-E01-F01-001 "OAuth callback handles authorization code"
+
+shark task context set T-E01-F01-001 \
+  --progress="OAuth callback working, token exchange implemented" \
+  --acceptance-criteria="3 of 8 criteria passing"
+
+# Work session continues...
+
+shark task complete T-E01-F01-001 \
+  --files-created="internal/oauth/auth0.go,internal/oauth/auth0_test.go" \
+  --files-modified="internal/router/routes.go" \
+  --tests \
+  --verified
+# Work session ends: 3h 15m, outcome: completed
+
+# ═══════════════════════════════════════════════════════════
+# THURSDAY: Session 3 - Code Review
+# ═══════════════════════════════════════════════════════════
+
+shark task resume T-E01-F01-001 --json
+# Reviewer sees all context, notes, decisions, files
+
+shark task approve T-E01-F01-001 --notes="OAuth integration approved"
+
+# ═══════════════════════════════════════════════════════════
+# ANALYTICS: Review time spent
+# ═══════════════════════════════════════════════════════════
+
+shark task sessions T-E01-F01-001
+# Session 1: 2h 0m (blocked)
+# Session 2: 3h 15m (completed)
+# Total: 5h 15m across 2 work sessions
+
+shark analytics sessions --session-duration --epic=E01
+# Use for future task estimation
+```
+
 ## Quick Reference
 
 ### Common Commands
@@ -688,12 +1139,33 @@ shark task reopen <task-key> [--notes="<notes>"]
 shark task block <task-key> --reason="<reason>"
 shark task unblock <task-key>
 
-# Related documents
-shark related-docs add "<title>" <path> --task=<key>
-shark related-docs add "<title>" <path> --feature=<key>
-shark related-docs add "<title>" <path> --epic=<key>
-shark related-docs list --task=<key>
-shark related-docs delete "<title>" --task=<key>
+# Task intelligence (E10 features)
+shark task note add <task-key> "<note>" [--category=progress|blocker|question|decision|context]
+shark task notes <task-key> [--json]
+shark task timeline <task-key> [--json]
+shark notes search "<query>" [--category=<type>] [--epic=<key>]
+
+shark task link <source> <target> [--type=depends-on|blocks|relates-to|duplicates]
+shark task unlink <source> <target>
+shark task deps <task-key> [--json]
+shark task blocked-by <task-key> [--json]
+shark task blocks <task-key> [--json]
+
+shark task criteria import <task-key>
+shark task criteria check <task-key> "<criterion>"
+shark task criteria fail <task-key> "<criterion>"
+shark feature criteria <feature-key> [--json]
+
+shark task context set <task-key> [--progress="..."] [--decisions="..."] [--questions="..."] [--blockers="..."]
+shark task context get <task-key> [--json]
+shark task context clear <task-key>
+shark task resume <task-key> [--json]
+shark task sessions <task-key> [--json]
+
+shark analytics sessions --session-duration [--epic=<key>] [--agent=<type>] [--json]
+shark analytics sessions --pause-frequency [--epic=<key>] [--json]
+
+shark search --file="<path>" [--json]
 ```
 
 ### Status Flow
