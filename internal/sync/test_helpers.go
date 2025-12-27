@@ -7,86 +7,17 @@ import (
 	"os"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/stretchr/testify/require"
 )
 
-// setupTestDatabase creates and initializes a test database
+// setupTestDatabase creates and initializes a test database using db.InitDB to get all migrations
 func setupTestDatabase(tb testing.TB, dbPath string) *sql.DB {
-	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
+	database, err := db.InitDB(dbPath)
 	require.NoError(tb, err)
-
-	// Create schema
-	schema := `
-		CREATE TABLE IF NOT EXISTS epics (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			key TEXT NOT NULL UNIQUE,
-			title TEXT NOT NULL,
-			description TEXT,
-			status TEXT NOT NULL,
-			priority TEXT NOT NULL,
-			business_value TEXT,
-			file_path TEXT,
-			custom_folder_path TEXT,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE IF NOT EXISTS features (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			epic_id INTEGER NOT NULL,
-			key TEXT NOT NULL UNIQUE,
-			title TEXT NOT NULL,
-			description TEXT,
-			status TEXT NOT NULL,
-			progress_pct REAL NOT NULL DEFAULT 0.0,
-			execution_order INTEGER,
-			file_path TEXT,
-			custom_folder_path TEXT,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE
-		);
-
-		CREATE TABLE IF NOT EXISTS tasks (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			feature_id INTEGER NOT NULL,
-			key TEXT NOT NULL UNIQUE,
-			title TEXT NOT NULL,
-			description TEXT,
-			status TEXT NOT NULL,
-			agent_type TEXT,
-			priority INTEGER NOT NULL DEFAULT 5,
-			depends_on TEXT,
-			assigned_agent TEXT,
-			file_path TEXT,
-			blocked_reason TEXT,
-			execution_order INTEGER,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			started_at TIMESTAMP,
-			completed_at TIMESTAMP,
-			blocked_at TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
-		);
-
-		CREATE TABLE IF NOT EXISTS task_history (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			task_id INTEGER NOT NULL,
-			old_status TEXT,
-			new_status TEXT NOT NULL,
-			agent TEXT,
-			notes TEXT,
-			forced BOOLEAN DEFAULT FALSE,
-			timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (task_id) REFERENCES tasks(id)
-		);
-	`
-	_, err = db.Exec(schema)
-	require.NoError(tb, err)
-
-	return db
+	return database
 }
 
 // setupTestEpicAndFeature creates a test epic and feature

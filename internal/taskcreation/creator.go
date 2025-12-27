@@ -141,23 +141,37 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 			fileExists = true
 		}
 	} else {
-		// Default: use PathBuilder to resolve the task path
-		// 1. Fetch epic/feature from database
+		// Default: derive task path from feature's actual location
+		// 1. Fetch feature from database
 		feature, err := c.featureRepo.GetByKey(ctx, validated.NormalizedFeatureKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch feature: %w", err)
 		}
 
-		epic, err := c.epicRepo.GetByID(ctx, feature.EpicID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch epic: %w", err)
-		}
+		// 2. Derive task path from feature's file_path if available
+		if feature.FilePath != nil && *feature.FilePath != "" {
+			// Feature has a file path - derive task path from it
+			// Example: feature.FilePath = "docs/plan/E10-advanced-task.../E10-F01-task-notes/feature.md"
+			// Task path should be:      "docs/plan/E10-advanced-task.../E10-F01-task-notes/tasks/T-E10-F01-001.md"
+			featureDir := filepath.Dir(*feature.FilePath)
+			relPath := filepath.Join(featureDir, "tasks", key+".md")
+			fullFilePath = filepath.Join(c.projectRoot, relPath)
+			filePath = relPath
+		} else {
+			// Fallback: feature has no file_path, use PathBuilder to reconstruct from keys
+			epic, err := c.epicRepo.GetByID(ctx, feature.EpicID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch epic: %w", err)
+			}
 
-		// 2. Use PathBuilder to resolve task path
-		pb := utils.NewPathBuilder(c.projectRoot)
-		fullFilePath, err = pb.ResolveTaskPath(epic.Key, validated.NormalizedFeatureKey, key, nil, feature.CustomFolderPath, epic.CustomFolderPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve task path: %w", err)
+			pb := utils.NewPathBuilder(c.projectRoot)
+			fullFilePath, err = pb.ResolveTaskPath(epic.Key, validated.NormalizedFeatureKey, key, nil, feature.CustomFolderPath, epic.CustomFolderPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve task path: %w", err)
+			}
+
+			relPath, _ := filepath.Rel(c.projectRoot, fullFilePath)
+			filePath = relPath
 		}
 
 		// 3. Create tasks directory if it doesn't exist (creates all parents)
@@ -165,10 +179,6 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		if err := os.MkdirAll(tasksDir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create tasks directory: %w", err)
 		}
-
-		// 4. Get relative path for database
-		relPath, _ := filepath.Rel(c.projectRoot, fullFilePath)
-		filePath = relPath
 	}
 
 	// Check for file collision (another task already claims this file)

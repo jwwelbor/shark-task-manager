@@ -486,6 +486,11 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate task criteria and search: %w", err)
 	}
 
+	// Run work sessions and context data migration
+	if err := migrateWorkSessionsAndContext(db); err != nil {
+		return fmt.Errorf("failed to migrate work sessions and context data: %w", err)
+	}
+
 	return nil
 }
 
@@ -620,6 +625,70 @@ func migrateTaskCriteriaAndSearch(db *sql.DB) error {
 			// FTS5 not available - skip this migration (search feature will be limited)
 			// This is acceptable for development environments
 			fmt.Printf("Warning: FTS5 not available, skipping full-text search table: %v\n", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateWorkSessionsAndContext adds work_sessions table and context_data column to tasks
+func migrateWorkSessionsAndContext(db *sql.DB) error {
+	// Check if work_sessions table exists
+	var tableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='work_sessions'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check work_sessions table: %w", err)
+	}
+
+	if tableExists == 0 {
+		// Create work_sessions table
+		_, err := db.Exec(`
+			CREATE TABLE work_sessions (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				task_id INTEGER NOT NULL,
+				agent_id TEXT,
+				started_at TIMESTAMP NOT NULL,
+				ended_at TIMESTAMP,
+				outcome TEXT CHECK (outcome IN ('completed', 'paused', 'blocked')),
+				session_notes TEXT,
+				context_snapshot TEXT,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+			);
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create work_sessions table: %w", err)
+		}
+
+		// Create indexes for work_sessions
+		indexes := []string{
+			`CREATE INDEX IF NOT EXISTS idx_work_sessions_task_id ON work_sessions(task_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_work_sessions_agent_id ON work_sessions(agent_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_work_sessions_started_at ON work_sessions(started_at);`,
+			// Partial index for active sessions (ended_at IS NULL)
+			`CREATE INDEX IF NOT EXISTS idx_work_sessions_active ON work_sessions(task_id, ended_at) WHERE ended_at IS NULL;`,
+		}
+		for _, idx := range indexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create work_sessions index: %w", err)
+			}
+		}
+	}
+
+	// Check if tasks table has context_data column; if not, add it
+	var columnExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'context_data'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check tasks schema for context_data: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN context_data TEXT;`); err != nil {
+			return fmt.Errorf("failed to add context_data to tasks: %w", err)
 		}
 	}
 

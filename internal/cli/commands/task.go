@@ -925,7 +925,9 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Warn if task has incomplete dependencies
-	if !isTaskAvailable(ctx, task, repo) {
+	dbWrapper := repository.NewDB(database)
+	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
+	if !isTaskAvailable(ctx, task, repo, relRepo) {
 		cli.Warning("Warning: Task has incomplete dependencies but proceeding with start.")
 	}
 
@@ -936,6 +938,18 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	// Update status
 	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, &agent, nil, force); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	// Create work session
+	sessionRepo := repository.NewWorkSessionRepository(dbWrapper)
+	session := &models.WorkSession{
+		TaskID:    task.ID,
+		AgentID:   &agent,
+		StartedAt: time.Now(),
+	}
+	if err := sessionRepo.Create(ctx, session); err != nil {
+		// Log warning but don't fail the command
+		cli.Warning(fmt.Sprintf("Failed to create work session: %v", err))
 	}
 
 	if force {
@@ -998,6 +1012,16 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	// Update status
 	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusReadyForReview, &agent, notes, force); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	// End active work session
+	dbWrapper := repository.NewDB(database)
+	sessionRepo := repository.NewWorkSessionRepository(dbWrapper)
+	activeSession, err := sessionRepo.GetActiveSessionByTaskID(ctx, task.ID)
+	if err == nil && activeSession != nil {
+		if err := sessionRepo.EndSession(ctx, activeSession.ID, models.SessionOutcomeCompleted, notes); err != nil {
+			cli.Warning(fmt.Sprintf("Failed to end work session: %v", err))
+		}
 	}
 
 	// Process completion metadata flags
@@ -1197,6 +1221,16 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	// Block the task atomically
 	if err := repo.BlockTaskForced(ctx, task.ID, reason, &agent, force); err != nil {
 		return fmt.Errorf("failed to block task: %w", err)
+	}
+
+	// End active work session with blocked outcome
+	dbWrapper := repository.NewDB(database)
+	sessionRepo := repository.NewWorkSessionRepository(dbWrapper)
+	activeSession, err := sessionRepo.GetActiveSessionByTaskID(ctx, task.ID)
+	if err == nil && activeSession != nil {
+		if err := sessionRepo.EndSession(ctx, activeSession.ID, models.SessionOutcomeBlocked, &reason); err != nil {
+			cli.Warning(fmt.Sprintf("Failed to end work session: %v", err))
+		}
 	}
 
 	if force {

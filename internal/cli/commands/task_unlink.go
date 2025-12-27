@@ -56,13 +56,13 @@ func runTaskUnlink(cmd *cobra.Command, args []string) error {
 
 	// Get all relationship flags
 	relationships := map[string]string{
-		"depends_on":    cmd.Flag("depends-on").Value.String(),
-		"blocks":        cmd.Flag("blocks").Value.String(),
-		"related_to":    cmd.Flag("related-to").Value.String(),
-		"follows":       cmd.Flag("follows").Value.String(),
-		"spawned_from":  cmd.Flag("spawned-from").Value.String(),
-		"duplicates":    cmd.Flag("duplicates").Value.String(),
-		"references":    cmd.Flag("references").Value.String(),
+		"depends_on":   cmd.Flag("depends-on").Value.String(),
+		"blocks":       cmd.Flag("blocks").Value.String(),
+		"related_to":   cmd.Flag("related-to").Value.String(),
+		"follows":      cmd.Flag("follows").Value.String(),
+		"spawned_from": cmd.Flag("spawned-from").Value.String(),
+		"duplicates":   cmd.Flag("duplicates").Value.String(),
+		"references":   cmd.Flag("references").Value.String(),
 	}
 
 	removeType, _ := cmd.Flags().GetString("type")
@@ -167,8 +167,8 @@ func runTaskUnlink(cmd *cobra.Command, args []string) error {
 	// Output results
 	if cli.GlobalConfig.JSON {
 		output := map[string]interface{}{
-			"task_key":       taskKey,
-			"removed_count":  removedCount,
+			"task_key":      taskKey,
+			"removed_count": removedCount,
 		}
 		return cli.OutputJSON(output)
 	}

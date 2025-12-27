@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	_ "github.com/mattn/go-sqlite3"
@@ -321,82 +322,12 @@ This task has a different title.
 // Helper functions
 
 func initTestDB(t *testing.T, dbPath string) *sql.DB {
-	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
+	// Use db.InitDB to get all migrations instead of manual schema
+	database, err := db.InitDB(dbPath)
 	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
+		t.Fatalf("Failed to initialize database: %v", err)
 	}
-
-	// Create schema
-	schema := `
-	CREATE TABLE epics (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		key TEXT NOT NULL UNIQUE,
-		title TEXT NOT NULL,
-		status TEXT NOT NULL,
-		priority TEXT NOT NULL,
-		file_path TEXT,
-		custom_folder_path TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-
-	CREATE TABLE features (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		epic_id INTEGER NOT NULL,
-		key TEXT NOT NULL UNIQUE,
-		title TEXT NOT NULL,
-		description TEXT,
-		status TEXT NOT NULL,
-		progress_pct INTEGER DEFAULT 0,
-		execution_order INTEGER,
-		file_path TEXT,
-		custom_folder_path TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (epic_id) REFERENCES epics(id)
-	);
-
-	CREATE TABLE tasks (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		feature_id INTEGER NOT NULL,
-		key TEXT NOT NULL UNIQUE,
-		title TEXT NOT NULL,
-		description TEXT,
-		status TEXT NOT NULL,
-		agent_type TEXT,
-		priority INTEGER DEFAULT 5,
-		depends_on TEXT,
-		assigned_agent TEXT,
-		file_path TEXT,
-		blocked_reason TEXT,
-		blocked_at DATETIME,
-		execution_order INTEGER,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		started_at DATETIME,
-		completed_at DATETIME,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (feature_id) REFERENCES features(id)
-	);
-
-	CREATE TABLE task_history (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		task_id INTEGER NOT NULL,
-		old_status TEXT,
-		new_status TEXT NOT NULL,
-		agent TEXT,
-		notes TEXT,
-		forced BOOLEAN DEFAULT FALSE,
-		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (task_id) REFERENCES tasks(id)
-	);
-	`
-
-	_, err = db.Exec(schema)
-	if err != nil {
-		t.Fatalf("Failed to create schema: %v", err)
-	}
-
-	return db
+	return database
 }
 
 func createTestEpic(t *testing.T, db *sql.DB, key, title string) *models.Epic {

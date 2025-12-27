@@ -49,6 +49,17 @@ type Task struct {
 	CompletedAt    sql.NullTime `json:"completed_at,omitempty" db:"completed_at"`
 	BlockedAt      sql.NullTime `json:"blocked_at,omitempty" db:"blocked_at"`
 	UpdatedAt      time.Time    `json:"updated_at" db:"updated_at"`
+
+	// Completion metadata fields
+	CompletedBy        *string             `json:"completed_by,omitempty" db:"completed_by"`
+	CompletionNotes    *string             `json:"completion_notes,omitempty" db:"completion_notes"`
+	FilesChanged       *string             `json:"files_changed,omitempty" db:"files_changed"` // JSON array stored as string
+	TestsPassed        bool                `json:"tests_passed" db:"tests_passed"`
+	VerificationStatus *VerificationStatus `json:"verification_status,omitempty" db:"verification_status"`
+	TimeSpentMinutes   *int                `json:"time_spent_minutes,omitempty" db:"time_spent_minutes"`
+
+	// Context data for resume workflow
+	ContextData *string `json:"context_data,omitempty" db:"context_data"` // JSON structured resume context
 }
 
 // Validate validates the Task fields
