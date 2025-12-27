@@ -56,7 +56,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       created_at, updated_at
+		       file_path, custom_folder_path, created_at, updated_at
 		FROM epics
 		WHERE id = ?
 	`
@@ -70,6 +70,8 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 		&epic.Status,
 		&epic.Priority,
 		&epic.BusinessValue,
+		&epic.FilePath,
+		&epic.CustomFolderPath,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -88,7 +90,7 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       created_at, updated_at
+		       file_path, custom_folder_path, created_at, updated_at
 		FROM epics
 		WHERE key = ?
 	`
@@ -102,6 +104,8 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 		&epic.Status,
 		&epic.Priority,
 		&epic.BusinessValue,
+		&epic.FilePath,
+		&epic.CustomFolderPath,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -153,7 +157,7 @@ func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       created_at, updated_at
+		       file_path, custom_folder_path, created_at, updated_at
 		FROM epics
 	`
 	args := []interface{}{}
@@ -182,6 +186,8 @@ func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([
 			&epic.Status,
 			&epic.Priority,
 			&epic.BusinessValue,
+			&epic.FilePath,
+			&epic.CustomFolderPath,
 			&epic.CreatedAt,
 			&epic.UpdatedAt,
 		)

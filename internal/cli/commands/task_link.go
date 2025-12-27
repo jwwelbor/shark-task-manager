@@ -64,13 +64,13 @@ func runTaskLink(cmd *cobra.Command, args []string) error {
 
 	// Get all relationship flags
 	relationships := map[string]string{
-		"depends_on":    cmd.Flag("depends-on").Value.String(),
-		"blocks":        cmd.Flag("blocks").Value.String(),
-		"related_to":    cmd.Flag("related-to").Value.String(),
-		"follows":       cmd.Flag("follows").Value.String(),
-		"spawned_from":  cmd.Flag("spawned-from").Value.String(),
-		"duplicates":    cmd.Flag("duplicates").Value.String(),
-		"references":    cmd.Flag("references").Value.String(),
+		"depends_on":   cmd.Flag("depends-on").Value.String(),
+		"blocks":       cmd.Flag("blocks").Value.String(),
+		"related_to":   cmd.Flag("related-to").Value.String(),
+		"follows":      cmd.Flag("follows").Value.String(),
+		"spawned_from": cmd.Flag("spawned-from").Value.String(),
+		"duplicates":   cmd.Flag("duplicates").Value.String(),
+		"references":   cmd.Flag("references").Value.String(),
 	}
 
 	// Check if at least one relationship flag was provided

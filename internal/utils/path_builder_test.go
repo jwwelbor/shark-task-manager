@@ -302,6 +302,60 @@ func TestPathBuilder_Precedence(t *testing.T) {
 	}
 }
 
+// TestResolveTaskPathFromFeatureFile tests task path resolution when feature has a slug-based directory
+// This test reproduces the bug where epic directory is "E10-advanced-task..." but epic key is just "E10"
+func TestResolveTaskPathFromFeatureFile(t *testing.T) {
+	projectRoot := "/home/user/project"
+
+	// Real-world scenario from the bug:
+	// - Epic key in DB: "E10"
+	// - Epic directory: "docs/plan/E10-advanced-task-intelligence-context-management/"
+	// - Feature file_path in DB: "docs/plan/E10-advanced-task-intelligence-context-management/E10-F01-task-activity-notes-system/feature.md"
+	// - Feature custom_folder_path in DB: NULL
+	// - Epic custom_folder_path in DB: NULL
+
+	epicKey := "E10"
+	featureKey := "E10-F01"
+	taskKey := "T-E10-F01-001"
+	featureFilePath := "docs/plan/E10-advanced-task-intelligence-context-management/E10-F01-task-activity-notes-system/feature.md"
+
+	// When custom_folder_path is NULL, PathBuilder uses epicKey directly
+	pb := NewPathBuilder(projectRoot)
+
+	// BUG: This will produce docs/plan/E10/E10-F01/tasks/T-E10-F01-001.md
+	// because it uses epic key "E10" instead of finding actual epic directory
+	buggyPath, err := pb.ResolveTaskPath(epicKey, featureKey, taskKey, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ResolveTaskPath failed: %v", err)
+	}
+
+	// This is what it currently produces (WRONG):
+	wrongPath := filepath.Join(projectRoot, "docs", "plan", "E10", "E10-F01", "tasks", "T-E10-F01-001.md")
+	if buggyPath != wrongPath {
+		t.Errorf("Expected buggy behavior to produce %s, got %s", wrongPath, buggyPath)
+	}
+
+	// This is what it SHOULD produce (derived from feature's actual location):
+	// Extract feature directory from feature file path
+	featureDir := filepath.Dir(featureFilePath) // "docs/plan/E10-advanced-task-intelligence-context-management/E10-F01-task-activity-notes-system"
+	correctPath := filepath.Join(featureDir, "tasks", taskKey+".md")
+	expectedCorrectPath := "docs/plan/E10-advanced-task-intelligence-context-management/E10-F01-task-activity-notes-system/tasks/T-E10-F01-001.md"
+
+	if correctPath != expectedCorrectPath {
+		t.Errorf("Correct path derivation failed. Got: %s, Expected: %s", correctPath, expectedCorrectPath)
+	}
+
+	// The bug: buggyPath != correctPath
+	if buggyPath == filepath.Join(projectRoot, correctPath) {
+		t.Log("PATH RESOLUTION WORKS CORRECTLY")
+	} else {
+		t.Logf("BUG REPRODUCED:")
+		t.Logf("  Current (wrong):  %s", buggyPath)
+		t.Logf("  Expected (right): %s", filepath.Join(projectRoot, correctPath))
+		t.Log("SOLUTION: Derive task path from feature's file_path, not from reconstructing via epic/feature keys")
+	}
+}
+
 // Helper function to create string pointer
 func strPtr(s string) *string {
 	return &s

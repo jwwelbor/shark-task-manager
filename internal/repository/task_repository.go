@@ -88,7 +88,9 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, started_at, completed_at, blocked_at, updated_at
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE id = ?
 	`
@@ -113,6 +115,13 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 		&task.CompletedAt,
 		&task.BlockedAt,
 		&task.UpdatedAt,
+		&task.CompletedBy,
+		&task.CompletionNotes,
+		&task.FilesChanged,
+		&task.TestsPassed,
+		&task.VerificationStatus,
+		&task.TimeSpentMinutes,
+		&task.ContextData,
 	)
 
 	if err == sql.ErrNoRows {
@@ -130,7 +139,9 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, started_at, completed_at, blocked_at, updated_at
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE key = ?
 	`
@@ -155,6 +166,13 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 		&task.CompletedAt,
 		&task.BlockedAt,
 		&task.UpdatedAt,
+		&task.CompletedBy,
+		&task.CompletionNotes,
+		&task.FilesChanged,
+		&task.TestsPassed,
+		&task.VerificationStatus,
+		&task.TimeSpentMinutes,
+		&task.ContextData,
 	)
 
 	if err == sql.ErrNoRows {
@@ -173,7 +191,9 @@ func (r *TaskRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, started_at, completed_at, blocked_at, updated_at
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE file_path = ?
 	`
@@ -198,6 +218,13 @@ func (r *TaskRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 		&task.CompletedAt,
 		&task.BlockedAt,
 		&task.UpdatedAt,
+		&task.CompletedBy,
+		&task.CompletionNotes,
+		&task.FilesChanged,
+		&task.TestsPassed,
+		&task.VerificationStatus,
+		&task.TimeSpentMinutes,
+		&task.ContextData,
 	)
 
 	if err == sql.ErrNoRows {
@@ -241,7 +268,9 @@ func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, started_at, completed_at, blocked_at, updated_at
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE feature_id = ?
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
@@ -255,7 +284,9 @@ func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*mod
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
-		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at
+		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
+		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
+		       t.verification_status, t.time_spent_minutes, t.context_data
 		FROM tasks t
 		INNER JOIN features f ON t.feature_id = f.id
 		INNER JOIN epics e ON f.epic_id = e.id
@@ -271,7 +302,9 @@ func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskS
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, started_at, completed_at, blocked_at, updated_at
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE status = ?
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
@@ -285,7 +318,9 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType models
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, started_at, completed_at, blocked_at, updated_at
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE agent_type = ?
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
@@ -299,7 +334,9 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
-		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at
+		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
+		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
+		       t.verification_status, t.time_spent_minutes, t.context_data
 		FROM tasks t
 	`
 
@@ -350,7 +387,9 @@ func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, started_at, completed_at, blocked_at, updated_at
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
 	`
@@ -367,7 +406,7 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 	query := `
 		UPDATE tasks
 		SET title = ?, description = ?, status = ?, agent_type = ?, priority = ?,
-		    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, execution_order = ?
+		    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, execution_order = ?, context_data = ?
 		WHERE id = ?
 	`
 
@@ -382,6 +421,7 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 		task.FilePath,
 		task.BlockedReason,
 		task.ExecutionOrder,
+		task.ContextData,
 		task.ID,
 	)
 	if err != nil {
@@ -861,7 +901,9 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 	query := `
 		SELECT id, feature_id, key, title, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, started_at, completed_at, blocked_at, updated_at
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE key IN (?` + strings.Repeat(", ?", len(keys)-1) + `)`
 
@@ -900,6 +942,13 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 			&task.CompletedAt,
 			&task.BlockedAt,
 			&task.UpdatedAt,
+			&task.CompletedBy,
+			&task.CompletionNotes,
+			&task.FilesChanged,
+			&task.TestsPassed,
+			&task.VerificationStatus,
+			&task.TimeSpentMinutes,
+			&task.ContextData,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
@@ -1030,6 +1079,13 @@ func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...i
 			&task.CompletedAt,
 			&task.BlockedAt,
 			&task.UpdatedAt,
+			&task.CompletedBy,
+			&task.CompletionNotes,
+			&task.FilesChanged,
+			&task.TestsPassed,
+			&task.VerificationStatus,
+			&task.TimeSpentMinutes,
+			&task.ContextData,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
@@ -1042,4 +1098,135 @@ func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...i
 	}
 
 	return tasks, nil
+}
+
+// UpdateCompletionMetadata updates completion metadata for a task
+func (r *TaskRepository) UpdateCompletionMetadata(ctx context.Context, taskKey string, metadata *models.CompletionMetadata) error {
+	if err := metadata.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Convert files_changed array to JSON
+	filesJSON, err := metadata.ToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to convert files_changed to JSON: %w", err)
+	}
+
+	query := `
+		UPDATE tasks
+		SET completed_by = ?,
+		    completion_notes = ?,
+		    files_changed = ?,
+		    tests_passed = ?,
+		    verification_status = ?,
+		    time_spent_minutes = ?,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE key = ?
+	`
+
+	result, err := r.db.ExecContext(ctx, query,
+		metadata.CompletedBy,
+		metadata.CompletionNotes,
+		filesJSON,
+		metadata.TestsPassed,
+		metadata.VerificationStatus,
+		metadata.TimeSpentMinutes,
+		taskKey,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update completion metadata: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("task not found: %s", taskKey)
+	}
+
+	return nil
+}
+
+// GetCompletionMetadata retrieves completion metadata for a task
+func (r *TaskRepository) GetCompletionMetadata(ctx context.Context, taskKey string) (*models.CompletionMetadata, error) {
+	query := `
+		SELECT completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, completed_at
+		FROM tasks
+		WHERE key = ?
+	`
+
+	metadata := models.NewCompletionMetadata()
+	var filesJSON *string
+	var completedAt sql.NullTime
+
+	err := r.db.QueryRowContext(ctx, query, taskKey).Scan(
+		&metadata.CompletedBy,
+		&metadata.CompletionNotes,
+		&filesJSON,
+		&metadata.TestsPassed,
+		&metadata.VerificationStatus,
+		&metadata.TimeSpentMinutes,
+		&completedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("task not found with key %s", taskKey)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get completion metadata: %w", err)
+	}
+
+	// Parse files_changed JSON
+	if filesJSON != nil && *filesJSON != "" {
+		if err := metadata.FromJSON(*filesJSON); err != nil {
+			return nil, fmt.Errorf("failed to parse files_changed JSON: %w", err)
+		}
+	}
+
+	// Set completed_at if valid
+	if completedAt.Valid {
+		metadata.CompletedAt = &completedAt.Time
+	}
+
+	return metadata, nil
+}
+
+// FindByFileChanged searches for tasks that created or modified a specific file
+func (r *TaskRepository) FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error) {
+	query := `
+		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
+		FROM tasks
+		WHERE files_changed IS NOT NULL
+		  AND files_changed LIKE ?
+		ORDER BY completed_at DESC NULLS LAST
+	`
+
+	// Use SQL LIKE pattern for partial matching
+	pattern := "%" + filePath + "%"
+
+	return r.queryTasks(ctx, query, pattern)
+}
+
+// GetUnverifiedTasks retrieves all tasks with verification_status != 'verified'
+func (r *TaskRepository) GetUnverifiedTasks(ctx context.Context) ([]*models.Task, error) {
+	query := `
+		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
+		FROM tasks
+		WHERE verification_status != 'verified'
+		  AND status IN ('ready_for_review', 'completed')
+		ORDER BY completed_at DESC NULLS LAST
+	`
+
+	return r.queryTasks(ctx, query)
 }

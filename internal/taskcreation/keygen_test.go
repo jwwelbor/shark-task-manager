@@ -2,12 +2,12 @@ package taskcreation
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/stretchr/testify/assert"
@@ -20,78 +20,17 @@ func setupTestDB(t *testing.T) (*repository.DB, func()) {
 	// Create temp database file
 	tmpFile := t.TempDir() + "/test.db"
 
-	// Initialize database with schema using db.InitDB
-	sqlDB, err := sql.Open("sqlite3", tmpFile+"?_foreign_keys=on")
-	require.NoError(t, err, "Failed to create database")
+	// Use db.InitDB to get all migrations
+	sqlDB, err := db.InitDB(tmpFile)
+	require.NoError(t, err, "Failed to initialize database")
 
-	// Configure SQLite and create schema
-	_, err = sqlDB.Exec("PRAGMA foreign_keys = ON;")
-	require.NoError(t, err, "Failed to enable foreign keys")
-
-	// Create schema
-	schema := `
-		CREATE TABLE IF NOT EXISTS epics (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			key TEXT NOT NULL UNIQUE,
-			title TEXT NOT NULL,
-			description TEXT,
-			status TEXT NOT NULL,
-			priority TEXT NOT NULL,
-			business_value TEXT,
-			file_path TEXT,
-			custom_folder_path TEXT,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-
-		CREATE TABLE IF NOT EXISTS features (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			epic_id INTEGER NOT NULL,
-			key TEXT NOT NULL UNIQUE,
-			title TEXT NOT NULL,
-			description TEXT,
-			status TEXT NOT NULL,
-			progress_pct REAL NOT NULL DEFAULT 0.0,
-			execution_order INTEGER NULL,
-			file_path TEXT,
-			custom_folder_path TEXT,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE
-		);
-
-		CREATE TABLE IF NOT EXISTS tasks (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			feature_id INTEGER NOT NULL,
-			key TEXT NOT NULL UNIQUE,
-			title TEXT NOT NULL,
-			description TEXT,
-			status TEXT NOT NULL,
-			agent_type TEXT,
-			priority INTEGER NOT NULL DEFAULT 5,
-			depends_on TEXT,
-			assigned_agent TEXT,
-			file_path TEXT,
-			blocked_reason TEXT,
-			execution_order INTEGER NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			started_at TIMESTAMP,
-			completed_at TIMESTAMP,
-			blocked_at TIMESTAMP,
-			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
-		);
-	`
-	_, err = sqlDB.Exec(schema)
-	require.NoError(t, err, "Failed to create schema")
-
-	db := repository.NewDB(sqlDB)
+	repoDb := repository.NewDB(sqlDB)
 
 	cleanup := func() {
-		db.Close()
+		repoDb.Close()
 	}
 
-	return db, cleanup
+	return repoDb, cleanup
 }
 
 func createTestEpic(t *testing.T, db *repository.DB, key string) *models.Epic {

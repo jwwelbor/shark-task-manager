@@ -158,7 +158,7 @@ func runTaskDeps(cmd *cobra.Command, args []string) error {
 				Direction:        "outgoing",
 				TaskKey:          relTask.Key,
 				TaskTitle:        relTask.Title,
-				TaskStatus:       relTask.Status,
+				TaskStatus:       string(relTask.Status),
 			})
 		}
 	}
@@ -174,7 +174,7 @@ func runTaskDeps(cmd *cobra.Command, args []string) error {
 				Direction:        "incoming",
 				TaskKey:          relTask.Key,
 				TaskTitle:        relTask.Title,
-				TaskStatus:       relTask.Status,
+				TaskStatus:       string(relTask.Status),
 			})
 		}
 	}
@@ -213,7 +213,7 @@ func runTaskDeps(cmd *cobra.Command, args []string) error {
 		for _, rel := range rels {
 			relTask, _ := taskRepo.GetByID(ctx, rel.ToTaskID)
 			if relTask != nil {
-				status := getStatusIcon(relTask.Status)
+				status := getStatusIcon(string(relTask.Status))
 				fmt.Printf("  %s %s: %s\n", status, relTask.Key, relTask.Title)
 			}
 		}
@@ -232,7 +232,7 @@ func runTaskDeps(cmd *cobra.Command, args []string) error {
 		for _, rel := range rels {
 			relTask, _ := taskRepo.GetByID(ctx, rel.FromTaskID)
 			if relTask != nil {
-				status := getStatusIcon(relTask.Status)
+				status := getStatusIcon(string(relTask.Status))
 				fmt.Printf("  %s %s: %s\n", status, relTask.Key, relTask.Title)
 			}
 		}
@@ -290,7 +290,7 @@ func runTaskBlockedBy(cmd *cobra.Command, args []string) error {
 			Direction:        "outgoing",
 			TaskKey:          depTask.Key,
 			TaskTitle:        depTask.Title,
-			TaskStatus:       depTask.Status,
+			TaskStatus:       string(depTask.Status),
 		})
 	}
 
@@ -387,7 +387,7 @@ func runTaskBlocks(cmd *cobra.Command, args []string) error {
 			Direction:        "outgoing",
 			TaskKey:          blockedTask.Key,
 			TaskTitle:        blockedTask.Title,
-			TaskStatus:       blockedTask.Status,
+			TaskStatus:       string(blockedTask.Status),
 		})
 	}
 
@@ -445,13 +445,13 @@ func getStatusIcon(status string) string {
 // getRelationshipLabel returns a human-readable label for relationship type
 func getRelationshipLabel(relType, direction string) string {
 	labels := map[string]string{
-		"depends_on":    "Dependencies",
-		"blocks":        "Blocks",
-		"related_to":    "Related Tasks",
-		"follows":       "Follows",
-		"spawned_from":  "Spawned From",
-		"duplicates":    "Duplicates",
-		"references":    "References",
+		"depends_on":   "Dependencies",
+		"blocks":       "Blocks",
+		"related_to":   "Related Tasks",
+		"follows":      "Follows",
+		"spawned_from": "Spawned From",
+		"duplicates":   "Duplicates",
+		"references":   "References",
 	}
 
 	label, ok := labels[relType]

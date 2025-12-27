@@ -8,13 +8,13 @@ import (
 type RelationshipType string
 
 const (
-	RelationshipDependsOn   RelationshipType = "depends_on"    // Task depends on another completing (hard dependency)
-	RelationshipBlocks      RelationshipType = "blocks"        // Task blocks another from proceeding
-	RelationshipRelatedTo   RelationshipType = "related_to"    // Tasks share common code/concerns
-	RelationshipFollows     RelationshipType = "follows"       // Task naturally follows another (soft ordering)
-	RelationshipSpawnedFrom RelationshipType = "spawned_from"  // Task was created from UAT/bugs in another
-	RelationshipDuplicates  RelationshipType = "duplicates"    // Tasks represent duplicate work
-	RelationshipReferences  RelationshipType = "references"    // Task consults/uses output of another
+	RelationshipDependsOn   RelationshipType = "depends_on"   // Task depends on another completing (hard dependency)
+	RelationshipBlocks      RelationshipType = "blocks"       // Task blocks another from proceeding
+	RelationshipRelatedTo   RelationshipType = "related_to"   // Tasks share common code/concerns
+	RelationshipFollows     RelationshipType = "follows"      // Task naturally follows another (soft ordering)
+	RelationshipSpawnedFrom RelationshipType = "spawned_from" // Task was created from UAT/bugs in another
+	RelationshipDuplicates  RelationshipType = "duplicates"   // Tasks represent duplicate work
+	RelationshipReferences  RelationshipType = "references"   // Task consults/uses output of another
 )
 
 // ValidRelationshipTypes returns all valid relationship types

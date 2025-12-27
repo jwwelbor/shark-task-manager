@@ -9,19 +9,19 @@ import (
 
 // Validation errors
 var (
-	ErrInvalidEpicKey       = errors.New("invalid epic key format: must match ^E\\d{2}$")
-	ErrInvalidFeatureKey    = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
-	ErrInvalidTaskKey       = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
-	ErrInvalidEpicStatus    = errors.New("invalid epic status: must be draft, active, completed, or archived")
-	ErrInvalidFeatureStatus = errors.New("invalid feature status: must be draft, active, completed, or archived")
-	ErrInvalidTaskStatus    = errors.New("invalid task status: must be todo, in_progress, blocked, ready_for_review, completed, or archived")
-	ErrInvalidAgentType     = errors.New("invalid agent type: must be frontend, backend, api, testing, devops, or general")
-	ErrInvalidPriority      = errors.New("invalid priority: must be between 1 and 10")
-	ErrInvalidProgressPct   = errors.New("invalid progress_pct: must be between 0.0 and 100.0")
-	ErrInvalidDependsOn     = errors.New("invalid depends_on: must be a valid JSON array of strings")
-	ErrEmptyTitle           = errors.New("title cannot be empty")
-	ErrEmptyNewStatus       = errors.New("new_status cannot be empty")
-	ErrInvalidNoteType      = errors.New("invalid note type: must be comment, decision, blocker, solution, reference, implementation, testing, future, or question")
+	ErrInvalidEpicKey          = errors.New("invalid epic key format: must match ^E\\d{2}$")
+	ErrInvalidFeatureKey       = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
+	ErrInvalidTaskKey          = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
+	ErrInvalidEpicStatus       = errors.New("invalid epic status: must be draft, active, completed, or archived")
+	ErrInvalidFeatureStatus    = errors.New("invalid feature status: must be draft, active, completed, or archived")
+	ErrInvalidTaskStatus       = errors.New("invalid task status: must be todo, in_progress, blocked, ready_for_review, completed, or archived")
+	ErrInvalidAgentType        = errors.New("invalid agent type: must be frontend, backend, api, testing, devops, or general")
+	ErrInvalidPriority         = errors.New("invalid priority: must be between 1 and 10")
+	ErrInvalidProgressPct      = errors.New("invalid progress_pct: must be between 0.0 and 100.0")
+	ErrInvalidDependsOn        = errors.New("invalid depends_on: must be a valid JSON array of strings")
+	ErrEmptyTitle              = errors.New("title cannot be empty")
+	ErrEmptyNewStatus          = errors.New("new_status cannot be empty")
+	ErrInvalidNoteType         = errors.New("invalid note type: must be comment, decision, blocker, solution, reference, implementation, testing, future, or question")
 	ErrInvalidTaskID           = errors.New("task_id must be greater than 0")
 	ErrEmptyContent            = errors.New("content cannot be empty")
 	ErrInvalidCriteriaStatus   = errors.New("invalid criteria status: must be pending, in_progress, complete, failed, or na")
@@ -29,6 +29,8 @@ var (
 	ErrInvalidRelationshipType = errors.New("invalid relationship type: must be depends_on, blocks, related_to, follows, spawned_from, duplicates, or references")
 	ErrSelfRelationship        = errors.New("task cannot have a relationship with itself")
 	ErrCircularDependency      = errors.New("circular dependency detected")
+	ErrInvalidSessionOutcome   = errors.New("invalid session outcome: must be completed, paused, or blocked")
+	ErrInvalidTimestamp        = errors.New("invalid timestamp: cannot be zero value")
 )
 
 // Key format regex patterns
@@ -194,16 +196,29 @@ func ValidateCriteriaStatus(status string) error {
 // ValidateRelationshipType validates the relationship type enum
 func ValidateRelationshipType(relType string) error {
 	validTypes := map[string]bool{
-		"depends_on":    true,
-		"blocks":        true,
-		"related_to":    true,
-		"follows":       true,
-		"spawned_from":  true,
-		"duplicates":    true,
-		"references":    true,
+		"depends_on":   true,
+		"blocks":       true,
+		"related_to":   true,
+		"follows":      true,
+		"spawned_from": true,
+		"duplicates":   true,
+		"references":   true,
 	}
 	if !validTypes[relType] {
 		return fmt.Errorf("%w: got %q", ErrInvalidRelationshipType, relType)
+	}
+	return nil
+}
+
+// ValidateSessionOutcome validates the session outcome enum
+func ValidateSessionOutcome(outcome string) error {
+	validOutcomes := map[string]bool{
+		"completed": true,
+		"paused":    true,
+		"blocked":   true,
+	}
+	if !validOutcomes[outcome] {
+		return fmt.Errorf("%w: got %q", ErrInvalidSessionOutcome, outcome)
 	}
 	return nil
 }

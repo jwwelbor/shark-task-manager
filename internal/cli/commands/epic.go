@@ -451,20 +451,22 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
-			"id":                epic.ID,
-			"key":               epic.Key,
-			"title":             epic.Title,
-			"description":       epic.Description,
-			"status":            epic.Status,
-			"priority":          epic.Priority,
-			"business_value":    epic.BusinessValue,
-			"progress_pct":      epicProgress,
-			"path":              dirPath,
-			"filename":          filename,
-			"created_at":        epic.CreatedAt,
-			"updated_at":        epic.UpdatedAt,
-			"features":          featuresWithDetails,
-			"related_documents": relatedDocs,
+			"id":                 epic.ID,
+			"key":                epic.Key,
+			"title":              epic.Title,
+			"description":        epic.Description,
+			"status":             epic.Status,
+			"priority":           epic.Priority,
+			"business_value":     epic.BusinessValue,
+			"progress_pct":       epicProgress,
+			"path":               dirPath,
+			"filename":           filename,
+			"file_path":          epic.FilePath,
+			"custom_folder_path": epic.CustomFolderPath,
+			"created_at":         epic.CreatedAt,
+			"updated_at":         epic.UpdatedAt,
+			"features":           featuresWithDetails,
+			"related_documents":  relatedDocs,
 		}
 		return cli.OutputJSON(result)
 	}
