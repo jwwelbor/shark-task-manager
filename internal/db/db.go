@@ -198,6 +198,66 @@ CREATE INDEX IF NOT EXISTS idx_task_history_task_id ON task_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_history_timestamp ON task_history(timestamp DESC);
 
 -- ============================================================================
+-- Table: task_notes
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS task_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    note_type TEXT CHECK (note_type IN (
+        'comment',         -- General observation
+        'decision',        -- Why we chose X over Y
+        'blocker',         -- What's blocking progress
+        'solution',        -- How we solved a problem
+        'reference',       -- External links, documentation
+        'implementation',  -- What we actually built
+        'testing',         -- Test results, coverage
+        'future',          -- Future improvements / TODO
+        'question'         -- Unanswered questions
+    )) NOT NULL,
+    content TEXT NOT NULL,
+    created_by TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+-- Indexes for task_notes
+CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_notes_type ON task_notes(note_type);
+CREATE INDEX IF NOT EXISTS idx_task_notes_created_at ON task_notes(created_at);
+CREATE INDEX IF NOT EXISTS idx_task_notes_task_type ON task_notes(task_id, note_type);
+
+-- ============================================================================
+-- Table: task_relationships
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS task_relationships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_task_id INTEGER NOT NULL,
+    to_task_id INTEGER NOT NULL,
+    relationship_type TEXT CHECK (relationship_type IN (
+        'depends_on',    -- Task from_task depends on to_task completing (hard dependency)
+        'blocks',        -- Task from_task blocks to_task from proceeding (explicit blocker)
+        'related_to',    -- Tasks share common code/concerns (soft relationship)
+        'follows',       -- Task from_task naturally follows to_task (sequence, not blocking)
+        'spawned_from',  -- Task from_task was created from UAT/bugs in to_task
+        'duplicates',    -- Tasks represent duplicate work (should merge)
+        'references'     -- Task from_task consults/uses output of to_task
+    )) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (from_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (to_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    UNIQUE(from_task_id, to_task_id, relationship_type)
+);
+
+-- Indexes for task_relationships (bidirectional queries)
+CREATE INDEX IF NOT EXISTS idx_task_relationships_from ON task_relationships(from_task_id);
+CREATE INDEX IF NOT EXISTS idx_task_relationships_to ON task_relationships(to_task_id);
+CREATE INDEX IF NOT EXISTS idx_task_relationships_type ON task_relationships(relationship_type);
+CREATE INDEX IF NOT EXISTS idx_task_relationships_from_type ON task_relationships(from_task_id, relationship_type);
+CREATE INDEX IF NOT EXISTS idx_task_relationships_to_type ON task_relationships(to_task_id, relationship_type);
+
+-- ============================================================================
 -- Table: documents
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS documents (
@@ -416,6 +476,16 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate document tables: %w", err)
 	}
 
+	// Run completion metadata migration
+	if err := migrateCompletionMetadata(db); err != nil {
+		return fmt.Errorf("failed to migrate completion metadata: %w", err)
+	}
+
+	// Run task criteria and search migration
+	if err := migrateTaskCriteriaAndSearch(db); err != nil {
+		return fmt.Errorf("failed to migrate task criteria and search: %w", err)
+	}
+
 	return nil
 }
 
@@ -435,6 +505,122 @@ func migrateDocumentTables(db *sql.DB) error {
 
 	if tablesExist != 4 {
 		return fmt.Errorf("document tables not created: expected 4 tables, found %d", tablesExist)
+	}
+
+	return nil
+}
+
+// migrateCompletionMetadata adds completion metadata columns to tasks table
+func migrateCompletionMetadata(db *sql.DB) error {
+	// Check if tasks table has completed_by column; if not, add completion metadata columns
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'completed_by'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check tasks schema for completed_by: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add all completion metadata columns
+		migrations := []string{
+			`ALTER TABLE tasks ADD COLUMN completed_by TEXT;`,
+			`ALTER TABLE tasks ADD COLUMN completion_notes TEXT;`,
+			`ALTER TABLE tasks ADD COLUMN files_changed TEXT;`, // JSON array
+			`ALTER TABLE tasks ADD COLUMN tests_passed BOOLEAN DEFAULT 0;`,
+			`ALTER TABLE tasks ADD COLUMN verification_status TEXT CHECK(verification_status IN ('pending', 'verified', 'needs_rework')) DEFAULT 'pending';`,
+			`ALTER TABLE tasks ADD COLUMN time_spent_minutes INTEGER;`,
+		}
+
+		for _, migration := range migrations {
+			if _, err := db.Exec(migration); err != nil {
+				return fmt.Errorf("failed to execute migration %q: %w", migration, err)
+			}
+		}
+
+		// Create indexes
+		indexes := []string{
+			`CREATE INDEX IF NOT EXISTS idx_tasks_completed_by ON tasks(completed_by);`,
+			`CREATE INDEX IF NOT EXISTS idx_tasks_verification_status ON tasks(verification_status);`,
+		}
+
+		for _, idx := range indexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create index: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// migrateTaskCriteriaAndSearch adds task_criteria table and FTS5 virtual table for search
+func migrateTaskCriteriaAndSearch(db *sql.DB) error {
+	// Check if task_criteria table exists
+	var tableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_criteria'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_criteria table: %w", err)
+	}
+
+	if tableExists == 0 {
+		// Create task_criteria table
+		_, err := db.Exec(`
+			CREATE TABLE task_criteria (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				task_id INTEGER NOT NULL,
+				criterion TEXT NOT NULL,
+				status TEXT CHECK (status IN ('pending', 'in_progress', 'complete', 'failed', 'na')) DEFAULT 'pending',
+				verified_at TIMESTAMP,
+				verification_notes TEXT,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+			);
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create task_criteria table: %w", err)
+		}
+
+		// Create indexes for task_criteria
+		indexes := []string{
+			`CREATE INDEX IF NOT EXISTS idx_task_criteria_task_id ON task_criteria(task_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_task_criteria_status ON task_criteria(status);`,
+		}
+		for _, idx := range indexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create task_criteria index: %w", err)
+			}
+		}
+	}
+
+	// Check if task_search_fts table exists
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_search_fts'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_search_fts table: %w", err)
+	}
+
+	if tableExists == 0 {
+		// Create FTS5 virtual table for full-text search (optional - skip if FTS5 not available)
+		_, err := db.Exec(`
+			CREATE VIRTUAL TABLE task_search_fts USING fts5(
+				task_key UNINDEXED,
+				title,
+				description,
+				note_content,
+				criterion_text,
+				metadata_text,
+				tokenize='porter unicode61'
+			);
+		`)
+		if err != nil {
+			// FTS5 not available - skip this migration (search feature will be limited)
+			// This is acceptable for development environments
+			fmt.Printf("Warning: FTS5 not available, skipping full-text search table: %v\n", err)
+		}
 	}
 
 	return nil

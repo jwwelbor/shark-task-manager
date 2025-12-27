@@ -548,6 +548,49 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Display completion metadata if flag is set
+	completionDetails, _ := cmd.Flags().GetBool("completion-details")
+	if completionDetails {
+		// Get completion metadata
+		metadata, err := taskRepo.GetCompletionMetadata(ctx, taskKey)
+		if err != nil {
+			fmt.Println("\nCompletion Metadata: Not available")
+		} else {
+			fmt.Println("\nCompletion Metadata:")
+
+			if metadata.CompletedBy != nil && *metadata.CompletedBy != "" {
+				fmt.Printf("  Completed By: %s\n", *metadata.CompletedBy)
+			}
+
+			if metadata.CompletedAt != nil {
+				fmt.Printf("  Completed At: %s\n", metadata.CompletedAt.Format("2006-01-02 15:04:05"))
+			}
+
+			if metadata.VerificationStatus != "" {
+				fmt.Printf("  Verification: %s\n", metadata.VerificationStatus)
+			}
+
+			if metadata.TestsPassed {
+				fmt.Println("  Tests: Passed")
+			}
+
+			if len(metadata.FilesChanged) > 0 {
+				fmt.Println("  Files Changed:")
+				for _, file := range metadata.FilesChanged {
+					fmt.Printf("    - %s\n", file)
+				}
+			}
+
+			if metadata.TimeSpentMinutes != nil && *metadata.TimeSpentMinutes > 0 {
+				fmt.Printf("  Time Spent: %d minutes\n", *metadata.TimeSpentMinutes)
+			}
+
+			if metadata.CompletionNotes != nil && *metadata.CompletionNotes != "" {
+				fmt.Printf("  Notes: %s\n", *metadata.CompletionNotes)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -569,8 +612,10 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
-	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	// Create repositories
+	dbWrapper := repository.NewDB(database)
+	repo := repository.NewTaskRepository(dbWrapper)
+	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
 
 	// Get filter flags
 	agentStr, _ := cmd.Flags().GetString("agent")
@@ -599,7 +644,7 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 	// Filter out tasks with incomplete dependencies
 	var availableTasks []*models.Task
 	for _, task := range tasks {
-		if isTaskAvailable(ctx, task, repo) {
+		if isTaskAvailable(ctx, task, repo, relRepo) {
 			availableTasks = append(availableTasks, task)
 		}
 	}
@@ -658,26 +703,44 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 }
 
 // isTaskAvailable checks if a task's dependencies are all completed or archived
-func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.TaskRepository) bool {
-	if task.DependsOn == nil || *task.DependsOn == "" || *task.DependsOn == "[]" {
-		return true // No dependencies
+func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.TaskRepository, relRepo *repository.TaskRelationshipRepository) bool {
+	// First, check the old depends_on field for backward compatibility
+	if task.DependsOn != nil && *task.DependsOn != "" && *task.DependsOn != "[]" {
+		var deps []string
+		if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err == nil {
+			// Check each dependency
+			for _, depKey := range deps {
+				depTask, err := repo.GetByKey(ctx, depKey)
+				if err != nil {
+					return false // Dependency not found
+				}
+
+				// Dependency must be completed or archived
+				if depTask.Status != models.TaskStatusCompleted && depTask.Status != models.TaskStatusArchived {
+					return false
+				}
+			}
+		}
 	}
 
-	var deps []string
-	if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err != nil {
-		return true // Invalid JSON, treat as no dependencies
+	// Second, check task_relationships for depends_on relationships
+	// Get outgoing depends_on relationships
+	rels, err := relRepo.GetOutgoing(ctx, task.ID, []string{"depends_on"})
+	if err != nil {
+		// If error getting relationships, assume available (graceful degradation)
+		return true
 	}
 
-	// Check each dependency
-	for _, depKey := range deps {
-		depTask, err := repo.GetByKey(ctx, depKey)
+	// Check each dependency relationship
+	for _, rel := range rels {
+		depTask, err := repo.GetByID(ctx, rel.ToTaskID)
 		if err != nil {
 			return false // Dependency not found
 		}
 
 		// Dependency must be completed or archived
 		if depTask.Status != models.TaskStatusCompleted && depTask.Status != models.TaskStatusArchived {
-			return false
+			return false // Incomplete dependency blocks this task
 		}
 	}
 
@@ -935,6 +998,68 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	// Update status
 	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusReadyForReview, &agent, notes, force); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	// Process completion metadata flags
+	filesCreated, _ := cmd.Flags().GetStringSlice("files-created")
+	filesModified, _ := cmd.Flags().GetStringSlice("files-modified")
+	testsFlag, _ := cmd.Flags().GetString("tests")
+	summaryFlag, _ := cmd.Flags().GetString("summary")
+	verified, _ := cmd.Flags().GetBool("verified")
+	agentIDFlag, _ := cmd.Flags().GetString("agent-id")
+	timeSpent, _ := cmd.Flags().GetInt("time-spent")
+
+	// Combine files-created and files-modified into single array
+	var allFiles []string
+	allFiles = append(allFiles, filesCreated...)
+	allFiles = append(allFiles, filesModified...)
+
+	// Only update completion metadata if at least one metadata flag was provided
+	if len(allFiles) > 0 || testsFlag != "" || summaryFlag != "" || verified || agentIDFlag != "" || timeSpent > 0 {
+		// Build completion metadata
+		metadata := models.NewCompletionMetadata()
+		metadata.FilesChanged = allFiles
+
+		if testsFlag != "" {
+			// Store test summary in completion notes if not already provided
+			if notes == nil && testsFlag != "" {
+				combinedNotes := fmt.Sprintf("Tests: %s", testsFlag)
+				if summaryFlag != "" {
+					combinedNotes = fmt.Sprintf("%s\n\n%s", combinedNotes, summaryFlag)
+				}
+				metadata.CompletionNotes = &combinedNotes
+			}
+		}
+
+		// Store completed_by from agent
+		metadata.CompletedBy = &agent
+
+		// Set tests_passed if tests flag provided
+		if testsFlag != "" {
+			metadata.TestsPassed = true // Assume tests passed if summary provided
+		}
+
+		// Set verification status
+		if verified {
+			metadata.VerificationStatus = models.VerificationStatusVerified
+		} else {
+			metadata.VerificationStatus = models.VerificationStatusPending
+		}
+
+		// Set time spent if provided
+		if timeSpent > 0 {
+			metadata.TimeSpentMinutes = &timeSpent
+		}
+
+		// Update completion metadata in database
+		if err := repo.UpdateCompletionMetadata(ctx, taskKey, metadata); err != nil {
+			cli.Warning(fmt.Sprintf("Failed to save completion metadata: %v", err))
+		}
+
+		// Show warning if verified but no tests specified
+		if verified && testsFlag == "" {
+			cli.Warning("Task marked verified but no tests specified (use --tests to document test coverage)")
+		}
 	}
 
 	if force {
@@ -1247,6 +1372,7 @@ func init() {
 	// Add subcommands to task
 	taskCmd.AddCommand(taskListCmd)
 	taskCmd.AddCommand(taskGetCmd)
+	taskGetCmd.Flags().Bool("completion-details", false, "Display completion metadata details")
 	taskCmd.AddCommand(taskCreateCmd)
 	taskCmd.AddCommand(taskStartCmd)
 	taskCmd.AddCommand(taskCompleteCmd)
@@ -1293,6 +1419,15 @@ func init() {
 	taskCompleteCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskCompleteCmd.Flags().StringP("notes", "n", "", "Completion notes")
 	taskCompleteCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
+
+	// Completion metadata flags
+	taskCompleteCmd.Flags().StringSlice("files-created", []string{}, "Files created during task (repeatable)")
+	taskCompleteCmd.Flags().StringSlice("files-modified", []string{}, "Files modified during task (repeatable)")
+	taskCompleteCmd.Flags().String("tests", "", "Test status summary (e.g., '16/16 passing')")
+	taskCompleteCmd.Flags().String("summary", "", "Completion summary describing what was delivered")
+	taskCompleteCmd.Flags().Bool("verified", false, "Mark task as verified")
+	taskCompleteCmd.Flags().String("agent-id", "", "Agent execution ID for traceability")
+	taskCompleteCmd.Flags().Int("time-spent", 0, "Time spent in minutes")
 	taskApproveCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskApproveCmd.Flags().StringP("notes", "n", "", "Approval notes")
 	taskApproveCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
