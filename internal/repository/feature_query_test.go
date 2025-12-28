@@ -202,17 +202,19 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	// Create test epic with unique key
-	// Use nanosecond timestamp modulo 1000 for better uniqueness
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
+	// Epic keys must be E\d{2} format, so use E10-E99 range with timestamp
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
 	// Clean up any existing data from previous test runs
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE ?", fmt.Sprintf("T-E%s-F01-%%", suffix))
-	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE ?", fmt.Sprintf("E%s-F%%", suffix))
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", fmt.Sprintf("E%s", suffix))
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE ?", fmt.Sprintf("T-%s-%%", featureKey))
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	highPriority := models.PriorityHigh
 	epic := &models.Epic{
-		Key:           fmt.Sprintf("E%s", suffix),
+		Key:           epicKey,
 		Title:         "Test Epic",
 		Description:   stringPtr("Test Description"),
 		Status:        models.EpicStatusActive,
@@ -225,7 +227,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 	// Create feature
 	feature := &models.Feature{
 		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("E%s-F01", suffix),
+		Key:         featureKey,
 		Title:       "Test Feature",
 		Description: stringPtr("Test"),
 		Status:      models.FeatureStatusActive,
@@ -237,7 +239,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 	// Create tasks
 	task1 := &models.Task{
 		FeatureID:   feature.ID,
-		Key:         fmt.Sprintf("T-E%s-F01-001", suffix),
+		Key:         fmt.Sprintf("T-%s-001", featureKey),
 		Title:       "Task 1",
 		Description: stringPtr("Task 1"),
 		Status:      models.TaskStatusCompleted,
@@ -248,7 +250,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 
 	task2 := &models.Task{
 		FeatureID:   feature.ID,
-		Key:         fmt.Sprintf("T-E%s-F01-002", suffix),
+		Key:         fmt.Sprintf("T-%s-002", featureKey),
 		Title:       "Task 2",
 		Description: stringPtr("Task 2"),
 		Status:      models.TaskStatusInProgress,
@@ -259,7 +261,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 
 	task3 := &models.Task{
 		FeatureID:   feature.ID,
-		Key:         fmt.Sprintf("T-E%s-F01-003", suffix),
+		Key:         fmt.Sprintf("T-%s-003", featureKey),
 		Title:       "Task 3",
 		Description: stringPtr("Task 3"),
 		Status:      models.TaskStatusTodo,
@@ -279,7 +281,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 	t.Run("get task count for feature with no tasks", func(t *testing.T) {
 		emptyFeature := &models.Feature{
 			EpicID:      epic.ID,
-			Key:         fmt.Sprintf("E%s-F02", suffix),
+			Key:         fmt.Sprintf("%s-F02", epicKey),
 			Title:       "Empty Feature",
 			Description: stringPtr("Empty"),
 			Status:      models.FeatureStatusActive,
@@ -303,17 +305,19 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	// Create test epic with unique key
-	// Use nanosecond timestamp to create unique but valid epic keys (avoid E04 and E99 used by test data)
-	suffix := fmt.Sprintf("%02d", 10+((time.Now().UnixNano()/1000)%88))
+	// Epic keys must be E\d{2} format, so use E10-E99 range with timestamp
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
 	// Clean up any stale test data with this suffix
-	_, _ = database.ExecContext(ctx, fmt.Sprintf("DELETE FROM tasks WHERE key LIKE 'T-E%s-F%%'", suffix))
-	_, _ = database.ExecContext(ctx, fmt.Sprintf("DELETE FROM features WHERE key LIKE 'E%s-F%%'", suffix))
-	_, _ = database.ExecContext(ctx, fmt.Sprintf("DELETE FROM epics WHERE key = 'E%s'", suffix))
+	_, _ = database.ExecContext(ctx, fmt.Sprintf("DELETE FROM tasks WHERE key LIKE 'T-%s-%%'", featureKey))
+	_, _ = database.ExecContext(ctx, fmt.Sprintf("DELETE FROM features WHERE key = '%s'", featureKey))
+	_, _ = database.ExecContext(ctx, fmt.Sprintf("DELETE FROM epics WHERE key = '%s'", epicKey))
 
 	highPriority := models.PriorityHigh
 	epic := &models.Epic{
-		Key:           fmt.Sprintf("E%s", suffix),
+		Key:           epicKey,
 		Title:         "Test Epic",
 		Description:   stringPtr("Test Description"),
 		Status:        models.EpicStatusActive,
@@ -326,7 +330,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 	// Create feature
 	feature := &models.Feature{
 		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("E%s-F01", suffix),
+		Key:         featureKey,
 		Title:       "Test Feature",
 		Description: stringPtr("Test"),
 		Status:      models.FeatureStatusActive,
@@ -339,7 +343,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 	tasks := []*models.Task{
 		{
 			FeatureID:   feature.ID,
-			Key:         fmt.Sprintf("T-E%s-F01-001", suffix),
+			Key:         fmt.Sprintf("T-%s-001", featureKey),
 			Title:       "Completed Task 1",
 			Description: stringPtr("Completed"),
 			Status:      models.TaskStatusCompleted,
@@ -347,7 +351,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		},
 		{
 			FeatureID:   feature.ID,
-			Key:         fmt.Sprintf("T-E%s-F01-002", suffix),
+			Key:         fmt.Sprintf("T-%s-002", featureKey),
 			Title:       "Completed Task 2",
 			Description: stringPtr("Completed"),
 			Status:      models.TaskStatusCompleted,
@@ -355,7 +359,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		},
 		{
 			FeatureID:   feature.ID,
-			Key:         fmt.Sprintf("T-E%s-F01-003", suffix),
+			Key:         fmt.Sprintf("T-%s-003", featureKey),
 			Title:       "In Progress Task 1",
 			Description: stringPtr("In Progress"),
 			Status:      models.TaskStatusInProgress,
@@ -363,7 +367,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		},
 		{
 			FeatureID:   feature.ID,
-			Key:         fmt.Sprintf("T-E%s-F01-004", suffix),
+			Key:         fmt.Sprintf("T-%s-004", featureKey),
 			Title:       "In Progress Task 2",
 			Description: stringPtr("In Progress"),
 			Status:      models.TaskStatusInProgress,
@@ -371,7 +375,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		},
 		{
 			FeatureID:   feature.ID,
-			Key:         fmt.Sprintf("T-E%s-F01-005", suffix),
+			Key:         fmt.Sprintf("T-%s-005", featureKey),
 			Title:       "Todo Task",
 			Description: stringPtr("Todo"),
 			Status:      models.TaskStatusTodo,
@@ -379,7 +383,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		},
 		{
 			FeatureID:   feature.ID,
-			Key:         fmt.Sprintf("T-E%s-F01-006", suffix),
+			Key:         fmt.Sprintf("T-%s-006", featureKey),
 			Title:       "Blocked Task",
 			Description: stringPtr("Blocked"),
 			Status:      models.TaskStatusBlocked,
@@ -409,7 +413,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 	t.Run("get status breakdown for feature with no tasks", func(t *testing.T) {
 		emptyFeature := &models.Feature{
 			EpicID:      epic.ID,
-			Key:         fmt.Sprintf("E%s-F02", suffix),
+			Key:         fmt.Sprintf("%s-F02", epicKey),
 			Title:       "Empty Feature",
 			Description: stringPtr("Empty"),
 			Status:      models.FeatureStatusActive,

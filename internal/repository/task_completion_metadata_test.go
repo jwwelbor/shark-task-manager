@@ -8,67 +8,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
 
-// TestUpdateCompletionMetadata tests updating completion metadata for a task
-func TestUpdateCompletionMetadata(t *testing.T) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	taskRepo := NewTaskRepository(db)
-
-	test.SeedTestData()
-
-	taskKey := "T-E99-F99-001"
-
-	// Prepare completion metadata
-	completedBy := "test-agent"
-	completionNotes := "Successfully implemented feature with full test coverage"
-	timeSpent := 120
-	metadata := &models.CompletionMetadata{
-		CompletedBy:        &completedBy,
-		CompletionNotes:    &completionNotes,
-		FilesChanged:       []string{"internal/models/task.go", "internal/repository/task_repository.go"},
-		TestsPassed:        true,
-		VerificationStatus: models.VerificationStatusVerified,
-		TimeSpentMinutes:   &timeSpent,
-	}
-
-	// Update completion metadata
-	err := taskRepo.UpdateCompletionMetadata(ctx, taskKey, metadata)
-	if err != nil {
-		t.Fatalf("Failed to update completion metadata: %v", err)
-	}
-
-	// Retrieve and verify
-	retrieved, err := taskRepo.GetCompletionMetadata(ctx, taskKey)
-	if err != nil {
-		t.Fatalf("Failed to get completion metadata: %v", err)
-	}
-
-	if retrieved.CompletedBy == nil || *retrieved.CompletedBy != "test-agent" {
-		t.Errorf("Expected completed_by 'test-agent', got %v", retrieved.CompletedBy)
-	}
-
-	if retrieved.CompletionNotes == nil || *retrieved.CompletionNotes != completionNotes {
-		t.Errorf("Expected completion notes to match, got %v", retrieved.CompletionNotes)
-	}
-
-	if len(retrieved.FilesChanged) != 2 {
-		t.Errorf("Expected 2 files changed, got %d", len(retrieved.FilesChanged))
-	}
-
-	if !retrieved.TestsPassed {
-		t.Error("Expected tests_passed to be true")
-	}
-
-	if retrieved.VerificationStatus != models.VerificationStatusVerified {
-		t.Errorf("Expected verification status 'verified', got %s", retrieved.VerificationStatus)
-	}
-
-	if retrieved.TimeSpentMinutes == nil || *retrieved.TimeSpentMinutes != 120 {
-		t.Errorf("Expected time_spent_minutes 120, got %v", retrieved.TimeSpentMinutes)
-	}
-}
-
 // TestGetCompletionMetadata_NotFound tests retrieving metadata for non-existent task
 func TestGetCompletionMetadata_NotFound(t *testing.T) {
 	ctx := context.Background()

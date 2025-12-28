@@ -14,6 +14,11 @@ func TestListByEpic(t *testing.T) {
 	db := NewDB(database)
 	taskRepo := NewTaskRepository(db)
 
+	// Clean up before seeding
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN ('E99-F99')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E99')")
+
 	test.SeedTestData()
 
 	// ListByEpic uses a JOIN query that should not have ambiguous column errors
@@ -43,6 +48,11 @@ func TestFilterCombined(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	taskRepo := NewTaskRepository(db)
+
+	// Clean up before seeding
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN ('E99-F99')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E99')")
 
 	test.SeedTestData()
 

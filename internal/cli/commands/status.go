@@ -82,9 +82,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return outputStatusJSON(dashboard)
 	}
 
-	// For now, just output JSON even in non-JSON mode
-	// T04 will implement rich terminal output
-	return outputStatusJSON(dashboard)
+	// Rich terminal output
+	return outputStatusTerminal(dashboard)
 }
 
 // outputStatusJSON outputs the dashboard as JSON
@@ -95,5 +94,13 @@ func outputStatusJSON(dashboard *status.StatusDashboard) error {
 	}
 
 	fmt.Println(string(data))
+	return nil
+}
+
+// outputStatusTerminal outputs the dashboard with rich terminal formatting
+func outputStatusTerminal(dashboard *status.StatusDashboard) error {
+	// Use the formatter from the status package
+	output := status.FormatDashboard(dashboard, cli.GlobalConfig.NoColor)
+	fmt.Print(output)
 	return nil
 }

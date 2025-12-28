@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
@@ -31,7 +32,11 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 	epicKey := fmt.Sprintf("E%02d", epicNum)
 	featureKey := fmt.Sprintf("E%02d-F%02d", epicNum, featureNum)
 
-	// Create epic via SQL with INSERT OR IGNORE
+	// Clean up any existing test data for this SPECIFIC feature to ensure test isolation
+	_, _ = database.Exec("DELETE FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE key = ?)", featureKey)
+	_, _ = database.Exec("DELETE FROM features WHERE key = ?", featureKey)
+
+	// Create epic via SQL using INSERT OR IGNORE (multiple features may use same epic)
 	_, err := database.Exec(`
 		INSERT OR IGNORE INTO epics (key, title, description, status, priority)
 		VALUES (?, 'Progress Test Epic', 'Test epic', 'active', 'medium')
@@ -40,7 +45,7 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 		t.Fatalf("Failed to create epic %s: %v", epicKey, err)
 	}
 
-	// Always query for the epic ID since INSERT OR IGNORE may return unreliable LastInsertId()
+	// Get the epic ID (whether it was just created or already existed)
 	var epicID int64
 	err = database.QueryRow("SELECT id FROM epics WHERE key = ?", epicKey).Scan(&epicID)
 	if err != nil {
@@ -48,37 +53,21 @@ func setupProgressTest(t *testing.T, epicNum int, featureNum int, taskStatuses [
 	}
 	t.Logf("Using epic %s with ID=%d", epicKey, epicID)
 
-	// Verify epic exists before creating feature
-	var count int
-	err = database.QueryRow("SELECT COUNT(*) FROM epics WHERE id = ?", epicID).Scan(&count)
-	if err != nil || count == 0 {
-		t.Fatalf("Epic with ID %d (key=%s) does not exist in database", epicID, epicKey)
-	}
-
-	// Clean up any existing feature with this specific key from previous test runs to ensure test isolation
-	_, _ = database.Exec("DELETE FROM features WHERE key = ?", featureKey)
-
-	// Create feature via SQL with INSERT OR IGNORE
-	if epicID == 0 {
-		t.Fatalf("Cannot create feature %s: epicID is 0 (epic %s does not exist)", featureKey, epicKey)
-	}
+	// Create feature via SQL
 	_, err = database.Exec(`
-		INSERT OR IGNORE INTO features (epic_id, key, title, description, status)
+		INSERT INTO features (epic_id, key, title, description, status)
 		VALUES (?, ?, 'Progress Test Feature', 'Test feature', 'active')
 	`, epicID, featureKey)
 	if err != nil {
 		t.Fatalf("Failed to create feature %s with epicID=%d: %v", featureKey, epicID, err)
 	}
 
-	// Always query for the feature ID since INSERT OR IGNORE may return unreliable LastInsertId()
+	// Get the feature ID
 	var featureID int64
 	err = database.QueryRow("SELECT id FROM features WHERE key = ?", featureKey).Scan(&featureID)
 	if err != nil {
 		t.Fatalf("Failed to get feature ID for %s: %v", featureKey, err)
 	}
-
-	// Delete and recreate tasks for this feature (so we can control task statuses)
-	_, _ = database.Exec("DELETE FROM tasks WHERE feature_id = ?", featureID)
 
 	// Create tasks
 	for i, status := range taskStatuses {
@@ -285,11 +274,21 @@ func TestEpicProgress_NoFeatures(t *testing.T) {
 // TestEpicProgress_WeightedAverage verifies epic progress is weighted by task count
 func TestEpicProgress_WeightedAverage(t *testing.T) {
 	ctx := context.Background()
-	db := NewDB(test.GetTestDB())
+	database := test.GetTestDB()
+	db := NewDB(database)
 	featureRepo := NewFeatureRepository(db)
 	epicRepo := NewEpicRepository(db)
 
-	// Feature 1: 50% with 10 tasks (E97-F01)
+	// Use unique epic number to avoid collisions (E10-E89 range)
+	epicNum := 10 + int((time.Now().UnixNano()%80))
+
+	// Clean up any existing data for this epic
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	_, _ = database.Exec("DELETE FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?))", epicKey)
+	_, _ = database.Exec("DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?)", epicKey)
+	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Feature 1: 50% with 10 tasks
 	statuses1 := make([]models.TaskStatus, 10)
 	for i := 0; i < 10; i++ {
 		if i < 5 {
@@ -298,15 +297,15 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 			statuses1[i] = models.TaskStatusTodo
 		}
 	}
-	epicID, feature1ID := setupProgressTest(t, 97, 1, statuses1)
+	epicID, feature1ID := setupProgressTest(t, epicNum, 1, statuses1)
 	_ = featureRepo.UpdateProgress(ctx, feature1ID)
 
-	// Feature 2: 100% with 10 tasks (E97-F02)
+	// Feature 2: 100% with 10 tasks (same epic, different feature)
 	statuses2 := make([]models.TaskStatus, 10)
 	for i := 0; i < 10; i++ {
 		statuses2[i] = models.TaskStatusCompleted
 	}
-	_, feature2ID := setupProgressTest(t, 97, 2, statuses2)
+	_, feature2ID := setupProgressTest(t, epicNum, 2, statuses2)
 	_ = featureRepo.UpdateProgress(ctx, feature2ID)
 
 	// Weighted average: (50×10 + 100×10) / (10+10) = 1500/20 = 75.0

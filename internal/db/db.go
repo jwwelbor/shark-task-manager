@@ -573,7 +573,7 @@ func migrateTaskCriteriaAndSearch(db *sql.DB) error {
 	if tableExists == 0 {
 		// Create task_criteria table
 		_, err := db.Exec(`
-			CREATE TABLE task_criteria (
+			CREATE TABLE IF NOT EXISTS task_criteria (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				task_id INTEGER NOT NULL,
 				criterion TEXT NOT NULL,

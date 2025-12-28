@@ -7,19 +7,22 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
+	"github.com/jwwelbor/shark-task-manager/internal/formatters"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 )
 
 var (
-	historyAgent        string
-	historySince        string
-	historyEpic         string
-	historyFeature      string
-	historyOldStatus    string
-	historyNewStatus    string
-	historyLimit        int
-	historyOffset       int
+	historyAgent     string
+	historySince     string
+	historyEpic      string
+	historyFeature   string
+	historyOldStatus string
+	historyNewStatus string
+	historyLimit     int
+	historyOffset    int
+	historyFormat    string
 )
 
 var historyCmd = &cobra.Command{
@@ -50,7 +53,13 @@ Displays recent status changes, agent assignments, and task transitions across a
   shark history --limit=10 --offset=10
 
   # Output as JSON
-  shark history --json`,
+  shark history --json
+
+  # Export as CSV
+  shark history --format=csv
+
+  # Export as JSON (alternative to --json)
+  shark history --format=json`,
 	RunE: runHistory,
 }
 
@@ -63,6 +72,7 @@ func init() {
 	historyCmd.Flags().StringVar(&historyNewStatus, "new-status", "", "Filter by new status")
 	historyCmd.Flags().IntVar(&historyLimit, "limit", 50, "Maximum number of records to return")
 	historyCmd.Flags().IntVar(&historyOffset, "offset", 0, "Number of records to skip")
+	historyCmd.Flags().StringVar(&historyFormat, "format", "", "Output format (csv, json)")
 
 	cli.RootCmd.AddCommand(historyCmd)
 }
@@ -124,6 +134,11 @@ func runHistory(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to retrieve history: %w", err)
 	}
 
+	// Handle format-based export
+	if historyFormat != "" {
+		return outputHistoryExport(ctx, histories, taskRepo, historyFormat)
+	}
+
 	// Output based on format
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(histories)
@@ -137,12 +152,12 @@ func runHistory(cmd *cobra.Command, args []string) error {
 
 	// Build enhanced history records with task information
 	type HistoryDisplay struct {
-		Timestamp  string  `json:"timestamp"`
-		TaskKey    string  `json:"task_key"`
-		OldStatus  string  `json:"old_status,omitempty"`
-		NewStatus  string  `json:"new_status"`
-		Agent      string  `json:"agent,omitempty"`
-		Notes      string  `json:"notes,omitempty"`
+		Timestamp string `json:"timestamp"`
+		TaskKey   string `json:"task_key"`
+		OldStatus string `json:"old_status,omitempty"`
+		NewStatus string `json:"new_status"`
+		Agent     string `json:"agent,omitempty"`
+		Notes     string `json:"notes,omitempty"`
 	}
 
 	var displayRecords []HistoryDisplay
@@ -199,4 +214,43 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func outputHistoryExport(ctx context.Context, histories []*models.TaskHistory, taskRepo *repository.TaskRepository, format string) error {
+	// Build export records with task keys
+	var historyWithTasks []formatters.HistoryWithTask
+	for _, h := range histories {
+		task, err := taskRepo.GetByID(ctx, h.TaskID)
+		if err != nil {
+			continue // Skip if task not found
+		}
+
+		historyWithTasks = append(historyWithTasks, formatters.HistoryWithTask{
+			History: h,
+			TaskKey: task.Key,
+		})
+	}
+
+	// Convert to export records
+	records := formatters.ConvertMultipleTasksToExportRecords(historyWithTasks)
+
+	// Format based on requested format
+	switch format {
+	case "csv":
+		csv, err := formatters.FormatHistoryCSV(records)
+		if err != nil {
+			return fmt.Errorf("failed to format history as CSV: %w", err)
+		}
+		fmt.Print(csv)
+		return nil
+	case "json":
+		jsonStr, err := formatters.FormatHistoryJSON(records)
+		if err != nil {
+			return fmt.Errorf("failed to format history as JSON: %w", err)
+		}
+		fmt.Println(jsonStr)
+		return nil
+	default:
+		return fmt.Errorf("unsupported format: %s (supported formats: csv, json)", format)
+	}
 }

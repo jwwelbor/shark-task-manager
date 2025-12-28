@@ -20,9 +20,10 @@ func TestFeatureRepository_GetByFilePath(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
-	epicKey := fmt.Sprintf("E%s", suffix)
-	featureKey := fmt.Sprintf("E%s-F01", suffix)
+	// Epic keys must be E\d{2} format, so use E10-E99 range with timestamp
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
 	// Clean up any existing data
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
@@ -90,9 +91,10 @@ func TestFeatureRepository_UpdateFilePath(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
-	epicKey := fmt.Sprintf("E%s", suffix)
-	featureKey := fmt.Sprintf("E%s-F01", suffix)
+	// Epic keys must be E\d{2} format, so use E10-E99 range with timestamp
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
 	// Clean up any existing data
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
@@ -147,9 +149,10 @@ func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
-	epicKey := fmt.Sprintf("E%s", suffix)
-	featureKey := fmt.Sprintf("E%s-F01", suffix)
+	// Epic keys must be E\d{2} format, so use E10-E99 range with timestamp
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
 	// Clean up any existing data
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
@@ -225,10 +228,11 @@ func TestFeatureRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique key using timestamp
-	suffix := fmt.Sprintf("%02d", (time.Now().UnixNano())%1000/10)
-	epicKey := fmt.Sprintf("E%s", suffix)
-	featureKey1 := fmt.Sprintf("E%s-F01", suffix)
-	featureKey2 := fmt.Sprintf("E%s-F02", suffix)
+	// Epic keys must be E\d{2} format, so use E10-E99 range with timestamp
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey1 := fmt.Sprintf("%s-F01", epicKey)
+	featureKey2 := fmt.Sprintf("%s-F02", epicKey)
 
 	// Clean up any existing data
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN (?, ?)", featureKey1, featureKey2)

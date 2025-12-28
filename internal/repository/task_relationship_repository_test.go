@@ -621,10 +621,13 @@ func TestDetectCycleDirect(t *testing.T) {
 	db := NewDB(database)
 	relRepo := NewTaskRelationshipRepository(db)
 
-	test.SeedTestData()
-
-	// Clean up any existing relationships from previous tests
+	// Clean up before seeding
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN ('E99-F99')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E99')")
+
+	test.SeedTestData()
 
 	// Get task
 	var task1ID int64
