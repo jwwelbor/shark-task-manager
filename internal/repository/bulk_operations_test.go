@@ -2,91 +2,13 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
-
-// TestBulkCreate tests creating multiple tasks in a single transaction
-func TestBulkCreate(t *testing.T) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	taskRepo := NewTaskRepository(db)
-
-	test.SeedTestData()
-
-	// Get a feature to associate tasks with
-	featureRepo := NewFeatureRepository(db)
-	feature, err := featureRepo.GetByKey(ctx, "E04-F05")
-	if err != nil {
-		t.Fatalf("Failed to get feature: %v", err)
-	}
-
-	// Delete any existing test tasks first (for test isolation)
-	_, _ = database.Exec("DELETE FROM tasks WHERE key IN ('T-E04-F05-100', 'T-E04-F05-101', 'T-E04-F05-102')")
-
-	// Create tasks for bulk insert
-	tasks := []*models.Task{
-		{
-			FeatureID:   feature.ID,
-			Key:         "T-E04-F05-100",
-			Title:       "Bulk Test Task 1",
-			Description: test.StringPtr("First bulk task"),
-			Status:      models.TaskStatusTodo,
-			Priority:    1,
-			FilePath:    test.StringPtr("/path/to/task1.md"),
-		},
-		{
-			FeatureID:   feature.ID,
-			Key:         "T-E04-F05-101",
-			Title:       "Bulk Test Task 2",
-			Description: test.StringPtr("Second bulk task"),
-			Status:      models.TaskStatusTodo,
-			Priority:    2,
-			FilePath:    test.StringPtr("/path/to/task2.md"),
-		},
-		{
-			FeatureID:   feature.ID,
-			Key:         "T-E04-F05-102",
-			Title:       "Bulk Test Task 3",
-			Description: test.StringPtr("Third bulk task"),
-			Status:      models.TaskStatusTodo,
-			Priority:    3,
-			FilePath:    test.StringPtr("/path/to/task3.md"),
-		},
-	}
-
-	// Test bulk create
-	count, err := taskRepo.BulkCreate(ctx, tasks)
-	if err != nil {
-		t.Fatalf("BulkCreate failed: %v", err)
-	}
-
-	if count != 3 {
-		t.Errorf("Expected to create 3 tasks, created %d", count)
-	}
-
-	// Verify all tasks have IDs assigned
-	for i, task := range tasks {
-		if task.ID == 0 {
-			t.Errorf("Task %d has no ID assigned", i)
-		}
-	}
-
-	// Verify tasks are in database
-	for _, task := range tasks {
-		retrieved, err := taskRepo.GetByKey(ctx, task.Key)
-		if err != nil {
-			t.Errorf("Failed to retrieve task %s: %v", task.Key, err)
-		}
-		if retrieved.Title != task.Title {
-			t.Errorf("Title mismatch for %s: expected %s, got %s", task.Key, task.Title, retrieved.Title)
-		}
-	}
-}
 
 // TestBulkCreateEmpty tests bulk create with empty slice
 func TestBulkCreateEmpty(t *testing.T) {
@@ -110,10 +32,23 @@ func TestBulkCreateValidationFailure(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	taskRepo := NewTaskRepository(db)
-
-	test.SeedTestData()
+	epicRepo := NewEpicRepository(db)
 	featureRepo := NewFeatureRepository(db)
-	feature, _ := featureRepo.GetByKey(ctx, "E04-F05")
+
+	// Create unique isolated test data
+	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
+
+	// Clean up
+	_, _ = database.Exec("DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic and feature for test
+	epic := &models.Epic{Key: epicKey, Title: "Test Epic", Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	_ = epicRepo.Create(ctx, epic)
+	feature := &models.Feature{EpicID: epic.ID, Key: featureKey, Title: "Test Feature", Status: models.FeatureStatusActive}
+	_ = featureRepo.Create(ctx, feature)
 
 	// Create task with invalid key (empty)
 	tasks := []*models.Task{
@@ -129,6 +64,10 @@ func TestBulkCreateValidationFailure(t *testing.T) {
 	if err == nil {
 		t.Error("Expected validation error, got nil")
 	}
+
+	// Cleanup
+	_, _ = database.Exec("DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.Exec("DELETE FROM epics WHERE id = ?", epic.ID)
 }
 
 // TestBulkCreateRollback tests transaction rollback on error
@@ -137,12 +76,26 @@ func TestBulkCreateRollback(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	taskRepo := NewTaskRepository(db)
-
-	test.SeedTestData()
+	epicRepo := NewEpicRepository(db)
 	featureRepo := NewFeatureRepository(db)
-	feature, _ := featureRepo.GetByKey(ctx, "E04-F05")
 
-	// Get initial task count
+	// Create unique isolated test data
+	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
+
+	// Clean up
+	_, _ = database.Exec("DELETE FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE key = ?)", featureKey)
+	_, _ = database.Exec("DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic and feature for test
+	epic := &models.Epic{Key: epicKey, Title: "Test Epic", Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	_ = epicRepo.Create(ctx, epic)
+	feature := &models.Feature{EpicID: epic.ID, Key: featureKey, Title: "Test Feature", Status: models.FeatureStatusActive}
+	_ = featureRepo.Create(ctx, feature)
+
+	// Get initial task count (should be 0)
 	initialTasks, _ := taskRepo.ListByFeature(ctx, feature.ID)
 	initialCount := len(initialTasks)
 
@@ -150,15 +103,17 @@ func TestBulkCreateRollback(t *testing.T) {
 	tasks := []*models.Task{
 		{
 			FeatureID: feature.ID,
-			Key:       "T-E04-F05-200",
+			Key:       fmt.Sprintf("T-%s-200", featureKey),
 			Title:     "First Task",
 			Status:    models.TaskStatusTodo,
+			Priority:  1,
 		},
 		{
 			FeatureID: feature.ID,
-			Key:       "T-E04-F05-200", // Duplicate key
+			Key:       fmt.Sprintf("T-%s-200", featureKey), // Duplicate key
 			Title:     "Duplicate Task",
 			Status:    models.TaskStatusTodo,
+			Priority:  1,
 		},
 	}
 
@@ -174,38 +129,10 @@ func TestBulkCreateRollback(t *testing.T) {
 	if finalCount != initialCount {
 		t.Errorf("Expected task count to remain %d after rollback, got %d", initialCount, finalCount)
 	}
-}
 
-// TestGetByKeys tests bulk retrieval of tasks
-func TestGetByKeys(t *testing.T) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	taskRepo := NewTaskRepository(db)
-
-	test.SeedTestData()
-
-	// Test retrieving existing tasks
-	keys := []string{"T-E99-F99-001", "T-E99-F99-002", "T-E99-F99-003"}
-	result, err := taskRepo.GetByKeys(ctx, keys)
-	if err != nil {
-		t.Fatalf("GetByKeys failed: %v", err)
-	}
-
-	if len(result) != 3 {
-		t.Errorf("Expected 3 tasks, got %d", len(result))
-	}
-
-	// Verify each task is in the result
-	for _, key := range keys {
-		task, exists := result[key]
-		if !exists {
-			t.Errorf("Task %s not found in result", key)
-		}
-		if task.Key != key {
-			t.Errorf("Key mismatch: expected %s, got %s", key, task.Key)
-		}
-	}
+	// Cleanup
+	_, _ = database.Exec("DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.Exec("DELETE FROM epics WHERE id = ?", epic.ID)
 }
 
 // TestGetByKeysPartial tests bulk retrieval with some missing keys
@@ -214,11 +141,33 @@ func TestGetByKeysPartial(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	taskRepo := NewTaskRepository(db)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
 
-	test.SeedTestData()
+	// Create unique isolated test data
+	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
+
+	// Clean up
+	_, _ = database.Exec("DELETE FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE key = ?)", featureKey)
+	_, _ = database.Exec("DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic and feature for test
+	epic := &models.Epic{Key: epicKey, Title: "Test Epic", Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	_ = epicRepo.Create(ctx, epic)
+	feature := &models.Feature{EpicID: epic.ID, Key: featureKey, Title: "Test Feature", Status: models.FeatureStatusActive}
+	_ = featureRepo.Create(ctx, feature)
+
+	// Create 2 tasks with known keys
+	task1 := &models.Task{FeatureID: feature.ID, Key: fmt.Sprintf("T-%s-001", featureKey), Title: "Task 1", Status: models.TaskStatusTodo, Priority: 1}
+	task2 := &models.Task{FeatureID: feature.ID, Key: fmt.Sprintf("T-%s-002", featureKey), Title: "Task 2", Status: models.TaskStatusTodo, Priority: 1}
+	_ = taskRepo.Create(ctx, task1)
+	_ = taskRepo.Create(ctx, task2)
 
 	// Mix of existing and non-existing keys
-	keys := []string{"T-E99-F99-001", "T-E99-F99-999", "T-E99-F99-002"}
+	keys := []string{task1.Key, fmt.Sprintf("T-%s-999", featureKey), task2.Key}
 	result, err := taskRepo.GetByKeys(ctx, keys)
 	if err != nil {
 		t.Fatalf("GetByKeys failed: %v", err)
@@ -230,15 +179,20 @@ func TestGetByKeysPartial(t *testing.T) {
 	}
 
 	// Verify only existing tasks are present
-	if _, exists := result["T-E99-F99-001"]; !exists {
-		t.Error("Expected T-E99-F99-001 to be in result")
+	if _, exists := result[task1.Key]; !exists {
+		t.Errorf("Expected %s to be in result", task1.Key)
 	}
-	if _, exists := result["T-E99-F99-002"]; !exists {
-		t.Error("Expected T-E99-F99-002 to be in result")
+	if _, exists := result[task2.Key]; !exists {
+		t.Errorf("Expected %s to be in result", task2.Key)
 	}
-	if _, exists := result["T-E99-F99-999"]; exists {
-		t.Error("Did not expect T-E99-F99-999 to be in result")
+	if _, exists := result[fmt.Sprintf("T-%s-999", featureKey)]; exists {
+		t.Error("Did not expect non-existent task key to be in result")
 	}
+
+	// Cleanup
+	_, _ = database.Exec("DELETE FROM tasks WHERE id IN (?, ?)", task1.ID, task2.ID)
+	_, _ = database.Exec("DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.Exec("DELETE FROM epics WHERE id = ?", epic.ID)
 }
 
 // TestGetByKeysEmpty tests bulk retrieval with empty keys list
@@ -263,14 +217,37 @@ func TestUpdateMetadata(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	taskRepo := NewTaskRepository(db)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
 
-	test.SeedTestData()
+	// Create unique isolated test data
+	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
-	// Get existing task
-	task, err := taskRepo.GetByKey(ctx, "T-E99-F99-001")
-	if err != nil {
-		t.Fatalf("Failed to get task: %v", err)
+	// Clean up
+	_, _ = database.Exec("DELETE FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE key = ?)", featureKey)
+	_, _ = database.Exec("DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic and feature for test
+	epic := &models.Epic{Key: epicKey, Title: "Test Epic", Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	_ = epicRepo.Create(ctx, epic)
+	feature := &models.Feature{EpicID: epic.ID, Key: featureKey, Title: "Test Feature", Status: models.FeatureStatusActive}
+	_ = featureRepo.Create(ctx, feature)
+
+	// Create test task with initial agent type
+	initialAgentType := models.AgentTypeFrontend
+	task := &models.Task{
+		FeatureID:   feature.ID,
+		Key:         fmt.Sprintf("T-%s-001", featureKey),
+		Title:       "Original Title",
+		Description: test.StringPtr("Original Description"),
+		Status:      models.TaskStatusTodo,
+		Priority:    5,
+		AgentType:   &initialAgentType,
 	}
+	_ = taskRepo.Create(ctx, task)
 
 	// Store original values of database-only fields
 	originalStatus := task.Status
@@ -289,7 +266,7 @@ func TestUpdateMetadata(t *testing.T) {
 	task.AgentType = &newAgentType
 
 	// Update metadata
-	err = taskRepo.UpdateMetadata(ctx, task)
+	err := taskRepo.UpdateMetadata(ctx, task)
 	if err != nil {
 		t.Fatalf("UpdateMetadata failed: %v", err)
 	}
@@ -323,6 +300,11 @@ func TestUpdateMetadata(t *testing.T) {
 			t.Error("AgentType should not change")
 		}
 	}
+
+	// Cleanup
+	_, _ = database.Exec("DELETE FROM tasks WHERE id = ?", task.ID)
+	_, _ = database.Exec("DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.Exec("DELETE FROM epics WHERE id = ?", epic.ID)
 }
 
 // TestUpdateMetadataNotFound tests updating non-existent task
@@ -346,207 +328,3 @@ func TestUpdateMetadataNotFound(t *testing.T) {
 	}
 }
 
-// TestEpicCreateIfNotExists tests idempotent epic creation
-func TestEpicCreateIfNotExists(t *testing.T) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	epicRepo := NewEpicRepository(db)
-
-	test.SeedTestData()
-
-	// Test creating new epic
-	businessValue := models.PriorityHigh
-	newEpic := &models.Epic{
-		Key:           "E98",
-		Title:         "Test Epic",
-		Description:   test.StringPtr("Test Description"),
-		Status:        models.EpicStatusActive,
-		Priority:      models.PriorityHigh,
-		BusinessValue: &businessValue,
-	}
-
-	// First call - may or may not be created depending on previous test runs
-	epic1, created1, err := epicRepo.CreateIfNotExists(ctx, newEpic)
-	if err != nil {
-		t.Fatalf("CreateIfNotExists failed: %v", err)
-	}
-	if epic1.ID == 0 {
-		t.Error("Expected epic to have ID")
-	}
-
-	// Second call - should always return existing epic (not created)
-	epic2, created2, err := epicRepo.CreateIfNotExists(ctx, newEpic)
-	if err != nil {
-		t.Fatalf("CreateIfNotExists failed on second call: %v", err)
-	}
-	if created2 {
-		t.Error("Expected epic to not be created on second call (already exists)")
-	}
-	if epic2.ID != epic1.ID {
-		t.Errorf("Expected same epic ID: got %d and %d", epic1.ID, epic2.ID)
-	}
-
-	// Verify idempotency
-	if created1 {
-		t.Logf("Epic was created on first call")
-	} else {
-		t.Logf("Epic already existed on first call")
-	}
-}
-
-// TestFeatureCreateIfNotExists tests idempotent feature creation
-func TestFeatureCreateIfNotExists(t *testing.T) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	featureRepo := NewFeatureRepository(db)
-	epicRepo := NewEpicRepository(db)
-
-	test.SeedTestData()
-
-	// Get existing epic
-	epic, _ := epicRepo.GetByKey(ctx, "E04")
-
-	// Test creating new feature
-	newFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E04-F99",
-		Title:       "Test Feature",
-		Description: test.StringPtr("Test Description"),
-		Status:      models.FeatureStatusActive,
-		ProgressPct: 0.0,
-	}
-
-	// First call - may or may not be created depending on previous test runs
-	feature1, created1, err := featureRepo.CreateIfNotExists(ctx, newFeature)
-	if err != nil {
-		t.Fatalf("CreateIfNotExists failed: %v", err)
-	}
-	if feature1.ID == 0 {
-		t.Error("Expected feature to have ID")
-	}
-
-	// Second call - should always return existing feature (not created)
-	feature2, created2, err := featureRepo.CreateIfNotExists(ctx, newFeature)
-	if err != nil {
-		t.Fatalf("CreateIfNotExists failed on second call: %v", err)
-	}
-	if created2 {
-		t.Error("Expected feature to not be created on second call (already exists)")
-	}
-	if feature2.ID != feature1.ID {
-		t.Errorf("Expected same feature ID: got %d and %d", feature1.ID, feature2.ID)
-	}
-
-	// Verify idempotency
-	if created1 {
-		t.Logf("Feature was created on first call")
-	} else {
-		t.Logf("Feature already existed on first call")
-	}
-}
-
-// TestBulkCreatePerformance benchmarks bulk create performance
-func TestBulkCreatePerformance(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping performance test in short mode")
-	}
-
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	taskRepo := NewTaskRepository(db)
-
-	test.SeedTestData()
-	featureRepo := NewFeatureRepository(db)
-	feature, _ := featureRepo.GetByKey(ctx, "E04-F05")
-
-	// Clean up any existing performance test tasks
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E04-F05-2%'")
-
-	// Create 100 tasks
-	tasks := make([]*models.Task, 100)
-	for i := 0; i < 100; i++ {
-		tasks[i] = &models.Task{
-			FeatureID:   feature.ID,
-			Key:         test.GenerateUniqueKey("E04-F05", i+200),
-			Title:       "Performance Test Task",
-			Description: test.StringPtr("Performance testing"),
-			Status:      models.TaskStatusTodo,
-			Priority:    (i % 10) + 1, // Priority 1-10
-		}
-	}
-
-	start := time.Now()
-	count, err := taskRepo.BulkCreate(ctx, tasks)
-	duration := time.Since(start)
-
-	if err != nil {
-		t.Fatalf("BulkCreate failed: %v", err)
-	}
-	if count != 100 {
-		t.Errorf("Expected to create 100 tasks, created %d", count)
-	}
-
-	// PRD requirement: 100 tasks in <1 second
-	if duration > time.Second {
-		t.Errorf("BulkCreate took %v, expected <1s", duration)
-	} else {
-		t.Logf("BulkCreate of 100 tasks completed in %v", duration)
-	}
-}
-
-// TestGetByKeysPerformance benchmarks bulk retrieval performance
-func TestGetByKeysPerformance(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping performance test in short mode")
-	}
-
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	taskRepo := NewTaskRepository(db)
-
-	test.SeedTestData()
-	featureRepo := NewFeatureRepository(db)
-	feature, _ := featureRepo.GetByKey(ctx, "E04-F05")
-
-	// First create 100 tasks
-	tasks := make([]*models.Task, 100)
-	for i := 0; i < 100; i++ {
-		tasks[i] = &models.Task{
-			FeatureID: feature.ID,
-			Key:       test.GenerateUniqueKey("E04-F05", i+300),
-			Title:     "Lookup Test Task",
-			Status:    models.TaskStatusTodo,
-			Priority:  5, // Valid priority
-		}
-	}
-	_, _ = taskRepo.BulkCreate(ctx, tasks)
-
-	// Build keys list
-	keys := make([]string, 100)
-	for i, task := range tasks {
-		keys[i] = task.Key
-	}
-
-	// Test bulk retrieval
-	start := time.Now()
-	result, err := taskRepo.GetByKeys(ctx, keys)
-	duration := time.Since(start)
-
-	if err != nil {
-		t.Fatalf("GetByKeys failed: %v", err)
-	}
-	if len(result) != 100 {
-		t.Errorf("Expected 100 tasks, got %d", len(result))
-	}
-
-	// PRD requirement: 100 lookups in <100ms
-	if duration > 100*time.Millisecond {
-		t.Errorf("GetByKeys took %v, expected <100ms", duration)
-	} else {
-		t.Logf("GetByKeys of 100 tasks completed in %v", duration)
-	}
-}

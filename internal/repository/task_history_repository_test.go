@@ -19,12 +19,15 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 	historyRepo := NewTaskHistoryRepository(db)
 	taskRepo := NewTaskRepository(db)
 
-	// Clean up existing test data
+	// Clean up existing test data - ensure clean state
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE agent LIKE 'test-agent%'")
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-901', 'T-E99-F99-902')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN ('E99-F99')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E99')")
 
 	// Seed test data
 	_, featureID := test.SeedTestData()
+	require.NotZero(t, featureID, "featureID should not be zero after seeding")
 
 	// Create test tasks
 	agentBackend := models.AgentTypeBackend
@@ -34,27 +37,27 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 	dependsOn := "[]"
 
 	task1 := &models.Task{
-		FeatureID:   featureID,
-		Key:         "T-E99-F99-901",
-		Title:       "History Test Task 1",
-		Status:      models.TaskStatusTodo,
-		AgentType:   &agentBackend,
-		Priority:    5,
-		DependsOn:   &dependsOn,
-		FilePath:    &filePath1,
+		FeatureID: featureID,
+		Key:       "T-E99-F99-901",
+		Title:     "History Test Task 1",
+		Status:    models.TaskStatusTodo,
+		AgentType: &agentBackend,
+		Priority:  5,
+		DependsOn: &dependsOn,
+		FilePath:  &filePath1,
 	}
 	err := taskRepo.Create(ctx, task1)
 	require.NoError(t, err)
 
 	task2 := &models.Task{
-		FeatureID:   featureID,
-		Key:         "T-E99-F99-902",
-		Title:       "History Test Task 2",
-		Status:      models.TaskStatusTodo,
-		AgentType:   &agentFrontend,
-		Priority:    5,
-		DependsOn:   &dependsOn,
-		FilePath:    &filePath2,
+		FeatureID: featureID,
+		Key:       "T-E99-F99-902",
+		Title:     "History Test Task 2",
+		Status:    models.TaskStatusTodo,
+		AgentType: &agentFrontend,
+		Priority:  5,
+		DependsOn: &dependsOn,
+		FilePath:  &filePath2,
 	}
 	err = taskRepo.Create(ctx, task2)
 	require.NoError(t, err)
@@ -278,12 +281,16 @@ func TestGetHistoryByTaskKey(t *testing.T) {
 	historyRepo := NewTaskHistoryRepository(db)
 	taskRepo := NewTaskRepository(db)
 
-	// Clean up existing test data
+	// Clean up existing test data - ensure clean state
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-%')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key IN ('E99-F99')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E99')")
 
 	// Seed test data
 	epicID, featureID := test.SeedTestData()
+	require.NotZero(t, epicID, "epicID should not be zero after seeding")
+	require.NotZero(t, featureID, "featureID should not be zero after seeding")
 
 	// Get a test task
 	task, err := taskRepo.GetByKey(ctx, "T-E99-F99-001")

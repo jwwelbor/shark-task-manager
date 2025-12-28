@@ -52,27 +52,49 @@ func SeedTestData() (int64, int64) {
 	database := GetTestDB()
 
 	// Create epic via SQL to avoid import cycle
-	result, _ := database.Exec(`
+	result, err := database.Exec(`
 		INSERT OR IGNORE INTO epics (key, title, description, status, priority)
 		VALUES ('E99', 'Test Epic', 'Test epic', 'active', 'high')
 	`)
-	epicID, _ := result.LastInsertId()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to insert epic: %v", err))
+	}
+
+	epicID, err := result.LastInsertId()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get epic LastInsertId: %v", err))
+	}
+
 	if epicID == 0 {
-		_ = database.QueryRow("SELECT id FROM epics WHERE key = 'E99'").Scan(&epicID)
+		err = database.QueryRow("SELECT id FROM epics WHERE key = 'E99'").Scan(&epicID)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to find epic E99: %v", err))
+		}
 	}
 
 	// Create feature
-	result, _ = database.Exec(`
+	result, err = database.Exec(`
 		INSERT OR IGNORE INTO features (epic_id, key, title, description, status)
 		VALUES (?, 'E99-F99', 'Test Feature', 'Test feature', 'active')
 	`, epicID)
-	featureID, _ := result.LastInsertId()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to insert feature: %v", err))
+	}
+
+	featureID, err := result.LastInsertId()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get feature LastInsertId: %v", err))
+	}
+
 	if featureID == 0 {
-		_ = database.QueryRow("SELECT id FROM features WHERE key = 'E99-F99'").Scan(&featureID)
+		err = database.QueryRow("SELECT id FROM features WHERE key = 'E99-F99'").Scan(&featureID)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to find feature E99-F99: %v", err))
+		}
 	}
 
 	// Create test tasks
-	_, _ = database.Exec(`
+	_, err = database.Exec(`
 		INSERT OR IGNORE INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
 		VALUES
 			(?, 'T-E99-F99-001', 'Completed Task', 'completed', 'backend', 1, '[]'),
@@ -80,13 +102,43 @@ func SeedTestData() (int64, int64) {
 			(?, 'T-E99-F99-003', 'Task with Dependency', 'todo', 'backend', 3, '["T-E99-F99-001"]'),
 			(?, 'T-E99-F99-004', 'Task with Incomplete Dependency', 'todo', 'backend', 4, '["T-E99-F99-002"]')
 	`, featureID, featureID, featureID, featureID)
+	if err != nil {
+		// In parallel tests, E99-F99 feature might be deleted by another test between our INSERT and this point
+		// FK constraint errors are acceptable here since tests that need this data will fail anyway
+		// Don't panic on FK errors, just skip the task creation
+		if err.Error() != "FOREIGN KEY constraint failed" {
+			panic(fmt.Sprintf("Failed to insert test tasks: %v", err))
+		}
+	}
 
 	// Create E04 epic and feature for sync tests
-	_, _ = database.Exec(`INSERT OR IGNORE INTO epics (key, title, description, status, priority) VALUES ('E04', 'Task Management CLI Core', 'Core CLI functionality', 'active', 'high')`)
-	var e04ID int64
-	_ = database.QueryRow("SELECT id FROM epics WHERE key = 'E04'").Scan(&e04ID)
+	result, err = database.Exec(`INSERT OR IGNORE INTO epics (key, title, description, status, priority) VALUES ('E04', 'Task Management CLI Core', 'Core CLI functionality', 'active', 'high')`)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to insert E04 epic: %v", err))
+	}
 
-	_, _ = database.Exec(`INSERT OR IGNORE INTO features (epic_id, key, title, description, status) VALUES (?, 'E04-F05', 'Task File Management', 'Task CRUD operations', 'active')`, e04ID)
+	e04ID, err := result.LastInsertId()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get E04 epic LastInsertId: %v", err))
+	}
+
+	// If INSERT OR IGNORE didn't insert (already exists), query for existing ID
+	if e04ID == 0 {
+		err = database.QueryRow("SELECT id FROM epics WHERE key = 'E04'").Scan(&e04ID)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to find epic E04: %v", err))
+		}
+	}
+
+	_, err = database.Exec(`INSERT OR IGNORE INTO features (epic_id, key, title, description, status) VALUES (?, 'E04-F05', 'Task File Management', 'Task CRUD operations', 'active')`, e04ID)
+	if err != nil {
+		// In parallel tests, E04 epic might be deleted by another test between our INSERT and this point
+		// FK constraint errors are acceptable here since E04-F05 is optional test data
+		// Don't panic on FK errors, just skip the feature creation
+		if err.Error() != "FOREIGN KEY constraint failed" {
+			panic(fmt.Sprintf("Failed to insert E04-F05 feature: %v", err))
+		}
+	}
 
 	return epicID, featureID
 }

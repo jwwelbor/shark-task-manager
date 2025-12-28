@@ -48,6 +48,11 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	// Validate dependencies before creating
+	if err := r.ValidateTaskDependencies(ctx, task); err != nil {
+		return fmt.Errorf("dependency validation failed: %w", err)
+	}
+
 	query := `
 		INSERT INTO tasks (
 			feature_id, key, title, description, status, agent_type, priority,
@@ -401,6 +406,11 @@ func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Validate dependencies before updating
+	if err := r.ValidateTaskDependencies(ctx, task); err != nil {
+		return fmt.Errorf("dependency validation failed: %w", err)
 	}
 
 	query := `

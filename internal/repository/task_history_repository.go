@@ -11,14 +11,14 @@ import (
 
 // HistoryFilters defines filters for querying task history
 type HistoryFilters struct {
-	Agent     *string    // Filter by agent ID
-	Since     *time.Time // Filter by timestamp (>= since)
-	EpicKey   *string    // Filter by epic key
-	FeatureKey *string   // Filter by feature key
-	OldStatus *string    // Filter by old status
-	NewStatus *string    // Filter by new status
-	Limit     int        // Maximum number of records to return (default 50)
-	Offset    int        // Number of records to skip for pagination
+	Agent      *string    // Filter by agent ID
+	Since      *time.Time // Filter by timestamp (>= since)
+	EpicKey    *string    // Filter by epic key
+	FeatureKey *string    // Filter by feature key
+	OldStatus  *string    // Filter by old status
+	NewStatus  *string    // Filter by new status
+	Limit      int        // Maximum number of records to return (default 50)
+	Offset     int        // Number of records to skip for pagination
 }
 
 // TaskHistoryRepository handles CRUD operations for task history

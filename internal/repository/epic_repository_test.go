@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
@@ -17,13 +19,18 @@ func TestEpicRepository_UpdateCustomFolderPath(t *testing.T) {
 	db := NewDB(database)
 	repo := NewEpicRepository(db)
 
+	// Use unique epic key to avoid parallel test conflicts
+	// Epic keys must match ^E\d{2}$ format, so use E10-E99 range with timestamp
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+
 	// Clean up existing test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create an epic with a custom folder path
 	initialPath := "docs/initial"
 	epic := &models.Epic{
-		Key:              "E99",
+		Key:              epicKey,
 		Title:            "Test Epic for Path Update",
 		Status:           models.EpicStatusDraft,
 		Priority:         models.PriorityMedium,
@@ -35,7 +42,7 @@ func TestEpicRepository_UpdateCustomFolderPath(t *testing.T) {
 	require.NotZero(t, epic.ID)
 
 	// Verify initial path was saved
-	retrieved, err := repo.GetByKey(ctx, "E99")
+	retrieved, err := repo.GetByKey(ctx, epicKey)
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	assert.NotNil(t, retrieved.CustomFolderPath, "CustomFolderPath should not be nil after GetByKey")
@@ -48,7 +55,7 @@ func TestEpicRepository_UpdateCustomFolderPath(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the path was updated
-	updated, err := repo.GetByKey(ctx, "E99")
+	updated, err := repo.GetByKey(ctx, epicKey)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.NotNil(t, updated.CustomFolderPath, "CustomFolderPath should not be nil after update")

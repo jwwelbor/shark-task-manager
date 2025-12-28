@@ -39,7 +39,7 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test -v ./...
+        run: go test -v -p=1 ./...
 
       - name: Verify build
         run: go build -v ./cmd/shark/main.go

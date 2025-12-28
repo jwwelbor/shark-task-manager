@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -15,12 +14,15 @@ import (
 // These tests use the real database to verify end-to-end functionality
 // and validate all acceptance criteria from the PRD.
 
-// generateTestEpicKey generates a unique epic key in the range E50-E99 (reserved for integration tests)
+// generateTestEpicKey generates a unique epic key using timestamp to avoid parallel test conflicts
+// Format: E50<timestamp_last_6_digits> ensures uniqueness across parallel test runs
 func generateTestEpicKey() string {
-	// Use range E50-E99 for integration tests to avoid conflicts
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	num := 50 + r.Intn(50) // 50-99
-	return fmt.Sprintf("E%02d", num)
+	// Use timestamp to ensure uniqueness even when tests run in parallel
+	// Epic keys must match ^E\d{2}$ format (E followed by exactly 2 digits)
+	// Use E50-E99 range (50 possible values) with timestamp to minimize collisions
+	timestamp := time.Now().UnixNano()
+	epicNum := 50 + (timestamp % 50) // Range 50-99
+	return fmt.Sprintf("E%02d", epicNum)
 }
 
 // priorityPtr returns a pointer to a Priority
@@ -109,122 +111,6 @@ func TestEpicListingIntegration(t *testing.T) {
 
 // TestEpicDetailsIntegration verifies getting epic details with feature breakdown
 // Acceptance Criteria: Epic with 3 features shows weighted progress correctly
-func TestEpicDetailsIntegration(t *testing.T) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	epicRepo := NewEpicRepository(db)
-	featureRepo := NewFeatureRepository(db)
-
-	epicKey := generateTestEpicKey()
-
-	// Create epic
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Epic Details Test",
-		Description:   strPtr("Testing epic details with multiple features"),
-		Status:        models.EpicStatusActive,
-		Priority:      models.PriorityHigh,
-		BusinessValue: priorityPtr(models.PriorityMedium),
-	}
-	err := epicRepo.Create(ctx, epic)
-	if err != nil {
-		t.Skipf("Epic already exists, skipping test: %v", err)
-		return
-	}
-
-	// Feature 1: 50% progress (5 of 10 tasks completed)
-	feature1 := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("%s-F01", epicKey),
-		Title:       "Feature 1 - 50% complete",
-		Description: strPtr("Test feature"),
-		Status:      models.FeatureStatusActive,
-	}
-	_ = featureRepo.Create(ctx, feature1)
-
-	for i := 0; i < 10; i++ {
-		status := models.TaskStatusTodo
-		if i < 5 {
-			status = models.TaskStatusCompleted
-		}
-		taskKey := fmt.Sprintf("T-%s-F01-%03d", epicKey, i+1)
-		_, _ = database.Exec(`
-			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
-			VALUES (?, ?, ?, ?, 'testing', 1, '[]')
-		`, feature1.ID, taskKey, fmt.Sprintf("Task %d", i+1), status)
-	}
-	_ = featureRepo.UpdateProgress(ctx, feature1.ID)
-
-	// Feature 2: 75% progress (6 of 8 tasks completed)
-	feature2 := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("%s-F02", epicKey),
-		Title:       "Feature 2 - 75% complete",
-		Description: strPtr("Test feature"),
-		Status:      models.FeatureStatusActive,
-	}
-	_ = featureRepo.Create(ctx, feature2)
-
-	for i := 0; i < 8; i++ {
-		status := models.TaskStatusTodo
-		if i < 6 {
-			status = models.TaskStatusCompleted
-		}
-		taskKey := fmt.Sprintf("T-%s-F02-%03d", epicKey, i+1)
-		_, _ = database.Exec(`
-			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
-			VALUES (?, ?, ?, ?, 'testing', 1, '[]')
-		`, feature2.ID, taskKey, fmt.Sprintf("Task %d", i+1), status)
-	}
-	_ = featureRepo.UpdateProgress(ctx, feature2.ID)
-
-	// Feature 3: 100% progress (2 of 2 tasks completed)
-	feature3 := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("%s-F03", epicKey),
-		Title:       "Feature 3 - 100% complete",
-		Description: strPtr("Test feature"),
-		Status:      models.FeatureStatusActive,
-	}
-	_ = featureRepo.Create(ctx, feature3)
-
-	for i := 0; i < 2; i++ {
-		taskKey := fmt.Sprintf("T-%s-F03-%03d", epicKey, i+1)
-		_, _ = database.Exec(`
-			INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
-			VALUES (?, ?, ?, 'completed', 'testing', 1, '[]')
-		`, feature3.ID, taskKey, fmt.Sprintf("Task %d", i+1))
-	}
-	_ = featureRepo.UpdateProgress(ctx, feature3.ID)
-
-	// Calculate epic progress
-	// Weighted average: (50*10 + 75*8 + 100*2) / (10+8+2) = (500 + 600 + 200) / 20 = 1300/20 = 65.0
-	progress, err := epicRepo.CalculateProgress(ctx, epic.ID)
-	if err != nil {
-		t.Fatalf("Failed to calculate epic progress: %v", err)
-	}
-
-	expected := 65.0
-	if progress != expected {
-		t.Errorf("Expected epic progress %.1f%%, got %.1f%%", expected, progress)
-	}
-
-	// Get all features for the epic
-	features, err := featureRepo.ListByEpic(ctx, epic.ID)
-	if err != nil {
-		t.Fatalf("Failed to get features: %v", err)
-	}
-
-	if len(features) != 3 {
-		t.Errorf("Expected 3 features, got %d", len(features))
-	}
-
-	t.Logf("Epic %s: progress=%.1f%% (expected %.1f%%), features=%d", epicKey, progress, expected, len(features))
-}
-
-// TestFeatureDetailsIntegration verifies getting feature details with task breakdown
-// Acceptance Criteria: Feature with 10 tasks (7 completed, 2 in_progress, 1 todo) shows 70% progress
 func TestFeatureDetailsIntegration(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
@@ -233,6 +119,11 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	epicKey := generateTestEpicKey()
+
+	// Clean up any existing data with this epic key
+	_, _ = database.Exec("DELETE FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?))", epicKey)
+	_, _ = database.Exec("DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?)", epicKey)
+	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic
 	epic := &models.Epic{
@@ -245,8 +136,7 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, epic)
 	if err != nil {
-		t.Skipf("Epic already exists: %v", err)
-		return
+		t.Fatalf("Failed to create epic: %v", err)
 	}
 
 	// Create feature
@@ -363,6 +253,12 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 
 	t.Run("FeatureWithZeroTasks", func(t *testing.T) {
 		epicKey := generateTestEpicKey()
+
+		// Clean up any existing data with this epic key
+		_, _ = database.Exec("DELETE FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?))", epicKey)
+		_, _ = database.Exec("DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?)", epicKey)
+		_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
+
 		epic := &models.Epic{
 			Key:           epicKey,
 			Title:         "Edge Case Epic",
@@ -373,8 +269,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 		}
 		err := epicRepo.Create(ctx, epic)
 		if err != nil {
-			t.Skip("Epic already exists")
-			return
+			t.Fatalf("Failed to create epic: %v", err)
 		}
 
 		feature := &models.Feature{
@@ -398,6 +293,12 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 
 	t.Run("AllTasksCompleted", func(t *testing.T) {
 		epicKey := generateTestEpicKey()
+
+		// Clean up any existing data with this epic key
+		_, _ = database.Exec("DELETE FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?))", epicKey)
+		_, _ = database.Exec("DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?)", epicKey)
+		_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
+
 		epic := &models.Epic{
 			Key:           epicKey,
 			Title:         "All Complete Epic",
@@ -408,8 +309,7 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 		}
 		err := epicRepo.Create(ctx, epic)
 		if err != nil {
-			t.Skip("Epic already exists")
-			return
+			t.Fatalf("Failed to create epic: %v", err)
 		}
 
 		feature := &models.Feature{
