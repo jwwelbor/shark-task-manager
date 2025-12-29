@@ -29,17 +29,38 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 // TaskRepository handles CRUD operations for tasks
 type TaskRepository struct {
-	db *DB
+	db       *DB
+	workflow *config.WorkflowConfig
 }
 
-// NewTaskRepository creates a new TaskRepository
+// NewTaskRepository creates a new TaskRepository with default workflow configuration
 func NewTaskRepository(db *DB) *TaskRepository {
-	return &TaskRepository{db: db}
+	return &TaskRepository{
+		db:       db,
+		workflow: config.DefaultWorkflow(),
+	}
+}
+
+// NewTaskRepositoryWithWorkflow creates a new TaskRepository with custom workflow configuration
+func NewTaskRepositoryWithWorkflow(db *DB, workflow *config.WorkflowConfig) *TaskRepository {
+	if workflow == nil {
+		workflow = config.DefaultWorkflow()
+	}
+	return &TaskRepository{
+		db:       db,
+		workflow: workflow,
+	}
+}
+
+// GetWorkflow returns the workflow configuration used by this repository
+func (r *TaskRepository) GetWorkflow() *config.WorkflowConfig {
+	return r.workflow
 }
 
 // Create creates a new task
@@ -449,8 +470,15 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 	return nil
 }
 
-// isValidStatusEnum checks if a status is a valid TaskStatus enum value
-func isValidStatusEnum(status models.TaskStatus) bool {
+// isValidStatusEnum checks if a status is valid according to the workflow configuration
+func (r *TaskRepository) isValidStatusEnum(status models.TaskStatus) bool {
+	// Check if status exists in workflow config
+	if r.workflow != nil && r.workflow.StatusFlow != nil {
+		_, exists := r.workflow.StatusFlow[string(status)]
+		return exists
+	}
+
+	// Fallback to hardcoded statuses if no workflow config
 	validStatuses := []models.TaskStatus{
 		models.TaskStatusTodo,
 		models.TaskStatusInProgress,
@@ -467,9 +495,14 @@ func isValidStatusEnum(status models.TaskStatus) bool {
 	return false
 }
 
-// isValidTransition checks if a status transition is allowed
-func isValidTransition(from models.TaskStatus, to models.TaskStatus) bool {
-	// Define valid transitions
+// isValidTransition checks if a status transition is allowed according to workflow config
+func (r *TaskRepository) isValidTransition(from models.TaskStatus, to models.TaskStatus) bool {
+	// Use workflow config if available
+	if r.workflow != nil && r.workflow.StatusFlow != nil {
+		return config.ValidateTransition(r.workflow, string(from), string(to)) == nil
+	}
+
+	// Fallback to hardcoded transitions if no workflow config
 	validTransitions := map[models.TaskStatus][]models.TaskStatus{
 		models.TaskStatusTodo: {
 			models.TaskStatusInProgress,
@@ -481,6 +514,7 @@ func isValidTransition(from models.TaskStatus, to models.TaskStatus) bool {
 		},
 		models.TaskStatusBlocked: {
 			models.TaskStatusTodo,
+			models.TaskStatusInProgress,
 		},
 		models.TaskStatusReadyForReview: {
 			models.TaskStatusCompleted,
@@ -515,7 +549,7 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 // UpdateStatusForced atomically updates task status with optional validation bypass
 func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, force bool) error {
 	// Validate status is valid enum
-	if !isValidStatusEnum(newStatus) {
+	if !r.isValidStatusEnum(newStatus) {
 		return fmt.Errorf("invalid status: %s", newStatus)
 	}
 	// Start transaction
@@ -543,8 +577,15 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 		// Log warning when force is used
 		fmt.Printf("WARNING: Forced status update from %s to %s (taskID=%d)\n", currentStatus, newStatus, taskID)
 	} else {
-		// Check if transition is valid
-		if !isValidTransition(currentTaskStatus, newStatus) {
+		// Check if transition is valid using workflow config
+		if !r.isValidTransition(currentTaskStatus, newStatus) {
+			// Generate helpful error message using workflow validator
+			if r.workflow != nil {
+				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(newStatus))
+				if validationErr != nil {
+					return validationErr
+				}
+			}
 			return fmt.Errorf("invalid status transition from %s to %s", currentStatus, newStatus)
 		}
 	}
@@ -621,8 +662,14 @@ func (r *TaskRepository) BlockTaskForced(ctx context.Context, taskID int64, reas
 	if force {
 		fmt.Printf("WARNING: Forced block from %s status (taskID=%d)\n", currentStatus, taskID)
 	} else {
-		// Only allow blocking from todo or in_progress
-		if currentTaskStatus != models.TaskStatusTodo && currentTaskStatus != models.TaskStatusInProgress {
+		// Validate transition using workflow config
+		if !r.isValidTransition(currentTaskStatus, models.TaskStatusBlocked) {
+			if r.workflow != nil {
+				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatusBlocked))
+				if validationErr != nil {
+					return validationErr
+				}
+			}
 			return fmt.Errorf("invalid status transition from %s to blocked", currentStatus)
 		}
 	}
@@ -679,8 +726,14 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 	if force {
 		fmt.Printf("WARNING: Forced unblock from %s status (taskID=%d)\n", currentStatus, taskID)
 	} else {
-		// Only allow unblocking from blocked status
-		if currentTaskStatus != models.TaskStatusBlocked {
+		// Validate transition using workflow config
+		if !r.isValidTransition(currentTaskStatus, models.TaskStatusTodo) {
+			if r.workflow != nil {
+				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatusTodo))
+				if validationErr != nil {
+					return validationErr
+				}
+			}
 			return fmt.Errorf("invalid status transition from %s to todo", currentStatus)
 		}
 	}
@@ -736,8 +789,14 @@ func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, age
 	if force {
 		fmt.Printf("WARNING: Forced reopen from %s status (taskID=%d)\n", currentStatus, taskID)
 	} else {
-		// Only allow reopening from ready_for_review
-		if currentTaskStatus != models.TaskStatusReadyForReview {
+		// Validate transition using workflow config
+		if !r.isValidTransition(currentTaskStatus, models.TaskStatusInProgress) {
+			if r.workflow != nil {
+				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatusInProgress))
+				if validationErr != nil {
+					return validationErr
+				}
+			}
 			return fmt.Errorf("invalid status transition from %s to in_progress", currentStatus)
 		}
 	}
@@ -1239,4 +1298,78 @@ func (r *TaskRepository) GetUnverifiedTasks(ctx context.Context) ([]*models.Task
 	`
 
 	return r.queryTasks(ctx, query)
+}
+
+// FilterByMetadataAgentType retrieves tasks filtered by agent type from workflow metadata
+// Uses status metadata to find statuses that include the specified agent type,
+// then returns all tasks in those statuses
+func (r *TaskRepository) FilterByMetadataAgentType(ctx context.Context, agentType string, workflow *config.WorkflowConfig) ([]*models.Task, error) {
+	if workflow == nil {
+		workflow = r.workflow
+	}
+
+	// Get statuses that include this agent type
+	statuses := workflow.GetStatusesByAgentType(agentType)
+	if len(statuses) == 0 {
+		// No statuses match this agent type - return empty list
+		return []*models.Task{}, nil
+	}
+
+	// Build SQL query with IN clause for multiple statuses
+	placeholders := make([]string, len(statuses))
+	args := make([]interface{}, len(statuses))
+	for i, status := range statuses {
+		placeholders[i] = "?"
+		args[i] = status
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
+		FROM tasks
+		WHERE status IN (%s)
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
+	`, strings.Join(placeholders, ", "))
+
+	return r.queryTasks(ctx, query, args...)
+}
+
+// FilterByMetadataPhase retrieves tasks filtered by workflow phase from metadata
+// Uses status metadata to find statuses in the specified phase,
+// then returns all tasks in those statuses
+func (r *TaskRepository) FilterByMetadataPhase(ctx context.Context, phase string, workflow *config.WorkflowConfig) ([]*models.Task, error) {
+	if workflow == nil {
+		workflow = r.workflow
+	}
+
+	// Get statuses in this phase
+	statuses := workflow.GetStatusesByPhase(phase)
+	if len(statuses) == 0 {
+		// No statuses in this phase - return empty list
+		return []*models.Task{}, nil
+	}
+
+	// Build SQL query with IN clause for multiple statuses
+	placeholders := make([]string, len(statuses))
+	args := make([]interface{}, len(statuses))
+	for i, status := range statuses {
+		placeholders[i] = "?"
+		args[i] = status
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
+		FROM tasks
+		WHERE status IN (%s)
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
+	`, strings.Join(placeholders, ", "))
+
+	return r.queryTasks(ctx, query, args...)
 }
