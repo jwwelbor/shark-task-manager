@@ -101,3 +101,48 @@ const (
 
 // Default version for workflow configs
 const DefaultWorkflowVersion = "1.0"
+
+// GetStatusMetadata returns metadata for a given status
+// Returns empty metadata if status not found
+func (w *WorkflowConfig) GetStatusMetadata(status string) (StatusMetadata, bool) {
+	if w.StatusMetadata == nil {
+		return StatusMetadata{}, false
+	}
+	meta, found := w.StatusMetadata[status]
+	return meta, found
+}
+
+// GetStatusesByAgentType returns all statuses that include the given agent type
+// Returns empty slice if no statuses match
+func (w *WorkflowConfig) GetStatusesByAgentType(agentType string) []string {
+	if w.StatusMetadata == nil {
+		return []string{}
+	}
+
+	var statuses []string
+	for status, meta := range w.StatusMetadata {
+		for _, at := range meta.AgentTypes {
+			if at == agentType {
+				statuses = append(statuses, status)
+				break
+			}
+		}
+	}
+	return statuses
+}
+
+// GetStatusesByPhase returns all statuses in the given phase
+// Returns empty slice if no statuses match
+func (w *WorkflowConfig) GetStatusesByPhase(phase string) []string {
+	if w.StatusMetadata == nil {
+		return []string{}
+	}
+
+	var statuses []string
+	for status, meta := range w.StatusMetadata {
+		if meta.Phase == phase {
+			statuses = append(statuses, status)
+		}
+	}
+	return statuses
+}
