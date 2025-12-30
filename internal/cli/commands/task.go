@@ -1276,11 +1276,26 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	// Get force flag
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Validate current status is "todo" or "in_progress" unless forcing
-	if !force && task.Status != models.TaskStatusTodo && task.Status != models.TaskStatusInProgress {
-		cli.Error(fmt.Sprintf("Invalid state transition from %s to blocked. Task must be in 'todo' or 'in_progress' status.", task.Status))
-		cli.Info("Use --force to bypass this validation")
-		os.Exit(3)
+	// Validate current status allows transition to blocked unless forcing
+	// Use workflow config to determine valid transitions
+	if !force {
+		workflow := repo.GetWorkflow()
+		if workflow != nil && workflow.StatusFlow != nil {
+			allowedTransitions := workflow.StatusFlow[string(task.Status)]
+			canBlock := false
+			for _, nextStatus := range allowedTransitions {
+				if nextStatus == "blocked" {
+					canBlock = true
+					break
+				}
+			}
+			if !canBlock {
+				cli.Error(fmt.Sprintf("Invalid state transition from %s to blocked.", task.Status))
+				cli.Info(fmt.Sprintf("Workflow does not allow blocking from status '%s'", task.Status))
+				cli.Info("Use --force to bypass this validation")
+				os.Exit(3)
+			}
+		}
 	}
 
 	// Get agent identifier
@@ -1400,11 +1415,34 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	// Get force flag
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Validate current status is "ready_for_review" unless forcing
-	if !force && task.Status != models.TaskStatusReadyForReview {
-		cli.Error(fmt.Sprintf("Invalid state transition from %s to in_progress. Task must be in 'ready_for_review' status.", task.Status))
-		cli.Info("Use --force to bypass this validation")
-		os.Exit(3)
+	// Validate current status allows reopening (typically means transitioning back to an earlier workflow stage)
+	// Use workflow config to determine valid transitions
+	if !force {
+		workflow := repo.GetWorkflow()
+		if workflow != nil && workflow.StatusFlow != nil {
+			allowedTransitions := workflow.StatusFlow[string(task.Status)]
+			canReopen := false
+			// Reopen typically means going back to a development/refinement status
+			reopenTargets := []string{"in_development", "in_progress", "ready_for_development", "ready_for_refinement", "in_refinement"}
+			for _, nextStatus := range allowedTransitions {
+				for _, target := range reopenTargets {
+					if nextStatus == target {
+						canReopen = true
+						break
+					}
+				}
+				if canReopen {
+					break
+				}
+			}
+			if !canReopen {
+				cli.Error(fmt.Sprintf("Invalid state transition from %s.", task.Status))
+				cli.Info(fmt.Sprintf("Workflow does not allow reopening from status '%s'", task.Status))
+				cli.Info(fmt.Sprintf("Allowed transitions from '%s': %v", task.Status, allowedTransitions))
+				cli.Info("Use --force to bypass this validation")
+				os.Exit(3)
+			}
+		}
 	}
 
 	// Get agent identifier and optional notes

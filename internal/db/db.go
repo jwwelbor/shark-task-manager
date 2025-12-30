@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS epics (
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
+    status TEXT NOT NULL,
     priority TEXT NOT NULL CHECK (priority IN ('high', 'medium', 'low')),
     business_value TEXT CHECK (business_value IN ('high', 'medium', 'low')),
     file_path TEXT,
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS features (
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
+    status TEXT NOT NULL,
     progress_pct REAL NOT NULL DEFAULT 0.0 CHECK (progress_pct >= 0.0 AND progress_pct <= 100.0),
     execution_order INTEGER NULL,
     file_path TEXT,
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'blocked', 'ready_for_review', 'completed', 'archived')),
+    status TEXT NOT NULL,
     agent_type TEXT,
     priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 1 AND priority <= 10),
     depends_on TEXT,
@@ -501,6 +501,19 @@ func runMigrations(db *sql.DB) error {
 	// Run work sessions and context data migration
 	if err := migrateWorkSessionsAndContext(db); err != nil {
 		return fmt.Errorf("failed to migrate work sessions and context data: %w", err)
+	}
+
+	// Run status CHECK constraint removal migration
+	// This allows workflow-defined statuses from config instead of hardcoded values
+	if err := MigrateRemoveStatusCheckConstraints(db); err != nil {
+		return fmt.Errorf("failed to remove status CHECK constraints: %w", err)
+	}
+
+	// Run task_history foreign key fix migration
+	// This fixes databases where the tasks table was migrated but task_history
+	// still references the old "tasks_old" table
+	if err := migrateTaskHistoryForeignKey(db); err != nil {
+		return fmt.Errorf("failed to fix task_history foreign key: %w", err)
 	}
 
 	return nil

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"os"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestMigrateAddExecutionOrder(t *testing.T) {
@@ -228,4 +230,301 @@ func TestMigrateAddSlugColumns(t *testing.T) {
 
 	// Cleanup test data
 	_, _ = db.Exec(`DELETE FROM epics WHERE key IN ('E98', 'E97')`)
+}
+
+// TestMigrateTasksStatusConstraint_FixesTaskHistoryForeignKey tests that the migration
+// correctly recreates the task_history table with the proper foreign key reference
+func TestMigrateTasksStatusConstraint_FixesTaskHistoryForeignKey(t *testing.T) {
+	// Create a test database in memory
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open test database: %v", err)
+	}
+	defer db.Close()
+
+	// Enable foreign keys
+	_, err = db.Exec("PRAGMA foreign_keys = ON;")
+	if err != nil {
+		t.Fatalf("Failed to enable foreign keys: %v", err)
+	}
+
+	// Create old schema with CHECK constraint on status (simulating pre-migration state)
+	_, err = db.Exec(`
+		CREATE TABLE features (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			status TEXT NOT NULL
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create features table: %v", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			feature_id INTEGER NOT NULL,
+			key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			description TEXT,
+			status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'completed')),
+			agent_type TEXT,
+			priority INTEGER NOT NULL DEFAULT 5,
+			depends_on TEXT,
+			assigned_agent TEXT,
+			file_path TEXT,
+			blocked_reason TEXT,
+			execution_order INTEGER NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			started_at TIMESTAMP,
+			completed_at TIMESTAMP,
+			blocked_at TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			completed_by TEXT,
+			completion_notes TEXT,
+			files_changed TEXT,
+			tests_passed BOOLEAN DEFAULT 0,
+			verification_status TEXT CHECK(verification_status IN ('pending', 'verified', 'needs_rework')) DEFAULT 'pending',
+			time_spent_minutes INTEGER,
+			context_data TEXT,
+			slug TEXT,
+			FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create tasks table: %v", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE task_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL,
+			old_status TEXT,
+			new_status TEXT NOT NULL,
+			agent TEXT,
+			notes TEXT,
+			forced BOOLEAN DEFAULT FALSE,
+			timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create task_history table: %v", err)
+	}
+
+	// Insert test data
+	_, err = db.Exec(`INSERT INTO features (id, key, title, status) VALUES (1, 'F01', 'Test Feature', 'active')`)
+	if err != nil {
+		t.Fatalf("Failed to insert test feature: %v", err)
+	}
+
+	_, err = db.Exec(`INSERT INTO tasks (id, feature_id, key, title, status) VALUES (1, 1, 'T-001', 'Test Task', 'todo')`)
+	if err != nil {
+		t.Fatalf("Failed to insert test task: %v", err)
+	}
+
+	_, err = db.Exec(`INSERT INTO task_history (task_id, old_status, new_status) VALUES (1, NULL, 'todo')`)
+	if err != nil {
+		t.Fatalf("Failed to insert test history: %v", err)
+	}
+
+	// Run the migration
+	err = migrateTasksStatusConstraint(db)
+	if err != nil {
+		t.Fatalf("Migration failed: %v", err)
+	}
+
+	// Verify the task_history table has the correct foreign key
+	var schema string
+	err = db.QueryRow(`
+		SELECT sql FROM sqlite_master WHERE type='table' AND name='task_history'
+	`).Scan(&schema)
+	if err != nil {
+		t.Fatalf("Failed to get task_history schema: %v", err)
+	}
+
+	// Check that foreign key references 'tasks', not 'tasks_old'
+	if containsSubstring(schema, "tasks_old") {
+		t.Errorf("task_history still references tasks_old. Schema:\n%s", schema)
+	}
+
+	if !containsSubstring(schema, "REFERENCES tasks(id)") && !containsSubstring(schema, `REFERENCES "tasks"(id)`) {
+		t.Errorf("task_history does not reference tasks(id). Schema:\n%s", schema)
+	}
+
+	// Verify data integrity - task_history records should still exist
+	var historyCount int
+	err = db.QueryRow(`SELECT COUNT(*) FROM task_history WHERE task_id = 1`).Scan(&historyCount)
+	if err != nil {
+		t.Fatalf("Failed to query task_history: %v", err)
+	}
+
+	if historyCount != 1 {
+		t.Errorf("Expected 1 history record, got %d", historyCount)
+	}
+
+	// Verify we can insert new history records with foreign key constraint working
+	_, err = db.Exec(`INSERT INTO task_history (task_id, old_status, new_status) VALUES (1, 'todo', 'in_progress')`)
+	if err != nil {
+		t.Errorf("Failed to insert new history record after migration: %v", err)
+	}
+
+	// Verify foreign key constraint is enforced (should fail with non-existent task_id)
+	_, err = db.Exec(`INSERT INTO task_history (task_id, old_status, new_status) VALUES (999, 'todo', 'in_progress')`)
+	if err == nil {
+		t.Error("Expected foreign key constraint error when inserting history for non-existent task, but got none")
+	}
+}
+
+// Helper function to check if string contains substring
+func containsSubstring(s, substr string) bool {
+	if len(substr) > len(s) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// TestMigrateTaskHistoryForeignKey_AlreadyMigratedDatabase tests that the dedicated
+// migration function fixes task_history in databases where tasks was already migrated
+func TestMigrateTaskHistoryForeignKey_AlreadyMigratedDatabase(t *testing.T) {
+	// Create a test database in memory
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("Failed to open test database: %v", err)
+	}
+	defer db.Close()
+
+	// Temporarily disable foreign keys for test setup
+	// (We need to create task_history with a bad FK reference)
+	_, err = db.Exec("PRAGMA foreign_keys = OFF;")
+	if err != nil {
+		t.Fatalf("Failed to disable foreign keys: %v", err)
+	}
+
+	// Create schema simulating a database that has ALREADY been migrated
+	// (tasks table has no status constraint, but task_history has wrong FK)
+	_, err = db.Exec(`
+		CREATE TABLE features (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			status TEXT NOT NULL
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create features table: %v", err)
+	}
+
+	// Create tasks table WITHOUT status constraint (already migrated)
+	_, err = db.Exec(`
+		CREATE TABLE tasks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			feature_id INTEGER NOT NULL,
+			key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL,
+			status TEXT NOT NULL,
+			priority INTEGER NOT NULL DEFAULT 5,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create tasks table: %v", err)
+	}
+
+	// Create task_history with WRONG foreign key (references tasks_old)
+	// This simulates the bug state
+	_, err = db.Exec(`
+		CREATE TABLE task_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL,
+			old_status TEXT,
+			new_status TEXT NOT NULL,
+			agent TEXT,
+			notes TEXT,
+			forced BOOLEAN DEFAULT FALSE,
+			timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (task_id) REFERENCES "tasks_old"(id) ON DELETE CASCADE
+		);
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create task_history table: %v", err)
+	}
+
+	// Insert test data
+	_, err = db.Exec(`INSERT INTO features (id, key, title, status) VALUES (1, 'F01', 'Test Feature', 'active')`)
+	if err != nil {
+		t.Fatalf("Failed to insert test feature: %v", err)
+	}
+
+	_, err = db.Exec(`INSERT INTO tasks (id, feature_id, key, title, status) VALUES (1, 1, 'T-001', 'Test Task', 'todo')`)
+	if err != nil {
+		t.Fatalf("Failed to insert test task: %v", err)
+	}
+
+	_, err = db.Exec(`INSERT INTO task_history (task_id, old_status, new_status) VALUES (1, NULL, 'todo')`)
+	if err != nil {
+		t.Fatalf("Failed to insert test history: %v", err)
+	}
+
+	// Verify the bug exists - task_history references tasks_old
+	var schema string
+	err = db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_history'`).Scan(&schema)
+	if err != nil {
+		t.Fatalf("Failed to get task_history schema: %v", err)
+	}
+
+	if !containsSubstring(schema, "tasks_old") {
+		t.Fatal("Test setup failed: task_history should reference tasks_old before migration")
+	}
+
+	// Run the dedicated migration function
+	err = migrateTaskHistoryForeignKey(db)
+	if err != nil {
+		t.Fatalf("Migration failed: %v", err)
+	}
+
+	// Verify the fix - task_history should now reference tasks
+	err = db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_history'`).Scan(&schema)
+	if err != nil {
+		t.Fatalf("Failed to get task_history schema after migration: %v", err)
+	}
+
+	if containsSubstring(schema, "tasks_old") {
+		t.Errorf("task_history still references tasks_old after migration. Schema:\n%s", schema)
+	}
+
+	if !containsSubstring(schema, "REFERENCES tasks(id)") && !containsSubstring(schema, `REFERENCES "tasks"(id)`) {
+		t.Errorf("task_history does not reference tasks(id) after migration. Schema:\n%s", schema)
+	}
+
+	// Verify data integrity
+	var historyCount int
+	err = db.QueryRow(`SELECT COUNT(*) FROM task_history WHERE task_id = 1`).Scan(&historyCount)
+	if err != nil {
+		t.Fatalf("Failed to query task_history: %v", err)
+	}
+
+	if historyCount != 1 {
+		t.Errorf("Expected 1 history record, got %d", historyCount)
+	}
+
+	// Verify we can insert new history records
+	_, err = db.Exec(`INSERT INTO task_history (task_id, old_status, new_status) VALUES (1, 'todo', 'in_progress')`)
+	if err != nil {
+		t.Errorf("Failed to insert new history record after migration: %v", err)
+	}
+
+	// Verify running migration again is idempotent (no-op)
+	err = migrateTaskHistoryForeignKey(db)
+	if err != nil {
+		t.Errorf("Migration should be idempotent but failed on second run: %v", err)
+	}
 }
