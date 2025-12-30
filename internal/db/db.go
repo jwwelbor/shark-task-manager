@@ -460,6 +460,11 @@ func runMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migrate slug columns for E07-F11
+	if err := migrateSlugColumns(db); err != nil {
+		return fmt.Errorf("failed to migrate slug columns: %w", err)
+	}
+
 	// Create indexes on new columns that might not have existed before
 	// These are created here after migrations ensure the columns exist
 	newIndexes := []string{
@@ -467,6 +472,9 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);`,
 		`CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);`,
 		`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_epics_slug ON epics(slug);`,
+		`CREATE INDEX IF NOT EXISTS idx_features_slug ON features(slug);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_slug ON tasks(slug);`,
 	}
 
 	for _, idx := range newIndexes {
@@ -493,6 +501,55 @@ func runMigrations(db *sql.DB) error {
 	// Run work sessions and context data migration
 	if err := migrateWorkSessionsAndContext(db); err != nil {
 		return fmt.Errorf("failed to migrate work sessions and context data: %w", err)
+	}
+
+	return nil
+}
+
+// migrateSlugColumns adds slug columns to epics, features, and tasks tables
+// This migration supports E07-F11: Slug Architecture Improvement
+func migrateSlugColumns(db *sql.DB) error {
+	// Check if epics table has slug column; if not, add it
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'slug'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check epics schema for slug: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE epics ADD COLUMN slug TEXT;`); err != nil {
+			return fmt.Errorf("failed to add slug to epics: %w", err)
+		}
+	}
+
+	// Check if features table has slug column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'slug'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for slug: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN slug TEXT;`); err != nil {
+			return fmt.Errorf("failed to add slug to features: %w", err)
+		}
+	}
+
+	// Check if tasks table has slug column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'slug'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check tasks schema for slug: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN slug TEXT;`); err != nil {
+			return fmt.Errorf("failed to add slug to tasks: %w", err)
+		}
 	}
 
 	return nil
