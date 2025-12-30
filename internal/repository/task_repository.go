@@ -495,50 +495,19 @@ func (r *TaskRepository) isValidStatusEnum(status models.TaskStatus) bool {
 	return false
 }
 
-// isValidTransition checks if a status transition is allowed according to workflow config
+// isValidTransition checks if a status transition is allowed according to workflow config.
+// This method is now fully config-driven with no hardcoded fallback.
+// If workflow config is missing, it uses the default workflow.
 func (r *TaskRepository) isValidTransition(from models.TaskStatus, to models.TaskStatus) bool {
-	// Use workflow config if available
-	if r.workflow != nil && r.workflow.StatusFlow != nil {
-		return config.ValidateTransition(r.workflow, string(from), string(to)) == nil
+	// Workflow should always be initialized (either from config or default)
+	if r.workflow == nil {
+		// This should not happen as NewTaskRepository always sets workflow,
+		// but use default workflow as safety fallback
+		r.workflow = config.DefaultWorkflow()
 	}
 
-	// Fallback to hardcoded transitions if no workflow config
-	validTransitions := map[models.TaskStatus][]models.TaskStatus{
-		models.TaskStatusTodo: {
-			models.TaskStatusInProgress,
-			models.TaskStatusBlocked,
-		},
-		models.TaskStatusInProgress: {
-			models.TaskStatusReadyForReview,
-			models.TaskStatusBlocked,
-		},
-		models.TaskStatusBlocked: {
-			models.TaskStatusTodo,
-			models.TaskStatusInProgress,
-		},
-		models.TaskStatusReadyForReview: {
-			models.TaskStatusCompleted,
-			models.TaskStatusInProgress, // reopen
-		},
-		models.TaskStatusCompleted: {
-			models.TaskStatusArchived,
-		},
-		models.TaskStatusArchived: {
-			// No transitions allowed from archived
-		},
-	}
-
-	allowedTargets, exists := validTransitions[from]
-	if !exists {
-		return false
-	}
-
-	for _, allowed := range allowedTargets {
-		if to == allowed {
-			return true
-		}
-	}
-	return false
+	// Validate transition using workflow config
+	return config.ValidateTransition(r.workflow, string(from), string(to)) == nil
 }
 
 // UpdateStatus atomically updates task status, timestamps, and creates history record
