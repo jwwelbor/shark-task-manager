@@ -459,7 +459,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 			epic, err := epicRepo.GetByID(ctx, feature.EpicID)
 			if err == nil {
 				pathBuilder := utils.NewPathBuilder(projectRoot)
-				absPath, err := pathBuilder.ResolveTaskPath(epic.Key, feature.Key, task.Key, task.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
+				absPath, err := pathBuilder.ResolveTaskPath(epic.Key, feature.Key, task.Key, task.Title, task.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
 				if err == nil {
 					resolvedPath = getRelativePathTask(absPath, projectRoot)
 				}
