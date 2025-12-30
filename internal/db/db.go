@@ -3,6 +3,10 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -690,6 +694,74 @@ func migrateWorkSessionsAndContext(db *sql.DB) error {
 		if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN context_data TEXT;`); err != nil {
 			return fmt.Errorf("failed to add context_data to tasks: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// BackupDatabase creates a timestamped backup of the database file and associated WAL files
+// Returns the backup file path on success, or an error if the backup fails
+func BackupDatabase(dbPath string) (string, error) {
+	// Check if database file exists
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("database file does not exist: %s", dbPath)
+	}
+
+	// Generate timestamp-based backup filename
+	timestamp := time.Now().Format("20060102_150405")
+	dir := filepath.Dir(dbPath)
+	baseName := filepath.Base(dbPath)
+	ext := filepath.Ext(baseName)
+	nameWithoutExt := baseName[:len(baseName)-len(ext)]
+
+	backupPath := filepath.Join(dir, fmt.Sprintf("%s_%s_backup%s", nameWithoutExt, timestamp, ext))
+
+	// Copy main database file
+	if err := copyFile(dbPath, backupPath); err != nil {
+		return "", fmt.Errorf("failed to backup database: %w", err)
+	}
+
+	// Copy WAL files if they exist (SQLite Write-Ahead Log files)
+	walFiles := []string{
+		dbPath + "-wal",
+		dbPath + "-shm",
+	}
+
+	for _, walFile := range walFiles {
+		if _, err := os.Stat(walFile); err == nil {
+			// WAL file exists, copy it
+			walBackupPath := backupPath + filepath.Ext(walFile)
+			if err := copyFile(walFile, walBackupPath); err != nil {
+				// Log warning but don't fail the backup
+				fmt.Fprintf(os.Stderr, "Warning: Failed to backup WAL file %s: %v\n", walFile, err)
+			}
+		}
+	}
+
+	return backupPath, nil
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer destFile.Close()
+
+	if _, err := io.Copy(destFile, sourceFile); err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	// Sync to ensure data is written to disk
+	if err := destFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
 	}
 
 	return nil

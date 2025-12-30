@@ -547,7 +547,7 @@ func TestGetDashboard_WithData(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Create unique isolated test data
-	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicNum := 10 + int((time.Now().UnixNano() % 80))
 	epicKey := fmt.Sprintf("E%02d", epicNum)
 	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
@@ -960,6 +960,7 @@ func TestNewStatusService_NilDatabase(t *testing.T) {
 	service := NewStatusService(nil)
 	if service == nil {
 		t.Error("Expected service instance, got nil")
+		return
 	}
 	if service.db != nil {
 		t.Error("Expected nil db in service")

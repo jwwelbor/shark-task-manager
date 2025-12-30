@@ -28,29 +28,11 @@ func getRelativePathTask(absPath string, projectRoot string) string {
 	return relPath
 }
 
-// backupDatabaseOnForceTask creates a backup when --force flag is used
-// Returns the backup path and error (if any)
-func backupDatabaseOnForceTask(force bool, dbPath string, operation string) (string, error) {
-	if !force {
-		return "", nil
-	}
-
-	backupPath, err := db.BackupDatabase(dbPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to create backup before %s: %w", operation, err)
-	}
-
-	if !cli.GlobalConfig.JSON {
-		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
-	}
-
-	return backupPath, nil
-}
-
 // taskCmd represents the task command group
 var taskCmd = &cobra.Command{
-	Use:   "task",
-	Short: "Manage tasks",
+	Use:     "task",
+	Short:   "Manage tasks",
+	GroupID: "essentials",
 	Long: `Task lifecycle operations including listing, creating, updating, and managing task status.
 
 Examples:
@@ -1792,10 +1774,10 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	// Output result
 	if cli.GlobalConfig.JSON {
 		output := map[string]interface{}{
-			"task_key":      taskKey,
+			"task_key":        taskKey,
 			"previous_status": task.Status,
-			"new_status":    newStatus,
-			"forced":        force,
+			"new_status":      newStatus,
+			"forced":          force,
 		}
 		if notes != "" {
 			output["notes"] = notes

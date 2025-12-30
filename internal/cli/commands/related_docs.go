@@ -14,8 +14,9 @@ import (
 
 // relatedDocsCmd represents the related-docs command group
 var relatedDocsCmd = &cobra.Command{
-	Use:   "related-docs",
-	Short: "Manage related documents",
+	Use:     "related-docs",
+	Short:   "Manage related documents",
+	GroupID: "details",
 	Long: `Manage related documents linked to epics, features, or tasks.
 
 Examples:

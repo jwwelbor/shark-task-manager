@@ -15,13 +15,22 @@ import (
 
 // statusCmd represents the status command
 var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show project status dashboard",
+	Use:     "status [EPIC] [FEATURE]",
+	Short:   "Show project status dashboard",
+	GroupID: "status",
 	Long: `Display a comprehensive status dashboard showing project progress, active tasks, and blocked items.
+
+Positional Arguments:
+  (no args)       Show full project dashboard
+  EPIC            Show status for specific epic (e.g., E04)
+  EPIC FEATURE    Show status for specific feature (e.g., E04 F01 or E04-F01)
 
 Examples:
   shark status                       Show full project dashboard
-  shark status --epic=E05            Show status for specific epic
+  shark status E05                   Show status for epic E05
+  shark status E05 F02               Show status for feature E05-F02
+  shark status E05-F02               Show status for feature E05-F02 (combined format)
+  shark status --epic=E05            Flag syntax (still supported)
   shark status --recent=7d           Include recent completions (7 days)
   shark status --json                Output as JSON`,
 	RunE: runStatus,
@@ -43,10 +52,25 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Parse positional arguments first
+	_, positionalEpic, _, err := ParseListArgs(args)
+	if err != nil {
+		return err
+	}
+
 	// Get flags
-	epicKey, _ := cmd.Flags().GetString("epic")
+	epicKeyFlag, _ := cmd.Flags().GetString("epic")
 	recentWindow, _ := cmd.Flags().GetString("recent")
 	includeArchived, _ := cmd.Flags().GetBool("include-archived")
+
+	// Positional argument takes priority over flag
+	epicKey := epicKeyFlag
+	if positionalEpic != nil {
+		epicKey = *positionalEpic
+	}
+
+	// For now, if a feature is specified, we treat it as epic-level status
+	// Future enhancement could add feature-specific status view
 
 	// Get database path
 	dbPath, err := cli.GetDBPath()

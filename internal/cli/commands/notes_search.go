@@ -14,9 +14,10 @@ import (
 
 // notesCmd is the parent command for note search operations
 var notesCmd = &cobra.Command{
-	Use:   "notes",
-	Short: "Search notes across all tasks",
-	Long:  `Search for notes across all tasks with optional filtering.`,
+	Use:     "notes",
+	Short:   "Search notes across all tasks",
+	GroupID: "details",
+	Long:    `Search for notes across all tasks with optional filtering.`,
 }
 
 // notesSearchCmd searches notes across all tasks

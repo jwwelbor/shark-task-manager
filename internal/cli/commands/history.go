@@ -26,22 +26,32 @@ var (
 )
 
 var historyCmd = &cobra.Command{
-	Use:   "history",
-	Short: "View project-wide task history",
+	Use:     "history [EPIC] [FEATURE]",
+	Short:   "View project-wide task history",
+	GroupID: "status",
 	Long: `View project-wide task activity log with optional filtering.
 
-Displays recent status changes, agent assignments, and task transitions across all tasks in the project.`,
+Displays recent status changes, agent assignments, and task transitions across all tasks in the project.
+
+Positional Arguments:
+  (no args)       View history for all tasks
+  EPIC            View history for tasks in specific epic (e.g., E04)
+  EPIC FEATURE    View history for tasks in specific feature (e.g., E04 F01 or E04-F01)`,
 	Example: `  # View recent 50 events (default)
   shark history
+
+  # View history for specific epic
+  shark history E05
+
+  # View history for specific feature
+  shark history E05 F02
+  shark history E05-F02
 
   # View history for specific agent
   shark history --agent=backend-agent-1
 
   # View history since timestamp
   shark history --since="2025-12-27T10:00:00Z"
-
-  # View history for specific epic
-  shark history --epic=E05
 
   # Filter by status transition
   shark history --old-status=todo --new-status=in_progress
@@ -80,6 +90,12 @@ func init() {
 func runHistory(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
+	// Parse positional arguments first
+	_, positionalEpic, positionalFeature, err := ParseListArgs(args)
+	if err != nil {
+		return err
+	}
+
 	// Initialize database
 	dbPath, err := cli.GetDBPath()
 	if err != nil {
@@ -115,11 +131,22 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	if historyAgent != "" {
 		filters.Agent = &historyAgent
 	}
-	if historyEpic != "" {
-		filters.EpicKey = &historyEpic
+
+	// Positional arguments take priority over flags for epic and feature
+	epicKey := historyEpic
+	if positionalEpic != nil {
+		epicKey = *positionalEpic
 	}
-	if historyFeature != "" {
-		filters.FeatureKey = &historyFeature
+	if epicKey != "" {
+		filters.EpicKey = &epicKey
+	}
+
+	featureKey := historyFeature
+	if positionalFeature != nil {
+		featureKey = *positionalFeature
+	}
+	if featureKey != "" {
+		filters.FeatureKey = &featureKey
 	}
 	if historyOldStatus != "" {
 		filters.OldStatus = &historyOldStatus
