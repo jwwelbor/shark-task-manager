@@ -523,6 +523,77 @@ func TestWorkflowCache(t *testing.T) {
 	}
 }
 
+// Test loading actual .sharkconfig.json from project root
+// This test reproduces the parsing error: json: cannot unmarshal object into Go struct field
+func TestLoadActualSharkConfig(t *testing.T) {
+	// Find project root by walking up from current directory
+	currentDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+
+	// Walk up to find .sharkconfig.json
+	projectRoot := currentDir
+	for {
+		configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+		if _, err := os.Stat(configPath); err == nil {
+			// Found it
+			ClearWorkflowCache()
+
+			workflow, err := LoadWorkflowConfig(configPath)
+			if err != nil {
+				t.Fatalf("failed to load actual .sharkconfig.json: %v", err)
+			}
+
+			if workflow == nil {
+				t.Fatal("expected workflow config, got nil")
+			}
+
+			// Verify the 14-status workflow exists
+			expectedStatuses := []string{
+				"draft", "ready_for_refinement", "in_refinement",
+				"ready_for_development", "in_development",
+				"ready_for_code_review", "in_code_review",
+				"ready_for_qa", "in_qa",
+				"ready_for_approval", "in_approval",
+				"blocked", "on_hold",
+				"completed", "cancelled",
+			}
+
+			if len(workflow.StatusFlow) != len(expectedStatuses) {
+				t.Errorf("expected %d statuses, got %d", len(expectedStatuses), len(workflow.StatusFlow))
+			}
+
+			for _, status := range expectedStatuses {
+				if _, exists := workflow.StatusFlow[status]; !exists {
+					t.Errorf("expected status %s to exist in workflow", status)
+				}
+			}
+
+			// Verify special statuses
+			startStatuses := workflow.SpecialStatuses[StartStatusKey]
+			if len(startStatuses) == 0 {
+				t.Error("expected _start_ statuses to be defined")
+			}
+
+			completeStatuses := workflow.SpecialStatuses[CompleteStatusKey]
+			if len(completeStatuses) == 0 {
+				t.Error("expected _complete_ statuses to be defined")
+			}
+
+			return
+		}
+
+		parent := filepath.Dir(projectRoot)
+		if parent == projectRoot {
+			// Reached root, config not found - skip this test
+			t.Skip("Could not find .sharkconfig.json in project tree")
+			return
+		}
+		projectRoot = parent
+	}
+}
+
 // Helper function
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
