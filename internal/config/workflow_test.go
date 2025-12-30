@@ -307,7 +307,7 @@ func TestValidateWorkflow(t *testing.T) {
 			workflow: &WorkflowConfig{
 				Version: "1.0",
 				StatusFlow: map[string][]string{
-					"todo":     {"in_progress"},
+					"todo":        {"in_progress"},
 					"in_progress": {"undefined_status"},
 				},
 				SpecialStatuses: map[string][]string{
@@ -372,8 +372,8 @@ func TestValidateWorkflow(t *testing.T) {
 			workflow: &WorkflowConfig{
 				Version: "1.0",
 				StatusFlow: map[string][]string{
-					"todo":       {"in_progress"},
-					"in_progress": {"review", "todo"}, // Can go back to todo
+					"todo":        {"in_progress"},
+					"in_progress": {"review", "todo"},      // Can go back to todo
 					"review":      {"done", "in_progress"}, // Can go back to in_progress
 					"done":        {},
 				},
@@ -409,7 +409,7 @@ func TestValidateWorkflow(t *testing.T) {
 func TestValidateTransition(t *testing.T) {
 	workflow := &WorkflowConfig{
 		StatusFlow: map[string][]string{
-			"todo":       {"in_progress", "blocked"},
+			"todo":        {"in_progress", "blocked"},
 			"in_progress": {"done"},
 			"done":        {},
 			"blocked":     {"todo"},

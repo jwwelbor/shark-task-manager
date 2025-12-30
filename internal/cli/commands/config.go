@@ -16,8 +16,9 @@ import (
 
 // configCmd represents the config command group
 var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Manage CLI configuration",
+	Use:     "config",
+	Short:   "Manage CLI configuration",
+	GroupID: "setup",
 	Long: `View, validate, and test pattern configuration settings.
 
 Examples:

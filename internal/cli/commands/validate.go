@@ -15,8 +15,9 @@ import (
 
 // validateCmd represents the validate command
 var validateCmd = &cobra.Command{
-	Use:   "validate",
-	Short: "Validate database integrity",
+	Use:     "validate",
+	Short:   "Validate database integrity",
+	GroupID: "setup",
 	Long: `Validate database integrity by checking file paths and relationships.
 
 This command checks:

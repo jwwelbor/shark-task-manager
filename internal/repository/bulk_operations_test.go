@@ -36,7 +36,7 @@ func TestBulkCreateValidationFailure(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique isolated test data
-	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicNum := 10 + int((time.Now().UnixNano() % 80))
 	epicKey := fmt.Sprintf("E%02d", epicNum)
 	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
@@ -80,7 +80,7 @@ func TestBulkCreateRollback(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique isolated test data
-	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicNum := 10 + int((time.Now().UnixNano() % 80))
 	epicKey := fmt.Sprintf("E%02d", epicNum)
 	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
@@ -145,7 +145,7 @@ func TestGetByKeysPartial(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique isolated test data
-	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicNum := 10 + int((time.Now().UnixNano() % 80))
 	epicKey := fmt.Sprintf("E%02d", epicNum)
 	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
@@ -221,7 +221,7 @@ func TestUpdateMetadata(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create unique isolated test data
-	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicNum := 10 + int((time.Now().UnixNano() % 80))
 	epicKey := fmt.Sprintf("E%02d", epicNum)
 	featureKey := fmt.Sprintf("%s-F01", epicKey)
 
@@ -327,4 +327,3 @@ func TestUpdateMetadataNotFound(t *testing.T) {
 		t.Error("Expected error when updating non-existent task")
 	}
 }
-

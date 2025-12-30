@@ -280,7 +280,7 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 	epicRepo := NewEpicRepository(db)
 
 	// Use unique epic number to avoid collisions (E10-E89 range)
-	epicNum := 10 + int((time.Now().UnixNano()%80))
+	epicNum := 10 + int((time.Now().UnixNano() % 80))
 
 	// Clean up any existing data for this epic
 	epicKey := fmt.Sprintf("E%02d", epicNum)

@@ -30,8 +30,9 @@ var (
 )
 
 var syncCmd = &cobra.Command{
-	Use:   "sync",
-	Short: "Synchronize task files with database",
+	Use:     "sync",
+	Short:   "Synchronize task files with database",
+	GroupID: "setup",
 	Long: `Synchronize task markdown files with the database by scanning feature folders,
 parsing frontmatter, detecting conflicts, and applying resolution strategies.
 

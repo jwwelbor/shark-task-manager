@@ -14,8 +14,9 @@ import (
 
 // analyticsCmd represents the analytics command group
 var analyticsCmd = &cobra.Command{
-	Use:   "analytics",
-	Short: "Analyze work session patterns and metrics",
+	Use:     "analytics",
+	Short:   "Analyze work session patterns and metrics",
+	GroupID: "status",
 	Long: `Analyze work session patterns across epics, features, and tasks.
 
 Provides insights into:
