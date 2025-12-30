@@ -70,7 +70,7 @@ func TestTaskGetPathDisplay(t *testing.T) {
 			customFeaturePath:  nil,
 			customTaskFilename: nil,
 			expectedPath:       "docs/plan/E99/E99-F01/tasks/",
-			expectedFilename:   "T-E99-F01-001.md",
+			expectedFilename:   "T-E99-F01-001-test-task-default-path-default-filename.md",
 		},
 		{
 			name:               "default path + custom filename",
@@ -84,7 +84,7 @@ func TestTaskGetPathDisplay(t *testing.T) {
 			customFeaturePath:  stringPtr("custom/feature/path"),
 			customTaskFilename: nil,
 			expectedPath:       "custom/feature/path/E99-F03/tasks/",
-			expectedFilename:   "T-E99-F03-001.md",
+			expectedFilename:   "T-E99-F03-001-test-task-custom-path-default-filename.md",
 		},
 		{
 			name:               "custom path + custom filename",
@@ -132,7 +132,7 @@ func TestTaskGetPathDisplay(t *testing.T) {
 
 			// Resolve the path
 			pathBuilder := utils.NewPathBuilder(projectRoot)
-			resolvedPath, err := pathBuilder.ResolveTaskPath(epic.Key, feature.Key, task.Key, task.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
+			resolvedPath, err := pathBuilder.ResolveTaskPath(epic.Key, feature.Key, task.Key, task.Title, task.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
 			if err != nil {
 				t.Fatalf("Failed to resolve task path: %v", err)
 			}
