@@ -149,3 +149,83 @@ func testNullHandling(t *testing.T, db *sql.DB) {
 	_, _ = db.Exec(`DELETE FROM features WHERE epic_id = 1`)
 	_, _ = db.Exec(`DELETE FROM epics WHERE id = 1`)
 }
+
+func TestMigrateAddSlugColumns(t *testing.T) {
+	// Create a temporary database file
+	tmpDB := "test_migrate_slug.db"
+	defer os.Remove(tmpDB)
+	defer os.Remove(tmpDB + "-shm")
+	defer os.Remove(tmpDB + "-wal")
+
+	// Initialize database with existing schema
+	db, err := InitDB(tmpDB)
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
+	// Verify slug columns exist in all three tables
+	tables := []string{"epics", "features", "tasks"}
+	for _, table := range tables {
+		var hasSlugColumn bool
+		err = db.QueryRow(`
+			SELECT COUNT(*) > 0
+			FROM pragma_table_info(?)
+			WHERE name = 'slug'
+		`, table).Scan(&hasSlugColumn)
+		if err != nil {
+			t.Fatalf("Failed to check %s table for slug column: %v", table, err)
+		}
+		if !hasSlugColumn {
+			t.Errorf("slug column not found in %s table", table)
+		}
+	}
+
+	// Verify indexes exist for slug columns
+	for _, table := range tables {
+		indexName := "idx_" + table + "_slug"
+		var indexExists bool
+		err = db.QueryRow(`
+			SELECT COUNT(*) > 0
+			FROM sqlite_master
+			WHERE type = 'index' AND name = ?
+		`, indexName).Scan(&indexExists)
+		if err != nil {
+			t.Fatalf("Failed to check for %s index: %v", indexName, err)
+		}
+		if !indexExists {
+			t.Errorf("Index %s not found", indexName)
+		}
+	}
+
+	// Test that slug column accepts NULL values (for backwards compatibility)
+	_, err = db.Exec(`
+		INSERT INTO epics (key, title, status, priority, slug)
+		VALUES ('E98', 'Test Epic', 'active', 'medium', NULL)
+	`)
+	if err != nil {
+		t.Errorf("Failed to insert epic with NULL slug: %v", err)
+	}
+
+	// Test that slug column accepts text values
+	_, err = db.Exec(`
+		INSERT INTO epics (key, title, status, priority, slug)
+		VALUES ('E97', 'Test Epic 2', 'active', 'medium', 'test-epic-2')
+	`)
+	if err != nil {
+		t.Errorf("Failed to insert epic with slug value: %v", err)
+	}
+
+	// Verify we can query by slug
+	var epicKey string
+	err = db.QueryRow(`SELECT key FROM epics WHERE slug = 'test-epic-2'`).Scan(&epicKey)
+	if err != nil {
+		t.Errorf("Failed to query epic by slug: %v", err)
+	}
+	if epicKey != "E97" {
+		t.Errorf("Expected epic key 'E97', got '%s'", epicKey)
+	}
+
+	// Cleanup test data
+	_, _ = db.Exec(`DELETE FROM epics WHERE key IN ('E98', 'E97')`)
+}
