@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -25,6 +26,25 @@ func getRelativePathTask(absPath string, projectRoot string) string {
 		return absPath // Fall back to absolute path if conversion fails
 	}
 	return relPath
+}
+
+// backupDatabaseOnForceTask creates a backup when --force flag is used
+// Returns the backup path and error (if any)
+func backupDatabaseOnForceTask(force bool, dbPath string, operation string) (string, error) {
+	if !force {
+		return "", nil
+	}
+
+	backupPath, err := db.BackupDatabase(dbPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create backup before %s: %w", operation, err)
+	}
+
+	if !cli.GlobalConfig.JSON {
+		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+	}
+
+	return backupPath, nil
 }
 
 // taskCmd represents the task command group
@@ -207,6 +227,26 @@ Examples:
   shark task update T-E04-F01-001 --depends-on "T-E04-F01-002,T-E04-F01-003"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTaskUpdate,
+}
+
+// taskSetStatusCmd sets arbitrary task status
+var taskSetStatusCmd = &cobra.Command{
+	Use:   "set-status <task-key> <status>",
+	Short: "Set task to specific status",
+	Long: `Set a task to an arbitrary status with workflow validation.
+
+This is the generic status transition command that validates against the configured
+workflow. It can transition to any valid status according to the workflow rules.
+
+Use --force to bypass workflow validation. This allows transitioning to any status
+regardless of workflow rules. Use with caution as this is an administrative override.
+
+Examples:
+  shark task set-status T-E04-F01-001 in_progress
+  shark task set-status T-E04-F01-001 ready_for_review --notes "Completed implementation"
+  shark task set-status T-E04-F01-001 blocked --notes "Waiting for API" --force`,
+	Args: cobra.ExactArgs(2),
+	RunE: runTaskSetStatus,
 }
 
 // runTaskList executes the task list command
@@ -904,8 +944,26 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
-	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	// Create repository with workflow support
+	dbWrapper := repository.NewDB(database)
+
+	// Load workflow config
+	configPath := cli.GlobalConfig.ConfigFile
+	if configPath == "" {
+		configPath = ".sharkconfig.json"
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	// Create task repository with workflow
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
+	} else {
+		repo = repository.NewTaskRepository(dbWrapper)
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -917,15 +975,9 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	// Get force flag
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Validate current status is "todo" unless forcing
-	if !force && task.Status != models.TaskStatusTodo {
-		cli.Error(fmt.Sprintf("Invalid state transition from %s to in_progress. Task must be in 'todo' status.", task.Status))
-		cli.Info("Use --force to bypass this validation")
-		os.Exit(3)
-	}
+	// Note: Workflow validation now handled by repository layer, not here
 
 	// Warn if task has incomplete dependencies
-	dbWrapper := repository.NewDB(database)
 	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
 	if !isTaskAvailable(ctx, task, repo, relRepo) {
 		cli.Warning("Warning: Task has incomplete dependencies but proceeding with start.")
@@ -980,8 +1032,26 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
-	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	// Create repository with workflow support
+	dbWrapper := repository.NewDB(database)
+
+	// Load workflow config
+	configPath := cli.GlobalConfig.ConfigFile
+	if configPath == "" {
+		configPath = ".sharkconfig.json"
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	// Create task repository with workflow
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
+	} else {
+		repo = repository.NewTaskRepository(dbWrapper)
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -993,12 +1063,7 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	// Get force flag
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Validate current status is "in_progress" unless forcing
-	if !force && task.Status != models.TaskStatusInProgress {
-		cli.Error(fmt.Sprintf("Invalid state transition from %s to ready_for_review. Task must be in 'in_progress' status.", task.Status))
-		cli.Info("Use --force to bypass this validation")
-		os.Exit(3)
-	}
+	// Note: Workflow validation now handled by repository layer, not CLI
 
 	// Get agent identifier and optional notes
 	agentFlag, _ := cmd.Flags().GetString("agent")
@@ -1009,13 +1074,17 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 		notes = &notesFlag
 	}
 
-	// Update status
+	// Update status (repository handles workflow validation)
 	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusReadyForReview, &agent, notes, force); err != nil {
-		return fmt.Errorf("failed to update task status: %w", err)
+		// Display error with workflow suggestion
+		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
+		if !force {
+			cli.Info("Use --force to bypass workflow validation")
+		}
+		os.Exit(3)
 	}
 
 	// End active work session
-	dbWrapper := repository.NewDB(database)
 	sessionRepo := repository.NewWorkSessionRepository(dbWrapper)
 	activeSession, err := sessionRepo.GetActiveSessionByTaskID(ctx, task.ID)
 	if err == nil && activeSession != nil {
@@ -1114,8 +1183,26 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
-	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	// Create repository with workflow support
+	dbWrapper := repository.NewDB(database)
+
+	// Load workflow config
+	configPath := cli.GlobalConfig.ConfigFile
+	if configPath == "" {
+		configPath = ".sharkconfig.json"
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	// Create task repository with workflow
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
+	} else {
+		repo = repository.NewTaskRepository(dbWrapper)
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1127,12 +1214,7 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	// Get force flag
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Validate current status is "ready_for_review" unless forcing
-	if !force && task.Status != models.TaskStatusReadyForReview {
-		cli.Error(fmt.Sprintf("Invalid state transition from %s to completed. Task must be in 'ready_for_review' status.", task.Status))
-		cli.Info("Use --force to bypass this validation")
-		os.Exit(3)
-	}
+	// Note: Workflow validation now handled by repository layer, not CLI
 
 	// Get agent identifier and optional notes
 	agentFlag, _ := cmd.Flags().GetString("agent")
@@ -1143,9 +1225,14 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 		notes = &notesFlag
 	}
 
-	// Update status
+	// Update status (repository handles workflow validation)
 	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, force); err != nil {
-		return fmt.Errorf("failed to update task status: %w", err)
+		// Display error with workflow suggestion
+		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
+		if !force {
+			cli.Info("Use --force to bypass workflow validation")
+		}
+		os.Exit(3)
 	}
 
 	if force {
@@ -1417,6 +1504,7 @@ func init() {
 	taskCmd.AddCommand(taskNextCmd)
 	taskCmd.AddCommand(taskDeleteCmd)
 	taskCmd.AddCommand(taskUpdateCmd)
+	taskCmd.AddCommand(taskSetStatusCmd)
 
 	// Add flags for list command
 	taskListCmd.Flags().StringP("status", "s", "", "Filter by status (todo, in_progress, completed, blocked)")
@@ -1485,6 +1573,10 @@ func init() {
 	taskUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
 	taskUpdateCmd.Flags().String("depends-on", "", "New comma-separated dependency task keys")
 	taskUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
+
+	// Add flags for set-status command
+	taskSetStatusCmd.Flags().Bool("force", false, "Force status change bypassing workflow validation (use with caution)")
+	taskSetStatusCmd.Flags().String("notes", "", "Notes to record with this status transition")
 }
 
 // runTaskUpdate executes the task update command
@@ -1614,6 +1706,131 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 
 	cli.Success(fmt.Sprintf("Task %s updated successfully", taskKey))
 	return nil
+}
+
+// runTaskSetStatus executes the set-status command
+func runTaskSetStatus(cmd *cobra.Command, args []string) error {
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	taskKey := args[0]
+	newStatus := args[1]
+
+	// Get flags
+	force, _ := cmd.Flags().GetBool("force")
+	notes, _ := cmd.Flags().GetString("notes")
+
+	// Get database connection
+	dbPath, err := cli.GetDBPath()
+	if err != nil {
+		return fmt.Errorf("failed to get database path: %w", err)
+	}
+
+	database, err := db.InitDB(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	defer database.Close()
+
+	// Create repository with workflow support
+	dbWrapper := repository.NewDB(database)
+
+	// Load workflow config for repository
+	configPath := cli.GlobalConfig.ConfigFile
+	if configPath == "" {
+		configPath = ".sharkconfig.json"
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	// Create task repository with workflow
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
+	} else {
+		repo = repository.NewTaskRepository(dbWrapper)
+	}
+
+	// Get task by key
+	task, err := repo.GetByKey(ctx, taskKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Task not found: %s", taskKey))
+		os.Exit(1)
+	}
+
+	// Convert status string to TaskStatus
+	taskStatus := models.TaskStatus(newStatus)
+
+	// Prepare notes pointer
+	var notesPtr *string
+	if notes != "" {
+		notesPtr = &notes
+	}
+
+	// Update status with workflow validation (unless forcing)
+	err = repo.UpdateStatusForced(ctx, task.ID, taskStatus, nil, notesPtr, force)
+	if err != nil {
+		// Extract validation error message if available
+		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
+
+		// If this is a validation error, suggest using --force
+		if !force && (containsString(err.Error(), "invalid status transition") || containsString(err.Error(), "transition")) {
+			cli.Info("Use --force to bypass workflow validation")
+		}
+
+		os.Exit(3) // Exit code 3 for invalid state
+	}
+
+	// Display warning if force was used
+	if force && !cli.GlobalConfig.JSON {
+		cli.Warning(fmt.Sprintf("⚠️  Forced transition from %s to %s (bypassed workflow validation)", task.Status, newStatus))
+	}
+
+	// Output result
+	if cli.GlobalConfig.JSON {
+		output := map[string]interface{}{
+			"task_key":      taskKey,
+			"previous_status": task.Status,
+			"new_status":    newStatus,
+			"forced":        force,
+		}
+		if notes != "" {
+			output["notes"] = notes
+		}
+		return cli.OutputJSON(output)
+	}
+
+	// Human-readable output
+	cli.Success(fmt.Sprintf("Task %s status updated: %s → %s", taskKey, task.Status, newStatus))
+	if notes != "" {
+		fmt.Printf("Notes: %s\n", notes)
+	}
+
+	return nil
+}
+
+// containsString checks if a string contains a substring (helper for runTaskSetStatus)
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && indexOfString(s, substr) >= 0
+}
+
+// indexOfString returns the index of substr in s, or -1 if not found
+func indexOfString(s, substr string) int {
+	if len(substr) == 0 {
+		return 0
+	}
+	if len(substr) > len(s) {
+		return -1
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }
 
 // splitDependencies splits a comma-separated string into task keys
