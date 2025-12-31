@@ -74,8 +74,8 @@ func SeedTestData() (int64, int64) {
 
 	// Create feature
 	result, err = database.Exec(`
-		INSERT OR IGNORE INTO features (epic_id, key, title, description, status)
-		VALUES (?, 'E99-F99', 'Test Feature', 'Test feature', 'active')
+		INSERT OR IGNORE INTO features (epic_id, key, title, slug, description, status)
+		VALUES (?, 'E99-F99', 'Test Feature', 'test-feature', 'Test feature', 'active')
 	`, epicID)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to insert feature: %v", err))

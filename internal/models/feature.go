@@ -18,6 +18,7 @@ type Feature struct {
 	EpicID           int64         `json:"epic_id" db:"epic_id"`
 	Key              string        `json:"key" db:"key"`
 	Title            string        `json:"title" db:"title"`
+	Slug             *string       `json:"slug,omitempty" db:"slug"`
 	Description      *string       `json:"description,omitempty" db:"description"`
 	Status           FeatureStatus `json:"status" db:"status"`
 	ProgressPct      float64       `json:"progress_pct" db:"progress_pct"`

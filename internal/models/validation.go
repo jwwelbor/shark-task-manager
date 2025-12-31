@@ -9,11 +9,11 @@ import (
 
 // Validation errors
 var (
-	ErrInvalidEpicKey          = errors.New("invalid epic key format: must match ^E\\d{2}$")
-	ErrInvalidFeatureKey       = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
-	ErrInvalidTaskKey          = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
-	ErrInvalidEpicStatus       = errors.New("invalid epic status: must be draft, active, completed, or archived")
-	ErrInvalidFeatureStatus    = errors.New("invalid feature status: must be draft, active, completed, or archived")
+	ErrInvalidEpicKey       = errors.New("invalid epic key format: must match ^E\\d{2}$")
+	ErrInvalidFeatureKey    = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
+	ErrInvalidTaskKey       = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
+	ErrInvalidEpicStatus    = errors.New("invalid epic status: must be draft, active, completed, or archived")
+	ErrInvalidFeatureStatus = errors.New("invalid feature status: must be draft, active, completed, or archived")
 	// ErrInvalidTaskStatus is deprecated - error messages are now generated dynamically based on workflow config
 	ErrInvalidTaskStatus       = errors.New("invalid task status")
 	ErrInvalidAgentType        = errors.New("invalid agent type: must be frontend, backend, api, testing, devops, or general")

@@ -258,31 +258,3 @@ func TestInvalidStatusStillRejected(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'TEST-INVALID-F01'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'TEST-INVALID-E01'")
 }
-
-// Helper function to check if a CHECK constraint exists on a table column
-func hasCheckConstraint(db *sql.DB, tableName, columnName string) (bool, error) {
-	// Get table creation SQL
-	var createSQL string
-	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&createSQL)
-	if err != nil {
-		return false, err
-	}
-
-	// Simple string check - if the CREATE TABLE contains "CHECK (status IN"
-	// then the constraint exists
-	// This is a simple heuristic - more robust parsing would be needed for production
-	return len(createSQL) > 0 && contains(createSQL, "CHECK") && contains(createSQL, columnName), nil
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

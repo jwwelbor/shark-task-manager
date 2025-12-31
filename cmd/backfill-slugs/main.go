@@ -20,10 +20,11 @@ func main() {
 	fmt.Println("Starting slug backfill migration...")
 
 	// Run the backfill
-	err = db.BackfillSlugsFromFilePaths(database)
+	updated, err := db.BackfillSlugsFromFilePaths(database, true)
 	if err != nil {
 		log.Fatalf("Backfill failed: %v", err)
 	}
+	fmt.Printf("Updated %d tasks with slugs\n", updated)
 
 	fmt.Println("✅ Backfill completed successfully!")
 
@@ -63,7 +64,10 @@ func main() {
 		fmt.Println("\nEpics:")
 		for rows.Next() {
 			var key, slug string
-			rows.Scan(&key, &slug)
+			if err := rows.Scan(&key, &slug); err != nil {
+				log.Printf("Error scanning epic row: %v", err)
+				continue
+			}
 			fmt.Printf("  %s -> %s\n", key, slug)
 		}
 		rows.Close()
@@ -75,7 +79,10 @@ func main() {
 		fmt.Println("\nFeatures:")
 		for rows.Next() {
 			var key, slug string
-			rows.Scan(&key, &slug)
+			if err := rows.Scan(&key, &slug); err != nil {
+				log.Printf("Error scanning feature row: %v", err)
+				continue
+			}
 			fmt.Printf("  %s -> %s\n", key, slug)
 		}
 		rows.Close()
@@ -87,7 +94,10 @@ func main() {
 		fmt.Println("\nTasks:")
 		for rows.Next() {
 			var key, slug string
-			rows.Scan(&key, &slug)
+			if err := rows.Scan(&key, &slug); err != nil {
+				log.Printf("Error scanning task row: %v", err)
+				continue
+			}
 			fmt.Printf("  %s -> %s\n", key, slug)
 		}
 		rows.Close()

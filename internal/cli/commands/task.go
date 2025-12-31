@@ -518,6 +518,10 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Status: %s\n", task.Status)
 	fmt.Printf("Priority: %d\n", task.Priority)
 
+	if task.ExecutionOrder != nil {
+		fmt.Printf("Order: %d\n", *task.ExecutionOrder)
+	}
+
 	if dirPath != "" {
 		fmt.Printf("Path: %s\n", dirPath)
 	}
@@ -679,8 +683,79 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Return highest priority task (priority 1 = highest)
-	nextTask := availableTasks[0]
+	// Select next task(s) based on execution_order and priority
+	nextTasks := selectNextTasks(availableTasks)
+
+	if len(nextTasks) == 0 {
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(map[string]string{"message": "No available tasks found"})
+		}
+		cli.Info("No available tasks found")
+		return nil
+	}
+
+	// Output result - if multiple tasks, output array; if single task, output object
+	if len(nextTasks) > 1 {
+		// Multiple tasks with same order (parallel work possible)
+		if cli.GlobalConfig.JSON {
+			taskOutputs := []map[string]interface{}{}
+			for _, task := range nextTasks {
+				dependencyStatus := map[string]string{}
+				if task.DependsOn != nil && *task.DependsOn != "" {
+					var deps []string
+					if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err == nil {
+						for _, depKey := range deps {
+							depTask, err := repo.GetByKey(ctx, depKey)
+							if err == nil {
+								dependencyStatus[depKey] = string(depTask.Status)
+							}
+						}
+					}
+				}
+
+				taskOutputs = append(taskOutputs, map[string]interface{}{
+					"key":               task.Key,
+					"title":             task.Title,
+					"file_path":         task.FilePath,
+					"dependencies":      task.DependsOn,
+					"dependency_status": dependencyStatus,
+					"priority":          task.Priority,
+					"agent_type":        task.AgentType,
+					"execution_order":   task.ExecutionOrder,
+				})
+			}
+
+			output := map[string]interface{}{
+				"message": "Multiple tasks available for parallel execution",
+				"count":   len(nextTasks),
+				"tasks":   taskOutputs,
+			}
+			return cli.OutputJSON(output)
+		}
+
+		// Human-readable output for multiple tasks
+		fmt.Printf("Multiple tasks available for parallel execution (%d tasks with order=%v):\n\n",
+			len(nextTasks), nextTasks[0].ExecutionOrder)
+		for i, task := range nextTasks {
+			fmt.Printf("%d. %s: %s\n", i+1, task.Key, task.Title)
+			fmt.Printf("   Priority: %d\n", task.Priority)
+			if task.ExecutionOrder != nil {
+				fmt.Printf("   Order: %d\n", *task.ExecutionOrder)
+			}
+			if task.AgentType != nil {
+				fmt.Printf("   Agent Type: %s\n", *task.AgentType)
+			}
+			if task.FilePath != nil {
+				fmt.Printf("   File Path: %s\n", *task.FilePath)
+			}
+			fmt.Println()
+		}
+
+		return nil
+	}
+
+	// Single next task
+	nextTask := nextTasks[0]
 
 	// Output result
 	if cli.GlobalConfig.JSON {
@@ -706,6 +781,7 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 			"dependency_status": dependencyStatus,
 			"priority":          nextTask.Priority,
 			"agent_type":        nextTask.AgentType,
+			"execution_order":   nextTask.ExecutionOrder,
 		}
 		return cli.OutputJSON(output)
 	}
@@ -714,6 +790,9 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Next Task: %s\n", nextTask.Key)
 	fmt.Printf("Title: %s\n", nextTask.Title)
 	fmt.Printf("Priority: %d\n", nextTask.Priority)
+	if nextTask.ExecutionOrder != nil {
+		fmt.Printf("Order: %d\n", *nextTask.ExecutionOrder)
+	}
 	if nextTask.AgentType != nil {
 		fmt.Printf("Agent Type: %s\n", *nextTask.AgentType)
 	}
@@ -722,6 +801,93 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// selectNextTasks selects the next task(s) to work on based on order and priority
+// Returns all tasks with the lowest execution_order value (or highest priority if no order)
+// Sorting logic:
+// 1. execution_order ascending (nulls last) - tasks with order=1 before order=2
+// 2. priority ascending (1 is highest priority, so 1 before 10)
+// 3. created_at ascending (oldest first)
+func selectNextTasks(tasks []*models.Task) []*models.Task {
+	if len(tasks) == 0 {
+		return []*models.Task{}
+	}
+
+	// Sort tasks by: order (nulls last), priority, created_at
+	sortedTasks := make([]*models.Task, len(tasks))
+	copy(sortedTasks, tasks)
+
+	// Sort using comparison function
+	for i := 0; i < len(sortedTasks)-1; i++ {
+		for j := i + 1; j < len(sortedTasks); j++ {
+			if compareTasksForNext(sortedTasks[j], sortedTasks[i]) {
+				sortedTasks[i], sortedTasks[j] = sortedTasks[j], sortedTasks[i]
+			}
+		}
+	}
+
+	// Find all tasks with the same lowest execution_order
+	var result []*models.Task
+	firstTask := sortedTasks[0]
+
+	for _, task := range sortedTasks {
+		// Check if this task has the same order as the first task
+		if bothNil(firstTask.ExecutionOrder, task.ExecutionOrder) {
+			// Both have no order - only return the highest priority one
+			if task.Priority == firstTask.Priority && task.CreatedAt.Equal(firstTask.CreatedAt) {
+				result = append(result, task)
+			} else if task.Priority == firstTask.Priority {
+				// Same priority, different created_at - only first one
+				if task.ID == firstTask.ID {
+					result = append(result, task)
+				}
+			} else {
+				// Different priority - only first one
+				if task.ID == firstTask.ID {
+					result = append(result, task)
+				}
+			}
+		} else if !bothNil(firstTask.ExecutionOrder, task.ExecutionOrder) {
+			// One has order, one doesn't - only include ones with same order value
+			if firstTask.ExecutionOrder != nil && task.ExecutionOrder != nil {
+				if *firstTask.ExecutionOrder == *task.ExecutionOrder {
+					result = append(result, task)
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// compareTasksForNext returns true if task a should come before task b
+func compareTasksForNext(a, b *models.Task) bool {
+	// 1. Compare execution_order (nulls last)
+	if a.ExecutionOrder == nil && b.ExecutionOrder != nil {
+		return false // b comes first (has order)
+	}
+	if a.ExecutionOrder != nil && b.ExecutionOrder == nil {
+		return true // a comes first (has order)
+	}
+	if a.ExecutionOrder != nil && b.ExecutionOrder != nil {
+		if *a.ExecutionOrder != *b.ExecutionOrder {
+			return *a.ExecutionOrder < *b.ExecutionOrder
+		}
+	}
+
+	// 2. Compare priority (1 is highest, so lower number = higher priority)
+	if a.Priority != b.Priority {
+		return a.Priority < b.Priority
+	}
+
+	// 3. Compare created_at (older first)
+	return a.CreatedAt.Before(b.CreatedAt)
+}
+
+// bothNil returns true if both pointers are nil
+func bothNil(a, b *int) bool {
+	return a == nil && b == nil
 }
 
 // isTaskAvailable checks if a task's dependencies are all completed or archived
@@ -828,6 +994,11 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	priority, _ := cmd.Flags().GetInt("priority")
 	dependsOn, _ := cmd.Flags().GetString("depends-on")
 	executionOrder, _ := cmd.Flags().GetInt("execution-order")
+	order, _ := cmd.Flags().GetInt("order")
+	// Use --order if specified, otherwise fall back to --execution-order
+	if order != 0 {
+		executionOrder = order
+	}
 	customKey, _ := cmd.Flags().GetString("key")
 	filename, _ := cmd.Flags().GetString("filename")
 	force, _ := cmd.Flags().GetBool("force")
@@ -1531,8 +1702,8 @@ func init() {
 	taskListCmd.Flags().StringP("epic", "e", "", "Filter by epic key")
 	taskListCmd.Flags().StringP("feature", "f", "", "Filter by feature key")
 	taskListCmd.Flags().StringP("agent", "a", "", "Filter by assigned agent")
-	taskListCmd.Flags().IntP("priority-min", "", 0, "Minimum priority (1-10)")
-	taskListCmd.Flags().IntP("priority-max", "", 0, "Maximum priority (1-10)")
+	taskListCmd.Flags().IntP("priority-min", "", 0, "Minimum priority (1=highest priority)")
+	taskListCmd.Flags().IntP("priority-max", "", 0, "Maximum priority (10=lowest priority)")
 	taskListCmd.Flags().BoolP("blocked", "b", false, "Show only blocked tasks")
 	taskListCmd.Flags().Bool("show-all", false, "Show all tasks including completed (by default, completed tasks are hidden)")
 
@@ -1544,9 +1715,10 @@ func init() {
 	taskCreateCmd.Flags().StringP("agent", "a", "", "Agent type (optional, accepts any string)")
 	taskCreateCmd.Flags().StringP("template", "", "", "Path to custom task template (optional)")
 	taskCreateCmd.Flags().StringP("description", "d", "", "Detailed description (optional)")
-	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority (1-10, default 5)")
+	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority (1=highest, 10=lowest, default 5)")
 	taskCreateCmd.Flags().String("depends-on", "", "Comma-separated dependency task keys (optional)")
 	taskCreateCmd.Flags().Int("execution-order", 0, "Execution order (optional, 0 = not set)")
+	taskCreateCmd.Flags().Int("order", 0, "Execution order (alias for --execution-order)")
 	taskCreateCmd.Flags().String("key", "", "Custom key for the task (e.g., T-E01-F01-custom). If not provided, auto-generates next sequence number")
 	taskCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must include .md extension)")
 	taskCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
@@ -1587,11 +1759,12 @@ func init() {
 	// Add flags for update command
 	taskUpdateCmd.Flags().String("title", "", "New title for the task")
 	taskUpdateCmd.Flags().StringP("description", "d", "", "New description for the task")
-	taskUpdateCmd.Flags().IntP("priority", "p", -1, "New priority (1-10, -1 = no change)")
+	taskUpdateCmd.Flags().IntP("priority", "p", -1, "New priority (1=highest, 10=lowest, -1=no change)")
 	taskUpdateCmd.Flags().StringP("agent", "a", "", "New agent type")
 	taskUpdateCmd.Flags().String("key", "", "New key for the task (must be unique, cannot contain spaces)")
 	taskUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
 	taskUpdateCmd.Flags().String("depends-on", "", "New comma-separated dependency task keys")
+	taskUpdateCmd.Flags().Int("order", -1, "New execution order (-1 = no change)")
 	taskUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
 
 	// Add flags for set-status command
@@ -1672,6 +1845,18 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		}
 		depsStr := string(depsJSON)
 		task.DependsOn = &depsStr
+		changed = true
+	}
+
+	// Update execution order if provided
+	order, _ := cmd.Flags().GetInt("order")
+	if order != -1 {
+		if order == 0 {
+			// 0 means clear the execution order
+			task.ExecutionOrder = nil
+		} else {
+			task.ExecutionOrder = &order
+		}
 		changed = true
 	}
 
