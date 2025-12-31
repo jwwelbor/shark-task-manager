@@ -189,3 +189,187 @@ func TestEpicRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 	// Cleanup
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
 }
+
+// TestEpicRepository_GetByKey_NumericFormat tests retrieval using numeric format (E04)
+func TestEpicRepository_GetByKey_NumericFormat(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Use unique epic key
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+
+	// Clean up existing test data
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic with slug
+	epic := &models.Epic{
+		Key:      epicKey,
+		Title:    "Epic With Slug",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+
+	err := repo.Create(ctx, epic)
+	require.NoError(t, err, "Epic creation should succeed")
+	require.NotNil(t, epic.Slug, "Slug should be generated")
+
+	// Test: Retrieve using numeric key format (E04)
+	retrieved, err := repo.GetByKey(ctx, epicKey)
+	require.NoError(t, err, "Should retrieve epic using numeric key")
+	require.NotNil(t, retrieved, "Retrieved epic should not be nil")
+	assert.Equal(t, epicKey, retrieved.Key, "Key should match")
+	assert.Equal(t, "Epic With Slug", retrieved.Title, "Title should match")
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestEpicRepository_GetByKey_SluggedFormat tests retrieval using slugged format (e04-epic-name)
+func TestEpicRepository_GetByKey_SluggedFormat(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Use unique epic key
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+
+	// Clean up existing test data
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic with slug
+	epic := &models.Epic{
+		Key:      epicKey,
+		Title:    "Epic With Slug",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+
+	err := repo.Create(ctx, epic)
+	require.NoError(t, err, "Epic creation should succeed")
+	require.NotNil(t, epic.Slug, "Slug should be generated")
+
+	// Build slugged key format: e04-epic-with-slug (lowercase key + slug)
+	sluggedKey := fmt.Sprintf("%s-%s", epicKey, *epic.Slug)
+
+	// Test: Retrieve using slugged key format
+	retrieved, err := repo.GetByKey(ctx, sluggedKey)
+	require.NoError(t, err, "Should retrieve epic using slugged key")
+	require.NotNil(t, retrieved, "Retrieved epic should not be nil")
+	assert.Equal(t, epicKey, retrieved.Key, "Key should match original numeric key")
+	assert.Equal(t, "Epic With Slug", retrieved.Title, "Title should match")
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestEpicRepository_GetByKey_InvalidSluggedFormat tests that invalid slugged keys fail gracefully
+func TestEpicRepository_GetByKey_InvalidSluggedFormat(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Test: Try to retrieve with invalid slugged key (wrong slug)
+	invalidKey := "E04-nonexistent-slug"
+	retrieved, err := repo.GetByKey(ctx, invalidKey)
+	assert.Error(t, err, "Should return error for invalid slugged key")
+	assert.Nil(t, retrieved, "Retrieved epic should be nil")
+}
+
+// TestEpicRepository_GetByKey_PreferNumericLookup tests that numeric lookup is tried first
+func TestEpicRepository_GetByKey_PreferNumericLookup(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Use unique epic key
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+
+	// Clean up existing test data
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic with specific title/slug
+	epic := &models.Epic{
+		Key:      epicKey,
+		Title:    "My Epic Title",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+
+	err := repo.Create(ctx, epic)
+	require.NoError(t, err, "Epic creation should succeed")
+
+	// Test with numeric key - should find it immediately
+	retrieved, err := repo.GetByKey(ctx, epicKey)
+	require.NoError(t, err, "Should retrieve epic with numeric key")
+	assert.Equal(t, epicKey, retrieved.Key, "Key should match")
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestContainsHyphen tests the containsHyphen helper function
+func TestContainsHyphen(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"No hyphen", "E04", false},
+		{"With hyphen", "E04-epic-name", true},
+		{"Multiple hyphens", "E04-epic-name-test", true},
+		{"Empty string", "", false},
+		{"Only hyphen", "-", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := containsHyphen(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestSplitSluggedKey tests the splitSluggedKey helper function
+func TestSplitSluggedKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "Normal slugged key",
+			input:    "E04-epic-name",
+			expected: []string{"E04", "epic-name"},
+		},
+		{
+			name:     "Multiple hyphens in slug",
+			input:    "E04-epic-name-test",
+			expected: []string{"E04", "epic-name-test"},
+		},
+		{
+			name:     "No hyphen",
+			input:    "E04",
+			expected: []string{"E04"},
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: []string{""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := splitSluggedKey(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -93,8 +93,10 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 	return epic, nil
 }
 
-// GetByKey retrieves an epic by its key
+// GetByKey retrieves an epic by its key, supporting both numeric (E04) and slugged (E04-epic-name) formats.
+// It tries numeric lookup first for performance, then falls back to slug-based lookup if the key contains a hyphen.
 func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+	// Try direct numeric key lookup first (e.g., "E04")
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
 		       slug, file_path, custom_folder_path, created_at, updated_at
@@ -118,14 +120,96 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 		&epic.UpdatedAt,
 	)
 
+	// If found by numeric key, return immediately
+	if err == nil {
+		return epic, nil
+	}
+
+	// If error is not "no rows", return the error
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get epic: %w", err)
+	}
+
+	// Not found by numeric key - try slugged format if key contains hyphen
+	// Slugged format: E04-epic-name (key + slug)
+	if !containsHyphen(key) {
+		// No hyphen means it's not a slugged key, return not found
+		return nil, sql.ErrNoRows
+	}
+
+	// Parse slugged key: extract numeric key and slug
+	// Format: E04-epic-name -> key="E04", slug="epic-name"
+	parts := splitSluggedKey(key)
+	if len(parts) < 2 {
+		return nil, sql.ErrNoRows
+	}
+
+	numericKey := parts[0]
+	slug := parts[1]
+
+	// Query by numeric key and slug
+	slugQuery := `
+		SELECT id, key, title, description, status, priority, business_value,
+		       slug, file_path, custom_folder_path, created_at, updated_at
+		FROM epics
+		WHERE key = ? AND slug = ?
+	`
+
+	err = r.db.QueryRowContext(ctx, slugQuery, numericKey, slug).Scan(
+		&epic.ID,
+		&epic.Key,
+		&epic.Title,
+		&epic.Description,
+		&epic.Status,
+		&epic.Priority,
+		&epic.BusinessValue,
+		&epic.Slug,
+		&epic.FilePath,
+		&epic.CustomFolderPath,
+		&epic.CreatedAt,
+		&epic.UpdatedAt,
+	)
+
 	if err == sql.ErrNoRows {
 		return nil, sql.ErrNoRows
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to get epic: %w", err)
+		return nil, fmt.Errorf("failed to get epic by slug: %w", err)
 	}
 
 	return epic, nil
+}
+
+// containsHyphen checks if a string contains a hyphen
+func containsHyphen(s string) bool {
+	for _, c := range s {
+		if c == '-' {
+			return true
+		}
+	}
+	return false
+}
+
+// splitSluggedKey splits a slugged key into [numericKey, slug]
+// Example: "E04-epic-name" -> ["E04", "epic-name"]
+func splitSluggedKey(key string) []string {
+	// Find first hyphen position
+	hyphenIdx := -1
+	for i, c := range key {
+		if c == '-' {
+			hyphenIdx = i
+			break
+		}
+	}
+
+	if hyphenIdx == -1 {
+		return []string{key}
+	}
+
+	numericKey := key[:hyphenIdx]
+	slug := key[hyphenIdx+1:]
+
+	return []string{numericKey, slug}
 }
 
 // GetByFilePath retrieves an epic by its file path for collision detection
