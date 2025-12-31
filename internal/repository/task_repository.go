@@ -31,6 +31,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
 
 // TaskRepository handles CRUD operations for tasks
@@ -74,18 +75,25 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 		return fmt.Errorf("dependency validation failed: %w", err)
 	}
 
+	// Generate slug from title if not already set
+	if task.Slug == nil {
+		generatedSlug := slug.Generate(task.Title)
+		task.Slug = &generatedSlug
+	}
+
 	query := `
 		INSERT INTO tasks (
-			feature_id, key, title, description, status, agent_type, priority,
+			feature_id, key, title, slug, description, status, agent_type, priority,
 			depends_on, assigned_agent, file_path, blocked_reason, execution_order
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
 		task.FeatureID,
 		task.Key,
 		task.Title,
+		task.Slug,
 		task.Description,
 		task.Status,
 		task.AgentType,
@@ -112,7 +120,7 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 // GetByID retrieves a task by its ID
 func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -127,6 +135,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 		&task.FeatureID,
 		&task.Key,
 		&task.Title,
+		&task.Slug,
 		&task.Description,
 		&task.Status,
 		&task.AgentType,
@@ -163,7 +172,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 // GetByKey retrieves a task by its key
 func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -178,6 +187,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 		&task.FeatureID,
 		&task.Key,
 		&task.Title,
+		&task.Slug,
 		&task.Description,
 		&task.Status,
 		&task.AgentType,
@@ -215,7 +225,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 // Returns sql.ErrNoRows if no task found with that file path
 func (r *TaskRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -230,6 +240,7 @@ func (r *TaskRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 		&task.FeatureID,
 		&task.Key,
 		&task.Title,
+		&task.Slug,
 		&task.Description,
 		&task.Status,
 		&task.AgentType,
@@ -292,7 +303,7 @@ func (r *TaskRepository) UpdateFilePath(ctx context.Context, taskKey string, new
 // ListByFeature retrieves all tasks for a feature
 func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -308,7 +319,7 @@ func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]
 // ListByEpic retrieves all tasks for an epic (via features)
 func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
 	query := `
-		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status, t.agent_type, t.priority,
+		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
 		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
@@ -326,7 +337,7 @@ func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*mod
 // FilterByStatus retrieves tasks filtered by status
 func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskStatus) ([]*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -342,7 +353,7 @@ func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskS
 // FilterByAgentType retrieves tasks filtered by agent type
 func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType models.AgentType) ([]*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -358,7 +369,7 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType models
 // FilterCombined retrieves tasks with multiple filter criteria
 func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *models.AgentType, maxPriority *int) ([]*models.Task, error) {
 	query := `
-		SELECT t.id, t.feature_id, t.key, t.title, t.description, t.status, t.agent_type, t.priority,
+		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
 		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
@@ -411,7 +422,7 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 // List retrieves all tasks
 func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -495,50 +506,19 @@ func (r *TaskRepository) isValidStatusEnum(status models.TaskStatus) bool {
 	return false
 }
 
-// isValidTransition checks if a status transition is allowed according to workflow config
+// isValidTransition checks if a status transition is allowed according to workflow config.
+// This method is now fully config-driven with no hardcoded fallback.
+// If workflow config is missing, it uses the default workflow.
 func (r *TaskRepository) isValidTransition(from models.TaskStatus, to models.TaskStatus) bool {
-	// Use workflow config if available
-	if r.workflow != nil && r.workflow.StatusFlow != nil {
-		return config.ValidateTransition(r.workflow, string(from), string(to)) == nil
+	// Workflow should always be initialized (either from config or default)
+	if r.workflow == nil {
+		// This should not happen as NewTaskRepository always sets workflow,
+		// but use default workflow as safety fallback
+		r.workflow = config.DefaultWorkflow()
 	}
 
-	// Fallback to hardcoded transitions if no workflow config
-	validTransitions := map[models.TaskStatus][]models.TaskStatus{
-		models.TaskStatusTodo: {
-			models.TaskStatusInProgress,
-			models.TaskStatusBlocked,
-		},
-		models.TaskStatusInProgress: {
-			models.TaskStatusReadyForReview,
-			models.TaskStatusBlocked,
-		},
-		models.TaskStatusBlocked: {
-			models.TaskStatusTodo,
-			models.TaskStatusInProgress,
-		},
-		models.TaskStatusReadyForReview: {
-			models.TaskStatusCompleted,
-			models.TaskStatusInProgress, // reopen
-		},
-		models.TaskStatusCompleted: {
-			models.TaskStatusArchived,
-		},
-		models.TaskStatusArchived: {
-			// No transitions allowed from archived
-		},
-	}
-
-	allowedTargets, exists := validTransitions[from]
-	if !exists {
-		return false
-	}
-
-	for _, allowed := range allowedTargets {
-		if to == allowed {
-			return true
-		}
-	}
-	return false
+	// Validate transition using workflow config
+	return config.ValidateTransition(r.workflow, string(from), string(to)) == nil
 }
 
 // UpdateStatus atomically updates task status, timestamps, and creates history record
@@ -968,7 +948,7 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 
 	// Build dynamic IN clause
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -997,6 +977,7 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 			&task.FeatureID,
 			&task.Key,
 			&task.Title,
+			&task.Slug,
 			&task.Description,
 			&task.Status,
 			&task.AgentType,
@@ -1134,6 +1115,7 @@ func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...i
 			&task.FeatureID,
 			&task.Key,
 			&task.Title,
+			&task.Slug,
 			&task.Description,
 			&task.Status,
 			&task.AgentType,
@@ -1266,7 +1248,7 @@ func (r *TaskRepository) GetCompletionMetadata(ctx context.Context, taskKey stri
 // FindByFileChanged searches for tasks that created or modified a specific file
 func (r *TaskRepository) FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -1286,7 +1268,7 @@ func (r *TaskRepository) FindByFileChanged(ctx context.Context, filePath string)
 // GetUnverifiedTasks retrieves all tasks with verification_status != 'verified'
 func (r *TaskRepository) GetUnverifiedTasks(ctx context.Context) ([]*models.Task, error) {
 	query := `
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -1324,7 +1306,7 @@ func (r *TaskRepository) FilterByMetadataAgentType(ctx context.Context, agentTyp
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
@@ -1361,7 +1343,7 @@ func (r *TaskRepository) FilterByMetadataPhase(ctx context.Context, phase string
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, feature_id, key, title, description, status, agent_type, priority,
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,

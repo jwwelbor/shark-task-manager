@@ -110,3 +110,82 @@ func TestEpicRepository_UpdatePreservesCustomFolderPath(t *testing.T) {
 	// Cleanup
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
 }
+
+// TestEpicRepository_Create_GeneratesAndStoresSlug tests that epic creation generates and stores slug
+func TestEpicRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Use unique epic key to avoid parallel test conflicts
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+
+	// Clean up existing test data
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create an epic with a title that should generate a slug
+	epic := &models.Epic{
+		Key:      epicKey,
+		Title:    "Test Epic With Spaces",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+
+	err := repo.Create(ctx, epic)
+	require.NoError(t, err, "Epic creation should succeed")
+	require.NotZero(t, epic.ID, "Epic ID should be set after creation")
+
+	// Verify slug was generated and populated in the epic object
+	assert.NotNil(t, epic.Slug, "Slug should be generated and set in epic object")
+	assert.Equal(t, "test-epic-with-spaces", *epic.Slug, "Slug should be generated from title")
+
+	// Verify slug was stored in database by retrieving the epic
+	retrieved, err := repo.GetByKey(ctx, epicKey)
+	require.NoError(t, err, "Should retrieve epic from database")
+	require.NotNil(t, retrieved, "Retrieved epic should not be nil")
+	assert.NotNil(t, retrieved.Slug, "Slug should be stored in database")
+	assert.Equal(t, "test-epic-with-spaces", *retrieved.Slug, "Stored slug should match generated slug")
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestEpicRepository_Create_SlugHandlesSpecialCharacters tests slug generation with special characters
+func TestEpicRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewEpicRepository(db)
+
+	// Use unique epic key
+	epicNum := 10 + (time.Now().UnixNano() % 90)
+	epicKey := fmt.Sprintf("E%02d", epicNum)
+
+	// Clean up existing test data
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic with title containing special characters
+	epic := &models.Epic{
+		Key:      epicKey,
+		Title:    "Fix Bug: API Endpoint (v2)",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityHigh,
+	}
+
+	err := repo.Create(ctx, epic)
+	require.NoError(t, err, "Epic creation should succeed")
+
+	// Verify slug handles special characters correctly
+	assert.NotNil(t, epic.Slug, "Slug should be generated")
+	assert.Equal(t, "fix-bug-api-endpoint-v2", *epic.Slug, "Slug should remove special characters")
+
+	// Verify in database
+	retrieved, err := repo.GetByKey(ctx, epicKey)
+	require.NoError(t, err)
+	assert.Equal(t, "fix-bug-api-endpoint-v2", *retrieved.Slug, "Slug in DB should match")
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}

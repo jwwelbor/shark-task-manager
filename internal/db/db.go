@@ -3,6 +3,10 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -80,7 +84,7 @@ CREATE TABLE IF NOT EXISTS epics (
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
+    status TEXT NOT NULL,
     priority TEXT NOT NULL CHECK (priority IN ('high', 'medium', 'low')),
     business_value TEXT CHECK (business_value IN ('high', 'medium', 'low')),
     file_path TEXT,
@@ -110,7 +114,7 @@ CREATE TABLE IF NOT EXISTS features (
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'completed', 'archived')),
+    status TEXT NOT NULL,
     progress_pct REAL NOT NULL DEFAULT 0.0 CHECK (progress_pct >= 0.0 AND progress_pct <= 100.0),
     execution_order INTEGER NULL,
     file_path TEXT,
@@ -143,7 +147,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL CHECK (status IN ('todo', 'in_progress', 'blocked', 'ready_for_review', 'completed', 'archived')),
+    status TEXT NOT NULL,
     agent_type TEXT,
     priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 1 AND priority <= 10),
     depends_on TEXT,
@@ -456,6 +460,11 @@ func runMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migrate slug columns for E07-F11
+	if err := migrateSlugColumns(db); err != nil {
+		return fmt.Errorf("failed to migrate slug columns: %w", err)
+	}
+
 	// Create indexes on new columns that might not have existed before
 	// These are created here after migrations ensure the columns exist
 	newIndexes := []string{
@@ -463,6 +472,9 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);`,
 		`CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);`,
 		`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_epics_slug ON epics(slug);`,
+		`CREATE INDEX IF NOT EXISTS idx_features_slug ON features(slug);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_slug ON tasks(slug);`,
 	}
 
 	for _, idx := range newIndexes {
@@ -489,6 +501,68 @@ func runMigrations(db *sql.DB) error {
 	// Run work sessions and context data migration
 	if err := migrateWorkSessionsAndContext(db); err != nil {
 		return fmt.Errorf("failed to migrate work sessions and context data: %w", err)
+	}
+
+	// Run status CHECK constraint removal migration
+	// This allows workflow-defined statuses from config instead of hardcoded values
+	if err := MigrateRemoveStatusCheckConstraints(db); err != nil {
+		return fmt.Errorf("failed to remove status CHECK constraints: %w", err)
+	}
+
+	// Run task_history foreign key fix migration
+	// This fixes databases where the tasks table was migrated but task_history
+	// still references the old "tasks_old" table
+	if err := migrateTaskHistoryForeignKey(db); err != nil {
+		return fmt.Errorf("failed to fix task_history foreign key: %w", err)
+	}
+
+	return nil
+}
+
+// migrateSlugColumns adds slug columns to epics, features, and tasks tables
+// This migration supports E07-F11: Slug Architecture Improvement
+func migrateSlugColumns(db *sql.DB) error {
+	// Check if epics table has slug column; if not, add it
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'slug'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check epics schema for slug: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE epics ADD COLUMN slug TEXT;`); err != nil {
+			return fmt.Errorf("failed to add slug to epics: %w", err)
+		}
+	}
+
+	// Check if features table has slug column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'slug'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for slug: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN slug TEXT;`); err != nil {
+			return fmt.Errorf("failed to add slug to features: %w", err)
+		}
+	}
+
+	// Check if tasks table has slug column; if not, add it
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'slug'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check tasks schema for slug: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN slug TEXT;`); err != nil {
+			return fmt.Errorf("failed to add slug to tasks: %w", err)
+		}
 	}
 
 	return nil
@@ -690,6 +764,74 @@ func migrateWorkSessionsAndContext(db *sql.DB) error {
 		if _, err := db.Exec(`ALTER TABLE tasks ADD COLUMN context_data TEXT;`); err != nil {
 			return fmt.Errorf("failed to add context_data to tasks: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// BackupDatabase creates a timestamped backup of the database file and associated WAL files
+// Returns the backup file path on success, or an error if the backup fails
+func BackupDatabase(dbPath string) (string, error) {
+	// Check if database file exists
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("database file does not exist: %s", dbPath)
+	}
+
+	// Generate timestamp-based backup filename
+	timestamp := time.Now().Format("20060102_150405")
+	dir := filepath.Dir(dbPath)
+	baseName := filepath.Base(dbPath)
+	ext := filepath.Ext(baseName)
+	nameWithoutExt := baseName[:len(baseName)-len(ext)]
+
+	backupPath := filepath.Join(dir, fmt.Sprintf("%s_%s_backup%s", nameWithoutExt, timestamp, ext))
+
+	// Copy main database file
+	if err := copyFile(dbPath, backupPath); err != nil {
+		return "", fmt.Errorf("failed to backup database: %w", err)
+	}
+
+	// Copy WAL files if they exist (SQLite Write-Ahead Log files)
+	walFiles := []string{
+		dbPath + "-wal",
+		dbPath + "-shm",
+	}
+
+	for _, walFile := range walFiles {
+		if _, err := os.Stat(walFile); err == nil {
+			// WAL file exists, copy it
+			walBackupPath := backupPath + filepath.Ext(walFile)
+			if err := copyFile(walFile, walBackupPath); err != nil {
+				// Log warning but don't fail the backup
+				fmt.Fprintf(os.Stderr, "Warning: Failed to backup WAL file %s: %v\n", walFile, err)
+			}
+		}
+	}
+
+	return backupPath, nil
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer destFile.Close()
+
+	if _, err := io.Copy(destFile, sourceFile); err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	// Sync to ensure data is written to disk
+	if err := destFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
 	}
 
 	return nil

@@ -9,12 +9,13 @@ import (
 
 // Validation errors
 var (
-	ErrInvalidEpicKey          = errors.New("invalid epic key format: must match ^E\\d{2}$")
-	ErrInvalidFeatureKey       = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
-	ErrInvalidTaskKey          = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
-	ErrInvalidEpicStatus       = errors.New("invalid epic status: must be draft, active, completed, or archived")
-	ErrInvalidFeatureStatus    = errors.New("invalid feature status: must be draft, active, completed, or archived")
-	ErrInvalidTaskStatus       = errors.New("invalid task status: must be todo, in_progress, blocked, ready_for_review, completed, or archived")
+	ErrInvalidEpicKey       = errors.New("invalid epic key format: must match ^E\\d{2}$")
+	ErrInvalidFeatureKey    = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
+	ErrInvalidTaskKey       = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
+	ErrInvalidEpicStatus    = errors.New("invalid epic status: must be draft, active, completed, or archived")
+	ErrInvalidFeatureStatus = errors.New("invalid feature status: must be draft, active, completed, or archived")
+	// ErrInvalidTaskStatus is deprecated - error messages are now generated dynamically based on workflow config
+	ErrInvalidTaskStatus       = errors.New("invalid task status")
 	ErrInvalidAgentType        = errors.New("invalid agent type: must be frontend, backend, api, testing, devops, or general")
 	ErrInvalidPriority         = errors.New("invalid priority: must be between 1 and 10")
 	ErrInvalidProgressPct      = errors.New("invalid progress_pct: must be between 0.0 and 100.0")
@@ -93,8 +94,29 @@ func ValidateFeatureStatus(status string) error {
 }
 
 // ValidateTaskStatus validates the task status enum
+// DEPRECATED: This function uses hardcoded statuses and will be removed in a future version.
+// Use ValidateTaskStatusWithWorkflow instead for config-driven validation.
+//
+// This function is kept for backward compatibility and now uses the default workflow.
 func ValidateTaskStatus(status string) error {
-	validStatuses := map[string]bool{
+	// Use default workflow for validation to maintain backward compatibility
+	// while preparing for full config-driven validation
+	return ValidateTaskStatusWithWorkflow(status, nil)
+}
+
+// ValidateTaskStatusWithWorkflow validates a task status against a workflow config.
+// If workflow is nil, uses the default workflow.
+// This is the config-driven replacement for ValidateTaskStatus.
+func ValidateTaskStatusWithWorkflow(status string, workflow interface{}) error {
+	// Import here to avoid circular dependency - we'll handle this properly
+	// For now, accept nil and validate against known statuses from the workflow
+	// The actual implementation will be in the validation package
+
+	// Temporary implementation that accepts both old and new workflow statuses
+	// This will be replaced once all callers are updated to use the validation package
+
+	// Check if status is in the old hardcoded list (backward compatibility)
+	oldStatuses := map[string]bool{
 		"todo":             true,
 		"in_progress":      true,
 		"blocked":          true,
@@ -102,10 +124,36 @@ func ValidateTaskStatus(status string) error {
 		"completed":        true,
 		"archived":         true,
 	}
-	if !validStatuses[status] {
-		return fmt.Errorf("%w: got %q", ErrInvalidTaskStatus, status)
+
+	// Check if status is in the new 14-status workflow
+	newStatuses := map[string]bool{
+		"draft":                 true,
+		"ready_for_refinement":  true,
+		"in_refinement":         true,
+		"ready_for_development": true,
+		"in_development":        true,
+		"ready_for_code_review": true,
+		"in_code_review":        true,
+		"ready_for_qa":          true,
+		"in_qa":                 true,
+		"ready_for_approval":    true,
+		"in_approval":           true,
+		"blocked":               true,
+		"on_hold":               true,
+		"completed":             true,
+		"cancelled":             true,
 	}
-	return nil
+
+	// Accept status if it's in either the old or new workflow
+	// This provides a migration path
+	if oldStatuses[status] || newStatuses[status] {
+		return nil
+	}
+
+	// If workflow is provided, we could validate against it
+	// For now, return error with helpful message
+	return fmt.Errorf("invalid task status %q: not found in default or extended workflow. "+
+		"Ensure status is defined in .sharkconfig.json workflow", status)
 }
 
 // ValidateAgentType validates the agent type enum

@@ -14,8 +14,9 @@ import (
 
 // searchCmd is the parent command for search operations
 var searchCmd = &cobra.Command{
-	Use:   "search",
-	Short: "Search tasks by various criteria",
+	Use:     "search",
+	Short:   "Search tasks by various criteria",
+	GroupID: "details",
 	Long: `Search for tasks using completion metadata like files changed.
 
 Supports partial filename matching. Results are ordered by completion date (most recent first).

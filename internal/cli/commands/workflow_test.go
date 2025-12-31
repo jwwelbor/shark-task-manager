@@ -154,7 +154,7 @@ func TestWorkflowListCommand(t *testing.T) {
 			// Restore stdout
 			w.Close()
 			os.Stdout = oldStdout
-			buf.ReadFrom(r)
+			_, _ = buf.ReadFrom(r)
 			output := buf.String()
 
 			// Check error expectation
@@ -329,7 +329,7 @@ func TestWorkflowValidateCommand(t *testing.T) {
 			// Restore stdout
 			w.Close()
 			os.Stdout = oldStdout
-			buf.ReadFrom(r)
+			_, _ = buf.ReadFrom(r)
 			output := buf.String()
 
 			// Check validation result
@@ -396,7 +396,7 @@ func TestWorkflowValidateDefaultWorkflow(t *testing.T) {
 	// Restore stdout
 	w.Close()
 	os.Stdout = oldStdout
-	buf.ReadFrom(r)
+	_, _ = buf.ReadFrom(r)
 	output := buf.String()
 
 	// Default workflow should always be valid

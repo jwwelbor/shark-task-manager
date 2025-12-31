@@ -178,9 +178,9 @@ func TestFilterByMetadataAgentType(t *testing.T) {
 	assert.Equal(t, 0, len(unknownTasks), "Should find 0 tasks for unknown agent")
 
 	// Cleanup
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F01-%'")
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E99-F01'")
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F01-%'") }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E99-F01'") }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'") }()
 }
 
 // TestFilterByMetadataPhase tests filtering tasks by workflow phase from metadata
@@ -333,7 +333,7 @@ func TestFilterByMetadataPhase(t *testing.T) {
 	assert.Equal(t, 0, len(unknownTasks), "Should find 0 tasks for unknown phase")
 
 	// Cleanup
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-F01-%'")
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E98-F01'")
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-F01-%'") }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E98-F01'") }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'") }()
 }

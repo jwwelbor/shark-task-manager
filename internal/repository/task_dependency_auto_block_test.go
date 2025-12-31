@@ -36,9 +36,9 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 	require.NoError(t, err)
 	featureID, _ := featureResult.LastInsertId()
 
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID) }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID) }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID) }()
 
 	tests := []struct {
 		name                   string
@@ -192,7 +192,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					require.NoError(t, err, "failed to update task to %s", originalStatus)
 
 					// Refresh task to get updated status
-					task, err = taskRepo.GetByKey(ctx, task.Key)
+					_, err = taskRepo.GetByKey(ctx, task.Key)
 					require.NoError(t, err, "failed to refresh task")
 				}
 			}
@@ -263,9 +263,9 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 	require.NoError(t, err)
 	featureID, _ := featureResult.LastInsertId()
 
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID) }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID) }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID) }()
 
 	// Create a complex dependency chain:
 	// T1 (base)
@@ -328,7 +328,7 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 		}
 
 		// Refresh to get updated status
-		task, err = taskRepo.GetByKey(ctx, task.Key)
+		_, err = taskRepo.GetByKey(ctx, task.Key)
 		require.NoError(t, err)
 	}
 

@@ -184,6 +184,7 @@ func TestPathBuilder_ResolveTaskPath(t *testing.T) {
 		epicKey           string
 		featureKey        string
 		taskKey           string
+		taskTitle         string
 		filename          *string
 		featureCustomPath *string
 		epicCustomPath    *string
@@ -191,10 +192,11 @@ func TestPathBuilder_ResolveTaskPath(t *testing.T) {
 		wantErr           bool
 	}{
 		{
-			name:              "default path",
+			name:              "default path without title (backward compat)",
 			epicKey:           "E01",
 			featureKey:        "F01",
 			taskKey:           "T-E01-F01-001",
+			taskTitle:         "",
 			filename:          nil,
 			featureCustomPath: nil,
 			epicCustomPath:    nil,
@@ -202,10 +204,23 @@ func TestPathBuilder_ResolveTaskPath(t *testing.T) {
 			wantErr:           false,
 		},
 		{
+			name:              "default path with title and slug",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			taskKey:           "T-E01-F01-001",
+			taskTitle:         "Some Task Description",
+			filename:          nil,
+			featureCustomPath: nil,
+			epicCustomPath:    nil,
+			wantPath:          filepath.Join(projectRoot, "docs", "plan", "E01", "F01", "tasks", "T-E01-F01-001-some-task-description.md"),
+			wantErr:           false,
+		},
+		{
 			name:              "inherit epic custom path",
 			epicKey:           "E01",
 			featureKey:        "F01",
 			taskKey:           "T-E01-F01-001",
+			taskTitle:         "",
 			filename:          nil,
 			featureCustomPath: nil,
 			epicCustomPath:    strPtr("docs/custom"),
@@ -217,6 +232,7 @@ func TestPathBuilder_ResolveTaskPath(t *testing.T) {
 			epicKey:           "E01",
 			featureKey:        "F01",
 			taskKey:           "T-E01-F01-001",
+			taskTitle:         "",
 			filename:          nil,
 			featureCustomPath: strPtr("docs/feature-custom"),
 			epicCustomPath:    strPtr("docs/epic-custom"),
@@ -228,6 +244,7 @@ func TestPathBuilder_ResolveTaskPath(t *testing.T) {
 			epicKey:           "E01",
 			featureKey:        "F01",
 			taskKey:           "T-E01-F01-001",
+			taskTitle:         "",
 			filename:          strPtr("docs/investigation.md"),
 			featureCustomPath: strPtr("docs/feature-custom"),
 			epicCustomPath:    strPtr("docs/epic-custom"),
@@ -239,6 +256,7 @@ func TestPathBuilder_ResolveTaskPath(t *testing.T) {
 			epicKey:           "E01",
 			featureKey:        "F01",
 			taskKey:           "T-E01-F01-001",
+			taskTitle:         "",
 			filename:          nil,
 			featureCustomPath: strPtr("docs/feature-custom"),
 			epicCustomPath:    strPtr("docs/epic-custom"),
@@ -250,17 +268,30 @@ func TestPathBuilder_ResolveTaskPath(t *testing.T) {
 			epicKey:           "E01",
 			featureKey:        "F01",
 			taskKey:           "T-E01-F01-001",
+			taskTitle:         "",
 			filename:          nil,
 			featureCustomPath: strPtr(""),
 			epicCustomPath:    strPtr("docs/epic-custom"),
 			wantPath:          filepath.Join(projectRoot, "docs", "epic-custom", "E01", "F01", "tasks", "T-E01-F01-001.md"),
 			wantErr:           false,
 		},
+		{
+			name:              "title with slug and custom path",
+			epicKey:           "E01",
+			featureKey:        "F01",
+			taskKey:           "T-E01-F01-002",
+			taskTitle:         "Fix API Bug",
+			filename:          nil,
+			featureCustomPath: strPtr("docs/features"),
+			epicCustomPath:    nil,
+			wantPath:          filepath.Join(projectRoot, "docs", "features", "F01", "tasks", "T-E01-F01-002-fix-api-bug.md"),
+			wantErr:           false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := pb.ResolveTaskPath(tt.epicKey, tt.featureKey, tt.taskKey, tt.filename, tt.featureCustomPath, tt.epicCustomPath)
+			got, err := pb.ResolveTaskPath(tt.epicKey, tt.featureKey, tt.taskKey, tt.taskTitle, tt.filename, tt.featureCustomPath, tt.epicCustomPath)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ResolveTaskPath() error = %v, wantErr %v", err, tt.wantErr)
@@ -324,7 +355,7 @@ func TestResolveTaskPathFromFeatureFile(t *testing.T) {
 
 	// BUG: This will produce docs/plan/E10/E10-F01/tasks/T-E10-F01-001.md
 	// because it uses epic key "E10" instead of finding actual epic directory
-	buggyPath, err := pb.ResolveTaskPath(epicKey, featureKey, taskKey, nil, nil, nil)
+	buggyPath, err := pb.ResolveTaskPath(epicKey, featureKey, taskKey, "", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ResolveTaskPath failed: %v", err)
 	}

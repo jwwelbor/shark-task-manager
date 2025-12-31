@@ -64,6 +64,26 @@ func Execute() error {
 }
 
 func init() {
+	// Define command groups for better organization in help output
+	RootCmd.AddGroup(
+		&cobra.Group{
+			ID:    "essentials",
+			Title: "Essential Commands:",
+		},
+		&cobra.Group{
+			ID:    "details",
+			Title: "Details & Discovery:",
+		},
+		&cobra.Group{
+			ID:    "status",
+			Title: "Status & Analytics:",
+		},
+		&cobra.Group{
+			ID:    "setup",
+			Title: "Setup & Maintenance:",
+		},
+	)
+
 	// Global flags available to all commands
 	RootCmd.PersistentFlags().BoolVar(&GlobalConfig.JSON, "json", false, "Output in JSON format (machine-readable)")
 	RootCmd.PersistentFlags().BoolVar(&GlobalConfig.NoColor, "no-color", false, "Disable colored output")

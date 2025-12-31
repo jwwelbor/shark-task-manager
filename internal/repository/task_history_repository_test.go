@@ -251,7 +251,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 	})
 
 	// Cleanup
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id IN (?, ?)", task1.ID, task2.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id IN (?, ?)", task1.ID, task2.ID) }()
 }
 
 // TestTaskHistoryRepository_ListWithFilters_EmptyResults tests that empty results are handled correctly
@@ -359,7 +359,7 @@ func TestGetHistoryByTaskKey(t *testing.T) {
 	assert.Equal(t, notes2, *histories[1].Notes)
 
 	// Cleanup
-	defer database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id = ?", task.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id = ?", task.ID) }()
 
 	// Seed test data again for next test
 	_ = epicID

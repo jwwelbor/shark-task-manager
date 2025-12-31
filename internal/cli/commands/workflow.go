@@ -12,8 +12,9 @@ import (
 
 // workflowCmd represents the workflow command group
 var workflowCmd = &cobra.Command{
-	Use:   "workflow",
-	Short: "Manage workflow configuration",
+	Use:     "workflow",
+	Short:   "Manage workflow configuration",
+	GroupID: "setup",
 	Long: `Workflow configuration operations including listing, validation, and migration.
 
 The workflow system allows customizing task status transitions via .sharkconfig.json.
@@ -201,7 +202,7 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 
 	// Prepare validation result
 	result := map[string]interface{}{
-		"valid":  validationErr == nil,
+		"valid":       validationErr == nil,
 		"config_path": configPath,
 	}
 
@@ -218,9 +219,9 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 		}
 
 		result["statistics"] = map[string]interface{}{
-			"statuses":    statusCount,
-			"transitions": transitionCount,
-			"start_statuses": startCount,
+			"statuses":          statusCount,
+			"transitions":       transitionCount,
+			"start_statuses":    startCount,
 			"complete_statuses": completeCount,
 		}
 
@@ -230,7 +231,7 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 		}
 
 		// Human-readable output
-		cli.Success(fmt.Sprintf("✓ Workflow configuration is valid"))
+		cli.Success("✓ Workflow configuration is valid")
 		fmt.Printf("\nStatistics:\n")
 		fmt.Printf("  - %d statuses defined\n", statusCount)
 		fmt.Printf("  - %d transitions configured\n", transitionCount)
@@ -246,7 +247,7 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 
 	// JSON output
 	if cli.GlobalConfig.JSON {
-		cli.OutputJSON(result)
+		_ = cli.OutputJSON(result)
 		return fmt.Errorf("validation failed")
 	}
 

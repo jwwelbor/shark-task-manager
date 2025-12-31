@@ -3,9 +3,11 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 	init_pkg "github.com/jwwelbor/shark-task-manager/internal/init"
 	"github.com/spf13/cobra"
 )
@@ -16,8 +18,9 @@ var (
 )
 
 var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize Shark CLI infrastructure",
+	Use:     "init",
+	Short:   "Initialize Shark CLI infrastructure",
+	GroupID: "setup",
 	Long: `Initialize Shark CLI infrastructure by creating database schema,
 folder structure, configuration file, and task templates.
 
@@ -47,6 +50,21 @@ func runInit(cmd *cobra.Command, args []string) error {
 	dbPath, err := cli.GetDBPath()
 	if err != nil {
 		return fmt.Errorf("failed to get database path: %w", err)
+	}
+
+	// Create backup before init (even though init shouldn't modify existing data)
+	// This protects against unexpected issues
+	if _, err := os.Stat(dbPath); err == nil {
+		// Database exists, create backup
+		backupPath, err := db.BackupDatabase(dbPath)
+		if err != nil {
+			cli.Warning(fmt.Sprintf("Failed to create backup: %v", err))
+			// Continue anyway - init should be safe
+		} else {
+			if !cli.GlobalConfig.JSON {
+				cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+			}
+		}
 	}
 
 	// Create initializer options

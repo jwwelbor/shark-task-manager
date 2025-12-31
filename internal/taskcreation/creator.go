@@ -165,7 +165,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 			}
 
 			pb := utils.NewPathBuilder(c.projectRoot)
-			fullFilePath, err = pb.ResolveTaskPath(epic.Key, validated.NormalizedFeatureKey, key, nil, feature.CustomFolderPath, epic.CustomFolderPath)
+			fullFilePath, err = pb.ResolveTaskPath(epic.Key, validated.NormalizedFeatureKey, key, input.Title, nil, feature.CustomFolderPath, epic.CustomFolderPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve task path: %w", err)
 			}
