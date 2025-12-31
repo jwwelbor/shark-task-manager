@@ -1,0 +1,21 @@
+warning: GOPATH set to GOROOT (/home/jwwelbor/go) has no effect
+=== RUN   TestQueryPlanAnalysis
+=== RUN   TestQueryPlanAnalysis/FeatureProgressQueryPlan
+    query_performance_benchmark_test.go:204: Feature progress calculation query plan:
+    query_performance_benchmark_test.go:213:   SEARCH tasks USING INDEX idx_tasks_feature_id (feature_id=?)
+=== RUN   TestQueryPlanAnalysis/EpicProgressQueryPlan
+    query_performance_benchmark_test.go:246: Epic progress calculation query plan:
+    query_performance_benchmark_test.go:255:   SEARCH f USING INDEX idx_features_epic_id (epic_id=?)
+    query_performance_benchmark_test.go:255:   CORRELATED SCALAR SUBQUERY 1
+    query_performance_benchmark_test.go:255:   SEARCH t USING COVERING INDEX idx_tasks_feature_id (feature_id=?)
+    query_performance_benchmark_test.go:255:   CORRELATED SCALAR SUBQUERY 2
+    query_performance_benchmark_test.go:255:   SEARCH t USING COVERING INDEX idx_tasks_feature_id (feature_id=?)
+=== RUN   TestQueryPlanAnalysis/GetByKeyQueryPlan
+    query_performance_benchmark_test.go:282: GetByKey query plan:
+    query_performance_benchmark_test.go:291:   SEARCH features USING INDEX idx_features_key (key=?)
+--- PASS: TestQueryPlanAnalysis (0.01s)
+    --- PASS: TestQueryPlanAnalysis/FeatureProgressQueryPlan (0.00s)
+    --- PASS: TestQueryPlanAnalysis/EpicProgressQueryPlan (0.00s)
+    --- PASS: TestQueryPlanAnalysis/GetByKeyQueryPlan (0.00s)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/repository	0.013s

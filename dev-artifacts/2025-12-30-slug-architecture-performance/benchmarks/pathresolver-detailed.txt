@@ -1,0 +1,15 @@
+warning: GOPATH set to GOROOT (/home/jwwelbor/go) has no effect
+goos: linux
+goarch: amd64
+pkg: github.com/jwwelbor/shark-task-manager/internal/pathresolver
+cpu: AMD Ryzen 7 260 w/ Radeon 780M Graphics
+BenchmarkPathResolver_ResolveEpicPath_Default-6            	11208289	       574.4 ns/op	     256 B/op	       4 allocs/op
+BenchmarkPathResolver_ResolveEpicPath_CustomFolder-6       	18975343	       298.0 ns/op	     208 B/op	       2 allocs/op
+BenchmarkPathResolver_ResolveEpicPath_ExplicitFilename-6   	20481183	       260.7 ns/op	     192 B/op	       2 allocs/op
+BenchmarkPathResolver_ResolveFeaturePath_Default-6         	 7400924	       913.3 ns/op	     488 B/op	       6 allocs/op
+BenchmarkPathResolver_ResolveFeaturePath_InheritedPath-6   	11289908	       531.2 ns/op	     392 B/op	       4 allocs/op
+BenchmarkPathResolver_ResolveTaskPath_Default-6            	 4096470	      1586 ns/op	     952 B/op	      10 allocs/op
+BenchmarkPathResolver_ResolveTaskPath_ExplicitPath-6       	15761329	       418.5 ns/op	     400 B/op	       3 allocs/op
+BenchmarkPathResolver_ComplexScenario-6                    	 1898401	      2915 ns/op	    1696 B/op	      20 allocs/op
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/pathresolver	56.465s
