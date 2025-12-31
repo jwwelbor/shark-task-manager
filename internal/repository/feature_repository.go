@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
@@ -95,8 +96,56 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 	return feature, nil
 }
 
-// GetByKey retrieves a feature by its key
+// GetByKey retrieves a feature by its key with support for multiple key formats:
+// - Full key: "E07-F11"
+// - Numeric key: "F11" or "f11"
+// - Slugged key: "F11-slug-name" or "f11-slug-name"
+// - Full key with slug: "E07-F11-slug-name"
+//
+// The method tries lookups in this order:
+// 1. Exact match on key column
+// 2. Pattern match for numeric key (key LIKE '%F11')
+// 3. Pattern match for slugged key (key || '-' || slug matches input)
 func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
+	// Normalize key to uppercase for comparison
+	normalizedKey := strings.ToUpper(key)
+
+	// Try 1: Exact match on key column
+	feature, err := r.getByExactKey(ctx, normalizedKey)
+	if err == nil {
+		return feature, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get feature by exact key: %w", err)
+	}
+
+	// Try 2: Numeric key pattern (F11, f11) -> match features with key ending in -F11
+	if strings.HasPrefix(normalizedKey, "F") {
+		feature, err = r.getByNumericKey(ctx, normalizedKey)
+		if err == nil {
+			return feature, nil
+		}
+		if err != sql.ErrNoRows {
+			return nil, fmt.Errorf("failed to get feature by numeric key: %w", err)
+		}
+	}
+
+	// Try 3: Slugged key pattern (F11-slug-name or E07-F11-slug-name)
+	// Extract the numeric part and slug, then match against key and slug columns
+	feature, err = r.getBySluggedKey(ctx, normalizedKey)
+	if err == nil {
+		return feature, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get feature by slugged key: %w", err)
+	}
+
+	// No match found
+	return nil, sql.ErrNoRows
+}
+
+// getByExactKey performs exact match lookup on the key column
+func (r *FeatureRepository) getByExactKey(ctx context.Context, key string) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, progress_pct,
 		       execution_order, file_path, created_at, updated_at
@@ -120,14 +169,99 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 		&feature.UpdatedAt,
 	)
 
-	if err == sql.ErrNoRows {
+	return feature, err
+}
+
+// getByNumericKey matches features where the key ends with the numeric part
+// Example: "F11" matches "E07-F11", "E05-F11", etc.
+func (r *FeatureRepository) getByNumericKey(ctx context.Context, numericKey string) (*models.Feature, error) {
+	query := `
+		SELECT id, epic_id, key, title, slug, description, status, progress_pct,
+		       execution_order, file_path, created_at, updated_at
+		FROM features
+		WHERE key LIKE ?
+	`
+
+	// Match pattern: any epic prefix followed by the numeric key
+	// E.g., "F11" -> "%F11" which matches "E07-F11", "E99-F11", etc.
+	pattern := "%-" + numericKey
+
+	feature := &models.Feature{}
+	err := r.db.QueryRowContext(ctx, query, pattern).Scan(
+		&feature.ID,
+		&feature.EpicID,
+		&feature.Key,
+		&feature.Title,
+		&feature.Slug,
+		&feature.Description,
+		&feature.Status,
+		&feature.ProgressPct,
+		&feature.ExecutionOrder,
+		&feature.FilePath,
+		&feature.CreatedAt,
+		&feature.UpdatedAt,
+	)
+
+	return feature, err
+}
+
+// getBySluggedKey matches features by parsing slugged key formats
+// Formats: "F11-slug-name", "f11-slug-name", "E07-F11-slug-name"
+func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey string) (*models.Feature, error) {
+	// Parse slugged key to extract numeric part and slug
+	// Possible formats:
+	// - F11-user-auth-feature
+	// - E07-F11-user-auth-feature
+
+	parts := strings.Split(sluggedKey, "-")
+	if len(parts) < 2 {
 		return nil, sql.ErrNoRows
 	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature: %w", err)
+
+	var numericPart string
+	var slugPart string
+
+	// Check if first part is epic (E##) or feature (F##)
+	if strings.HasPrefix(parts[0], "E") && len(parts) >= 3 {
+		// Format: E07-F11-slug-name
+		numericPart = parts[1] // F11
+		slugPart = strings.Join(parts[2:], "-") // slug-name
+	} else if strings.HasPrefix(parts[0], "F") {
+		// Format: F11-slug-name
+		numericPart = parts[0] // F11
+		slugPart = strings.Join(parts[1:], "-") // slug-name
+	} else {
+		return nil, sql.ErrNoRows
 	}
 
-	return feature, nil
+	// Query for features where key ends with numeric part AND slug matches
+	query := `
+		SELECT id, epic_id, key, title, slug, description, status, progress_pct,
+		       execution_order, file_path, created_at, updated_at
+		FROM features
+		WHERE key LIKE ? AND slug = ?
+	`
+
+	pattern := "%-" + numericPart
+	slugLower := strings.ToLower(slugPart)
+
+	feature := &models.Feature{}
+	err := r.db.QueryRowContext(ctx, query, pattern, slugLower).Scan(
+		&feature.ID,
+		&feature.EpicID,
+		&feature.Key,
+		&feature.Title,
+		&feature.Slug,
+		&feature.Description,
+		&feature.Status,
+		&feature.ProgressPct,
+		&feature.ExecutionOrder,
+		&feature.FilePath,
+		&feature.CreatedAt,
+		&feature.UpdatedAt,
+	)
+
+	return feature, err
 }
 
 // GetByFilePath retrieves a feature by its file path for collision detection
