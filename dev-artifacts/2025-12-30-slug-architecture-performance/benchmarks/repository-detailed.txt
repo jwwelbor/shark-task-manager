@@ -1,0 +1,20 @@
+warning: GOPATH set to GOROOT (/home/jwwelbor/go) has no effect
+goos: linux
+goarch: amd64
+pkg: github.com/jwwelbor/shark-task-manager/internal/repository
+cpu: AMD Ryzen 7 260 w/ Radeon 780M Graphics
+BenchmarkEpicProgress-6          	  204100	     30110 ns/op	     640 B/op	      19 allocs/op
+BenchmarkEpicList-6              	   75690	     76742 ns/op	    6760 B/op	     214 allocs/op
+--- BENCH: BenchmarkEpicList-6
+    query_performance_benchmark_test.go:40: Average epic list query time: 0.24 ms (target: <100ms)
+    query_performance_benchmark_test.go:40: Average epic list query time: 0.10 ms (target: <100ms)
+    query_performance_benchmark_test.go:40: Average epic list query time: 0.08 ms (target: <100ms)
+    query_performance_benchmark_test.go:40: Average epic list query time: 0.08 ms (target: <100ms)
+BenchmarkEpicGetWithFeatures-6   	   35557	    163670 ns/op	    8712 B/op	     283 allocs/op
+--- BENCH: BenchmarkEpicGetWithFeatures-6
+    query_performance_benchmark_test.go:93: Average epic get (with 5 features) time: 0.33 ms (target: <200ms)
+    query_performance_benchmark_test.go:93: Average epic get (with 5 features) time: 0.14 ms (target: <200ms)
+    query_performance_benchmark_test.go:93: Average epic get (with 5 features) time: 0.17 ms (target: <200ms)
+    query_performance_benchmark_test.go:93: Average epic get (with 5 features) time: 0.16 ms (target: <200ms)
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/repository	20.997s

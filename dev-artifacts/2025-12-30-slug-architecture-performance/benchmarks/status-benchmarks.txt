@@ -1,0 +1,17 @@
+warning: GOPATH set to GOROOT (/home/jwwelbor/go) has no effect
+goos: linux
+goarch: amd64
+pkg: github.com/jwwelbor/shark-task-manager/internal/status
+cpu: AMD Ryzen 7 260 w/ Radeon 780M Graphics
+BenchmarkGetDashboard_EmptyDatabase-6    	    7063	    240941 ns/op	    4512 B/op	      92 allocs/op
+BenchmarkGetDashboard_SmallProject-6     	    1423	    877519 ns/op	   24816 B/op	    1042 allocs/op
+BenchmarkGetDashboard_LargeProject-6     	     145	   8236772 ns/op	  303178 B/op	   13690 allocs/op
+BenchmarkGetDashboard_FilteredByEpic-6   	    3292	    451542 ns/op	   14212 B/op	     384 allocs/op
+BenchmarkGetProjectSummary-6             	    4641	    308337 ns/op	    1239 B/op	      36 allocs/op
+BenchmarkGetEpics-6                      	    8372	    161912 ns/op	    2687 B/op	     100 allocs/op
+BenchmarkGetActiveTasks-6                	    6046	    166644 ns/op	    9704 B/op	     416 allocs/op
+BenchmarkGetBlockedTasks-6               	    8902	    157836 ns/op	   11104 B/op	     489 allocs/op
+BenchmarkDetermineEpicHealth-6           	1000000000	         0.5059 ns/op	       0 B/op	       0 allocs/op
+BenchmarkStatusRequestValidate-6         	  268960	      4969 ns/op	    2632 B/op	      38 allocs/op
+PASS
+ok  	github.com/jwwelbor/shark-task-manager/internal/status	18.304s
