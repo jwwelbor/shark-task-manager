@@ -12,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
@@ -459,28 +460,21 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Get epic to access its custom path (needed for path resolution)
-	epic, err := epicRepo.GetByID(ctx, feature.EpicID)
-	if err != nil {
-		if cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to get epic for feature: %v\n", err)
-		}
-		epic = nil
-	}
-
 	// Get project root for path resolution
 	projectRoot, err := os.Getwd()
 	if err != nil {
 		projectRoot = ""
 	}
 
-	// Resolve feature path
+	// Resolve feature path using PathResolver
 	var resolvedPath string
-	if projectRoot != "" && epic != nil {
-		pathBuilder := utils.NewPathBuilder(projectRoot)
-		absPath, err := pathBuilder.ResolveFeaturePath(epic.Key, feature.Key, feature.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
+	if projectRoot != "" {
+		pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
+		absPath, err := pathResolver.ResolveFeaturePath(ctx, feature.Key)
 		if err == nil {
 			resolvedPath = getRelativePathFeature(absPath, projectRoot)
+		} else if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to resolve feature path: %v\n", err)
 		}
 	}
 

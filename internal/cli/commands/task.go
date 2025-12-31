@@ -12,10 +12,10 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
-	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -451,19 +451,15 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		projectRoot = ""
 	}
 
-	// Resolve task path (requires feature and epic info)
+	// Resolve task path using PathResolver
 	var resolvedPath string
 	if projectRoot != "" {
-		feature, err := featureRepo.GetByID(ctx, task.FeatureID)
+		pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
+		absPath, err := pathResolver.ResolveTaskPath(ctx, task.Key)
 		if err == nil {
-			epic, err := epicRepo.GetByID(ctx, feature.EpicID)
-			if err == nil {
-				pathBuilder := utils.NewPathBuilder(projectRoot)
-				absPath, err := pathBuilder.ResolveTaskPath(epic.Key, feature.Key, task.Key, task.Title, task.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
-				if err == nil {
-					resolvedPath = getRelativePathTask(absPath, projectRoot)
-				}
-			}
+			resolvedPath = getRelativePathTask(absPath, projectRoot)
+		} else if cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to resolve task path: %v\n", err)
 		}
 	}
 
