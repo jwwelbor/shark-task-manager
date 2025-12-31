@@ -40,3 +40,4 @@ dist/
 *.db-shm
 *.db-wal
 build-errors.log
+*_old/

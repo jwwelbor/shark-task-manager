@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
 
 // FeatureRepository handles CRUD operations for features
@@ -25,15 +26,20 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	// Generate slug from title
+	generatedSlug := slug.Generate(feature.Title)
+	feature.Slug = &generatedSlug
+
 	query := `
-		INSERT INTO features (epic_id, key, title, description, status, progress_pct, execution_order, file_path, custom_folder_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO features (epic_id, key, title, slug, description, status, progress_pct, execution_order, file_path, custom_folder_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
 		feature.EpicID,
 		feature.Key,
 		feature.Title,
+		feature.Slug,
 		feature.Description,
 		feature.Status,
 		feature.ProgressPct,
@@ -57,7 +63,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 // GetByID retrieves a feature by its ID
 func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
 	query := `
-		SELECT id, epic_id, key, title, description, status, progress_pct,
+		SELECT id, epic_id, key, title, slug, description, status, progress_pct,
 		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE id = ?
@@ -69,6 +75,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 		&feature.EpicID,
 		&feature.Key,
 		&feature.Title,
+		&feature.Slug,
 		&feature.Description,
 		&feature.Status,
 		&feature.ProgressPct,
@@ -91,7 +98,7 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 // GetByKey retrieves a feature by its key
 func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
 	query := `
-		SELECT id, epic_id, key, title, description, status, progress_pct,
+		SELECT id, epic_id, key, title, slug, description, status, progress_pct,
 		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE key = ?
@@ -103,6 +110,7 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 		&feature.EpicID,
 		&feature.Key,
 		&feature.Title,
+		&feature.Slug,
 		&feature.Description,
 		&feature.Status,
 		&feature.ProgressPct,
@@ -125,7 +133,7 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 // GetByFilePath retrieves a feature by its file path for collision detection
 func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Feature, error) {
 	query := `
-		SELECT id, epic_id, key, title, description, status, progress_pct,
+		SELECT id, epic_id, key, title, slug, description, status, progress_pct,
 		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE file_path = ?
@@ -137,6 +145,7 @@ func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) 
 		&feature.EpicID,
 		&feature.Key,
 		&feature.Title,
+		&feature.Slug,
 		&feature.Description,
 		&feature.Status,
 		&feature.ProgressPct,
@@ -159,7 +168,7 @@ func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) 
 // ListByEpic retrieves all features for an epic
 func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error) {
 	query := `
-		SELECT id, epic_id, key, title, description, status, progress_pct,
+		SELECT id, epic_id, key, title, slug, description, status, progress_pct,
 		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE epic_id = ?
@@ -180,6 +189,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 			&feature.EpicID,
 			&feature.Key,
 			&feature.Title,
+			&feature.Slug,
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,
@@ -204,7 +214,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 // List retrieves all features
 func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error) {
 	query := `
-		SELECT id, epic_id, key, title, description, status, progress_pct,
+		SELECT id, epic_id, key, title, slug, description, status, progress_pct,
 		       execution_order, file_path, created_at, updated_at
 		FROM features
 		ORDER BY execution_order NULLS LAST, created_at
@@ -224,6 +234,7 @@ func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error)
 			&feature.EpicID,
 			&feature.Key,
 			&feature.Title,
+			&feature.Slug,
 			&feature.Description,
 			&feature.Status,
 			&feature.ProgressPct,

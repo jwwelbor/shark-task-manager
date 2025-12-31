@@ -478,6 +478,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"status":             epic.Status,
 			"priority":           epic.Priority,
 			"business_value":     epic.BusinessValue,
+			"slug":               epic.Slug,
 			"progress_pct":       epicProgress,
 			"path":               dirPath,
 			"filename":           filename,

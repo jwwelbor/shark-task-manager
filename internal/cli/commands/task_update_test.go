@@ -65,3 +65,47 @@ func TestTaskCreateCommand_KeyFlag(t *testing.T) {
 		t.Fatal("task create command not found in task subcommands")
 	}
 }
+
+// TestTaskUpdateCommand_OrderFlag tests that the task update command has an --order flag
+func TestTaskUpdateCommand_OrderFlag(t *testing.T) {
+	// Verify the task update command is registered
+	var found bool
+	for _, cmd := range taskCmd.Commands() {
+		if cmd.Use == "update <task-key>" {
+			found = true
+
+			// Verify it has the --order flag
+			if cmd.Flags().Lookup("order") == nil {
+				t.Error("task update command missing --order flag")
+			}
+
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("task update command not found in task subcommands")
+	}
+}
+
+// TestTaskCreateCommand_OrderFlag tests that the task create command has an --order flag
+func TestTaskCreateCommand_OrderFlag(t *testing.T) {
+	// Verify the task create command is registered
+	var found bool
+	for _, cmd := range taskCmd.Commands() {
+		if cmd.Use == "create <title> [flags]" {
+			found = true
+
+			// Verify it has the --order flag
+			if cmd.Flags().Lookup("order") == nil {
+				t.Error("task create command missing --order flag")
+			}
+
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("task create command not found in task subcommands")
+	}
+}

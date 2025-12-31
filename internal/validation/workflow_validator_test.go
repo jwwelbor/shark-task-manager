@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -52,19 +53,19 @@ func TestStatusValidator_ValidateStatus(t *testing.T) {
 func TestStatusValidator_ValidateTransition(t *testing.T) {
 	workflow := &config.WorkflowConfig{
 		StatusFlow: map[string][]string{
-			"draft":               {"ready_for_refinement"},
-			"ready_for_refinement": {"in_refinement"},
-			"in_refinement":        {"ready_for_development"},
+			"draft":                 {"ready_for_refinement"},
+			"ready_for_refinement":  {"in_refinement"},
+			"in_refinement":         {"ready_for_development"},
 			"ready_for_development": {"in_development"},
-			"in_development":       {"ready_for_code_review", "blocked"},
+			"in_development":        {"ready_for_code_review", "blocked"},
 			"ready_for_code_review": {"in_code_review"},
-			"in_code_review":       {"ready_for_qa", "in_development"},
-			"ready_for_qa":         {"in_qa"},
-			"in_qa":                {"ready_for_approval"},
-			"ready_for_approval":   {"in_approval"},
-			"in_approval":          {"completed"},
-			"blocked":              {"in_development"},
-			"completed":            {},
+			"in_code_review":        {"ready_for_qa", "in_development"},
+			"ready_for_qa":          {"in_qa"},
+			"in_qa":                 {"ready_for_approval"},
+			"ready_for_approval":    {"in_approval"},
+			"in_approval":           {"completed"},
+			"blocked":               {"in_development"},
+			"completed":             {},
 		},
 	}
 
@@ -98,15 +99,15 @@ func TestStatusValidator_ValidateTransition(t *testing.T) {
 func TestStatusValidator_CanTransition(t *testing.T) {
 	workflow := &config.WorkflowConfig{
 		StatusFlow: map[string][]string{
-			"in_development":       {"ready_for_code_review", "blocked"},
+			"in_development":        {"ready_for_code_review", "blocked"},
 			"ready_for_code_review": {"in_code_review"},
-			"in_code_review":       {"ready_for_qa", "in_development"},
-			"ready_for_qa":         {"in_qa"},
-			"in_qa":                {"ready_for_approval"},
-			"ready_for_approval":   {"in_approval"},
-			"in_approval":          {"completed"},
-			"blocked":              {"in_development"},
-			"completed":            {},
+			"in_code_review":        {"ready_for_qa", "in_development"},
+			"ready_for_qa":          {"in_qa"},
+			"in_qa":                 {"ready_for_approval"},
+			"ready_for_approval":    {"in_approval"},
+			"in_approval":           {"completed"},
+			"blocked":               {"in_development"},
+			"completed":             {},
 		},
 	}
 
@@ -280,4 +281,77 @@ func TestStatusValidator_NilWorkflowHandling(t *testing.T) {
 	if len(validator.GetAllStatuses()) != 0 {
 		t.Error("Should return empty slice when workflow is nil")
 	}
+}
+
+func TestStatusValidator_ValidateTransition_UnrecognizedCurrentStatus(t *testing.T) {
+	// Test that when current status is not in workflow config,
+	// error message explains how to list workflow statuses and use --force
+	workflow := &config.WorkflowConfig{
+		StatusFlow: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"completed"},
+			"completed":   {},
+		},
+	}
+
+	validator := NewStatusValidator(workflow)
+
+	// Try to transition from a status that doesn't exist in the workflow
+	// This simulates a task with an old status after workflow config changed
+	err := validator.ValidateTransition("old_status", "todo")
+
+	if err == nil {
+		t.Fatal("Expected error when transitioning from unrecognized status")
+	}
+
+	errMsg := err.Error()
+
+	// Error message should contain helpful information
+	expectedPhrases := []string{
+		"current status",      // Explain it's the current status that's the problem
+		"not recognized",      // Clear about what the issue is
+		"shark workflow list", // How to see available statuses
+		"--force",             // How to bypass the check
+		"old_status",          // Show the actual unrecognized status
+	}
+
+	for _, phrase := range expectedPhrases {
+		if !containsIgnoreCase(errMsg, phrase) {
+			t.Errorf("Error message missing expected phrase %q.\nGot: %s", phrase, errMsg)
+		}
+	}
+}
+
+func TestStatusValidator_ValidateTransition_UnrecognizedTargetStatus(t *testing.T) {
+	// Test that when target status is not in workflow config, error message is clear
+	workflow := &config.WorkflowConfig{
+		StatusFlow: map[string][]string{
+			"todo":        {"in_progress"},
+			"in_progress": {"completed"},
+			"completed":   {},
+		},
+	}
+
+	validator := NewStatusValidator(workflow)
+
+	// Try to transition to a status that doesn't exist in the workflow
+	err := validator.ValidateTransition("todo", "invalid_target")
+
+	if err == nil {
+		t.Fatal("Expected error when transitioning to unrecognized status")
+	}
+
+	errMsg := err.Error()
+
+	// Error should mention it's an invalid "to status" (wrapped error from ValidateStatus)
+	if !strings.Contains(errMsg, "invalid to status") {
+		t.Errorf("Error message should mention 'invalid to status'.\nGot: %s", errMsg)
+	}
+}
+
+// Helper function for case-insensitive substring check
+func containsIgnoreCase(s, substr string) bool {
+	s = strings.ToLower(s)
+	substr = strings.ToLower(substr)
+	return strings.Contains(s, substr)
 }

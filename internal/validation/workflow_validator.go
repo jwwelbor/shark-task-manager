@@ -48,7 +48,13 @@ func (v *StatusValidator) ValidateTransition(fromStatus, toStatus string) error 
 
 	// First validate both statuses exist
 	if err := v.ValidateStatus(fromStatus); err != nil {
-		return fmt.Errorf("invalid from status: %w", err)
+		// Provide helpful error message when current status is not recognized
+		return fmt.Errorf(
+			"current status %q is not recognized in the workflow configuration.\n"+
+				"Available statuses: [%s]\n"+
+				"To view workflow configuration, run: shark workflow list\n"+
+				"To force this status change, use the --force flag",
+			fromStatus, v.getAllStatusesString())
 	}
 	if err := v.ValidateStatus(toStatus); err != nil {
 		return fmt.Errorf("invalid to status: %w", err)

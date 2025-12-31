@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	backfillDryRun bool
+	backfillDryRun  bool
 	backfillVerbose bool
 )
 
@@ -123,12 +123,12 @@ func outputJSON(stats *db.MigrationStats, dryRun bool) error {
 
 func outputTable(stats *db.MigrationStats, dryRun bool, verbose bool) error {
 	if dryRun {
-		fmt.Println("Preview of slug backfill:\n")
+		fmt.Println("Preview of slug backfill:")
 	} else {
 		if verbose {
 			fmt.Println()
 		}
-		fmt.Println("Results:\n")
+		fmt.Println("Results:")
 	}
 
 	// Calculate before/after counts

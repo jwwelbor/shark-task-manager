@@ -7,23 +7,24 @@ import (
 
 // MigrationStats contains statistics about slug backfill migration
 type MigrationStats struct {
-	EpicsTotal      int
-	EpicsWithSlugs  int
-	EpicsUpdated    int
-	FeaturesTotal   int
+	EpicsTotal        int
+	EpicsWithSlugs    int
+	EpicsUpdated      int
+	FeaturesTotal     int
 	FeaturesWithSlugs int
-	FeaturesUpdated int
-	TasksTotal      int
-	TasksWithSlugs  int
-	TasksUpdated    int
+	FeaturesUpdated   int
+	TasksTotal        int
+	TasksWithSlugs    int
+	TasksUpdated      int
 }
 
 // BackfillSlugsFromFilePaths extracts slugs from existing file_path values
 // and populates the slug column for epics, features, and tasks.
 // Uses a three-phase approach for maximum coverage:
-//   Phase 1: Extract epic/feature slugs from task paths (highest coverage - 278 tasks)
-//   Phase 2: Extract epic slugs from feature paths (fill gaps - 11 features)
-//   Phase 3: Extract slugs from own file_path (current behavior)
+//
+//	Phase 1: Extract epic/feature slugs from task paths (highest coverage - 278 tasks)
+//	Phase 2: Extract epic slugs from feature paths (fill gaps - 11 features)
+//	Phase 3: Extract slugs from own file_path (current behavior)
 //
 // If dryRun is true, changes are not committed and statistics are returned showing
 // what WOULD be updated. This allows preview before running actual migration.
@@ -305,9 +306,10 @@ func BackfillSlugsFromFilePaths(db *sql.DB, dryRun bool) (*MigrationStats, error
 // extractEpicSlugFromPath extracts the slug from an epic file path
 // Works with epic.md paths, feature paths, and task paths
 // Examples:
-//   "docs/plan/E05-task-mgmt-cli-capabilities/epic.md" -> "task-mgmt-cli-capabilities"
-//   "docs/plan/E04-task-mgmt-cli-core/E04-F01-database-schema/feature.md" -> "task-mgmt-cli-core"
-//   "docs/plan/E04-task-mgmt-cli-core/E04-F01-database-schema/tasks/T-E04-F01-001.md" -> "task-mgmt-cli-core"
+//
+//	"docs/plan/E05-task-mgmt-cli-capabilities/epic.md" -> "task-mgmt-cli-capabilities"
+//	"docs/plan/E04-task-mgmt-cli-core/E04-F01-database-schema/feature.md" -> "task-mgmt-cli-core"
+//	"docs/plan/E04-task-mgmt-cli-core/E04-F01-database-schema/tasks/T-E04-F01-001.md" -> "task-mgmt-cli-core"
 func extractEpicSlugFromPath(filePath string) string {
 	if filePath == "" {
 		return ""
@@ -474,8 +476,9 @@ func isFeatureKeyPattern(s string) bool {
 // extractFeatureSlugFromPath extracts the slug from a feature file path
 // Works with feature's own paths (prd.md, feature.md) and task paths
 // Examples:
-//   "docs/plan/E06-intelligent-scanning/E06-F04-incremental-sync-engine/prd.md" -> "incremental-sync-engine"
-//   "docs/plan/E04-epic/E04-F01-database-schema/tasks/T-E04-F01-001.md" -> "database-schema"
+//
+//	"docs/plan/E06-intelligent-scanning/E06-F04-incremental-sync-engine/prd.md" -> "incremental-sync-engine"
+//	"docs/plan/E04-epic/E04-F01-database-schema/tasks/T-E04-F01-001.md" -> "database-schema"
 func extractFeatureSlugFromPath(filePath string) string {
 	if filePath == "" {
 		return ""
