@@ -14,7 +14,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/patterns"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
-	"github.com/jwwelbor/shark-task-manager/internal/utils"
 )
 
 // Creator orchestrates the complete task creation workflow
@@ -148,7 +147,8 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 			return nil, fmt.Errorf("failed to fetch feature: %w", err)
 		}
 
-		// 2. Derive task path from feature's file_path if available
+		// 2. Resolve task path based on feature's base path
+		// Note: We use PathResolver's logic but can't call it directly since task doesn't exist yet
 		if feature.FilePath != nil && *feature.FilePath != "" {
 			// Feature has a file path - derive task path from it
 			// Example: feature.FilePath = "docs/plan/E10-advanced-task.../E10-F01-task-notes/feature.md"
@@ -158,19 +158,50 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 			fullFilePath = filepath.Join(c.projectRoot, relPath)
 			filePath = relPath
 		} else {
-			// Fallback: feature has no file_path, use PathBuilder to reconstruct from keys
+			// Use PathResolver logic to compute path based on feature's base path
+			// We need to manually construct since task doesn't exist yet
 			epic, err := c.epicRepo.GetByID(ctx, feature.EpicID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch epic: %w", err)
 			}
 
-			pb := utils.NewPathBuilder(c.projectRoot)
-			fullFilePath, err = pb.ResolveTaskPath(epic.Key, validated.NormalizedFeatureKey, key, input.Title, nil, feature.CustomFolderPath, epic.CustomFolderPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve task path: %w", err)
+			// Determine feature's base directory using same logic as PathResolver
+			var featureBaseDir string
+			if feature.CustomFolderPath != nil && *feature.CustomFolderPath != "" {
+				featureBaseDir = *feature.CustomFolderPath
+			} else if epic.CustomFolderPath != nil && *epic.CustomFolderPath != "" {
+				// Inherit epic's custom folder path
+				featureSlug := ""
+				if feature.Slug != nil && *feature.Slug != "" {
+					featureSlug = *feature.Slug
+				} else {
+					featureSlug = feature.Key
+				}
+				featureFolder := feature.Key + "-" + featureSlug
+				featureBaseDir = filepath.Join(*epic.CustomFolderPath, featureFolder)
+			} else {
+				// Default: docs/plan/{epic-key}/{feature-key}
+				epicSlug := ""
+				if epic.Slug != nil && *epic.Slug != "" {
+					epicSlug = *epic.Slug
+				} else {
+					epicSlug = epic.Key
+				}
+				featureSlug := ""
+				if feature.Slug != nil && *feature.Slug != "" {
+					featureSlug = *feature.Slug
+				} else {
+					featureSlug = feature.Key
+				}
+				epicFolder := epic.Key + "-" + epicSlug
+				featureFolder := feature.Key + "-" + featureSlug
+				featureBaseDir = filepath.Join("docs", "plan", epicFolder, featureFolder)
 			}
 
-			relPath, _ := filepath.Rel(c.projectRoot, fullFilePath)
+			// Task path: {featureBaseDir}/tasks/{task-key}.md
+			taskFilename := key + ".md"
+			relPath := filepath.Join(featureBaseDir, "tasks", taskFilename)
+			fullFilePath = filepath.Join(c.projectRoot, relPath)
 			filePath = relPath
 		}
 

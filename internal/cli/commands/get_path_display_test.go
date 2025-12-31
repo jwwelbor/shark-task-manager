@@ -8,8 +8,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/utils"
 )
 
 // TestTaskGetPathDisplay tests path and filename display for tasks with all combinations
@@ -130,9 +130,9 @@ func TestTaskGetPathDisplay(t *testing.T) {
 				t.Fatalf("Failed to create task: %v", err)
 			}
 
-			// Resolve the path
-			pathBuilder := utils.NewPathBuilder(projectRoot)
-			resolvedPath, err := pathBuilder.ResolveTaskPath(epic.Key, feature.Key, task.Key, task.Title, task.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
+			// Resolve the path using PathResolver
+			pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
+			resolvedPath, err := pathResolver.ResolveTaskPath(ctx, task.Key)
 			if err != nil {
 				t.Fatalf("Failed to resolve task path: %v", err)
 			}
@@ -184,6 +184,8 @@ func TestEpicGetPathDisplay(t *testing.T) {
 	ctx := context.Background()
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Create test project structure
 	projectRoot := t.TempDir()
@@ -250,9 +252,9 @@ func TestEpicGetPathDisplay(t *testing.T) {
 				t.Fatalf("Failed to create epic: %v", err)
 			}
 
-			// Resolve the path
-			pathBuilder := utils.NewPathBuilder(projectRoot)
-			resolvedPath, err := pathBuilder.ResolveEpicPath(epic.Key, epic.FilePath, epic.CustomFolderPath)
+			// Resolve the path using PathResolver
+			pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
+			resolvedPath, err := pathResolver.ResolveEpicPath(ctx, epic.Key)
 			if err != nil {
 				t.Fatalf("Failed to resolve epic path: %v", err)
 			}
@@ -305,6 +307,7 @@ func TestFeatureGetPathDisplay(t *testing.T) {
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Create test project structure
 	projectRoot := t.TempDir()
@@ -383,9 +386,9 @@ func TestFeatureGetPathDisplay(t *testing.T) {
 				t.Fatalf("Failed to create feature: %v", err)
 			}
 
-			// Resolve the path
-			pathBuilder := utils.NewPathBuilder(projectRoot)
-			resolvedPath, err := pathBuilder.ResolveFeaturePath(epic.Key, feature.Key, feature.FilePath, feature.CustomFolderPath, epic.CustomFolderPath)
+			// Resolve the path using PathResolver
+			pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
+			resolvedPath, err := pathResolver.ResolveFeaturePath(ctx, feature.Key)
 			if err != nil {
 				t.Fatalf("Failed to resolve feature path: %v", err)
 			}
