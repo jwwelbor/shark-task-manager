@@ -72,7 +72,17 @@ Examples:
 var taskGetCmd = &cobra.Command{
 	Use:   "get <task-key>",
 	Short: "Get task details",
-	Long:  `Display detailed information about a specific task.`,
+	Long: `Display detailed information about a specific task.
+
+Supports multiple key formats:
+  - Full key: T-E04-F02-001
+  - Numeric key: 001 (if unique within project)
+  - Slugged key: T-E04-F02-001-task-name
+
+Examples:
+  shark task get T-E04-F02-001                     Get task by full key
+  shark task get T-E04-F02-001-user-auth           Get task by slugged key
+  shark task get T-E04-F02-001 --json              Output as JSON`,
 	Args:  cobra.ExactArgs(1),
 	RunE:  runTaskGet,
 }
@@ -103,7 +113,13 @@ var taskStartCmd = &cobra.Command{
 	Long: `Mark a task as in_progress and update timestamps.
 
 Use --force to bypass status transition validation. This allows starting a task
-from any status (not just 'todo'). Use with caution as this is an administrative override.`,
+from any status (not just 'todo'). Use with caution as this is an administrative override.
+
+Supports multiple key formats (numeric, full, or slugged).
+
+Examples:
+  shark task start T-E04-F02-001                   Start task by full key
+  shark task start T-E04-F02-001-user-auth         Start task by slugged key`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTaskStart,
 }
@@ -115,7 +131,13 @@ var taskCompleteCmd = &cobra.Command{
 	Long: `Mark a task as ready_for_review and update timestamps.
 
 Use --force to bypass status transition validation. This allows marking a task complete
-from any status (not just 'in_progress'). Use with caution as this is an administrative override.`,
+from any status (not just 'in_progress'). Use with caution as this is an administrative override.
+
+Supports multiple key formats (numeric, full, or slugged).
+
+Examples:
+  shark task complete T-E04-F02-001                Complete task by full key
+  shark task complete T-E04-F02-001-user-auth      Complete task by slugged key`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTaskComplete,
 }
@@ -188,8 +210,11 @@ var taskDeleteCmd = &cobra.Command{
 
 WARNING: This action cannot be undone. Task history will also be deleted.
 
+Supports multiple key formats (numeric, full, or slugged).
+
 Examples:
-  shark task delete T-E04-F01-001`,
+  shark task delete T-E04-F01-001                  Delete task by full key
+  shark task delete T-E04-F01-001-user-auth        Delete task by slugged key`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTaskDelete,
 }
@@ -200,9 +225,11 @@ var taskUpdateCmd = &cobra.Command{
 	Short: "Update a task",
 	Long: `Update a task's properties such as title, description, priority, agent, or dependencies.
 
+Supports multiple key formats (numeric, full, or slugged).
+
 Examples:
   shark task update T-E04-F01-001 --title "New Title"
-  shark task update T-E04-F01-001 --description "New description"
+  shark task update T-E04-F01-001-user-auth --description "New description"
   shark task update T-E04-F01-001 --priority 1
   shark task update T-E04-F01-001 --agent backend
   shark task update T-E04-F01-001 --filename "docs/tasks/custom.md"

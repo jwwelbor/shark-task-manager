@@ -92,9 +92,14 @@ var epicGetCmd = &cobra.Command{
 	Short: "Get epic details",
 	Long: `Display detailed information about a specific epic including all features and progress.
 
+Supports both numeric and slugged key formats:
+  - Numeric key: E04
+  - Slugged key: E04-epic-name
+
 Examples:
-  shark epic get E04              Get epic details
-  shark epic get E04 --json       Output as JSON`,
+  shark epic get E04                    Get epic by numeric key
+  shark epic get E04-enhancements       Get epic by slugged key
+  shark epic get E04 --json             Output as JSON`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicGet,
 }
@@ -120,9 +125,14 @@ var epicCompleteCmd = &cobra.Command{
 Without --force, shows a warning summary if any tasks are incomplete and fails.
 With --force, completes all tasks regardless of status.
 
+Supports both numeric and slugged key formats:
+  - Numeric key: E07
+  - Slugged key: E07-epic-name
+
 Examples:
-  shark epic complete E07       Complete epic (fails if tasks incomplete)
-  shark epic complete E07 --force  Force complete all tasks`,
+  shark epic complete E07                   Complete epic by numeric key
+  shark epic complete E07-enhancements      Complete epic by slugged key
+  shark epic complete E07 --force           Force complete all tasks`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicComplete,
 }
@@ -162,9 +172,14 @@ var epicDeleteCmd = &cobra.Command{
 WARNING: This action cannot be undone. All features and tasks under this epic will also be deleted.
 If the epic has features, you must use --force to confirm the cascade deletion.
 
+Supports both numeric and slugged key formats:
+  - Numeric key: E05
+  - Slugged key: E05-epic-name
+
 Examples:
-  shark epic delete E05               Delete epic with no features
-  shark epic delete E05 --force       Force delete epic with features`,
+  shark epic delete E05                     Delete epic with no features
+  shark epic delete E05-enhancements        Delete epic by slugged key
+  shark epic delete E05 --force             Force delete epic with features`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicDelete,
 }
@@ -175,9 +190,13 @@ var epicUpdateCmd = &cobra.Command{
 	Short: "Update an epic",
 	Long: `Update an epic's properties such as title, description, status, priority, or file path.
 
+Supports both numeric and slugged key formats:
+  - Numeric key: E01
+  - Slugged key: E01-epic-name
+
 Examples:
   shark epic update E01 --title "New Title"
-  shark epic update E01 --description "New description"
+  shark epic update E01-enhancements --description "New description"
   shark epic update E01 --status active
   shark epic update E01 --filename "docs/roadmap/2025.md"
   shark epic update E01 --path "docs/roadmap"`,

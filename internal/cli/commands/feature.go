@@ -96,9 +96,18 @@ var featureGetCmd = &cobra.Command{
 	Short: "Get feature details",
 	Long: `Display detailed information about a specific feature including all tasks and progress.
 
+Supports multiple key formats:
+  - Full key: E04-F02
+  - Numeric key: F02
+  - Slugged key: F02-feature-name
+  - Full key with slug: E04-F02-feature-name
+
 Examples:
-  shark feature get E04-F02       Get feature details
-  shark feature get E04-F02 --json  Output as JSON`,
+  shark feature get E04-F02                        Get feature by full key
+  shark feature get F02                            Get feature by numeric key
+  shark feature get F02-user-auth                  Get feature by slugged key
+  shark feature get E04-F02-user-auth              Get feature by full key with slug
+  shark feature get E04-F02 --json                 Output as JSON`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFeatureGet,
 }
@@ -135,9 +144,13 @@ var featureCompleteCmd = &cobra.Command{
 Without --force, shows a warning summary if any tasks are incomplete and fails.
 With --force, completes all tasks regardless of status.
 
+Supports multiple key formats (numeric, full, or slugged).
+
 Examples:
-  shark feature complete E04-F02       Complete feature (fails if tasks incomplete)
-  shark feature complete E04-F02 --force  Force complete all tasks`,
+  shark feature complete E04-F02                   Complete feature by full key
+  shark feature complete F02                       Complete feature by numeric key
+  shark feature complete F02-user-auth             Complete feature by slugged key
+  shark feature complete E04-F02 --force           Force complete all tasks`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFeatureComplete,
 }
@@ -151,9 +164,13 @@ var featureDeleteCmd = &cobra.Command{
 WARNING: This action cannot be undone. All tasks under this feature will also be deleted.
 If the feature has tasks, you must use --force to confirm the cascade deletion.
 
+Supports multiple key formats (numeric, full, or slugged).
+
 Examples:
-  shark feature delete E04-F02         Delete feature with no tasks
-  shark feature delete E04-F02 --force Force delete feature with tasks`,
+  shark feature delete E04-F02                     Delete feature with no tasks
+  shark feature delete F02                         Delete feature by numeric key
+  shark feature delete F02-user-auth               Delete feature by slugged key
+  shark feature delete E04-F02 --force             Force delete feature with tasks`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFeatureDelete,
 }
@@ -164,10 +181,12 @@ var featureUpdateCmd = &cobra.Command{
 	Short: "Update a feature",
 	Long: `Update a feature's properties such as title, description, status, execution order, or file path.
 
+Supports multiple key formats (numeric, full, or slugged).
+
 Examples:
   shark feature update E04-F02 --title "New Title"
-  shark feature update E04-F02 --description "New description"
-  shark feature update E04-F02 --status active
+  shark feature update F02 --description "New description"
+  shark feature update F02-user-auth --status active
   shark feature update E04-F02 --execution-order 2
   shark feature update E04-F02 --filename "docs/specs/feature.md"
   shark feature update E04-F02 --path "docs/custom"`,
