@@ -169,8 +169,19 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 	return task, nil
 }
 
-// GetByKey retrieves a task by its key
+// GetByKey retrieves a task by its key, supporting both numeric and slugged formats.
+// Supports two key formats:
+// 1. Numeric: T-E04-F01-001
+// 2. Slugged: T-E04-F01-001-task-name
+//
+// Lookup strategy:
+// 1. Try exact match on the key column (handles legacy numeric keys)
+// 2. If not found and key contains a slug suffix, parse and match numeric key + slug
 func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task, error) {
+	if key == "" {
+		return nil, fmt.Errorf("task key cannot be empty")
+	}
+
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
@@ -211,6 +222,65 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 		&task.ContextData,
 	)
 
+	if err == nil {
+		// Found by exact match on key column
+		return task, nil
+	}
+
+	if err != sql.ErrNoRows {
+		// Unexpected error
+		return nil, fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Not found by exact match - try parsing as slugged key
+	// Expected format: T-E##-F##-###-slug-text
+	// Parse to extract numeric key and slug
+	numericKey, slug, ok := parseSluggedKey(key)
+	if !ok {
+		// Cannot parse as slugged key, return not found
+		return nil, fmt.Errorf("task not found with key %s", key)
+	}
+
+	// Try lookup by numeric key + slug match
+	queryWithSlug := `
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
+		FROM tasks
+		WHERE key = ? AND slug = ?
+	`
+
+	err = r.db.QueryRowContext(ctx, queryWithSlug, numericKey, slug).Scan(
+		&task.ID,
+		&task.FeatureID,
+		&task.Key,
+		&task.Title,
+		&task.Slug,
+		&task.Description,
+		&task.Status,
+		&task.AgentType,
+		&task.Priority,
+		&task.DependsOn,
+		&task.AssignedAgent,
+		&task.FilePath,
+		&task.BlockedReason,
+		&task.ExecutionOrder,
+		&task.CreatedAt,
+		&task.StartedAt,
+		&task.CompletedAt,
+		&task.BlockedAt,
+		&task.UpdatedAt,
+		&task.CompletedBy,
+		&task.CompletionNotes,
+		&task.FilesChanged,
+		&task.TestsPassed,
+		&task.VerificationStatus,
+		&task.TimeSpentMinutes,
+		&task.ContextData,
+	)
+
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("task not found with key %s", key)
 	}
@@ -219,6 +289,61 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 	}
 
 	return task, nil
+}
+
+// parseSluggedKey parses a slugged task key into numeric key and slug components.
+// Input format: T-E##-F##-###-slug-text
+// Returns: numericKey (T-E##-F##-###), slug (slug-text), ok (true if valid format)
+func parseSluggedKey(key string) (numericKey string, slug string, ok bool) {
+	// Task key format: T-E##-F##-###
+	// Minimum length: T-E1-F1-1 = 9 characters
+	// With slug: T-E1-F1-1-slug = at least 14 characters
+	if len(key) < 14 {
+		return "", "", false
+	}
+
+	// Check prefix
+	if !strings.HasPrefix(key, "T-") {
+		return "", "", false
+	}
+
+	// Find the 4th hyphen which separates the numeric part from the slug
+	// Format: T-E##-F##-###-slug
+	//         ^  ^   ^   ^
+	//         1  2   3   4
+	hyphenCount := 0
+	lastHyphenPos := -1
+
+	for i, ch := range key {
+		if ch == '-' {
+			hyphenCount++
+			if hyphenCount == 4 {
+				lastHyphenPos = i
+				break
+			}
+		}
+	}
+
+	if lastHyphenPos == -1 || lastHyphenPos >= len(key)-1 {
+		// No 4th hyphen or nothing after it
+		return "", "", false
+	}
+
+	numericKey = key[:lastHyphenPos]
+	slug = key[lastHyphenPos+1:]
+
+	// Validate numeric key format matches T-E##-F##-###
+	// At minimum: T-E1-F1-1
+	if len(numericKey) < 9 {
+		return "", "", false
+	}
+
+	// Slug should be non-empty
+	if slug == "" {
+		return "", "", false
+	}
+
+	return numericKey, slug, true
 }
 
 // GetByFilePath retrieves a task by its file path
