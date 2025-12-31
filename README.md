@@ -5,6 +5,7 @@ A task management system built with Go and SQLite, featuring both an HTTP API an
 ## Key Features
 
 - **Hierarchical Task Organization**: Organize work into Epics → Features → Tasks with auto-generated keys
+- **Dual Key Format**: Support for both numeric (`E04`, `T-E04-F01-001`) and human-readable slugged keys (`E04-user-management`, `T-E04-F01-001-implement-auth`)
 - **AI-Driven Workflows**: Built-in support for multiple agent types with dependency-aware task selection
 - **Flexible Organization**: Organize with custom folder base paths (`--path` flag) or specific file paths (`--filename` flag)
 - **Auto-Detect Project Root**: Run shark commands from any subdirectory - automatically finds database and config
@@ -329,8 +330,10 @@ shark init --non-interactive
 shark epic list --json
 shark task next --agent=backend --json
 
-# 3. Start working on a task
+# 3. Start working on a task (supports both numeric and slugged keys)
 shark task start T-E04-F06-001
+# OR using human-readable slugged key
+shark task start T-E04-F06-001-implement-user-authentication
 
 # 4. Mark task ready for review
 shark task complete T-E04-F06-001
@@ -366,7 +369,11 @@ shark epic list --status=active --json
 
 **Get epic details with all features:**
 ```bash
+# Using numeric key
 shark epic get E04 --json
+
+# OR using human-readable slugged key
+shark epic get E04-user-management --json
 ```
 
 **List features in an epic:**
@@ -379,11 +386,18 @@ shark feature list E04 --status=active --json
 # Using flag syntax (still supported, backward compatible)
 shark feature list --epic=E04 --json
 shark feature list --epic=E04 --status=active --json
+
+# Works with slugged epic keys too
+shark feature list E04-user-management --json
 ```
 
 **Get feature details with all tasks:**
 ```bash
+# Using numeric key
 shark feature get E04-F06 --json
+
+# OR using slugged key
+shark feature get E04-F06-authentication --json
 ```
 
 **Find the next available task:**

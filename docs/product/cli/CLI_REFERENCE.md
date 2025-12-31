@@ -18,6 +18,7 @@ Shark is a task management CLI for AI-driven development workflows.
 
 **Key concepts:**
 - Auto-generated keys: E01, E01-F01, T-E01-F01-001
+- Dual key format: Numeric (`E04`, `T-E04-F01-001`) and slugged (`E04-user-management`, `T-E04-F01-001-implement-auth`)
 - Task statuses: `todo`, `in_progress`, `blocked`, `ready_for_review`, `completed`, `archived`
 - Epic/Feature statuses: `draft`, `active`, `completed`, `archived`
 - Priority ordering: 1-10 (1 = highest priority)
@@ -52,6 +53,88 @@ shark init --non-interactive
 # Force overwrite existing files
 shark init --force
 ```
+
+## Dual Key Format Support
+
+Shark supports **two key formats** for all epics, features, and tasks:
+
+### Key Formats
+
+**Numeric Keys (Legacy):**
+- Epics: `E04`
+- Features: `E04-F02` or `F02`
+- Tasks: `T-E04-F02-001`
+
+**Slugged Keys (Human-Readable):**
+- Epics: `E04-user-management`
+- Features: `E04-F02-authentication` or `F02-authentication`
+- Tasks: `T-E04-F02-001-implement-jwt-validation`
+
+### How It Works
+
+**Automatic Slug Generation:**
+- Slugs are automatically generated from titles during creation
+- Title → slug conversion: lowercase, replace spaces/underscores with hyphens, remove special characters
+- Examples:
+  - "User Management" → `user-management`
+  - "API_Design & Testing" → `api-design-testing`
+  - "Deploy to Production!!!" → `deploy-to-production`
+
+**Both Formats Work Everywhere:**
+- All CLI commands accept BOTH numeric and slugged keys
+- No need to remember which format to use
+- Slugged keys are optional - numeric keys always work
+
+**Examples:**
+```bash
+# Epic commands - both work
+shark epic get E04
+shark epic get E04-user-management
+
+# Feature commands - both work
+shark feature get E04-F02
+shark feature get E04-F02-authentication
+shark feature get F02-authentication
+
+# Task commands - both work
+shark task start T-E04-F02-001
+shark task start T-E04-F02-001-implement-jwt-validation
+
+shark task complete T-E04-F02-001
+shark task complete T-E04-F02-001-implement-jwt-validation
+```
+
+### Benefits
+
+**For Humans:**
+- Self-documenting keys reveal what the work is about
+- Easier to remember and communicate
+- Better readability in logs, commits, PRs
+
+**For AI Agents:**
+- Both formats work transparently
+- No format preference required
+- Backward compatible with existing numeric keys
+
+**For Systems:**
+- Numeric keys remain the source of truth
+- Slugs are supplementary for convenience
+- No risk of slug conflicts (requires both numeric key + slug to match)
+
+### Slug Migration
+
+For existing projects without slugs:
+
+```bash
+# Backfill slugs for all epics, features, tasks
+shark migrate slugs
+
+# Verify slugs were generated
+shark epic list --json | jq '.[].slug'
+shark task list --json | jq '.[].slug'
+```
+
+---
 
 ## Complete Workflow Example
 
@@ -283,14 +366,21 @@ shark epic list --json
 
 Get detailed epic information with all features and progress.
 
+**Arguments:**
+- `<epic-key>` - Epic key in either numeric (`E04`) or slugged (`E04-user-management`) format
+
 **Examples:**
 
 ```bash
-# Human-readable output
+# Human-readable output (numeric key)
 shark epic get E04
+
+# Using slugged key
+shark epic get E04-user-management
 
 # JSON output
 shark epic get E04 --json
+shark epic get E04-user-management --json
 ```
 
 ### `shark epic delete <epic-key>`
@@ -439,14 +529,23 @@ shark feature list --json
 
 Get detailed feature information with all tasks and progress.
 
+**Arguments:**
+- `<feature-key>` - Feature key in numeric (`E04-F02` or `F02`) or slugged (`E04-F02-authentication`, `F02-authentication`) format
+
 **Examples:**
 
 ```bash
-# Human-readable output
+# Human-readable output (numeric keys)
 shark feature get E04-F02
+shark feature get F02
+
+# Using slugged keys
+shark feature get E04-F02-authentication
+shark feature get F02-authentication
 
 # JSON output
 shark feature get E04-F02 --json
+shark feature get E04-F02-authentication --json
 ```
 
 ### `shark feature delete <feature-key>`
@@ -593,14 +692,21 @@ shark task list --show-all --json
 
 Get detailed task information including dependencies.
 
+**Arguments:**
+- `<task-key>` - Task key in numeric (`T-E01-F01-001`) or slugged (`T-E01-F01-001-implement-validation`) format
+
 **Examples:**
 
 ```bash
-# Human-readable output
+# Human-readable output (numeric key)
 shark task get T-E01-F01-001
+
+# Using slugged key
+shark task get T-E01-F01-001-implement-validation
 
 # JSON output with dependency status
 shark task get T-E01-F01-001 --json
+shark task get T-E01-F01-001-implement-validation --json
 ```
 
 ### `shark task next`
@@ -659,6 +765,9 @@ blocked    (reopen)
 
 Start working on a task (todo → in_progress).
 
+**Arguments:**
+- `<task-key>` - Task key in numeric or slugged format
+
 **Validations:**
 - Current status must be `todo`
 - Warns if dependencies incomplete
@@ -674,11 +783,15 @@ Start working on a task (todo → in_progress).
 **Examples:**
 
 ```bash
-# Start task
+# Start task (numeric key)
 shark task start T-E04-F06-001
+
+# Start task (slugged key)
+shark task start T-E04-F06-001-implement-user-authentication
 
 # With agent identifier
 shark task start T-E04-F06-001 --agent="ai-agent-001"
+shark task start T-E04-F06-001-implement-user-authentication --agent="ai-agent-001"
 
 # Output:
 #  SUCCESS  Task T-E04-F06-001 started
@@ -689,6 +802,9 @@ shark task start T-E04-F06-001 --agent="ai-agent-001"
 ### `shark task complete <task-key>`
 
 Mark task ready for review (in_progress → ready_for_review).
+
+**Arguments:**
+- `<task-key>` - Task key in numeric or slugged format
 
 **Validations:**
 - Current status must be `in_progress`
@@ -709,8 +825,11 @@ Mark task ready for review (in_progress → ready_for_review).
 **Examples:**
 
 ```bash
-# Mark ready for review
+# Mark ready for review (numeric key)
 shark task complete T-E04-F06-001
+
+# Using slugged key
+shark task complete T-E04-F06-001-implement-user-authentication
 
 # With notes
 shark task complete T-E04-F06-001 --notes="All tests passing"
