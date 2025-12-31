@@ -22,11 +22,11 @@ func DefaultWorkflow() *WorkflowConfig {
 
 		// Status transitions matching current hardcoded behavior
 		StatusFlow: map[string][]string{
-			"todo": {"in_progress", "blocked"},
-			"in_progress": {"ready_for_review", "blocked"},
+			"todo":             {"in_progress", "blocked"},
+			"in_progress":      {"ready_for_review", "blocked"},
 			"ready_for_review": {"completed", "in_progress"}, // Can return to in_progress
-			"completed": {},                                   // Terminal status
-			"blocked": {"todo", "in_progress"},                // Can unblock to todo or in_progress
+			"completed":        {},                           // Terminal status
+			"blocked":          {"todo", "in_progress"},      // Can unblock to todo or in_progress
 		},
 
 		// Metadata for each status (UI display and agent targeting)

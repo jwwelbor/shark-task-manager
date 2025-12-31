@@ -234,7 +234,7 @@ func TestBuildDependencyGraph(t *testing.T) {
 	require.NotZero(t, epicID, "epicID should not be zero")
 	require.NotZero(t, featureID, "featureID should not be zero")
 
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID) }()
 
 	// Create test tasks with dependencies
 	tasks := []*models.Task{
@@ -283,7 +283,7 @@ func TestBuildDependencyGraph(t *testing.T) {
 	}
 	defer func() {
 		for _, task := range tasks {
-			database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+			_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
 		}
 	}()
 

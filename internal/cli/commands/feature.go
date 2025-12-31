@@ -28,6 +28,25 @@ func getRelativePathFeature(absPath string, projectRoot string) string {
 	return relPath
 }
 
+// backupDatabaseOnForceFeature creates a backup when --force flag is used
+// Returns the backup path and error (if any)
+func backupDatabaseOnForceFeature(force bool, dbPath string, operation string) (string, error) {
+	if !force {
+		return "", nil
+	}
+
+	backupPath, err := db.BackupDatabase(dbPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create backup before %s: %w", operation, err)
+	}
+
+	if !cli.GlobalConfig.JSON {
+		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+	}
+
+	return backupPath, nil
+}
+
 // FeatureWithTaskCount wraps a Feature with task count
 type FeatureWithTaskCount struct {
 	*models.Feature
@@ -36,8 +55,9 @@ type FeatureWithTaskCount struct {
 
 // featureCmd represents the feature command group
 var featureCmd = &cobra.Command{
-	Use:   "feature",
-	Short: "Manage features",
+	Use:     "feature",
+	Short:   "Manage features",
+	GroupID: "essentials",
 	Long: `Query and manage features within epics.
 
 Examples:
@@ -898,11 +918,6 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 					relPath, existingFeature.Key, existingFeature.Title))
 				os.Exit(1)
 			}
-			// Force reassignment: clear the old feature's file path
-			if err := featureRepo.UpdateFilePath(ctx, existingFeature.Key, nil); err != nil {
-				cli.Error(fmt.Sprintf("Error: Failed to clear old feature's file path: %v", err))
-				os.Exit(1)
-			}
 		}
 
 		// Check for collision with existing epics (cross-entity collision)
@@ -913,6 +928,27 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 					relPath, existingEpic.Key, existingEpic.Title))
 				os.Exit(1)
 			}
+		}
+
+		// Create backup before force reassignment (if any collision exists)
+		if (existingFeature != nil || existingEpic != nil) && featureCreateForce {
+			if _, err := backupDatabaseOnForceFeature(featureCreateForce, dbPath, "force file reassignment"); err != nil {
+				cli.Error(fmt.Sprintf("Error: %v", err))
+				cli.Info("Aborting operation to prevent data loss")
+				os.Exit(2)
+			}
+		}
+
+		// Force reassignment: clear the old feature's file path
+		if existingFeature != nil && featureCreateForce {
+			if err := featureRepo.UpdateFilePath(ctx, existingFeature.Key, nil); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to clear old feature's file path: %v", err))
+				os.Exit(1)
+			}
+		}
+
+		// Force reassignment: clear the old epic's file path
+		if existingEpic != nil && featureCreateForce {
 			// Force reassignment: clear the old epic's file path
 			if err := epicRepo.UpdateFilePath(ctx, existingEpic.Key, nil); err != nil {
 				cli.Error(fmt.Sprintf("Error: Failed to clear old epic's file path: %v", err))
@@ -1212,6 +1248,15 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		os.Exit(3)
 	}
 
+	// Create backup before force completing tasks
+	if force && hasIncomplete {
+		if _, err := backupDatabaseOnForceFeature(force, dbPath, "force complete feature"); err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			cli.Info("Aborting operation to prevent data loss")
+			os.Exit(2)
+		}
+	}
+
 	// Complete all tasks in a transaction
 	agent := getAgentIdentifier("")
 	numCompleted := 0
@@ -1341,6 +1386,19 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 		cli.Warning("This will CASCADE DELETE all tasks and their history")
 		cli.Info(fmt.Sprintf("Use --force to confirm deletion: shark feature delete %s --force", featureKey))
 		os.Exit(1)
+	}
+
+	// Create backup before cascade delete (when feature has tasks)
+	if len(tasks) > 0 {
+		backupPath, err := db.BackupDatabase(dbPath)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
+			cli.Info("Aborting deletion to prevent data loss")
+			os.Exit(2)
+		}
+		if !cli.GlobalConfig.JSON {
+			cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+		}
 	}
 
 	// Delete feature from database (CASCADE will handle tasks)

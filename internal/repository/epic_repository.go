@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
 
 // EpicRepository handles CRUD operations for epics
@@ -25,9 +26,13 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	// Generate slug from title
+	generatedSlug := slug.Generate(epic.Title)
+	epic.Slug = &generatedSlug
+
 	query := `
-		INSERT INTO epics (key, title, description, status, priority, business_value, custom_folder_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO epics (key, title, description, status, priority, business_value, slug, custom_folder_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -37,6 +42,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 		epic.Status,
 		epic.Priority,
 		epic.BusinessValue,
+		epic.Slug,
 		epic.CustomFolderPath,
 	)
 	if err != nil {
@@ -56,7 +62,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       file_path, custom_folder_path, created_at, updated_at
+		       slug, file_path, custom_folder_path, created_at, updated_at
 		FROM epics
 		WHERE id = ?
 	`
@@ -70,6 +76,7 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 		&epic.Status,
 		&epic.Priority,
 		&epic.BusinessValue,
+		&epic.Slug,
 		&epic.FilePath,
 		&epic.CustomFolderPath,
 		&epic.CreatedAt,
@@ -90,7 +97,7 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       file_path, custom_folder_path, created_at, updated_at
+		       slug, file_path, custom_folder_path, created_at, updated_at
 		FROM epics
 		WHERE key = ?
 	`
@@ -104,6 +111,7 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 		&epic.Status,
 		&epic.Priority,
 		&epic.BusinessValue,
+		&epic.Slug,
 		&epic.FilePath,
 		&epic.CustomFolderPath,
 		&epic.CreatedAt,
@@ -123,8 +131,8 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 // GetByFilePath retrieves an epic by its file path for collision detection
 func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error) {
 	query := `
-		SELECT id, key, title, description, status, priority, business_value, file_path,
-		       created_at, updated_at
+		SELECT id, key, title, description, status, priority, business_value, slug, file_path,
+		       custom_folder_path, created_at, updated_at
 		FROM epics
 		WHERE file_path = ?
 	`
@@ -138,7 +146,9 @@ func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 		&epic.Status,
 		&epic.Priority,
 		&epic.BusinessValue,
+		&epic.Slug,
 		&epic.FilePath,
+		&epic.CustomFolderPath,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -157,7 +167,7 @@ func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       file_path, custom_folder_path, created_at, updated_at
+		       slug, file_path, custom_folder_path, created_at, updated_at
 		FROM epics
 	`
 	args := []interface{}{}
@@ -186,6 +196,7 @@ func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([
 			&epic.Status,
 			&epic.Priority,
 			&epic.BusinessValue,
+			&epic.Slug,
 			&epic.FilePath,
 			&epic.CustomFolderPath,
 			&epic.CreatedAt,

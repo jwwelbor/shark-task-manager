@@ -476,9 +476,9 @@ func TestTaskRepository_GetTaskDependents(t *testing.T) {
 	require.NoError(t, err)
 	featureID, _ := featureResult.LastInsertId()
 
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE feature_id = ?", featureID) }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureID) }()
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epicID) }()
 
 	// Create test tasks with dependency structure
 	// Task 1 (no dependencies)

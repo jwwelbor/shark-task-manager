@@ -29,6 +29,25 @@ func getRelativePath(absPath string, projectRoot string) string {
 	return relPath
 }
 
+// backupDatabaseOnForce creates a backup when --force flag is used
+// Returns the backup path and error (if any)
+func backupDatabaseOnForce(force bool, dbPath string, operation string) (string, error) {
+	if !force {
+		return "", nil
+	}
+
+	backupPath, err := db.BackupDatabase(dbPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create backup before %s: %w", operation, err)
+	}
+
+	if !cli.GlobalConfig.JSON {
+		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+	}
+
+	return backupPath, nil
+}
+
 // EpicWithProgress wraps an Epic with its calculated progress
 type EpicWithProgress struct {
 	*models.Epic
@@ -43,8 +62,9 @@ type FeatureWithDetails struct {
 
 // epicCmd represents the epic command group
 var epicCmd = &cobra.Command{
-	Use:   "epic",
-	Short: "Manage epics",
+	Use:     "epic",
+	Short:   "Manage epics",
+	GroupID: "essentials",
 	Long: `Query and manage epics with automatic progress calculation.
 
 Examples:
@@ -458,6 +478,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"status":             epic.Status,
 			"priority":           epic.Priority,
 			"business_value":     epic.BusinessValue,
+			"slug":               epic.Slug,
 			"progress_pct":       epicProgress,
 			"path":               dirPath,
 			"filename":           filename,
@@ -761,6 +782,15 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 			cli.Error(fmt.Sprintf("Error: file '%s' is already claimed by feature %s ('%s'). Use --force to reassign",
 				relPath, existingFeature.Key, existingFeature.Title))
 			os.Exit(1)
+		}
+
+		// Create backup before force reassignment
+		if (existingEpic != nil || existingFeature != nil) && force {
+			if _, err := backupDatabaseOnForce(force, dbPath, "force file reassignment"); err != nil {
+				cli.Error(fmt.Sprintf("Error: %v", err))
+				cli.Info("Aborting operation to prevent data loss")
+				os.Exit(2)
+			}
 		}
 
 		// Force reassignment if collision exists and --force is set
@@ -1103,6 +1133,15 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		os.Exit(3)
 	}
 
+	// Create backup before force completing tasks
+	if force && hasIncomplete {
+		if _, err := backupDatabaseOnForce(force, dbPath, "force complete epic"); err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			cli.Info("Aborting operation to prevent data loss")
+			os.Exit(2)
+		}
+	}
+
 	// Complete all tasks in a transaction
 	agent := getAgentIdentifier("")
 	completedTaskCount := 0
@@ -1249,6 +1288,19 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 		cli.Warning("This will CASCADE DELETE all features and their tasks")
 		cli.Info(fmt.Sprintf("Use --force to confirm deletion: shark epic delete %s --force", epicKey))
 		os.Exit(1)
+	}
+
+	// Create backup before cascade delete (when epic has features)
+	if len(features) > 0 {
+		backupPath, err := db.BackupDatabase(dbPath)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
+			cli.Info("Aborting deletion to prevent data loss")
+			os.Exit(2)
+		}
+		if !cli.GlobalConfig.JSON {
+			cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+		}
 	}
 
 	// Delete epic from database (CASCADE will handle features/tasks)
