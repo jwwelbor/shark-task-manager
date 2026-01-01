@@ -224,11 +224,11 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 	// Check if first part is epic (E##) or feature (F##)
 	if strings.HasPrefix(parts[0], "E") && len(parts) >= 3 {
 		// Format: E07-F11-slug-name
-		numericPart = parts[1] // F11
+		numericPart = parts[1]                  // F11
 		slugPart = strings.Join(parts[2:], "-") // slug-name
 	} else if strings.HasPrefix(parts[0], "F") {
 		// Format: F11-slug-name
-		numericPart = parts[0] // F11
+		numericPart = parts[0]                  // F11
 		slugPart = strings.Join(parts[1:], "-") // slug-name
 	} else {
 		return nil, sql.ErrNoRows

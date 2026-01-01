@@ -708,3 +708,244 @@ END;`)
 
 	return nil
 }
+
+// MigrateFixFeaturesOldForeignKeys fixes foreign key constraints in tasks and feature_documents
+// that incorrectly reference "features_old" instead of "features"
+func MigrateFixFeaturesOldForeignKeys(db *sql.DB) error {
+	// Check if migration is needed
+	needsMigration, err := needsFeaturesOldFKFix(db)
+	if err != nil {
+		return fmt.Errorf("failed to check if features_old FK fix needed: %w", err)
+	}
+
+	if !needsMigration {
+		// Already fixed or never had the issue
+		return nil
+	}
+
+	// Fix tasks table
+	if err := fixTasksFeaturesOldFK(db); err != nil {
+		return fmt.Errorf("failed to fix tasks table foreign keys: %w", err)
+	}
+
+	// Fix feature_documents table
+	if err := fixFeatureDocumentsFeaturesOldFK(db); err != nil {
+		return fmt.Errorf("failed to fix feature_documents table foreign keys: %w", err)
+	}
+
+	return nil
+}
+
+// needsFeaturesOldFKFix checks if tasks or feature_documents tables reference features_old
+func needsFeaturesOldFKFix(db *sql.DB) (bool, error) {
+	tables := []string{"tasks", "feature_documents"}
+
+	for _, table := range tables {
+		var createSQL string
+		err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&createSQL)
+		if err != nil {
+			// Table doesn't exist, skip
+			continue
+		}
+
+		if strings.Contains(createSQL, "features_old") {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// fixTasksFeaturesOldFK recreates tasks table with correct foreign key
+func fixTasksFeaturesOldFK(db *sql.DB) error {
+	// Get current table schema
+	var createSQL string
+	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&createSQL)
+	if err != nil {
+		return fmt.Errorf("failed to get tasks schema: %w", err)
+	}
+
+	// If no reference to features_old, nothing to do
+	if !strings.Contains(createSQL, "features_old") {
+		return nil
+	}
+
+	// Temporarily disable foreign key constraints
+	_, err = db.Exec("PRAGMA foreign_keys = OFF;")
+	if err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+	defer func() {
+		_, _ = db.Exec("PRAGMA foreign_keys = ON;")
+	}()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Rename old table
+	_, err = tx.Exec(`ALTER TABLE tasks RENAME TO tasks_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to rename tasks table: %w", err)
+	}
+
+	// Create new tasks table with correct foreign key
+	_, err = tx.Exec(`
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature_id INTEGER NOT NULL,
+    key TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL,
+    agent_type TEXT,
+    priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 1 AND priority <= 10),
+    depends_on TEXT,
+    assigned_agent TEXT,
+    file_path TEXT,
+    blocked_reason TEXT,
+    execution_order INTEGER NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    blocked_at TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_by TEXT,
+    completion_notes TEXT,
+    files_changed TEXT,
+    tests_passed BOOLEAN DEFAULT 0,
+    verification_status TEXT CHECK(verification_status IN ('pending', 'verified', 'needs_rework')) DEFAULT 'pending',
+    time_spent_minutes INTEGER,
+    context_data TEXT,
+    slug TEXT,
+
+    FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create new tasks table: %w", err)
+	}
+
+	// Copy data
+	_, err = tx.Exec(`
+INSERT INTO tasks SELECT * FROM tasks_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to copy tasks data: %w", err)
+	}
+
+	// Recreate indexes
+	indexes := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_key ON tasks(key);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_feature_id ON tasks(feature_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_agent_type ON tasks(agent_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_file_path ON tasks(file_path);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_slug ON tasks(slug);`,
+	}
+	for _, idx := range indexes {
+		if _, err := tx.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+
+	// Recreate trigger
+	_, _ = tx.Exec(`DROP TRIGGER IF EXISTS tasks_updated_at;`)
+	_, err = tx.Exec(`
+CREATE TRIGGER IF NOT EXISTS tasks_updated_at
+AFTER UPDATE ON tasks
+FOR EACH ROW
+BEGIN
+    UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;`)
+	if err != nil {
+		return fmt.Errorf("failed to create trigger: %w", err)
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE tasks_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old tasks table: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// fixFeatureDocumentsFeaturesOldFK recreates feature_documents table with correct foreign key
+func fixFeatureDocumentsFeaturesOldFK(db *sql.DB) error {
+	// Get current table schema
+	var createSQL string
+	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='feature_documents'").Scan(&createSQL)
+	if err != nil {
+		// Table doesn't exist, skip
+		return nil
+	}
+
+	// If no reference to features_old, nothing to do
+	if !strings.Contains(createSQL, "features_old") {
+		return nil
+	}
+
+	// Temporarily disable foreign key constraints
+	_, err = db.Exec("PRAGMA foreign_keys = OFF;")
+	if err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+	defer func() {
+		_, _ = db.Exec("PRAGMA foreign_keys = ON;")
+	}()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Rename old table
+	_, err = tx.Exec(`ALTER TABLE feature_documents RENAME TO feature_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to rename feature_documents table: %w", err)
+	}
+
+	// Create new table with correct foreign key
+	_, err = tx.Exec(`
+CREATE TABLE feature_documents (
+    feature_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (feature_id, document_id),
+    FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create new feature_documents table: %w", err)
+	}
+
+	// Copy data
+	_, err = tx.Exec(`
+INSERT INTO feature_documents SELECT * FROM feature_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to copy feature_documents data: %w", err)
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE feature_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old feature_documents table: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}

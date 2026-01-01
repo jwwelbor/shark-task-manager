@@ -516,6 +516,13 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to fix task_history foreign key: %w", err)
 	}
 
+	// Run features_old foreign key fix migration
+	// This fixes databases where tasks or feature_documents still reference
+	// the old "features_old" table instead of "features"
+	if err := MigrateFixFeaturesOldForeignKeys(db); err != nil {
+		return fmt.Errorf("failed to fix features_old foreign keys: %w", err)
+	}
+
 	return nil
 }
 

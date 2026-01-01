@@ -83,8 +83,8 @@ Examples:
   shark task get T-E04-F02-001                     Get task by full key
   shark task get T-E04-F02-001-user-auth           Get task by slugged key
   shark task get T-E04-F02-001 --json              Output as JSON`,
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTaskGet,
+	Args: cobra.ExactArgs(1),
+	RunE: runTaskGet,
 }
 
 // taskCreateCmd creates a new task
@@ -1788,7 +1788,8 @@ func init() {
 	taskUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
 	taskUpdateCmd.Flags().String("depends-on", "", "New comma-separated dependency task keys")
 	taskUpdateCmd.Flags().Int("order", -1, "New execution order (-1 = no change)")
-	taskUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
+	taskUpdateCmd.Flags().String("status", "", "New status for the task (uses workflow validation)")
+	taskUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed or bypass workflow validation for status changes")
 
 	// Add flags for set-status command
 	taskSetStatusCmd.Flags().Bool("force", false, "Force status change bypassing workflow validation (use with caution)")
@@ -1924,6 +1925,56 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 			cli.Error(fmt.Sprintf("Error: Failed to update task file path: %v", err))
 			os.Exit(1)
 		}
+		changed = true
+	}
+
+	// Handle status update separately (requires workflow validation)
+	status, _ := cmd.Flags().GetString("status")
+	if status != "" {
+		// Load workflow config for status validation
+		configPath := cli.GlobalConfig.ConfigFile
+		if configPath == "" {
+			configPath = ".sharkconfig.json"
+		}
+		workflow, err := config.LoadWorkflowConfig(configPath)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to load workflow config: %v", err))
+			os.Exit(1)
+		}
+
+		// Create repository with workflow support
+		dbWrapper := repository.NewDB(database)
+		var workflowRepo *repository.TaskRepository
+		if workflow != nil {
+			workflowRepo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
+		} else {
+			workflowRepo = repository.NewTaskRepository(dbWrapper)
+		}
+
+		// Get force flag
+		force, _ := cmd.Flags().GetBool("force")
+
+		// Convert status string to TaskStatus
+		newStatus := models.TaskStatus(status)
+
+		// Update status with workflow validation (unless forcing)
+		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, force)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update task status: %s", err.Error()))
+
+			// If this is a validation error, suggest using --force
+			if !force && (containsString(err.Error(), "invalid status transition") || containsString(err.Error(), "transition")) {
+				cli.Info("Use --force to bypass workflow validation")
+			}
+
+			os.Exit(3) // Exit code 3 for invalid state
+		}
+
+		// Display warning if force was used
+		if force && !cli.GlobalConfig.JSON {
+			cli.Warning(fmt.Sprintf("⚠️  Forced transition from %s to %s (bypassed workflow validation)", task.Status, newStatus))
+		}
+
 		changed = true
 	}
 
