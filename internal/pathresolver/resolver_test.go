@@ -204,11 +204,11 @@ func TestResolveFeaturePath_DefaultPath(t *testing.T) {
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
 			return &models.Feature{
-				ID:      1,
-				EpicID:  1,
-				Key:     "E01-F01",
-				Title:   "Test Feature",
-				Slug:    &featureSlug,
+				ID:     1,
+				EpicID: 1,
+				Key:    "E01-F01",
+				Title:  "Test Feature",
+				Slug:   &featureSlug,
 			}, nil
 		},
 	}

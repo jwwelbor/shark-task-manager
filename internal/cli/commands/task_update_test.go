@@ -109,3 +109,25 @@ func TestTaskCreateCommand_OrderFlag(t *testing.T) {
 		t.Fatal("task create command not found in task subcommands")
 	}
 }
+
+// TestTaskUpdateCommand_StatusFlag tests that the task update command has a --status flag
+func TestTaskUpdateCommand_StatusFlag(t *testing.T) {
+	// Verify the task update command is registered
+	var found bool
+	for _, cmd := range taskCmd.Commands() {
+		if cmd.Use == "update <task-key>" {
+			found = true
+
+			// Verify it has the --status flag
+			if cmd.Flags().Lookup("status") == nil {
+				t.Error("task update command missing --status flag")
+			}
+
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("task update command not found in task subcommands")
+	}
+}
