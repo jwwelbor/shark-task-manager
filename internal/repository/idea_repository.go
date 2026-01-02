@@ -32,7 +32,7 @@ func (r *IdeaRepository) Create(ctx context.Context, idea *models.Idea) error {
 
 	query := `
 		INSERT INTO ideas (
-			key, title, description, created_date, priority, "order",
+			key, title, description, created_date, priority, display_order,
 			notes, related_docs, dependencies, status
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -66,7 +66,7 @@ func (r *IdeaRepository) Create(ctx context.Context, idea *models.Idea) error {
 // GetByID retrieves an idea by its ID
 func (r *IdeaRepository) GetByID(ctx context.Context, id int64) (*models.Idea, error) {
 	query := `
-		SELECT id, key, title, description, created_date, priority, "order",
+		SELECT id, key, title, description, created_date, priority, display_order,
 		       notes, related_docs, dependencies, status, created_at, updated_at,
 		       converted_to_type, converted_to_key, converted_at
 		FROM ideas
@@ -106,7 +106,7 @@ func (r *IdeaRepository) GetByID(ctx context.Context, id int64) (*models.Idea, e
 // GetByKey retrieves an idea by its key
 func (r *IdeaRepository) GetByKey(ctx context.Context, key string) (*models.Idea, error) {
 	query := `
-		SELECT id, key, title, description, created_date, priority, "order",
+		SELECT id, key, title, description, created_date, priority, display_order,
 		       notes, related_docs, dependencies, status, created_at, updated_at,
 		       converted_to_type, converted_to_key, converted_at
 		FROM ideas
@@ -146,7 +146,7 @@ func (r *IdeaRepository) GetByKey(ctx context.Context, key string) (*models.Idea
 // List retrieves all ideas, optionally filtered by status
 func (r *IdeaRepository) List(ctx context.Context, filter *IdeaFilter) ([]*models.Idea, error) {
 	query := `
-		SELECT id, key, title, description, created_date, priority, "order",
+		SELECT id, key, title, description, created_date, priority, display_order,
 		       notes, related_docs, dependencies, status, created_at, updated_at,
 		       converted_to_type, converted_to_key, converted_at
 		FROM ideas
@@ -209,7 +209,7 @@ func (r *IdeaRepository) Update(ctx context.Context, idea *models.Idea) error {
 
 	query := `
 		UPDATE ideas
-		SET title = ?, description = ?, priority = ?, "order" = ?,
+		SET title = ?, description = ?, priority = ?, display_order = ?,
 		    notes = ?, related_docs = ?, dependencies = ?, status = ?
 		WHERE id = ?
 	`
@@ -288,4 +288,28 @@ func (r *IdeaRepository) MarkAsConverted(ctx context.Context, ideaID int64, conv
 	}
 
 	return nil
+}
+
+// GetNextSequenceForDate returns the next sequence number for a given date
+// This is optimized to query the database directly instead of loading all ideas
+func (r *IdeaRepository) GetNextSequenceForDate(ctx context.Context, dateStr string) (int, error) {
+	query := `
+		SELECT COALESCE(MAX(CAST(SUBSTR(key, 14) AS INTEGER)), 0)
+		FROM ideas
+		WHERE key LIKE ?
+	`
+
+	var maxSeq int
+	pattern := fmt.Sprintf("I-%s-%%", dateStr)
+	err := r.db.QueryRowContext(ctx, query, pattern).Scan(&maxSeq)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get next sequence: %w", err)
+	}
+
+	nextSeq := maxSeq + 1
+	if nextSeq > 99 {
+		return 0, fmt.Errorf("maximum ideas for date %s reached (99)", dateStr)
+	}
+
+	return nextSeq, nil
 }
