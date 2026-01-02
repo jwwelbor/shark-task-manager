@@ -25,6 +25,7 @@ type IdeaRepository interface {
 	Update(ctx context.Context, idea *models.Idea) error
 	Delete(ctx context.Context, id int64) error
 	MarkAsConverted(ctx context.Context, ideaID int64, convertedToType, convertedToKey string) error
+	GetNextSequenceForDate(ctx context.Context, dateStr string) (int, error)
 }
 
 // ideaCmd represents the idea command group
@@ -618,32 +619,10 @@ func generateIdeaKey(ctx context.Context, repo IdeaRepository) (string, error) {
 	dateStr := now.Format("2006-01-02")
 	baseKey := fmt.Sprintf("I-%s", dateStr)
 
-	// Get all ideas for today
-	allIdeas, err := repo.List(ctx, nil)
+	// Get next sequence number from database query (optimized)
+	nextSeq, err := repo.GetNextSequenceForDate(ctx, dateStr)
 	if err != nil {
-		return "", fmt.Errorf("failed to list ideas: %w", err)
-	}
-
-	// Find highest sequence number for today
-	maxSeq := 0
-	prefix := baseKey + "-"
-	for _, idea := range allIdeas {
-		if strings.HasPrefix(idea.Key, prefix) {
-			// Extract sequence number
-			parts := strings.Split(idea.Key, "-")
-			if len(parts) == 5 {
-				seq, err := strconv.Atoi(parts[4])
-				if err == nil && seq > maxSeq {
-					maxSeq = seq
-				}
-			}
-		}
-	}
-
-	// Generate next sequence number
-	nextSeq := maxSeq + 1
-	if nextSeq > 99 {
-		return "", fmt.Errorf("maximum ideas for date %s reached (99)", dateStr)
+		return "", err
 	}
 
 	return fmt.Sprintf("%s-%02d", baseKey, nextSeq), nil
