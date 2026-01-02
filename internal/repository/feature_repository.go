@@ -32,7 +32,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 	feature.Slug = &generatedSlug
 
 	query := `
-		INSERT INTO features (epic_id, key, title, slug, description, status, progress_pct, execution_order, file_path, custom_folder_path)
+		INSERT INTO features (epic_id, key, title, slug, description, status, progress_pct, execution_order, file_path)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
@@ -46,7 +46,6 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 		feature.ProgressPct,
 		feature.ExecutionOrder,
 		feature.FilePath,
-		feature.CustomFolderPath,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create feature: %w", err)
@@ -65,7 +64,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE id = ?
 	`
@@ -83,7 +82,6 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 		&feature.ProgressPct,
 		&feature.ExecutionOrder,
 		&feature.FilePath,
-		&feature.CustomFolderPath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -150,7 +148,7 @@ func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.F
 func (r *FeatureRepository) getByExactKey(ctx context.Context, key string) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE key = ?
 	`
@@ -168,7 +166,6 @@ func (r *FeatureRepository) getByExactKey(ctx context.Context, key string) (*mod
 		&feature.ProgressPct,
 		&feature.ExecutionOrder,
 		&feature.FilePath,
-		&feature.CustomFolderPath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -181,7 +178,7 @@ func (r *FeatureRepository) getByExactKey(ctx context.Context, key string) (*mod
 func (r *FeatureRepository) getByNumericKey(ctx context.Context, numericKey string) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE key LIKE ?
 	`
@@ -203,7 +200,6 @@ func (r *FeatureRepository) getByNumericKey(ctx context.Context, numericKey stri
 		&feature.ProgressPct,
 		&feature.ExecutionOrder,
 		&feature.FilePath,
-		&feature.CustomFolderPath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -243,7 +239,7 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 	// Query for features where key ends with numeric part AND slug matches
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE key LIKE ? AND slug = ?
 	`
@@ -264,7 +260,6 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 		&feature.ProgressPct,
 		&feature.ExecutionOrder,
 		&feature.FilePath,
-		&feature.CustomFolderPath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -276,7 +271,7 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE file_path = ?
 	`
@@ -294,7 +289,6 @@ func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) 
 		&feature.ProgressPct,
 		&feature.ExecutionOrder,
 		&feature.FilePath,
-		&feature.CustomFolderPath,
 		&feature.CreatedAt,
 		&feature.UpdatedAt,
 	)
@@ -313,7 +307,7 @@ func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) 
 func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE epic_id = ?
 		ORDER BY execution_order NULLS LAST, created_at
@@ -340,8 +334,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
 			&feature.FilePath,
-			&feature.CustomFolderPath,
-			&feature.CreatedAt,
+		&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
 		if err != nil {
@@ -361,7 +354,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		ORDER BY execution_order NULLS LAST, created_at
 	`
@@ -387,8 +380,7 @@ func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error)
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
 			&feature.FilePath,
-			&feature.CustomFolderPath,
-			&feature.CreatedAt,
+		&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
 		if err != nil {
@@ -412,7 +404,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 
 	query := `
 		UPDATE features
-		SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?, custom_folder_path = ?
+		SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?
 		WHERE id = ?
 	`
 
@@ -422,7 +414,6 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		feature.Status,
 		feature.ProgressPct,
 		feature.ExecutionOrder,
-		feature.CustomFolderPath,
 		feature.ID,
 	)
 	if err != nil {
@@ -564,7 +555,7 @@ func (r *FeatureRepository) UpdateProgressByKey(ctx context.Context, key string)
 func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.FeatureStatus) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE status = ?
 		ORDER BY execution_order NULLS LAST, created_at
@@ -591,8 +582,7 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
 			&feature.FilePath,
-			&feature.CustomFolderPath,
-			&feature.CreatedAt,
+		&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
 		if err != nil {
@@ -612,7 +602,7 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int64, status models.FeatureStatus) ([]*models.Feature, error) {
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
-		       execution_order, file_path, custom_folder_path, created_at, updated_at
+		       execution_order, file_path, created_at, updated_at
 		FROM features
 		WHERE epic_id = ? AND status = ?
 		ORDER BY execution_order NULLS LAST, created_at
@@ -639,8 +629,7 @@ func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int6
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
 			&feature.FilePath,
-			&feature.CustomFolderPath,
-			&feature.CreatedAt,
+		&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
 		if err != nil {
@@ -722,32 +711,6 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 	}
 
 	return feature, true, nil
-}
-
-// GetCustomFolderPath retrieves the custom folder path for a feature by its key
-func (r *FeatureRepository) GetCustomFolderPath(ctx context.Context, featureKey string) (*string, error) {
-	query := `
-		SELECT custom_folder_path
-		FROM features
-		WHERE key = ?
-	`
-
-	var customFolderPath sql.NullString
-	err := r.db.QueryRowContext(ctx, query, featureKey).Scan(&customFolderPath)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("feature not found with key %s", featureKey)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get custom folder path: %w", err)
-	}
-
-	// Return nil if the value is NULL in the database
-	if !customFolderPath.Valid {
-		return nil, nil
-	}
-
-	return &customFolderPath.String, nil
 }
 
 // UpdateKey updates the key of a feature
