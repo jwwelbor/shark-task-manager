@@ -214,9 +214,9 @@ func TestSlugArchitecture_EndToEnd(t *testing.T) {
 
 	// Cleanup
 	defer func() {
-		database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
-		database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E96-F01'")
-		database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E96-F01'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
 	}()
 }
 
@@ -247,7 +247,7 @@ func TestSlugArchitecture_SpecialCharactersWorkflow(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID) }()
 
 	// Verify slug normalizes special characters
 	require.NotNil(t, epic.Slug)
@@ -267,7 +267,7 @@ func TestSlugArchitecture_SpecialCharactersWorkflow(t *testing.T) {
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID) }()
 
 	// Verify slug normalizes unicode
 	require.NotNil(t, feature.Slug)
@@ -290,7 +290,7 @@ func TestSlugArchitecture_SpecialCharactersWorkflow(t *testing.T) {
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
 
 	// Verify slug normalizes mixed characters
 	require.NotNil(t, task.Slug)
@@ -340,7 +340,7 @@ func TestSlugArchitecture_LegacyDataCompatibility(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID) }()
 
 	// Manually clear slug to simulate legacy data
 	_, err = database.ExecContext(ctx, "UPDATE epics SET slug = NULL WHERE id = ?", epic.ID)
@@ -387,7 +387,7 @@ func TestSlugArchitecture_ConcurrentAccess(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID) }()
 
 	feature := &models.Feature{
 		EpicID: epic.ID,
@@ -397,7 +397,7 @@ func TestSlugArchitecture_ConcurrentAccess(t *testing.T) {
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID) }()
 
 	backendAgent := models.AgentTypeBackend
 	task := &models.Task{
@@ -410,7 +410,7 @@ func TestSlugArchitecture_ConcurrentAccess(t *testing.T) {
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
 
 	// Test concurrent reads with both numeric and slugged keys
 	done := make(chan bool)

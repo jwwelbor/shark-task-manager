@@ -16,30 +16,55 @@ func TestTaskRepository_GetByKey_NumericFormat(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	repo := NewTaskRepository(db)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
 
-	// Clean up test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E99-F99-100'")
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E94-F01-100'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E94-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E94'")
 
-	// Seed epic and feature
-	_, featureID := test.SeedTestData()
+	// Create dedicated epic for this test
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{
+		Key:           "E94",
+		Title:         "Test Epic for Numeric Key Lookup",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	// Create dedicated feature for this test
+	testFeature := &models.Feature{
+		EpicID: testEpic.ID,
+		Key:    "E94-F01",
+		Title:  "Test Feature for Numeric Key Lookup",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, testFeature)
+	require.NoError(t, err, "Failed to create test feature")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task with numeric key
 	task := &models.Task{
-		FeatureID: featureID,
-		Key:       "T-E99-F99-100",
+		FeatureID: testFeature.ID,
+		Key:       "T-E94-F01-100",
 		Title:     "Test Numeric Key Lookup",
 		Status:    models.TaskStatusTodo,
 		Priority:  5,
 	}
 
-	err := repo.Create(ctx, task)
+	err = repo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
 
 	// Test: Lookup by numeric key should succeed
-	retrieved, err := repo.GetByKey(ctx, "T-E99-F99-100")
+	retrieved, err := repo.GetByKey(ctx, "T-E94-F01-100")
 	require.NoError(t, err)
-	assert.Equal(t, "T-E99-F99-100", retrieved.Key)
+	assert.Equal(t, "T-E94-F01-100", retrieved.Key)
 	assert.Equal(t, "Test Numeric Key Lookup", retrieved.Title)
 }
 
@@ -68,7 +93,7 @@ func TestTaskRepository_GetByKey_SluggedFormat(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, testEpic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature
 	testFeature := &models.Feature{
@@ -79,7 +104,7 @@ func TestTaskRepository_GetByKey_SluggedFormat(t *testing.T) {
 	}
 	err = featureRepo.Create(ctx, testFeature)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task with numeric key (slug will be auto-generated)
 	task := &models.Task{
@@ -92,7 +117,7 @@ func TestTaskRepository_GetByKey_SluggedFormat(t *testing.T) {
 
 	err = repo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
 
 	// Verify slug was generated
 	require.NotNil(t, task.Slug)
@@ -132,7 +157,7 @@ func TestTaskRepository_GetByKey_SlugMismatch(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, testEpic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature
 	testFeature := &models.Feature{
@@ -143,7 +168,7 @@ func TestTaskRepository_GetByKey_SlugMismatch(t *testing.T) {
 	}
 	err = featureRepo.Create(ctx, testFeature)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task
 	task := &models.Task{
@@ -156,7 +181,7 @@ func TestTaskRepository_GetByKey_SlugMismatch(t *testing.T) {
 
 	err = repo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
 
 	// Verify slug was generated
 	require.NotNil(t, task.Slug)
@@ -195,7 +220,7 @@ func TestTaskRepository_GetByKey_PartialSlugMatch(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, testEpic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature
 	testFeature := &models.Feature{
@@ -206,7 +231,7 @@ func TestTaskRepository_GetByKey_PartialSlugMatch(t *testing.T) {
 	}
 	err = featureRepo.Create(ctx, testFeature)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task with long title (slug gets truncated to 100 chars)
 	task := &models.Task{
@@ -219,7 +244,7 @@ func TestTaskRepository_GetByKey_PartialSlugMatch(t *testing.T) {
 
 	err = repo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
 
 	// Verify slug was generated
 	require.NotNil(t, task.Slug)
@@ -262,7 +287,7 @@ func TestTaskRepository_GetByKey_NoSlug(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, testEpic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature
 	testFeature := &models.Feature{
@@ -273,7 +298,7 @@ func TestTaskRepository_GetByKey_NoSlug(t *testing.T) {
 	}
 	err = featureRepo.Create(ctx, testFeature)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task and then manually clear the slug to simulate legacy data
 	task := &models.Task{
@@ -286,7 +311,7 @@ func TestTaskRepository_GetByKey_NoSlug(t *testing.T) {
 
 	err = repo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
 
 	// Manually clear slug to simulate legacy task
 	_, err = database.ExecContext(ctx, "UPDATE tasks SET slug = NULL WHERE id = ?", task.ID)

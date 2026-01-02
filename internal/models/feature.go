@@ -21,12 +21,18 @@ type Feature struct {
 	Slug             *string       `json:"slug,omitempty" db:"slug"`
 	Description      *string       `json:"description,omitempty" db:"description"`
 	Status           FeatureStatus `json:"status" db:"status"`
+	StatusOverride   bool          `json:"status_override" db:"status_override"` // E07-F14: Manual override flag
 	ProgressPct      float64       `json:"progress_pct" db:"progress_pct"`
 	ExecutionOrder   *int          `json:"execution_order,omitempty" db:"execution_order"`
 	FilePath         *string       `json:"file_path,omitempty" db:"file_path"`
 	CustomFolderPath *string       `json:"custom_folder_path,omitempty" db:"custom_folder_path"`
 	CreatedAt        time.Time     `json:"created_at" db:"created_at"`
 	UpdatedAt        time.Time     `json:"updated_at" db:"updated_at"`
+}
+
+// IsAutoStatus returns true if status is automatically derived from tasks
+func (f *Feature) IsAutoStatus() bool {
+	return !f.StatusOverride
 }
 
 // Validate validates the Feature fields

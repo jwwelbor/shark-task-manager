@@ -68,11 +68,6 @@ func (m *MockTaskRepository) GetByID(ctx context.Context, id int64) (*models.Tas
 	return nil, errors.New("not implemented")
 }
 
-// Helper functions to create string pointers
-func stringPtr(s string) *string {
-	return &s
-}
-
 // TestResolveEpicPath_DefaultPath tests epic path resolution with default path
 func TestResolveEpicPath_DefaultPath(t *testing.T) {
 	ctx := context.Background()
