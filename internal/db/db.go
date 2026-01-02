@@ -88,7 +88,6 @@ CREATE TABLE IF NOT EXISTS epics (
     priority TEXT NOT NULL CHECK (priority IN ('high', 'medium', 'low')),
     business_value TEXT CHECK (business_value IN ('high', 'medium', 'low')),
     file_path TEXT,
-    custom_folder_path TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -118,7 +117,6 @@ CREATE TABLE IF NOT EXISTS features (
     progress_pct REAL NOT NULL DEFAULT 0.0 CHECK (progress_pct >= 0.0 AND progress_pct <= 100.0),
     execution_order INTEGER NULL,
     file_path TEXT,
-    custom_folder_path TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -464,39 +462,9 @@ func runMigrations(db *sql.DB) error {
 		}
 	}
 
-	// Check if epics table has custom_folder_path column; if not, add it
-	err = db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'custom_folder_path'
-	`).Scan(&columnExists)
-	if err != nil {
-		return fmt.Errorf("failed to check epics schema for custom_folder_path: %w", err)
-	}
-
-	if columnExists == 0 {
-		if _, err := db.Exec(`ALTER TABLE epics ADD COLUMN custom_folder_path TEXT;`); err != nil {
-			return fmt.Errorf("failed to add custom_folder_path to epics: %w", err)
-		}
-		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);`); err != nil {
-			return fmt.Errorf("failed to create epics custom_folder_path index: %w", err)
-		}
-	}
-
-	// Check if features table has custom_folder_path column; if not, add it
-	err = db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'custom_folder_path'
-	`).Scan(&columnExists)
-	if err != nil {
-		return fmt.Errorf("failed to check features schema for custom_folder_path: %w", err)
-	}
-
-	if columnExists == 0 {
-		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN custom_folder_path TEXT;`); err != nil {
-			return fmt.Errorf("failed to add custom_folder_path to features: %w", err)
-		}
-		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`); err != nil {
-			return fmt.Errorf("failed to create features custom_folder_path index: %w", err)
-		}
-	}
+	// NOTE: custom_folder_path columns removed in E07-F19 (File Path Flag Standardization)
+	// Migration that previously added these columns has been removed.
+	// See migrateDropCustomFolderPath() for the removal migration.
 
 	// Migrate slug columns for E07-F11
 	if err := migrateSlugColumns(db); err != nil {
@@ -505,11 +473,10 @@ func runMigrations(db *sql.DB) error {
 
 	// Create indexes on new columns that might not have existed before
 	// These are created here after migrations ensure the columns exist
+	// NOTE: custom_folder_path indexes removed in E07-F19
 	newIndexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);`,
-		`CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);`,
 		`CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);`,
-		`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`,
 		`CREATE INDEX IF NOT EXISTS idx_epics_slug ON epics(slug);`,
 		`CREATE INDEX IF NOT EXISTS idx_features_slug ON features(slug);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_slug ON tasks(slug);`,
@@ -569,6 +536,11 @@ func runMigrations(db *sql.DB) error {
 	// Run ideas table order column rename migration (E08-F02)
 	if err := migrateIdeasOrderColumn(db); err != nil {
 		return fmt.Errorf("failed to migrate ideas order column: %w", err)
+	}
+
+	// Run custom_folder_path column removal migration (E07-F19)
+	if err := migrateDropCustomFolderPath(db); err != nil {
+		return fmt.Errorf("failed to drop custom_folder_path columns: %w", err)
 	}
 
 	return nil
@@ -1043,6 +1015,61 @@ func migrateIdeasOrderColumn(db *sql.DB) error {
 		// Commit transaction
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateDropCustomFolderPath removes custom_folder_path columns from epics and features tables
+// This migration supports E07-F19: File Path Flag Standardization
+// The custom_folder_path columns were stored but never used in path calculations
+func migrateDropCustomFolderPath(db *sql.DB) error {
+	// Check if epics table has custom_folder_path column
+	var epicColumnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'custom_folder_path'
+	`).Scan(&epicColumnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check epics schema for custom_folder_path: %w", err)
+	}
+
+	// Drop column and index from epics table if it exists
+	if epicColumnExists > 0 {
+		// Drop index first (required before dropping column)
+		_, err = db.Exec(`DROP INDEX IF EXISTS idx_epics_custom_folder_path`)
+		if err != nil {
+			return fmt.Errorf("failed to drop epics custom_folder_path index: %w", err)
+		}
+
+		// Drop column
+		_, err = db.Exec(`ALTER TABLE epics DROP COLUMN custom_folder_path`)
+		if err != nil {
+			return fmt.Errorf("failed to drop custom_folder_path from epics: %w", err)
+		}
+	}
+
+	// Check if features table has custom_folder_path column
+	var featureColumnExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'custom_folder_path'
+	`).Scan(&featureColumnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for custom_folder_path: %w", err)
+	}
+
+	// Drop column and index from features table if it exists
+	if featureColumnExists > 0 {
+		// Drop index first (required before dropping column)
+		_, err = db.Exec(`DROP INDEX IF EXISTS idx_features_custom_folder_path`)
+		if err != nil {
+			return fmt.Errorf("failed to drop features custom_folder_path index: %w", err)
+		}
+
+		// Drop column
+		_, err = db.Exec(`ALTER TABLE features DROP COLUMN custom_folder_path`)
+		if err != nil {
+			return fmt.Errorf("failed to drop custom_folder_path from features: %w", err)
 		}
 	}
 

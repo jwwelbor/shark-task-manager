@@ -561,22 +561,23 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
-			"id":                feature.ID,
-			"epic_id":           feature.EpicID,
-			"key":               feature.Key,
-			"title":             feature.Title,
-			"description":       feature.Description,
-			"status":            feature.Status,
-			"status_source":     statusSource,
-			"status_override":   feature.StatusOverride,
-			"progress_pct":      feature.ProgressPct,
-			"path":              dirPath,
-			"filename":          filename,
-			"created_at":        feature.CreatedAt,
-			"updated_at":        feature.UpdatedAt,
-			"tasks":             tasks,
-			"status_breakdown":  statusBreakdown,
-			"related_documents": relatedDocs,
+			"id":                 feature.ID,
+			"epic_id":            feature.EpicID,
+			"key":                feature.Key,
+			"title":              feature.Title,
+			"description":        feature.Description,
+			"status":             feature.Status,
+			"status_source":      statusSource,
+			"status_override":    feature.StatusOverride,
+			"progress_pct":       feature.ProgressPct,
+			"path":               dirPath,
+			"filename":           filename,
+			"custom_folder_path": feature.CustomFolderPath,
+			"created_at":         feature.CreatedAt,
+			"updated_at":         feature.UpdatedAt,
+			"tasks":              tasks,
+			"status_breakdown":   statusBreakdown,
+			"related_documents":  relatedDocs,
 		}
 		return cli.OutputJSON(result)
 	}
@@ -658,6 +659,10 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 
 	if filename != "" {
 		info = append(info, []string{"Filename", filename})
+	}
+
+	if feature.CustomFolderPath != nil && *feature.CustomFolderPath != "" {
+		info = append(info, []string{"Custom Folder Path", *feature.CustomFolderPath})
 	}
 
 	if feature.Description != nil && *feature.Description != "" {

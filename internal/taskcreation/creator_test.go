@@ -1,10 +1,18 @@
 package taskcreation
 
 import (
+	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -255,4 +263,116 @@ func TestValidateCustomFilename_ConsistentResults(t *testing.T) {
 	require.NoError(t, err2)
 	assert.Equal(t, relPath1, relPath2)
 	assert.Equal(t, absPath1, absPath2)
+}
+
+// TestCreator_UsesWorkflowConfigEntryStatus tests that new tasks use the first entry
+// status from workflow config's special_statuses._start_ instead of hardcoded TaskStatusTodo
+func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup: Create temp directory for test workspace
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+
+	// Create workflow config with custom entry status
+	workflowConfig := map[string]interface{}{
+		"status_flow_version": "1.0",
+		"special_statuses": map[string][]string{
+			"_start_":    []string{"draft", "ready_for_development"},
+			"_complete_": []string{"completed", "cancelled"},
+		},
+		"status_flow": map[string][]string{
+			"draft":                 {"ready_for_refinement"},
+			"ready_for_refinement":  {"in_refinement"},
+			"in_refinement":         {"ready_for_development"},
+			"ready_for_development": {"in_development"},
+			"in_development":        {"completed"},
+			"completed":             {},
+		},
+		"status_metadata": map[string]interface{}{
+			"draft": map[string]interface{}{
+				"color":       "gray",
+				"description": "Initial draft status",
+				"phase":       "planning",
+			},
+		},
+	}
+
+	configData, err := json.MarshalIndent(workflowConfig, "", "  ")
+	require.NoError(t, err)
+	err = os.WriteFile(configPath, configData, 0644)
+	require.NoError(t, err)
+
+	// Clear workflow cache to ensure fresh load
+	config.ClearWorkflowCache()
+
+	// Setup: Create test database and repositories
+	database := test.GetTestDB()
+	_, err = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E99-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
+	require.NoError(t, err)
+
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db)
+
+	// Create test epic
+	epic := &models.Epic{
+		Key:      "E99",
+		Title:    "Test Epic for Workflow Config",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+	err = epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create test feature
+	feature := &models.Feature{
+		EpicID: epic.ID,
+		Key:    "E99-F99",
+		Title:  "Test Feature for Workflow Config",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Setup: Create Creator with config path
+	keygen := NewKeyGenerator(taskRepo, featureRepo)
+	validator := NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir)
+
+	// Act: Create a new task
+	input := CreateTaskInput{
+		EpicKey:    "E99",
+		FeatureKey: "F99",
+		Title:      "Test Task for Workflow Config",
+		AgentType:  "general",
+		Priority:   5,
+	}
+
+	result, err := creator.CreateTask(ctx, input)
+
+	// Assert: Task created successfully
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Task)
+
+	// Assert: Task status should be "draft" (first entry status from workflow config)
+	// NOT "todo" (hardcoded value)
+	assert.Equal(t, "draft", string(result.Task.Status),
+		"Task status should be 'draft' (first entry status from workflow config special_statuses._start_), not hardcoded 'todo'")
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", result.Task.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+	config.ClearWorkflowCache()
 }
