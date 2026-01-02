@@ -15,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
@@ -32,17 +33,14 @@ func getRelativePath(absPath string, projectRoot string) string {
 
 // backupDatabaseOnForce creates a backup when --force flag is used
 // Returns the backup path and error (if any)
+// DEPRECATED: Use CreateBackupIfForce from file_assignment.go instead
 func backupDatabaseOnForce(force bool, dbPath string, operation string) (string, error) {
-	if !force {
-		return "", nil
-	}
-
-	backupPath, err := db.BackupDatabase(dbPath)
+	backupPath, err := CreateBackupIfForce(force, dbPath, operation)
 	if err != nil {
-		return "", fmt.Errorf("failed to create backup before %s: %w", operation, err)
+		return "", err
 	}
 
-	if !cli.GlobalConfig.JSON {
+	if backupPath != "" && !cli.GlobalConfig.JSON {
 		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
 	}
 
@@ -236,6 +234,9 @@ func init() {
 	epicCreateCmd.Flags().StringVar(&epicCreateKey, "key", "", "Custom key for the epic (e.g., E00, bugs). If not provided, auto-generates next E## number")
 	epicCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must end in .md)")
 	epicCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another epic or feature")
+	epicCreateCmd.Flags().String("priority", "medium", "Priority: low, medium, high (default: medium)")
+	epicCreateCmd.Flags().String("business-value", "", "Business value: low, medium, high (optional)")
+	epicCreateCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
 
 	// Add flags for delete command
 	epicDeleteCmd.Flags().Bool("force", false, "Force deletion even if epic has features")
@@ -262,20 +263,14 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 	sortBy, _ := cmd.Flags().GetString("sort-by")
 	statusFilter, _ := cmd.Flags().GetString("status")
 
-	// Validate status filter
+	// Validate status filter using shared parsing function
 	if statusFilter != "" {
-		validStatuses := []string{"draft", "active", "completed", "archived"}
-		valid := false
-		for _, s := range validStatuses {
-			if statusFilter == s {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			cli.Error(fmt.Sprintf("Error: Invalid status '%s'. Must be one of: draft, active, completed, archived", statusFilter))
+		validatedStatus, err := ParseEpicStatus(statusFilter)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
+		statusFilter = validatedStatus
 	}
 
 	// Validate sort-by option
@@ -499,6 +494,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"title":              epic.Title,
 			"description":        epic.Description,
 			"status":             epic.Status,
+			"status_source":      "calculated", // Epic status is always calculated from features
 			"priority":           epic.Priority,
 			"business_value":     epic.BusinessValue,
 			"slug":               epic.Slug,
@@ -559,7 +555,7 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 	// Epic info
 	info := [][]string{
 		{"Title", epic.Title},
-		{"Status", string(epic.Status)},
+		{"Status", fmt.Sprintf("%s (calculated)", string(epic.Status))},
 		{"Priority", string(epic.Priority)},
 		{"Progress", fmt.Sprintf("%.1f%%", progress)},
 	}
@@ -748,9 +744,9 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	// Get epic key (custom or auto-generated)
 	var nextKey string
 	if epicCreateKey != "" {
-		// Validate custom key: no spaces allowed
-		if containsSpace(epicCreateKey) {
-			cli.Error("Error: Epic key cannot contain spaces")
+		// Validate custom key using shared validator: no spaces allowed
+		if err := ValidateNoSpaces(epicCreateKey, "epic"); err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
 
@@ -909,14 +905,51 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
+	// Parse priority flag using shared parsing function (with default "medium")
+	priorityStr, _ := cmd.Flags().GetString("priority")
+	if priorityStr == "" {
+		priorityStr = "medium"
+	}
+	priorityStr, err = ParseEpicPriority(priorityStr)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
+	priority := models.Priority(priorityStr)
+
+	// Parse business-value flag using shared parsing function (optional, can be empty)
+	businessValueStr, _ := cmd.Flags().GetString("business-value")
+	var businessValue *models.Priority
+	if businessValueStr != "" {
+		businessValueStr, err = ParseEpicPriority(businessValueStr)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Invalid business-value: %v", err))
+			os.Exit(1)
+		}
+		bv := models.Priority(businessValueStr)
+		businessValue = &bv
+	}
+
+	// Parse status flag using shared parsing function (with default "draft")
+	statusStr, _ := cmd.Flags().GetString("status")
+	if statusStr == "" {
+		statusStr = "draft"
+	}
+	statusStr, err = ParseEpicStatus(statusStr)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
+	status := models.EpicStatus(statusStr)
+
 	// Create database entry with key (E##) not full slug
 	epic := &models.Epic{
 		Key:              nextKey,
 		Title:            epicTitle,
 		Description:      &epicCreateDescription,
-		Status:           models.EpicStatusDraft,
-		Priority:         models.PriorityMedium,
-		BusinessValue:    nil,
+		Status:           status,
+		Priority:         priority,
+		BusinessValue:    businessValue,
 		FilePath:         customFilePath,
 		CustomFolderPath: customFolderPath,
 	}
@@ -1340,13 +1373,9 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 }
 
 // containsSpace checks if a string contains any whitespace characters
+// DEPRECATED: Use ValidateNoSpaces from validators.go instead
 func containsSpace(s string) bool {
-	for _, ch := range s {
-		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-			return true
-		}
-	}
-	return false
+	return strings.ContainsAny(s, " \t\n\r")
 }
 
 // runEpicUpdate executes the epic update command
@@ -1401,24 +1430,54 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 		changed = true
 	}
 
-	// Update status if provided
-	status, _ := cmd.Flags().GetString("status")
-	if status != "" {
-		epic.Status = models.EpicStatus(status)
+	// Update status if provided (using shared validation)
+	// Special handling for "auto" to enable calculated status
+	statusFlag, _ := cmd.Flags().GetString("status")
+	if statusFlag != "" {
+		if strings.ToLower(statusFlag) == "auto" {
+			// Recalculate status from features
+			calcService := status.NewCalculationService(repoDb)
+			result, err := calcService.RecalculateEpicStatus(ctx, epic.ID)
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to recalculate status: %v", err))
+				os.Exit(1)
+			}
+
+			cli.Success(fmt.Sprintf("Epic %s status recalculated: %s (calculated from features)", epic.Key, result.NewStatus))
+			return nil
+		}
+
+		// Regular status update
+		validatedStatus, err := ParseEpicStatus(statusFlag)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+		epic.Status = models.EpicStatus(validatedStatus)
 		changed = true
 	}
 
-	// Update priority if provided
+	// Update priority if provided (using shared validation)
 	priority, _ := cmd.Flags().GetString("priority")
 	if priority != "" {
-		epic.Priority = models.Priority(priority)
+		validatedPriority, err := ParseEpicPriority(priority)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+		epic.Priority = models.Priority(validatedPriority)
 		changed = true
 	}
 
-	// Update business value if provided
+	// Update business value if provided (using shared validation)
 	businessValue, _ := cmd.Flags().GetString("business-value")
 	if businessValue != "" {
-		bv := models.Priority(businessValue)
+		validatedBV, err := ParseEpicPriority(businessValue)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Invalid business-value: %v", err))
+			os.Exit(1)
+		}
+		bv := models.Priority(validatedBV)
 		epic.BusinessValue = &bv
 		changed = true
 	}
@@ -1452,9 +1511,9 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 	// Handle key update separately (requires unique validation)
 	newKey, _ := cmd.Flags().GetString("key")
 	if newKey != "" {
-		// Validate new key: no spaces allowed
-		if containsSpace(newKey) {
-			cli.Error("Error: Epic key cannot contain spaces")
+		// Validate new key using shared validator: no spaces allowed
+		if err := ValidateNoSpaces(newKey, "epic"); err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
 

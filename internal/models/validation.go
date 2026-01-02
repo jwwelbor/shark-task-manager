@@ -32,6 +32,8 @@ var (
 	ErrCircularDependency      = errors.New("circular dependency detected")
 	ErrInvalidSessionOutcome   = errors.New("invalid session outcome: must be completed, paused, or blocked")
 	ErrInvalidTimestamp        = errors.New("invalid timestamp: cannot be zero value")
+	ErrEmptyKey                = errors.New("key cannot be empty")
+	ErrInvalidJSON             = errors.New("invalid JSON format")
 )
 
 // Key format regex patterns
@@ -268,5 +270,19 @@ func ValidateSessionOutcome(outcome string) error {
 	if !validOutcomes[outcome] {
 		return fmt.Errorf("%w: got %q", ErrInvalidSessionOutcome, outcome)
 	}
+	return nil
+}
+
+// ValidateJSONArray validates that a string is a valid JSON array of strings
+func ValidateJSONArray(jsonStr string) error {
+	if jsonStr == "" || jsonStr == "null" {
+		return nil // Empty or null is valid
+	}
+
+	var arr []string
+	if err := json.Unmarshal([]byte(jsonStr), &arr); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidJSON, err)
+	}
+
 	return nil
 }

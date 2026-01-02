@@ -17,24 +17,62 @@ func TestTaskRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	repo := NewTaskRepository(db)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
 
-	// Seed epic and feature for foreign keys
-	_, featureID := test.SeedTestData()
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E95-F01-001'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E95-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E95'")
 
-	// Clean up test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E99-F99-997'")
+	// Create dedicated epic for this test
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{
+		Key:           "E95",
+		Title:         "Test Epic for Slug Generation",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() {
+		if _, err := database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID); err != nil {
+			t.Logf("Cleanup error: %v", err)
+		}
+	}()
+
+	// Create dedicated feature for this test
+	testFeature := &models.Feature{
+		EpicID: testEpic.ID,
+		Key:    "E95-F01",
+		Title:  "Test Feature for Slug Generation",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, testFeature)
+	require.NoError(t, err, "Failed to create test feature")
+	defer func() {
+		if _, err := database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID); err != nil {
+			t.Logf("Cleanup error: %v", err)
+		}
+	}()
 
 	// Create task
 	task := &models.Task{
-		FeatureID: featureID,
-		Key:       "T-E99-F99-997",
+		FeatureID: testFeature.ID,
+		Key:       "T-E95-F01-001",
 		Title:     "Implement User Authentication System",
 		Status:    models.TaskStatusTodo,
 		Priority:  5,
 	}
 
-	err := repo.Create(ctx, task)
+	err = repo.Create(ctx, task)
 	require.NoError(t, err)
+	defer func() {
+		if _, err := database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID); err != nil {
+			t.Logf("Cleanup error: %v", err)
+		}
+	}()
 
 	// Verify slug was generated and stored
 	assert.NotNil(t, task.Slug, "Slug should be generated")
@@ -45,13 +83,6 @@ func TestTaskRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, retrieved.Slug, "Slug should be persisted")
 	assert.Equal(t, "implement-user-authentication-system", *retrieved.Slug)
-
-	// Cleanup
-	defer func() {
-		if _, err := database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID); err != nil {
-			t.Logf("Cleanup error: %v", err)
-		}
-	}()
 }
 
 // TestTaskRepository_Create_SlugHandlesSpecialCharacters verifies slug handles special characters

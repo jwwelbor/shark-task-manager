@@ -31,8 +31,8 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 	epic.Slug = &generatedSlug
 
 	query := `
-		INSERT INTO epics (key, title, description, status, priority, business_value, slug, custom_folder_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO epics (key, title, description, status, priority, business_value, slug, file_path, custom_folder_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -43,6 +43,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 		epic.Priority,
 		epic.BusinessValue,
 		epic.Slug,
+		epic.FilePath,
 		epic.CustomFolderPath,
 	)
 	if err != nil {
@@ -380,33 +381,37 @@ func (r *EpicRepository) UpdateFilePath(ctx context.Context, epicKey string, new
 }
 
 // CalculateProgress calculates the progress of an epic based on its features
-// Formula: weighted average = Σ(feature_progress × feature_task_count) / Σ(feature_task_count)
-// Features are weighted by their task count, so a feature with 100 tasks has 10× weight of a feature with 10 tasks
+// Formula: simple average = Σ(feature_progress) / total_features
+// Feature progress is determined by:
+//   - If feature status = "completed" OR "archived" → 100% (regardless of tasks)
+//   - Otherwise → use feature's progress_pct field (calculated from tasks)
 func (r *EpicRepository) CalculateProgress(ctx context.Context, epicID int64) (float64, error) {
 	query := `
 		SELECT
-		    COALESCE(SUM(f.progress_pct * (
-		        SELECT COUNT(*) FROM tasks t WHERE t.feature_id = f.id
-		    )), 0) as weighted_sum,
-		    COALESCE(SUM((
-		        SELECT COUNT(*) FROM tasks t WHERE t.feature_id = f.id
-		    )), 0) as total_task_count
+		    COALESCE(SUM(
+		        CASE
+		            WHEN f.status IN ('completed', 'archived') THEN 100.0
+		            ELSE f.progress_pct
+		        END
+		    ), 0) as total_progress,
+		    COUNT(*) as feature_count
 		FROM features f
 		WHERE f.epic_id = ?
 	`
 
-	var weightedSum, totalTaskCount float64
-	err := r.db.QueryRowContext(ctx, query, epicID).Scan(&weightedSum, &totalTaskCount)
+	var totalProgress float64
+	var featureCount int
+	err := r.db.QueryRowContext(ctx, query, epicID).Scan(&totalProgress, &featureCount)
 	if err != nil {
 		return 0, fmt.Errorf("failed to calculate epic progress: %w", err)
 	}
 
-	// If epic has no features or all features have no tasks, return 0.0
-	if totalTaskCount == 0 {
+	// If epic has no features, return 0.0
+	if featureCount == 0 {
 		return 0.0, nil
 	}
 
-	return weightedSum / totalTaskCount, nil
+	return totalProgress / float64(featureCount), nil
 }
 
 // CalculateProgressByKey calculates the progress of an epic by its key
@@ -526,4 +531,79 @@ func (r *EpicRepository) UpdateKey(ctx context.Context, oldKey string, newKey st
 	}
 
 	return nil
+}
+
+// ============================================================================
+// Cascading Status Calculation Methods (E07-F14)
+// ============================================================================
+
+// GetFeatureStatusBreakdown retrieves the count of features by status for an epic
+// Used for deriving epic status from child features
+func (r *EpicRepository) GetFeatureStatusBreakdown(ctx context.Context, epicID int64) (map[models.FeatureStatus]int, error) {
+	query := `
+		SELECT status, COUNT(*) as count
+		FROM features
+		WHERE epic_id = ?
+		GROUP BY status
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, epicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature status breakdown: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[models.FeatureStatus]int)
+	for rows.Next() {
+		var status models.FeatureStatus
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan feature status count: %w", err)
+		}
+		counts[status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating feature status counts: %w", err)
+	}
+
+	return counts, nil
+}
+
+// GetFeatureStatusBreakdownByKey retrieves the count of features by status for an epic by its key
+func (r *EpicRepository) GetFeatureStatusBreakdownByKey(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error) {
+	epic, err := r.GetByKey(ctx, epicKey)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetFeatureStatusBreakdown(ctx, epic.ID)
+}
+
+// UpdateStatus updates the status of an epic
+func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error {
+	query := `UPDATE epics SET status = ? WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, status, epicID)
+	if err != nil {
+		return fmt.Errorf("failed to update epic status: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("epic not found with id %d", epicID)
+	}
+
+	return nil
+}
+
+// UpdateStatusByKey updates the status of an epic by its key
+func (r *EpicRepository) UpdateStatusByKey(ctx context.Context, epicKey string, status models.EpicStatus) error {
+	epic, err := r.GetByKey(ctx, epicKey)
+	if err != nil {
+		return err
+	}
+	return r.UpdateStatus(ctx, epic.ID, status)
 }

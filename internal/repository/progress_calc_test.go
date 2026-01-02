@@ -271,8 +271,8 @@ func TestEpicProgress_NoFeatures(t *testing.T) {
 	}
 }
 
-// TestEpicProgress_WeightedAverage verifies epic progress is weighted by task count
-func TestEpicProgress_WeightedAverage(t *testing.T) {
+// TestEpicProgress_MultipleFeatures verifies epic progress with multiple features
+func TestEpicProgress_MultipleFeatures(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
@@ -308,7 +308,7 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 	_, feature2ID := setupProgressTest(t, epicNum, 2, statuses2)
 	_ = featureRepo.UpdateProgress(ctx, feature2ID)
 
-	// Weighted average: (50×10 + 100×10) / (10+10) = 1500/20 = 75.0
+	// Simple average: (50 + 100) / 2 = 75.0
 	progress, err := epicRepo.CalculateProgress(ctx, epicID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)
@@ -316,18 +316,19 @@ func TestEpicProgress_WeightedAverage(t *testing.T) {
 
 	expected := 75.0
 	if progress != expected {
-		t.Errorf("Expected %.1f%% epic progress (weighted average), got %.1f%%", expected, progress)
+		t.Errorf("Expected %.1f%% epic progress (simple average), got %.1f%%", expected, progress)
 	}
 }
 
-// TestEpicProgress_TaskCountWeighting verifies small complete feature doesn't dominate large incomplete one
-func TestEpicProgress_TaskCountWeighting(t *testing.T) {
+// TestEpicProgress_SimpleAverage verifies epic progress is simple average of feature progress
+// (not weighted by task count)
+func TestEpicProgress_SimpleAverage(t *testing.T) {
 	ctx := context.Background()
 	db := NewDB(test.GetTestDB())
 	featureRepo := NewFeatureRepository(db)
 	epicRepo := NewEpicRepository(db)
 
-	// Feature 1: 100% but only 1 task (E98-F01)
+	// Feature 1: 100% with 1 task (E98-F01)
 	epicID, feature1ID := setupProgressTest(t, 98, 1, []models.TaskStatus{
 		models.TaskStatusCompleted,
 	})
@@ -341,15 +342,15 @@ func TestEpicProgress_TaskCountWeighting(t *testing.T) {
 	_, feature2ID := setupProgressTest(t, 98, 2, statuses2)
 	_ = featureRepo.UpdateProgress(ctx, feature2ID)
 
-	// Weighted average: (100×1 + 0×9) / (1+9) = 100/10 = 10.0
-	// NOT simple average of (100+0)/2 = 50.0
+	// Simple average: (100 + 0) / 2 = 50.0
+	// Features are treated equally regardless of task count
 	progress, err := epicRepo.CalculateProgress(ctx, epicID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)
 	}
 
-	expected := 10.0
+	expected := 50.0
 	if progress != expected {
-		t.Errorf("Expected %.1f%% epic progress (weighted by task count), got %.1f%%", expected, progress)
+		t.Errorf("Expected %.1f%% epic progress (simple average), got %.1f%%", expected, progress)
 	}
 }

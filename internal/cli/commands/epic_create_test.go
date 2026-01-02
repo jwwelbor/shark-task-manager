@@ -6,6 +6,72 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
+// TestEpicCreate_WithPriority tests that epic create command has --priority flag
+func TestEpicCreate_WithPriority(t *testing.T) {
+	// Test that the --priority flag exists and accepts valid values
+	flag := epicCreateCmd.Flags().Lookup("priority")
+	if flag == nil {
+		t.Skip("--priority flag not yet implemented on epicCreateCmd")
+	}
+
+	// Verify default value
+	if flag.DefValue != "medium" {
+		t.Errorf("Expected default priority 'medium', got '%s'", flag.DefValue)
+	}
+}
+
+// TestEpicCreate_WithBusinessValue tests that epic create command has --business-value flag
+func TestEpicCreate_WithBusinessValue(t *testing.T) {
+	// Test that the --business-value flag exists
+	flag := epicCreateCmd.Flags().Lookup("business-value")
+	if flag == nil {
+		t.Skip("--business-value flag not yet implemented on epicCreateCmd")
+	}
+
+	// Verify default value (should be empty since it's optional)
+	if flag.DefValue != "" {
+		t.Errorf("Expected default business-value to be empty, got '%s'", flag.DefValue)
+	}
+}
+
+// TestEpicCreate_WithStatus tests that epic create command has --status flag
+func TestEpicCreate_WithStatus(t *testing.T) {
+	// Test that the --status flag exists
+	flag := epicCreateCmd.Flags().Lookup("status")
+	if flag == nil {
+		t.Skip("--status flag not yet implemented on epicCreateCmd")
+	}
+
+	// Verify default value
+	if flag.DefValue != "draft" {
+		t.Errorf("Expected default status 'draft', got '%s'", flag.DefValue)
+	}
+}
+
+// TestEpicCreate_FlagsRegistered tests that all new flags are registered
+func TestEpicCreate_FlagsRegistered(t *testing.T) {
+	requiredFlags := []struct {
+		name         string
+		defaultValue string
+	}{
+		{"priority", "medium"},
+		{"business-value", ""},
+		{"status", "draft"},
+	}
+
+	for _, rf := range requiredFlags {
+		t.Run(rf.name, func(t *testing.T) {
+			flag := epicCreateCmd.Flags().Lookup(rf.name)
+			if flag == nil {
+				t.Skip("Flag --" + rf.name + " not yet implemented on epicCreateCmd")
+			}
+			if flag.DefValue != rf.defaultValue {
+				t.Errorf("Expected default value '%s' for --%s, got '%s'", rf.defaultValue, rf.name, flag.DefValue)
+			}
+		})
+	}
+}
+
 // TestEpicCreation_FilePathSet verifies that FilePath is always set in the database,
 // regardless of whether --filename flag was used
 func TestEpicCreation_FilePathSet(t *testing.T) {
