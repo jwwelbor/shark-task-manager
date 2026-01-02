@@ -326,6 +326,44 @@ CREATE TABLE IF NOT EXISTS task_documents (
 -- Indexes for task_documents
 CREATE INDEX IF NOT EXISTS idx_task_documents_task_id ON task_documents(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_documents_document_id ON task_documents(document_id);
+
+-- ============================================================================
+-- Table: ideas
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS ideas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,                          -- Format: I-YYYY-MM-DD-xx
+    title TEXT NOT NULL,
+    description TEXT,
+    created_date TIMESTAMP NOT NULL,                   -- Date for key generation
+    priority INTEGER CHECK (priority >= 1 AND priority <= 10),
+    "order" INTEGER,                                   -- Quoted because order is SQL keyword
+    notes TEXT,
+    related_docs TEXT,                                 -- JSON array of document paths
+    dependencies TEXT,                                 -- JSON array of idea keys
+    status TEXT NOT NULL CHECK (status IN ('new', 'on_hold', 'converted', 'archived')) DEFAULT 'new',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Conversion tracking (for E08-F03)
+    converted_to_type TEXT CHECK (converted_to_type IN ('epic', 'feature', 'task')),
+    converted_to_key TEXT,
+    converted_at TIMESTAMP
+);
+
+-- Indexes for ideas
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ideas_key ON ideas(key);
+CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
+CREATE INDEX IF NOT EXISTS idx_ideas_created_date ON ideas(created_date DESC);
+CREATE INDEX IF NOT EXISTS idx_ideas_priority ON ideas(priority);
+
+-- Trigger to auto-update updated_at for ideas
+CREATE TRIGGER IF NOT EXISTS ideas_updated_at
+AFTER UPDATE ON ideas
+FOR EACH ROW
+BEGIN
+    UPDATE ideas SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
 `
 
 	_, err := db.Exec(schema)
@@ -521,6 +559,37 @@ func runMigrations(db *sql.DB) error {
 	// the old "features_old" table instead of "features"
 	if err := MigrateFixFeaturesOldForeignKeys(db); err != nil {
 		return fmt.Errorf("failed to fix features_old foreign keys: %w", err)
+	}
+
+	// Run status_override column migration for cascading status calculation (E07-F14)
+	if err := migrateStatusOverrideColumn(db); err != nil {
+		return fmt.Errorf("failed to migrate status_override column: %w", err)
+	}
+
+	return nil
+}
+
+// migrateStatusOverrideColumn adds status_override column to features table
+// for supporting manual override of calculated status (E07-F14)
+func migrateStatusOverrideColumn(db *sql.DB) error {
+	// Check if features table has status_override column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'status_override'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for status_override: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add status_override column with default false (auto-calculation)
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN status_override BOOLEAN DEFAULT 0;`); err != nil {
+			return fmt.Errorf("failed to add status_override to features: %w", err)
+		}
+		// Create index for efficient queries
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_features_status_override ON features(status_override);`); err != nil {
+			return fmt.Errorf("failed to create features status_override index: %w", err)
+		}
 	}
 
 	return nil

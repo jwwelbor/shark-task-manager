@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
@@ -31,17 +33,14 @@ func getRelativePathFeature(absPath string, projectRoot string) string {
 
 // backupDatabaseOnForceFeature creates a backup when --force flag is used
 // Returns the backup path and error (if any)
+// DEPRECATED: Use CreateBackupIfForce from file_assignment.go instead
 func backupDatabaseOnForceFeature(force bool, dbPath string, operation string) (string, error) {
-	if !force {
-		return "", nil
-	}
-
-	backupPath, err := db.BackupDatabase(dbPath)
+	backupPath, err := CreateBackupIfForce(force, dbPath, operation)
 	if err != nil {
-		return "", fmt.Errorf("failed to create backup before %s: %w", operation, err)
+		return "", err
 	}
 
-	if !cli.GlobalConfig.JSON {
+	if backupPath != "" && !cli.GlobalConfig.JSON {
 		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
 	}
 
@@ -51,7 +50,8 @@ func backupDatabaseOnForceFeature(force bool, dbPath string, operation string) (
 // FeatureWithTaskCount wraps a Feature with task count
 type FeatureWithTaskCount struct {
 	*models.Feature
-	TaskCount int `json:"task_count"`
+	TaskCount    int    `json:"task_count"`
+	StatusSource string `json:"status_source"`
 }
 
 // featureCmd represents the feature command group
@@ -230,6 +230,7 @@ func init() {
 	featureCreateCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature (e.g., auth, F00). If not provided, auto-generates next F## number")
 	featureCreateCmd.Flags().StringVar(&featureCreateFilename, "filename", "", "Custom filename path (relative to project root, must end in .md)")
 	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
+	featureCreateCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
 	_ = featureCreateCmd.MarkFlagRequired("epic")
 
 	// Add flags for complete command
@@ -272,20 +273,14 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		epicFilter = *positionalEpic
 	}
 
-	// Validate status filter
+	// Validate status filter using shared parsing function
 	if statusFilter != "" {
-		validStatuses := []string{"draft", "active", "completed", "archived"}
-		valid := false
-		for _, s := range validStatuses {
-			if statusFilter == s {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			cli.Error(fmt.Sprintf("Error: Invalid status '%s'. Must be one of: draft, active, completed, archived", statusFilter))
+		validatedStatus, err := ParseFeatureStatus(statusFilter)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
+		statusFilter = validatedStatus
 	}
 
 	// Validate sort-by option
@@ -413,9 +408,16 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 			taskCount = 0
 		}
 
+		// Determine status source
+		statusSource := "calculated"
+		if feature.StatusOverride {
+			statusSource = "manual"
+		}
+
 		featuresWithTaskCount = append(featuresWithTaskCount, FeatureWithTaskCount{
-			Feature:   feature,
-			TaskCount: taskCount,
+			Feature:      feature,
+			TaskCount:    taskCount,
+			StatusSource: statusSource,
 		})
 	}
 
@@ -550,6 +552,12 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		relatedDocs = []*models.Document{}
 	}
 
+	// Determine status source
+	statusSource := "calculated"
+	if feature.StatusOverride {
+		statusSource = "manual"
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
@@ -559,6 +567,8 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"title":             feature.Title,
 			"description":       feature.Description,
 			"status":            feature.Status,
+			"status_source":     statusSource,
+			"status_override":   feature.StatusOverride,
 			"progress_pct":      feature.ProgressPct,
 			"path":              dirPath,
 			"filename":          filename,
@@ -599,11 +609,17 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 			execOrder = fmt.Sprintf("%d", *feature.ExecutionOrder)
 		}
 
+		// Format status with indicator (* for manual override)
+		statusDisplay := string(feature.Status)
+		if feature.StatusOverride {
+			statusDisplay += "*"
+		}
+
 		tableData = append(tableData, []string{
 			feature.Key,
 			title,
 			fmt.Sprintf("%d", feature.EpicID),
-			string(feature.Status),
+			statusDisplay,
 			progress,
 			fmt.Sprintf("%d", feature.TaskCount),
 			execOrder,
@@ -620,11 +636,19 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
 	fmt.Println()
 
+	// Format status with source indicator
+	statusDisplay := string(feature.Status)
+	if feature.StatusOverride {
+		statusDisplay += " (manual override)"
+	} else {
+		statusDisplay += " (calculated)"
+	}
+
 	// Feature info
 	info := [][]string{
 		{"Title", feature.Title},
 		{"Epic ID", fmt.Sprintf("%d", feature.EpicID)},
-		{"Status", string(feature.Status)},
+		{"Status", statusDisplay},
 		{"Progress", fmt.Sprintf("%.1f%%", feature.ProgressPct)},
 	}
 
@@ -843,9 +867,9 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	// Get feature key (custom or auto-generated)
 	var nextKey string
 	if featureCreateKey != "" {
-		// Validate custom key: no spaces allowed
-		if containsSpace(featureCreateKey) {
-			cli.Error("Error: Feature key cannot contain spaces")
+		// Validate custom key using shared validator: no spaces allowed
+		if err := ValidateNoSpaces(featureCreateKey, "feature"); err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
 
@@ -869,15 +893,13 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 	} else {
-		// Auto-generate next feature key
+		// Auto-generate next feature key (now includes epic prefix)
 		var err error
-		nextKey, err = getNextFeatureKey(ctx, featureRepo, epic.ID)
+		nextKey, err = getNextFeatureKey(ctx, featureRepo, epic.ID, epic.Key)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to generate feature key: %v", err))
 			os.Exit(1)
 		}
-		// Prepend epic to auto-generated key
-		nextKey = fmt.Sprintf("%s-%s", featureCreateEpic, nextKey)
 	}
 
 	// Generate slug from title
@@ -1051,13 +1073,25 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
+	// Parse status flag using shared parsing function (with default "draft")
+	statusStr, _ := cmd.Flags().GetString("status")
+	if statusStr == "" {
+		statusStr = "draft"
+	}
+	statusStr, err = ParseFeatureStatus(statusStr)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
+	status := models.FeatureStatus(statusStr)
+
 	// Create feature with custom file path if provided
 	feature := &models.Feature{
 		EpicID:           epic.ID,
 		Key:              featureKey,
 		Title:            featureTitle,
 		Description:      &featureCreateDescription,
-		Status:           models.FeatureStatusDraft,
+		Status:           status,
 		ProgressPct:      0.0,
 		ExecutionOrder:   executionOrder,
 		FilePath:         customFilePath,
@@ -1086,28 +1120,44 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// getNextFeatureKey determines the next available feature key (F##) for an epic
-func getNextFeatureKey(ctx context.Context, featureRepo *repository.FeatureRepository, epicID int64) (string, error) {
+// getNextFeatureKey determines the next available feature key (E##-F##) for an epic
+// If epicKey is empty, it will attempt to extract from existing features
+func getNextFeatureKey(ctx context.Context, featureRepo *repository.FeatureRepository, epicID int64, epicKey ...string) (string, error) {
 	// Get all features for this epic
 	features, err := featureRepo.ListByEpic(ctx, epicID)
 	if err != nil {
 		return "", fmt.Errorf("failed to list features: %w", err)
 	}
 
-	// Find the maximum feature number
+	// Find the maximum feature number and extract epic key from existing features
 	maxNum := 0
+	extractedEpicKey := ""
 	for _, feature := range features {
-		// Feature key format in DB is E##-F##, extract the F## part
+		// Feature key format in DB is E##-F##, extract both parts
 		var epicNum, featureNum int
 		if _, err := fmt.Sscanf(feature.Key, "E%d-F%d", &epicNum, &featureNum); err == nil {
+			if extractedEpicKey == "" {
+				extractedEpicKey = fmt.Sprintf("E%02d", epicNum)
+			}
 			if featureNum > maxNum {
 				maxNum = featureNum
 			}
 		}
 	}
 
-	// Return next available number
-	return fmt.Sprintf("F%02d", maxNum+1), nil
+	// Determine which epic key to use: provided parameter or extracted from features
+	finalEpicKey := extractedEpicKey
+	if len(epicKey) > 0 && epicKey[0] != "" {
+		finalEpicKey = epicKey[0]
+	}
+
+	// If still no epic key, we can't proceed
+	if finalEpicKey == "" {
+		return "", fmt.Errorf("unable to determine epic key - no existing features and no epic key provided")
+	}
+
+	// Return full feature key with epic prefix
+	return fmt.Sprintf("%s-F%02d", finalEpicKey, maxNum+1), nil
 }
 
 // runFeatureComplete executes the feature complete command
@@ -1479,10 +1529,43 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 		changed = true
 	}
 
-	// Update status if provided
-	status, _ := cmd.Flags().GetString("status")
-	if status != "" {
-		feature.Status = models.FeatureStatus(status)
+	// Update status if provided (using shared validation)
+	// Special handling for "auto" to enable calculated status
+	statusFlag, _ := cmd.Flags().GetString("status")
+	if statusFlag != "" {
+		if strings.ToLower(statusFlag) == "auto" {
+			// Clear status override and recalculate status
+			if err := featureRepo.SetStatusOverride(ctx, feature.ID, false); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to clear status override: %v", err))
+				os.Exit(1)
+			}
+
+			// Recalculate status from tasks
+			calcService := status.NewCalculationService(repoDb)
+			result, err := calcService.RecalculateFeatureStatus(ctx, feature.ID)
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to recalculate status: %v", err))
+				os.Exit(1)
+			}
+
+			cli.Success(fmt.Sprintf("Feature %s status recalculated: %s (calculated from tasks)", feature.Key, result.NewStatus))
+			return nil
+		}
+
+		// Regular status update - set override and apply status
+		validatedStatus, err := ParseFeatureStatus(statusFlag)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+
+		// Set override to true for manual status
+		if err := featureRepo.SetStatusOverride(ctx, feature.ID, true); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to set status override: %v", err))
+			os.Exit(1)
+		}
+
+		feature.Status = models.FeatureStatus(validatedStatus)
 		changed = true
 	}
 
@@ -1522,9 +1605,9 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 	// Handle key update separately (requires unique validation)
 	newKey, _ := cmd.Flags().GetString("key")
 	if newKey != "" {
-		// Validate new key: no spaces allowed
-		if containsSpace(newKey) {
-			cli.Error("Error: Feature key cannot contain spaces")
+		// Validate new key using shared validator: no spaces allowed
+		if err := ValidateNoSpaces(newKey, "feature"); err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
 
