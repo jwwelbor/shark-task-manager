@@ -144,8 +144,7 @@ var epicCreateCmd = &cobra.Command{
 The epic key is automatically assigned as the next available E## number.
 
 Flags:
-  --filename string    Custom file path relative to project root (must end in .md)
-  --path string        Custom base folder path for this epic and children (relative to project root)
+  --file string        Full file path (e.g., docs/custom/epic.md)
   --force              Force reassignment if file already claimed by another entity
   --description string Epic description
   --priority string    Priority: high, medium, low (default: medium)
@@ -154,9 +153,8 @@ Flags:
 Examples:
   shark epic create "User Authentication System"
   shark epic create "User Auth" --description="Add OAuth and MFA"
-  shark epic create "Platform Roadmap" --path="docs/specs"
-  shark epic create "Platform Roadmap" --filename="docs/roadmap/2025.md"
-  shark epic create "Q1 Goals" --filename="docs/roadmap/q1.md" --force`,
+  shark epic create "Platform Roadmap" --file="docs/specs/roadmap.md"
+  shark epic create "Q1 Goals" --file="docs/roadmap/q1.md" --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicCreate,
 }
@@ -196,15 +194,13 @@ Examples:
   shark epic update E01 --title "New Title"
   shark epic update E01-enhancements --description "New description"
   shark epic update E01 --status active
-  shark epic update E01 --filename "docs/roadmap/2025.md"
-  shark epic update E01 --path "docs/roadmap"`,
+  shark epic update E01 --file "docs/roadmap/2025.md"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicUpdate,
 }
 
 var (
 	epicCreateDescription string
-	epicCreatePath        string
 	epicCreateKey         string
 )
 
@@ -230,9 +226,15 @@ func init() {
 
 	// Add flags for create command
 	epicCreateCmd.Flags().StringVar(&epicCreateDescription, "description", "", "Epic description (optional)")
-	epicCreateCmd.Flags().StringVar(&epicCreatePath, "path", "", "Custom base folder path for this epic and children (relative to project root)")
 	epicCreateCmd.Flags().StringVar(&epicCreateKey, "key", "", "Custom key for the epic (e.g., E00, bugs). If not provided, auto-generates next E## number")
-	epicCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must end in .md)")
+
+	// File path flags: --file is primary, --filepath and --path are hidden aliases
+	epicCreateCmd.Flags().String("file", "", "Full file path (e.g., docs/custom/epic.md)")
+	epicCreateCmd.Flags().String("filename", "", "Alias for --file")
+	epicCreateCmd.Flags().String("path", "", "Alias for --file")
+	_ = epicCreateCmd.Flags().MarkHidden("filename")
+	_ = epicCreateCmd.Flags().MarkHidden("path")
+
 	epicCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another epic or feature")
 	epicCreateCmd.Flags().String("priority", "medium", "Priority: low, medium, high (default: medium)")
 	epicCreateCmd.Flags().String("business-value", "", "Business value: low, medium, high (optional)")
@@ -248,8 +250,14 @@ func init() {
 	epicUpdateCmd.Flags().String("priority", "", "New priority: low, medium, high")
 	epicUpdateCmd.Flags().String("business-value", "", "New business value: low, medium, high")
 	epicUpdateCmd.Flags().String("key", "", "New key for the epic (must be unique, cannot contain spaces)")
-	epicUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
-	epicUpdateCmd.Flags().String("path", "", "New custom folder base path")
+
+	// File path flags: --file is primary, --filename and --path are hidden aliases
+	epicUpdateCmd.Flags().String("file", "", "New file path (e.g., docs/custom/epic.md)")
+	epicUpdateCmd.Flags().String("filename", "", "Alias for --file")
+	epicUpdateCmd.Flags().String("path", "", "Alias for --file")
+	_ = epicUpdateCmd.Flags().MarkHidden("filename")
+	_ = epicUpdateCmd.Flags().MarkHidden("path")
+
 	epicUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
 }
 
@@ -489,24 +497,23 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
-			"id":                 epic.ID,
-			"key":                epic.Key,
-			"title":              epic.Title,
-			"description":        epic.Description,
-			"status":             epic.Status,
-			"status_source":      "calculated", // Epic status is always calculated from features
-			"priority":           epic.Priority,
-			"business_value":     epic.BusinessValue,
-			"slug":               epic.Slug,
-			"progress_pct":       epicProgress,
-			"path":               dirPath,
-			"filename":           filename,
-			"file_path":          epic.FilePath,
-			"custom_folder_path": epic.CustomFolderPath,
-			"created_at":         epic.CreatedAt,
-			"updated_at":         epic.UpdatedAt,
-			"features":           featuresWithDetails,
-			"related_documents":  relatedDocs,
+			"id":                epic.ID,
+			"key":               epic.Key,
+			"title":             epic.Title,
+			"description":       epic.Description,
+			"status":            epic.Status,
+			"status_source":     "calculated", // Epic status is always calculated from features
+			"priority":          epic.Priority,
+			"business_value":    epic.BusinessValue,
+			"slug":              epic.Slug,
+			"progress_pct":      epicProgress,
+			"path":              dirPath,
+			"filename":          filename,
+			"file_path":         epic.FilePath,
+			"created_at":        epic.CreatedAt,
+			"updated_at":        epic.UpdatedAt,
+			"features":          featuresWithDetails,
+			"related_documents": relatedDocs,
 		}
 		return cli.OutputJSON(result)
 	}
@@ -699,7 +706,21 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	epicTitle := args[0]
 
 	// Get optional flags
+	// Try all three flag aliases: --file, --filename, --path (last one wins)
+	file, _ := cmd.Flags().GetString("file")
 	filename, _ := cmd.Flags().GetString("filename")
+	path, _ := cmd.Flags().GetString("path")
+
+	// Determine which flag was provided (priority: path > filename > file)
+	var customFile string
+	if path != "" {
+		customFile = path
+	} else if filename != "" {
+		customFile = filename
+	} else if file != "" {
+		customFile = file
+	}
+
 	force, _ := cmd.Flags().GetBool("force")
 
 	// Get database connection
@@ -723,17 +744,6 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
 		os.Exit(1)
-	}
-
-	// Validate and process custom path if provided
-	var customFolderPath *string
-	if epicCreatePath != "" {
-		_, relPath, err := utils.ValidateFolderPath(epicCreatePath, projectRoot)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
-		customFolderPath = &relPath
 	}
 
 	// Get repositories
@@ -772,9 +782,9 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	var customFilePath *string
 	var actualFilePath string // The path where the file will be created
 
-	if filename != "" {
+	if customFile != "" {
 		// Validate custom filename
-		absPath, relPath, err := taskcreation.ValidateCustomFilename(filename, projectRoot)
+		absPath, relPath, err := taskcreation.ValidateCustomFilename(customFile, projectRoot)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Invalid filename: %v", err))
 			os.Exit(1)
@@ -891,7 +901,7 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create parent directories if needed (for custom paths)
-	if filename != "" {
+	if customFile != "" {
 		parentDir := filepath.Dir(actualFilePath)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to create parent directories: %v", err))
@@ -944,14 +954,13 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	// Create database entry with key (E##) not full slug
 	epic := &models.Epic{
-		Key:              nextKey,
-		Title:            epicTitle,
-		Description:      &epicCreateDescription,
-		Status:           status,
-		Priority:         priority,
-		BusinessValue:    businessValue,
-		FilePath:         customFilePath,
-		CustomFolderPath: customFolderPath,
+		Key:           nextKey,
+		Title:         epicTitle,
+		Description:   &epicCreateDescription,
+		Status:        status,
+		Priority:      priority,
+		BusinessValue: businessValue,
+		FilePath:      customFilePath,
 	}
 
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -963,7 +972,7 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	// Success output
 	cli.Success(fmt.Sprintf("Created epic %s '%s' at %s", nextKey, epicTitle, actualFilePath))
-	if filename != "" {
+	if customFile != "" {
 		// Custom filename was provided
 		fmt.Printf("Start work with: shark epic get %s\n", nextKey)
 	} else {
@@ -1482,24 +1491,6 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 		changed = true
 	}
 
-	// Update custom folder path if provided
-	customPath, _ := cmd.Flags().GetString("path")
-	if customPath != "" {
-		projectRoot, err := os.Getwd()
-		if err != nil {
-			cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
-			os.Exit(1)
-		}
-
-		_, relPath, err := utils.ValidateFolderPath(customPath, projectRoot)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
-		epic.CustomFolderPath = &relPath
-		changed = true
-	}
-
 	// Apply core field updates if any changed
 	if changed {
 		if err := epicRepo.Update(ctx, epic); err != nil {
@@ -1535,11 +1526,25 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle filename update separately (uses different repository method)
+	// Try all three flag aliases: --file, --filename, --path (last one wins)
+	file, _ := cmd.Flags().GetString("file")
 	filename, _ := cmd.Flags().GetString("filename")
-	if filename != "" {
+	path, _ := cmd.Flags().GetString("path")
+
+	// Determine which flag was provided (priority: path > filename > file)
+	var customFile string
+	if path != "" {
+		customFile = path
+	} else if filename != "" {
+		customFile = filename
+	} else if file != "" {
+		customFile = file
+	}
+
+	if customFile != "" {
 		// This is handled separately as it may involve file reassignment
 		// For now, just update the file path in the database
-		if err := epicRepo.UpdateFilePath(ctx, epicKey, &filename); err != nil {
+		if err := epicRepo.UpdateFilePath(ctx, epicKey, &customFile); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update epic file path: %v", err))
 			os.Exit(1)
 		}

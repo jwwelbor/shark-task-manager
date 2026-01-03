@@ -1043,8 +1043,10 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		executionOrder = order
 	}
 	customKey, _ := cmd.Flags().GetString("key")
-	filename, _ := cmd.Flags().GetString("filename")
 	force, _ := cmd.Flags().GetBool("force")
+
+	// Get filename flag for custom file path
+	filename, _ := cmd.Flags().GetString("filename")
 
 	// Validate custom key if provided
 	if customKey != "" && containsSpace(customKey) {
@@ -1800,8 +1802,14 @@ func init() {
 	taskCreateCmd.Flags().Int("execution-order", 0, "Execution order (optional, 0 = not set)")
 	taskCreateCmd.Flags().Int("order", 0, "Execution order (alias for --execution-order)")
 	taskCreateCmd.Flags().String("key", "", "Custom key for the task (e.g., T-E01-F01-custom). If not provided, auto-generates next sequence number")
-	taskCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must include .md extension)")
 	taskCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
+
+	// File path flags: --file is primary, --filename and --path are hidden aliases
+	taskCreateCmd.Flags().String("file", "", "Full file path (e.g., docs/custom/task.md)")
+	taskCreateCmd.Flags().String("filename", "", "Alias for --file")
+	taskCreateCmd.Flags().String("path", "", "Alias for --file")
+	_ = taskCreateCmd.Flags().MarkHidden("filename")
+	_ = taskCreateCmd.Flags().MarkHidden("path")
 
 	// Add flags for next command
 	taskNextCmd.Flags().StringP("agent", "a", "", "Agent type to match")
@@ -1976,9 +1984,23 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle filename update separately
+	// Try all three flag aliases: --file, --filename, --path (last one wins)
+	file, _ := cmd.Flags().GetString("file")
 	filename, _ := cmd.Flags().GetString("filename")
-	if filename != "" {
-		if err := repo.UpdateFilePath(ctx, taskKey, &filename); err != nil {
+	path, _ := cmd.Flags().GetString("path")
+
+	// Determine which flag was provided (priority: path > filename > file)
+	var customFile string
+	if path != "" {
+		customFile = path
+	} else if filename != "" {
+		customFile = filename
+	} else if file != "" {
+		customFile = file
+	}
+
+	if customFile != "" {
+		if err := repo.UpdateFilePath(ctx, taskKey, &customFile); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update task file path: %v", err))
 			os.Exit(1)
 		}

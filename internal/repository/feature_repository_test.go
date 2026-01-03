@@ -59,7 +59,7 @@ func TestFeatureRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	assert.Equal(t, "implement-user-authentication-system", *feature.Slug)
 
 	// Verify slug is persisted in database
-	retrieved, err := repo.GetByID(ctx, feature.ID)
+	retrieved, err := repo.GetByKey(ctx, "E89-F01")
 	require.NoError(t, err)
 	assert.NotNil(t, retrieved.Slug, "Slug should be persisted")
 	assert.Equal(t, "implement-user-authentication-system", *retrieved.Slug)
@@ -327,74 +327,4 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 	}
 }
 
-// TestFeatureRepository_UpdateCustomPath verifies that updating custom_folder_path works correctly
-func TestFeatureRepository_UpdateCustomPath(t *testing.T) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	repo := NewFeatureRepository(db)
-	epicRepo := NewEpicRepository(db)
-
-	// Clean up test data first (use E88 to avoid conflicts)
-	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E88-F01'")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E88'")
-
-	// Create dedicated epic for this test
-	testEpic := &models.Epic{
-		Key:      "E88",
-		Title:    "Test Epic for Custom Path Update",
-		Status:   models.EpicStatusActive,
-		Priority: models.PriorityMedium,
-	}
-	err := epicRepo.Create(ctx, testEpic)
-	require.NoError(t, err, "Failed to create test epic")
-	defer func() {
-		if _, err := database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID); err != nil {
-			t.Logf("Cleanup error: %v", err)
-		}
-	}()
-
-	// Create feature without custom path
-	feature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E88-F01",
-		Title:  "Test Feature for Path Update",
-		Status: models.FeatureStatusDraft,
-	}
-
-	err = repo.Create(ctx, feature)
-	require.NoError(t, err)
-	defer func() {
-		if _, err := database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID); err != nil {
-			t.Logf("Cleanup error: %v", err)
-		}
-	}()
-
-	// Verify initial state: custom_folder_path should be nil
-	retrieved, err := repo.GetByID(ctx, feature.ID)
-	require.NoError(t, err)
-	assert.Nil(t, retrieved.CustomFolderPath, "CustomFolderPath should initially be nil")
-
-	// Update with custom path
-	customPath := "docs/custom/test-location"
-	feature.CustomFolderPath = &customPath
-
-	err = repo.Update(ctx, feature)
-	require.NoError(t, err, "Update should succeed")
-
-	// Verify custom_folder_path was updated in database
-	var dbCustomPath *string
-	err = database.QueryRowContext(ctx,
-		"SELECT custom_folder_path FROM features WHERE id = ?",
-		feature.ID,
-	).Scan(&dbCustomPath)
-	require.NoError(t, err)
-	require.NotNil(t, dbCustomPath, "custom_folder_path should not be nil after update")
-	assert.Equal(t, customPath, *dbCustomPath, "custom_folder_path should match the updated value")
-
-	// Also verify through repository GetByID
-	retrieved, err = repo.GetByID(ctx, feature.ID)
-	require.NoError(t, err)
-	require.NotNil(t, retrieved.CustomFolderPath, "Retrieved CustomFolderPath should not be nil")
-	assert.Equal(t, customPath, *retrieved.CustomFolderPath, "Retrieved CustomFolderPath should match")
-}
+// TestFeatureRepository_UpdateCustomPath removed - custom_folder_path feature no longer supported

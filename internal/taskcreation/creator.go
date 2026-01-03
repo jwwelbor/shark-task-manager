@@ -159,45 +159,29 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 			fullFilePath = filepath.Join(c.projectRoot, relPath)
 			filePath = relPath
 		} else {
-			// Use PathResolver logic to compute path based on feature's base path
+			// Default: compute path based on feature's default location
 			// We need to manually construct since task doesn't exist yet
 			epic, err := c.epicRepo.GetByID(ctx, feature.EpicID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch epic: %w", err)
 			}
 
-			// Determine feature's base directory using same logic as PathResolver
-			var featureBaseDir string
-			if feature.CustomFolderPath != nil && *feature.CustomFolderPath != "" {
-				featureBaseDir = *feature.CustomFolderPath
-			} else if epic.CustomFolderPath != nil && *epic.CustomFolderPath != "" {
-				// Inherit epic's custom folder path
-				featureSlug := ""
-				if feature.Slug != nil && *feature.Slug != "" {
-					featureSlug = *feature.Slug
-				} else {
-					featureSlug = feature.Key
-				}
-				featureFolder := feature.Key + "-" + featureSlug
-				featureBaseDir = filepath.Join(*epic.CustomFolderPath, featureFolder)
+			// Default: docs/plan/{epic-key}/{feature-key}
+			epicSlug := ""
+			if epic.Slug != nil && *epic.Slug != "" {
+				epicSlug = *epic.Slug
 			} else {
-				// Default: docs/plan/{epic-key}/{feature-key}
-				epicSlug := ""
-				if epic.Slug != nil && *epic.Slug != "" {
-					epicSlug = *epic.Slug
-				} else {
-					epicSlug = epic.Key
-				}
-				featureSlug := ""
-				if feature.Slug != nil && *feature.Slug != "" {
-					featureSlug = *feature.Slug
-				} else {
-					featureSlug = feature.Key
-				}
-				epicFolder := epic.Key + "-" + epicSlug
-				featureFolder := feature.Key + "-" + featureSlug
-				featureBaseDir = filepath.Join("docs", "plan", epicFolder, featureFolder)
+				epicSlug = epic.Key
 			}
+			featureSlug := ""
+			if feature.Slug != nil && *feature.Slug != "" {
+				featureSlug = *feature.Slug
+			} else {
+				featureSlug = feature.Key
+			}
+			epicFolder := epic.Key + "-" + epicSlug
+			featureFolder := feature.Key + "-" + featureSlug
+			featureBaseDir := filepath.Join("docs", "plan", epicFolder, featureFolder)
 
 			// Task path: {featureBaseDir}/tasks/{task-key}.md
 			taskFilename := key + ".md"

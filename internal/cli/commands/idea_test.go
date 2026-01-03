@@ -65,6 +65,22 @@ func TestGenerateIdeaKey(t *testing.T) {
 				ListFunc: func(ctx context.Context, filter *repository.IdeaFilter) ([]*models.Idea, error) {
 					return tt.existingIdeas, nil
 				},
+				GetNextSequenceForDateFunc: func(ctx context.Context, dateStr string) (int, error) {
+					// Count existing ideas for today
+					maxSeq := 0
+					prefix := fmt.Sprintf("I-%s-", dateStr)
+					for _, idea := range tt.existingIdeas {
+						if len(idea.Key) >= len(prefix) && idea.Key[:len(prefix)] == prefix {
+							// Extract sequence number from key (last 2 digits)
+							var seq int
+							_, err := fmt.Sscanf(idea.Key, prefix+"%d", &seq)
+							if err == nil && seq > maxSeq {
+								maxSeq = seq
+							}
+						}
+					}
+					return maxSeq + 1, nil
+				},
 			}
 
 			// Generate key

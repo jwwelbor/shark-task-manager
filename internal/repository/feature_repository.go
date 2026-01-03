@@ -33,7 +33,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 
 	query := `
 		INSERT INTO features (epic_id, key, title, slug, description, status, progress_pct, execution_order, file_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -334,7 +334,7 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
 			&feature.FilePath,
-		&feature.CreatedAt,
+			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
 		if err != nil {
@@ -380,7 +380,7 @@ func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error)
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
 			&feature.FilePath,
-		&feature.CreatedAt,
+			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
 		if err != nil {
@@ -582,7 +582,7 @@ func (r *FeatureRepository) ListByStatus(ctx context.Context, status models.Feat
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
 			&feature.FilePath,
-		&feature.CreatedAt,
+			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
 		if err != nil {
@@ -629,7 +629,7 @@ func (r *FeatureRepository) ListByEpicAndStatus(ctx context.Context, epicID int6
 			&feature.ProgressPct,
 			&feature.ExecutionOrder,
 			&feature.FilePath,
-		&feature.CreatedAt,
+			&feature.CreatedAt,
 			&feature.UpdatedAt,
 		)
 		if err != nil {
