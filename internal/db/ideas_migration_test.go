@@ -49,7 +49,7 @@ func TestIdeasTableSchema(t *testing.T) {
 	// Expected columns
 	expectedColumns := []string{
 		"id", "key", "title", "description", "created_date",
-		"priority", "order", "notes", "related_docs", "dependencies",
+		"priority", "display_order", "notes", "related_docs", "dependencies",
 		"status", "created_at", "updated_at",
 		"converted_to_type", "converted_to_key", "converted_at",
 	}

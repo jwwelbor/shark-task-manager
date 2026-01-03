@@ -277,7 +277,7 @@ func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([
 			&epic.BusinessValue,
 			&epic.Slug,
 			&epic.FilePath,
-		&epic.CreatedAt,
+			&epic.CreatedAt,
 			&epic.UpdatedAt,
 		)
 		if err != nil {

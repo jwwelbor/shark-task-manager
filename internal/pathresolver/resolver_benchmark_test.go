@@ -40,14 +40,12 @@ func BenchmarkPathResolver_ResolveEpicPath_CustomFolder(b *testing.B) {
 	ctx := context.Background()
 	projectRoot := "/project"
 
-	customPath := "docs/custom/epic-folder"
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
 			return &models.Epic{
-				ID:               1,
-				Key:              "E01",
-				Title:            "Test Epic",
-				CustomFolderPath: &customPath,
+				ID:    1,
+				Key:   "E01",
+				Title: "Test Epic",
 			}, nil
 		},
 	}
@@ -138,16 +136,14 @@ func BenchmarkPathResolver_ResolveFeaturePath_InheritedPath(b *testing.B) {
 	ctx := context.Background()
 	projectRoot := "/project"
 
-	epicCustomPath := "docs/2025-q1"
 	featureSlug := "user-auth"
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
 			return &models.Epic{
-				ID:               1,
-				Key:              "E01",
-				Title:            "Q1 Epic",
-				CustomFolderPath: &epicCustomPath,
+				ID:    1,
+				Key:   "E01",
+				Title: "Q1 Epic",
 			}, nil
 		},
 	}

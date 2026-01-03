@@ -116,44 +116,40 @@ type IndexFeature struct {
 
 // FolderEpic represents an epic discovered from folder structure
 type FolderEpic struct {
-	Key              string          `json:"key"`                // Extracted from pattern (e.g., "E04")
-	Slug             string          `json:"slug"`               // Extracted from pattern
-	Path             string          `json:"path"`               // Full folder path
-	EpicMdPath       *string         `json:"epic_md_path"`       // Path to epic.md if exists
-	CustomFolderPath *string         `json:"custom_folder_path"` // Custom base folder path from frontmatter
-	Features         []FolderFeature `json:"features"`           // Features discovered in this epic
+	Key        string          `json:"key"`          // Extracted from pattern (e.g., "E04")
+	Slug       string          `json:"slug"`         // Extracted from pattern
+	Path       string          `json:"path"`         // Full folder path
+	EpicMdPath *string         `json:"epic_md_path"` // Path to epic.md if exists
+	Features   []FolderFeature `json:"features"`     // Features discovered in this epic
 }
 
 // FolderFeature represents a feature discovered from folder structure
 type FolderFeature struct {
-	Key              string   `json:"key"`                // Extracted from pattern (e.g., "E04-F07")
-	EpicKey          string   `json:"epic_key"`           // Parent epic key (from path)
-	Slug             string   `json:"slug"`               // Extracted from pattern
-	Path             string   `json:"path"`               // Full folder path
-	PrdPath          *string  `json:"prd_path"`           // Path to prd.md (or PRD_F##-name.md)
-	RelatedDocs      []string `json:"related_docs"`       // Paths to related documents
-	CustomFolderPath *string  `json:"custom_folder_path"` // Custom base folder path from frontmatter
+	Key         string   `json:"key"`          // Extracted from pattern (e.g., "E04-F07")
+	EpicKey     string   `json:"epic_key"`     // Parent epic key (from path)
+	Slug        string   `json:"slug"`         // Extracted from pattern
+	Path        string   `json:"path"`         // Full folder path
+	PrdPath     *string  `json:"prd_path"`     // Path to prd.md (or PRD_F##-name.md)
+	RelatedDocs []string `json:"related_docs"` // Paths to related documents
 }
 
 // DiscoveredEpic represents a merged epic from both sources
 type DiscoveredEpic struct {
-	Key              string              `json:"key"`                // Epic key (e.g., "E04")
-	Title            string              `json:"title"`              // Epic title (from metadata)
-	Description      *string             `json:"description"`        // Epic description
-	FilePath         *string             `json:"file_path"`          // Path to epic.md
-	CustomFolderPath *string             `json:"custom_folder_path"` // Custom base folder path from frontmatter
-	Source           DiscoverySource     `json:"source"`             // Where it was discovered
-	Features         []DiscoveredFeature `json:"features"`           // Features in this epic
+	Key         string              `json:"key"`         // Epic key (e.g., "E04")
+	Title       string              `json:"title"`       // Epic title (from metadata)
+	Description *string             `json:"description"` // Epic description
+	FilePath    *string             `json:"file_path"`   // Path to epic.md
+	Source      DiscoverySource     `json:"source"`      // Where it was discovered
+	Features    []DiscoveredFeature `json:"features"`    // Features in this epic
 }
 
 // DiscoveredFeature represents a merged feature from both sources
 type DiscoveredFeature struct {
-	Key              string          `json:"key"`                // Feature key (e.g., "E04-F07")
-	EpicKey          string          `json:"epic_key"`           // Parent epic key
-	Title            string          `json:"title"`              // Feature title (from metadata)
-	Description      *string         `json:"description"`        // Feature description
-	FilePath         *string         `json:"file_path"`          // Path to prd.md
-	RelatedDocs      []string        `json:"related_docs"`       // Paths to related documents
-	CustomFolderPath *string         `json:"custom_folder_path"` // Custom base folder path from frontmatter
-	Source           DiscoverySource `json:"source"`             // Where it was discovered
+	Key         string          `json:"key"`          // Feature key (e.g., "E04-F07")
+	EpicKey     string          `json:"epic_key"`     // Parent epic key
+	Title       string          `json:"title"`        // Feature title (from metadata)
+	Description *string         `json:"description"`  // Feature description
+	FilePath    *string         `json:"file_path"`    // Path to prd.md
+	RelatedDocs []string        `json:"related_docs"` // Paths to related documents
+	Source      DiscoverySource `json:"source"`       // Where it was discovered
 }

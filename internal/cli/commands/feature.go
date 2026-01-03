@@ -198,8 +198,6 @@ var (
 	featureCreateEpic           string
 	featureCreateDescription    string
 	featureCreateExecutionOrder int
-	featureCreateFilename       string
-	featureCreatePath           string
 	featureCreateForce          bool
 	featureCreateKey            string
 )
@@ -226,11 +224,17 @@ func init() {
 	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01) (required)")
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
 	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
-	featureCreateCmd.Flags().StringVar(&featureCreatePath, "path", "", "Custom base folder path for this feature and child tasks (overrides epic's path)")
 	featureCreateCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature (e.g., auth, F00). If not provided, auto-generates next F## number")
-	featureCreateCmd.Flags().StringVar(&featureCreateFilename, "filename", "", "Custom filename path (relative to project root, must end in .md)")
 	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed by another feature or epic")
 	featureCreateCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
+
+	// File path flags: --file is primary, --filename and --path are hidden aliases
+	featureCreateCmd.Flags().String("file", "", "Full file path (e.g., docs/custom/feature.md)")
+	featureCreateCmd.Flags().String("filename", "", "Alias for --file")
+	featureCreateCmd.Flags().String("path", "", "Alias for --file")
+	_ = featureCreateCmd.Flags().MarkHidden("filename")
+	_ = featureCreateCmd.Flags().MarkHidden("path")
+
 	_ = featureCreateCmd.MarkFlagRequired("epic")
 
 	// Add flags for complete command
@@ -245,9 +249,14 @@ func init() {
 	featureUpdateCmd.Flags().String("status", "", "New status: draft, active, completed, archived")
 	featureUpdateCmd.Flags().Int("execution-order", -1, "New execution order (-1 = no change)")
 	featureUpdateCmd.Flags().String("key", "", "New key for the feature (must be unique, cannot contain spaces)")
-	featureUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
-	featureUpdateCmd.Flags().String("path", "", "New custom folder base path")
 	featureUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
+
+	// File path flags: --file is primary, --filename and --path are hidden aliases
+	featureUpdateCmd.Flags().String("file", "", "New file path (e.g., docs/custom/feature.md)")
+	featureUpdateCmd.Flags().String("filename", "", "Alias for --file")
+	featureUpdateCmd.Flags().String("path", "", "Alias for --file")
+	_ = featureUpdateCmd.Flags().MarkHidden("filename")
+	_ = featureUpdateCmd.Flags().MarkHidden("path")
 }
 
 // runFeatureList executes the feature list command
@@ -561,23 +570,22 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
-			"id":                 feature.ID,
-			"epic_id":            feature.EpicID,
-			"key":                feature.Key,
-			"title":              feature.Title,
-			"description":        feature.Description,
-			"status":             feature.Status,
-			"status_source":      statusSource,
-			"status_override":    feature.StatusOverride,
-			"progress_pct":       feature.ProgressPct,
-			"path":               dirPath,
-			"filename":           filename,
-			"custom_folder_path": feature.CustomFolderPath,
-			"created_at":         feature.CreatedAt,
-			"updated_at":         feature.UpdatedAt,
-			"tasks":              tasks,
-			"status_breakdown":   statusBreakdown,
-			"related_documents":  relatedDocs,
+			"id":                feature.ID,
+			"epic_id":           feature.EpicID,
+			"key":               feature.Key,
+			"title":             feature.Title,
+			"description":       feature.Description,
+			"status":            feature.Status,
+			"status_source":     statusSource,
+			"status_override":   feature.StatusOverride,
+			"progress_pct":      feature.ProgressPct,
+			"path":              dirPath,
+			"filename":          filename,
+			"created_at":        feature.CreatedAt,
+			"updated_at":        feature.UpdatedAt,
+			"tasks":             tasks,
+			"status_breakdown":  statusBreakdown,
+			"related_documents": relatedDocs,
 		}
 		return cli.OutputJSON(result)
 	}
@@ -659,10 +667,6 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 
 	if filename != "" {
 		info = append(info, []string{"Filename", filename})
-	}
-
-	if feature.CustomFolderPath != nil && *feature.CustomFolderPath != "" {
-		info = append(info, []string{"Custom Folder Path", *feature.CustomFolderPath})
 	}
 
 	if feature.Description != nil && *feature.Description != "" {
@@ -918,17 +922,6 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Validate and process custom path if provided
-	var customFolderPath *string
-	if featureCreatePath != "" {
-		_, relPath, err := utils.ValidateFolderPath(featureCreatePath, projectRoot)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
-		customFolderPath = &relPath
-	}
-
 	// Use the nextKey which is already in full format (E##-F## or E##-<custom>)
 	featureKey := nextKey
 
@@ -942,9 +935,24 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	var featureFilePath string
 	var customFilePath *string
 
-	if featureCreateFilename != "" {
+	// Try all three flag aliases: --file, --filename, --path (last one wins)
+	file, _ := cmd.Flags().GetString("file")
+	filename, _ := cmd.Flags().GetString("filename")
+	path, _ := cmd.Flags().GetString("path")
+
+	// Determine which flag was provided (priority: path > filename > file)
+	var customFile string
+	if path != "" {
+		customFile = path
+	} else if filename != "" {
+		customFile = filename
+	} else if file != "" {
+		customFile = file
+	}
+
+	if customFile != "" {
 		// Validate custom filename
-		absPath, relPath, err := taskcreation.ValidateCustomFilename(featureCreateFilename, projectRoot)
+		absPath, relPath, err := taskcreation.ValidateCustomFilename(customFile, projectRoot)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Invalid filename: %v", err))
 			os.Exit(1)
@@ -1092,15 +1100,14 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 	// Create feature with custom file path if provided
 	feature := &models.Feature{
-		EpicID:           epic.ID,
-		Key:              featureKey,
-		Title:            featureTitle,
-		Description:      &featureCreateDescription,
-		Status:           status,
-		ProgressPct:      0.0,
-		ExecutionOrder:   executionOrder,
-		FilePath:         customFilePath,
-		CustomFolderPath: customFolderPath,
+		EpicID:         epic.ID,
+		Key:            featureKey,
+		Title:          featureTitle,
+		Description:    &featureCreateDescription,
+		Status:         status,
+		ProgressPct:    0.0,
+		ExecutionOrder: executionOrder,
+		FilePath:       customFilePath,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -1581,24 +1588,6 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 		changed = true
 	}
 
-	// Update custom folder path if provided
-	customPath, _ := cmd.Flags().GetString("path")
-	if customPath != "" {
-		projectRoot, err := os.Getwd()
-		if err != nil {
-			cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
-			os.Exit(1)
-		}
-
-		_, relPath, err := utils.ValidateFolderPath(customPath, projectRoot)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
-		feature.CustomFolderPath = &relPath
-		changed = true
-	}
-
 	// Apply core field updates if any changed
 	if changed {
 		if err := featureRepo.Update(ctx, feature); err != nil {
@@ -1634,9 +1623,23 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle filename update separately
+	// Try all three flag aliases: --file, --filename, --path (last one wins)
+	file, _ := cmd.Flags().GetString("file")
 	filename, _ := cmd.Flags().GetString("filename")
-	if filename != "" {
-		if err := featureRepo.UpdateFilePath(ctx, featureKey, &filename); err != nil {
+	path, _ := cmd.Flags().GetString("path")
+
+	// Determine which flag was provided (priority: path > filename > file)
+	var customFile string
+	if path != "" {
+		customFile = path
+	} else if filename != "" {
+		customFile = filename
+	} else if file != "" {
+		customFile = file
+	}
+
+	if customFile != "" {
+		if err := featureRepo.UpdateFilePath(ctx, featureKey, &customFile); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update feature file path: %v", err))
 			os.Exit(1)
 		}
