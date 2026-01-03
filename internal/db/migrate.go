@@ -711,6 +711,7 @@ END;`)
 
 // MigrateFixFeaturesOldForeignKeys fixes foreign key constraints in tasks and feature_documents
 // that incorrectly reference "features_old" instead of "features"
+// Also fixes epic_documents and task_documents that reference "epics_old" and "tasks_old"
 func MigrateFixFeaturesOldForeignKeys(db *sql.DB) error {
 	// Check if migration is needed
 	needsMigration, err := needsFeaturesOldFKFix(db)
@@ -719,8 +720,26 @@ func MigrateFixFeaturesOldForeignKeys(db *sql.DB) error {
 	}
 
 	if !needsMigration {
-		// Already fixed or never had the issue
-		return nil
+		// Check if other document tables need fixing
+		needsEpicFix, err := needsEpicDocumentsFKFix(db)
+		if err != nil {
+			return fmt.Errorf("failed to check if epic_documents FK fix needed: %w", err)
+		}
+
+		needsTaskFix, err := needsTaskDocumentsFKFix(db)
+		if err != nil {
+			return fmt.Errorf("failed to check if task_documents FK fix needed: %w", err)
+		}
+
+		needsRelationshipsFix, err := needsTaskRelationshipsFKFix(db)
+		if err != nil {
+			return fmt.Errorf("failed to check if task_relationships FK fix needed: %w", err)
+		}
+
+		if !needsEpicFix && !needsTaskFix && !needsRelationshipsFix {
+			// Already fixed or never had the issue
+			return nil
+		}
 	}
 
 	// Fix tasks table
@@ -731,6 +750,21 @@ func MigrateFixFeaturesOldForeignKeys(db *sql.DB) error {
 	// Fix feature_documents table
 	if err := fixFeatureDocumentsFeaturesOldFK(db); err != nil {
 		return fmt.Errorf("failed to fix feature_documents table foreign keys: %w", err)
+	}
+
+	// Fix epic_documents table
+	if err := fixEpicDocumentsEpicsOldFK(db); err != nil {
+		return fmt.Errorf("failed to fix epic_documents table foreign keys: %w", err)
+	}
+
+	// Fix task_documents table
+	if err := fixTaskDocumentsTasksOldFK(db); err != nil {
+		return fmt.Errorf("failed to fix task_documents table foreign keys: %w", err)
+	}
+
+	// Fix task_relationships table
+	if err := fixTaskRelationshipsTasksOldFK(db); err != nil {
+		return fmt.Errorf("failed to fix task_relationships table foreign keys: %w", err)
 	}
 
 	return nil
@@ -754,6 +788,42 @@ func needsFeaturesOldFKFix(db *sql.DB) (bool, error) {
 	}
 
 	return false, nil
+}
+
+// needsEpicDocumentsFKFix checks if epic_documents table references epics_old
+func needsEpicDocumentsFKFix(db *sql.DB) (bool, error) {
+	var createSQL string
+	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='epic_documents'").Scan(&createSQL)
+	if err != nil {
+		// Table doesn't exist, skip
+		return false, nil
+	}
+
+	return strings.Contains(createSQL, "epics_old"), nil
+}
+
+// needsTaskDocumentsFKFix checks if task_documents table references tasks_old
+func needsTaskDocumentsFKFix(db *sql.DB) (bool, error) {
+	var createSQL string
+	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_documents'").Scan(&createSQL)
+	if err != nil {
+		// Table doesn't exist, skip
+		return false, nil
+	}
+
+	return strings.Contains(createSQL, "tasks_old"), nil
+}
+
+// needsTaskRelationshipsFKFix checks if task_relationships table references tasks_old
+func needsTaskRelationshipsFKFix(db *sql.DB) (bool, error) {
+	var createSQL string
+	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_relationships'").Scan(&createSQL)
+	if err != nil {
+		// Table doesn't exist, skip
+		return false, nil
+	}
+
+	return strings.Contains(createSQL, "tasks_old"), nil
 }
 
 // fixTasksFeaturesOldFK recreates tasks table with correct foreign key
@@ -937,10 +1007,549 @@ INSERT INTO feature_documents SELECT * FROM feature_documents_old;`)
 		return fmt.Errorf("failed to copy feature_documents data: %w", err)
 	}
 
+	// Recreate indexes
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_feature_documents_feature_id ON feature_documents(feature_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_feature_documents_document_id ON feature_documents(document_id);`,
+	}
+	for _, idx := range indexes {
+		if _, err := tx.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+
 	// Drop old table
 	_, err = tx.Exec(`DROP TABLE feature_documents_old;`)
 	if err != nil {
 		return fmt.Errorf("failed to drop old feature_documents table: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// fixEpicDocumentsEpicsOldFK recreates epic_documents table with correct foreign key
+func fixEpicDocumentsEpicsOldFK(db *sql.DB) error {
+	// Get current table schema
+	var createSQL string
+	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='epic_documents'").Scan(&createSQL)
+	if err != nil {
+		// Table doesn't exist, skip
+		return nil
+	}
+
+	// If no reference to epics_old, nothing to do
+	if !strings.Contains(createSQL, "epics_old") {
+		return nil
+	}
+
+	// Temporarily disable foreign key constraints
+	_, err = db.Exec("PRAGMA foreign_keys = OFF;")
+	if err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+	defer func() {
+		_, _ = db.Exec("PRAGMA foreign_keys = ON;")
+	}()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Rename old table
+	_, err = tx.Exec(`ALTER TABLE epic_documents RENAME TO epic_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to rename epic_documents table: %w", err)
+	}
+
+	// Create new table with correct foreign key
+	_, err = tx.Exec(`
+CREATE TABLE epic_documents (
+    epic_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (epic_id, document_id),
+    FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create new epic_documents table: %w", err)
+	}
+
+	// Copy data
+	_, err = tx.Exec(`
+INSERT INTO epic_documents SELECT * FROM epic_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to copy epic_documents data: %w", err)
+	}
+
+	// Recreate indexes
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_epic_documents_epic_id ON epic_documents(epic_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_epic_documents_document_id ON epic_documents(document_id);`,
+	}
+	for _, idx := range indexes {
+		if _, err := tx.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE epic_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old epic_documents table: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// fixTaskDocumentsTasksOldFK recreates task_documents table with correct foreign key
+func fixTaskDocumentsTasksOldFK(db *sql.DB) error {
+	// Get current table schema
+	var createSQL string
+	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_documents'").Scan(&createSQL)
+	if err != nil {
+		// Table doesn't exist, skip
+		return nil
+	}
+
+	// If no reference to tasks_old, nothing to do
+	if !strings.Contains(createSQL, "tasks_old") {
+		return nil
+	}
+
+	// Temporarily disable foreign key constraints
+	_, err = db.Exec("PRAGMA foreign_keys = OFF;")
+	if err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+	defer func() {
+		_, _ = db.Exec("PRAGMA foreign_keys = ON;")
+	}()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Rename old table
+	_, err = tx.Exec(`ALTER TABLE task_documents RENAME TO task_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to rename task_documents table: %w", err)
+	}
+
+	// Create new table with correct foreign key
+	_, err = tx.Exec(`
+CREATE TABLE task_documents (
+    task_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (task_id, document_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create new task_documents table: %w", err)
+	}
+
+	// Copy data
+	_, err = tx.Exec(`
+INSERT INTO task_documents SELECT * FROM task_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to copy task_documents data: %w", err)
+	}
+
+	// Recreate indexes
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_task_documents_task_id ON task_documents(task_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_documents_document_id ON task_documents(document_id);`,
+	}
+	for _, idx := range indexes {
+		if _, err := tx.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE task_documents_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old task_documents table: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// fixTaskRelationshipsTasksOldFK recreates task_relationships table with correct foreign keys
+func fixTaskRelationshipsTasksOldFK(db *sql.DB) error {
+	// Get current table schema
+	var createSQL string
+	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_relationships'").Scan(&createSQL)
+	if err != nil {
+		// Table doesn't exist, skip
+		return nil
+	}
+
+	// If no reference to tasks_old, nothing to do
+	if !strings.Contains(createSQL, "tasks_old") {
+		return nil
+	}
+
+	// Temporarily disable foreign key constraints
+	_, err = db.Exec("PRAGMA foreign_keys = OFF;")
+	if err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+	defer func() {
+		_, _ = db.Exec("PRAGMA foreign_keys = ON;")
+	}()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	// Rename old table
+	_, err = tx.Exec(`ALTER TABLE task_relationships RENAME TO task_relationships_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to rename task_relationships table: %w", err)
+	}
+
+	// Create new table with correct foreign keys
+	_, err = tx.Exec(`
+CREATE TABLE task_relationships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_task_id INTEGER NOT NULL,
+    to_task_id INTEGER NOT NULL,
+    relationship_type TEXT CHECK (relationship_type IN (
+        'depends_on',
+        'blocks',
+        'related_to',
+        'follows',
+        'spawned_from',
+        'duplicates',
+        'references'
+    )) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (from_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (to_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    UNIQUE(from_task_id, to_task_id, relationship_type)
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create new task_relationships table: %w", err)
+	}
+
+	// Copy data
+	_, err = tx.Exec(`
+INSERT INTO task_relationships SELECT * FROM task_relationships_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to copy task_relationships data: %w", err)
+	}
+
+	// Recreate indexes
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_task_relationships_from ON task_relationships(from_task_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_relationships_to ON task_relationships(to_task_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_relationships_type ON task_relationships(relationship_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_relationships_from_type ON task_relationships(from_task_id, relationship_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_relationships_to_type ON task_relationships(to_task_id, relationship_type);`,
+	}
+	for _, idx := range indexes {
+		if _, err := tx.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE task_relationships_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old task_relationships table: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// needsTaskNotesFKFix checks if task_notes table references tasks_old
+func needsTaskNotesFKFix(db *sql.DB) (bool, error) {
+	var createSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_notes'`).Scan(&createSQL)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(createSQL, "tasks_old"), nil
+}
+
+// needsTaskCriteriaFKFix checks if task_criteria table references tasks_old
+func needsTaskCriteriaFKFix(db *sql.DB) (bool, error) {
+	var createSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_criteria'`).Scan(&createSQL)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(createSQL, "tasks_old"), nil
+}
+
+// needsWorkSessionsFKFix checks if work_sessions table references tasks_old
+func needsWorkSessionsFKFix(db *sql.DB) (bool, error) {
+	var createSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='work_sessions'`).Scan(&createSQL)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(createSQL, "tasks_old"), nil
+}
+
+// fixTaskNotesTasksOldFK fixes the task_notes table's foreign key
+// that incorrectly references "tasks_old" instead of "tasks"
+func fixTaskNotesTasksOldFK(db *sql.DB) error {
+	var createSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_notes'`).Scan(&createSQL)
+	if err != nil {
+		return fmt.Errorf("failed to get task_notes schema: %w", err)
+	}
+
+	// If no reference to tasks_old, nothing to do
+	if !strings.Contains(createSQL, "tasks_old") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Disable foreign keys temporarily
+	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+
+	// Rename existing table
+	_, err = tx.Exec(`ALTER TABLE task_notes RENAME TO task_notes_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to rename task_notes table: %w", err)
+	}
+
+	// Create new table with correct foreign key
+	_, err = tx.Exec(`
+CREATE TABLE task_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    note_type TEXT CHECK (note_type IN (
+        'comment',
+        'decision',
+        'blocker',
+        'solution',
+        'reference',
+        'implementation',
+        'testing',
+        'future',
+        'question'
+    )) NOT NULL,
+    content TEXT NOT NULL,
+    created_by TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create new task_notes table: %w", err)
+	}
+
+	// Copy data from old table
+	_, err = tx.Exec(`INSERT INTO task_notes SELECT * FROM task_notes_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to copy task_notes data: %w", err)
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE task_notes_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old task_notes table: %w", err)
+	}
+
+	// Re-enable foreign keys
+	if _, err := tx.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("failed to re-enable foreign keys: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// fixTaskCriteriaTasksOldFK fixes the task_criteria table's foreign key
+// that incorrectly references "tasks_old" instead of "tasks"
+func fixTaskCriteriaTasksOldFK(db *sql.DB) error {
+	var createSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_criteria'`).Scan(&createSQL)
+	if err != nil {
+		return fmt.Errorf("failed to get task_criteria schema: %w", err)
+	}
+
+	// If no reference to tasks_old, nothing to do
+	if !strings.Contains(createSQL, "tasks_old") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Disable foreign keys temporarily
+	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+
+	// Rename existing table
+	_, err = tx.Exec(`ALTER TABLE task_criteria RENAME TO task_criteria_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to rename task_criteria table: %w", err)
+	}
+
+	// Create new table with correct foreign key
+	_, err = tx.Exec(`
+CREATE TABLE task_criteria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    criterion TEXT NOT NULL,
+    status TEXT CHECK (status IN ('pending', 'in_progress', 'complete', 'failed', 'na')) DEFAULT 'pending',
+    verified_at TIMESTAMP,
+    verification_notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create new task_criteria table: %w", err)
+	}
+
+	// Copy data from old table
+	_, err = tx.Exec(`INSERT INTO task_criteria SELECT * FROM task_criteria_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to copy task_criteria data: %w", err)
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE task_criteria_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old task_criteria table: %w", err)
+	}
+
+	// Re-enable foreign keys
+	if _, err := tx.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("failed to re-enable foreign keys: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// fixWorkSessionsTasksOldFK fixes the work_sessions table's foreign key
+// that incorrectly references "tasks_old" instead of "tasks"
+func fixWorkSessionsTasksOldFK(db *sql.DB) error {
+	var createSQL string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='work_sessions'`).Scan(&createSQL)
+	if err != nil {
+		return fmt.Errorf("failed to get work_sessions schema: %w", err)
+	}
+
+	// If no reference to tasks_old, nothing to do
+	if !strings.Contains(createSQL, "tasks_old") {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Disable foreign keys temporarily
+	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("failed to disable foreign keys: %w", err)
+	}
+
+	// Rename existing table
+	_, err = tx.Exec(`ALTER TABLE work_sessions RENAME TO work_sessions_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to rename work_sessions table: %w", err)
+	}
+
+	// Create new table with correct foreign key
+	_, err = tx.Exec(`
+CREATE TABLE work_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    agent_id TEXT,
+    started_at TIMESTAMP NOT NULL,
+    ended_at TIMESTAMP,
+    outcome TEXT CHECK (outcome IN ('completed', 'paused', 'blocked')),
+    session_notes TEXT,
+    context_snapshot TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create new work_sessions table: %w", err)
+	}
+
+	// Copy data from old table
+	_, err = tx.Exec(`INSERT INTO work_sessions SELECT * FROM work_sessions_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to copy work_sessions data: %w", err)
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE work_sessions_old;`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old work_sessions table: %w", err)
+	}
+
+	// Re-enable foreign keys
+	if _, err := tx.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("failed to re-enable foreign keys: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

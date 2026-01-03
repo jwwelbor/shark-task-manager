@@ -528,6 +528,42 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to fix features_old foreign keys: %w", err)
 	}
 
+	// Run task_notes foreign key fix migration
+	// This fixes databases where task_notes references tasks_old
+	needsTaskNotesFix, err := needsTaskNotesFKFix(db)
+	if err != nil {
+		return fmt.Errorf("failed to check if task_notes FK fix needed: %w", err)
+	}
+	if needsTaskNotesFix {
+		if err := fixTaskNotesTasksOldFK(db); err != nil {
+			return fmt.Errorf("failed to fix task_notes foreign key: %w", err)
+		}
+	}
+
+	// Run task_criteria foreign key fix migration
+	// This fixes databases where task_criteria references tasks_old
+	needsTaskCriteriaFix, err := needsTaskCriteriaFKFix(db)
+	if err != nil {
+		return fmt.Errorf("failed to check if task_criteria FK fix needed: %w", err)
+	}
+	if needsTaskCriteriaFix {
+		if err := fixTaskCriteriaTasksOldFK(db); err != nil {
+			return fmt.Errorf("failed to fix task_criteria foreign key: %w", err)
+		}
+	}
+
+	// Run work_sessions foreign key fix migration
+	// This fixes databases where work_sessions references tasks_old
+	needsWorkSessionsFix, err := needsWorkSessionsFKFix(db)
+	if err != nil {
+		return fmt.Errorf("failed to check if work_sessions FK fix needed: %w", err)
+	}
+	if needsWorkSessionsFix {
+		if err := fixWorkSessionsTasksOldFK(db); err != nil {
+			return fmt.Errorf("failed to fix work_sessions foreign key: %w", err)
+		}
+	}
+
 	// Run status_override column migration for cascading status calculation (E07-F14)
 	if err := migrateStatusOverrideColumn(db); err != nil {
 		return fmt.Errorf("failed to migrate status_override column: %w", err)
