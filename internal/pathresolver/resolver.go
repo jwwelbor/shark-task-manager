@@ -27,8 +27,8 @@ type TaskRepository interface {
 }
 
 // PathResolver resolves file paths for epics, features, and tasks by querying the database
-// for entity metadata (slug, custom_folder_path, filename). This replaces PathBuilder's
-// file-system-first approach with a database-first design for improved performance.
+// for entity metadata (slug, file_path). This replaces PathBuilder's file-system-first
+// approach with a database-first design for improved performance.
 type PathResolver struct {
 	epicRepo    EpicRepository
 	featureRepo FeatureRepository
@@ -52,27 +52,19 @@ func NewPathResolver(
 }
 
 // ResolveEpicPath resolves the file path for an epic by querying the database.
-// Path precedence: filename > custom_folder_path > default (docs/plan/{epic-key}/)
+// Path precedence: explicit file_path > default (docs/plan/{epic-key}/)
 func (pr *PathResolver) ResolveEpicPath(ctx context.Context, epicKey string) (string, error) {
 	epic, err := pr.epicRepo.GetByKey(ctx, epicKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to get epic %s: %w", epicKey, err)
 	}
 
-	// Precedence 1: Explicit filename
+	// Precedence 1: Explicit file_path
 	if epic.FilePath != nil && *epic.FilePath != "" {
 		return filepath.Join(pr.projectRoot, *epic.FilePath), nil
 	}
 
-	// Precedence 2: Custom folder path
-	if epic.CustomFolderPath != nil && *epic.CustomFolderPath != "" {
-		// Use slug for filename if available, otherwise use key
-		filename := "epic.md"
-		folderPath := *epic.CustomFolderPath
-		return filepath.Join(pr.projectRoot, folderPath, filename), nil
-	}
-
-	// Precedence 3: Default path (docs/plan/{epic-key}/epic.md)
+	// Precedence 2: Default path (docs/plan/{epic-key}/epic.md)
 	slug := ""
 	if epic.Slug != nil && *epic.Slug != "" {
 		slug = *epic.Slug
@@ -84,46 +76,25 @@ func (pr *PathResolver) ResolveEpicPath(ctx context.Context, epicKey string) (st
 }
 
 // ResolveFeaturePath resolves the file path for a feature by querying the database.
-// Features inherit their parent epic's custom_folder_path if not overridden.
-// Path precedence: filename > custom_folder_path > inherited epic path > default
+// Path precedence: explicit file_path > default (docs/plan/{epic-key}/{feature-key}/)
 func (pr *PathResolver) ResolveFeaturePath(ctx context.Context, featureKey string) (string, error) {
 	feature, err := pr.featureRepo.GetByKey(ctx, featureKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to get feature %s: %w", featureKey, err)
 	}
 
-	// Get parent epic for inheritance
+	// Precedence 1: Explicit file_path
+	if feature.FilePath != nil && *feature.FilePath != "" {
+		return filepath.Join(pr.projectRoot, *feature.FilePath), nil
+	}
+
+	// Precedence 2: Default path (docs/plan/{epic-key}/{feature-key}/prd.md)
+	// Get parent epic for default path construction
 	epic, err := pr.epicRepo.GetByID(ctx, feature.EpicID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get parent epic for feature %s: %w", featureKey, err)
 	}
 
-	// Precedence 1: Explicit filename
-	if feature.FilePath != nil && *feature.FilePath != "" {
-		return filepath.Join(pr.projectRoot, *feature.FilePath), nil
-	}
-
-	// Precedence 2: Feature's custom folder path
-	if feature.CustomFolderPath != nil && *feature.CustomFolderPath != "" {
-		filename := "prd.md" // Default feature filename
-		return filepath.Join(pr.projectRoot, *feature.CustomFolderPath, filename), nil
-	}
-
-	// Precedence 3: Inherited epic's custom folder path
-	if epic.CustomFolderPath != nil && *epic.CustomFolderPath != "" {
-		// Build feature subfolder name using slug
-		featureSlug := ""
-		if feature.Slug != nil && *feature.Slug != "" {
-			featureSlug = *feature.Slug
-		} else {
-			featureSlug = feature.Key
-		}
-		featureFolder := feature.Key + "-" + featureSlug
-		filename := "prd.md"
-		return filepath.Join(pr.projectRoot, *epic.CustomFolderPath, featureFolder, filename), nil
-	}
-
-	// Precedence 4: Default path (docs/plan/{epic-key}/{feature-key}/prd.md)
 	epicSlug := ""
 	if epic.Slug != nil && *epic.Slug != "" {
 		epicSlug = *epic.Slug
@@ -145,18 +116,19 @@ func (pr *PathResolver) ResolveFeaturePath(ctx context.Context, featureKey strin
 }
 
 // ResolveTaskPath resolves the file path for a task by querying the database.
-// Tasks use their feature's base path and append their own filename.
+// Path precedence: explicit file_path > default (feature's directory + tasks/{task-key}.md)
 func (pr *PathResolver) ResolveTaskPath(ctx context.Context, taskKey string) (string, error) {
 	task, err := pr.taskRepo.GetByKey(ctx, taskKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to get task %s: %w", taskKey, err)
 	}
 
-	// If task has explicit file_path, use it (early return for performance)
+	// Precedence 1: Explicit file_path
 	if task.FilePath != nil && *task.FilePath != "" {
 		return filepath.Join(pr.projectRoot, *task.FilePath), nil
 	}
 
+	// Precedence 2: Default path based on feature's location
 	// Get parent feature and epic for path construction
 	feature, err := pr.featureRepo.GetByID(ctx, task.FeatureID)
 	if err != nil {
@@ -168,26 +140,12 @@ func (pr *PathResolver) ResolveTaskPath(ctx context.Context, taskKey string) (st
 		return "", fmt.Errorf("failed to get parent epic for task %s: %w", taskKey, err)
 	}
 
-	// Build task path based on feature's base path
 	// Determine feature's base directory
 	var featureBaseDir string
 
 	if feature.FilePath != nil && *feature.FilePath != "" {
 		// Feature has explicit path - use its directory as base
 		featureBaseDir = filepath.Dir(*feature.FilePath)
-	} else if feature.CustomFolderPath != nil && *feature.CustomFolderPath != "" {
-		// Feature has custom folder path
-		featureBaseDir = *feature.CustomFolderPath
-	} else if epic.CustomFolderPath != nil && *epic.CustomFolderPath != "" {
-		// Inherit epic's custom folder path
-		featureSlug := ""
-		if feature.Slug != nil && *feature.Slug != "" {
-			featureSlug = *feature.Slug
-		} else {
-			featureSlug = feature.Key
-		}
-		featureFolder := feature.Key + "-" + featureSlug
-		featureBaseDir = filepath.Join(*epic.CustomFolderPath, featureFolder)
 	} else {
 		// Default: docs/plan/{epic-key}/{feature-key}
 		epicSlug := ""

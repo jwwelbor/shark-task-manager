@@ -207,7 +207,9 @@ type EpicRepositoryInterface interface {
 
 // MockEpicRepository for testing
 type MockEpicRepository struct {
-	epics map[string]*models.Epic
+	epics        map[string]*models.Epic
+	CreateFunc   func(ctx context.Context, epic *models.Epic) error
+	GetByKeyFunc func(ctx context.Context, key string) (*models.Epic, error)
 }
 
 // NewMockEpicRepository creates a new mock
@@ -222,8 +224,20 @@ func (m *MockEpicRepository) AddEpic(epic *models.Epic) {
 	m.epics[epic.Key] = epic
 }
 
+// Create adds an epic (for conversion testing)
+func (m *MockEpicRepository) Create(ctx context.Context, epic *models.Epic) error {
+	if m.CreateFunc != nil {
+		return m.CreateFunc(ctx, epic)
+	}
+	m.epics[epic.Key] = epic
+	return nil
+}
+
 // GetByKey retrieves epic by key
 func (m *MockEpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+	if m.GetByKeyFunc != nil {
+		return m.GetByKeyFunc(ctx, key)
+	}
 	epic, exists := m.epics[key]
 	if !exists {
 		return nil, &models.NotFoundError{Entity: "epic"}
@@ -249,7 +263,9 @@ type FeatureRepositoryInterface interface {
 
 // MockFeatureRepository for testing
 type MockFeatureRepository struct {
-	features map[string]*models.Feature
+	features     map[string]*models.Feature
+	CreateFunc   func(ctx context.Context, feature *models.Feature) error
+	GetByKeyFunc func(ctx context.Context, key string) (*models.Feature, error)
 }
 
 // NewMockFeatureRepository creates a new mock
@@ -264,8 +280,20 @@ func (m *MockFeatureRepository) AddFeature(feature *models.Feature) {
 	m.features[feature.Key] = feature
 }
 
+// Create adds a feature (for conversion testing)
+func (m *MockFeatureRepository) Create(ctx context.Context, feature *models.Feature) error {
+	if m.CreateFunc != nil {
+		return m.CreateFunc(ctx, feature)
+	}
+	m.features[feature.Key] = feature
+	return nil
+}
+
 // GetByKey retrieves feature by key
 func (m *MockFeatureRepository) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
+	if m.GetByKeyFunc != nil {
+		return m.GetByKeyFunc(ctx, key)
+	}
 	feature, exists := m.features[key]
 	if !exists {
 		return nil, &models.NotFoundError{Entity: "feature"}

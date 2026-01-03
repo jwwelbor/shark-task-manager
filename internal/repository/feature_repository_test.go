@@ -17,40 +17,52 @@ func TestFeatureRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 	repo := NewFeatureRepository(db)
+	epicRepo := NewEpicRepository(db)
 
-	// Seed epic first (INSERT OR IGNORE ensures idempotency)
-	epicID, _ := test.SeedTestData()
+	// Clean up test data first (use E89 to avoid conflict with E90-E99 range used by progress tests)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E89-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E89'")
 
-	// Clean up test data AFTER seeding epic
-	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E99-F98'")
+	// Create dedicated epic for this test
+	testEpic := &models.Epic{
+		Key:      "E89",
+		Title:    "Test Epic for Feature Slug",
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() {
+		if _, err := database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID); err != nil {
+			t.Logf("Cleanup error: %v", err)
+		}
+	}()
 
 	// Create feature
 	feature := &models.Feature{
-		EpicID: epicID,
-		Key:    "E99-F98",
+		EpicID: testEpic.ID,
+		Key:    "E89-F01",
 		Title:  "Implement User Authentication System",
 		Status: models.FeatureStatusDraft,
 	}
 
-	err := repo.Create(ctx, feature)
+	err = repo.Create(ctx, feature)
 	require.NoError(t, err)
+	defer func() {
+		if _, err := database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID); err != nil {
+			t.Logf("Cleanup error: %v", err)
+		}
+	}()
 
 	// Verify slug was generated and stored
 	assert.NotNil(t, feature.Slug, "Slug should be generated")
 	assert.Equal(t, "implement-user-authentication-system", *feature.Slug)
 
 	// Verify slug is persisted in database
-	retrieved, err := repo.GetByID(ctx, feature.ID)
+	retrieved, err := repo.GetByKey(ctx, "E89-F01")
 	require.NoError(t, err)
 	assert.NotNil(t, retrieved.Slug, "Slug should be persisted")
 	assert.Equal(t, "implement-user-authentication-system", *retrieved.Slug)
-
-	// Cleanup
-	defer func() {
-		if _, err := database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID); err != nil {
-			t.Logf("Cleanup error: %v", err)
-		}
-	}()
 }
 
 // TestFeatureRepository_Create_SlugHandlesSpecialCharacters verifies slug handles special characters
@@ -149,7 +161,7 @@ func TestFeatureRepository_GetByKey_NumericAndSluggedKeys(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, testEpic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create test feature with slug
 	feature := &models.Feature{
@@ -160,7 +172,7 @@ func TestFeatureRepository_GetByKey_NumericAndSluggedKeys(t *testing.T) {
 	}
 	err = repo.Create(ctx, feature)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID) }()
 
 	// Verify slug was generated
 	require.NotNil(t, feature.Slug)
@@ -272,7 +284,7 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, testEpic)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create two features with same numeric part but different epic
 	feature1 := &models.Feature{
@@ -283,7 +295,7 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 	}
 	err = repo.Create(ctx, feature1)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature1.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature1.ID) }()
 
 	feature2 := &models.Feature{
 		EpicID: testEpic.ID,
@@ -293,7 +305,7 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 	}
 	err = repo.Create(ctx, feature2)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature2.ID)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature2.ID) }()
 
 	// Test numeric key lookup for F20
 	result, err := repo.GetByKey(ctx, "F20")
@@ -314,3 +326,5 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 		assert.Equal(t, "E96-F20", result.Key)
 	}
 }
+
+// TestFeatureRepository_UpdateCustomPath removed - custom_folder_path feature no longer supported

@@ -154,7 +154,7 @@ This feature is particularly useful when AI agents are working in subdirectories
 
 ---
 
-## Database Migrations & Custom Folder Paths
+## Database Migrations
 
 ### Auto-Migration System
 
@@ -164,83 +164,6 @@ The database uses automatic migrations for backward compatibility:
 - Each migration checks if columns already exist before adding them
 - Safe to run multiple times - idempotent operations
 - No manual migration scripts required for end users
-
-### Custom Folder Path Feature
-
-The custom folder base path feature adds new optional columns:
-
-```sql
-ALTER TABLE epics ADD COLUMN custom_folder_path TEXT;
-ALTER TABLE features ADD COLUMN custom_folder_path TEXT;
-```
-
-**Backward Compatible:**
-- Existing databases work unchanged
-- New columns default to NULL
-- Default behavior (`docs/plan/{epic-key}/`) unchanged
-- Automatic migration applies on first run
-
-**Indexes for Performance:**
-```sql
-CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);
-CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);
-```
-
-### Data Layout Flexibility
-
-With custom folder paths, projects can organize in multiple ways:
-
-**Traditional (default):**
-```
-docs/plan/
-├── E01-epic/
-│   ├── epic.md
-│   ├── E01-F01-feature/
-│   │   └── feature.md
-│   └── E01-F02-feature/
-│       └── feature.md
-└── E02-epic/
-    └── epic.md
-```
-
-**Organized by Time Period (custom --path):**
-```
-docs/roadmap/
-├── 2025-q1/          # Epic with --path="docs/roadmap/2025-q1"
-│   ├── epic.md
-│   ├── user-growth/  # Feature inherits path
-│   │   └── feature.md
-│   └── retention/
-│       └── feature.md
-└── 2025-q2/          # Epic with --path="docs/roadmap/2025-q2"
-    └── epic.md
-```
-
-**Mixed Organization:**
-```
-docs/
-├── roadmap/2025/     # Custom path epics
-│   ├── epic.md
-│   └── features/
-├── plan/             # Default path epics
-│   ├── E03-epic/
-│   │   └── epic.md
-└── legacy/           # Legacy features with custom path
-    └── feature.md
-```
-
-### Migration Guide
-
-For detailed migration instructions, including how to update existing projects, see `docs/MIGRATION_CUSTOM_PATHS.md`:
-
-```bash
-# Automatic migration (recommended)
-shark epic list  # Any command triggers migration
-
-# Manual verification
-sqlite3 shark-tasks.db ".schema epics" | grep custom_folder_path
-sqlite3 shark-tasks.db ".schema features" | grep custom_folder_path
-```
 
 ---
 
@@ -467,9 +390,9 @@ Each entity (Epic, Feature, Task) has a repository with:
 
 ### Core Tables
 - **epics**: Top-level organizational units (E04, E07, etc.)
-  - `custom_folder_path`: Optional folder base path for flexible organization (inherited by features)
+  - `file_path`: File location within project
 - **features**: Features within epics (E04-F01, E04-F02, etc.)
-  - `custom_folder_path`: Optional folder base path (overrides inherited epic path)
+  - `file_path`: File location within project
 - **tasks**: Atomic work items (T-E04-F06-001, etc.)
   - `file_path`: File location within project
 - **task_history**: Audit trail of task status changes
@@ -517,45 +440,38 @@ Global flags available to all commands:
 - `shark init --non-interactive`: Setup project infrastructure (folders, database, config)
 
 #### Epic Management
-- `shark epic create --title="..." [--path=<folder>] [--filename=<path>] [--force] [--priority=...] [--business-value=...] [--json]`
-  - `--path`: Custom folder base path for organizing epic. Relative to root. Example: `docs/roadmap/2025-q1`
-  - `--filename`: Custom file path (relative to root, must include .md). Takes precedence over `--path`
+- `shark epic create --title="..." [--file=<path>] [--force] [--priority=...] [--business-value=...] [--json]`
+  - `--file`: Custom file path (relative to root, must include .md). Aliases: `--filepath`, `--path`
   - `--force`: Reassign file if already claimed by another epic or feature
 - `shark epic list [--json]`
 - `shark epic get <epic-key> [--json]`
 
 #### Feature Management
-- `shark feature create --epic=<epic-key> --title="..." [--path=<folder>] [--filename=<path>] [--force] [--execution-order=...] [--json]`
-  - `--path`: Custom folder path for feature. Inherits epic's path if not specified. Example: `docs/features/auth`
-  - `--filename`: Custom file path (relative to root, must include .md). Takes precedence over `--path`
+- `shark feature create --epic=<epic-key> --title="..." [--file=<path>] [--force] [--execution-order=...] [--json]`
+  - `--file`: Custom file path (relative to root, must include .md). Aliases: `--filepath`, `--path`
   - `--force`: Reassign file if already claimed by another feature or epic
 - `shark feature list [EPIC] [--json]` - List features, optionally filter by epic key
   - Examples: `shark feature list`, `shark feature list E04`, `shark feature list E04 --json`
   - Flag syntax still works: `shark feature list --epic=E04`
 - `shark feature get <feature-key> [--json]`
 
-**Custom Folder Path Organization:**
+**File Path Organization:**
 
-Epic and feature creation now support custom folder base paths (via `--path`) for flexible project organization:
+Epics and features support custom file paths for flexible project organization:
 
 ```bash
-# Organize by quarter
-shark epic create "Q1 2025 Roadmap" --path="docs/roadmap/2025-q1"
+# Create epic with custom file path
+shark epic create "Q1 2025 Roadmap" --file="docs/roadmap/2025-q1/epic.md"
 
-# Features inherit epic's custom path
-shark feature create --epic=E01 "User Growth"  # Stored in docs/roadmap/2025-q1/
+# Create feature with custom file path
+shark feature create --epic=E01 "User Growth" --file="docs/roadmap/2025-q1/features/user-growth.md"
 
-# Feature overrides epic's custom path
-shark feature create --epic=E01 "Legacy API" --path="docs/legacy"  # Stored in docs/legacy/
+# Default behavior (no --file flag)
+shark epic create "User Management"  # Creates docs/plan/E07-user-management/epic.md
+shark feature create --epic=E07 "Authentication"  # Creates docs/plan/E07-user-management/E07-F01-authentication/feature.md
 ```
 
-**Path Resolution Order (highest to lowest priority):**
-1. `--filename` - Explicit file path
-2. `--path` - Custom folder base path
-3. Inherited from parent (feature inherits from epic)
-4. Default: `docs/plan/{epic-key}/` or `docs/plan/{epic-key}/{feature-key}/`
-
-Refer to `docs/CLI_REFERENCE.md` for detailed examples, `docs/MIGRATION_CUSTOM_PATHS.md` for database updates, and database schema changes below.
+Refer to `docs/CLI_REFERENCE.md` for detailed examples and usage patterns.
 
 #### Task Management (Primary AI Interface)
 - `shark task next [--agent=<type>] [--epic=<epic>] [--json]`: Get next available task
@@ -563,8 +479,8 @@ Refer to `docs/CLI_REFERENCE.md` for detailed examples, `docs/MIGRATION_CUSTOM_P
   - Examples: `shark task list`, `shark task list E04`, `shark task list E04 F01`, `shark task list E04-F01`
   - Flag syntax still works: `shark task list --epic=E04 --feature=F01`
 - `shark task get <task-key> [--json]`
-- `shark task create --epic=E04 --feature=F06 --title="..." [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--filename=<path>] [--force]`
-  - `--filename`: Custom file path (relative to root, must include .md)
+- `shark task create --epic=E04 --feature=F06 --title="..." [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--file=<path>] [--force]`
+  - `--file`: Custom file path (relative to root, must include .md). Aliases: `--filepath`, `--filename`
   - `--force`: Reassign file if already claimed by another task
 - `shark task start <task-key> [--agent=<agent-id>] [--json]`
 - `shark task complete <task-key> [--notes="..."] [--json]` (ready for review)

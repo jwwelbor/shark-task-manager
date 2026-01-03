@@ -68,11 +68,6 @@ func (m *MockTaskRepository) GetByID(ctx context.Context, id int64) (*models.Tas
 	return nil, errors.New("not implemented")
 }
 
-// Helper functions to create string pointers
-func stringPtr(s string) *string {
-	return &s
-}
-
 // TestResolveEpicPath_DefaultPath tests epic path resolution with default path
 func TestResolveEpicPath_DefaultPath(t *testing.T) {
 	ctx := context.Background()
@@ -103,35 +98,7 @@ func TestResolveEpicPath_DefaultPath(t *testing.T) {
 	}
 }
 
-// TestResolveEpicPath_CustomFolderPath tests epic with custom folder path
-func TestResolveEpicPath_CustomFolderPath(t *testing.T) {
-	ctx := context.Background()
-	projectRoot := "/project"
-
-	customPath := "docs/custom/epic-folder"
-	mockEpicRepo := &MockEpicRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:               1,
-				Key:              "E01",
-				Title:            "Test Epic",
-				CustomFolderPath: &customPath,
-			}, nil
-		},
-	}
-
-	resolver := NewPathResolver(mockEpicRepo, nil, nil, projectRoot)
-	path, err := resolver.ResolveEpicPath(ctx, "E01")
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := filepath.Join(projectRoot, customPath, "epic.md")
-	if path != expected {
-		t.Errorf("expected path %s, got %s", expected, path)
-	}
-}
+// TestResolveEpicPath_CustomFolderPath removed - custom_folder_path feature no longer supported
 
 // TestResolveEpicPath_ExplicitFilename tests epic with explicit filename
 func TestResolveEpicPath_ExplicitFilename(t *testing.T) {
@@ -226,93 +193,9 @@ func TestResolveFeaturePath_DefaultPath(t *testing.T) {
 	}
 }
 
-// TestResolveFeaturePath_InheritedEpicPath tests feature inheriting epic's custom path
-func TestResolveFeaturePath_InheritedEpicPath(t *testing.T) {
-	ctx := context.Background()
-	projectRoot := "/project"
+// TestResolveFeaturePath_InheritedEpicPath removed - custom_folder_path feature no longer supported
 
-	epicCustomPath := "docs/2025-q1"
-	featureSlug := "user-auth"
-
-	mockEpicRepo := &MockEpicRepository{
-		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:               1,
-				Key:              "E01",
-				Title:            "Q1 Epic",
-				CustomFolderPath: &epicCustomPath,
-			}, nil
-		},
-	}
-
-	mockFeatureRepo := &MockFeatureRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E01-F01",
-				Title:  "User Auth",
-				Slug:   &featureSlug,
-			}, nil
-		},
-	}
-
-	resolver := NewPathResolver(mockEpicRepo, mockFeatureRepo, nil, projectRoot)
-	path, err := resolver.ResolveFeaturePath(ctx, "E01-F01")
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := filepath.Join(projectRoot, epicCustomPath, "E01-F01-user-auth", "prd.md")
-	if path != expected {
-		t.Errorf("expected path %s, got %s", expected, path)
-	}
-}
-
-// TestResolveFeaturePath_FeatureOverridePath tests feature with its own custom path
-func TestResolveFeaturePath_FeatureOverridePath(t *testing.T) {
-	ctx := context.Background()
-	projectRoot := "/project"
-
-	epicCustomPath := "docs/2025-q1"
-	featureCustomPath := "docs/features/special"
-
-	mockEpicRepo := &MockEpicRepository{
-		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:               1,
-				Key:              "E01",
-				Title:            "Q1 Epic",
-				CustomFolderPath: &epicCustomPath,
-			}, nil
-		},
-	}
-
-	mockFeatureRepo := &MockFeatureRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:               1,
-				EpicID:           1,
-				Key:              "E01-F01",
-				Title:            "Special Feature",
-				CustomFolderPath: &featureCustomPath,
-			}, nil
-		},
-	}
-
-	resolver := NewPathResolver(mockEpicRepo, mockFeatureRepo, nil, projectRoot)
-	path, err := resolver.ResolveFeaturePath(ctx, "E01-F01")
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := filepath.Join(projectRoot, featureCustomPath, "prd.md")
-	if path != expected {
-		t.Errorf("expected path %s, got %s", expected, path)
-	}
-}
+// TestResolveFeaturePath_FeatureOverridePath removed - custom_folder_path feature no longer supported
 
 // TestResolveFeaturePath_ExplicitFilename tests feature with explicit filename
 func TestResolveFeaturePath_ExplicitFilename(t *testing.T) {
@@ -452,20 +335,18 @@ func TestPathPrecedence_EpicWithAllOptions(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := "/project"
 
-	// Epic has all three options set - filename should win
+	// Epic has both explicit filepath and slug - filepath should win
 	explicitPath := "docs/explicit/epic.md"
-	customFolder := "docs/custom"
 	slug := "my-epic"
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
 			return &models.Epic{
-				ID:               1,
-				Key:              "E01",
-				Title:            "Test Epic",
-				FilePath:         &explicitPath,
-				CustomFolderPath: &customFolder,
-				Slug:             &slug,
+				ID:       1,
+				Key:      "E01",
+				Title:    "Test Epic",
+				FilePath: &explicitPath,
+				Slug:     &slug,
 			}, nil
 		},
 	}

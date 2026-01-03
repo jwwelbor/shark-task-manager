@@ -144,11 +144,6 @@ func (e *SyncEngine) importDiscoveredEntities(ctx context.Context, epics []disco
 				existingEpic.Description = epic.Description
 				needsUpdate = true
 			}
-			// Update custom_folder_path from discovery
-			if epic.CustomFolderPath != nil && (existingEpic.CustomFolderPath == nil || *existingEpic.CustomFolderPath != *epic.CustomFolderPath) {
-				existingEpic.CustomFolderPath = epic.CustomFolderPath
-				needsUpdate = true
-			}
 			if needsUpdate {
 				if err := e.epicRepo.Update(ctx, existingEpic); err != nil {
 					return 0, 0, nil, fmt.Errorf("failed to update epic %s: %w", epic.Key, err)
@@ -157,11 +152,10 @@ func (e *SyncEngine) importDiscoveredEntities(ctx context.Context, epics []disco
 		} else {
 			// Create new epic
 			newEpic := &models.Epic{
-				Key:              epic.Key,
-				Title:            epic.Title,
-				Status:           models.EpicStatusActive,
-				Priority:         models.PriorityMedium,
-				CustomFolderPath: epic.CustomFolderPath,
+				Key:      epic.Key,
+				Title:    epic.Title,
+				Status:   models.EpicStatusActive,
+				Priority: models.PriorityMedium,
 			}
 			if epic.Description != nil {
 				newEpic.Description = epic.Description
@@ -204,11 +198,6 @@ func (e *SyncEngine) importDiscoveredEntities(ctx context.Context, epics []disco
 				existingFeature.Description = feature.Description
 				needsUpdate = true
 			}
-			// Update custom_folder_path from discovery
-			if feature.CustomFolderPath != nil && (existingFeature.CustomFolderPath == nil || *existingFeature.CustomFolderPath != *feature.CustomFolderPath) {
-				existingFeature.CustomFolderPath = feature.CustomFolderPath
-				needsUpdate = true
-			}
 			if needsUpdate {
 				if err := e.featureRepo.Update(ctx, existingFeature); err != nil {
 					return 0, 0, nil, fmt.Errorf("failed to update feature %s: %w", feature.Key, err)
@@ -217,11 +206,10 @@ func (e *SyncEngine) importDiscoveredEntities(ctx context.Context, epics []disco
 		} else {
 			// Create new feature
 			newFeature := &models.Feature{
-				EpicID:           epic.ID,
-				Key:              feature.Key,
-				Title:            feature.Title,
-				Status:           models.FeatureStatusActive,
-				CustomFolderPath: feature.CustomFolderPath,
+				EpicID: epic.ID,
+				Key:    feature.Key,
+				Title:  feature.Title,
+				Status: models.FeatureStatusActive,
 			}
 			if feature.Description != nil {
 				newFeature.Description = feature.Description
@@ -287,11 +275,10 @@ func convertFolderEpics(folderEpics []discovery.FolderEpic) []discovery.Discover
 	result := make([]discovery.DiscoveredEpic, len(folderEpics))
 	for i, epic := range folderEpics {
 		result[i] = discovery.DiscoveredEpic{
-			Key:              epic.Key,
-			Title:            epic.Slug,
-			FilePath:         epic.EpicMdPath,
-			CustomFolderPath: epic.CustomFolderPath,
-			Source:           discovery.SourceFolder,
+			Key:      epic.Key,
+			Title:    epic.Slug,
+			FilePath: epic.EpicMdPath,
+			Source:   discovery.SourceFolder,
 		}
 	}
 	return result
@@ -316,13 +303,12 @@ func convertFolderFeatures(folderFeatures []discovery.FolderFeature) []discovery
 	result := make([]discovery.DiscoveredFeature, len(folderFeatures))
 	for i, feature := range folderFeatures {
 		result[i] = discovery.DiscoveredFeature{
-			Key:              feature.Key,
-			EpicKey:          feature.EpicKey,
-			Title:            feature.Slug,
-			FilePath:         feature.PrdPath,
-			RelatedDocs:      feature.RelatedDocs,
-			CustomFolderPath: feature.CustomFolderPath,
-			Source:           discovery.SourceFolder,
+			Key:         feature.Key,
+			EpicKey:     feature.EpicKey,
+			Title:       feature.Slug,
+			FilePath:    feature.PrdPath,
+			RelatedDocs: feature.RelatedDocs,
+			Source:      discovery.SourceFolder,
 		}
 	}
 	return result

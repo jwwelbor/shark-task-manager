@@ -81,11 +81,6 @@ func (s *FolderScanner) Scan(docsRoot string, patternOverrides *patterns.Pattern
 			if _, err := os.Stat(epicMdPath); err == nil {
 				epic.EpicMdPath = &epicMdPath
 				stats.FilesAnalyzed++
-
-				// Parse frontmatter to extract custom_folder_path
-				if frontmatter, _, err := ParseFrontmatter(epicMdPath); err == nil {
-					epic.CustomFolderPath = frontmatter.CustomFolderPath
-				}
 			}
 			epics = append(epics, epic)
 			epicFolderNames[path] = info.Name()
@@ -101,11 +96,6 @@ func (s *FolderScanner) Scan(docsRoot string, patternOverrides *patterns.Pattern
 				if prdPath != nil {
 					feature.PrdPath = prdPath
 					stats.FilesAnalyzed++
-
-					// Parse frontmatter to extract custom_folder_path
-					if frontmatter, _, err := ParseFrontmatter(*prdPath); err == nil {
-						feature.CustomFolderPath = frontmatter.CustomFolderPath
-					}
 				}
 
 				// Catalog related documents (exclude PRD file)

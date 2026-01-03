@@ -11,11 +11,10 @@ import (
 
 // FrontmatterData represents parsed YAML frontmatter from a markdown file
 type FrontmatterData struct {
-	EpicKey          string
-	FeatureKey       string
-	Title            string
-	Description      string
-	CustomFolderPath *string
+	EpicKey     string
+	FeatureKey  string
+	Title       string
+	Description string
 }
 
 // ParseFrontmatter reads and parses YAML frontmatter from a markdown file
@@ -89,13 +88,6 @@ func ParseFrontmatter(filePath string) (*FrontmatterData, string, error) {
 	if val, ok := rawData["description"]; ok {
 		if str, ok := val.(string); ok {
 			data.Description = str
-		}
-	}
-
-	// Custom folder path
-	if val, ok := rawData["custom_folder_path"]; ok {
-		if str, ok := val.(string); ok && str != "" {
-			data.CustomFolderPath = &str
 		}
 	}
 

@@ -7,7 +7,7 @@ A task management system built with Go and SQLite, featuring both an HTTP API an
 - **Hierarchical Task Organization**: Organize work into Epics → Features → Tasks with auto-generated keys
 - **Dual Key Format**: Support for both numeric (`E04`, `T-E04-F01-001`) and human-readable slugged keys (`E04-user-management`, `T-E04-F01-001-implement-auth`)
 - **AI-Driven Workflows**: Built-in support for multiple agent types with dependency-aware task selection
-- **Flexible Organization**: Organize with custom folder base paths (`--path` flag) or specific file paths (`--filename` flag)
+- **Flexible Organization**: Organize with custom file paths (`--file` flag) for complete control over project structure
 - **Auto-Detect Project Root**: Run shark commands from any subdirectory - automatically finds database and config
 - **Bidirectional Sync**: Synchronize markdown files with SQLite database with conflict resolution
 - **Progress Tracking**: Automatic progress calculation from task completion to features and epics
@@ -659,7 +659,7 @@ All commands support `--json` for structured output:
 #### Reference
 - [Complete Documentation Index](docs/DOCUMENTATION_INDEX.md) - Find all documentation
 - [CLI Documentation](docs/CLI_REFERENCE.md) - Complete command reference
-- [Custom Folder Paths Migration Guide](docs/MIGRATION_CUSTOM_PATHS.md) - Organize with custom folder base paths
+- [Migration Guide](docs/MIGRATION_CUSTOM_PATHS.md) - Upgrading from older versions (custom_folder_path deprecation)
 - [Epic & Feature Query Guide](docs/EPIC_FEATURE_QUERIES.md) - Query epics and features with progress
 - [Quick Reference](docs/EPIC_FEATURE_QUICK_REFERENCE.md) - Fast command lookup
 - [Examples](docs/EPIC_FEATURE_EXAMPLES.md) - Real-world usage scenarios

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/patterns"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -158,45 +159,29 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 			fullFilePath = filepath.Join(c.projectRoot, relPath)
 			filePath = relPath
 		} else {
-			// Use PathResolver logic to compute path based on feature's base path
+			// Default: compute path based on feature's default location
 			// We need to manually construct since task doesn't exist yet
 			epic, err := c.epicRepo.GetByID(ctx, feature.EpicID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch epic: %w", err)
 			}
 
-			// Determine feature's base directory using same logic as PathResolver
-			var featureBaseDir string
-			if feature.CustomFolderPath != nil && *feature.CustomFolderPath != "" {
-				featureBaseDir = *feature.CustomFolderPath
-			} else if epic.CustomFolderPath != nil && *epic.CustomFolderPath != "" {
-				// Inherit epic's custom folder path
-				featureSlug := ""
-				if feature.Slug != nil && *feature.Slug != "" {
-					featureSlug = *feature.Slug
-				} else {
-					featureSlug = feature.Key
-				}
-				featureFolder := feature.Key + "-" + featureSlug
-				featureBaseDir = filepath.Join(*epic.CustomFolderPath, featureFolder)
+			// Default: docs/plan/{epic-key}/{feature-key}
+			epicSlug := ""
+			if epic.Slug != nil && *epic.Slug != "" {
+				epicSlug = *epic.Slug
 			} else {
-				// Default: docs/plan/{epic-key}/{feature-key}
-				epicSlug := ""
-				if epic.Slug != nil && *epic.Slug != "" {
-					epicSlug = *epic.Slug
-				} else {
-					epicSlug = epic.Key
-				}
-				featureSlug := ""
-				if feature.Slug != nil && *feature.Slug != "" {
-					featureSlug = *feature.Slug
-				} else {
-					featureSlug = feature.Key
-				}
-				epicFolder := epic.Key + "-" + epicSlug
-				featureFolder := feature.Key + "-" + featureSlug
-				featureBaseDir = filepath.Join("docs", "plan", epicFolder, featureFolder)
+				epicSlug = epic.Key
 			}
+			featureSlug := ""
+			if feature.Slug != nil && *feature.Slug != "" {
+				featureSlug = *feature.Slug
+			} else {
+				featureSlug = feature.Key
+			}
+			epicFolder := epic.Key + "-" + epicSlug
+			featureFolder := feature.Key + "-" + featureSlug
+			featureBaseDir := filepath.Join("docs", "plan", epicFolder, featureFolder)
 
 			// Task path: {featureBaseDir}/tasks/{task-key}.md
 			taskFilename := key + ".md"
@@ -256,13 +241,16 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		executionOrder = &input.ExecutionOrder
 	}
 
+	// Determine initial status from workflow config
+	initialStatus := c.getInitialTaskStatus()
+
 	// Create task record
 	task := &models.Task{
 		FeatureID:      validated.FeatureID,
 		Key:            key,
 		Title:          input.Title,
 		Description:    description,
-		Status:         models.TaskStatusTodo,
+		Status:         initialStatus,
 		AgentType:      &validated.AgentType,
 		Priority:       input.Priority,
 		DependsOn:      dependsOnJSON,
@@ -283,7 +271,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	history := &models.TaskHistory{
 		TaskID:    task.ID,
 		OldStatus: nil,
-		NewStatus: string(models.TaskStatusTodo),
+		NewStatus: string(initialStatus),
 		Agent:     &agent,
 		Notes:     stringPtr("Task created"),
 		Timestamp: now,
@@ -437,4 +425,27 @@ func getCurrentUser() string {
 // stringPtr returns a pointer to a string
 func stringPtr(s string) *string {
 	return &s
+}
+
+// getInitialTaskStatus returns the initial status for new tasks from workflow config.
+// It reads the first entry status from special_statuses._start_ in .sharkconfig.json.
+// Falls back to TaskStatusTodo if workflow config is not found or doesn't define entry statuses.
+func (c *Creator) getInitialTaskStatus() models.TaskStatus {
+	// Load workflow config from project root
+	configPath := filepath.Join(c.projectRoot, ".sharkconfig.json")
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil || workflow == nil {
+		// Config not found or failed to load - use default
+		return models.TaskStatusTodo
+	}
+
+	// Get entry statuses from special_statuses._start_
+	startStatuses, exists := workflow.SpecialStatuses[config.StartStatusKey]
+	if !exists || len(startStatuses) == 0 {
+		// No entry statuses defined - use default
+		return models.TaskStatusTodo
+	}
+
+	// Return first entry status
+	return models.TaskStatus(startStatuses[0])
 }

@@ -31,7 +31,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 	epic.Slug = &generatedSlug
 
 	query := `
-		INSERT INTO epics (key, title, description, status, priority, business_value, slug, custom_folder_path)
+		INSERT INTO epics (key, title, description, status, priority, business_value, slug, file_path)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
@@ -43,7 +43,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 		epic.Priority,
 		epic.BusinessValue,
 		epic.Slug,
-		epic.CustomFolderPath,
+		epic.FilePath,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create epic: %w", err)
@@ -62,7 +62,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       slug, file_path, custom_folder_path, created_at, updated_at
+		       slug, file_path, created_at, updated_at
 		FROM epics
 		WHERE id = ?
 	`
@@ -78,7 +78,6 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 		&epic.BusinessValue,
 		&epic.Slug,
 		&epic.FilePath,
-		&epic.CustomFolderPath,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -99,7 +98,7 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 	// Try direct numeric key lookup first (e.g., "E04")
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       slug, file_path, custom_folder_path, created_at, updated_at
+		       slug, file_path, created_at, updated_at
 		FROM epics
 		WHERE key = ?
 	`
@@ -115,7 +114,6 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 		&epic.BusinessValue,
 		&epic.Slug,
 		&epic.FilePath,
-		&epic.CustomFolderPath,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -150,7 +148,7 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 	// Query by numeric key and slug
 	slugQuery := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       slug, file_path, custom_folder_path, created_at, updated_at
+		       slug, file_path, created_at, updated_at
 		FROM epics
 		WHERE key = ? AND slug = ?
 	`
@@ -165,7 +163,6 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 		&epic.BusinessValue,
 		&epic.Slug,
 		&epic.FilePath,
-		&epic.CustomFolderPath,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -215,8 +212,7 @@ func splitSluggedKey(key string) []string {
 // GetByFilePath retrieves an epic by its file path for collision detection
 func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error) {
 	query := `
-		SELECT id, key, title, description, status, priority, business_value, slug, file_path,
-		       custom_folder_path, created_at, updated_at
+		SELECT id, key, title, description, status, priority, business_value, slug, file_path, created_at, updated_at
 		FROM epics
 		WHERE file_path = ?
 	`
@@ -232,7 +228,6 @@ func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 		&epic.BusinessValue,
 		&epic.Slug,
 		&epic.FilePath,
-		&epic.CustomFolderPath,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -251,7 +246,7 @@ func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       slug, file_path, custom_folder_path, created_at, updated_at
+		       slug, file_path, created_at, updated_at
 		FROM epics
 	`
 	args := []interface{}{}
@@ -282,7 +277,6 @@ func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([
 			&epic.BusinessValue,
 			&epic.Slug,
 			&epic.FilePath,
-			&epic.CustomFolderPath,
 			&epic.CreatedAt,
 			&epic.UpdatedAt,
 		)
@@ -307,7 +301,7 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) error {
 
 	query := `
 		UPDATE epics
-		SET title = ?, description = ?, status = ?, priority = ?, business_value = ?, custom_folder_path = ?
+		SET title = ?, description = ?, status = ?, priority = ?, business_value = ?
 		WHERE id = ?
 	`
 
@@ -317,7 +311,6 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) error {
 		epic.Status,
 		epic.Priority,
 		epic.BusinessValue,
-		epic.CustomFolderPath,
 		epic.ID,
 	)
 	if err != nil {
@@ -380,33 +373,37 @@ func (r *EpicRepository) UpdateFilePath(ctx context.Context, epicKey string, new
 }
 
 // CalculateProgress calculates the progress of an epic based on its features
-// Formula: weighted average = Σ(feature_progress × feature_task_count) / Σ(feature_task_count)
-// Features are weighted by their task count, so a feature with 100 tasks has 10× weight of a feature with 10 tasks
+// Formula: simple average = Σ(feature_progress) / total_features
+// Feature progress is determined by:
+//   - If feature status = "completed" OR "archived" → 100% (regardless of tasks)
+//   - Otherwise → use feature's progress_pct field (calculated from tasks)
 func (r *EpicRepository) CalculateProgress(ctx context.Context, epicID int64) (float64, error) {
 	query := `
 		SELECT
-		    COALESCE(SUM(f.progress_pct * (
-		        SELECT COUNT(*) FROM tasks t WHERE t.feature_id = f.id
-		    )), 0) as weighted_sum,
-		    COALESCE(SUM((
-		        SELECT COUNT(*) FROM tasks t WHERE t.feature_id = f.id
-		    )), 0) as total_task_count
+		    COALESCE(SUM(
+		        CASE
+		            WHEN f.status IN ('completed', 'archived') THEN 100.0
+		            ELSE f.progress_pct
+		        END
+		    ), 0) as total_progress,
+		    COUNT(*) as feature_count
 		FROM features f
 		WHERE f.epic_id = ?
 	`
 
-	var weightedSum, totalTaskCount float64
-	err := r.db.QueryRowContext(ctx, query, epicID).Scan(&weightedSum, &totalTaskCount)
+	var totalProgress float64
+	var featureCount int
+	err := r.db.QueryRowContext(ctx, query, epicID).Scan(&totalProgress, &featureCount)
 	if err != nil {
 		return 0, fmt.Errorf("failed to calculate epic progress: %w", err)
 	}
 
-	// If epic has no features or all features have no tasks, return 0.0
-	if totalTaskCount == 0 {
+	// If epic has no features, return 0.0
+	if featureCount == 0 {
 		return 0.0, nil
 	}
 
-	return weightedSum / totalTaskCount, nil
+	return totalProgress / float64(featureCount), nil
 }
 
 // CalculateProgressByKey calculates the progress of an epic by its key
@@ -472,32 +469,6 @@ func (r *EpicRepository) CreateIfNotExists(ctx context.Context, epic *models.Epi
 	return epic, true, nil
 }
 
-// GetCustomFolderPath retrieves the custom folder path for an epic by its key
-func (r *EpicRepository) GetCustomFolderPath(ctx context.Context, epicKey string) (*string, error) {
-	query := `
-		SELECT custom_folder_path
-		FROM epics
-		WHERE key = ?
-	`
-
-	var customFolderPath sql.NullString
-	err := r.db.QueryRowContext(ctx, query, epicKey).Scan(&customFolderPath)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("epic not found with key %s", epicKey)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get custom folder path: %w", err)
-	}
-
-	// Return nil if the value is NULL in the database
-	if !customFolderPath.Valid {
-		return nil, nil
-	}
-
-	return &customFolderPath.String, nil
-}
-
 // UpdateKey updates the key of an epic
 func (r *EpicRepository) UpdateKey(ctx context.Context, oldKey string, newKey string) error {
 	// Validate new key doesn't already exist
@@ -526,4 +497,79 @@ func (r *EpicRepository) UpdateKey(ctx context.Context, oldKey string, newKey st
 	}
 
 	return nil
+}
+
+// ============================================================================
+// Cascading Status Calculation Methods (E07-F14)
+// ============================================================================
+
+// GetFeatureStatusBreakdown retrieves the count of features by status for an epic
+// Used for deriving epic status from child features
+func (r *EpicRepository) GetFeatureStatusBreakdown(ctx context.Context, epicID int64) (map[models.FeatureStatus]int, error) {
+	query := `
+		SELECT status, COUNT(*) as count
+		FROM features
+		WHERE epic_id = ?
+		GROUP BY status
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, epicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature status breakdown: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[models.FeatureStatus]int)
+	for rows.Next() {
+		var status models.FeatureStatus
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan feature status count: %w", err)
+		}
+		counts[status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating feature status counts: %w", err)
+	}
+
+	return counts, nil
+}
+
+// GetFeatureStatusBreakdownByKey retrieves the count of features by status for an epic by its key
+func (r *EpicRepository) GetFeatureStatusBreakdownByKey(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error) {
+	epic, err := r.GetByKey(ctx, epicKey)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetFeatureStatusBreakdown(ctx, epic.ID)
+}
+
+// UpdateStatus updates the status of an epic
+func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error {
+	query := `UPDATE epics SET status = ? WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, status, epicID)
+	if err != nil {
+		return fmt.Errorf("failed to update epic status: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("epic not found with id %d", epicID)
+	}
+
+	return nil
+}
+
+// UpdateStatusByKey updates the status of an epic by its key
+func (r *EpicRepository) UpdateStatusByKey(ctx context.Context, epicKey string, status models.EpicStatus) error {
+	epic, err := r.GetByKey(ctx, epicKey)
+	if err != nil {
+		return err
+	}
+	return r.UpdateStatus(ctx, epic.ID, status)
 }

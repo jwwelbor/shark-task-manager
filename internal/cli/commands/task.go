@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/spf13/cobra"
@@ -26,6 +27,25 @@ func getRelativePathTask(absPath string, projectRoot string) string {
 		return absPath // Fall back to absolute path if conversion fails
 	}
 	return relPath
+}
+
+// triggerStatusCascade triggers cascading status updates for parent feature and epic
+// after a task status change. This is informational - errors are logged but don't
+// fail the operation.
+func triggerStatusCascade(ctx context.Context, dbWrapper *repository.DB, featureID int64) {
+	calcService := status.NewCalculationService(dbWrapper)
+	results, err := calcService.CascadeFromFeatureID(ctx, featureID)
+	if err != nil {
+		cli.Warning(fmt.Sprintf("Status cascade failed: %v", err))
+		return
+	}
+
+	// Report any status changes
+	for _, r := range results {
+		if r.WasChanged {
+			cli.Info(fmt.Sprintf("  %s %s status: %s -> %s", r.EntityType, r.EntityKey, r.PreviousStatus, r.NewStatus))
+		}
+	}
 }
 
 // taskCmd represents the task command group
@@ -1023,8 +1043,10 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		executionOrder = order
 	}
 	customKey, _ := cmd.Flags().GetString("key")
-	filename, _ := cmd.Flags().GetString("filename")
 	force, _ := cmd.Flags().GetBool("force")
+
+	// Get filename flag for custom file path
+	filename, _ := cmd.Flags().GetString("filename")
 
 	// Validate custom key if provided
 	if customKey != "" && containsSpace(customKey) {
@@ -1096,6 +1118,9 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Created task %s: %s", result.Task.Key, result.Task.Title))
 	fmt.Printf("File created at: %s\n", result.FilePath)
 	fmt.Printf("Start work with: shark task start %s\n", result.Task.Key)
+
+	// Trigger cascading status updates for parent feature and epic
+	triggerStatusCascade(ctx, repoDb, result.Task.FeatureID)
 
 	return nil
 }
@@ -1185,6 +1210,10 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Task %s started. Status changed to in_progress.", taskKey))
+
+	// Trigger cascading status updates for parent feature and epic
+	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+
 	return nil
 }
 
@@ -1336,6 +1365,10 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Task %s marked ready for review. Status changed to ready_for_review.", taskKey))
+
+	// Trigger cascading status updates for parent feature and epic
+	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+
 	return nil
 }
 
@@ -1416,6 +1449,10 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Task %s approved and completed.", taskKey))
+
+	// Trigger cascading status updates for parent feature and epic
+	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+
 	return nil
 }
 
@@ -1516,6 +1553,10 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Task %s blocked. Reason: %s", taskKey, reason))
+
+	// Trigger cascading status updates for parent feature and epic
+	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+
 	return nil
 }
 
@@ -1540,7 +1581,8 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	defer database.Close()
 
 	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	dbWrapper := repository.NewDB(database)
+	repo := repository.NewTaskRepository(dbWrapper)
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1573,6 +1615,10 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Task %s unblocked and returned to todo queue", taskKey))
+
+	// Trigger cascading status updates for parent feature and epic
+	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+
 	return nil
 }
 
@@ -1597,7 +1643,8 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	defer database.Close()
 
 	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	dbWrapper := repository.NewDB(database)
+	repo := repository.NewTaskRepository(dbWrapper)
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1658,6 +1705,10 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Task %s reopened for rework.", taskKey))
+
+	// Trigger cascading status updates for parent feature and epic
+	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+
 	return nil
 }
 
@@ -1681,7 +1732,8 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	defer database.Close()
 
 	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	dbWrapper := repository.NewDB(database)
+	repo := repository.NewTaskRepository(dbWrapper)
 
 	// Get task by key to verify it exists
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1690,6 +1742,9 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
+	// Capture feature ID before deletion for cascade
+	featureID := task.FeatureID
+
 	// Delete task from database (CASCADE will handle history)
 	if err := repo.Delete(ctx, task.ID); err != nil {
 		cli.Error(fmt.Sprintf("Failed to delete task: %v", err))
@@ -1697,6 +1752,10 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Task %s deleted successfully", taskKey))
+
+	// Trigger cascading status updates for parent feature and epic
+	triggerStatusCascade(ctx, dbWrapper, featureID)
+
 	return nil
 }
 
@@ -1743,8 +1802,14 @@ func init() {
 	taskCreateCmd.Flags().Int("execution-order", 0, "Execution order (optional, 0 = not set)")
 	taskCreateCmd.Flags().Int("order", 0, "Execution order (alias for --execution-order)")
 	taskCreateCmd.Flags().String("key", "", "Custom key for the task (e.g., T-E01-F01-custom). If not provided, auto-generates next sequence number")
-	taskCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must include .md extension)")
 	taskCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
+
+	// File path flags: --file is primary, --filename and --path are hidden aliases
+	taskCreateCmd.Flags().String("file", "", "Full file path (e.g., docs/custom/task.md)")
+	taskCreateCmd.Flags().String("filename", "", "Alias for --file")
+	taskCreateCmd.Flags().String("path", "", "Alias for --file")
+	_ = taskCreateCmd.Flags().MarkHidden("filename")
+	_ = taskCreateCmd.Flags().MarkHidden("path")
 
 	// Add flags for next command
 	taskNextCmd.Flags().StringP("agent", "a", "", "Agent type to match")
@@ -1919,9 +1984,23 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle filename update separately
+	// Try all three flag aliases: --file, --filename, --path (last one wins)
+	file, _ := cmd.Flags().GetString("file")
 	filename, _ := cmd.Flags().GetString("filename")
-	if filename != "" {
-		if err := repo.UpdateFilePath(ctx, taskKey, &filename); err != nil {
+	path, _ := cmd.Flags().GetString("path")
+
+	// Determine which flag was provided (priority: path > filename > file)
+	var customFile string
+	if path != "" {
+		customFile = path
+	} else if filename != "" {
+		customFile = filename
+	} else if file != "" {
+		customFile = file
+	}
+
+	if customFile != "" {
+		if err := repo.UpdateFilePath(ctx, taskKey, &customFile); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update task file path: %v", err))
 			os.Exit(1)
 		}

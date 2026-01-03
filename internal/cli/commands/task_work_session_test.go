@@ -27,12 +27,11 @@ func TestTaskContextSetAndGet(t *testing.T) {
 	// Create test epic
 	priority := models.PriorityHigh
 	epic := &models.Epic{
-		Key:              "E99",
-		Title:            "Test Epic",
-		Status:           models.EpicStatusActive,
-		Priority:         priority,
-		BusinessValue:    &priority,
-		CustomFolderPath: nil,
+		Key:           "E99",
+		Title:         "Test Epic",
+		Status:        models.EpicStatusActive,
+		Priority:      priority,
+		BusinessValue: &priority,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
@@ -40,12 +39,11 @@ func TestTaskContextSetAndGet(t *testing.T) {
 	// Create test feature
 	execOrder := 1
 	feature := &models.Feature{
-		EpicID:           epic.ID,
-		Key:              "E99-F01",
-		Title:            "Test Feature",
-		Status:           models.FeatureStatusActive,
-		CustomFolderPath: nil,
-		ExecutionOrder:   &execOrder,
+		EpicID:         epic.ID,
+		Key:            "E99-F01",
+		Title:          "Test Feature",
+		Status:         models.FeatureStatusActive,
+		ExecutionOrder: &execOrder,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)

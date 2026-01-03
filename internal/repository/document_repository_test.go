@@ -453,14 +453,33 @@ func TestDocumentReuseSameTitlePath(t *testing.T) {
 	docRepo := NewDocumentRepository(db)
 	epicRepo := NewEpicRepository(db)
 
-	_, _ = test.SeedTestData()
-	epic, _ := epicRepo.GetByKey(ctx, "E99")
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E93'")
+
+	// Create dedicated epic for this test
+	testEpic := &models.Epic{
+		Key:      "E93",
+		Title:    "Test Epic for Document Reuse",
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	if err != nil {
+		t.Fatalf("Failed to create test epic: %v", err)
+	}
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Link same document to different parents (via CreateOrGet)
-	doc1, _ := docRepo.CreateOrGet(ctx, "SharedDoc", "docs/shared.md")
-	_ = docRepo.LinkToEpic(ctx, epic.ID, doc1.ID)
+	doc1, err := docRepo.CreateOrGet(ctx, "SharedDoc", "docs/shared.md")
+	if err != nil {
+		t.Fatalf("Failed to create doc1: %v", err)
+	}
+	_ = docRepo.LinkToEpic(ctx, testEpic.ID, doc1.ID)
 
-	doc2, _ := docRepo.CreateOrGet(ctx, "SharedDoc", "docs/shared.md")
+	doc2, err := docRepo.CreateOrGet(ctx, "SharedDoc", "docs/shared.md")
+	if err != nil {
+		t.Fatalf("Failed to create doc2: %v", err)
+	}
 	if doc1.ID != doc2.ID {
 		t.Error("Expected document reuse for same title and path")
 	}
