@@ -15,6 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
@@ -32,17 +33,14 @@ func getRelativePath(absPath string, projectRoot string) string {
 
 // backupDatabaseOnForce creates a backup when --force flag is used
 // Returns the backup path and error (if any)
+// DEPRECATED: Use CreateBackupIfForce from file_assignment.go instead
 func backupDatabaseOnForce(force bool, dbPath string, operation string) (string, error) {
-	if !force {
-		return "", nil
-	}
-
-	backupPath, err := db.BackupDatabase(dbPath)
+	backupPath, err := CreateBackupIfForce(force, dbPath, operation)
 	if err != nil {
-		return "", fmt.Errorf("failed to create backup before %s: %w", operation, err)
+		return "", err
 	}
 
-	if !cli.GlobalConfig.JSON {
+	if backupPath != "" && !cli.GlobalConfig.JSON {
 		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
 	}
 
@@ -146,8 +144,7 @@ var epicCreateCmd = &cobra.Command{
 The epic key is automatically assigned as the next available E## number.
 
 Flags:
-  --filename string    Custom file path relative to project root (must end in .md)
-  --path string        Custom base folder path for this epic and children (relative to project root)
+  --file string        Full file path (e.g., docs/custom/epic.md)
   --force              Force reassignment if file already claimed by another entity
   --description string Epic description
   --priority string    Priority: high, medium, low (default: medium)
@@ -156,9 +153,8 @@ Flags:
 Examples:
   shark epic create "User Authentication System"
   shark epic create "User Auth" --description="Add OAuth and MFA"
-  shark epic create "Platform Roadmap" --path="docs/specs"
-  shark epic create "Platform Roadmap" --filename="docs/roadmap/2025.md"
-  shark epic create "Q1 Goals" --filename="docs/roadmap/q1.md" --force`,
+  shark epic create "Platform Roadmap" --file="docs/specs/roadmap.md"
+  shark epic create "Q1 Goals" --file="docs/roadmap/q1.md" --force`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicCreate,
 }
@@ -198,15 +194,13 @@ Examples:
   shark epic update E01 --title "New Title"
   shark epic update E01-enhancements --description "New description"
   shark epic update E01 --status active
-  shark epic update E01 --filename "docs/roadmap/2025.md"
-  shark epic update E01 --path "docs/roadmap"`,
+  shark epic update E01 --file "docs/roadmap/2025.md"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicUpdate,
 }
 
 var (
 	epicCreateDescription string
-	epicCreatePath        string
 	epicCreateKey         string
 )
 
@@ -232,10 +226,19 @@ func init() {
 
 	// Add flags for create command
 	epicCreateCmd.Flags().StringVar(&epicCreateDescription, "description", "", "Epic description (optional)")
-	epicCreateCmd.Flags().StringVar(&epicCreatePath, "path", "", "Custom base folder path for this epic and children (relative to project root)")
 	epicCreateCmd.Flags().StringVar(&epicCreateKey, "key", "", "Custom key for the epic (e.g., E00, bugs). If not provided, auto-generates next E## number")
-	epicCreateCmd.Flags().String("filename", "", "Custom filename path (relative to project root, must end in .md)")
+
+	// File path flags: --file is primary, --filepath and --path are hidden aliases
+	epicCreateCmd.Flags().String("file", "", "Full file path (e.g., docs/custom/epic.md)")
+	epicCreateCmd.Flags().String("filename", "", "Alias for --file")
+	epicCreateCmd.Flags().String("path", "", "Alias for --file")
+	_ = epicCreateCmd.Flags().MarkHidden("filename")
+	_ = epicCreateCmd.Flags().MarkHidden("path")
+
 	epicCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another epic or feature")
+	epicCreateCmd.Flags().String("priority", "medium", "Priority: low, medium, high (default: medium)")
+	epicCreateCmd.Flags().String("business-value", "", "Business value: low, medium, high (optional)")
+	epicCreateCmd.Flags().String("status", "draft", "Status: draft, active, completed, archived (default: draft)")
 
 	// Add flags for delete command
 	epicDeleteCmd.Flags().Bool("force", false, "Force deletion even if epic has features")
@@ -247,8 +250,14 @@ func init() {
 	epicUpdateCmd.Flags().String("priority", "", "New priority: low, medium, high")
 	epicUpdateCmd.Flags().String("business-value", "", "New business value: low, medium, high")
 	epicUpdateCmd.Flags().String("key", "", "New key for the epic (must be unique, cannot contain spaces)")
-	epicUpdateCmd.Flags().String("filename", "", "New file path (relative to project root, must end in .md)")
-	epicUpdateCmd.Flags().String("path", "", "New custom folder base path")
+
+	// File path flags: --file is primary, --filename and --path are hidden aliases
+	epicUpdateCmd.Flags().String("file", "", "New file path (e.g., docs/custom/epic.md)")
+	epicUpdateCmd.Flags().String("filename", "", "Alias for --file")
+	epicUpdateCmd.Flags().String("path", "", "Alias for --file")
+	_ = epicUpdateCmd.Flags().MarkHidden("filename")
+	_ = epicUpdateCmd.Flags().MarkHidden("path")
+
 	epicUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
 }
 
@@ -262,20 +271,14 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 	sortBy, _ := cmd.Flags().GetString("sort-by")
 	statusFilter, _ := cmd.Flags().GetString("status")
 
-	// Validate status filter
+	// Validate status filter using shared parsing function
 	if statusFilter != "" {
-		validStatuses := []string{"draft", "active", "completed", "archived"}
-		valid := false
-		for _, s := range validStatuses {
-			if statusFilter == s {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			cli.Error(fmt.Sprintf("Error: Invalid status '%s'. Must be one of: draft, active, completed, archived", statusFilter))
+		validatedStatus, err := ParseEpicStatus(statusFilter)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
+		statusFilter = validatedStatus
 	}
 
 	// Validate sort-by option
@@ -494,23 +497,23 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
-			"id":                 epic.ID,
-			"key":                epic.Key,
-			"title":              epic.Title,
-			"description":        epic.Description,
-			"status":             epic.Status,
-			"priority":           epic.Priority,
-			"business_value":     epic.BusinessValue,
-			"slug":               epic.Slug,
-			"progress_pct":       epicProgress,
-			"path":               dirPath,
-			"filename":           filename,
-			"file_path":          epic.FilePath,
-			"custom_folder_path": epic.CustomFolderPath,
-			"created_at":         epic.CreatedAt,
-			"updated_at":         epic.UpdatedAt,
-			"features":           featuresWithDetails,
-			"related_documents":  relatedDocs,
+			"id":                epic.ID,
+			"key":               epic.Key,
+			"title":             epic.Title,
+			"description":       epic.Description,
+			"status":            epic.Status,
+			"status_source":     "calculated", // Epic status is always calculated from features
+			"priority":          epic.Priority,
+			"business_value":    epic.BusinessValue,
+			"slug":              epic.Slug,
+			"progress_pct":      epicProgress,
+			"path":              dirPath,
+			"filename":          filename,
+			"file_path":         epic.FilePath,
+			"created_at":        epic.CreatedAt,
+			"updated_at":        epic.UpdatedAt,
+			"features":          featuresWithDetails,
+			"related_documents": relatedDocs,
 		}
 		return cli.OutputJSON(result)
 	}
@@ -559,7 +562,7 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 	// Epic info
 	info := [][]string{
 		{"Title", epic.Title},
-		{"Status", string(epic.Status)},
+		{"Status", fmt.Sprintf("%s (calculated)", string(epic.Status))},
 		{"Priority", string(epic.Priority)},
 		{"Progress", fmt.Sprintf("%.1f%%", progress)},
 	}
@@ -703,7 +706,21 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	epicTitle := args[0]
 
 	// Get optional flags
+	// Try all three flag aliases: --file, --filename, --path (last one wins)
+	file, _ := cmd.Flags().GetString("file")
 	filename, _ := cmd.Flags().GetString("filename")
+	path, _ := cmd.Flags().GetString("path")
+
+	// Determine which flag was provided (priority: path > filename > file)
+	var customFile string
+	if path != "" {
+		customFile = path
+	} else if filename != "" {
+		customFile = filename
+	} else if file != "" {
+		customFile = file
+	}
+
 	force, _ := cmd.Flags().GetBool("force")
 
 	// Get database connection
@@ -729,17 +746,6 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Validate and process custom path if provided
-	var customFolderPath *string
-	if epicCreatePath != "" {
-		_, relPath, err := utils.ValidateFolderPath(epicCreatePath, projectRoot)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
-		customFolderPath = &relPath
-	}
-
 	// Get repositories
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
@@ -748,9 +754,9 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	// Get epic key (custom or auto-generated)
 	var nextKey string
 	if epicCreateKey != "" {
-		// Validate custom key: no spaces allowed
-		if containsSpace(epicCreateKey) {
-			cli.Error("Error: Epic key cannot contain spaces")
+		// Validate custom key using shared validator: no spaces allowed
+		if err := ValidateNoSpaces(epicCreateKey, "epic"); err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
 
@@ -776,9 +782,9 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	var customFilePath *string
 	var actualFilePath string // The path where the file will be created
 
-	if filename != "" {
+	if customFile != "" {
 		// Validate custom filename
-		absPath, relPath, err := taskcreation.ValidateCustomFilename(filename, projectRoot)
+		absPath, relPath, err := taskcreation.ValidateCustomFilename(customFile, projectRoot)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Invalid filename: %v", err))
 			os.Exit(1)
@@ -895,7 +901,7 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create parent directories if needed (for custom paths)
-	if filename != "" {
+	if customFile != "" {
 		parentDir := filepath.Dir(actualFilePath)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to create parent directories: %v", err))
@@ -909,16 +915,52 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
+	// Parse priority flag using shared parsing function (with default "medium")
+	priorityStr, _ := cmd.Flags().GetString("priority")
+	if priorityStr == "" {
+		priorityStr = "medium"
+	}
+	priorityStr, err = ParseEpicPriority(priorityStr)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
+	priority := models.Priority(priorityStr)
+
+	// Parse business-value flag using shared parsing function (optional, can be empty)
+	businessValueStr, _ := cmd.Flags().GetString("business-value")
+	var businessValue *models.Priority
+	if businessValueStr != "" {
+		businessValueStr, err = ParseEpicPriority(businessValueStr)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Invalid business-value: %v", err))
+			os.Exit(1)
+		}
+		bv := models.Priority(businessValueStr)
+		businessValue = &bv
+	}
+
+	// Parse status flag using shared parsing function (with default "draft")
+	statusStr, _ := cmd.Flags().GetString("status")
+	if statusStr == "" {
+		statusStr = "draft"
+	}
+	statusStr, err = ParseEpicStatus(statusStr)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
+	status := models.EpicStatus(statusStr)
+
 	// Create database entry with key (E##) not full slug
 	epic := &models.Epic{
-		Key:              nextKey,
-		Title:            epicTitle,
-		Description:      &epicCreateDescription,
-		Status:           models.EpicStatusDraft,
-		Priority:         models.PriorityMedium,
-		BusinessValue:    nil,
-		FilePath:         customFilePath,
-		CustomFolderPath: customFolderPath,
+		Key:           nextKey,
+		Title:         epicTitle,
+		Description:   &epicCreateDescription,
+		Status:        status,
+		Priority:      priority,
+		BusinessValue: businessValue,
+		FilePath:      customFilePath,
 	}
 
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -930,7 +972,7 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	// Success output
 	cli.Success(fmt.Sprintf("Created epic %s '%s' at %s", nextKey, epicTitle, actualFilePath))
-	if filename != "" {
+	if customFile != "" {
 		// Custom filename was provided
 		fmt.Printf("Start work with: shark epic get %s\n", nextKey)
 	} else {
@@ -1340,13 +1382,9 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 }
 
 // containsSpace checks if a string contains any whitespace characters
+// DEPRECATED: Use ValidateNoSpaces from validators.go instead
 func containsSpace(s string) bool {
-	for _, ch := range s {
-		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-			return true
-		}
-	}
-	return false
+	return strings.ContainsAny(s, " \t\n\r")
 }
 
 // runEpicUpdate executes the epic update command
@@ -1401,43 +1439,55 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 		changed = true
 	}
 
-	// Update status if provided
-	status, _ := cmd.Flags().GetString("status")
-	if status != "" {
-		epic.Status = models.EpicStatus(status)
-		changed = true
-	}
+	// Update status if provided (using shared validation)
+	// Special handling for "auto" to enable calculated status
+	statusFlag, _ := cmd.Flags().GetString("status")
+	if statusFlag != "" {
+		if strings.ToLower(statusFlag) == "auto" {
+			// Recalculate status from features
+			calcService := status.NewCalculationService(repoDb)
+			result, err := calcService.RecalculateEpicStatus(ctx, epic.ID)
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to recalculate status: %v", err))
+				os.Exit(1)
+			}
 
-	// Update priority if provided
-	priority, _ := cmd.Flags().GetString("priority")
-	if priority != "" {
-		epic.Priority = models.Priority(priority)
-		changed = true
-	}
-
-	// Update business value if provided
-	businessValue, _ := cmd.Flags().GetString("business-value")
-	if businessValue != "" {
-		bv := models.Priority(businessValue)
-		epic.BusinessValue = &bv
-		changed = true
-	}
-
-	// Update custom folder path if provided
-	customPath, _ := cmd.Flags().GetString("path")
-	if customPath != "" {
-		projectRoot, err := os.Getwd()
-		if err != nil {
-			cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
-			os.Exit(1)
+			cli.Success(fmt.Sprintf("Epic %s status recalculated: %s (calculated from features)", epic.Key, result.NewStatus))
+			return nil
 		}
 
-		_, relPath, err := utils.ValidateFolderPath(customPath, projectRoot)
+		// Regular status update
+		validatedStatus, err := ParseEpicStatus(statusFlag)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
-		epic.CustomFolderPath = &relPath
+		epic.Status = models.EpicStatus(validatedStatus)
+		changed = true
+	}
+
+	// Update priority if provided (using shared validation)
+	priority, _ := cmd.Flags().GetString("priority")
+	if priority != "" {
+		validatedPriority, err := ParseEpicPriority(priority)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
+			os.Exit(1)
+		}
+		epic.Priority = models.Priority(validatedPriority)
+		changed = true
+	}
+
+	// Update business value if provided (using shared validation)
+	businessValue, _ := cmd.Flags().GetString("business-value")
+	if businessValue != "" {
+		validatedBV, err := ParseEpicPriority(businessValue)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Invalid business-value: %v", err))
+			os.Exit(1)
+		}
+		bv := models.Priority(validatedBV)
+		epic.BusinessValue = &bv
 		changed = true
 	}
 
@@ -1452,9 +1502,9 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 	// Handle key update separately (requires unique validation)
 	newKey, _ := cmd.Flags().GetString("key")
 	if newKey != "" {
-		// Validate new key: no spaces allowed
-		if containsSpace(newKey) {
-			cli.Error("Error: Epic key cannot contain spaces")
+		// Validate new key using shared validator: no spaces allowed
+		if err := ValidateNoSpaces(newKey, "epic"); err != nil {
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
 
@@ -1476,11 +1526,25 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle filename update separately (uses different repository method)
+	// Try all three flag aliases: --file, --filename, --path (last one wins)
+	file, _ := cmd.Flags().GetString("file")
 	filename, _ := cmd.Flags().GetString("filename")
-	if filename != "" {
+	path, _ := cmd.Flags().GetString("path")
+
+	// Determine which flag was provided (priority: path > filename > file)
+	var customFile string
+	if path != "" {
+		customFile = path
+	} else if filename != "" {
+		customFile = filename
+	} else if file != "" {
+		customFile = file
+	}
+
+	if customFile != "" {
 		// This is handled separately as it may involve file reassignment
 		// For now, just update the file path in the database
-		if err := epicRepo.UpdateFilePath(ctx, epicKey, &filename); err != nil {
+		if err := epicRepo.UpdateFilePath(ctx, epicKey, &customFile); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update epic file path: %v", err))
 			os.Exit(1)
 		}

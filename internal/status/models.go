@@ -143,3 +143,59 @@ func isValidEpicKey(key string) bool {
 	epicPattern := regexp.MustCompile(`^E\d+$`)
 	return epicPattern.MatchString(key)
 }
+
+// ============================================================================
+// Cascading Status Calculation Types (E07-F14)
+// ============================================================================
+
+// StatusChangeResult represents the outcome of a status calculation
+type StatusChangeResult struct {
+	EntityType     string    `json:"entity_type"`     // "feature" or "epic"
+	EntityKey      string    `json:"entity_key"`      // e.g., "E07-F14"
+	EntityID       int64     `json:"entity_id"`       // Database ID
+	PreviousStatus string    `json:"previous_status"` // Status before change
+	NewStatus      string    `json:"new_status"`      // Status after change
+	WasChanged     bool      `json:"was_changed"`     // true if status actually changed
+	WasSkipped     bool      `json:"was_skipped"`     // true if override prevented update
+	SkipReason     string    `json:"skip_reason,omitempty"`
+	CalculatedAt   time.Time `json:"calculated_at"`
+}
+
+// TaskStatusCounts provides task distribution for feature status calculation
+type TaskStatusCounts struct {
+	Todo           int `json:"todo"`
+	InProgress     int `json:"in_progress"`
+	ReadyForReview int `json:"ready_for_review"`
+	Blocked        int `json:"blocked"`
+	Completed      int `json:"completed"`
+	Archived       int `json:"archived"`
+	Total          int `json:"total"`
+}
+
+// FeatureStatusCounts provides feature distribution for epic status calculation
+type FeatureStatusCounts struct {
+	Draft     int `json:"draft"`
+	Active    int `json:"active"`
+	Completed int `json:"completed"`
+	Archived  int `json:"archived"`
+	Total     int `json:"total"`
+}
+
+// RecalculationSummary summarizes a batch recalculation
+type RecalculationSummary struct {
+	EpicsUpdated    int                  `json:"epics_updated"`
+	FeaturesUpdated int                  `json:"features_updated"`
+	FeaturesSkipped int                  `json:"features_skipped"`
+	Changes         []StatusChangeResult `json:"changes"`
+	StartedAt       time.Time            `json:"started_at"`
+	CompletedAt     time.Time            `json:"completed_at"`
+	DurationMs      int64                `json:"duration_ms"`
+}
+
+// StatusSource indicates where a status value comes from
+type StatusSource string
+
+const (
+	StatusSourceCalculated StatusSource = "calculated"
+	StatusSourceManual     StatusSource = "manual"
+)

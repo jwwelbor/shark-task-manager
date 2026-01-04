@@ -35,12 +35,11 @@ func TestTaskCriteriaImport(t *testing.T) {
 	// Create test epic
 	priority := models.PriorityMedium
 	epic := &models.Epic{
-		Key:              "E99",
-		Title:            "Test Epic",
-		Status:           models.EpicStatusActive,
-		Priority:         priority,
-		BusinessValue:    &priority,
-		CustomFolderPath: nil,
+		Key:           "E99",
+		Title:         "Test Epic",
+		Status:        models.EpicStatusActive,
+		Priority:      priority,
+		BusinessValue: &priority,
 	}
 	err := epicRepo.Create(ctx, epic)
 	if err != nil {
@@ -50,12 +49,11 @@ func TestTaskCriteriaImport(t *testing.T) {
 	// Create test feature
 	execOrder := 1
 	feature := &models.Feature{
-		EpicID:           epic.ID,
-		Key:              "E99-F99",
-		Title:            "Test Feature",
-		Status:           models.FeatureStatusActive,
-		CustomFolderPath: nil,
-		ExecutionOrder:   &execOrder,
+		EpicID:         epic.ID,
+		Key:            "E99-F99",
+		Title:          "Test Feature",
+		Status:         models.FeatureStatusActive,
+		ExecutionOrder: &execOrder,
 	}
 	err = featureRepo.Create(ctx, feature)
 	if err != nil {
@@ -211,12 +209,11 @@ func TestTaskCriteriaCheckAndFail(t *testing.T) {
 	// Create test epic
 	priority := models.PriorityMedium
 	epic := &models.Epic{
-		Key:              "E99",
-		Title:            "Test Epic",
-		Status:           models.EpicStatusActive,
-		Priority:         priority,
-		BusinessValue:    &priority,
-		CustomFolderPath: nil,
+		Key:           "E99",
+		Title:         "Test Epic",
+		Status:        models.EpicStatusActive,
+		Priority:      priority,
+		BusinessValue: &priority,
 	}
 	err := epicRepo.Create(ctx, epic)
 	if err != nil {
@@ -226,12 +223,11 @@ func TestTaskCriteriaCheckAndFail(t *testing.T) {
 	// Create test feature
 	execOrder := 1
 	feature := &models.Feature{
-		EpicID:           epic.ID,
-		Key:              "E99-F99",
-		Title:            "Test Feature",
-		Status:           models.FeatureStatusActive,
-		CustomFolderPath: nil,
-		ExecutionOrder:   &execOrder,
+		EpicID:         epic.ID,
+		Key:            "E99-F99",
+		Title:          "Test Feature",
+		Status:         models.FeatureStatusActive,
+		ExecutionOrder: &execOrder,
 	}
 	err = featureRepo.Create(ctx, feature)
 	if err != nil {
@@ -371,12 +367,11 @@ func TestFeatureCriteriaAggregation(t *testing.T) {
 	// Create test epic
 	priority := models.PriorityMedium
 	epic := &models.Epic{
-		Key:              "E99",
-		Title:            "Test Epic",
-		Status:           models.EpicStatusActive,
-		Priority:         priority,
-		BusinessValue:    &priority,
-		CustomFolderPath: nil,
+		Key:           "E99",
+		Title:         "Test Epic",
+		Status:        models.EpicStatusActive,
+		Priority:      priority,
+		BusinessValue: &priority,
 	}
 	err := epicRepo.Create(ctx, epic)
 	if err != nil {
@@ -386,12 +381,11 @@ func TestFeatureCriteriaAggregation(t *testing.T) {
 	// Create test feature
 	execOrder := 1
 	feature := &models.Feature{
-		EpicID:           epic.ID,
-		Key:              "E99-F99",
-		Title:            "Test Feature",
-		Status:           models.FeatureStatusActive,
-		CustomFolderPath: nil,
-		ExecutionOrder:   &execOrder,
+		EpicID:         epic.ID,
+		Key:            "E99-F99",
+		Title:          "Test Feature",
+		Status:         models.FeatureStatusActive,
+		ExecutionOrder: &execOrder,
 	}
 	err = featureRepo.Create(ctx, feature)
 	if err != nil {

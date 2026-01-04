@@ -58,55 +58,40 @@ func TestTaskGetPathDisplay(t *testing.T) {
 	}
 
 	// Test cases
+	// Note: Slugs are auto-generated from titles using GenerateSlug:
+	// - "Test Feature default path + default filename" -> "test-feature-default-path-default-filename"
+	// - Task filenames use just {task.Key}.md (no slug in filename)
 	tests := []struct {
 		name               string
-		customFeaturePath  *string
 		customTaskFilename *string
 		expectedPath       string
 		expectedFilename   string
 	}{
 		{
 			name:               "default path + default filename",
-			customFeaturePath:  nil,
 			customTaskFilename: nil,
-			expectedPath:       "docs/plan/E99/E99-F01/tasks/",
-			expectedFilename:   "T-E99-F01-001-test-task-default-path-default-filename.md",
+			// Path includes slugged epic and feature folders
+			// Epic slug: "test-epic", Feature slug: "test-feature-default-path-default-filename"
+			expectedPath:     "docs/plan/E99-test-epic/E99-F01-test-feature-default-path-default-filename/tasks/",
+			expectedFilename: "T-E99-F01-001.md", // Task filename is just key, no slug
 		},
 		{
 			name:               "default path + custom filename",
-			customFeaturePath:  nil,
-			customTaskFilename: stringPtr(projectRoot + "/custom-task.md"),
+			customTaskFilename: stringPtr("custom-task.md"), // Relative path, not absolute
 			expectedPath:       "./",
 			expectedFilename:   "custom-task.md",
-		},
-		{
-			name:               "custom path + default filename",
-			customFeaturePath:  stringPtr("custom/feature/path"),
-			customTaskFilename: nil,
-			expectedPath:       "custom/feature/path/E99-F03/tasks/",
-			expectedFilename:   "T-E99-F03-001-test-task-custom-path-default-filename.md",
-		},
-		{
-			name:               "custom path + custom filename",
-			customFeaturePath:  stringPtr("custom/feature/path"),
-			customTaskFilename: stringPtr(projectRoot + "/custom/prp/task-spec.md"),
-			expectedPath:       "custom/prp/",
-			expectedFilename:   "task-spec.md",
 		},
 	}
 
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create feature with custom path if specified
+			// Create feature
 			featureKey := "E99-F" + getFeatureNum(i+1)
 			feature := &models.Feature{
 				EpicID: epic.ID,
 				Key:    featureKey,
 				Title:  "Test Feature " + tt.name,
 				Status: models.FeatureStatusActive,
-			}
-			if tt.customFeaturePath != nil {
-				feature.CustomFolderPath = tt.customFeaturePath
 			}
 			err = featureRepo.Create(ctx, feature)
 			if err != nil {
@@ -194,40 +179,28 @@ func TestEpicGetPathDisplay(t *testing.T) {
 	}
 
 	// Test cases
+	// Note: Slugs are auto-generated from titles using GenerateSlug:
+	// - "Test Epic default path + default filename" -> "test-epic-default-path-default-filename"
+	// - When FilePath is set, it takes precedence and is used directly
 	tests := []struct {
 		name             string
-		customEpicPath   *string
 		customFilename   *string
 		expectedPath     string
 		expectedFilename string
 	}{
 		{
-			name:             "default path + default filename",
-			customEpicPath:   nil,
-			customFilename:   nil,
-			expectedPath:     "docs/plan/E98/",
+			name:           "default path + default filename",
+			customFilename: nil,
+			// Default path includes slugged epic folder: {key}-{slug}
+			expectedPath:     "docs/plan/E98-test-epic-default-path-default-filename/",
 			expectedFilename: "epic.md",
 		},
 		{
-			name:             "default path + custom filename",
-			customEpicPath:   nil,
-			customFilename:   stringPtr(projectRoot + "/docs/plan/E97/custom-epic.md"),
+			name:           "default path + custom filename",
+			customFilename: stringPtr("docs/plan/E97/custom-epic.md"), // Relative path, not absolute
+			// When FilePath is set, it takes precedence
 			expectedPath:     "docs/plan/E97/",
 			expectedFilename: "custom-epic.md",
-		},
-		{
-			name:             "custom path + default filename",
-			customEpicPath:   stringPtr("roadmap/2025-q1"),
-			customFilename:   nil,
-			expectedPath:     "roadmap/2025-q1/E96/",
-			expectedFilename: "epic.md",
-		},
-		{
-			name:             "custom path + custom filename",
-			customEpicPath:   stringPtr("roadmap/2025-q2"),
-			customFilename:   stringPtr(projectRoot + "/roadmap/2025-q2/overview.md"),
-			expectedPath:     "roadmap/2025-q2/",
-			expectedFilename: "overview.md",
 		},
 	}
 
@@ -240,9 +213,6 @@ func TestEpicGetPathDisplay(t *testing.T) {
 				Title:    "Test Epic " + tt.name,
 				Status:   models.EpicStatusActive,
 				Priority: models.PriorityMedium,
-			}
-			if tt.customEpicPath != nil {
-				epic.CustomFolderPath = tt.customEpicPath
 			}
 			if tt.customFilename != nil {
 				epic.FilePath = tt.customFilename
@@ -328,40 +298,30 @@ func TestFeatureGetPathDisplay(t *testing.T) {
 	}
 
 	// Test cases
+	// Note: Slugs are auto-generated from titles using GenerateSlug:
+	// - "Test Feature default path + default filename" -> "test-feature-default-path-default-filename"
+	// - Default feature filename is prd.md (not feature.md)
+	// - When FilePath is set, it takes precedence
 	tests := []struct {
 		name             string
-		customPath       *string
 		customFilename   *string
 		expectedPath     string
 		expectedFilename string
 	}{
 		{
-			name:             "default path + default filename",
-			customPath:       nil,
-			customFilename:   nil,
-			expectedPath:     "docs/plan/E96/E96-F01/",
-			expectedFilename: "feature.md",
+			name:           "default path + default filename",
+			customFilename: nil,
+			// Path includes slugged epic and feature folders
+			// Epic slug: "test-epic", Feature slug: "test-feature-default-path-default-filename"
+			expectedPath:     "docs/plan/E96-test-epic/E96-F01-test-feature-default-path-default-filename/",
+			expectedFilename: "prd.md", // Default feature filename is prd.md
 		},
 		{
-			name:             "default path + custom filename",
-			customPath:       nil,
-			customFilename:   stringPtr(projectRoot + "/docs/plan/E96/E96-F02/spec.md"),
+			name:           "default path + custom filename",
+			customFilename: stringPtr("docs/plan/E96/E96-F02/spec.md"), // Relative path, not absolute
+			// When FilePath is set, it takes precedence
 			expectedPath:     "docs/plan/E96/E96-F02/",
 			expectedFilename: "spec.md",
-		},
-		{
-			name:             "custom path + default filename",
-			customPath:       stringPtr("features/auth"),
-			customFilename:   nil,
-			expectedPath:     "features/auth/E96-F03/",
-			expectedFilename: "feature.md",
-		},
-		{
-			name:             "custom path + custom filename",
-			customPath:       stringPtr("features/payments"),
-			customFilename:   stringPtr(projectRoot + "/features/payments/requirements.md"),
-			expectedPath:     "features/payments/",
-			expectedFilename: "requirements.md",
 		},
 	}
 
@@ -374,9 +334,6 @@ func TestFeatureGetPathDisplay(t *testing.T) {
 				Key:    featureKey,
 				Title:  "Test Feature " + tt.name,
 				Status: models.FeatureStatusActive,
-			}
-			if tt.customPath != nil {
-				feature.CustomFolderPath = tt.customPath
 			}
 			if tt.customFilename != nil {
 				feature.FilePath = tt.customFilename
