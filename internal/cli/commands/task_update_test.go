@@ -49,7 +49,8 @@ func TestTaskCreateCommand_KeyFlag(t *testing.T) {
 	// Verify the task create command is registered
 	var found bool
 	for _, cmd := range taskCmd.Commands() {
-		if cmd.Use == "create <title> [flags]" {
+		// Updated to match new positional argument syntax
+		if cmd.Use == "create [EPIC] [FEATURE] <title> [flags]" {
 			found = true
 
 			// Verify it has the --key flag
@@ -93,7 +94,8 @@ func TestTaskCreateCommand_OrderFlag(t *testing.T) {
 	// Verify the task create command is registered
 	var found bool
 	for _, cmd := range taskCmd.Commands() {
-		if cmd.Use == "create <title> [flags]" {
+		// Updated to match new positional argument syntax
+		if cmd.Use == "create [EPIC] [FEATURE] <title> [flags]" {
 			found = true
 
 			// Verify it has the --order flag

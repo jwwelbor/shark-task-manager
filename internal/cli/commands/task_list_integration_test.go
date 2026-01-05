@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -78,12 +79,11 @@ func TestParseTaskListArgsIntegration(t *testing.T) {
 		},
 
 		{
-			name:        "Invalid format e04",
+			name:        "Valid lowercase epic e04",
 			args:        []string{"e04"},
-			wantEpic:    nil,
+			wantEpic:    strPtr("E04"),
 			wantFeature: nil,
-			wantErr:     true,
-			errMessage:  "invalid",
+			wantErr:     false,
 		},
 
 		{
@@ -112,7 +112,7 @@ func TestParseTaskListArgsIntegration(t *testing.T) {
 			wantEpic:    nil,
 			wantFeature: nil,
 			wantErr:     true,
-			errMessage:  "too many",
+			errMessage:  "too many arguments",
 		},
 
 		{
@@ -121,7 +121,7 @@ func TestParseTaskListArgsIntegration(t *testing.T) {
 			wantEpic:    nil,
 			wantFeature: nil,
 			wantErr:     true,
-			errMessage:  "too many",
+			errMessage:  "too many arguments",
 		},
 	}
 
@@ -265,5 +265,5 @@ func TestTaskListQueryWithDatabase(t *testing.T) {
 
 // Helper function for case-insensitive substring check
 func containsIgnoreCase(s, substr string) bool {
-	return len(s) >= len(substr)
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

@@ -49,7 +49,8 @@ func TestFeatureCreateCommand_KeyFlag(t *testing.T) {
 	// Verify the feature create command is registered
 	var found bool
 	for _, cmd := range featureCmd.Commands() {
-		if cmd.Use == "create --epic=<key> [--filename=<path>] [--path=<path>] [--force] <title>" {
+		// Updated to match new positional argument syntax
+		if cmd.Use == "create [EPIC] <title> [flags]" {
 			found = true
 
 			// Verify it has the --key flag

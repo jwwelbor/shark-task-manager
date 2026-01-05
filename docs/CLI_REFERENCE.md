@@ -5,12 +5,14 @@ Complete command reference for the Shark Task Manager CLI.
 ## Table of Contents
 
 - [Global Flags](#global-flags)
+- [Key Format Improvements](#key-format-improvements)
 - [Initialization](#initialization)
 - [Epic Commands](#epic-commands)
 - [Feature Commands](#feature-commands)
 - [Task Commands](#task-commands)
 - [Sync Commands](#sync-commands)
 - [Configuration Commands](#configuration-commands)
+- [Error Messages](#error-messages)
 
 ---
 
@@ -28,6 +30,99 @@ All commands support the following global flags:
 ```bash
 shark task list --json --verbose
 ```
+
+---
+
+## Key Format Improvements
+
+Shark CLI now supports flexible key formats for improved usability.
+
+### Case Insensitive Keys
+
+All entity keys are case insensitive. You can use any combination of uppercase and lowercase:
+
+**Epics:**
+```bash
+shark epic get E07       # Standard
+shark epic get e07       # Lowercase
+shark epic get E07-user-management-system
+shark epic get e07-user-management-system
+```
+
+**Features:**
+```bash
+shark feature get E07-F01        # Standard
+shark feature get e07-f01        # Lowercase
+shark feature get E07-f01        # Mixed case
+shark feature get F01            # Short format
+shark feature get f01            # Short format (lowercase)
+```
+
+**Tasks:**
+```bash
+shark task start E07-F20-001     # Short format
+shark task start e07-f20-001     # Lowercase
+shark task start T-E07-F20-001   # Traditional format
+shark task start t-e07-f20-001   # Traditional lowercase
+```
+
+### Short Task Key Format
+
+Task keys can now be referenced without the `T-` prefix:
+
+**Traditional Format:**
+```bash
+shark task get T-E07-F20-001
+shark task start T-E07-F20-001
+shark task complete T-E07-F20-001
+```
+
+**Short Format (Recommended):**
+```bash
+shark task get E07-F20-001
+shark task start E07-F20-001
+shark task complete E07-F20-001
+```
+
+Both formats work identically. The CLI automatically normalizes keys internally.
+
+### Positional Arguments
+
+Feature and task creation commands now support cleaner positional argument syntax:
+
+**Feature Creation:**
+```bash
+# New positional syntax (recommended)
+shark feature create E07 "Feature Title"
+shark feature create e07 "Feature Title"  # Case insensitive
+
+# Traditional flag syntax (still supported)
+shark feature create --epic=E07 --title="Feature Title"
+```
+
+**Task Creation:**
+```bash
+# New positional syntax - 3 arguments (epic, feature, title)
+shark task create E07 F20 "Task Title"
+shark task create e07 f20 "Task Title"  # Case insensitive
+
+# New positional syntax - 2 arguments (combined epic-feature, title)
+shark task create E07-F20 "Task Title"
+shark task create e07-f20 "Task Title"  # Case insensitive
+
+# Traditional flag syntax (still supported)
+shark task create --epic=E07 --feature=F20 --title="Task Title"
+```
+
+### Syntax Compatibility
+
+**All legacy syntax remains fully supported.** The new formats are additive improvements:
+
+- ✅ Old commands continue to work unchanged
+- ✅ Scripts don't need updates
+- ✅ Mix and match syntaxes as preferred
+- ✅ Case insensitivity works with all formats
+- ✅ Backward compatibility guaranteed
 
 ---
 
@@ -68,7 +163,6 @@ Create a new epic.
 
 **Optional Flags:**
 - `--file <path>`: Custom file path (relative to root, must include .md)
-  - Aliases: `--filepath`, `--path`
 - `--force`: Reassign file if already claimed by another epic or feature
 - `--priority <1-10>`: Priority (1 = highest, 10 = lowest)
 - `--business-value <1-10>`: Business value score
@@ -90,12 +184,6 @@ shark epic create --title="Payment Integration" --priority=1 --business-value=10
 # Force reassign file (if already claimed)
 shark epic create --title="Legacy Migration" --file="docs/legacy/epic.md" --force
 ```
-
-**Aliases for --file flag:**
-- `--filepath` (hidden)
-- `--path` (hidden)
-
-All three flags accept the same value: a complete file path including the `.md` extension.
 
 ---
 
@@ -171,13 +259,18 @@ shark epic get E07-user-management-system --json
 
 Create a new feature within an epic.
 
-**Required Flags:**
-- `--epic <epic-key>`: Parent epic key
-- `--title <string>`: Feature title
+**Positional Syntax (Recommended):**
+```bash
+shark feature create <epic-key> "<title>" [flags]
+```
+
+**Flag Syntax (Legacy, still supported):**
+```bash
+shark feature create --epic=<epic-key> --title="<title>" [flags]
+```
 
 **Optional Flags:**
 - `--file <path>`: Custom file path (relative to root, must include .md)
-  - Aliases: `--filepath`, `--path`
 - `--force`: Reassign file if already claimed by another feature or epic
 - `--execution-order <number>`: Execution order within epic
 - `--json`: Output in JSON format
@@ -185,23 +278,23 @@ Create a new feature within an epic.
 **Examples:**
 
 ```bash
-# Create feature with default file path
-shark feature create --epic=E07 --title="Authentication"
+# Create feature with positional syntax (recommended)
+shark feature create E07 "Authentication"
+shark feature create e07 "Authentication"  # Case insensitive
 # Creates: docs/plan/E07-user-management-system/E07-F01-authentication/feature.md
 
+# Create feature with flag syntax (legacy)
+shark feature create --epic=E07 --title="Authentication"
+
 # Create feature with custom file path
-shark feature create --epic=E07 --title="User Profiles" --file="docs/features/profiles/feature.md"
+shark feature create E07 "User Profiles" --file="docs/features/profiles/feature.md"
 
 # Create feature with execution order
-shark feature create --epic=E07 --title="Authorization" --execution-order=2 --json
+shark feature create E07 "Authorization" --execution-order=2 --json
 
 # Force reassign file
-shark feature create --epic=E07 --title="Legacy Auth" --file="docs/legacy/auth.md" --force
+shark feature create E07 "Legacy Auth" --file="docs/legacy/auth.md" --force
 ```
-
-**Aliases for --file flag:**
-- `--filepath` (hidden)
-- `--path` (hidden)
 
 ---
 
@@ -272,10 +365,19 @@ shark feature get E07-F01-authentication --json
 
 Create a new task within a feature.
 
-**Required Flags:**
-- `--epic <epic-key>`: Parent epic key
-- `--feature <feature-key>`: Parent feature key
-- `--title <string>`: Task title
+**Positional Syntax (Recommended):**
+```bash
+# 3-argument format: epic, feature, title
+shark task create <epic-key> <feature-key> "<title>" [flags]
+
+# 2-argument format: combined epic-feature, title
+shark task create <epic-feature-key> "<title>" [flags]
+```
+
+**Flag Syntax (Legacy, still supported):**
+```bash
+shark task create --epic=<epic-key> --feature=<feature-key> --title="<title>" [flags]
+```
 
 **Optional Flags:**
 - `--agent <type>`: Agent type (`frontend`, `backend`, `api`, `testing`, `devops`, `general`)
@@ -283,44 +385,36 @@ Create a new task within a feature.
 - `--description <string>`: Detailed description
 - `--depends-on <task-keys>`: Comma-separated list of dependency task keys
 - `--file <path>`: Custom file path (relative to root, must include .md)
-  - Aliases: `--filepath`, `--filename`
 - `--force`: Reassign file if already claimed by another task
 - `--json`: Output in JSON format
 
 **Examples:**
 
 ```bash
-# Create task with defaults
+# Create task with positional syntax - 3 arguments (recommended)
+shark task create E07 F01 "Implement JWT validation"
+shark task create e07 f01 "Implement JWT validation"  # Case insensitive
+
+# Create task with positional syntax - 2 arguments
+shark task create E07-F01 "Implement JWT validation"
+shark task create e07-f01 "Implement JWT validation"  # Case insensitive
+
+# Create task with flag syntax (legacy)
 shark task create --epic=E07 --feature=F01 --title="Implement JWT validation"
 
 # Create task with agent and priority
-shark task create \
-  --epic=E07 \
-  --feature=F01 \
-  --title="Implement JWT validation" \
-  --agent=backend \
-  --priority=3
+shark task create E07 F01 "Implement JWT validation" --agent=backend --priority=3
 
 # Create task with dependencies
-shark task create \
-  --epic=E07 \
-  --feature=F01 \
-  --title="Add token refresh" \
+shark task create E07 F01 "Add token refresh" \
   --agent=backend \
-  --depends-on="T-E07-F01-001,T-E07-F01-002"
+  --depends-on="E07-F01-001,E07-F01-002"
 
 # Create task with custom file path
-shark task create \
-  --epic=E07 \
-  --feature=F01 \
-  --title="Legacy auth migration" \
+shark task create E07 F01 "Legacy auth migration" \
   --file="docs/tasks/legacy/auth-migration.md" \
   --force
 ```
-
-**Aliases for --file flag:**
-- `--filepath` (hidden)
-- `--filename` (hidden)
 
 ---
 
@@ -378,20 +472,26 @@ shark task get <task-key> [--json]
 ```
 
 **Supports:**
-- Numeric keys: `T-E07-F01-001`
-- Slugged keys: `T-E07-F01-001-implement-jwt-validation`
+- Short format: `E07-F01-001` (recommended)
+- Traditional format: `T-E07-F01-001`
+- Slugged keys: `E07-F01-001-implement-jwt-validation`, `T-E07-F01-001-implement-jwt-validation`
+- Case insensitive: `e07-f01-001`, `t-e07-f01-001`
 
 **Examples:**
 
 ```bash
-# Get task details
+# Get task details (short format, recommended)
+shark task get E07-F01-001
+shark task get e07-f01-001  # Case insensitive
+
+# Get task details (traditional format)
 shark task get T-E07-F01-001
 
 # Get task details (JSON)
-shark task get T-E07-F01-001 --json
+shark task get E07-F01-001 --json
 
 # Using slugged key
-shark task get T-E07-F01-001-implement-jwt-validation --json
+shark task get E07-F01-001-implement-jwt-validation --json
 ```
 
 ---
@@ -441,14 +541,18 @@ shark task start <task-key> [--agent=<agent-id>] [--json]
 **Examples:**
 
 ```bash
-# Start task
+# Start task (short format, recommended)
+shark task start E07-F01-001
+shark task start e07-f01-001  # Case insensitive
+
+# Start task (traditional format)
 shark task start T-E07-F01-001
 
 # Start task with agent tracking
-shark task start T-E07-F01-001 --agent="ai-agent-001" --json
+shark task start E07-F01-001 --agent="ai-agent-001" --json
 
 # Using slugged key
-shark task start T-E07-F01-001-implement-jwt-validation --json
+shark task start E07-F01-001-implement-jwt-validation --json
 ```
 
 ---
@@ -465,11 +569,12 @@ shark task complete <task-key> [--notes="..."] [--json]
 **Examples:**
 
 ```bash
-# Mark task complete
-shark task complete T-E07-F01-001
+# Mark task complete (short format, recommended)
+shark task complete E07-F01-001
+shark task complete e07-f01-001  # Case insensitive
 
 # Mark task complete with notes
-shark task complete T-E07-F01-001 --notes="Implementation complete, all tests passing" --json
+shark task complete E07-F01-001 --notes="Implementation complete, all tests passing" --json
 ```
 
 ---
@@ -486,11 +591,12 @@ shark task approve <task-key> [--notes="..."] [--json]
 **Examples:**
 
 ```bash
-# Approve task
-shark task approve T-E07-F01-001
+# Approve task (short format, recommended)
+shark task approve E07-F01-001
+shark task approve e07-f01-001  # Case insensitive
 
 # Approve task with notes
-shark task approve T-E07-F01-001 --notes="LGTM, approved" --json
+shark task approve E07-F01-001 --notes="LGTM, approved" --json
 ```
 
 ---
@@ -507,11 +613,12 @@ shark task reopen <task-key> [--notes="..."] [--json]
 **Examples:**
 
 ```bash
-# Reopen task
-shark task reopen T-E07-F01-001
+# Reopen task (short format, recommended)
+shark task reopen E07-F01-001
+shark task reopen e07-f01-001  # Case insensitive
 
 # Reopen task with feedback
-shark task reopen T-E07-F01-001 --notes="Need to add error handling for edge cases" --json
+shark task reopen E07-F01-001 --notes="Need to add error handling for edge cases" --json
 ```
 
 ---
@@ -528,11 +635,12 @@ shark task block <task-key> --reason="..." [--json]
 **Examples:**
 
 ```bash
-# Block task with reason
-shark task block T-E07-F01-001 --reason="Waiting for API design approval"
+# Block task with reason (short format, recommended)
+shark task block E07-F01-001 --reason="Waiting for API design approval"
+shark task block e07-f01-001 --reason="Waiting for API design approval"  # Case insensitive
 
 # Block task with JSON output
-shark task block T-E07-F01-001 --reason="Blocked by external dependency" --json
+shark task block E07-F01-001 --reason="Blocked by external dependency" --json
 ```
 
 ---
@@ -549,11 +657,12 @@ shark task unblock <task-key> [--json]
 **Examples:**
 
 ```bash
-# Unblock task
-shark task unblock T-E07-F01-001
+# Unblock task (short format, recommended)
+shark task unblock E07-F01-001
+shark task unblock e07-f01-001  # Case insensitive
 
 # Unblock task with JSON output
-shark task unblock T-E07-F01-001 --json
+shark task unblock E07-F01-001 --json
 ```
 
 ---
@@ -691,21 +800,6 @@ shark feature create --epic=E01 "User Growth" --file="docs/roadmap/features/grow
 shark task create --epic=E07 --feature=F01 "Migrate auth" --file="docs/migration/auth.md"
 ```
 
-### Flag Aliases
-
-The `--file` flag has hidden aliases for backward compatibility:
-
-**Epic and Feature:**
-- `--file` (primary, visible)
-- `--filepath` (hidden alias)
-- `--path` (hidden alias)
-
-**Task:**
-- `--file` (primary, visible)
-- `--filepath` (hidden alias)
-- `--filename` (hidden alias)
-
-All aliases accept the same value: a complete file path including the `.md` extension.
 
 ---
 
@@ -842,8 +936,164 @@ fi
 
 ---
 
+## Error Messages
+
+Shark CLI provides user-friendly error messages with context and examples to help you resolve issues quickly.
+
+### Enhanced Error Format
+
+When an error occurs, you'll see:
+1. **Clear description** of what went wrong
+2. **Context** about why it happened
+3. **Example** showing the correct syntax
+4. **Suggestions** for resolution
+
+### Common Errors and Solutions
+
+#### Invalid Epic Key Format
+
+**Error:**
+```
+Error: invalid epic key format: "invalid"
+
+Epic keys must follow format: E{number} or E{number}-{slug}
+
+Valid examples:
+  - E07
+  - e07 (case insensitive)
+  - E07-user-management
+  - e07-user-management (case insensitive)
+```
+
+**Solution:** Use the correct epic key format with `E` prefix followed by a number.
+
+---
+
+#### Invalid Feature Key Format
+
+**Error:**
+```
+Error: invalid feature key format: "invalid"
+
+Feature keys must follow one of these formats:
+  - E{epic}-F{feature} (full format)
+  - F{feature} (short format)
+  - With optional slug suffix
+
+Valid examples:
+  - E07-F01, e07-f01 (case insensitive)
+  - F01, f01 (case insensitive)
+  - E07-F01-authentication
+  - F01-authentication
+```
+
+**Solution:** Use the correct feature key format.
+
+---
+
+#### Invalid Task Key Format
+
+**Error:**
+```
+Error: invalid task key format: "invalid"
+
+Task keys must follow one of these formats:
+  - E{epic}-F{feature}-{number} (short format, recommended)
+  - T-E{epic}-F{feature}-{number} (traditional format)
+  - With optional slug suffix
+
+Valid examples:
+  - E07-F20-001, e07-f20-001 (case insensitive)
+  - T-E07-F20-001, t-e07-f20-001
+  - E07-F20-001-implement-jwt
+  - T-E07-F20-001-implement-jwt
+```
+
+**Solution:** Use the correct task key format. The `T-` prefix is optional.
+
+---
+
+#### Task Not Found
+
+**Error:**
+```
+Error: task not found: "E07-F20-999"
+
+The task key was not found in the database.
+
+Possible solutions:
+  - Check the task key spelling
+  - List tasks: shark task list E07 F20
+  - Verify epic and feature exist
+```
+
+**Solution:** Verify the task exists using `shark task list` or check for typos.
+
+---
+
+#### Invalid Status Transition
+
+**Error:**
+```
+Error: cannot transition from 'completed' to 'in_progress'
+
+Valid transitions from 'completed':
+  - No valid transitions (task is completed)
+
+Task lifecycle:
+  todo → in_progress → ready_for_review → completed
+           ↓              ↓
+        blocked ←────────┘
+```
+
+**Solution:** Follow the valid task lifecycle transitions. Use `shark task reopen` to return a task from review to in-progress.
+
+---
+
+#### Missing Required Arguments
+
+**Error:**
+```
+Error: missing required arguments
+
+Usage: shark task create <epic-key> <feature-key> "<title>" [flags]
+   OR: shark task create <epic-feature-key> "<title>" [flags]
+   OR: shark task create --epic=<key> --feature=<key> --title="<title>" [flags]
+
+Examples:
+  shark task create E07 F20 "Task Title"
+  shark task create E07-F20 "Task Title"
+  shark task create --epic=E07 --feature=F20 --title="Task Title"
+```
+
+**Solution:** Provide all required arguments in one of the supported syntaxes.
+
+---
+
+### Interpreting Error Messages
+
+All error messages follow this structure:
+
+```
+Error: <brief description>
+
+<detailed explanation>
+
+<valid examples or solutions>
+```
+
+**Tips:**
+- Read the entire error message for context
+- Check the examples provided
+- Verify your syntax matches one of the valid formats
+- Use case insensitive keys (e07 works same as E07)
+- Try the short format (E07-F20-001 instead of T-E07-F20-001)
+
+---
+
 ## Related Documentation
 
 - [CLAUDE.md](../CLAUDE.md) - Development guidelines and project overview
 - [README.md](../README.md) - Project introduction and quick start
+- [MIGRATION_F20.md](MIGRATION_F20.md) - Migration guide for CLI improvements (E07-F20)
 - [MIGRATION_CUSTOM_PATHS.md](MIGRATION_CUSTOM_PATHS.md) - Migration guide for path changes
