@@ -434,6 +434,23 @@ Global flags available to all commands:
 - `--db`: Override database path (default: `shark-tasks.db`)
 - `--config`: Override config file path (default: `.sharkconfig.json`)
 
+### Key Format Flexibility
+
+**All entity keys are case insensitive:**
+- Epic keys: `E07`, `e07`, `E07-user-management`, `e07-user-management`
+- Feature keys: `E07-F01`, `e07-f01`, `F01`, `f01`
+- Task keys: `E07-F20-001`, `e07-f20-001` (short format), `T-E07-F20-001`, `t-e07-f20-001` (traditional)
+
+**Short task key format (recommended):**
+- Use `E07-F20-001` instead of `T-E07-F20-001`
+- The `T-` prefix is optional and automatically normalized
+- Both formats work identically in all commands
+
+**Positional argument syntax:**
+- Feature create: `shark feature create E07 "Feature Title"`
+- Task create: `shark task create E07 F20 "Task Title"` or `shark task create E07-F20 "Task Title"`
+- Legacy flag syntax still fully supported
+
 ### Command Categories
 
 #### Initialization
@@ -441,19 +458,23 @@ Global flags available to all commands:
 
 #### Epic Management
 - `shark epic create --title="..." [--file=<path>] [--force] [--priority=...] [--business-value=...] [--json]`
-  - `--file`: Custom file path (relative to root, must include .md). Aliases: `--filepath`, `--path`
+  - `--file`: Custom file path (relative to root, must include .md)
   - `--force`: Reassign file if already claimed by another epic or feature
 - `shark epic list [--json]`
 - `shark epic get <epic-key> [--json]`
+  - Case insensitive: `shark epic get E07`, `shark epic get e07`
 
 #### Feature Management
-- `shark feature create --epic=<epic-key> --title="..." [--file=<path>] [--force] [--execution-order=...] [--json]`
-  - `--file`: Custom file path (relative to root, must include .md). Aliases: `--filepath`, `--path`
+- **Positional syntax (recommended):** `shark feature create <epic-key> "<title>" [--file=<path>] [--force] [--execution-order=...] [--json]`
+- **Flag syntax (legacy):** `shark feature create --epic=<epic-key> --title="..." [--file=<path>] [--force] [--execution-order=...] [--json]`
+  - `--file`: Custom file path (relative to root, must include .md)
   - `--force`: Reassign file if already claimed by another feature or epic
+  - Case insensitive: `shark feature create E07 "Title"`, `shark feature create e07 "Title"`
 - `shark feature list [EPIC] [--json]` - List features, optionally filter by epic key
-  - Examples: `shark feature list`, `shark feature list E04`, `shark feature list E04 --json`
+  - Examples: `shark feature list`, `shark feature list E04`, `shark feature list e04`, `shark feature list E04 --json`
   - Flag syntax still works: `shark feature list --epic=E04`
 - `shark feature get <feature-key> [--json]`
+  - Case insensitive: `shark feature get E07-F01`, `shark feature get e07-f01`, `shark feature get F01`, `shark feature get f01`
 
 **File Path Organization:**
 
@@ -468,7 +489,9 @@ shark feature create --epic=E01 "User Growth" --file="docs/roadmap/2025-q1/featu
 
 # Default behavior (no --file flag)
 shark epic create "User Management"  # Creates docs/plan/E07-user-management/epic.md
-shark feature create --epic=E07 "Authentication"  # Creates docs/plan/E07-user-management/E07-F01-authentication/feature.md
+shark feature create E07 "Authentication"  # Positional syntax (recommended)
+shark feature create --epic=E07 --title="Authentication"  # Flag syntax (legacy)
+# Creates: docs/plan/E07-user-management/E07-F01-authentication/feature.md
 ```
 
 Refer to `docs/CLI_REFERENCE.md` for detailed examples and usage patterns.
@@ -476,15 +499,24 @@ Refer to `docs/CLI_REFERENCE.md` for detailed examples and usage patterns.
 #### Task Management (Primary AI Interface)
 - `shark task next [--agent=<type>] [--epic=<epic>] [--json]`: Get next available task
 - `shark task list [EPIC] [FEATURE] [--status=<status>] [--agent=<type>] [--json]` - List tasks with flexible positional filtering
-  - Examples: `shark task list`, `shark task list E04`, `shark task list E04 F01`, `shark task list E04-F01`
+  - Examples: `shark task list`, `shark task list E04`, `shark task list e04`, `shark task list E04 F01`, `shark task list E04-F01`
   - Flag syntax still works: `shark task list --epic=E04 --feature=F01`
 - `shark task get <task-key> [--json]`
-- `shark task create --epic=E04 --feature=F06 --title="..." [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--file=<path>] [--force]`
-  - `--file`: Custom file path (relative to root, must include .md). Aliases: `--filepath`, `--filename`
+  - Short format (recommended): `shark task get E07-F20-001`, `shark task get e07-f20-001`
+  - Traditional format: `shark task get T-E07-F20-001`, `shark task get t-e07-f20-001`
+- **Positional syntax (recommended):** `shark task create <epic> <feature> "<title>" [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--file=<path>] [--force]`
+  - 3-arg format: `shark task create E07 F20 "Task Title"`
+  - 2-arg format: `shark task create E07-F20 "Task Title"`
+  - Case insensitive: `shark task create e07 f20 "Task Title"`
+- **Flag syntax (legacy):** `shark task create --epic=E04 --feature=F06 --title="..." [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--file=<path>] [--force]`
+  - `--file`: Custom file path (relative to root, must include .md)
   - `--force`: Reassign file if already claimed by another task
 - `shark task start <task-key> [--agent=<agent-id>] [--json]`
+  - Short format: `shark task start E07-F20-001`, `shark task start e07-f20-001`
 - `shark task complete <task-key> [--notes="..."] [--json]` (ready for review)
+  - Short format: `shark task complete E07-F20-001`, `shark task complete e07-f20-001`
 - `shark task approve <task-key> [--notes="..."] [--json]` (mark completed)
+  - Short format: `shark task approve E07-F20-001`, `shark task approve e07-f20-001`
 - `shark task reopen <task-key> [--notes="..."] [--json]` (back to in_progress)
 - `shark task block <task-key> --reason="..." [--json]`
 - `shark task unblock <task-key> [--json]`
@@ -506,12 +538,22 @@ Refer to `docs/CLI_REFERENCE.md` for detailed examples and usage patterns.
 
 1. **Create Feature** (if new feature area):
    ```bash
-   ./bin/shark feature create --epic=E07 "Feature Title" --execution-order=1
+   # Positional syntax (recommended)
+   ./bin/shark feature create E07 "Feature Title" --execution-order=1
+
+   # Flag syntax (legacy, still supported)
+   ./bin/shark feature create --epic=E07 --title="Feature Title" --execution-order=1
    ```
 
 2. **Create Tasks** in the feature:
    ```bash
-   ./bin/shark task create --epic=E07 --feature=F01 "Task Title" --priority=5
+   # Positional syntax (recommended)
+   ./bin/shark task create E07 F01 "Task Title" --priority=5
+   # OR combined format
+   ./bin/shark task create E07-F01 "Task Title" --priority=5
+
+   # Flag syntax (legacy, still supported)
+   ./bin/shark task create --epic=E07 --feature=F01 --title="Task Title" --priority=5
    ```
 
 3. **Update task file** at `docs/plan/{epic}/{feature}/tasks/{task-key}.md`:
@@ -550,10 +592,18 @@ Tasks flow through these states:
 
 Update status with:
 ```bash
-./bin/shark task start <task-key>
-./bin/shark task complete <task-key>
-./bin/shark task approve <task-key>
-./bin/shark task block <task-key> --reason="..."
+# Short format (recommended)
+./bin/shark task start E07-F20-001
+./bin/shark task complete E07-F20-001
+./bin/shark task approve E07-F20-001
+./bin/shark task block E07-F20-001 --reason="..."
+
+# Traditional format (still supported)
+./bin/shark task start T-E07-F20-001
+./bin/shark task complete T-E07-F20-001
+
+# Case insensitive
+./bin/shark task start e07-f20-001
 ```
 
 ---

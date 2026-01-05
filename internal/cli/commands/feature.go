@@ -114,24 +114,28 @@ Examples:
 
 // featureCreateCmd creates a new feature
 var featureCreateCmd = &cobra.Command{
-	Use:   "create --epic=<key> [--filename=<path>] [--path=<path>] [--force] <title>",
+	Use:   "create [EPIC] <title> [flags]",
 	Short: "Create a new feature",
 	Long: `Create a new feature with auto-assigned key, folder structure, and database entry.
 
 The feature key is automatically assigned as the next available F## number within the epic.
 By default, the feature file is created at docs/plan/{epic-key}/{feature-key}/feature.md.
 
-Use --path to specify a custom base folder path for this feature and its tasks (overrides epic's path).
-Use --filename to specify a custom file path (relative to project root, must end in .md).
-Use --force to reassign the file from another feature or epic if already claimed.
+Positional Arguments:
+  EPIC    Optional epic key (E##) - can also be specified with --epic flag
+  TITLE   Feature title (required)
 
 Examples:
+  # Positional argument syntax (new, recommended)
+  shark feature create E01 "OAuth Login Integration"
+  shark feature create E07 "User Authentication" --description="Add OAuth 2.0 support"
+
+  # Flag syntax (still supported for backward compatibility)
   shark feature create --epic=E01 "OAuth Login Integration"
   shark feature create --epic=E01 "OAuth Login" --description="Add OAuth 2.0 support"
-  shark feature create --epic=E01 --path="docs/auth" "OAuth Login"
-  shark feature create --epic=E01 --filename="docs/specs/auth.md" "OAuth Login"
-  shark feature create --epic=E01 --filename="docs/specs/auth.md" --force "OAuth Login"`,
-	Args: cobra.ExactArgs(1),
+  shark feature create --epic=E01 --file="docs/specs/auth.md" "OAuth Login"
+  shark feature create --epic=E01 --file="docs/specs/auth.md" --force "OAuth Login"`,
+	Args: cobra.RangeArgs(1, 2),
 	RunE: runFeatureCreate,
 }
 
@@ -221,7 +225,7 @@ func init() {
 	featureListCmd.Flags().Bool("show-all", false, "Show all features including completed (by default, completed features are hidden)")
 
 	// Add flags for create command
-	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01) (required)")
+	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01) - can also be specified as first positional argument")
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description (optional)")
 	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order (optional, 0 = not set)")
 	featureCreateCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature (e.g., auth, F00). If not provided, auto-generates next F## number")
@@ -235,7 +239,7 @@ func init() {
 	_ = featureCreateCmd.Flags().MarkHidden("filename")
 	_ = featureCreateCmd.Flags().MarkHidden("path")
 
-	_ = featureCreateCmd.MarkFlagRequired("epic")
+	// Note: --epic flag is no longer required since it can be specified positionally
 
 	// Add flags for complete command
 	featureCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks regardless of status")
@@ -835,8 +839,29 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get title from positional argument
-	featureTitle := args[0]
+	// Parse arguments - supports both positional and flag-based syntax
+	var featureTitle string
+	positionalEpic, positionalTitle, err := ParseFeatureCreateArgs(args)
+
+	if err == nil && positionalEpic != nil && positionalTitle != nil {
+		// Positional syntax: shark feature create E07 "Feature Title"
+		featureTitle = *positionalTitle
+		// Positional epic takes priority over flag (if both provided, use positional)
+		if featureCreateEpic != "" && featureCreateEpic != *positionalEpic {
+			cli.Warning(fmt.Sprintf("Epic key provided both positionally (%s) and via flag (%s). Using positional value.", *positionalEpic, featureCreateEpic))
+		}
+		featureCreateEpic = *positionalEpic
+	} else if len(args) == 1 && featureCreateEpic != "" {
+		// Flag-based syntax: shark feature create --epic=E07 "Feature Title"
+		featureTitle = args[0]
+	} else {
+		// Invalid syntax - show error
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		fmt.Println("\nValid syntaxes:")
+		fmt.Println("  shark feature create E07 \"Feature Title\"           (recommended)")
+		fmt.Println("  shark feature create --epic=E07 \"Feature Title\"     (legacy)")
+		os.Exit(1)
+	}
 
 	// Validate epic key format
 	if !isValidEpicKey(featureCreateEpic) {

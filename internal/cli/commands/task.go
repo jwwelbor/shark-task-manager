@@ -109,20 +109,33 @@ Examples:
 
 // taskCreateCmd creates a new task
 var taskCreateCmd = &cobra.Command{
-	Use:   "create <title> [flags]",
+	Use:   "create [EPIC] [FEATURE] <title> [flags]",
 	Short: "Create a new task",
 	Long: `Create a new task with automatic key generation and file creation.
 
 The --agent flag is optional and accepts any string value. If not provided, defaults to "general".
 The --template flag allows using a custom task template file.
+The --file flag allows specifying a custom file path (relative to project root, must end in .md).
+
+Positional Arguments:
+  EPIC      Optional epic key (E##) - can also be specified with --epic flag
+  FEATURE   Optional feature key (F## or E##-F##) - can also be specified with --feature flag
+  TITLE     Task title (required)
 
 Examples:
+  # Positional argument syntax (new, recommended)
+  shark task create E07 F20 "Implement user authentication"
+  shark task create E07 F20 "Build Login" --agent=frontend
+  shark task create E07-F20 "User Service" --agent=backend --priority=5
+
+  # Flag syntax (still supported for backward compatibility)
   shark task create "Build Login" --epic=E01 --feature=F02
   shark task create "Build Login" --epic=E01 --feature=F02 --agent=frontend
   shark task create "User Service" --epic=E01 --feature=F02 --agent=backend --priority=5
   shark task create "Database task" --epic=E01 --feature=F02 --agent=database-admin
-  shark task create "Custom task" --epic=E01 --feature=F02 --template=./my-template.md`,
-	Args: cobra.ExactArgs(1),
+  shark task create "Custom task" --epic=E01 --feature=F02 --template=./my-template.md
+  shark task create "Migration task" --epic=E01 --feature=F02 --file="docs/tasks/migration.md"`,
+	Args: cobra.RangeArgs(1, 3),
 	RunE: runTaskCreate,
 }
 
@@ -464,7 +477,11 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -1008,25 +1025,59 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get title from positional argument or flag
-	var title string
-	if len(args) > 0 {
+	// Parse positional arguments (supports multiple syntaxes)
+	var title, epicKey, featureKey string
+	positionalEpic, positionalFeature, positionalTitle, err := ParseTaskCreateArgs(args)
+
+	// If positional parsing succeeds, use those values
+	if err == nil && positionalEpic != nil && positionalFeature != nil && positionalTitle != nil {
+		// Positional syntax: shark task create E07 F20 "Task Title" or shark task create E07-F20 "Task Title"
+		title = *positionalTitle
+
+		// Get flag values
+		epicFlag, _ := cmd.Flags().GetString("epic")
+		featureFlag, _ := cmd.Flags().GetString("feature")
+
+		// If flags are also provided, positional args take priority (with warning)
+		if epicFlag == "" {
+			epicKey = *positionalEpic
+		} else if epicFlag != *positionalEpic {
+			cli.Warning(fmt.Sprintf("Epic key mismatch: positional=%s, flag=%s. Using positional value.", *positionalEpic, epicFlag))
+			epicKey = *positionalEpic
+		} else {
+			epicKey = *positionalEpic
+		}
+
+		if featureFlag == "" {
+			featureKey = *positionalFeature
+		} else if featureFlag != *positionalFeature {
+			cli.Warning(fmt.Sprintf("Feature key mismatch: positional=%s, flag=%s. Using positional value.", *positionalFeature, featureFlag))
+			featureKey = *positionalFeature
+		} else {
+			featureKey = *positionalFeature
+		}
+	} else if len(args) == 1 {
+		// Old flag syntax: shark task create "Task Title" --epic=E07 --feature=F20
 		title = args[0]
+		epicKey, _ = cmd.Flags().GetString("epic")
+		featureKey, _ = cmd.Flags().GetString("feature")
 	} else {
-		title, _ = cmd.Flags().GetString("title")
+		// Invalid syntax - show error
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		fmt.Println("\nValid syntaxes:")
+		fmt.Println("  shark task create E07 F20 \"Task Title\"")
+		fmt.Println("  shark task create E07-F20 \"Task Title\"")
+		fmt.Println("  shark task create \"Task Title\" --epic=E07 --feature=F20")
+		os.Exit(1)
 	}
 
-	// Get required flags
-	epicKey, _ := cmd.Flags().GetString("epic")
-	featureKey, _ := cmd.Flags().GetString("feature")
-
-	// Validate required flags
+	// Validate required fields
 	if epicKey == "" || featureKey == "" || title == "" {
-		cli.Error("Error: Missing required flags. --epic, --feature, and --title (or positional argument) are required.")
+		cli.Error("Error: Missing required arguments. Epic, feature, and title are all required.")
 		fmt.Println("\nExamples:")
+		fmt.Println("  shark task create E07 F20 \"Build Login\"")
+		fmt.Println("  shark task create E07-F20 \"Build Login\"")
 		fmt.Println("  shark task create \"Build Login\" --epic=E01 --feature=F02")
-		fmt.Println("  shark task create \"Build Login\" --epic=E01 --feature=F02 --agent=frontend")
-		fmt.Println("  shark task create \"Build Login\" --epic=E01 --feature=F02 --template=./my-template.md")
 		os.Exit(1)
 	}
 
@@ -1131,7 +1182,11 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -1223,7 +1278,11 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -1378,7 +1437,11 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -1473,7 +1536,11 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get required reason flag
 	reason, _ := cmd.Flags().GetString("reason")
@@ -1566,7 +1633,11 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -1628,7 +1699,11 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -1717,7 +1792,11 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -1790,10 +1869,8 @@ func init() {
 	taskListCmd.Flags().Bool("show-all", false, "Show all tasks including completed (by default, completed tasks are hidden)")
 
 	// Add flags for create command
-	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) (required)")
-	_ = taskCreateCmd.MarkFlagRequired("epic")
-	taskCreateCmd.Flags().StringP("feature", "f", "", "Feature key (e.g., F02 or E01-F02) (required)")
-	_ = taskCreateCmd.MarkFlagRequired("feature")
+	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) - can also be specified as first positional argument")
+	taskCreateCmd.Flags().StringP("feature", "f", "", "Feature key (e.g., F02 or E01-F02) - can also be specified as second positional argument")
 	taskCreateCmd.Flags().StringP("agent", "a", "", "Agent type (optional, accepts any string)")
 	taskCreateCmd.Flags().StringP("template", "", "", "Path to custom task template (optional)")
 	taskCreateCmd.Flags().StringP("description", "d", "", "Detailed description (optional)")
@@ -1803,6 +1880,8 @@ func init() {
 	taskCreateCmd.Flags().Int("order", 0, "Execution order (alias for --execution-order)")
 	taskCreateCmd.Flags().String("key", "", "Custom key for the task (e.g., T-E01-F01-custom). If not provided, auto-generates next sequence number")
 	taskCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
+
+	// Note: --epic and --feature flags are no longer required since they can be specified positionally
 
 	// File path flags: --file is primary, --filename and --path are hidden aliases
 	taskCreateCmd.Flags().String("file", "", "Full file path (e.g., docs/custom/task.md)")
@@ -1866,7 +1945,11 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 
 	// Get database connection
 	dbPath, err := cli.GetDBPath()
@@ -1925,8 +2008,13 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	// Update dependencies if provided
 	dependsOn, _ := cmd.Flags().GetString("depends-on")
 	if dependsOn != "" {
-		// Parse dependencies and convert to JSON string
-		deps := splitDependencies(dependsOn)
+		// Parse dependencies - split by comma and trim whitespace
+		deps := []string{}
+		for _, part := range strings.Split(dependsOn, ",") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				deps = append(deps, trimmed)
+			}
+		}
 		depsJSON, err := json.Marshal(deps)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to marshal dependencies: %v", err))
@@ -2042,7 +2130,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 			cli.Error(fmt.Sprintf("Error: Failed to update task status: %s", err.Error()))
 
 			// If this is a validation error, suggest using --force
-			if !force && (containsString(err.Error(), "invalid status transition") || containsString(err.Error(), "transition")) {
+			if !force && (strings.Contains(err.Error(), "invalid status transition") || strings.Contains(err.Error(), "transition")) {
 				cli.Info("Use --force to bypass workflow validation")
 			}
 
@@ -2072,7 +2160,11 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	taskKey := args[0]
+	// Normalize task key to support short format (E##-F##-###) and case insensitivity
+	taskKey, err := NormalizeTaskKey(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid task key: %w", err)
+	}
 	newStatus := args[1]
 
 	// Get flags
@@ -2135,7 +2227,7 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
 
 		// If this is a validation error, suggest using --force
-		if !force && (containsString(err.Error(), "invalid status transition") || containsString(err.Error(), "transition")) {
+		if !force && (strings.Contains(err.Error(), "invalid status transition") || strings.Contains(err.Error(), "transition")) {
 			cli.Info("Use --force to bypass workflow validation")
 		}
 
@@ -2170,80 +2262,6 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// containsString checks if a string contains a substring (helper for runTaskSetStatus)
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && indexOfString(s, substr) >= 0
-}
-
-// indexOfString returns the index of substr in s, or -1 if not found
-func indexOfString(s, substr string) int {
-	if len(substr) == 0 {
-		return 0
-	}
-	if len(substr) > len(s) {
-		return -1
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}
-
-// splitDependencies splits a comma-separated string into task keys
-func splitDependencies(deps string) []string {
-	if deps == "" {
-		return []string{}
-	}
-	parts := []string{}
-	for _, part := range splitAndTrim(deps, ",") {
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-	return parts
-}
-
-// splitAndTrim splits a string by delimiter and trims whitespace
-func splitAndTrim(s string, delimiter string) []string {
-	parts := []string{}
-	for _, part := range splitString(s, delimiter) {
-		trimmed := trimSpace(part)
-		if trimmed != "" {
-			parts = append(parts, trimmed)
-		}
-	}
-	return parts
-}
-
-// splitString splits a string by delimiter
-func splitString(s string, delimiter string) []string {
-	result := []string{}
-	current := ""
-	for _, ch := range s {
-		if string(ch) == delimiter {
-			result = append(result, current)
-			current = ""
-		} else {
-			current += string(ch)
-		}
-	}
-	if current != "" || len(result) == 0 {
-		result = append(result, current)
-	}
-	return result
-}
-
-// trimSpace removes leading and trailing whitespace
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
-	}
-	return s[start:end]
-}
+// Note: Custom string functions removed - now using standard library:
+// - strings.Contains() replaces containsString()
+// - strings.Split() and strings.TrimSpace() replace splitDependencies()

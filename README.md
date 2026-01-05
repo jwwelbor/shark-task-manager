@@ -6,6 +6,9 @@ A task management system built with Go and SQLite, featuring both an HTTP API an
 
 - **Hierarchical Task Organization**: Organize work into Epics → Features → Tasks with auto-generated keys
 - **Dual Key Format**: Support for both numeric (`E04`, `T-E04-F01-001`) and human-readable slugged keys (`E04-user-management`, `T-E04-F01-001-implement-auth`)
+- **Flexible Command Syntax**: Positional arguments for cleaner commands (`shark feature create E07 "Title"`)
+- **Case-Insensitive Keys**: Use any case (`E07`, `e07`, `E07-F01`, `e07-f01`) - all work identically
+- **User-Friendly Error Messages**: Clear error messages with context, examples, and suggestions
 - **AI-Driven Workflows**: Built-in support for multiple agent types with dependency-aware task selection
 - **Flexible Organization**: Organize with custom file paths (`--file` flag) for complete control over project structure
 - **Auto-Detect Project Root**: Run shark commands from any subdirectory - automatically finds database and config
@@ -330,16 +333,20 @@ shark init --non-interactive
 shark epic list --json
 shark task next --agent=backend --json
 
-# 3. Start working on a task (supports both numeric and slugged keys)
+# 3. Start working on a task (short format, recommended)
+shark task start E04-F06-001
+# Case insensitive
+shark task start e04-f06-001
+# OR traditional format (still supported)
 shark task start T-E04-F06-001
 # OR using human-readable slugged key
-shark task start T-E04-F06-001-implement-user-authentication
+shark task start E04-F06-001-implement-user-authentication
 
 # 4. Mark task ready for review
-shark task complete T-E04-F06-001
+shark task complete E04-F06-001
 
 # 5. Approve and complete
-shark task approve T-E04-F06-001
+shark task approve E04-F06-001
 ```
 
 ### Core Workflows for AI Agents
@@ -369,17 +376,20 @@ shark epic list --status=active --json
 
 **Get epic details with all features:**
 ```bash
-# Using numeric key
+# Using numeric key (case insensitive)
 shark epic get E04 --json
+shark epic get e04 --json
 
 # OR using human-readable slugged key
 shark epic get E04-user-management --json
+shark epic get e04-user-management --json
 ```
 
 **List features in an epic:**
 ```bash
 # Using positional argument (recommended, shorter syntax)
 shark feature list E04
+shark feature list e04  # Case insensitive
 shark feature list E04 --json
 shark feature list E04 --status=active --json
 
@@ -393,11 +403,13 @@ shark feature list E04-user-management --json
 
 **Get feature details with all tasks:**
 ```bash
-# Using numeric key
+# Using numeric key (case insensitive)
 shark feature get E04-F06 --json
+shark feature get e04-f06 --json
 
 # OR using slugged key
 shark feature get E04-F06-authentication --json
+shark feature get e04-f06-authentication --json
 ```
 
 **Find the next available task:**
@@ -439,8 +451,10 @@ shark task list --status=blocked --json
 ```bash
 # Using positional arguments (recommended, shorter syntax)
 shark task list E04                    # Filter by epic
+shark task list e04                    # Case insensitive
 shark task list E04 F01                # Filter by epic and feature
 shark task list E04-F01                # Alternative combined format
+shark task list e04-f01                # Case insensitive combined format
 
 # Using flag syntax (still supported, backward compatible)
 shark task list --epic=E04 --json
@@ -451,6 +465,11 @@ shark task list --epic=E04 --agent=backend --status=todo --json
 
 **Get task details:**
 ```bash
+# Short format (recommended)
+shark task get E04-F06-001 --json
+shark task get e04-f06-001 --json  # Case insensitive
+
+# Traditional format (still supported)
 shark task get T-E04-F06-001 --json
 ```
 
@@ -458,6 +477,25 @@ Returns task metadata, dependencies, and dependency status.
 
 #### 4. Creating Tasks
 
+**Positional syntax (recommended):**
+```bash
+# 3-argument format: epic, feature, title
+shark task create E04 F06 "Implement task validation" \
+  --agent=backend \
+  --priority=3 \
+  --description="Add validation logic for task creation" \
+  --depends-on="E04-F06-001,E04-F06-002"
+
+# 2-argument format: combined epic-feature, title
+shark task create E04-F06 "Implement task validation" \
+  --agent=backend \
+  --priority=3
+
+# Case insensitive
+shark task create e04 f06 "Implement task validation" --agent=backend
+```
+
+**Flag syntax (legacy, still supported):**
 ```bash
 shark task create \
   --epic=E04 \
@@ -466,17 +504,16 @@ shark task create \
   --agent=backend \
   --priority=3 \
   --description="Add validation logic for task creation" \
-  --depends-on="T-E04-F06-001,T-E04-F06-002"
+  --depends-on="E04-F06-001,E04-F06-002"
 ```
 
 Parameters:
-- `--epic` (required): Epic key (e.g., `E04`)
-- `--feature` (required): Feature key (e.g., `F06` or `E04-F06`)
-- `--title` (required): Task title
-- `--agent` (required): Agent type (`frontend`, `backend`, `api`, `testing`, `devops`, `general`)
+- Epic and feature keys (required, via positional args or `--epic`/`--feature` flags)
+- Title (required, via positional arg or `--title` flag)
+- `--agent`: Agent type (`frontend`, `backend`, `api`, `testing`, `devops`, `general`)
 - `--priority`: Priority 1-10 (default: 5, where 1 = highest)
 - `--description`: Detailed task description
-- `--depends-on`: Comma-separated list of dependency task keys
+- `--depends-on`: Comma-separated list of dependency task keys (short format: `E04-F06-001`)
 
 The CLI automatically:
 - Generates unique task key (e.g., `T-E04-F06-003`)
@@ -490,13 +527,18 @@ The CLI automatically:
 
 ```bash
 # 1. Start task (todo → in_progress)
+# Short format (recommended)
+shark task start E04-F06-001 --json
+# Case insensitive
+shark task start e04-f06-001 --json
+# Traditional format (still supported)
 shark task start T-E04-F06-001 --json
 
 # 2. Mark ready for review (in_progress → ready_for_review)
-shark task complete T-E04-F06-001 --json
+shark task complete E04-F06-001 --json
 
 # 3. Approve and mark completed (ready_for_review → completed)
-shark task approve T-E04-F06-001 --json
+shark task approve E04-F06-001 --json
 ```
 
 **State Transitions:**

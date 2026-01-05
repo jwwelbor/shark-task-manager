@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // Compiled regex patterns for pattern matching
@@ -10,46 +11,72 @@ var (
 	epicKeyPattern       = regexp.MustCompile(`^E\d{2}$`)
 	featureKeyPattern    = regexp.MustCompile(`^E\d{2}-F\d{2}$`)
 	featureSuffixPattern = regexp.MustCompile(`^F\d{2}$`)
+	// shortTaskKeyPattern matches task keys without the T- prefix (E##-F##-###)
+	// This enables users to use "E01-F02-001" instead of "T-E01-F02-001"
+	shortTaskKeyPattern = regexp.MustCompile(`^E\d{2}-F\d{2}-\d{3}$`)
 )
 
+// NormalizeKey converts a key to canonical uppercase format.
+// This enables case-insensitive key handling throughout the CLI.
+//
+// Examples:
+//
+//	e01 -> E01
+//	t-e04-f02-001 -> T-E04-F02-001
+//	E01-FEATURE-NAME -> E01-FEATURE-NAME
+func NormalizeKey(key string) string {
+	return strings.ToUpper(key)
+}
+
 // IsEpicKey validates if a string is a valid epic key format (E##)
-// Returns true for valid epic keys like E01, E04, E99
-// Returns false for invalid formats like E1, e04, E001, etc.
+// Case insensitive: e01, E01, and E-01 are all normalized to E01 before validation
+// Returns true for valid epic keys like E01, e04, E99
+// Returns false for invalid formats like E1, E001, etc.
 func IsEpicKey(s string) bool {
-	return epicKeyPattern.MatchString(s)
+	normalized := NormalizeKey(s)
+	return epicKeyPattern.MatchString(normalized)
 }
 
 // IsFeatureKey validates if a string is a valid feature key format (E##-F##)
-// Returns true for valid feature keys like E04-F01, E01-F99
+// Case insensitive: e04-f01, E04-F01 are normalized before validation
+// Returns true for valid feature keys like E04-F01, e01-f99
 // Returns false for invalid formats like E04F01, E4-F01, etc.
 func IsFeatureKey(s string) bool {
-	return featureKeyPattern.MatchString(s)
+	normalized := NormalizeKey(s)
+	return featureKeyPattern.MatchString(normalized)
 }
 
 // IsFeatureKeySuffix validates if a string is a valid feature key suffix (F##)
-// Returns true for valid suffixes like F01, F99
-// Returns false for invalid formats like F1, f01, etc.
+// Case insensitive: f01, F01 are normalized before validation
+// Returns true for valid suffixes like F01, f99
+// Returns false for invalid formats like F1, etc.
 func IsFeatureKeySuffix(s string) bool {
-	return featureSuffixPattern.MatchString(s)
+	normalized := NormalizeKey(s)
+	return featureSuffixPattern.MatchString(normalized)
 }
 
 // ParseFeatureKey parses a combined feature key format (E##-F##) into epic and feature parts
-// Returns (epic, feature, nil) for valid input like "E04-F01"
+// Case insensitive: normalizes input to uppercase before parsing
+// Returns (epic, feature, nil) for valid input like "E04-F01" or "e04-f01"
 // Returns ("", "", error) for invalid input with clear error message
 func ParseFeatureKey(s string) (epic, feature string, err error) {
-	if !IsFeatureKey(s) {
-		return "", "", fmt.Errorf("invalid feature key format: %q (expected E##-F##)", s)
+	// Normalize to uppercase first
+	normalized := NormalizeKey(s)
+
+	if !featureKeyPattern.MatchString(normalized) {
+		return "", "", InvalidFeatureKeyError(s)
 	}
 
 	// Split on hyphen - we know it's valid format at this point
 	// Epic is first 3 chars (E##), Feature is last 3 chars (F##)
-	epic = s[:3]
-	feature = s[4:7]
+	epic = normalized[:3]
+	feature = normalized[4:7]
 
 	return epic, feature, nil
 }
 
 // ParseFeatureListArgs parses positional arguments for feature list command
+// Case insensitive: normalizes epic key to uppercase
 // Returns (epicKey, nil) if valid, or (nil, error) if invalid
 // Handles 0 or 1 positional arguments
 func ParseFeatureListArgs(args []string) (*string, error) {
@@ -59,19 +86,22 @@ func ParseFeatureListArgs(args []string) (*string, error) {
 	}
 
 	if len(args) > 1 {
-		return nil, fmt.Errorf("too many positional arguments: feature list accepts at most 1 positional argument (got %d). Use --help for syntax examples", len(args))
+		return nil, TooManyArgumentsError(1, len(args))
 	}
 
-	// Check if first arg is a valid epic key
-	epicKey := args[0]
+	// Normalize the epic key
+	epicKey := NormalizeKey(args[0])
+
+	// Validate format
 	if !IsEpicKey(epicKey) {
-		return nil, fmt.Errorf("invalid epic key format: %q (expected E##, e.g., E04). Use --help for syntax examples", epicKey)
+		return nil, InvalidEpicKeyError(args[0])
 	}
 
 	return &epicKey, nil
 }
 
 // ParseTaskListArgs parses positional arguments for task list command
+// Case insensitive: normalizes all keys to uppercase
 // Supports 0-2 arguments with multiple syntaxes:
 // - No args: list all tasks
 // - 1 arg (E##): filter by epic
@@ -85,60 +115,77 @@ func ParseTaskListArgs(args []string) (*string, *string, error) {
 	}
 
 	if len(args) > 2 {
-		return nil, nil, fmt.Errorf("too many positional arguments: task list accepts at most 2 positional arguments (got %d). Use --help for syntax examples", len(args))
+		return nil, nil, TooManyArgumentsError(2, len(args))
 	}
 
 	// Single argument case
 	if len(args) == 1 {
-		arg := args[0]
+		normalized := NormalizeKey(args[0])
 
 		// Check if it's a combined feature key (E##-F##)
-		if IsFeatureKey(arg) {
-			epic, feature, err := ParseFeatureKey(arg)
+		if IsFeatureKey(normalized) {
+			epic, feature, err := ParseFeatureKey(normalized)
 			if err != nil {
-				return nil, nil, fmt.Errorf("invalid feature key format: %q (expected E##-F##, e.g., E04-F01). Use --help for syntax examples", arg)
+				return nil, nil, err
 			}
 			return &epic, &feature, nil
 		}
 
 		// Check if it's just an epic key (E##)
-		if IsEpicKey(arg) {
-			return &arg, nil, nil
+		if IsEpicKey(normalized) {
+			return &normalized, nil, nil
 		}
 
-		// Invalid format
-		return nil, nil, fmt.Errorf("invalid key format: %q (expected E## or E##-F##, e.g., E04 or E04-F01). Use --help for syntax examples", arg)
+		// Check if it looks like it was trying to be an epic key (starts with E)
+		if len(normalized) > 0 && normalized[0] == 'E' {
+			return nil, nil, InvalidEpicKeyError(args[0])
+		}
+
+		// Check if it looks like it was trying to be a feature key (contains dash or starts with F)
+		if strings.Contains(normalized, "-") || (len(normalized) > 0 && normalized[0] == 'F') {
+			return nil, nil, InvalidFeatureKeyError(args[0])
+		}
+
+		// Generic invalid format
+		return nil, nil, InvalidPositionalArgsError("task list",
+			fmt.Sprintf("invalid key format %q - expected E## or E##-F##", args[0]),
+			[]string{
+				"shark task list E07",
+				"shark task list E07-F01",
+				"shark task list e07",
+			})
 	}
 
 	// Two argument case
-	arg1 := args[0]
-	arg2 := args[1]
+	epicNormalized := NormalizeKey(args[0])
+	featureNormalized := NormalizeKey(args[1])
 
 	// First argument must be an epic key
-	if !IsEpicKey(arg1) {
-		return nil, nil, fmt.Errorf("invalid epic key format: %q (expected E##, e.g., E04). Use --help for syntax examples", arg1)
+	if !IsEpicKey(epicNormalized) {
+		return nil, nil, InvalidEpicKeyError(args[0])
 	}
 
 	// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
-	if IsFeatureKeySuffix(arg2) {
-		// Just feature suffix - arg2 is already F##
-		return &arg1, &arg2, nil
+	if IsFeatureKeySuffix(featureNormalized) {
+		// Just feature suffix
+		return &epicNormalized, &featureNormalized, nil
 	}
 
-	if IsFeatureKey(arg2) {
+	if IsFeatureKey(featureNormalized) {
 		// Full feature key - extract the feature suffix
-		_, featureSuffix, err := ParseFeatureKey(arg2)
+		_, featureSuffix, err := ParseFeatureKey(featureNormalized)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid feature key format: %q (expected F## or E##-F##). Use --help for syntax examples", arg2)
+			return nil, nil, err
 		}
-		return &arg1, &featureSuffix, nil
+		return &epicNormalized, &featureSuffix, nil
 	}
 
 	// Invalid feature format
-	return nil, nil, fmt.Errorf("invalid feature key format: %q (expected F## or E##-F##, e.g., F01 or E04-F01). Use --help for syntax examples", arg2)
+	return nil, nil, InvalidFeatureKeyError(args[1])
 }
 
 // ParseListArgs parses positional arguments for the list command dispatcher
+// Case insensitive: normalizes all keys to uppercase
 // Returns (command, epicKey, featureKey, error)
 // - command: "epic", "feature", or "task"
 // - epicKey: pointer to epic key if applicable
@@ -155,16 +202,16 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 	}
 
 	if len(args) > 2 {
-		return "", nil, nil, fmt.Errorf("too many positional arguments: list accepts at most 2 positional arguments (got %d). Use --help for syntax examples", len(args))
+		return "", nil, nil, TooManyArgumentsError(2, len(args))
 	}
 
 	// Single argument case
 	if len(args) == 1 {
-		arg := args[0]
+		normalized := NormalizeKey(args[0])
 
 		// Check if it's a combined feature key (E##-F##)
-		if IsFeatureKey(arg) {
-			epic, feature, err := ParseFeatureKey(arg)
+		if IsFeatureKey(normalized) {
+			epic, feature, err := ParseFeatureKey(normalized)
 			if err != nil {
 				return "", nil, nil, err
 			}
@@ -172,43 +219,59 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 		}
 
 		// Check if it's just an epic key (E##)
-		if IsEpicKey(arg) {
-			return "feature", &arg, nil, nil
+		if IsEpicKey(normalized) {
+			return "feature", &normalized, nil, nil
 		}
 
-		// Invalid format
-		return "", nil, nil, fmt.Errorf("invalid key format: %q (expected E## or E##-F##, e.g., E04 or E04-F01). Use --help for syntax examples", arg)
+		// Check if it looks like it was trying to be an epic key (starts with E)
+		if len(normalized) > 0 && normalized[0] == 'E' {
+			return "", nil, nil, InvalidEpicKeyError(args[0])
+		}
+
+		// Check if it looks like it was trying to be a feature key (contains dash or starts with F)
+		if strings.Contains(normalized, "-") || (len(normalized) > 0 && normalized[0] == 'F') {
+			return "", nil, nil, InvalidFeatureKeyError(args[0])
+		}
+
+		// Generic invalid format
+		return "", nil, nil, InvalidPositionalArgsError("list",
+			fmt.Sprintf("invalid key format %q - expected E## or E##-F##", args[0]),
+			[]string{
+				"shark list E07",
+				"shark list E07-F01",
+			})
 	}
 
 	// Two argument case
-	arg1 := args[0]
-	arg2 := args[1]
+	epicNormalized := NormalizeKey(args[0])
+	featureNormalized := NormalizeKey(args[1])
 
 	// First argument must be an epic key
-	if !IsEpicKey(arg1) {
-		return "", nil, nil, fmt.Errorf("invalid epic key format: %q (expected E##, e.g., E04). Use --help for syntax examples", arg1)
+	if !IsEpicKey(epicNormalized) {
+		return "", nil, nil, InvalidEpicKeyError(args[0])
 	}
 
 	// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
-	if IsFeatureKeySuffix(arg2) {
+	if IsFeatureKeySuffix(featureNormalized) {
 		// Just feature suffix
-		return "task", &arg1, &arg2, nil
+		return "task", &epicNormalized, &featureNormalized, nil
 	}
 
-	if IsFeatureKey(arg2) {
+	if IsFeatureKey(featureNormalized) {
 		// Full feature key - extract the feature suffix
-		_, featureSuffix, err := ParseFeatureKey(arg2)
+		_, featureSuffix, err := ParseFeatureKey(featureNormalized)
 		if err != nil {
 			return "", nil, nil, err
 		}
-		return "task", &arg1, &featureSuffix, nil
+		return "task", &epicNormalized, &featureSuffix, nil
 	}
 
 	// Invalid feature format
-	return "", nil, nil, fmt.Errorf("invalid feature key format: %q (expected F## or E##-F##, e.g., F01 or E04-F01). Use --help for syntax examples", arg2)
+	return "", nil, nil, InvalidFeatureKeyError(args[1])
 }
 
 // ParseGetArgs parses positional arguments for the get command dispatcher
+// Case insensitive: normalizes all keys to uppercase
 // Returns (command, key, error)
 // - command: "epic", "feature", or "task"
 // - key: The full key to pass to the get command (E10, E10-F01, T-E10-F01-001)
@@ -220,89 +283,114 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 // - 3 args (E## F## ### or E## F## #): get task
 func ParseGetArgs(args []string) (command string, key string, err error) {
 	if len(args) == 0 {
-		return "", "", fmt.Errorf("missing argument: get requires at least one argument. Use --help for syntax examples")
+		return "", "", MissingArgumentsError(1, 0, []string{
+			"shark get E07",
+			"shark get E07-F01",
+			"shark get T-E07-F01-001",
+		})
 	}
 
 	if len(args) > 3 {
-		return "", "", fmt.Errorf("too many positional arguments: get accepts at most 3 positional arguments (got %d). Use --help for syntax examples", len(args))
+		return "", "", TooManyArgumentsError(3, len(args))
 	}
 
 	// Single argument case
 	if len(args) == 1 {
-		arg := args[0]
+		normalized := NormalizeKey(args[0])
 
 		// Check if it's a task key (T-E##-F##-###)
-		if isTaskKey(arg) {
-			return "task", arg, nil
+		if isTaskKey(normalized) {
+			return "task", normalized, nil
 		}
 
 		// Check if it's a combined feature key (E##-F##)
-		if IsFeatureKey(arg) {
-			return "feature", arg, nil
+		if IsFeatureKey(normalized) {
+			return "feature", normalized, nil
 		}
 
 		// Check if it's just an epic key (E##)
-		if IsEpicKey(arg) {
-			return "epic", arg, nil
+		if IsEpicKey(normalized) {
+			return "epic", normalized, nil
 		}
 
-		// Invalid format
-		return "", "", fmt.Errorf("invalid key format: %q (expected E##, E##-F##, or T-E##-F##-###). Use --help for syntax examples", arg)
+		// Check if it looks like it was trying to be a task key (starts with T)
+		if len(normalized) > 0 && normalized[0] == 'T' {
+			return "", "", InvalidTaskKeyError(args[0])
+		}
+
+		// Check if it looks like it was trying to be an epic key (starts with E but no dash)
+		if len(normalized) > 0 && normalized[0] == 'E' && !strings.Contains(normalized, "-") {
+			return "", "", InvalidEpicKeyError(args[0])
+		}
+
+		// Check if it looks like it was trying to be a feature key (contains dash or starts with F)
+		if strings.Contains(normalized, "-") || (len(normalized) > 0 && normalized[0] == 'F') {
+			return "", "", InvalidFeatureKeyError(args[0])
+		}
+
+		// Generic invalid format
+		return "", "", InvalidPositionalArgsError("get",
+			fmt.Sprintf("invalid key format %q - expected E##, E##-F##, or T-E##-F##-###", args[0]),
+			[]string{
+				"shark get E07",
+				"shark get E07-F01",
+				"shark get T-E07-F01-001",
+			})
 	}
 
 	// Two argument case - must be epic + feature
 	if len(args) == 2 {
-		arg1 := args[0]
-		arg2 := args[1]
+		epicNormalized := NormalizeKey(args[0])
+		featureNormalized := NormalizeKey(args[1])
 
 		// First argument must be an epic key
-		if !IsEpicKey(arg1) {
-			return "", "", fmt.Errorf("invalid epic key format: %q (expected E##, e.g., E04). Use --help for syntax examples", arg1)
+		if !IsEpicKey(epicNormalized) {
+			return "", "", InvalidEpicKeyError(args[0])
 		}
 
 		// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
 		var featureSuffix string
-		if IsFeatureKeySuffix(arg2) {
-			featureSuffix = arg2
-		} else if IsFeatureKey(arg2) {
+		if IsFeatureKeySuffix(featureNormalized) {
+			featureSuffix = featureNormalized
+		} else if IsFeatureKey(featureNormalized) {
 			// Full feature key - extract the feature suffix
-			_, suffix, err := ParseFeatureKey(arg2)
+			_, suffix, err := ParseFeatureKey(featureNormalized)
 			if err != nil {
 				return "", "", err
 			}
 			featureSuffix = suffix
 		} else {
-			return "", "", fmt.Errorf("invalid feature key format: %q (expected F## or E##-F##, e.g., F01 or E04-F01). Use --help for syntax examples", arg2)
+			return "", "", InvalidFeatureKeyError(args[1])
 		}
 
 		// Construct full feature key
-		fullFeatureKey := arg1 + "-" + featureSuffix
+		fullFeatureKey := epicNormalized + "-" + featureSuffix
 		return "feature", fullFeatureKey, nil
 	}
 
 	// Three argument case - must be epic + feature + task number
-	arg1 := args[0]
-	arg2 := args[1]
+	epicNormalized := NormalizeKey(args[0])
+	featureNormalized := NormalizeKey(args[1])
 	arg3 := args[2]
 
 	// First argument must be an epic key
-	if !IsEpicKey(arg1) {
-		return "", "", fmt.Errorf("invalid epic key format: %q (expected E##, e.g., E04). Use --help for syntax examples", arg1)
+	if !IsEpicKey(epicNormalized) {
+		return "", "", InvalidEpicKeyError(args[0])
 	}
 
 	// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
 	var featureSuffix string
-	if IsFeatureKeySuffix(arg2) {
-		featureSuffix = arg2
-	} else if IsFeatureKey(arg2) {
+	if IsFeatureKeySuffix(featureNormalized) {
+		featureSuffix = featureNormalized
+	} else if IsFeatureKey(featureNormalized) {
 		// Full feature key - extract the feature suffix
-		_, suffix, err := ParseFeatureKey(arg2)
+		_, suffix, err := ParseFeatureKey(featureNormalized)
 		if err != nil {
 			return "", "", err
 		}
 		featureSuffix = suffix
 	} else {
-		return "", "", fmt.Errorf("invalid feature key format: %q (expected F## or E##-F##, e.g., F01 or E04-F01). Use --help for syntax examples", arg2)
+		return "", "", InvalidFeatureKeyError(args[1])
 	}
 
 	// Third argument must be a task number (1-999)
@@ -312,7 +400,7 @@ func ParseGetArgs(args []string) (command string, key string, err error) {
 	}
 
 	// Construct full task key
-	fullTaskKey := fmt.Sprintf("T-%s-%s-%03d", arg1, featureSuffix, taskNum)
+	fullTaskKey := fmt.Sprintf("T-%s-%s-%03d", epicNormalized, featureSuffix, taskNum)
 	return "task", fullTaskKey, nil
 }
 
@@ -378,4 +466,165 @@ func parseTaskNumber(s string) (int, error) {
 // isValidEpicKey validates epic key format (E##)
 func isValidEpicKey(key string) bool {
 	return IsEpicKey(key)
+}
+
+// isShortTaskKey validates if a string matches the short task key pattern (E##-F##-###)
+// This is a helper function for NormalizeTaskKey to detect short format task keys.
+// Short format omits the T- prefix for brevity: "E01-F02-001" instead of "T-E01-F02-001"
+func isShortTaskKey(s string) bool {
+	return shortTaskKeyPattern.MatchString(s)
+}
+
+// NormalizeTaskKey converts a task key to canonical format with T- prefix.
+// Accepts both full format (T-E##-F##-###) and short format (E##-F##-###).
+// This enables users to type shorter commands while maintaining backward compatibility.
+//
+// Examples:
+//
+//	T-E01-F02-001 → T-E01-F02-001 (no change)
+//	e01-f02-001 → T-E01-F02-001 (add prefix, uppercase)
+//	E01-F02-001 → T-E01-F02-001 (add prefix)
+//	e01-f02-001-task-name → T-E01-F02-001-TASK-NAME (slugged, add prefix)
+//
+// This function is part of T-E07-F20-006: Add short task key pattern and normalization
+func NormalizeTaskKey(input string) (string, error) {
+	if input == "" {
+		return "", InvalidTaskKeyError("")
+	}
+
+	// First normalize case
+	normalized := strings.ToUpper(input)
+
+	// Already has T- prefix - validate and return
+	if strings.HasPrefix(normalized, "T-") {
+		// Remove T- prefix temporarily to validate the rest
+		withoutPrefix := strings.TrimPrefix(normalized, "T-")
+		// Extract key part (first 3 components: E##-F##-###)
+		parts := strings.SplitN(withoutPrefix, "-", 4)
+		if len(parts) >= 3 {
+			keyPart := strings.Join(parts[:3], "-")
+			if isShortTaskKey(keyPart) {
+				return normalized, nil
+			}
+		}
+		return "", InvalidTaskKeyError(input)
+	}
+
+	// Check if it matches short format (E##-F##-###) exactly
+	if isShortTaskKey(normalized) {
+		return "T-" + normalized, nil
+	}
+
+	// Check for slugged short format (E##-F##-###-slug)
+	// We need to extract the key part and check if it's valid
+	parts := strings.SplitN(normalized, "-", 4)
+	if len(parts) >= 4 {
+		// Parts: [E##, F##, ###, slug...]
+		keyPart := strings.Join(parts[:3], "-")
+		if isShortTaskKey(keyPart) {
+			// Valid short key with slug - add T- prefix
+			return "T-" + normalized, nil
+		}
+	}
+
+	// Invalid format - return error with helpful message
+	return "", InvalidTaskKeyError(input)
+}
+
+// ParseFeatureCreateArgs parses positional arguments for feature create command
+// Supports: shark feature create [EPIC] "TITLE"
+// Returns (epicKey, title, nil) on success, or (nil, nil, error) on failure
+// Case insensitive: normalizes epic key to uppercase
+func ParseFeatureCreateArgs(args []string) (*string, *string, error) {
+	// Expected: 2 arguments (EPIC TITLE)
+	if len(args) < 2 {
+		return nil, nil, MissingArgumentsError(2, len(args), []string{
+			"shark feature create E07 \"Feature Title\"",
+			"shark feature create E04 \"User Management\"",
+		})
+	}
+
+	if len(args) > 2 {
+		return nil, nil, TooManyArgumentsError(2, len(args))
+	}
+
+	// Parse and normalize epic key
+	epicKey := NormalizeKey(args[0])
+
+	// Validate epic key format
+	if !IsEpicKey(epicKey) {
+		return nil, nil, InvalidEpicKeyError(args[0])
+	}
+
+	// Title is the second argument (taken as-is, no normalization)
+	title := args[1]
+
+	return &epicKey, &title, nil
+}
+
+// ParseTaskCreateArgs parses positional arguments for task create command
+// Supports:
+//   - shark task create [EPIC] [FEATURE] "TITLE" (3 arguments)
+//   - shark task create [EPIC-FEATURE] "TITLE" (2 arguments)
+// Returns (epicKey, featureKey, title, nil) on success, or (nil, nil, nil, error) on failure
+// Case insensitive: normalizes epic and feature keys to uppercase
+func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
+	// Expected: 2 or 3 arguments
+	if len(args) < 2 {
+		return nil, nil, nil, MissingArgumentsError(2, len(args), []string{
+			"shark task create E07 F01 \"Task Title\"",
+			"shark task create E07-F01 \"Task Title\"",
+		})
+	}
+
+	if len(args) > 3 {
+		return nil, nil, nil, TooManyArgumentsError(3, len(args))
+	}
+
+	// Case 1: 3 arguments (EPIC FEATURE TITLE)
+	if len(args) == 3 {
+		epicKey := NormalizeKey(args[0])
+		featureArg := NormalizeKey(args[1])
+		title := args[2]
+
+		// Validate epic key format
+		if !IsEpicKey(epicKey) {
+			return nil, nil, nil, InvalidEpicKeyError(args[0])
+		}
+
+		// Feature can be either F## (suffix) or E##-F## (full key)
+		var featureKey string
+		if IsFeatureKeySuffix(featureArg) {
+			// Just the suffix (F##)
+			featureKey = featureArg
+		} else if IsFeatureKey(featureArg) {
+			// Full feature key (E##-F##) - extract suffix
+			_, suffix, err := ParseFeatureKey(featureArg)
+			if err != nil {
+				return nil, nil, nil, InvalidFeatureKeyError(args[1])
+			}
+			featureKey = suffix
+		} else {
+			return nil, nil, nil, InvalidFeatureKeyError(args[1])
+		}
+
+		return &epicKey, &featureKey, &title, nil
+	}
+
+	// Case 2: 2 arguments (EPIC-FEATURE TITLE)
+	combinedKey := NormalizeKey(args[0])
+	title := args[1]
+
+	// Must be a valid feature key (E##-F##)
+	if !IsFeatureKey(combinedKey) {
+		return nil, nil, nil, InvalidFeatureKeyError(args[0])
+	}
+
+	// Parse the combined key
+	epicKey, featureKey, err := ParseFeatureKey(combinedKey)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return &epicKey, &featureKey, &title, nil
 }
