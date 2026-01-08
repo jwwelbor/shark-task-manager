@@ -25,9 +25,18 @@ func TestGetDB_InitializesOnce(t *testing.T) {
 	}
 
 	// Set working directory to tmpDir so config is found
-	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(tmpDir)
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current working directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origWd); err != nil {
+			t.Errorf("Failed to restore working directory: %v", err)
+		}
+	}()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
 
 	defer ResetDB() // Cleanup after test
 
@@ -71,9 +80,18 @@ func TestResetDB_ClearsState(t *testing.T) {
 	}
 
 	// Set working directory to tmpDir so config is found
-	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(tmpDir)
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current working directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origWd); err != nil {
+			t.Errorf("Failed to restore working directory: %v", err)
+		}
+	}()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
 
 	ctx := context.Background()
 
@@ -121,16 +139,25 @@ func TestCloseDB_SafeToCallMultipleTimes(t *testing.T) {
 	}
 
 	// Set working directory to tmpDir so config is found
-	origWd, _ := os.Getwd()
-	defer os.Chdir(origWd)
-	os.Chdir(tmpDir)
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current working directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origWd); err != nil {
+			t.Errorf("Failed to restore working directory: %v", err)
+		}
+	}()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
 
 	defer ResetDB()
 
 	ctx := context.Background()
 
 	// Initialize database
-	_, err := GetDB(ctx)
+	_, err = GetDB(ctx)
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
