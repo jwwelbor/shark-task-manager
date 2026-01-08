@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
@@ -103,19 +102,14 @@ func runTaskNoteAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	ctx := context.Background()
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	taskRepo := repository.NewTaskRepository(dbWrapper)
 	noteRepo := repository.NewTaskNoteRepository(dbWrapper)
 
@@ -172,19 +166,14 @@ func runTaskNotes(cmd *cobra.Command, args []string) error {
 	noteTypesStr, _ := cmd.Flags().GetString("type")
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	ctx := context.Background()
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	taskRepo := repository.NewTaskRepository(dbWrapper)
 	noteRepo := repository.NewTaskNoteRepository(dbWrapper)
 
@@ -248,21 +237,15 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	ctx := context.Background()
-	dbWrapper := repository.NewDB(database)
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	noteRepo := repository.NewTaskNoteRepository(dbWrapper)
+	taskRepo := repository.NewTaskRepository(repoDb)
+	noteRepo := repository.NewTaskNoteRepository(repoDb)
 
 	// Get task by key
 	task, err := taskRepo.GetByKey(ctx, taskKey)
@@ -271,7 +254,7 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get status changes from task_history
-	rows, err := database.QueryContext(ctx, `
+	rows, err := repoDb.DB.QueryContext(ctx, `
 		SELECT old_status, new_status, agent, timestamp
 		FROM task_history
 		WHERE task_id = ?

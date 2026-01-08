@@ -11,7 +11,6 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -306,19 +305,14 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	repo := repository.NewTaskRepository(repoDb)
 
 	// Get filter flags
 	statusStr, _ := cmd.Flags().GetString("status")
@@ -391,7 +385,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	if featureKey != "" {
 		filteredTasks := []*models.Task{}
 		// Get feature ID from the feature key
-		featureRepo := repository.NewFeatureRepository(repository.NewDB(database))
+		featureRepo := repository.NewFeatureRepository(repoDb)
 		feature, err := featureRepo.GetByKey(ctx, featureKey)
 		if err != nil {
 			return fmt.Errorf("failed to find feature: %w", err)
@@ -485,19 +479,14 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repositories
-	repoDb := repository.NewDB(database)
+	// Note: repoDb initialized via cli.GetDB()
 	taskRepo := repository.NewTaskRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	epicRepo := repository.NewEpicRepository(repoDb)
@@ -688,19 +677,14 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repositories
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	repo := repository.NewTaskRepository(dbWrapper)
 	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
 
@@ -1107,16 +1091,11 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get project root (current working directory)
 	projectRoot, err := os.Getwd()
@@ -1126,7 +1105,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create repositories
-	repoDb := repository.NewDB(database)
+	// Note: repoDb initialized via cli.GetDB()
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
@@ -1190,19 +1169,14 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository with workflow support
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 
 	// Load workflow config
 	configPath := cli.GlobalConfig.ConfigFile
@@ -1286,19 +1260,14 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository with workflow support
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 
 	// Load workflow config
 	configPath := cli.GlobalConfig.ConfigFile
@@ -1445,19 +1414,14 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository with workflow support
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 
 	// Load workflow config
 	configPath := cli.GlobalConfig.ConfigFile
@@ -1551,19 +1515,14 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	repo := repository.NewTaskRepository(repoDb)
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1607,7 +1566,7 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	}
 
 	// End active work session with blocked outcome
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	sessionRepo := repository.NewWorkSessionRepository(dbWrapper)
 	activeSession, err := sessionRepo.GetActiveSessionByTaskID(ctx, task.ID)
 	if err == nil && activeSession != nil {
@@ -1641,19 +1600,14 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	repo := repository.NewTaskRepository(dbWrapper)
 
 	// Get task by key
@@ -1707,19 +1661,14 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	repo := repository.NewTaskRepository(dbWrapper)
 
 	// Get task by key
@@ -1800,19 +1749,14 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	repo := repository.NewTaskRepository(dbWrapper)
 
 	// Get task by key to verify it exists
@@ -1953,19 +1897,14 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository
-	repo := repository.NewTaskRepository(repository.NewDB(database))
+	repo := repository.NewTaskRepository(repoDb)
 
 	// Get task by key to verify it exists
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -2111,7 +2050,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		}
 
 		// Create repository with workflow support
-		dbWrapper := repository.NewDB(database)
+		dbWrapper := repoDb
 		var workflowRepo *repository.TaskRepository
 		if workflow != nil {
 			workflowRepo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
@@ -2173,19 +2112,14 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	notes, _ := cmd.Flags().GetString("notes")
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository with workflow support
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 
 	// Load workflow config for repository
 	configPath := cli.GlobalConfig.ConfigFile

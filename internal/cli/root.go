@@ -51,6 +51,16 @@ optimized for both human developers and AI agents.`,
 
 		return nil
 	},
+	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+		// Close database connection if it was opened
+		if err := CloseDB(); err != nil {
+			// Log warning but don't fail - cleanup errors shouldn't break exit
+			if GlobalConfig.Verbose {
+				pterm.Warning.Printf("Failed to close database: %v\n", err)
+			}
+		}
+		return nil
+	},
 }
 
 // SetVersion sets the version string from build-time injection
@@ -286,6 +296,10 @@ const (
 
 // GetDBPath returns the database file path, ensuring parent directory exists
 // The path is already resolved to the project root by initConfig()
+//
+// Deprecated for general use: Commands should use GetDB() instead for database access.
+// This function is maintained only for backup utilities that need the physical file path
+// to copy the database file. New code should use GetDB() for all database operations.
 func GetDBPath() (string, error) {
 	dbPath := GlobalConfig.DBPath
 

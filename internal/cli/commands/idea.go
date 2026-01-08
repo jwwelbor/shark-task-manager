@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
@@ -256,15 +255,14 @@ func init() {
 func runIdeaList(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Initialize database
-	database, err := db.InitDB(cli.GlobalConfig.DBPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	dbWrapper := repository.NewDB(database)
-	repo := repository.NewIdeaRepository(dbWrapper)
+	repo := repository.NewIdeaRepository(repoDb)
 
 	// Build filter
 	var filter *repository.IdeaFilter
@@ -337,15 +335,14 @@ func runIdeaGet(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	ideaKey := args[0]
 
-	// Initialize database
-	database, err := db.InitDB(cli.GlobalConfig.DBPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	dbWrapper := repository.NewDB(database)
-	repo := repository.NewIdeaRepository(dbWrapper)
+	repo := repository.NewIdeaRepository(repoDb)
 
 	// Get idea
 	idea, err := repo.GetByKey(ctx, ideaKey)
@@ -402,15 +399,14 @@ func runIdeaCreate(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	title := args[0]
 
-	// Initialize database
-	database, err := db.InitDB(cli.GlobalConfig.DBPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	dbWrapper := repository.NewDB(database)
-	repo := repository.NewIdeaRepository(dbWrapper)
+	repo := repository.NewIdeaRepository(repoDb)
 
 	// Generate idea key
 	ideaKey, err := generateIdeaKey(ctx, repo)
@@ -484,15 +480,14 @@ func runIdeaUpdate(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	ideaKey := args[0]
 
-	// Initialize database
-	database, err := db.InitDB(cli.GlobalConfig.DBPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	dbWrapper := repository.NewDB(database)
-	repo := repository.NewIdeaRepository(dbWrapper)
+	repo := repository.NewIdeaRepository(repoDb)
 
 	// Get existing idea
 	idea, err := repo.GetByKey(ctx, ideaKey)
@@ -556,15 +551,14 @@ func runIdeaDelete(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	ideaKey := args[0]
 
-	// Initialize database
-	database, err := db.InitDB(cli.GlobalConfig.DBPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	dbWrapper := repository.NewDB(database)
-	repo := repository.NewIdeaRepository(dbWrapper)
+	repo := repository.NewIdeaRepository(repoDb)
 
 	// Get idea to confirm it exists
 	idea, err := repo.GetByKey(ctx, ideaKey)
@@ -863,16 +857,15 @@ func runIdeaConvertEpic(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	ideaKey := args[0]
 
-	// Initialize database
-	database, err := db.InitDB(cli.GlobalConfig.DBPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	dbWrapper := repository.NewDB(database)
-	ideaRepo := repository.NewIdeaRepository(dbWrapper)
-	epicRepo := repository.NewEpicRepository(dbWrapper)
+	ideaRepo := repository.NewIdeaRepository(repoDb)
+	epicRepo := repository.NewEpicRepository(repoDb)
 
 	// Generate next epic key
 	nextKey, err := getNextEpicKey(ctx, epicRepo)
@@ -904,17 +897,16 @@ func runIdeaConvertFeature(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	ideaKey := args[0]
 
-	// Initialize database
-	database, err := db.InitDB(cli.GlobalConfig.DBPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	dbWrapper := repository.NewDB(database)
-	ideaRepo := repository.NewIdeaRepository(dbWrapper)
-	epicRepo := repository.NewEpicRepository(dbWrapper)
-	featureRepo := repository.NewFeatureRepository(dbWrapper)
+	ideaRepo := repository.NewIdeaRepository(repoDb)
+	epicRepo := repository.NewEpicRepository(repoDb)
+	featureRepo := repository.NewFeatureRepository(repoDb)
 
 	// Get epic first to generate feature key
 	epic, err := epicRepo.GetByKey(ctx, ideaConvertEpic)
@@ -953,18 +945,17 @@ func runIdeaConvertTask(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	ideaKey := args[0]
 
-	// Initialize database
-	database, err := db.InitDB(cli.GlobalConfig.DBPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	dbWrapper := repository.NewDB(database)
-	ideaRepo := repository.NewIdeaRepository(dbWrapper)
-	epicRepo := repository.NewEpicRepository(dbWrapper)
-	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	taskRepo := repository.NewTaskRepository(dbWrapper)
+	ideaRepo := repository.NewIdeaRepository(repoDb)
+	epicRepo := repository.NewEpicRepository(repoDb)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Get epic and feature to validate
 	epic, err := epicRepo.GetByKey(ctx, ideaConvertEpic)

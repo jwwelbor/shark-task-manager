@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/validation"
 	"github.com/spf13/cobra"
@@ -48,24 +47,17 @@ func init() {
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
-	// Get database path
-	dbPath, err := cli.GetDBPath()
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	// Initialize database
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repositories
-	dbWrapper := repository.NewDB(database)
-	epicRepo := repository.NewEpicRepository(dbWrapper)
-	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	taskRepo := repository.NewTaskRepository(dbWrapper)
+	epicRepo := repository.NewEpicRepository(repoDb)
+	featureRepo := repository.NewFeatureRepository(repoDb)
+	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Create repository adapter for validation
 	repoAdapter := validation.NewRepositoryAdapter(epicRepo, featureRepo, taskRepo)

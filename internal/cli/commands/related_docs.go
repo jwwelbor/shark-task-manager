@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
@@ -105,19 +104,14 @@ func runRelatedDocsAdd(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Wrap database with repository.DB
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	docRepo := repository.NewDocumentRepository(dbWrapper)
 	epicRepo := repository.NewEpicRepository(dbWrapper)
 	featureRepo := repository.NewFeatureRepository(dbWrapper)
@@ -229,19 +223,14 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Wrap database with repository.DB
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	docRepo := repository.NewDocumentRepository(dbWrapper)
 	epicRepo := repository.NewEpicRepository(dbWrapper)
 	featureRepo := repository.NewFeatureRepository(dbWrapper)
@@ -377,19 +366,14 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Wrap database with repository.DB
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	docRepo := repository.NewDocumentRepository(dbWrapper)
 	epicRepo := repository.NewEpicRepository(dbWrapper)
 	featureRepo := repository.NewFeatureRepository(dbWrapper)

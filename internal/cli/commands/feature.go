@@ -302,14 +302,8 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -317,9 +311,9 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	epicRepo := repository.NewEpicRepository(repoDb)
 
@@ -463,14 +457,8 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 
 	featureKey := args[0]
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -478,9 +466,9 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
@@ -869,14 +857,8 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -884,9 +866,9 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
@@ -1005,6 +987,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 		// Create backup before force reassignment (if any collision exists)
 		if (existingFeature != nil || existingEpic != nil) && featureCreateForce {
+			dbPath, _ := cli.GetDBPath()
 			if _, err := backupDatabaseOnForceFeature(featureCreateForce, dbPath, "force file reassignment"); err != nil {
 				cli.Error(fmt.Sprintf("Error: %v", err))
 				cli.Info("Aborting operation to prevent data loss")
@@ -1206,14 +1189,8 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 	featureKey := args[0]
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1221,10 +1198,9 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
 
@@ -1350,6 +1326,7 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before force completing tasks
 	if force && hasIncomplete {
+		dbPath, _ := cli.GetDBPath()
 		if _, err := backupDatabaseOnForceFeature(force, dbPath, "force complete feature"); err != nil {
 			cli.Error(fmt.Sprintf("Error: %v", err))
 			cli.Info("Aborting operation to prevent data loss")
@@ -1444,14 +1421,8 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 	featureKey := args[0]
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1459,9 +1430,9 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
 
@@ -1490,6 +1461,7 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before cascade delete (when feature has tasks)
 	if len(tasks) > 0 {
+		dbPath, _ := cli.GetDBPath()
 		backupPath, err := db.BackupDatabase(dbPath)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
@@ -1521,14 +1493,8 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 
 	featureKey := args[0]
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1536,9 +1502,9 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
 	// Get feature by key to verify it exists

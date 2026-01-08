@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/formatters"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -97,18 +96,13 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize database
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
-
-	dbConn := repository.NewDB(database)
+	dbConn := repoDb
 	historyRepo := repository.NewTaskHistoryRepository(dbConn)
 	taskRepo := repository.NewTaskRepository(dbConn)
 

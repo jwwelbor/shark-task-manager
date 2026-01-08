@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
@@ -46,19 +45,14 @@ func runTaskSessions(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repositories
-	dbConn := repository.NewDB(database)
+	dbConn := repoDb
 	taskRepo := repository.NewTaskRepository(dbConn)
 	sessionRepo := repository.NewWorkSessionRepository(dbConn)
 

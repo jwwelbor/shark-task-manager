@@ -102,6 +102,15 @@ func (t *TursoDriver) DriverName() string {
 	return "libsql"
 }
 
+// GetSQLDB returns the underlying *sql.DB for backward compatibility
+// This is needed until repositories are updated to use Database interface
+func (t *TursoDriver) GetSQLDB() (*sql.DB, error) {
+	if t.db == nil {
+		return nil, sql.ErrConnDone
+	}
+	return t.db, nil
+}
+
 // BuildTursoConnectionString builds a Turso connection string with auth token
 // Example: BuildTursoConnectionString("libsql://db.turso.io", "token")
 //

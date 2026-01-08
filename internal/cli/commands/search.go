@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
@@ -47,19 +46,14 @@ func runSearchFile(cmd *cobra.Command, args []string) error {
 	status, _ := cmd.Flags().GetString("status")
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository
-	repoDb := repository.NewDB(database)
+	// Note: repoDb initialized via cli.GetDB()
 	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Search by file changed
