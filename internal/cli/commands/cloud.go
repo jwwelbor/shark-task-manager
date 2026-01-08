@@ -106,6 +106,21 @@ func runCloudStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to read cloud status: %w", err)
 	}
 
+	// Test actual database connection
+	status.ConnectionTested = true
+	repoDb, connErr := cli.GetDB(cmd.Context())
+	if connErr != nil {
+		status.ConnectionStatus = "failed"
+		status.ConnectionError = connErr.Error()
+	} else {
+		status.ConnectionStatus = "success"
+		// Quick test query to verify connection really works
+		if err := repoDb.Ping(); err != nil {
+			status.ConnectionStatus = "failed"
+			status.ConnectionError = fmt.Sprintf("connection established but ping failed: %v", err)
+		}
+	}
+
 	// Output in JSON if requested
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(status)
@@ -134,6 +149,29 @@ func runCloudStatus(cmd *cobra.Command, args []string) error {
 		cli.Info("")
 		cli.Info("To configure cloud database, run:")
 		cli.Info("  shark cloud init --url=<turso-url> --auth-token=<token>")
+	}
+
+	// Show connection test results
+	cli.Info("")
+	cli.Info("Connection Test:")
+	if status.ConnectionStatus == "success" {
+		cli.Success("✓ Database connection successful")
+	} else {
+		cli.Error("✗ Database connection failed")
+		if status.ConnectionError != "" {
+			cli.Error(fmt.Sprintf("  Error: %s", status.ConnectionError))
+		}
+		cli.Info("")
+		cli.Info("Troubleshooting tips:")
+		if status.IsCloudConfigured {
+			cli.Info("  • Verify your auth token is valid: turso db tokens list")
+			cli.Info("  • Check token file exists: cat %s", status.AuthTokenFile)
+			cli.Info("  • Test with turso CLI: turso db shell <database-name>")
+			cli.Info("  • Generate new token: turso db tokens create <database-name>")
+		} else {
+			cli.Info("  • Run: shark init --non-interactive")
+			cli.Info("  • Check database file exists: ls -lh shark-tasks.db")
+		}
 	}
 
 	return nil
@@ -340,6 +378,9 @@ type CloudStatus struct {
 	URL               string `json:"url"`
 	AuthTokenFile     string `json:"auth_token_file,omitempty"`
 	IsCloudConfigured bool   `json:"is_cloud_configured"`
+	ConnectionTested  bool   `json:"connection_tested"`
+	ConnectionStatus  string `json:"connection_status,omitempty"` // "success" or "failed"
+	ConnectionError   string `json:"connection_error,omitempty"`
 }
 
 // getCloudStatus reads config and returns cloud status
