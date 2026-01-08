@@ -566,6 +566,7 @@ func ParseFeatureCreateArgs(args []string) (*string, *string, error) {
 // Supports:
 //   - shark task create [EPIC] [FEATURE] "TITLE" (3 arguments)
 //   - shark task create [EPIC-FEATURE] "TITLE" (2 arguments)
+//
 // Returns (epicKey, featureKey, title, nil) on success, or (nil, nil, nil, error) on failure
 // Case insensitive: normalizes epic and feature keys to uppercase
 func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {

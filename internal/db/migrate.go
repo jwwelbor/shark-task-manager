@@ -1353,7 +1353,7 @@ func fixTaskNotesTasksOldFK(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Disable foreign keys temporarily
 	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {
@@ -1433,7 +1433,7 @@ func fixTaskCriteriaTasksOldFK(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Disable foreign keys temporarily
 	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {
@@ -1504,7 +1504,7 @@ func fixWorkSessionsTasksOldFK(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// Disable foreign keys temporarily
 	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {

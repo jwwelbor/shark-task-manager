@@ -592,9 +592,9 @@ func TestNormalizeTaskKey(t *testing.T) {
 		{"Slugged short uppercase", "E01-F02-001-IMPLEMENT-AUTH", "T-E01-F02-001-IMPLEMENT-AUTH", false},
 		{"Slugged short mixed", "E01-f02-001-Task-Name", "T-E01-F02-001-TASK-NAME", false},
 
-		// Edge cases - should return as-is for validation to catch
-		{"Invalid format", "INVALID", "INVALID", false},
-		{"Empty string", "", "", false},
+		// Edge cases - should return errors
+		{"Invalid format", "INVALID", "", true},
+		{"Empty string", "", "", true},
 	}
 
 	for _, tt := range tests {
@@ -695,13 +695,13 @@ func TestIsShortTaskKey(t *testing.T) {
 // TestParseTaskCreateArgs tests parsing positional arguments for task create command
 func TestParseTaskCreateArgs(t *testing.T) {
 	tests := []struct {
-		name          string
-		args          []string
-		wantEpic      *string
-		wantFeature   *string
-		wantTitle     *string
-		wantErr       bool
-		errContains   string
+		name        string
+		args        []string
+		wantEpic    *string
+		wantFeature *string
+		wantTitle   *string
+		wantErr     bool
+		errContains string
 	}{
 		// Valid cases with 3 arguments (EPIC FEATURE TITLE)
 		{

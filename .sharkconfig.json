@@ -1,5 +1,10 @@
 {
   "color_enabled": true,
+  "database": {
+    "auth_token_file": "/home/jwwelbor/.turso/wormwood-token",
+    "backend": "turso",
+    "url": "libsql://wormwood-gm-wormwoodgm.aws-us-east-1.turso.io"
+  },
   "default_agent": null,
   "default_epic": null,
   "json_output": false,
