@@ -99,6 +99,147 @@ This means you're trying to create tasks that already exist. Options:
 
 ---
 
+## Cloud Database Support (Turso)
+
+Shark supports **two database backends**:
+- **Local SQLite**: Default, file-based (`shark-tasks.db`)
+- **Turso Cloud**: Cloud-hosted SQLite for multi-machine access
+
+### Quick Setup
+
+```bash
+# 1. Create Turso database
+turso db create shark-tasks
+turso db show shark-tasks --url  # Get URL
+turso db tokens create shark-tasks  # Get auth token
+
+# 2. Configure Shark for Turso
+shark cloud init \
+  --url="libsql://shark-tasks-yourorg.turso.io" \
+  --auth-token="<token>" \
+  --non-interactive
+
+# 3. Verify
+shark cloud status
+
+# 4. Initialize schema (if new database)
+shark init --non-interactive
+```
+
+### Configuration
+
+Cloud database is configured in `.sharkconfig.json`:
+
+```json
+{
+  "database": {
+    "backend": "turso",
+    "url": "libsql://shark-tasks-yourorg.turso.io",
+    "auth_token_file": "/home/user/.turso/shark-token"
+  }
+}
+```
+
+**Security Best Practices:**
+- ✅ Store tokens in separate file: `--auth-file="~/.turso/token"`
+- ✅ Use environment variable: `export TURSO_AUTH_TOKEN="..."`
+- ❌ Don't commit tokens in `.sharkconfig.json` (add to `.gitignore`)
+
+### Multi-Machine Usage
+
+Once configured, all machines sharing the same Turso URL access the same database:
+
+```bash
+# Machine 1
+shark task create E01 F01 "Implement API" --agent=backend
+shark task start E01-F01-001
+
+# Machine 2 (sees changes immediately)
+shark task list E01 F01
+# Output: T-E01-F01-001 (in_development)
+```
+
+### Cloud CLI Commands
+
+```bash
+# Initialize cloud database
+shark cloud init --url=<turso-url> --auth-token=<token> --non-interactive
+
+# Check configuration status
+shark cloud status
+
+# Check with JSON output
+shark cloud status --json
+```
+
+### Switching Between Backends
+
+**To cloud:**
+```bash
+shark cloud init --url="libsql://..." --auth-token="..." --non-interactive
+```
+
+**To local:**
+```bash
+# Edit .sharkconfig.json
+{
+  "database": {
+    "backend": "local",
+    "url": "./shark-tasks.db"
+  }
+}
+```
+
+### Migration
+
+To migrate existing local data to Turso:
+
+```bash
+# 1. Export local database
+sqlite3 shark-tasks.db .dump > shark-backup.sql
+
+# 2. Configure Turso (see Quick Setup above)
+
+# 3. Import to Turso
+turso db shell shark-tasks < shark-backup.sql
+
+# 4. Verify
+shark task list
+```
+
+**See [TURSO_MIGRATION.md](./docs/TURSO_MIGRATION.md) for detailed migration guide.**
+
+### Troubleshooting
+
+**Error: "Failed to connect to database"**
+```bash
+# Verify URL
+turso db show shark-tasks --url
+
+# Verify token
+turso db tokens validate <token>
+
+# Check config
+shark cloud status
+```
+
+**Error: "Auth token expired"**
+```bash
+# Create new token
+turso db tokens create shark-tasks
+
+# Update config
+shark cloud init --url="libsql://..." --auth-token="<new-token>" --non-interactive
+```
+
+### Documentation
+
+- [Turso Quick Start](./docs/TURSO_QUICKSTART.md) - Step-by-step setup guide
+- [Migration Guide](./docs/TURSO_MIGRATION.md) - Migrate from local to Turso
+- [Turso Documentation](https://docs.turso.tech) - Official Turso docs
+
+---
+
 ## Project Root Auto-Detection
 
 Shark automatically finds the project root by walking up the directory tree, so you can run commands from any subdirectory within your project without specifying `--db`.
@@ -154,7 +295,7 @@ This feature is particularly useful when AI agents are working in subdirectories
 
 ---
 
-## Database Migrations & Custom Folder Paths
+## Database Migrations
 
 ### Auto-Migration System
 
@@ -164,83 +305,6 @@ The database uses automatic migrations for backward compatibility:
 - Each migration checks if columns already exist before adding them
 - Safe to run multiple times - idempotent operations
 - No manual migration scripts required for end users
-
-### Custom Folder Path Feature
-
-The custom folder base path feature adds new optional columns:
-
-```sql
-ALTER TABLE epics ADD COLUMN custom_folder_path TEXT;
-ALTER TABLE features ADD COLUMN custom_folder_path TEXT;
-```
-
-**Backward Compatible:**
-- Existing databases work unchanged
-- New columns default to NULL
-- Default behavior (`docs/plan/{epic-key}/`) unchanged
-- Automatic migration applies on first run
-
-**Indexes for Performance:**
-```sql
-CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);
-CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);
-```
-
-### Data Layout Flexibility
-
-With custom folder paths, projects can organize in multiple ways:
-
-**Traditional (default):**
-```
-docs/plan/
-├── E01-epic/
-│   ├── epic.md
-│   ├── E01-F01-feature/
-│   │   └── feature.md
-│   └── E01-F02-feature/
-│       └── feature.md
-└── E02-epic/
-    └── epic.md
-```
-
-**Organized by Time Period (custom --path):**
-```
-docs/roadmap/
-├── 2025-q1/          # Epic with --path="docs/roadmap/2025-q1"
-│   ├── epic.md
-│   ├── user-growth/  # Feature inherits path
-│   │   └── feature.md
-│   └── retention/
-│       └── feature.md
-└── 2025-q2/          # Epic with --path="docs/roadmap/2025-q2"
-    └── epic.md
-```
-
-**Mixed Organization:**
-```
-docs/
-├── roadmap/2025/     # Custom path epics
-│   ├── epic.md
-│   └── features/
-├── plan/             # Default path epics
-│   ├── E03-epic/
-│   │   └── epic.md
-└── legacy/           # Legacy features with custom path
-    └── feature.md
-```
-
-### Migration Guide
-
-For detailed migration instructions, including how to update existing projects, see `docs/MIGRATION_CUSTOM_PATHS.md`:
-
-```bash
-# Automatic migration (recommended)
-shark epic list  # Any command triggers migration
-
-# Manual verification
-sqlite3 shark-tasks.db ".schema epics" | grep custom_folder_path
-sqlite3 shark-tasks.db ".schema features" | grep custom_folder_path
-```
 
 ---
 
@@ -467,9 +531,9 @@ Each entity (Epic, Feature, Task) has a repository with:
 
 ### Core Tables
 - **epics**: Top-level organizational units (E04, E07, etc.)
-  - `custom_folder_path`: Optional folder base path for flexible organization (inherited by features)
+  - `file_path`: File location within project
 - **features**: Features within epics (E04-F01, E04-F02, etc.)
-  - `custom_folder_path`: Optional folder base path (overrides inherited epic path)
+  - `file_path`: File location within project
 - **tasks**: Atomic work items (T-E04-F06-001, etc.)
   - `file_path`: File location within project
 - **task_history**: Audit trail of task status changes
@@ -511,64 +575,89 @@ Global flags available to all commands:
 - `--db`: Override database path (default: `shark-tasks.db`)
 - `--config`: Override config file path (default: `.sharkconfig.json`)
 
+### Key Format Flexibility
+
+**All entity keys are case insensitive:**
+- Epic keys: `E07`, `e07`, `E07-user-management`, `e07-user-management`
+- Feature keys: `E07-F01`, `e07-f01`, `F01`, `f01`
+- Task keys: `E07-F20-001`, `e07-f20-001` (short format), `T-E07-F20-001`, `t-e07-f20-001` (traditional)
+
+**Short task key format (recommended):**
+- Use `E07-F20-001` instead of `T-E07-F20-001`
+- The `T-` prefix is optional and automatically normalized
+- Both formats work identically in all commands
+
+**Positional argument syntax:**
+- Feature create: `shark feature create E07 "Feature Title"`
+- Task create: `shark task create E07 F20 "Task Title"` or `shark task create E07-F20 "Task Title"`
+- Legacy flag syntax still fully supported
+
 ### Command Categories
 
 #### Initialization
 - `shark init --non-interactive`: Setup project infrastructure (folders, database, config)
 
 #### Epic Management
-- `shark epic create --title="..." [--path=<folder>] [--filename=<path>] [--force] [--priority=...] [--business-value=...] [--json]`
-  - `--path`: Custom folder base path for organizing epic. Relative to root. Example: `docs/roadmap/2025-q1`
-  - `--filename`: Custom file path (relative to root, must include .md). Takes precedence over `--path`
+- `shark epic create --title="..." [--file=<path>] [--force] [--priority=...] [--business-value=...] [--json]`
+  - `--file`: Custom file path (relative to root, must include .md)
   - `--force`: Reassign file if already claimed by another epic or feature
 - `shark epic list [--json]`
 - `shark epic get <epic-key> [--json]`
+  - Case insensitive: `shark epic get E07`, `shark epic get e07`
 
 #### Feature Management
-- `shark feature create --epic=<epic-key> --title="..." [--path=<folder>] [--filename=<path>] [--force] [--execution-order=...] [--json]`
-  - `--path`: Custom folder path for feature. Inherits epic's path if not specified. Example: `docs/features/auth`
-  - `--filename`: Custom file path (relative to root, must include .md). Takes precedence over `--path`
+- **Positional syntax (recommended):** `shark feature create <epic-key> "<title>" [--file=<path>] [--force] [--execution-order=...] [--json]`
+- **Flag syntax (legacy):** `shark feature create --epic=<epic-key> --title="..." [--file=<path>] [--force] [--execution-order=...] [--json]`
+  - `--file`: Custom file path (relative to root, must include .md)
   - `--force`: Reassign file if already claimed by another feature or epic
+  - Case insensitive: `shark feature create E07 "Title"`, `shark feature create e07 "Title"`
 - `shark feature list [EPIC] [--json]` - List features, optionally filter by epic key
-  - Examples: `shark feature list`, `shark feature list E04`, `shark feature list E04 --json`
+  - Examples: `shark feature list`, `shark feature list E04`, `shark feature list e04`, `shark feature list E04 --json`
   - Flag syntax still works: `shark feature list --epic=E04`
 - `shark feature get <feature-key> [--json]`
+  - Case insensitive: `shark feature get E07-F01`, `shark feature get e07-f01`, `shark feature get F01`, `shark feature get f01`
 
-**Custom Folder Path Organization:**
+**File Path Organization:**
 
-Epic and feature creation now support custom folder base paths (via `--path`) for flexible project organization:
+Epics and features support custom file paths for flexible project organization:
 
 ```bash
-# Organize by quarter
-shark epic create "Q1 2025 Roadmap" --path="docs/roadmap/2025-q1"
+# Create epic with custom file path
+shark epic create "Q1 2025 Roadmap" --file="docs/roadmap/2025-q1/epic.md"
 
-# Features inherit epic's custom path
-shark feature create --epic=E01 "User Growth"  # Stored in docs/roadmap/2025-q1/
+# Create feature with custom file path
+shark feature create --epic=E01 "User Growth" --file="docs/roadmap/2025-q1/features/user-growth.md"
 
-# Feature overrides epic's custom path
-shark feature create --epic=E01 "Legacy API" --path="docs/legacy"  # Stored in docs/legacy/
+# Default behavior (no --file flag)
+shark epic create "User Management"  # Creates docs/plan/E07-user-management/epic.md
+shark feature create E07 "Authentication"  # Positional syntax (recommended)
+shark feature create --epic=E07 --title="Authentication"  # Flag syntax (legacy)
+# Creates: docs/plan/E07-user-management/E07-F01-authentication/feature.md
 ```
 
-**Path Resolution Order (highest to lowest priority):**
-1. `--filename` - Explicit file path
-2. `--path` - Custom folder base path
-3. Inherited from parent (feature inherits from epic)
-4. Default: `docs/plan/{epic-key}/` or `docs/plan/{epic-key}/{feature-key}/`
-
-Refer to `docs/CLI_REFERENCE.md` for detailed examples, `docs/MIGRATION_CUSTOM_PATHS.md` for database updates, and database schema changes below.
+Refer to `docs/CLI_REFERENCE.md` for detailed examples and usage patterns.
 
 #### Task Management (Primary AI Interface)
 - `shark task next [--agent=<type>] [--epic=<epic>] [--json]`: Get next available task
 - `shark task list [EPIC] [FEATURE] [--status=<status>] [--agent=<type>] [--json]` - List tasks with flexible positional filtering
-  - Examples: `shark task list`, `shark task list E04`, `shark task list E04 F01`, `shark task list E04-F01`
+  - Examples: `shark task list`, `shark task list E04`, `shark task list e04`, `shark task list E04 F01`, `shark task list E04-F01`
   - Flag syntax still works: `shark task list --epic=E04 --feature=F01`
 - `shark task get <task-key> [--json]`
-- `shark task create --epic=E04 --feature=F06 --title="..." [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--filename=<path>] [--force]`
-  - `--filename`: Custom file path (relative to root, must include .md)
+  - Short format (recommended): `shark task get E07-F20-001`, `shark task get e07-f20-001`
+  - Traditional format: `shark task get T-E07-F20-001`, `shark task get t-e07-f20-001`
+- **Positional syntax (recommended):** `shark task create <epic> <feature> "<title>" [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--file=<path>] [--force]`
+  - 3-arg format: `shark task create E07 F20 "Task Title"`
+  - 2-arg format: `shark task create E07-F20 "Task Title"`
+  - Case insensitive: `shark task create e07 f20 "Task Title"`
+- **Flag syntax (legacy):** `shark task create --epic=E04 --feature=F06 --title="..." [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--file=<path>] [--force]`
+  - `--file`: Custom file path (relative to root, must include .md)
   - `--force`: Reassign file if already claimed by another task
 - `shark task start <task-key> [--agent=<agent-id>] [--json]`
+  - Short format: `shark task start E07-F20-001`, `shark task start e07-f20-001`
 - `shark task complete <task-key> [--notes="..."] [--json]` (ready for review)
+  - Short format: `shark task complete E07-F20-001`, `shark task complete e07-f20-001`
 - `shark task approve <task-key> [--notes="..."] [--json]` (mark completed)
+  - Short format: `shark task approve E07-F20-001`, `shark task approve e07-f20-001`
 - `shark task reopen <task-key> [--notes="..."] [--json]` (back to in_progress)
 - `shark task block <task-key> --reason="..." [--json]`
 - `shark task unblock <task-key> [--json]`
@@ -590,12 +679,22 @@ Refer to `docs/CLI_REFERENCE.md` for detailed examples, `docs/MIGRATION_CUSTOM_P
 
 1. **Create Feature** (if new feature area):
    ```bash
-   ./bin/shark feature create --epic=E07 "Feature Title" --execution-order=1
+   # Positional syntax (recommended)
+   ./bin/shark feature create E07 "Feature Title" --execution-order=1
+
+   # Flag syntax (legacy, still supported)
+   ./bin/shark feature create --epic=E07 --title="Feature Title" --execution-order=1
    ```
 
 2. **Create Tasks** in the feature:
    ```bash
-   ./bin/shark task create --epic=E07 --feature=F01 "Task Title" --priority=5
+   # Positional syntax (recommended)
+   ./bin/shark task create E07 F01 "Task Title" --priority=5
+   # OR combined format
+   ./bin/shark task create E07-F01 "Task Title" --priority=5
+
+   # Flag syntax (legacy, still supported)
+   ./bin/shark task create --epic=E07 --feature=F01 --title="Task Title" --priority=5
    ```
 
 3. **Update task file** at `docs/plan/{epic}/{feature}/tasks/{task-key}.md`:
@@ -634,10 +733,18 @@ Tasks flow through these states:
 
 Update status with:
 ```bash
-./bin/shark task start <task-key>
-./bin/shark task complete <task-key>
-./bin/shark task approve <task-key>
-./bin/shark task block <task-key> --reason="..."
+# Short format (recommended)
+./bin/shark task start E07-F20-001
+./bin/shark task complete E07-F20-001
+./bin/shark task approve E07-F20-001
+./bin/shark task block E07-F20-001 --reason="..."
+
+# Traditional format (still supported)
+./bin/shark task start T-E07-F20-001
+./bin/shark task complete T-E07-F20-001
+
+# Case insensitive
+./bin/shark task start e07-f20-001
 ```
 
 ---

@@ -88,7 +88,6 @@ CREATE TABLE IF NOT EXISTS epics (
     priority TEXT NOT NULL CHECK (priority IN ('high', 'medium', 'low')),
     business_value TEXT CHECK (business_value IN ('high', 'medium', 'low')),
     file_path TEXT,
-    custom_folder_path TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -118,7 +117,6 @@ CREATE TABLE IF NOT EXISTS features (
     progress_pct REAL NOT NULL DEFAULT 0.0 CHECK (progress_pct >= 0.0 AND progress_pct <= 100.0),
     execution_order INTEGER NULL,
     file_path TEXT,
-    custom_folder_path TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -326,6 +324,44 @@ CREATE TABLE IF NOT EXISTS task_documents (
 -- Indexes for task_documents
 CREATE INDEX IF NOT EXISTS idx_task_documents_task_id ON task_documents(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_documents_document_id ON task_documents(document_id);
+
+-- ============================================================================
+-- Table: ideas
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS ideas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,                          -- Format: I-YYYY-MM-DD-xx
+    title TEXT NOT NULL,
+    description TEXT,
+    created_date TIMESTAMP NOT NULL,                   -- Date for key generation
+    priority INTEGER CHECK (priority >= 1 AND priority <= 10),
+    display_order INTEGER,                             -- Order for sorting ideas
+    notes TEXT,
+    related_docs TEXT,                                 -- JSON array of document paths
+    dependencies TEXT,                                 -- JSON array of idea keys
+    status TEXT NOT NULL CHECK (status IN ('new', 'on_hold', 'converted', 'archived')) DEFAULT 'new',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Conversion tracking (for E08-F03)
+    converted_to_type TEXT CHECK (converted_to_type IN ('epic', 'feature', 'task')),
+    converted_to_key TEXT,
+    converted_at TIMESTAMP
+);
+
+-- Indexes for ideas
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ideas_key ON ideas(key);
+CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
+CREATE INDEX IF NOT EXISTS idx_ideas_created_date ON ideas(created_date DESC);
+CREATE INDEX IF NOT EXISTS idx_ideas_priority ON ideas(priority);
+
+-- Trigger to auto-update updated_at for ideas
+CREATE TRIGGER IF NOT EXISTS ideas_updated_at
+AFTER UPDATE ON ideas
+FOR EACH ROW
+BEGIN
+    UPDATE ideas SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
 `
 
 	_, err := db.Exec(schema)
@@ -426,39 +462,9 @@ func runMigrations(db *sql.DB) error {
 		}
 	}
 
-	// Check if epics table has custom_folder_path column; if not, add it
-	err = db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'custom_folder_path'
-	`).Scan(&columnExists)
-	if err != nil {
-		return fmt.Errorf("failed to check epics schema for custom_folder_path: %w", err)
-	}
-
-	if columnExists == 0 {
-		if _, err := db.Exec(`ALTER TABLE epics ADD COLUMN custom_folder_path TEXT;`); err != nil {
-			return fmt.Errorf("failed to add custom_folder_path to epics: %w", err)
-		}
-		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);`); err != nil {
-			return fmt.Errorf("failed to create epics custom_folder_path index: %w", err)
-		}
-	}
-
-	// Check if features table has custom_folder_path column; if not, add it
-	err = db.QueryRow(`
-		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'custom_folder_path'
-	`).Scan(&columnExists)
-	if err != nil {
-		return fmt.Errorf("failed to check features schema for custom_folder_path: %w", err)
-	}
-
-	if columnExists == 0 {
-		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN custom_folder_path TEXT;`); err != nil {
-			return fmt.Errorf("failed to add custom_folder_path to features: %w", err)
-		}
-		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`); err != nil {
-			return fmt.Errorf("failed to create features custom_folder_path index: %w", err)
-		}
-	}
+	// NOTE: custom_folder_path columns removed in E07-F19 (File Path Flag Standardization)
+	// Migration that previously added these columns has been removed.
+	// See migrateDropCustomFolderPath() for the removal migration.
 
 	// Migrate slug columns for E07-F11
 	if err := migrateSlugColumns(db); err != nil {
@@ -467,11 +473,10 @@ func runMigrations(db *sql.DB) error {
 
 	// Create indexes on new columns that might not have existed before
 	// These are created here after migrations ensure the columns exist
+	// NOTE: custom_folder_path indexes removed in E07-F19
 	newIndexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_epics_file_path ON epics(file_path);`,
-		`CREATE INDEX IF NOT EXISTS idx_epics_custom_folder_path ON epics(custom_folder_path);`,
 		`CREATE INDEX IF NOT EXISTS idx_features_file_path ON features(file_path);`,
-		`CREATE INDEX IF NOT EXISTS idx_features_custom_folder_path ON features(custom_folder_path);`,
 		`CREATE INDEX IF NOT EXISTS idx_epics_slug ON epics(slug);`,
 		`CREATE INDEX IF NOT EXISTS idx_features_slug ON features(slug);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_slug ON tasks(slug);`,
@@ -521,6 +526,83 @@ func runMigrations(db *sql.DB) error {
 	// the old "features_old" table instead of "features"
 	if err := MigrateFixFeaturesOldForeignKeys(db); err != nil {
 		return fmt.Errorf("failed to fix features_old foreign keys: %w", err)
+	}
+
+	// Run task_notes foreign key fix migration
+	// This fixes databases where task_notes references tasks_old
+	needsTaskNotesFix, err := needsTaskNotesFKFix(db)
+	if err != nil {
+		return fmt.Errorf("failed to check if task_notes FK fix needed: %w", err)
+	}
+	if needsTaskNotesFix {
+		if err := fixTaskNotesTasksOldFK(db); err != nil {
+			return fmt.Errorf("failed to fix task_notes foreign key: %w", err)
+		}
+	}
+
+	// Run task_criteria foreign key fix migration
+	// This fixes databases where task_criteria references tasks_old
+	needsTaskCriteriaFix, err := needsTaskCriteriaFKFix(db)
+	if err != nil {
+		return fmt.Errorf("failed to check if task_criteria FK fix needed: %w", err)
+	}
+	if needsTaskCriteriaFix {
+		if err := fixTaskCriteriaTasksOldFK(db); err != nil {
+			return fmt.Errorf("failed to fix task_criteria foreign key: %w", err)
+		}
+	}
+
+	// Run work_sessions foreign key fix migration
+	// This fixes databases where work_sessions references tasks_old
+	needsWorkSessionsFix, err := needsWorkSessionsFKFix(db)
+	if err != nil {
+		return fmt.Errorf("failed to check if work_sessions FK fix needed: %w", err)
+	}
+	if needsWorkSessionsFix {
+		if err := fixWorkSessionsTasksOldFK(db); err != nil {
+			return fmt.Errorf("failed to fix work_sessions foreign key: %w", err)
+		}
+	}
+
+	// Run status_override column migration for cascading status calculation (E07-F14)
+	if err := migrateStatusOverrideColumn(db); err != nil {
+		return fmt.Errorf("failed to migrate status_override column: %w", err)
+	}
+
+	// Run ideas table order column rename migration (E08-F02)
+	if err := migrateIdeasOrderColumn(db); err != nil {
+		return fmt.Errorf("failed to migrate ideas order column: %w", err)
+	}
+
+	// Run custom_folder_path column removal migration (E07-F19)
+	if err := migrateDropCustomFolderPath(db); err != nil {
+		return fmt.Errorf("failed to drop custom_folder_path columns: %w", err)
+	}
+
+	return nil
+}
+
+// migrateStatusOverrideColumn adds status_override column to features table
+// for supporting manual override of calculated status (E07-F14)
+func migrateStatusOverrideColumn(db *sql.DB) error {
+	// Check if features table has status_override column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'status_override'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for status_override: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add status_override column with default false (auto-calculation)
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN status_override BOOLEAN DEFAULT 0;`); err != nil {
+			return fmt.Errorf("failed to add status_override to features: %w", err)
+		}
+		// Create index for efficient queries
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_features_status_override ON features(status_override);`); err != nil {
+			return fmt.Errorf("failed to create features status_override index: %w", err)
+		}
 	}
 
 	return nil
@@ -839,6 +921,192 @@ func copyFile(src, dst string) error {
 	// Sync to ensure data is written to disk
 	if err := destFile.Sync(); err != nil {
 		return fmt.Errorf("failed to sync file: %w", err)
+	}
+
+	return nil
+}
+
+// migrateIdeasOrderColumn renames the "order" column to "display_order" in the ideas table
+// This avoids potential conflicts with the SQL reserved keyword "order"
+func migrateIdeasOrderColumn(db *sql.DB) error {
+	// Check if ideas table exists
+	var tableExists int
+	err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ideas'`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check ideas table: %w", err)
+	}
+
+	// If table doesn't exist, nothing to migrate
+	if tableExists == 0 {
+		return nil
+	}
+
+	// Check if old "order" column exists
+	var orderColumnExists int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('ideas') WHERE name = 'order'`).Scan(&orderColumnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check for order column: %w", err)
+	}
+
+	// Check if new "display_order" column already exists
+	var displayOrderColumnExists int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('ideas') WHERE name = 'display_order'`).Scan(&displayOrderColumnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check for display_order column: %w", err)
+	}
+
+	// If old column exists and new column doesn't exist, we need to migrate
+	if orderColumnExists > 0 && displayOrderColumnExists == 0 {
+		// SQLite doesn't support ALTER TABLE RENAME COLUMN directly in older versions
+		// We need to use the table recreation pattern
+
+		// Begin transaction
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		// Create new table with display_order column
+		_, err = tx.Exec(`
+			CREATE TABLE ideas_new (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				key TEXT NOT NULL UNIQUE,
+				title TEXT NOT NULL,
+				description TEXT,
+				created_date TIMESTAMP NOT NULL,
+				priority INTEGER CHECK (priority >= 1 AND priority <= 10),
+				display_order INTEGER,
+				notes TEXT,
+				related_docs TEXT,
+				dependencies TEXT,
+				status TEXT NOT NULL CHECK (status IN ('new', 'on_hold', 'converted', 'archived')) DEFAULT 'new',
+				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				converted_to_type TEXT CHECK (converted_to_type IN ('epic', 'feature', 'task')),
+				converted_to_key TEXT,
+				converted_at TIMESTAMP
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create new ideas table: %w", err)
+		}
+
+		// Copy data from old table to new table (renaming order to display_order)
+		_, err = tx.Exec(`
+			INSERT INTO ideas_new (
+				id, key, title, description, created_date, priority, display_order,
+				notes, related_docs, dependencies, status, created_at, updated_at,
+				converted_to_type, converted_to_key, converted_at
+			)
+			SELECT
+				id, key, title, description, created_date, priority, "order",
+				notes, related_docs, dependencies, status, created_at, updated_at,
+				converted_to_type, converted_to_key, converted_at
+			FROM ideas
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to copy ideas data: %w", err)
+		}
+
+		// Drop old table
+		_, err = tx.Exec(`DROP TABLE ideas`)
+		if err != nil {
+			return fmt.Errorf("failed to drop old ideas table: %w", err)
+		}
+
+		// Rename new table to original name
+		_, err = tx.Exec(`ALTER TABLE ideas_new RENAME TO ideas`)
+		if err != nil {
+			return fmt.Errorf("failed to rename ideas_new to ideas: %w", err)
+		}
+
+		// Recreate indexes
+		indexes := []string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_ideas_key ON ideas(key)`,
+			`CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status)`,
+			`CREATE INDEX IF NOT EXISTS idx_ideas_created_date ON ideas(created_date DESC)`,
+			`CREATE INDEX IF NOT EXISTS idx_ideas_priority ON ideas(priority)`,
+		}
+
+		for _, idx := range indexes {
+			if _, err := tx.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create index: %w", err)
+			}
+		}
+
+		// Recreate trigger
+		_, err = tx.Exec(`
+			CREATE TRIGGER IF NOT EXISTS ideas_updated_at
+			AFTER UPDATE ON ideas
+			FOR EACH ROW
+			BEGIN
+				UPDATE ideas SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+			END
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create ideas_updated_at trigger: %w", err)
+		}
+
+		// Commit transaction
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateDropCustomFolderPath removes custom_folder_path columns from epics and features tables
+// This migration supports E07-F19: File Path Flag Standardization
+// The custom_folder_path columns were stored but never used in path calculations
+func migrateDropCustomFolderPath(db *sql.DB) error {
+	// Check if epics table has custom_folder_path column
+	var epicColumnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'custom_folder_path'
+	`).Scan(&epicColumnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check epics schema for custom_folder_path: %w", err)
+	}
+
+	// Drop column and index from epics table if it exists
+	if epicColumnExists > 0 {
+		// Drop index first (required before dropping column)
+		_, err = db.Exec(`DROP INDEX IF EXISTS idx_epics_custom_folder_path`)
+		if err != nil {
+			return fmt.Errorf("failed to drop epics custom_folder_path index: %w", err)
+		}
+
+		// Drop column
+		_, err = db.Exec(`ALTER TABLE epics DROP COLUMN custom_folder_path`)
+		if err != nil {
+			return fmt.Errorf("failed to drop custom_folder_path from epics: %w", err)
+		}
+	}
+
+	// Check if features table has custom_folder_path column
+	var featureColumnExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'custom_folder_path'
+	`).Scan(&featureColumnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for custom_folder_path: %w", err)
+	}
+
+	// Drop column and index from features table if it exists
+	if featureColumnExists > 0 {
+		// Drop index first (required before dropping column)
+		_, err = db.Exec(`DROP INDEX IF EXISTS idx_features_custom_folder_path`)
+		if err != nil {
+			return fmt.Errorf("failed to drop features custom_folder_path index: %w", err)
+		}
+
+		// Drop column
+		_, err = db.Exec(`ALTER TABLE features DROP COLUMN custom_folder_path`)
+		if err != nil {
+			return fmt.Errorf("failed to drop custom_folder_path from features: %w", err)
+		}
 	}
 
 	return nil

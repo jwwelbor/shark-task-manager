@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -47,11 +48,10 @@ func TestParseFeatureListArgsIntegration(t *testing.T) {
 		},
 
 		{
-			name:       "Invalid format e04",
-			args:       []string{"e04"},
-			wantEpic:   nil,
-			wantErr:    true,
-			errMessage: "invalid epic key format",
+			name:     "Valid lowercase epic e04",
+			args:     []string{"e04"},
+			wantEpic: strPtr("E04"),
+			wantErr:  false,
 		},
 
 		{
@@ -68,7 +68,7 @@ func TestParseFeatureListArgsIntegration(t *testing.T) {
 			args:       []string{"E04", "F01"},
 			wantEpic:   nil,
 			wantErr:    true,
-			errMessage: "too many positional arguments",
+			errMessage: "too many arguments",
 		},
 
 		{
@@ -76,7 +76,7 @@ func TestParseFeatureListArgsIntegration(t *testing.T) {
 			args:       []string{"E04", "F01", "extra"},
 			wantEpic:   nil,
 			wantErr:    true,
-			errMessage: "too many positional arguments",
+			errMessage: "too many arguments",
 		},
 	}
 
@@ -118,17 +118,17 @@ func TestFeatureListQueryWithDatabase(t *testing.T) {
 
 	// Create test epic with unique key
 	testEpicKey := "E72"
+
+	// Clean up any existing test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?)", testEpicKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", testEpicKey)
+
 	epic := &models.Epic{
 		Key:           testEpicKey,
 		Title:         "Feature List Test Epic",
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: ptrPriority(models.PriorityHigh),
-	}
-	// Skip if key already exists (from previous test run)
-	existingEpic, _ := epicRepo.GetByKey(ctx, testEpicKey)
-	if existingEpic != nil {
-		t.Skip("Test epic already exists from previous run, skipping")
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create test epic: %v", err)
@@ -178,7 +178,7 @@ func TestFeatureListQueryWithDatabase(t *testing.T) {
 
 // Helper function to check if string contains substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > 0 && s[0:len(substr)] == substr))
+	return strings.Contains(s, substr)
 }
 
 // Helper to create Priority pointer

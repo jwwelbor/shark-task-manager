@@ -1,9 +1,14 @@
 {
   "color_enabled": true,
+  "database": {
+    "auth_token_file": "/home/jwwelbor/.turso/wormwood-token",
+    "backend": "turso",
+    "url": "libsql://wormwood-gm-wormwoodgm.aws-us-east-1.turso.io"
+  },
   "default_agent": null,
   "default_epic": null,
   "json_output": false,
-  "last_sync_time": "2025-12-29T17:16:54-06:00",
+  "last_sync_time": "2026-01-01T13:41:04-06:00",
   "patterns": {
     "epic": {
       "file": [
@@ -42,108 +47,187 @@
       }
     }
   },
-  "status_flow_version": "1.0",
-  "status_flow": {
-    "draft": ["ready_for_refinement", "cancelled", "on_hold"],
-    "ready_for_refinement": ["in_refinement", "cancelled", "on_hold"],
-    "in_refinement": ["ready_for_development", "draft", "blocked", "on_hold"],
-    "ready_for_development": ["in_development", "ready_for_refinement", "cancelled", "on_hold"],
-    "in_development": ["ready_for_code_review", "ready_for_refinement", "blocked", "on_hold"],
-    "ready_for_code_review": ["in_code_review", "in_development", "on_hold"],
-    "in_code_review": ["ready_for_qa", "in_development", "ready_for_refinement", "on_hold"],
-    "ready_for_qa": ["in_qa", "on_hold"],
-    "in_qa": ["ready_for_approval", "in_development", "ready_for_refinement", "blocked", "on_hold"],
-    "ready_for_approval": ["in_approval", "on_hold"],
-    "in_approval": ["completed", "ready_for_qa", "ready_for_development", "ready_for_refinement", "on_hold"],
-    "blocked": ["ready_for_development", "ready_for_refinement", "cancelled"],
-    "on_hold": ["ready_for_refinement", "ready_for_development", "cancelled"],
-    "completed": [],
-    "cancelled": []
+  "special_statuses": {
+    "_complete_": [
+      "completed",
+      "cancelled"
+    ],
+    "_start_": [
+      "draft",
+      "ready_for_development"
+    ]
   },
+  "status_flow": {
+    "blocked": [
+      "ready_for_development",
+      "ready_for_refinement",
+      "cancelled"
+    ],
+    "cancelled": [],
+    "completed": [],
+    "draft": [
+      "ready_for_refinement",
+      "cancelled",
+      "on_hold"
+    ],
+    "in_approval": [
+      "completed",
+      "ready_for_qa",
+      "ready_for_development",
+      "ready_for_refinement",
+      "on_hold"
+    ],
+    "in_code_review": [
+      "ready_for_qa",
+      "in_development",
+      "ready_for_refinement",
+      "on_hold"
+    ],
+    "in_development": [
+      "ready_for_code_review",
+      "ready_for_refinement",
+      "blocked",
+      "on_hold"
+    ],
+    "in_qa": [
+      "ready_for_approval",
+      "in_development",
+      "ready_for_refinement",
+      "blocked",
+      "on_hold"
+    ],
+    "in_refinement": [
+      "ready_for_development",
+      "draft",
+      "blocked",
+      "on_hold"
+    ],
+    "on_hold": [
+      "ready_for_refinement",
+      "ready_for_development",
+      "cancelled"
+    ],
+    "ready_for_approval": [
+      "in_approval",
+      "on_hold"
+    ],
+    "ready_for_code_review": [
+      "in_code_review",
+      "in_development",
+      "on_hold"
+    ],
+    "ready_for_development": [
+      "in_development",
+      "ready_for_refinement",
+      "cancelled",
+      "on_hold"
+    ],
+    "ready_for_qa": [
+      "in_qa",
+      "on_hold"
+    ],
+    "ready_for_refinement": [
+      "in_refinement",
+      "cancelled",
+      "on_hold"
+    ]
+  },
+  "status_flow_version": "1.0",
   "status_metadata": {
-    "draft": {
-      "color": "gray",
-      "description": "Task created but not yet refined",
-      "phase": "planning"
-    },
-    "ready_for_refinement": {
-      "color": "cyan",
-      "description": "Awaiting specification and analysis",
-      "phase": "planning",
-      "agent_types": ["business-analyst", "architect"]
-    },
-    "in_refinement": {
-      "color": "blue",
-      "description": "Being analyzed and specified",
-      "phase": "planning"
-    },
-    "ready_for_development": {
-      "color": "yellow",
-      "description": "Spec complete, ready for implementation",
-      "phase": "development",
-      "agent_types": ["developer", "ai-coder"]
-    },
-    "in_development": {
-      "color": "yellow",
-      "description": "Code implementation in progress",
-      "phase": "development"
-    },
-    "ready_for_code_review": {
-      "color": "magenta",
-      "description": "Code complete, awaiting review",
-      "phase": "review",
-      "agent_types": ["tech-lead", "code-reviewer"]
-    },
-    "in_code_review": {
-      "color": "magenta",
-      "description": "Under code review",
-      "phase": "review"
-    },
-    "ready_for_qa": {
-      "color": "green",
-      "description": "Ready for quality assurance testing",
-      "phase": "qa",
-      "agent_types": ["qa", "test-engineer"]
-    },
-    "in_qa": {
-      "color": "green",
-      "description": "Being tested",
-      "phase": "qa"
-    },
-    "ready_for_approval": {
-      "color": "purple",
-      "description": "Awaiting final approval",
-      "phase": "approval",
-      "agent_types": ["product-manager", "client"]
-    },
-    "in_approval": {
-      "color": "purple",
-      "description": "Under final review",
-      "phase": "approval"
-    },
     "blocked": {
       "color": "red",
       "description": "Temporarily blocked by external dependency",
       "phase": "any"
     },
-    "on_hold": {
-      "color": "orange",
-      "description": "Intentionally paused",
-      "phase": "any"
+    "cancelled": {
+      "color": "gray",
+      "description": "Task abandoned or deprecated",
+      "phase": "done"
     },
     "completed": {
       "color": "white",
       "description": "Task finished and approved",
       "phase": "done"
     },
-    "cancelled": {
+    "draft": {
       "color": "gray",
-      "description": "Task abandoned or deprecated",
-      "phase": "done"
+      "description": "Task created but not yet refined",
+      "phase": "planning"
+    },
+    "in_approval": {
+      "color": "purple",
+      "description": "Under final review",
+      "phase": "approval"
+    },
+    "in_code_review": {
+      "color": "magenta",
+      "description": "Under code review",
+      "phase": "review"
+    },
+    "in_development": {
+      "color": "yellow",
+      "description": "Code implementation in progress",
+      "phase": "development"
+    },
+    "in_qa": {
+      "color": "green",
+      "description": "Being tested",
+      "phase": "qa"
+    },
+    "in_refinement": {
+      "color": "blue",
+      "description": "Being analyzed and specified",
+      "phase": "planning"
+    },
+    "on_hold": {
+      "color": "orange",
+      "description": "Intentionally paused",
+      "phase": "any"
+    },
+    "ready_for_approval": {
+      "agent_types": [
+        "product-manager",
+        "client"
+      ],
+      "color": "purple",
+      "description": "Awaiting final approval",
+      "phase": "approval"
+    },
+    "ready_for_code_review": {
+      "agent_types": [
+        "tech-lead",
+        "code-reviewer"
+      ],
+      "color": "magenta",
+      "description": "Code complete, awaiting review",
+      "phase": "review"
+    },
+    "ready_for_development": {
+      "agent_types": [
+        "developer",
+        "ai-coder"
+      ],
+      "color": "yellow",
+      "description": "Spec complete, ready for implementation",
+      "phase": "development"
+    },
+    "ready_for_qa": {
+      "agent_types": [
+        "qa",
+        "test-engineer"
+      ],
+      "color": "green",
+      "description": "Ready for quality assurance testing",
+      "phase": "qa"
+    },
+    "ready_for_refinement": {
+      "agent_types": [
+        "business-analyst",
+        "architect"
+      ],
+      "color": "cyan",
+      "description": "Awaiting specification and analysis",
+      "phase": "planning"
     }
-  },
-  "special_statuses": {
-    "_start_": ["draft", "ready_for_development"],
-    "_complete_": ["completed", "cancelled"]
   }
 }

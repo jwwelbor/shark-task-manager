@@ -15,7 +15,8 @@ type TaskRepositoryInterface interface {
 
 // MockTaskRepository is a mock implementation of TaskRepository for testing
 type MockTaskRepository struct {
-	tasks map[string]*models.Task
+	tasks      map[string]*models.Task
+	CreateFunc func(ctx context.Context, task *models.Task) error
 }
 
 // NewMockTaskRepository creates a new mock repository with test data
@@ -56,4 +57,12 @@ func (m *MockTaskRepository) FilterCombined(ctx context.Context, status *models.
 		result = append(result, task)
 	}
 	return result, nil
+}
+
+// Create mocks the Create method
+func (m *MockTaskRepository) Create(ctx context.Context, task *models.Task) error {
+	if m.CreateFunc != nil {
+		return m.CreateFunc(ctx, task)
+	}
+	return nil
 }
