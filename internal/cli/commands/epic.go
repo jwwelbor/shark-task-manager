@@ -799,15 +799,22 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 		// Create backup before force reassignment
 		if (existingEpic != nil || existingFeature != nil) && force {
-			dbPath, err := cli.GetDBPath()
+			dbPath, canBackup, err := cli.GetDatabasePathForBackup()
 			if err != nil {
 				cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 				os.Exit(2)
 			}
-			if _, err := backupDatabaseOnForce(force, dbPath, "force file reassignment"); err != nil {
-				cli.Error(fmt.Sprintf("Error: %v", err))
-				cli.Info("Aborting operation to prevent data loss")
-				os.Exit(2)
+			if canBackup {
+				if _, err := backupDatabaseOnForce(force, dbPath, "force file reassignment"); err != nil {
+					cli.Error(fmt.Sprintf("Error: %v", err))
+					cli.Info("Aborting operation to prevent data loss")
+					os.Exit(2)
+				}
+			} else {
+				// Cloud database - backup is handled by cloud provider
+				if cli.GlobalConfig.Verbose {
+					cli.Info("Using cloud database - backup handled by provider")
+				}
 			}
 		}
 
@@ -1058,11 +1065,17 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		allTasks = append(allTasks, tasks...)
 		featureTaskCounts[feature.Key] = len(tasks)
 
-		// Aggregate status breakdown (using map for this operation that needs status lookups)
-		statusBreakdown, err := taskRepo.GetStatusBreakdownMap(ctx, feature.ID)
+		// Get status breakdown using new workflow-aware method
+		statusBreakdownSlice, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to get status breakdown for feature %s: %v", feature.Key, err))
 			os.Exit(2)
+		}
+
+		// Convert to map for efficient lookup during aggregation
+		statusBreakdown := make(map[models.TaskStatus]int)
+		for _, sc := range statusBreakdownSlice {
+			statusBreakdown[models.TaskStatus(sc.Status)] = sc.Count
 		}
 
 		featureTaskBreakdown[feature.Key] = statusBreakdown
@@ -1182,15 +1195,22 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before force completing tasks
 	if force && hasIncomplete {
-		dbPath, err := cli.GetDBPath()
+		dbPath, canBackup, err := cli.GetDatabasePathForBackup()
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 			os.Exit(2)
 		}
-		if _, err := backupDatabaseOnForce(force, dbPath, "force complete epic"); err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			cli.Info("Aborting operation to prevent data loss")
-			os.Exit(2)
+		if canBackup {
+			if _, err := backupDatabaseOnForce(force, dbPath, "force complete epic"); err != nil {
+				cli.Error(fmt.Sprintf("Error: %v", err))
+				cli.Info("Aborting operation to prevent data loss")
+				os.Exit(2)
+			}
+		} else {
+			// Cloud database - backup is handled by cloud provider
+			if cli.GlobalConfig.Verbose {
+				cli.Info("Using cloud database - backup handled by provider")
+			}
 		}
 	}
 
@@ -1338,19 +1358,26 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before cascade delete (when epic has features)
 	if len(features) > 0 {
-		dbPath, err := cli.GetDBPath()
+		dbPath, canBackup, err := cli.GetDatabasePathForBackup()
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 			os.Exit(2)
 		}
-		backupPath, err := db.BackupDatabase(dbPath)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
-			cli.Info("Aborting deletion to prevent data loss")
-			os.Exit(2)
-		}
-		if !cli.GlobalConfig.JSON {
-			cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+		if canBackup {
+			backupPath, err := db.BackupDatabase(dbPath)
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
+				cli.Info("Aborting deletion to prevent data loss")
+				os.Exit(2)
+			}
+			if !cli.GlobalConfig.JSON {
+				cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+			}
+		} else {
+			// Cloud database - backup is handled by cloud provider
+			if cli.GlobalConfig.Verbose {
+				cli.Info("Using cloud database - backup handled by provider")
+			}
 		}
 	}
 

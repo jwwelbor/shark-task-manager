@@ -116,3 +116,59 @@ func InitializeDatabaseFromConfig(ctx context.Context, configPath string) (db.Da
 
 	return database, nil
 }
+
+// GetDatabasePathForBackup returns the database file path for backup operations.
+// This function works with the new cloud-aware architecture by reading the database
+// configuration and determining if the database can be backed up locally.
+//
+// Returns:
+//   - dbPath: The absolute path to the database file (for local SQLite only)
+//   - canBackup: Whether the database supports file-based backups
+//   - error: Any error that occurred
+//
+// For Turso (cloud) databases, this returns canBackup=false since cloud databases
+// don't have local file backups.
+//
+// Usage:
+//
+//	dbPath, canBackup, err := cli.GetDatabasePathForBackup()
+//	if err != nil {
+//	    return err
+//	}
+//	if !canBackup {
+//	    // Skip backup for cloud database
+//	    return nil
+//	}
+//	// Create backup using dbPath
+func GetDatabasePathForBackup() (dbPath string, canBackup bool, err error) {
+	// Find project root
+	projectRoot, err := FindProjectRoot()
+	if err != nil {
+		return "", false, fmt.Errorf("failed to find project root: %w", err)
+	}
+
+	// Get config path
+	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+
+	// Get database config
+	dbConfig, err := GetDatabaseConfig(configPath)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get database config: %w", err)
+	}
+
+	// Check if backend is local/SQLite
+	if dbConfig.Backend == "turso" {
+		// Turso databases don't support local file backups
+		return "", false, nil
+	}
+
+	// For local/SQLite databases, return the file path
+	dbPath = dbConfig.URL
+
+	// Make absolute if relative
+	if !filepath.IsAbs(dbPath) {
+		dbPath = filepath.Join(projectRoot, dbPath)
+	}
+
+	return dbPath, true, nil
+}
