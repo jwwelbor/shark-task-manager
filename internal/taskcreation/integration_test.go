@@ -36,7 +36,7 @@ func TestTaskCreation_EndToEnd(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
 
 	// Create temporary directory for test files
 	tempDir := t.TempDir()
@@ -88,7 +88,7 @@ func TestTaskCreation_WithDependencies(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
 
 	// Create task with dependency
 	input := CreateTaskInput{
@@ -127,7 +127,7 @@ func TestTaskCreation_SequentialKeys(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
 
 	// Create multiple tasks
 	for i := 1; i <= 5; i++ {
@@ -164,7 +164,7 @@ func TestTaskCreation_AllAgentTypes(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
 
 	agentTypes := []string{"frontend", "backend", "api", "testing", "devops", "general"}
 
@@ -202,7 +202,7 @@ func TestTaskCreation_ValidationErrors(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
 
 	tests := []struct {
 		name        string
@@ -306,7 +306,7 @@ func TestTaskCreation_FileGeneration(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
 
 	// Create task
 	input := CreateTaskInput{
@@ -346,7 +346,7 @@ func TestTaskCreation_HistoryRecord(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir())
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, t.TempDir(), nil)
 
 	// Create task
 	input := CreateTaskInput{

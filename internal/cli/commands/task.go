@@ -1116,7 +1116,8 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-	creator := taskcreation.NewCreator(repoDb, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot)
+	// Pass nil for workflowService - Creator will create one automatically from projectRoot
+	creator := taskcreation.NewCreator(repoDb, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, nil)
 
 	// Create task
 	input := taskcreation.CreateTaskInput{
@@ -1799,6 +1800,7 @@ func init() {
 	taskCmd.AddCommand(taskUnblockCmd)
 	taskCmd.AddCommand(taskReopenCmd)
 	taskCmd.AddCommand(taskNextCmd)
+	taskCmd.AddCommand(taskNextStatusCmd)
 	taskCmd.AddCommand(taskDeleteCmd)
 	taskCmd.AddCommand(taskUpdateCmd)
 	taskCmd.AddCommand(taskSetStatusCmd)

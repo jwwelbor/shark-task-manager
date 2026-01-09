@@ -10,27 +10,29 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/patterns"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // Creator orchestrates the complete task creation workflow
 type Creator struct {
-	db          *repository.DB
-	keygen      *KeyGenerator
-	validator   *Validator
-	renderer    *templates.Renderer
-	taskRepo    *repository.TaskRepository
-	historyRepo *repository.TaskHistoryRepository
-	epicRepo    *repository.EpicRepository
-	featureRepo *repository.FeatureRepository
-	projectRoot string
+	db              *repository.DB
+	keygen          *KeyGenerator
+	validator       *Validator
+	renderer        *templates.Renderer
+	taskRepo        *repository.TaskRepository
+	historyRepo     *repository.TaskHistoryRepository
+	epicRepo        *repository.EpicRepository
+	featureRepo     *repository.FeatureRepository
+	projectRoot     string
+	workflowService *workflow.Service
 }
 
-// NewCreator creates a new task creator
+// NewCreator creates a new task creator.
+// The workflowService is optional - if nil, it will be created using projectRoot.
 func NewCreator(
 	db *repository.DB,
 	keygen *KeyGenerator,
@@ -41,17 +43,24 @@ func NewCreator(
 	epicRepo *repository.EpicRepository,
 	featureRepo *repository.FeatureRepository,
 	projectRoot string,
+	workflowService *workflow.Service,
 ) *Creator {
+	// Create workflow service if not provided
+	if workflowService == nil {
+		workflowService = workflow.NewService(projectRoot)
+	}
+
 	return &Creator{
-		db:          db,
-		keygen:      keygen,
-		validator:   validator,
-		renderer:    renderer,
-		taskRepo:    taskRepo,
-		historyRepo: historyRepo,
-		epicRepo:    epicRepo,
-		featureRepo: featureRepo,
-		projectRoot: projectRoot,
+		db:              db,
+		keygen:          keygen,
+		validator:       validator,
+		renderer:        renderer,
+		taskRepo:        taskRepo,
+		historyRepo:     historyRepo,
+		epicRepo:        epicRepo,
+		featureRepo:     featureRepo,
+		projectRoot:     projectRoot,
+		workflowService: workflowService,
 	}
 }
 
@@ -241,8 +250,8 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		executionOrder = &input.ExecutionOrder
 	}
 
-	// Determine initial status from workflow config
-	initialStatus := c.getInitialTaskStatus()
+	// Determine initial status from workflow config via WorkflowService
+	initialStatus := c.workflowService.GetInitialStatus()
 
 	// Create task record
 	task := &models.Task{
@@ -427,25 +436,5 @@ func stringPtr(s string) *string {
 	return &s
 }
 
-// getInitialTaskStatus returns the initial status for new tasks from workflow config.
-// It reads the first entry status from special_statuses._start_ in .sharkconfig.json.
-// Falls back to TaskStatusTodo if workflow config is not found or doesn't define entry statuses.
-func (c *Creator) getInitialTaskStatus() models.TaskStatus {
-	// Load workflow config from project root
-	configPath := filepath.Join(c.projectRoot, ".sharkconfig.json")
-	workflow, err := config.LoadWorkflowConfig(configPath)
-	if err != nil || workflow == nil {
-		// Config not found or failed to load - use default
-		return models.TaskStatusTodo
-	}
-
-	// Get entry statuses from special_statuses._start_
-	startStatuses, exists := workflow.SpecialStatuses[config.StartStatusKey]
-	if !exists || len(startStatuses) == 0 {
-		// No entry statuses defined - use default
-		return models.TaskStatusTodo
-	}
-
-	// Return first entry status
-	return models.TaskStatus(startStatuses[0])
-}
+// NOTE: getInitialTaskStatus has been removed and replaced with WorkflowService.GetInitialStatus()
+// See T-E07-F16-012 for details on the refactoring.

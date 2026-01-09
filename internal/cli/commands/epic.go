@@ -1058,8 +1058,8 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		allTasks = append(allTasks, tasks...)
 		featureTaskCounts[feature.Key] = len(tasks)
 
-		// Aggregate status breakdown
-		statusBreakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+		// Aggregate status breakdown (using map for this operation that needs status lookups)
+		statusBreakdown, err := taskRepo.GetStatusBreakdownMap(ctx, feature.ID)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to get status breakdown for feature %s: %v", feature.Key, err))
 			os.Exit(2)

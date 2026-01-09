@@ -346,8 +346,8 @@ func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 	loader := templates.NewLoader("")
 	renderer := templates.NewRenderer(loader)
-
-	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir)
+	// Pass nil for workflowService - Creator will create one automatically from tempDir
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, nil)
 
 	// Act: Create a new task
 	input := CreateTaskInput{
