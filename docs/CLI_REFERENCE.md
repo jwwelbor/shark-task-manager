@@ -341,6 +341,11 @@ shark feature get <feature-key> [--json]
 - Numeric keys: `E07-F01`, `F01`
 - Slugged keys: `E07-F01-authentication`, `F01-authentication`
 
+**Features:**
+- **Workflow-aware status display**: Task statuses are colored according to workflow config
+- **Phase information**: Status breakdown includes workflow phase (planning, development, review, etc.)
+- **Completion message**: Shows "All tasks completed!" when progress reaches 100%
+
 **Examples:**
 
 ```bash
@@ -355,6 +360,29 @@ shark feature get F01
 
 # Using slugged key
 shark feature get E07-F01-authentication --json
+```
+
+**Output includes:**
+- Feature metadata (title, status, progress, path)
+- Task status breakdown (status, count, phase) - ordered by workflow phase
+- Task list with colored statuses
+- Completion message if all tasks are done
+
+**JSON Output:**
+```json
+{
+  "id": 1,
+  "epic_id": 7,
+  "key": "E07-F01",
+  "title": "Authentication",
+  "status": "active",
+  "progress_pct": 75.0,
+  "tasks": [...],
+  "status_breakdown": [
+    {"status": "completed", "count": 3, "phase": "done", "color": "green"},
+    {"status": "in_progress", "count": 1, "phase": "development", "color": "blue"}
+  ]
+}
 ```
 
 ---
@@ -765,6 +793,120 @@ shark config get default_agent
 
 # Get default priority
 shark config get default_priority
+```
+
+---
+
+## Workflow Configuration
+
+Shark supports customizable workflow configuration through `.sharkconfig.json`. This allows you to define custom status flows, colors, phases, and agent types.
+
+### Configuration Structure
+
+```json
+{
+  "status_flow": {
+    "draft": ["ready_for_refinement", "cancelled"],
+    "ready_for_refinement": ["in_refinement", "cancelled"],
+    "in_refinement": ["ready_for_development", "draft"],
+    "ready_for_development": ["in_development", "cancelled"],
+    "in_development": ["ready_for_code_review", "blocked"],
+    "ready_for_code_review": ["in_code_review", "in_development"],
+    "in_code_review": ["ready_for_qa", "in_development"],
+    "ready_for_qa": ["in_qa"],
+    "in_qa": ["ready_for_approval", "in_development"],
+    "ready_for_approval": ["in_approval"],
+    "in_approval": ["completed", "ready_for_qa"],
+    "completed": [],
+    "blocked": ["ready_for_development"],
+    "cancelled": []
+  },
+  "status_metadata": {
+    "draft": {
+      "color": "gray",
+      "description": "Task created but not yet refined",
+      "phase": "planning"
+    },
+    "in_development": {
+      "color": "yellow",
+      "description": "Code implementation in progress",
+      "phase": "development",
+      "agent_types": ["developer", "ai-coder"]
+    },
+    "completed": {
+      "color": "green",
+      "description": "Task finished and approved",
+      "phase": "done"
+    }
+  },
+  "special_statuses": {
+    "_start_": ["draft", "ready_for_development"],
+    "_complete_": ["completed", "cancelled"]
+  }
+}
+```
+
+### Configuration Options
+
+**status_flow**: Defines valid transitions between statuses
+- Key: Source status
+- Value: Array of valid target statuses
+
+**status_metadata**: Metadata for each status
+- `color`: ANSI color name (red, green, yellow, blue, cyan, magenta, gray, white, orange, purple)
+- `description`: Human-readable description
+- `phase`: Workflow phase (planning, development, review, qa, approval, done, any)
+- `agent_types`: Array of agent types that can work on tasks in this status
+
+**special_statuses**: Special status markers
+- `_start_`: Valid initial statuses for new tasks
+- `_complete_`: Terminal statuses (no transitions out)
+
+### Workflow Phases
+
+Phases are used to order status displays:
+
+1. **planning**: Draft, refinement stages (gray, cyan colors)
+2. **development**: Active implementation (yellow colors)
+3. **review**: Code review stages (magenta colors)
+4. **qa**: Quality assurance (green colors)
+5. **approval**: Final approval stages (purple colors)
+6. **done**: Terminal states (white/green colors)
+7. **any**: Status applicable to any phase (blocked, on_hold)
+
+### Feature Get Display
+
+The `shark feature get` command shows workflow-aware status information:
+- Status breakdown ordered by workflow phase
+- Statuses colored according to `status_metadata` colors
+- Phase column shows which workflow stage each status belongs to
+- "All tasks completed!" message when progress reaches 100%
+
+### Example: Simple Workflow
+
+For a simpler workflow with fewer statuses:
+
+```json
+{
+  "status_flow": {
+    "todo": ["in_progress"],
+    "in_progress": ["review", "blocked"],
+    "review": ["done", "in_progress"],
+    "blocked": ["in_progress"],
+    "done": []
+  },
+  "status_metadata": {
+    "todo": {"color": "gray", "phase": "planning"},
+    "in_progress": {"color": "yellow", "phase": "development"},
+    "review": {"color": "magenta", "phase": "review"},
+    "blocked": {"color": "red", "phase": "any"},
+    "done": {"color": "green", "phase": "done"}
+  },
+  "special_statuses": {
+    "_start_": ["todo"],
+    "_complete_": ["done"]
+  }
+}
 ```
 
 ---

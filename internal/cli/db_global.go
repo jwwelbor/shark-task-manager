@@ -31,6 +31,11 @@ var (
 //	    return fmt.Errorf("failed to get database: %w", err)
 //	}
 func GetDB(ctx context.Context) (*repository.DB, error) {
+	// Handle nil context (Cobra commands don't set context by default)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	dbInitOnce.Do(func() {
 		globalDB, dbInitErr = initDatabase(ctx)
 	})
