@@ -991,6 +991,19 @@ func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64
 	return breakdown, nil
 }
 
+// GetTaskCountForFeature returns the total number of tasks for a given feature
+func (r *TaskRepository) GetTaskCountForFeature(ctx context.Context, featureID int64) (int, error) {
+	query := `SELECT COUNT(*) FROM tasks WHERE feature_id = ?`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, featureID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get task count for feature: %w", err)
+	}
+
+	return count, nil
+}
+
 // BulkCreate creates multiple tasks in a single transaction
 // Returns number of tasks created and error
 func (r *TaskRepository) BulkCreate(ctx context.Context, tasks []*models.Task) (int, error) {

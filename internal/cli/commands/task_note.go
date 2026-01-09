@@ -246,6 +246,7 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	taskRepo := repository.NewTaskRepository(repoDb)
 	noteRepo := repository.NewTaskNoteRepository(repoDb)
+	historyRepo := repository.NewTaskHistoryRepository(repoDb)
 
 	// Get task by key
 	task, err := taskRepo.GetByKey(ctx, taskKey)
@@ -253,17 +254,11 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task %s not found", taskKey)
 	}
 
-	// Get status changes from task_history
-	rows, err := repoDb.DB.QueryContext(ctx, `
-		SELECT old_status, new_status, agent, timestamp
-		FROM task_history
-		WHERE task_id = ?
-		ORDER BY timestamp ASC
-	`, task.ID)
+	// Get status changes from task_history using repository
+	histories, err := historyRepo.GetHistoryByTaskKey(ctx, taskKey)
 	if err != nil {
 		return fmt.Errorf("failed to get task history: %w", err)
 	}
-	defer rows.Close()
 
 	var timeline []TimelineEvent
 
@@ -276,34 +271,26 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 	})
 
 	// Add status changes
-	for rows.Next() {
-		var oldStatus, newStatus string
-		var oldStatusPtr, agentPtr *string
-		var ts time.Time
-		if err := rows.Scan(&oldStatusPtr, &newStatus, &agentPtr, &ts); err != nil {
-			return fmt.Errorf("failed to scan task history: %w", err)
+	for _, history := range histories {
+		oldStatus := ""
+		if history.OldStatus != nil {
+			oldStatus = *history.OldStatus
 		}
 
 		agent := ""
-		if agentPtr != nil {
-			agent = *agentPtr
-		}
-
-		if oldStatusPtr != nil {
-			oldStatus = *oldStatusPtr
-		} else {
-			oldStatus = ""
+		if history.Agent != nil {
+			agent = *history.Agent
 		}
 
 		var content string
 		if oldStatus == "" {
-			content = fmt.Sprintf("Status: → %s", newStatus)
+			content = fmt.Sprintf("Status: → %s", history.NewStatus)
 		} else {
-			content = fmt.Sprintf("Status: %s → %s", oldStatus, newStatus)
+			content = fmt.Sprintf("Status: %s → %s", oldStatus, history.NewStatus)
 		}
 
 		timeline = append(timeline, TimelineEvent{
-			Timestamp: ts,
+			Timestamp: history.Timestamp,
 			EventType: "status",
 			Content:   content,
 			Actor:     agent,

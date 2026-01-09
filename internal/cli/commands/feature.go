@@ -987,7 +987,11 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 		// Create backup before force reassignment (if any collision exists)
 		if (existingFeature != nil || existingEpic != nil) && featureCreateForce {
-			dbPath, _ := cli.GetDBPath()
+			dbPath, err := cli.GetDBPath()
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
+				os.Exit(2)
+			}
 			if _, err := backupDatabaseOnForceFeature(featureCreateForce, dbPath, "force file reassignment"); err != nil {
 				cli.Error(fmt.Sprintf("Error: %v", err))
 				cli.Info("Aborting operation to prevent data loss")
@@ -1326,7 +1330,11 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before force completing tasks
 	if force && hasIncomplete {
-		dbPath, _ := cli.GetDBPath()
+		dbPath, err := cli.GetDBPath()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
+			os.Exit(2)
+		}
 		if _, err := backupDatabaseOnForceFeature(force, dbPath, "force complete feature"); err != nil {
 			cli.Error(fmt.Sprintf("Error: %v", err))
 			cli.Info("Aborting operation to prevent data loss")
@@ -1461,7 +1469,11 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before cascade delete (when feature has tasks)
 	if len(tasks) > 0 {
-		dbPath, _ := cli.GetDBPath()
+		dbPath, err := cli.GetDBPath()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
+			os.Exit(2)
+		}
 		backupPath, err := db.BackupDatabase(dbPath)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))

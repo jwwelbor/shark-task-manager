@@ -51,7 +51,7 @@ We've implemented the foundation:
 
 ### The Solution: Package-Level Singleton with Lazy Initialization
 
-Store a **package-level database instance** in `internal/cli/commands/` and initialize it lazily via Cobra's `PersistentPreRunE` hook on the root command.
+Store a **package-level database instance** in `internal/cli/` and initialize it lazily via Cobra's `PersistentPreRunE` hook on the root command.
 
 ---
 
@@ -59,7 +59,7 @@ Store a **package-level database instance** in `internal/cli/commands/` and init
 
 ### Phase 1: Create Global Database Instance
 
-**File: `internal/cli/commands/db_global.go`**
+**File: `internal/cli/db_global.go`**
 
 ```go
 package commands
@@ -391,7 +391,7 @@ PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 
 ### Unit Tests for Database Initialization
 
-**File: `internal/cli/commands/db_global_test.go`**
+**File: `internal/cli/db_global_test.go`**
 
 ```go
 package commands
@@ -472,7 +472,7 @@ func TestResetDB_ClearsState(t *testing.T) {
 
 Test commands with different backend configurations:
 
-**File: `internal/cli/commands/db_integration_test.go`**
+**File: `internal/cli/db_integration_test.go`**
 
 ```go
 package commands
@@ -540,7 +540,7 @@ Existing command tests should continue to work **unchanged** because:
 - ✅ Update `cloud status` command as proof of concept
 
 ### Phase 2: Global Instance Setup (1-2 hours)
-- Create `internal/cli/commands/db_global.go` with `GetDB()`, `CloseDB()`, `ResetDB()`
+- Create `internal/cli/db_global.go` with `GetDB()`, `CloseDB()`, `ResetDB()`
 - Add `PersistentPostRunE` cleanup hook to root command
 - Write unit tests for global database instance
 - Verify cloud and local backends both work
@@ -704,8 +704,8 @@ The migration is **low-risk** with automated tooling and comprehensive test cove
 ## Appendix: Related Files
 
 ### Files to Create
-- `internal/cli/commands/db_global.go` - Global database instance
-- `internal/cli/commands/db_global_test.go` - Unit tests
+- `internal/cli/db_global.go` - Global database instance
+- `internal/cli/db_global_test.go` - Unit tests
 - `scripts/migrate-to-global-db.sh` - Migration automation
 
 ### Files to Modify
@@ -713,7 +713,7 @@ The migration is **low-risk** with automated tooling and comprehensive test cove
 - All 74 command files in `internal/cli/commands/*.go` - Replace init pattern
 
 ### Files to Reference
-- `internal/cli/commands/db_init.go` - Current `initDatabase()` implementation
+- `internal/cli/db_init.go` - Current `initDatabase()` implementation
 - `internal/cli/db_helper.go` - `GetDatabaseConfig()`, `InitializeDatabaseFromConfig()`
 - `internal/db/registry.go` - Driver registry for SQLite/Turso
 

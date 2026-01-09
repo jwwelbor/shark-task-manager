@@ -454,9 +454,11 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		}
 
 		// Get task count
-		var taskCount int
-		err = repoDb.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE feature_id = ?", feature.ID).Scan(&taskCount)
+		taskCount, err := taskRepo.GetTaskCountForFeature(ctx, feature.ID)
 		if err != nil {
+			if cli.GlobalConfig.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get task count for feature %s: %v\n", feature.Key, err)
+			}
 			taskCount = 0
 		}
 
@@ -797,7 +799,11 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 		// Create backup before force reassignment
 		if (existingEpic != nil || existingFeature != nil) && force {
-			dbPath, _ := cli.GetDBPath()
+			dbPath, err := cli.GetDBPath()
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
+				os.Exit(2)
+			}
 			if _, err := backupDatabaseOnForce(force, dbPath, "force file reassignment"); err != nil {
 				cli.Error(fmt.Sprintf("Error: %v", err))
 				cli.Info("Aborting operation to prevent data loss")
@@ -1176,7 +1182,11 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before force completing tasks
 	if force && hasIncomplete {
-		dbPath, _ := cli.GetDBPath()
+		dbPath, err := cli.GetDBPath()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
+			os.Exit(2)
+		}
 		if _, err := backupDatabaseOnForce(force, dbPath, "force complete epic"); err != nil {
 			cli.Error(fmt.Sprintf("Error: %v", err))
 			cli.Info("Aborting operation to prevent data loss")
@@ -1328,7 +1338,11 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before cascade delete (when epic has features)
 	if len(features) > 0 {
-		dbPath, _ := cli.GetDBPath()
+		dbPath, err := cli.GetDBPath()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
+			os.Exit(2)
+		}
 		backupPath, err := db.BackupDatabase(dbPath)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))

@@ -8,7 +8,7 @@ This guide provides step-by-step instructions for implementing the global databa
 
 ### Step 1.1: Create `db_global.go`
 
-**File**: `internal/cli/commands/db_global.go`
+**File**: `internal/cli/db_global.go`
 
 ```go
 package commands
@@ -84,7 +84,7 @@ func ResetDB() {
 
 ### Step 1.2: Create Tests
 
-**File**: `internal/cli/commands/db_global_test.go`
+**File**: `internal/cli/db_global_test.go`
 
 ```go
 package commands
@@ -509,8 +509,8 @@ func runMyCommand(cmd *cobra.Command, args []string) error {
 
 ```bash
 # Stage changes
-git add internal/cli/commands/db_global.go
-git add internal/cli/commands/db_global_test.go
+git add internal/cli/db_global.go
+git add internal/cli/db_global_test.go
 git add internal/cli/root.go
 git add internal/cli/commands/*.go
 git add scripts/migrate-to-global-db.sh
