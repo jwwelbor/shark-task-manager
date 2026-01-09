@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
@@ -302,14 +303,8 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -317,9 +312,9 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	epicRepo := repository.NewEpicRepository(repoDb)
 
@@ -463,14 +458,8 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 
 	featureKey := args[0]
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -478,9 +467,18 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
+
+	// Get project root for WorkflowService
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		projectRoot = ""
+	}
+
+	// Create WorkflowService for status formatting
+	workflowService := workflow.NewService(projectRoot)
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
@@ -492,12 +490,6 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
 		cli.Info("Use 'shark feature list' to see available features")
 		os.Exit(1)
-	}
-
-	// Get project root for path resolution
-	projectRoot, err := os.Getwd()
-	if err != nil {
-		projectRoot = ""
 	}
 
 	// Resolve feature path using PathResolver
@@ -595,7 +587,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output as formatted text
-	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs)
+	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs, workflowService)
 	return nil
 }
 
@@ -644,24 +636,33 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 }
 
 // renderFeatureDetails renders feature details with tasks table
-func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown map[models.TaskStatus]int, path, filename string, relatedDocs []*models.Document) {
+// statusBreakdown is workflow-ordered with metadata
+// workflowService is used for color formatting (can be nil for no colors)
+func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown []workflow.StatusCount, path, filename string, relatedDocs []*models.Document, workflowService *workflow.Service) {
+	// Determine if colors should be enabled
+	colorEnabled := !cli.GlobalConfig.NoColor && workflowService != nil
+
 	// Print feature metadata
 	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
 	fmt.Println()
 
-	// Format status with source indicator
-	statusDisplay := string(feature.Status)
+	// Format feature status with color if available
+	featureStatusDisplay := string(feature.Status)
+	if colorEnabled {
+		formatted := workflowService.FormatStatusForDisplay(string(feature.Status), true)
+		featureStatusDisplay = formatted.Colored
+	}
 	if feature.StatusOverride {
-		statusDisplay += " (manual override)"
+		featureStatusDisplay += " (manual override)"
 	} else {
-		statusDisplay += " (calculated)"
+		featureStatusDisplay += " (calculated)"
 	}
 
 	// Feature info
 	info := [][]string{
 		{"Title", feature.Title},
 		{"Epic ID", fmt.Sprintf("%d", feature.EpicID)},
-		{"Status", statusDisplay},
+		{"Status", featureStatusDisplay},
 		{"Progress", fmt.Sprintf("%.1f%%", feature.ProgressPct)},
 	}
 
@@ -691,18 +692,34 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 		fmt.Println()
 	}
 
-	// Task status breakdown
+	// Task status breakdown (workflow-ordered with colored status names)
 	if len(statusBreakdown) > 0 {
 		pterm.DefaultSection.Println("Task Status Breakdown")
 		fmt.Println()
-		breakdownData := pterm.TableData{}
-		for status, count := range statusBreakdown {
+		breakdownData := pterm.TableData{
+			{"Status", "Count", "Phase"},
+		}
+		for _, sc := range statusBreakdown {
+			// Format status with color if available
+			statusDisplay := sc.Status
+			if colorEnabled {
+				statusDisplay = workflowService.FormatStatusCount(sc, true)
+			}
+
 			breakdownData = append(breakdownData, []string{
-				string(status),
-				fmt.Sprintf("%d", count),
+				statusDisplay,
+				fmt.Sprintf("%d", sc.Count),
+				sc.Phase,
 			})
 		}
-		_ = pterm.DefaultTable.WithData(breakdownData).Render()
+		_ = pterm.DefaultTable.WithHasHeader().WithData(breakdownData).Render()
+		fmt.Println()
+	}
+
+	// Check if all tasks are completed
+	allTasksCompleted := len(tasks) > 0 && feature.ProgressPct >= 100.0
+	if allTasksCompleted {
+		pterm.Success.Println("All tasks completed! Feature is ready for approval.")
 		fmt.Println()
 	}
 
@@ -733,10 +750,17 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 			agent = string(*task.AgentType)
 		}
 
+		// Format task status with color if available
+		taskStatusDisplay := string(task.Status)
+		if colorEnabled {
+			formatted := workflowService.FormatStatusForDisplay(string(task.Status), true)
+			taskStatusDisplay = formatted.Colored
+		}
+
 		tableData = append(tableData, []string{
 			task.Key,
 			title,
-			string(task.Status),
+			taskStatusDisplay,
 			fmt.Sprintf("%d", task.Priority),
 			agent,
 		})
@@ -869,14 +893,8 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -884,9 +902,9 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
@@ -1005,10 +1023,22 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 		// Create backup before force reassignment (if any collision exists)
 		if (existingFeature != nil || existingEpic != nil) && featureCreateForce {
-			if _, err := backupDatabaseOnForceFeature(featureCreateForce, dbPath, "force file reassignment"); err != nil {
-				cli.Error(fmt.Sprintf("Error: %v", err))
-				cli.Info("Aborting operation to prevent data loss")
+			dbPath, canBackup, err := cli.GetDatabasePathForBackup()
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 				os.Exit(2)
+			}
+			if canBackup {
+				if _, err := backupDatabaseOnForceFeature(featureCreateForce, dbPath, "force file reassignment"); err != nil {
+					cli.Error(fmt.Sprintf("Error: %v", err))
+					cli.Info("Aborting operation to prevent data loss")
+					os.Exit(2)
+				}
+			} else {
+				// Cloud database - backup is handled by cloud provider
+				if cli.GlobalConfig.Verbose {
+					cli.Info("Using cloud database - backup handled by provider")
+				}
 			}
 		}
 
@@ -1206,14 +1236,8 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 	featureKey := args[0]
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1221,10 +1245,9 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
 
@@ -1266,11 +1289,17 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get task status breakdown
-	statusBreakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+	// Get status breakdown using new workflow-aware method
+	statusBreakdownSlice, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to get task status: %v", err))
 		os.Exit(2)
+	}
+
+	// Convert to map for efficient lookup
+	statusBreakdown := make(map[models.TaskStatus]int)
+	for _, sc := range statusBreakdownSlice {
+		statusBreakdown[models.TaskStatus(sc.Status)] = sc.Count
 	}
 
 	// Count completed and reviewed tasks (tasks that don't need completion)
@@ -1350,10 +1379,22 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before force completing tasks
 	if force && hasIncomplete {
-		if _, err := backupDatabaseOnForceFeature(force, dbPath, "force complete feature"); err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			cli.Info("Aborting operation to prevent data loss")
+		dbPath, canBackup, err := cli.GetDatabasePathForBackup()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 			os.Exit(2)
+		}
+		if canBackup {
+			if _, err := backupDatabaseOnForceFeature(force, dbPath, "force complete feature"); err != nil {
+				cli.Error(fmt.Sprintf("Error: %v", err))
+				cli.Info("Aborting operation to prevent data loss")
+				os.Exit(2)
+			}
+		} else {
+			// Cloud database - backup is handled by cloud provider
+			if cli.GlobalConfig.Verbose {
+				cli.Info("Using cloud database - backup handled by provider")
+			}
 		}
 	}
 
@@ -1444,14 +1485,8 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 	featureKey := args[0]
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1459,9 +1494,9 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
 
@@ -1490,14 +1525,26 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before cascade delete (when feature has tasks)
 	if len(tasks) > 0 {
-		backupPath, err := db.BackupDatabase(dbPath)
+		dbPath, canBackup, err := cli.GetDatabasePathForBackup()
 		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
-			cli.Info("Aborting deletion to prevent data loss")
+			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 			os.Exit(2)
 		}
-		if !cli.GlobalConfig.JSON {
-			cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+		if canBackup {
+			backupPath, err := db.BackupDatabase(dbPath)
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
+				cli.Info("Aborting deletion to prevent data loss")
+				os.Exit(2)
+			}
+			if !cli.GlobalConfig.JSON {
+				cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+			}
+		} else {
+			// Cloud database - backup is handled by cloud provider
+			if cli.GlobalConfig.Verbose {
+				cli.Info("Using cloud database - backup handled by provider")
+			}
 		}
 	}
 
@@ -1521,14 +1568,8 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 
 	featureKey := args[0]
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1536,9 +1577,9 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
 	// Get feature by key to verify it exists

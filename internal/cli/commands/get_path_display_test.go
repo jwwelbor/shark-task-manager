@@ -34,6 +34,7 @@ func TestTaskGetPathDisplay(t *testing.T) {
 	defer database.Close()
 
 	ctx := context.Background()
+	// Create repositories using the test database
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
@@ -167,6 +168,7 @@ func TestEpicGetPathDisplay(t *testing.T) {
 	defer database.Close()
 
 	ctx := context.Background()
+	// Create repositories using the test database
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
@@ -274,6 +276,7 @@ func TestFeatureGetPathDisplay(t *testing.T) {
 	defer database.Close()
 
 	ctx := context.Background()
+	// Create repositories using the test database
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)

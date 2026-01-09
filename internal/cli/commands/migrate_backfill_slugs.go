@@ -63,7 +63,7 @@ func runBackfillSlugs(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Show dry-run notice
 	if backfillDryRun && !cli.GlobalConfig.JSON {

@@ -396,17 +396,25 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Test getting status breakdown
+	// Test getting status breakdown (new workflow.StatusCount format)
 	t.Run("get status breakdown for feature", func(t *testing.T) {
 		breakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
 		require.NoError(t, err)
 
-		assert.Equal(t, 2, breakdown[models.TaskStatusCompleted])
-		assert.Equal(t, 2, breakdown[models.TaskStatusInProgress])
-		assert.Equal(t, 1, breakdown[models.TaskStatusTodo])
-		assert.Equal(t, 1, breakdown[models.TaskStatusBlocked])
-		assert.Equal(t, 0, breakdown[models.TaskStatusReadyForReview])
-		assert.Equal(t, 0, breakdown[models.TaskStatusArchived])
+		// Build map from StatusCount slice for easier assertions
+		countMap := make(map[string]int)
+		for _, sc := range breakdown {
+			countMap[sc.Status] = sc.Count
+		}
+
+		// Only non-zero counts should be in the result
+		assert.Equal(t, 2, countMap["completed"])
+		assert.Equal(t, 2, countMap["in_progress"])
+		assert.Equal(t, 1, countMap["todo"])
+		assert.Equal(t, 1, countMap["blocked"])
+		// Zero counts should not be present
+		_, hasReadyForReview := countMap["ready_for_review"]
+		assert.False(t, hasReadyForReview, "Zero count statuses should not be in result")
 	})
 
 	// Test feature with no tasks
@@ -425,10 +433,21 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		breakdown, err := taskRepo.GetStatusBreakdown(ctx, emptyFeature.ID)
 		require.NoError(t, err)
 
-		// All counts should be 0
-		for status, count := range breakdown {
-			assert.Equal(t, 0, count, "Count for status %s should be 0", status)
-		}
+		// Empty result for feature with no tasks
+		assert.Empty(t, breakdown, "Feature with no tasks should have empty breakdown")
+	})
+
+	// Test GetStatusBreakdownMap for backward compatibility
+	t.Run("get status breakdown map for feature (backward compat)", func(t *testing.T) {
+		breakdown, err := taskRepo.GetStatusBreakdownMap(ctx, feature.ID)
+		require.NoError(t, err)
+
+		assert.Equal(t, 2, breakdown[models.TaskStatusCompleted])
+		assert.Equal(t, 2, breakdown[models.TaskStatusInProgress])
+		assert.Equal(t, 1, breakdown[models.TaskStatusTodo])
+		assert.Equal(t, 1, breakdown[models.TaskStatusBlocked])
+		assert.Equal(t, 0, breakdown[models.TaskStatusReadyForReview])
+		assert.Equal(t, 0, breakdown[models.TaskStatusArchived])
 	})
 }
 

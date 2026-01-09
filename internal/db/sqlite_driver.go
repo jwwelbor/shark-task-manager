@@ -113,6 +113,15 @@ func (s *SQLiteDriver) DriverName() string {
 	return "sqlite3"
 }
 
+// GetSQLDB returns the underlying *sql.DB for backward compatibility
+// This is needed until repositories are updated to use Database interface
+func (s *SQLiteDriver) GetSQLDB() (*sql.DB, error) {
+	if s.db == nil {
+		return nil, sql.ErrConnDone
+	}
+	return s.db, nil
+}
+
 // configureSQLite sets SQLite PRAGMA settings for optimal operation
 func (s *SQLiteDriver) configureSQLite(db *sql.DB) error {
 	pragmas := []string{

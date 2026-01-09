@@ -26,12 +26,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // TaskRepository handles CRUD operations for tasks
@@ -948,8 +950,10 @@ func (r *TaskRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// GetStatusBreakdown returns a count of tasks by status for a feature
-func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+// GetStatusBreakdown returns a count of tasks by status for a feature.
+// Returns workflow.StatusCount slice ordered by workflow phase, with metadata.
+// Only includes statuses that have non-zero counts.
+func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64) ([]workflow.StatusCount, error) {
 	query := `
 		SELECT status, COUNT(*) as count
 		FROM tasks
@@ -963,7 +967,80 @@ func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64
 	}
 	defer rows.Close()
 
-	// Initialize breakdown with all statuses set to 0
+	// Build map of actual counts
+	actualCounts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan status breakdown: %w", err)
+		}
+		actualCounts[status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating status breakdown: %w", err)
+	}
+
+	// Get all statuses from workflow config (in order)
+	allStatuses := r.getOrderedStatuses()
+
+	// Track which statuses we've already added
+	addedStatuses := make(map[string]bool)
+
+	// Build result with workflow metadata, only including non-zero counts
+	var result []workflow.StatusCount
+	for _, status := range allStatuses {
+		count, exists := actualCounts[status]
+		if !exists || count == 0 {
+			continue // Skip zero counts
+		}
+
+		meta := r.getStatusMetadata(status)
+		result = append(result, workflow.StatusCount{
+			Status: status,
+			Count:  count,
+			Phase:  meta.Phase,
+			Color:  meta.Color,
+		})
+		addedStatuses[status] = true
+	}
+
+	// Add any statuses from data that weren't in the workflow config (at the end)
+	for status, count := range actualCounts {
+		if addedStatuses[status] || count == 0 {
+			continue
+		}
+		// These are statuses not in workflow config (e.g., legacy statuses)
+		meta := r.getStatusMetadata(status)
+		result = append(result, workflow.StatusCount{
+			Status: status,
+			Count:  count,
+			Phase:  meta.Phase,
+			Color:  meta.Color,
+		})
+	}
+
+	return result, nil
+}
+
+// GetStatusBreakdownMap returns status counts as a map for backward compatibility.
+// Deprecated: Use GetStatusBreakdown for workflow-aware status displays.
+func (r *TaskRepository) GetStatusBreakdownMap(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+	query := `
+		SELECT status, COUNT(*) as count
+		FROM tasks
+		WHERE feature_id = ?
+		GROUP BY status
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, featureID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get status breakdown: %w", err)
+	}
+	defer rows.Close()
+
+	// Initialize breakdown with common statuses set to 0
 	breakdown := map[models.TaskStatus]int{
 		models.TaskStatusTodo:           0,
 		models.TaskStatusInProgress:     0,
@@ -989,6 +1066,69 @@ func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64
 	}
 
 	return breakdown, nil
+}
+
+// getOrderedStatuses returns all statuses in workflow order
+func (r *TaskRepository) getOrderedStatuses() []string {
+	if r.workflow == nil {
+		// Fallback to default statuses
+		return []string{
+			"draft", "ready_for_refinement", "in_refinement", "ready_for_development",
+			"in_development", "ready_for_code_review", "in_code_review", "ready_for_qa",
+			"in_qa", "ready_for_approval", "in_approval", "completed", "cancelled", "blocked", "on_hold",
+		}
+	}
+
+	// Group by phase and sort
+	phases := []string{"planning", "development", "review", "qa", "approval", "done", "any"}
+	statusesByPhase := make(map[string][]string)
+
+	for status := range r.workflow.StatusFlow {
+		meta, found := r.workflow.GetStatusMetadata(status)
+		phase := "other"
+		if found && meta.Phase != "" {
+			phase = meta.Phase
+		}
+		statusesByPhase[phase] = append(statusesByPhase[phase], status)
+	}
+
+	// Sort within each phase
+	for _, statuses := range statusesByPhase {
+		sort.Strings(statuses)
+	}
+
+	// Concatenate in phase order
+	var result []string
+	for _, phase := range phases {
+		result = append(result, statusesByPhase[phase]...)
+	}
+	if otherStatuses := statusesByPhase["other"]; len(otherStatuses) > 0 {
+		result = append(result, otherStatuses...)
+	}
+
+	return result
+}
+
+// getStatusMetadata returns metadata for a status
+func (r *TaskRepository) getStatusMetadata(status string) config.StatusMetadata {
+	if r.workflow == nil {
+		return config.StatusMetadata{}
+	}
+	meta, _ := r.workflow.GetStatusMetadata(status)
+	return meta
+}
+
+// GetTaskCountForFeature returns the total number of tasks for a given feature
+func (r *TaskRepository) GetTaskCountForFeature(ctx context.Context, featureID int64) (int, error) {
+	query := `SELECT COUNT(*) FROM tasks WHERE feature_id = ?`
+
+	var count int
+	err := r.db.QueryRowContext(ctx, query, featureID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get task count for feature: %w", err)
+	}
+
+	return count, nil
 }
 
 // BulkCreate creates multiple tasks in a single transaction

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/taskfile"
@@ -93,19 +92,14 @@ func runTaskCriteriaImport(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	ctx := context.Background()
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	taskRepo := repository.NewTaskRepository(dbWrapper)
 	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
 
@@ -171,19 +165,14 @@ func runTaskCriteriaList(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	ctx := context.Background()
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	taskRepo := repository.NewTaskRepository(dbWrapper)
 	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
 
@@ -300,19 +289,14 @@ func runTaskCriteriaCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	ctx := context.Background()
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	taskRepo := repository.NewTaskRepository(dbWrapper)
 	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
 
@@ -378,19 +362,14 @@ func runTaskCriteriaFail(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database connection
-	dbPath, err := cli.GetDBPath()
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	ctx := context.Background()
-	dbWrapper := repository.NewDB(database)
+	dbWrapper := repoDb
 	taskRepo := repository.NewTaskRepository(dbWrapper)
 	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
 

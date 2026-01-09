@@ -21,7 +21,7 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Create repositories
+	// Create repositories using the test database
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
@@ -130,7 +130,7 @@ func TestEpicComplete_SetsEpicStatusToCompletedEvenWithNoTasks(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Create repositories
+	// Create repositories using the test database
 	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 

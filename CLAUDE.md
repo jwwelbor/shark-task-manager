@@ -240,6 +240,68 @@ shark cloud init --url="libsql://..." --auth-token="<new-token>" --non-interacti
 
 ---
 
+## Database Access Pattern
+
+All CLI commands use a centralized database initialization system for consistency and cloud support.
+
+### Implementation Pattern
+
+**Global Database Instance:**
+- Location: `internal/cli/db_global.go`
+- Thread-safe singleton with lazy initialization
+- Automatic cleanup via Cobra lifecycle hooks
+- Cloud-aware (reads `.sharkconfig.json` for backend selection)
+
+**Usage in Commands:**
+
+```go
+func runMyCommand(cmd *cobra.Command, args []string) error {
+    // Get database (initialized lazily on first call)
+    repoDb, err := cli.GetDB(cmd.Context())
+    if err != nil {
+        return fmt.Errorf("failed to get database: %w", err)
+    }
+
+    // Use database
+    repo := repository.NewTaskRepository(repoDb)
+    // ... business logic ...
+
+    // Note: Connection closed automatically by PersistentPostRunE hook
+    return nil
+}
+```
+
+**Key Features:**
+- **Lazy initialization**: Database only created when needed
+- **Single instance**: All commands share same connection
+- **Automatic cleanup**: PersistentPostRunE hook closes connection after command completes
+- **Cloud-aware**: Automatically detects SQLite vs Turso from config
+- **Thread-safe**: `sync.Once` ensures initialization happens exactly once
+
+**For Testing:**
+
+```go
+func TestMyCommand(t *testing.T) {
+    defer cli.ResetDB()  // Clean up global state after test
+
+    // Test code here - command will use cli.GetDB() internally
+}
+```
+
+**Database Backends:**
+- **Local SQLite**: Default, file-based (shark-tasks.db)
+- **Turso Cloud**: Cloud-hosted SQLite for multi-machine access
+- Backend selection is automatic based on `.sharkconfig.json`
+
+**Architecture Benefits:**
+- ✅ 370 lines of duplicate code eliminated
+- ✅ All 74 commands get cloud support automatically
+- ✅ Single point of maintenance
+- ✅ Consistent error handling
+- ✅ Easy to add future enhancements (pooling, metrics)
+
+---
+
 ## Project Root Auto-Detection
 
 Shark automatically finds the project root by walking up the directory tree, so you can run commands from any subdirectory within your project without specifying `--db`.

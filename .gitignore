@@ -41,3 +41,5 @@ dist/
 *.db-wal
 build-errors.log
 *_old/
+*.env.backup
+.env*

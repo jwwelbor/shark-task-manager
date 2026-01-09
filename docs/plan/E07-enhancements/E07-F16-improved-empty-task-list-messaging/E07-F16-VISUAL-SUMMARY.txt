@@ -1,0 +1,496 @@
+================================================================================
+E07-F16: WORKFLOW IMPROVEMENTS - VISUAL DESIGN SUMMARY
+================================================================================
+
+Date: 2026-01-08
+Status: Design Complete - Ready for Implementation
+Designer: CX Designer Agent
+
+================================================================================
+QUICK REFERENCE: 5 DESIGN QUESTIONS & ANSWERS
+================================================================================
+
+Q1: Is `shark task list status <status>` the right UX pattern?
+
+    ANSWER: ✓ YES - Strongly Recommended
+
+    Primary:        shark task list status ready-for-development
+    Backward compat: shark task list --status=ready-for-development
+
+    Why: Positional arguments more discoverable than flags
+         Matches existing pattern (task list E04 F01)
+         Case-insensitive for user friendliness
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q2: Is `shark task next-status <task-key>` the right command?
+
+    ANSWER: ✓ YES - With Interactive Mode
+
+    Interactive:     shark task next-status E07-F20-001
+    Explicit:        shark task next-status E07-F20-001 --status=xyz
+    Preview:         shark task next-status E07-F20-001 --preview
+
+    Why: Users don't memorize workflow structure
+         Interactive mode prevents mistakes
+         Educational - shows all options
+         Safe with explicit confirmation
+
+    Example Interactive Flow:
+    ┌─────────────────────────────────────────────────┐
+    │ Current status: in_development                  │
+    │                                                 │
+    │ Available transitions:                          │
+    │  1) ready_for_code_review (phase: review)      │
+    │  2) ready_for_refinement (phase: planning)     │
+    │  3) blocked                                     │
+    │  4) on_hold                                     │
+    │                                                 │
+    │ Enter selection [1-4]: 1                        │
+    │ ✓ Transitioned: in_development → code_review  │
+    └─────────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q3: Should we support phase-based querying?
+
+    ANSWER: ✓ VALID - But Phase 2 (Not MVP)
+
+    MVP (E07-F16):  Status filtering (primary)
+    Phase 2 (F17):  Phase filtering (secondary)
+
+    shark task list phase development   # All tasks in dev phase
+    shark task list phase review        # All tasks in review
+
+    Why: Gather status filtering usage data first
+         Phase is higher-level abstraction
+         Can reuse same infrastructure
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q4: How to handle multiple possible next statuses?
+
+    ANSWER: ✓ Interactive Selection (Shown Above)
+
+    Comparison:
+    ┌─────────────────┬──────────────────┬──────────────┐
+    │ Criteria        │ Interactive      │ Smart Dflt   │
+    ├─────────────────┼──────────────────┼──────────────┤
+    │ Safety          │ ✓ Excellent      │ Fair         │
+    │ Clarity         │ ✓ Shows options  │ Hidden       │
+    │ Education       │ ✓ Learn workflow │ No learning  │
+    │ Automation      │ ✓ Use --status   │ Might guess  │
+    │ Speed           │ Good             │ ✓ Very fast  │
+    └─────────────────┴──────────────────┴──────────────┘
+
+    WINNER: Interactive (prioritizes safety & learning)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q5: Should we show available transitions in `task get`?
+
+    ANSWER: ✓ YES - Strongly Recommended
+
+    $ shark task get E07-F20-001
+
+    Key: E07-F20-001
+    Title: Implement JWT token validation
+    Status: in_development (phase: development)
+      → Code implementation in progress
+      → Color: yellow | Agents: developer, ai-coder
+
+    Available Transitions:
+      → ready_for_code_review
+         "Code complete, awaiting review"
+         [agents: tech-lead, code-reviewer]
+      → ready_for_refinement
+         "Awaiting specification and analysis"
+      → blocked
+         "Temporarily blocked by external dependency"
+
+    Why: Reduces context switching
+         Educational (learn by using)
+         Faster decision-making
+
+================================================================================
+IMPLEMENTATION ROADMAP
+================================================================================
+
+E07-F16 MVP (2 weeks)
+├─ Status-based filtering
+│  ├─ `shark task list status <name>`
+│  ├─ Case-insensitive handling
+│  ├─ Helpful error messages
+│  └─ Backward compatible with --status flag
+│
+├─ Workflow progression
+│  ├─ `shark task next-status <task-key>` (interactive)
+│  ├─ `--status=<name>` (explicit/non-interactive)
+│  ├─ `--preview` mode
+│  └─ Multiple transition handling
+│
+├─ Task creation fix
+│  ├─ Remove hardcoded TaskStatusTodo
+│  ├─ Use workflow config _start_ status
+│  └─ Fix status mismatch issue
+│
+├─ Workflow discovery
+│  ├─ Show transitions in `task get`
+│  ├─ Add `workflow transitions <status>`
+│  └─ Educational output
+│
+└─ Documentation & Testing
+   ├─ Complete test coverage
+   ├─ Error message validation
+   ├─ JSON output verification
+   └─ Backward compatibility checks
+
+E07-F17 Phase 2 (1 week)
+├─ Phase-based filtering
+│  ├─ `shark task list phase <name>`
+│  ├─ Case-insensitive handling
+│  └─ Leverage status infrastructure
+│
+└─ Enhancement
+   ├─ Shell completion
+   ├─ Agent-aware filtering
+   └─ User feedback integration
+
+E07-F18 Phase 3 (1 week)
+├─ Advanced features
+│  ├─ Workflow templates
+│  ├─ Custom workflows
+│  ├─ Migration tools
+│  └─ Performance optimization
+
+================================================================================
+COMMAND SYNTAX PATTERNS
+================================================================================
+
+Existing Pattern:
+  shark task list [EPIC] [FEATURE] --status=<status>
+  shark task list E04 F01 --status=in_development
+
+New Pattern:
+  shark task list status <name>
+  shark task list status in_development
+
+  shark task list phase <name>
+  shark task list phase development
+
+  shark task next-status <task-key>
+  shark task next-status E07-F20-001
+
+  shark task get <task-key>  # Enhanced with transitions
+  shark task get E07-F20-001
+
+================================================================================
+WORKFLOW PROGRESSION JOURNEY
+================================================================================
+
+New Task Created
+  ↓
+Status: draft (from special_statuses._start_)
+  ↓
+User runs: shark task next-status E07-F20-001
+  ↓
+System shows available transitions:
+  1. ready_for_refinement → planning phase
+  2. cancelled
+  3. on_hold
+  ↓
+User selects: 1
+  ↓
+Status transitions to: ready_for_refinement
+  ↓
+Repeat until task reaches terminal status (completed/cancelled)
+
+Key Points:
+  • Users never need to memorize workflow structure
+  • Every transition is explicit and confirmed
+  • Workflow is visible and learnable
+  • Error recovery paths always available (blocked, on_hold, back)
+
+================================================================================
+ERROR HANDLING EXAMPLES
+================================================================================
+
+Case 1: Invalid Status Name
+┌─────────────────────────────────────────────────────────────┐
+│ $ shark task list status invalid_status                     │
+│                                                             │
+│ Error: Status 'invalid_status' not found                   │
+│                                                             │
+│ Available statuses:                                         │
+│  - draft                                                    │
+│  - ready_for_refinement                                    │
+│  - in_refinement                                           │
+│  - ready_for_development                                   │
+│  ... (11 more)                                             │
+│                                                             │
+│ Tips:                                                       │
+│  • Use 'shark workflow list' for full workflow             │
+│  • Use shell completion: shark task list status <TAB>      │
+└─────────────────────────────────────────────────────────────┘
+
+Case 2: Terminal Status (No Transitions)
+┌─────────────────────────────────────────────────────────────┐
+│ $ shark task next-status E07-F20-001                        │
+│                                                             │
+│ Error: Task E07-F20-001 is in 'completed' status           │
+│ This is a terminal status with no available transitions    │
+│                                                             │
+│ Options:                                                    │
+│  • View task: shark task get E07-F20-001                   │
+│  • Reopen: Use explicit command (coming soon)              │
+│  • View workflow: shark workflow list                       │
+└─────────────────────────────────────────────────────────────┘
+
+Case 3: Workflow Config Mismatch
+┌─────────────────────────────────────────────────────────────┐
+│ Warning: Task status 'legacy_status' not in workflow        │
+│                                                             │
+│ This can happen if:                                        │
+│  • Workflow config recently changed                        │
+│  • Task imported from different system                     │
+│  • Database out of sync                                    │
+│                                                             │
+│ Solutions:                                                  │
+│  1. Update .sharkconfig.json to include 'legacy_status'    │
+│  2. Migrate task: shark task update E07-F20-001 --status=draft │
+│  3. Check workflow: shark workflow list                    │
+└─────────────────────────────────────────────────────────────┘
+
+================================================================================
+CRITICAL ISSUES TO FIX
+================================================================================
+
+Issue 1: Task Creation Status Mismatch
+┌──────────────────────────────────────────────────────────────┐
+│ Problem:                                                     │
+│   Config: special_statuses._start_ = ["draft", ...]        │
+│   Code:   Still references hardcoded TaskStatusTodo         │
+│                                                              │
+│ Impact:                                                      │
+│   Tasks created in wrong status                             │
+│   Workflow validation fails                                 │
+│                                                              │
+│ Solution:                                                    │
+│   Remove hardcoded status constants                         │
+│   Use workflow.SpecialStatuses[StartStatusKey][0]          │
+│                                                              │
+│ Priority: CRITICAL                                          │
+└──────────────────────────────────────────────────────────────┘
+
+Issue 2: Hardcoded Status Transitions
+┌──────────────────────────────────────────────────────────────┐
+│ Problem:                                                     │
+│   Commands like task start/complete ignore workflow         │
+│   Only 5 hardcoded transitions (todo → in_progress → ...)  │
+│   Inconsistent with custom workflows                        │
+│                                                              │
+│ Impact:                                                      │
+│   Custom workflows don't work properly                      │
+│   Transitions not validated against config                 │
+│                                                              │
+│ Solution:                                                    │
+│   Make all transitions workflow-aware                       │
+│   Load and validate against status_flow config             │
+│                                                              │
+│ Priority: HIGH                                              │
+└──────────────────────────────────────────────────────────────┘
+
+Issue 3: No Workflow Discovery
+┌──────────────────────────────────────────────────────────────┐
+│ Problem:                                                     │
+│   Users can't see available transitions                      │
+│   Workflow structure is hidden                               │
+│   Hard to learn by using                                     │
+│                                                              │
+│ Impact:                                                      │
+│   Users guess wrong status                                  │
+│   No way to explore workflow                                │
+│                                                              │
+│ Solution:                                                    │
+│   Show transitions in task get output                       │
+│   Add workflow transitions command                          │
+│   Make workflow visible and learnable                       │
+│                                                              │
+│ Priority: HIGH                                              │
+└──────────────────────────────────────────────────────────────┘
+
+================================================================================
+BACKWARD COMPATIBILITY
+================================================================================
+
+All existing commands continue to work:
+
+Old Syntax (Still Works):
+  shark task list --status=todo
+  shark task list --epic=E04 --feature=F01
+  shark task start E07-F20-001
+  shark task complete E07-F20-001
+
+New Syntax (Additions):
+  shark task list status ready-for-development     # Positional
+  shark task list E04 F01                          # Still works
+  shark task next-status E07-F20-001               # New command
+  shark task get E07-F20-001                       # Enhanced output
+
+No breaking changes. All improvements are additive.
+
+================================================================================
+TESTING REQUIREMENTS
+================================================================================
+
+Functional Tests:
+  ✓ Valid status names filter correctly
+  ✓ Invalid status names show helpful errors
+  ✓ Case-insensitive status input (Draft, DRAFT, draft)
+  ✓ task next-status shows all available transitions
+  ✓ Multiple transitions: interactive selection works
+  ✓ Single transition: correct behavior
+  ✓ Terminal status: appropriate error message
+  ✓ --status override works in next-status command
+  ✓ --preview shows transitions without changing
+  ✓ task get displays available transitions
+
+UX Tests:
+  ✓ Help text clear and examples provided
+  ✓ Error messages are actionable
+  ✓ Interactive prompts are intuitive
+  ✓ JSON output is valid and complete
+  ✓ Backward compatibility maintained
+
+Edge Cases:
+  ✓ Workflow config missing
+  ✓ Status not in config
+  ✓ Database out of sync
+  ✓ Custom workflow with new statuses
+  ✓ Multiple possible transitions
+
+================================================================================
+DESIGN PRINCIPLES
+================================================================================
+
+1. EXPLICITNESS
+   → Users see all options before acting
+   → No hidden state transitions
+   → Confirmation required for changes
+
+2. SAFETY
+   → Interactive mode prevents mistakes
+   → Preview mode lets users explore
+   → Clear error messages with solutions
+
+3. LEARNABILITY
+   → Workflow is visible and learnable
+   → Shows metadata and descriptions
+   → Educational by design
+
+4. FLEXIBILITY
+   → Positional for discovery
+   → Flags for scripts
+   → JSON for tool integration
+
+5. CONSISTENCY
+   → Positional arguments visible in help
+   → Error messages follow same pattern
+   → Status metadata always included
+
+================================================================================
+SUCCESS METRICS
+================================================================================
+
+Adoption:
+  • % of task list commands using status filtering
+  • Usage rate of task next-status command
+  • Help/documentation page hits
+
+Quality:
+  • Error rate for invalid status names (should be low)
+  • User satisfaction with workflow progression
+  • Task status update speed
+
+Learning:
+  • Users understand workflow by using commands
+  • Fewer mistakes in status transitions
+  • Higher confidence in task status changes
+
+================================================================================
+DOCUMENTATION DELIVERABLES
+================================================================================
+
+1. E07-F16-CX-RECOMMENDATIONS.md (5 min read)
+   → Quick answers to 5 design questions
+   → Command syntax examples
+   → Implementation priorities
+   → Risk summary
+
+2. WORKFLOW_UX_PATTERNS.md (15 min read)
+   → 10 reusable UX patterns
+   → Code examples for each pattern
+   → Testing strategies
+   → Consistency checklist
+
+3. WORKFLOW_UX_DESIGN_REVIEW.md (30 min read)
+   → Complete design analysis
+   → Edge case handling
+   → Workflow coherence validation
+   → Success metrics
+
+4. E07-F16-DESIGN-INDEX.md (5 min read)
+   → Navigation guide
+   → Document index
+   → Implementation checklist
+   → Timeline
+
+5. This File: E07-F16-VISUAL-SUMMARY.txt
+   → Visual quick reference
+   → Command examples
+   → Error handling
+   → Implementation roadmap
+
+Total Design Package: ~50 minutes to read completely
+Each document can be used independently
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Review (Today)
+   → Team reads recommendations
+   → Discuss approach
+
+2. Align (This Week)
+   → Confirm recommendations
+   → Plan sprint tasks
+
+3. Implement (Next Sprint)
+   → Follow WORKFLOW_UX_PATTERNS.md
+   → Use code examples provided
+
+4. Test (During Sprint)
+   → Use testing checklist
+   → Validate against design
+
+5. Release (End of Sprint)
+   → E07-F16 complete
+   → Ready for E07-F17
+
+================================================================================
+CONTACT & SUPPORT
+================================================================================
+
+CX Designer: CX Designer Agent
+Date: 2026-01-08
+Status: Complete - Ready for Implementation
+
+Questions?
+  → Read E07-F16-CX-RECOMMENDATIONS.md for quick answers
+  → Check WORKFLOW_UX_PATTERNS.md for implementation details
+  → Review WORKFLOW_UX_DESIGN_REVIEW.md for complete context
+
+All documents in: /docs/
+
+================================================================================

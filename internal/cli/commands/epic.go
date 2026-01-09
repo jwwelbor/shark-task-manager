@@ -287,14 +287,8 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -302,9 +296,9 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 
 	// Apply status filter
@@ -378,14 +372,8 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 
 	epicKey := args[0]
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -393,9 +381,9 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
@@ -466,9 +454,11 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		}
 
 		// Get task count
-		var taskCount int
-		err = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE feature_id = ?", feature.ID).Scan(&taskCount)
+		taskCount, err := taskRepo.GetTaskCountForFeature(ctx, feature.ID)
 		if err != nil {
+			if cli.GlobalConfig.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get task count for feature %s: %v\n", feature.Key, err)
+			}
 			taskCount = 0
 		}
 
@@ -723,14 +713,8 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -738,6 +722,7 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get project root (current working directory)
 	projectRoot, err := os.Getwd()
@@ -747,7 +732,6 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
@@ -815,10 +799,22 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 		// Create backup before force reassignment
 		if (existingEpic != nil || existingFeature != nil) && force {
-			if _, err := backupDatabaseOnForce(force, dbPath, "force file reassignment"); err != nil {
-				cli.Error(fmt.Sprintf("Error: %v", err))
-				cli.Info("Aborting operation to prevent data loss")
+			dbPath, canBackup, err := cli.GetDatabasePathForBackup()
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 				os.Exit(2)
+			}
+			if canBackup {
+				if _, err := backupDatabaseOnForce(force, dbPath, "force file reassignment"); err != nil {
+					cli.Error(fmt.Sprintf("Error: %v", err))
+					cli.Info("Aborting operation to prevent data loss")
+					os.Exit(2)
+				}
+			} else {
+				// Cloud database - backup is handled by cloud provider
+				if cli.GlobalConfig.Verbose {
+					cli.Info("Using cloud database - backup handled by provider")
+				}
 			}
 		}
 
@@ -1016,14 +1012,8 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 	epicKey := args[0]
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1031,10 +1021,9 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
-	defer database.Close()
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
@@ -1076,11 +1065,17 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		allTasks = append(allTasks, tasks...)
 		featureTaskCounts[feature.Key] = len(tasks)
 
-		// Aggregate status breakdown
-		statusBreakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+		// Get status breakdown using new workflow-aware method
+		statusBreakdownSlice, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to get status breakdown for feature %s: %v", feature.Key, err))
 			os.Exit(2)
+		}
+
+		// Convert to map for efficient lookup during aggregation
+		statusBreakdown := make(map[models.TaskStatus]int)
+		for _, sc := range statusBreakdownSlice {
+			statusBreakdown[models.TaskStatus(sc.Status)] = sc.Count
 		}
 
 		featureTaskBreakdown[feature.Key] = statusBreakdown
@@ -1200,10 +1195,22 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before force completing tasks
 	if force && hasIncomplete {
-		if _, err := backupDatabaseOnForce(force, dbPath, "force complete epic"); err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			cli.Info("Aborting operation to prevent data loss")
+		dbPath, canBackup, err := cli.GetDatabasePathForBackup()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 			os.Exit(2)
+		}
+		if canBackup {
+			if _, err := backupDatabaseOnForce(force, dbPath, "force complete epic"); err != nil {
+				cli.Error(fmt.Sprintf("Error: %v", err))
+				cli.Info("Aborting operation to prevent data loss")
+				os.Exit(2)
+			}
+		} else {
+			// Cloud database - backup is handled by cloud provider
+			if cli.GlobalConfig.Verbose {
+				cli.Info("Using cloud database - backup handled by provider")
+			}
 		}
 	}
 
@@ -1311,14 +1318,8 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 	epicKey := args[0]
 	force, _ := cmd.Flags().GetBool("force")
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1326,9 +1327,9 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
@@ -1357,14 +1358,26 @@ func runEpicDelete(cmd *cobra.Command, args []string) error {
 
 	// Create backup before cascade delete (when epic has features)
 	if len(features) > 0 {
-		backupPath, err := db.BackupDatabase(dbPath)
+		dbPath, canBackup, err := cli.GetDatabasePathForBackup()
 		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
-			cli.Info("Aborting deletion to prevent data loss")
+			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
 			os.Exit(2)
 		}
-		if !cli.GlobalConfig.JSON {
-			cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+		if canBackup {
+			backupPath, err := db.BackupDatabase(dbPath)
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to create backup before deletion: %v", err))
+				cli.Info("Aborting deletion to prevent data loss")
+				os.Exit(2)
+			}
+			if !cli.GlobalConfig.JSON {
+				cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
+			}
+		} else {
+			// Cloud database - backup is handled by cloud provider
+			if cli.GlobalConfig.Verbose {
+				cli.Info("Using cloud database - backup handled by provider")
+			}
 		}
 	}
 
@@ -1394,14 +1407,8 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 
 	epicKey := args[0]
 
-	// Get database connection
-	dbPath, err := cli.GetDBPath()
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to get database path: %v", err))
-		return fmt.Errorf("database path error")
-	}
-
-	database, err := db.InitDB(dbPath)
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1409,9 +1416,9 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 		}
 		os.Exit(2)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Get repositories
-	repoDb := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(repoDb)
 
 	// Get epic by key to verify it exists

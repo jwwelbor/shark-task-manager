@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/spf13/cobra"
 )
@@ -72,21 +70,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// For now, if a feature is specified, we treat it as epic-level status
 	// Future enhancement could add feature-specific status view
 
-	// Get database path
-	dbPath, err := cli.GetDBPath()
+	// Get database connection (cloud-aware)
+	repoDb, err := cli.GetDB(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
+	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Initialize database
-	database, err := db.InitDB(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-
-	// Create repositories and service
-	dbWrapper := repository.NewDB(database)
-	service := status.NewStatusService(dbWrapper)
+	// Create service
+	service := status.NewStatusService(repoDb)
 
 	// Build request
 	req := &status.StatusRequest{
