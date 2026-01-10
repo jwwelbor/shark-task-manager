@@ -577,10 +577,16 @@ func (r *EpicRepository) UpdateStatusByKey(ctx context.Context, epicKey string, 
 // CascadeStatusToFeaturesAndTasks updates the status of all child features and their tasks
 // Used when --force is specified to override workflow validation
 func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	// First update all features
 	featureQuery := `UPDATE features SET status = ? WHERE epic_id = ?`
 
-	_, err := r.db.ExecContext(ctx, featureQuery, targetFeatureStatus, epicID)
+	_, err = tx.ExecContext(ctx, featureQuery, targetFeatureStatus, epicID)
 	if err != nil {
 		return fmt.Errorf("failed to cascade status to features: %w", err)
 	}
@@ -592,9 +598,13 @@ func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, ep
 		WHERE feature_id IN (SELECT id FROM features WHERE epic_id = ?)
 	`
 
-	_, err = r.db.ExecContext(ctx, taskQuery, targetTaskStatus, epicID)
+	_, err = tx.ExecContext(ctx, taskQuery, targetTaskStatus, epicID)
 	if err != nil {
 		return fmt.Errorf("failed to cascade status to tasks: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

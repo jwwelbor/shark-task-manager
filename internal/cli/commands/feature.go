@@ -1624,8 +1624,14 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 
 	// Update status if provided (using shared validation)
 	// Special handling for "auto" to enable calculated status
-	statusFlag, _ := cmd.Flags().GetString("status")
-	force, _ := cmd.Flags().GetBool("force")
+	statusFlag, err := cmd.Flags().GetString("status")
+	if err != nil {
+		return fmt.Errorf("could not get status flag: %w", err)
+	}
+	force, err := cmd.Flags().GetBool("force")
+	if err != nil {
+		return fmt.Errorf("could not get force flag: %w", err)
+	}
 
 	if statusFlag != "" {
 		if strings.ToLower(statusFlag) == "auto" {
