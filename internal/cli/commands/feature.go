@@ -1081,6 +1081,19 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 		epicDir := matches[0]
 
+		// Validate that the match is actually a directory, not a file
+		fileInfo, err := os.Stat(epicDir)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to access epic path: %v", err))
+			os.Exit(1)
+		}
+		if !fileInfo.IsDir() {
+			cli.Error(fmt.Sprintf("Error: Expected directory but found file at: %s", epicDir))
+			cli.Info("Please remove or rename the file to resolve the conflict")
+			cli.Info("The file may have been created manually or by another process")
+			os.Exit(1)
+		}
+
 		// Create feature directory
 		featureDir := fmt.Sprintf("%s/%s", epicDir, featureSlug)
 
@@ -1612,6 +1625,8 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 	// Update status if provided (using shared validation)
 	// Special handling for "auto" to enable calculated status
 	statusFlag, _ := cmd.Flags().GetString("status")
+	force, _ := cmd.Flags().GetBool("force")
+
 	if statusFlag != "" {
 		if strings.ToLower(statusFlag) == "auto" {
 			// Clear status override and recalculate status
@@ -1647,6 +1662,14 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 
 		feature.Status = models.FeatureStatus(validatedStatus)
 		changed = true
+
+		// Cascade status to child tasks if --force is used and status is completed
+		if force && feature.Status == models.FeatureStatusCompleted {
+			if err := featureRepo.CascadeStatusToTasks(ctx, feature.ID, models.TaskStatusCompleted); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to cascade status to tasks: %v", err))
+				os.Exit(1)
+			}
+		}
 	}
 
 	// Update execution order if provided

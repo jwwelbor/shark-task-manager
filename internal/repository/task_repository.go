@@ -572,40 +572,184 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
 		return fmt.Errorf("dependency validation failed: %w", err)
 	}
 
-	query := `
-		UPDATE tasks
-		SET title = ?, description = ?, status = ?, agent_type = ?, priority = ?,
-		    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, execution_order = ?, context_data = ?
-		WHERE id = ?
-	`
+	// Check if execution_order is being changed - if so, cascade to other tasks
+	var oldTask *models.Task
+	var err error
+	var needsCascade bool
 
-	result, err := r.db.ExecContext(ctx, query,
-		task.Title,
-		task.Description,
-		task.Status,
-		task.AgentType,
-		task.Priority,
-		task.DependsOn,
-		task.AssignedAgent,
-		task.FilePath,
-		task.BlockedReason,
-		task.ExecutionOrder,
-		task.ContextData,
-		task.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update task: %w", err)
+	if task.ExecutionOrder != nil {
+		oldTask, err = r.GetByID(ctx, task.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get old task: %w", err)
+		}
+
+		// Check if order actually changed
+		needsCascade = (oldTask.ExecutionOrder == nil) ||
+			(oldTask.ExecutionOrder != nil && *oldTask.ExecutionOrder != *task.ExecutionOrder)
 	}
 
-	rows, err := result.RowsAffected()
+	// Start transaction for cascade updates
+	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	if rows == 0 {
-		return fmt.Errorf("task not found with id %d", task.ID)
+	defer func() { _ = tx.Rollback() }()
+
+	// If cascade is needed, get all tasks BEFORE updating, then resequence ALL tasks
+	if needsCascade {
+		// Get all tasks in the same feature (before any updates)
+		allTasks, err := r.listByFeatureInTx(ctx, tx, task.FeatureID)
+		if err != nil {
+			return fmt.Errorf("failed to list tasks for cascade: %w", err)
+		}
+
+		// Convert to orderedItem format
+		var items []orderedItem
+		for _, t := range allTasks {
+			items = append(items, orderedItem{
+				ID:             t.ID,
+				ExecutionOrder: t.ExecutionOrder,
+			})
+		}
+
+		// Resequence
+		resequenced := resequenceOrders(items, task.ID, task.ExecutionOrder)
+
+		// Update ALL tasks with new orders
+		updateQuery := "UPDATE tasks SET execution_order = ? WHERE id = ?"
+		for _, item := range resequenced {
+			_, err := tx.ExecContext(ctx, updateQuery, item.ExecutionOrder, item.ID)
+			if err != nil {
+				return fmt.Errorf("failed to cascade update order for task %d: %w", item.ID, err)
+			}
+		}
+
+		// Now update the main task's other fields (execution_order already updated above)
+		query := `
+			UPDATE tasks
+			SET title = ?, description = ?, status = ?, agent_type = ?, priority = ?,
+			    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, context_data = ?
+			WHERE id = ?
+		`
+
+		result, err := tx.ExecContext(ctx, query,
+			task.Title,
+			task.Description,
+			task.Status,
+			task.AgentType,
+			task.Priority,
+			task.DependsOn,
+			task.AssignedAgent,
+			task.FilePath,
+			task.BlockedReason,
+			task.ContextData,
+			task.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update task: %w", err)
+		}
+
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("task not found with id %d", task.ID)
+		}
+	} else {
+		// No cascade needed, just update the task normally
+		query := `
+			UPDATE tasks
+			SET title = ?, description = ?, status = ?, agent_type = ?, priority = ?,
+			    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, execution_order = ?, context_data = ?
+			WHERE id = ?
+		`
+
+		result, err := tx.ExecContext(ctx, query,
+			task.Title,
+			task.Description,
+			task.Status,
+			task.AgentType,
+			task.Priority,
+			task.DependsOn,
+			task.AssignedAgent,
+			task.FilePath,
+			task.BlockedReason,
+			task.ExecutionOrder,
+			task.ContextData,
+			task.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update task: %w", err)
+		}
+
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("task not found with id %d", task.ID)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil
+}
+
+// listByFeatureInTx lists tasks by feature within a transaction
+func (r *TaskRepository) listByFeatureInTx(ctx context.Context, tx *sql.Tx, featureID int64) ([]*models.Task, error) {
+	query := `
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, updated_at, context_data
+		FROM tasks
+		WHERE feature_id = ?
+		ORDER BY execution_order ASC
+	`
+
+	rows, err := tx.QueryContext(ctx, query, featureID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tasks: %w", err)
+	}
+	defer rows.Close()
+
+	var tasks []*models.Task
+	for rows.Next() {
+		task := &models.Task{}
+		err := rows.Scan(
+			&task.ID,
+			&task.FeatureID,
+			&task.Key,
+			&task.Title,
+			&task.Slug,
+			&task.Description,
+			&task.Status,
+			&task.AgentType,
+			&task.Priority,
+			&task.DependsOn,
+			&task.AssignedAgent,
+			&task.FilePath,
+			&task.BlockedReason,
+			&task.ExecutionOrder,
+			&task.CreatedAt,
+			&task.UpdatedAt,
+			&task.ContextData,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating tasks: %w", err)
+	}
+
+	return tasks, nil
 }
 
 // isValidStatusEnum checks if a status is valid according to the workflow configuration

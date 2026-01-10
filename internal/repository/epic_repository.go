@@ -573,3 +573,38 @@ func (r *EpicRepository) UpdateStatusByKey(ctx context.Context, epicKey string, 
 	}
 	return r.UpdateStatus(ctx, epic.ID, status)
 }
+
+// CascadeStatusToFeaturesAndTasks updates the status of all child features and their tasks
+// Used when --force is specified to override workflow validation
+func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
+	// First update all features
+	featureQuery := `UPDATE features SET status = ? WHERE epic_id = ?`
+
+	_, err := r.db.ExecContext(ctx, featureQuery, targetFeatureStatus, epicID)
+	if err != nil {
+		return fmt.Errorf("failed to cascade status to features: %w", err)
+	}
+
+	// Then update all tasks in those features
+	taskQuery := `
+		UPDATE tasks
+		SET status = ?
+		WHERE feature_id IN (SELECT id FROM features WHERE epic_id = ?)
+	`
+
+	_, err = r.db.ExecContext(ctx, taskQuery, targetTaskStatus, epicID)
+	if err != nil {
+		return fmt.Errorf("failed to cascade status to tasks: %w", err)
+	}
+
+	return nil
+}
+
+// CascadeStatusToFeaturesAndTasksByKey is a convenience method that cascades status by epic key
+func (r *EpicRepository) CascadeStatusToFeaturesAndTasksByKey(ctx context.Context, epicKey string, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
+	epic, err := r.GetByKey(ctx, epicKey)
+	if err != nil {
+		return err
+	}
+	return r.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, targetFeatureStatus, targetTaskStatus)
+}

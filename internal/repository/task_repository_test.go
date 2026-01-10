@@ -172,3 +172,120 @@ func TestTaskRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 		}(task.ID)
 	}
 }
+
+// TestTaskRepository_UpdateCascadesOrder verifies that updating a task's execution order
+// automatically resequences all other tasks in the same feature
+func TestTaskRepository_UpdateCascadesOrder(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	taskRepo := NewTaskRepository(db)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-F01-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E98-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
+
+	// Create test epic
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{
+		Key:           "E98",
+		Title:         "Test Epic for Order Cascade",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	// Create test feature
+	testFeature := &models.Feature{
+		EpicID: testEpic.ID,
+		Key:    "E98-F01",
+		Title:  "Test Feature for Order Cascade",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, testFeature)
+	require.NoError(t, err, "Failed to create test feature")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	// Create four tasks with sequential orders: a-1, b-2, c-3, d-4
+	order1, order2, order3, order4 := 1, 2, 3, 4
+	taskA := &models.Task{
+		FeatureID:      testFeature.ID,
+		Key:            "T-E98-F01-001",
+		Title:          "Task A",
+		Status:         models.TaskStatusTodo,
+		Priority:       5,
+		ExecutionOrder: &order1,
+	}
+	taskB := &models.Task{
+		FeatureID:      testFeature.ID,
+		Key:            "T-E98-F01-002",
+		Title:          "Task B",
+		Status:         models.TaskStatusTodo,
+		Priority:       5,
+		ExecutionOrder: &order2,
+	}
+	taskC := &models.Task{
+		FeatureID:      testFeature.ID,
+		Key:            "T-E98-F01-003",
+		Title:          "Task C",
+		Status:         models.TaskStatusTodo,
+		Priority:       5,
+		ExecutionOrder: &order3,
+	}
+	taskD := &models.Task{
+		FeatureID:      testFeature.ID,
+		Key:            "T-E98-F01-004",
+		Title:          "Task D",
+		Status:         models.TaskStatusTodo,
+		Priority:       5,
+		ExecutionOrder: &order4,
+	}
+
+	err = taskRepo.Create(ctx, taskA)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskA.ID) }()
+
+	err = taskRepo.Create(ctx, taskB)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskB.ID) }()
+
+	err = taskRepo.Create(ctx, taskC)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskC.ID) }()
+
+	err = taskRepo.Create(ctx, taskD)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskD.ID) }()
+
+	// When: Update task D's order from 4 to 2
+	newOrder := 2
+	taskD.ExecutionOrder = &newOrder
+	err = taskRepo.Update(ctx, taskD)
+	require.NoError(t, err, "Failed to update task D's order")
+
+	// Then: Verify cascade - expected order: a-1, d-2, b-3, c-4
+	// Get all tasks for this feature
+	tasks, err := taskRepo.ListByFeature(ctx, testFeature.ID)
+	require.NoError(t, err, "Failed to list tasks by feature ID")
+	require.Len(t, tasks, 4, "Should have 4 tasks")
+
+	// Build a map for easy verification
+	taskOrders := make(map[string]int)
+	for _, task := range tasks {
+		if task.ExecutionOrder != nil {
+			taskOrders[task.Title] = *task.ExecutionOrder
+		}
+	}
+
+	// Verify expected orders
+	assert.Equal(t, 1, taskOrders["Task A"], "Task A should be at order 1")
+	assert.Equal(t, 2, taskOrders["Task D"], "Task D should be at order 2 (moved)")
+	assert.Equal(t, 3, taskOrders["Task B"], "Task B should be at order 3 (shifted)")
+	assert.Equal(t, 4, taskOrders["Task C"], "Task C should be at order 4 (shifted)")
+}

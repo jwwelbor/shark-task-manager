@@ -328,3 +328,103 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 }
 
 // TestFeatureRepository_UpdateCustomPath removed - custom_folder_path feature no longer supported
+
+// TestFeatureRepository_UpdateCascadesOrder verifies that updating a feature's execution order
+// automatically resequences all other features in the same epic
+func TestFeatureRepository_UpdateCascadesOrder(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	featureRepo := NewFeatureRepository(db)
+	epicRepo := NewEpicRepository(db)
+
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E99-F%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
+
+	// Create test epic
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{
+		Key:           "E99",
+		Title:         "Test Epic for Feature Order Cascade",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	// Create four features with sequential orders: a-1, b-2, c-3, d-4
+	order1, order2, order3, order4 := 1, 2, 3, 4
+	featureA := &models.Feature{
+		EpicID:         testEpic.ID,
+		Key:            "E99-F01",
+		Title:          "Feature A",
+		Status:         models.FeatureStatusDraft,
+		ExecutionOrder: &order1,
+	}
+	featureB := &models.Feature{
+		EpicID:         testEpic.ID,
+		Key:            "E99-F02",
+		Title:          "Feature B",
+		Status:         models.FeatureStatusDraft,
+		ExecutionOrder: &order2,
+	}
+	featureC := &models.Feature{
+		EpicID:         testEpic.ID,
+		Key:            "E99-F03",
+		Title:          "Feature C",
+		Status:         models.FeatureStatusDraft,
+		ExecutionOrder: &order3,
+	}
+	featureD := &models.Feature{
+		EpicID:         testEpic.ID,
+		Key:            "E99-F04",
+		Title:          "Feature D",
+		Status:         models.FeatureStatusDraft,
+		ExecutionOrder: &order4,
+	}
+
+	err = featureRepo.Create(ctx, featureA)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureA.ID) }()
+
+	err = featureRepo.Create(ctx, featureB)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureB.ID) }()
+
+	err = featureRepo.Create(ctx, featureC)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureC.ID) }()
+
+	err = featureRepo.Create(ctx, featureD)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", featureD.ID) }()
+
+	// When: Update feature D's order from 4 to 2
+	newOrder := 2
+	featureD.ExecutionOrder = &newOrder
+	err = featureRepo.Update(ctx, featureD)
+	require.NoError(t, err, "Failed to update feature D's order")
+
+	// Then: Verify cascade - expected order: a-1, d-2, b-3, c-4
+	// Get all features for this epic
+	features, err := featureRepo.ListByEpic(ctx, testEpic.ID)
+	require.NoError(t, err, "Failed to list features by epic ID")
+	require.Len(t, features, 4, "Should have 4 features")
+
+	// Build a map for easy verification
+	featureOrders := make(map[string]int)
+	for _, feature := range features {
+		if feature.ExecutionOrder != nil {
+			featureOrders[feature.Title] = *feature.ExecutionOrder
+		}
+	}
+
+	// Verify expected orders
+	assert.Equal(t, 1, featureOrders["Feature A"], "Feature A should be at order 1")
+	assert.Equal(t, 2, featureOrders["Feature D"], "Feature D should be at order 2 (moved)")
+	assert.Equal(t, 3, featureOrders["Feature B"], "Feature B should be at order 3 (shifted)")
+	assert.Equal(t, 4, featureOrders["Feature C"], "Feature C should be at order 4 (shifted)")
+}
