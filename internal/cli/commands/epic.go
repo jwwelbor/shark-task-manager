@@ -967,17 +967,17 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Success output
-	cli.Success(fmt.Sprintf("Created epic %s '%s' at %s", nextKey, epicTitle, actualFilePath))
-	if customFile != "" {
-		// Custom filename was provided
-		fmt.Printf("Start work with: shark epic get %s\n", nextKey)
-	} else {
-		// Default path was used
-		fmt.Println()
-		fmt.Println("Next steps:")
-		fmt.Println("1. Edit the epic.md file to add details")
-		fmt.Printf("2. Create features with: shark feature create --epic=%s \"Feature title\"\n", nextKey)
+	if cli.GlobalConfig.JSON {
+		// JSON output with enhanced messaging
+		requiredSections := cli.GetRequiredSectionsForEntityType("epic")
+		jsonOutput := cli.FormatEntityCreationJSON("epic", nextKey, epicTitle, actualFilePath, projectRoot, requiredSections)
+		return cli.OutputJSON(jsonOutput)
 	}
+
+	// Human-readable output with improved messaging
+	requiredSections := cli.GetRequiredSectionsForEntityType("epic")
+	message := cli.FormatEntityCreationMessage("epic", nextKey, epicTitle, actualFilePath, projectRoot, requiredSections)
+	fmt.Print(message)
 
 	return nil
 }
