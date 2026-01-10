@@ -402,33 +402,164 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	query := `
-		UPDATE features
-		SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?
-		WHERE id = ?
-	`
+	// Check if execution_order is being changed - if so, cascade to other features
+	var oldFeature *models.Feature
+	var err error
+	var needsCascade bool
 
-	result, err := r.db.ExecContext(ctx, query,
-		feature.Title,
-		feature.Description,
-		feature.Status,
-		feature.ProgressPct,
-		feature.ExecutionOrder,
-		feature.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update feature: %w", err)
+	if feature.ExecutionOrder != nil {
+		oldFeature, err = r.GetByID(ctx, feature.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get old feature: %w", err)
+		}
+
+		// Check if order actually changed
+		needsCascade = (oldFeature.ExecutionOrder == nil) ||
+			(oldFeature.ExecutionOrder != nil && *oldFeature.ExecutionOrder != *feature.ExecutionOrder)
 	}
 
-	rows, err := result.RowsAffected()
+	// Start transaction for cascade updates
+	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	if rows == 0 {
-		return fmt.Errorf("feature not found with id %d", feature.ID)
+	defer func() { _ = tx.Rollback() }()
+
+	// If cascade is needed, get all features BEFORE updating, then resequence ALL features
+	if needsCascade {
+		// Get all features in the same epic (before any updates)
+		allFeatures, err := r.listByEpicInTx(ctx, tx, feature.EpicID)
+		if err != nil {
+			return fmt.Errorf("failed to list features for cascade: %w", err)
+		}
+
+		// Convert to orderedItem format
+		var items []orderedItem
+		for _, f := range allFeatures {
+			items = append(items, orderedItem{
+				ID:             f.ID,
+				ExecutionOrder: f.ExecutionOrder,
+			})
+		}
+
+		// Resequence
+		resequenced := resequenceOrders(items, feature.ID, feature.ExecutionOrder)
+
+		// Update ALL features with new orders
+		updateQuery := "UPDATE features SET execution_order = ? WHERE id = ?"
+		for _, item := range resequenced {
+			_, err := tx.ExecContext(ctx, updateQuery, item.ExecutionOrder, item.ID)
+			if err != nil {
+				return fmt.Errorf("failed to cascade update order for feature %d: %w", item.ID, err)
+			}
+		}
+
+		// Now update the main feature's other fields (execution_order already updated above)
+		query := `
+			UPDATE features
+			SET title = ?, description = ?, status = ?, progress_pct = ?
+			WHERE id = ?
+		`
+
+		result, err := tx.ExecContext(ctx, query,
+			feature.Title,
+			feature.Description,
+			feature.Status,
+			feature.ProgressPct,
+			feature.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update feature: %w", err)
+		}
+
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("feature not found with id %d", feature.ID)
+		}
+	} else {
+		// No cascade needed, just update the feature normally
+		query := `
+			UPDATE features
+			SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?
+			WHERE id = ?
+		`
+
+		result, err := tx.ExecContext(ctx, query,
+			feature.Title,
+			feature.Description,
+			feature.Status,
+			feature.ProgressPct,
+			feature.ExecutionOrder,
+			feature.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update feature: %w", err)
+		}
+
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("feature not found with id %d", feature.ID)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil
+}
+
+// listByEpicInTx lists features by epic within a transaction
+func (r *FeatureRepository) listByEpicInTx(ctx context.Context, tx *sql.Tx, epicID int64) ([]*models.Feature, error) {
+	query := `
+		SELECT id, epic_id, key, title, slug, description, status, progress_pct, execution_order,
+		       created_at, updated_at, file_path
+		FROM features
+		WHERE epic_id = ?
+		ORDER BY execution_order ASC
+	`
+
+	rows, err := tx.QueryContext(ctx, query, epicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query features: %w", err)
+	}
+	defer rows.Close()
+
+	var features []*models.Feature
+	for rows.Next() {
+		feature := &models.Feature{}
+		err := rows.Scan(
+			&feature.ID,
+			&feature.EpicID,
+			&feature.Key,
+			&feature.Title,
+			&feature.Slug,
+			&feature.Description,
+			&feature.Status,
+			&feature.ProgressPct,
+			&feature.ExecutionOrder,
+			&feature.CreatedAt,
+			&feature.UpdatedAt,
+			&feature.FilePath,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan feature: %w", err)
+		}
+		features = append(features, feature)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating features: %w", err)
+	}
+
+	return features, nil
 }
 
 // Delete deletes a feature (and all its tasks via CASCADE)
@@ -848,4 +979,34 @@ func (r *FeatureRepository) UpdateStatusIfNotOverriddenByKey(ctx context.Context
 		return false, err
 	}
 	return r.UpdateStatusIfNotOverridden(ctx, feature.ID, newStatus)
+}
+
+// CascadeStatusToTasks updates the status of all child tasks to match a target task status
+// Used when --force is specified to override workflow validation
+func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error {
+	query := `UPDATE tasks SET status = ? WHERE feature_id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, targetTaskStatus, featureID)
+	if err != nil {
+		return fmt.Errorf("failed to cascade status to tasks: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	// Log the number of tasks updated (optional, for debugging)
+	_ = rows
+
+	return nil
+}
+
+// CascadeStatusToTasksByKey is a convenience method that cascades status by feature key
+func (r *FeatureRepository) CascadeStatusToTasksByKey(ctx context.Context, featureKey string, targetTaskStatus models.TaskStatus) error {
+	feature, err := r.GetByKey(ctx, featureKey)
+	if err != nil {
+		return err
+	}
+	return r.CascadeStatusToTasks(ctx, feature.ID, targetTaskStatus)
 }

@@ -1448,7 +1448,15 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 
 	// Update status if provided (using shared validation)
 	// Special handling for "auto" to enable calculated status
-	statusFlag, _ := cmd.Flags().GetString("status")
+	statusFlag, err := cmd.Flags().GetString("status")
+	if err != nil {
+		return fmt.Errorf("could not get status flag: %w", err)
+	}
+	force, err := cmd.Flags().GetBool("force")
+	if err != nil {
+		return fmt.Errorf("could not get force flag: %w", err)
+	}
+
 	if statusFlag != "" {
 		if strings.ToLower(statusFlag) == "auto" {
 			// Recalculate status from features
@@ -1471,6 +1479,14 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 		}
 		epic.Status = models.EpicStatus(validatedStatus)
 		changed = true
+
+		// Cascade status to child features and tasks if --force is used and status is completed
+		if force && epic.Status == models.EpicStatusCompleted {
+			if err := epicRepo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatusCompleted); err != nil {
+				cli.Error(fmt.Sprintf("Error: Failed to cascade status to features and tasks: %v", err))
+				os.Exit(1)
+			}
+		}
 	}
 
 	// Update priority if provided (using shared validation)
