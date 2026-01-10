@@ -1143,13 +1143,18 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 
 	// Output result
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(result.Task)
+		// JSON output with enhanced messaging
+		requiredSections := cli.GetRequiredSectionsForEntityType("task")
+		jsonOutput := cli.FormatEntityCreationJSON("task", result.Task.Key, result.Task.Title, result.FilePath, projectRoot, requiredSections)
+		// Merge with task data
+		jsonOutput["task"] = result.Task
+		return cli.OutputJSON(jsonOutput)
 	}
 
-	// Human-readable output
-	cli.Success(fmt.Sprintf("Created task %s: %s", result.Task.Key, result.Task.Title))
-	fmt.Printf("File created at: %s\n", result.FilePath)
-	fmt.Printf("Start work with: shark task start %s\n", result.Task.Key)
+	// Human-readable output with improved messaging
+	requiredSections := cli.GetRequiredSectionsForEntityType("task")
+	message := cli.FormatEntityCreationMessage("task", result.Task.Key, result.Task.Title, result.FilePath, projectRoot, requiredSections)
+	fmt.Print(message)
 
 	// Trigger cascading status updates for parent feature and epic
 	triggerStatusCascade(ctx, repoDb, result.Task.FeatureID)

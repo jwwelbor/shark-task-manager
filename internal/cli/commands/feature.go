@@ -1174,15 +1174,17 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Success output
-	cli.Success("Feature created successfully!")
-	fmt.Println()
-	fmt.Printf("Feature Key: %s\n", featureSlug)
-	fmt.Printf("Epic:        %s\n", featureCreateEpic)
-	fmt.Printf("File:        %s\n", featureFilePath)
-	fmt.Println()
-	fmt.Println("Next steps:")
-	fmt.Println("1. Edit the feature file to add details")
-	fmt.Printf("2. Create tasks with: shark task create --epic=%s --feature=%s --title=\"Task title\" --agent=backend\n", featureCreateEpic, nextKey)
+	if cli.GlobalConfig.JSON {
+		// JSON output with enhanced messaging
+		requiredSections := cli.GetRequiredSectionsForEntityType("feature")
+		jsonOutput := cli.FormatEntityCreationJSON("feature", featureKey, featureTitle, featureFilePath, projectRoot, requiredSections)
+		return cli.OutputJSON(jsonOutput)
+	}
+
+	// Human-readable output with improved messaging
+	requiredSections := cli.GetRequiredSectionsForEntityType("feature")
+	message := cli.FormatEntityCreationMessage("feature", featureKey, featureTitle, featureFilePath, projectRoot, requiredSections)
+	fmt.Print(message)
 
 	return nil
 }
