@@ -117,10 +117,15 @@ func init() {
 }
 
 // FindProjectRoot walks up the directory tree to find the project root.
-// It looks for markers in this order:
-// 1. .sharkconfig.json (primary marker)
-// 2. shark-tasks.db (secondary marker)
-// 3. .git/ directory (fallback for git projects)
+// It looks for markers with different priorities:
+// 1. .sharkconfig.json (STRONG - stops search immediately)
+// 2. shark-tasks.db (STRONG - stops search immediately)
+// 3. .git/ directory (WEAK - continues searching for strong markers)
+//
+// This priority system ensures that in nested git repositories, shark will
+// find a parent directory's .sharkconfig.json even if a .git directory
+// exists in a subdirectory.
+//
 // Returns the project root directory, or current directory if no markers found.
 func FindProjectRoot() (string, error) {
 	wd, err := os.Getwd()
@@ -129,20 +134,24 @@ func FindProjectRoot() (string, error) {
 	}
 
 	currentDir := wd
+	foundGit := "" // Track first .git location as fallback
+
 	for {
-		// Check for .sharkconfig.json (strongest signal)
+		// Check for .sharkconfig.json (STRONG signal - always stop)
 		if _, err := os.Stat(filepath.Join(currentDir, ".sharkconfig.json")); err == nil {
 			return currentDir, nil
 		}
 
-		// Check for shark-tasks.db
+		// Check for shark-tasks.db (STRONG signal - always stop)
 		if _, err := os.Stat(filepath.Join(currentDir, "shark-tasks.db")); err == nil {
 			return currentDir, nil
 		}
 
-		// Check for .git directory (fallback)
-		if _, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
-			return currentDir, nil
+		// Check for .git directory (WEAK signal - keep looking)
+		if foundGit == "" {
+			if _, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
+				foundGit = currentDir
+			}
 		}
 
 		// Move up one directory
@@ -150,7 +159,10 @@ func FindProjectRoot() (string, error) {
 
 		// If we've reached the root (parent == current), stop
 		if parentDir == currentDir {
-			// No project root found, use original working directory
+			// Use .git location if found, otherwise working directory
+			if foundGit != "" {
+				return foundGit, nil
+			}
 			return wd, nil
 		}
 

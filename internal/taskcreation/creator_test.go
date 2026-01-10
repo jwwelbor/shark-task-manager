@@ -265,6 +265,276 @@ func TestValidateCustomFilename_ConsistentResults(t *testing.T) {
 	assert.Equal(t, absPath1, absPath2)
 }
 
+// TestCreator_FileExistsAssignsFile tests that when a file exists and --file is provided, it assigns the file
+func TestCreator_FileExistsAssignsFile(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup: Create temp directory for test workspace
+	tempDir := t.TempDir()
+
+	// Create a test markdown file that already exists
+	existingFilePath := filepath.Join(tempDir, "docs", "existing-task.md")
+	err := os.MkdirAll(filepath.Dir(existingFilePath), 0755)
+	require.NoError(t, err)
+	existingContent := []byte("# Existing Task\n\nThis file already exists.")
+	err = os.WriteFile(existingFilePath, existingContent, 0644)
+	require.NoError(t, err)
+
+	// Setup: Create test database and repositories
+	database := test.GetTestDB()
+	_, err = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E98-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
+	require.NoError(t, err)
+
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db)
+
+	// Create test epic
+	epic := &models.Epic{
+		Key:      "E98",
+		Title:    "Test Epic for File Exists",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+	err = epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create test feature
+	feature := &models.Feature{
+		EpicID: epic.ID,
+		Key:    "E98-F98",
+		Title:  "Test Feature for File Exists",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Setup: Create Creator
+	keygen := NewKeyGenerator(taskRepo, featureRepo)
+	validator := NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, nil)
+
+	// Act: Create a task with custom filename pointing to existing file (no --create flag)
+	input := CreateTaskInput{
+		EpicKey:    "E98",
+		FeatureKey: "F98",
+		Title:      "Test Task with Existing File",
+		AgentType:  "general",
+		Priority:   5,
+		Filename:   "docs/existing-task.md",
+		// Note: Create flag is not set (defaults to false)
+	}
+
+	result, err := creator.CreateTask(ctx, input)
+
+	// Assert: Task created successfully
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Task)
+
+	// Assert: Task should reference the existing file
+	require.NotNil(t, result.Task.FilePath)
+	assert.Equal(t, filepath.Join("docs", "existing-task.md"), *result.Task.FilePath)
+
+	// Assert: File content should remain unchanged (not overwritten)
+	actualContent, err := os.ReadFile(existingFilePath)
+	require.NoError(t, err)
+	assert.Equal(t, existingContent, actualContent, "Existing file should not be overwritten")
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", result.Task.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestCreator_FileDoesNotExistWithCreateFlagCreatesFile tests that when file doesn't exist and --create is provided, it creates the file
+func TestCreator_FileDoesNotExistWithCreateFlagCreatesFile(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup: Create temp directory for test workspace
+	tempDir := t.TempDir()
+
+	// Ensure the file does NOT exist initially
+	newFilePath := filepath.Join(tempDir, "docs", "new-task.md")
+	_, err := os.Stat(newFilePath)
+	assert.True(t, os.IsNotExist(err), "File should not exist initially")
+
+	// Setup: Create test database and repositories
+	database := test.GetTestDB()
+	_, err = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E97-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E97-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E97'")
+	require.NoError(t, err)
+
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db)
+
+	// Create test epic
+	epic := &models.Epic{
+		Key:      "E97",
+		Title:    "Test Epic for File Creation",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+	err = epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create test feature
+	feature := &models.Feature{
+		EpicID: epic.ID,
+		Key:    "E97-F97",
+		Title:  "Test Feature for File Creation",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Setup: Create Creator
+	keygen := NewKeyGenerator(taskRepo, featureRepo)
+	validator := NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, nil)
+
+	// Act: Create a task with custom filename that doesn't exist WITH --create flag
+	input := CreateTaskInput{
+		EpicKey:    "E97",
+		FeatureKey: "F97",
+		Title:      "Test Task with New File",
+		AgentType:  "general",
+		Priority:   5,
+		Filename:   "docs/new-task.md",
+		Create:     true, // This field needs to be added to CreateTaskInput
+	}
+
+	result, err := creator.CreateTask(ctx, input)
+
+	// Assert: Task created successfully
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Task)
+
+	// Assert: Task should reference the new file
+	require.NotNil(t, result.Task.FilePath)
+	assert.Equal(t, filepath.Join("docs", "new-task.md"), *result.Task.FilePath)
+
+	// Assert: File should have been created
+	_, err = os.Stat(newFilePath)
+	assert.NoError(t, err, "File should have been created")
+
+	// Assert: File should contain task content (not be empty)
+	content, err := os.ReadFile(newFilePath)
+	require.NoError(t, err)
+	assert.NotEmpty(t, content, "Created file should have content")
+	assert.Contains(t, string(content), "Test Task with New File", "File should contain task title")
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", result.Task.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestCreator_FileDoesNotExistWithoutCreateFlagFails tests that when file doesn't exist and --create is NOT provided, it fails
+func TestCreator_FileDoesNotExistWithoutCreateFlagFails(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup: Create temp directory for test workspace
+	tempDir := t.TempDir()
+
+	// Ensure the file does NOT exist initially
+	nonExistentFilePath := filepath.Join(tempDir, "docs", "nonexistent-task.md")
+	_, err := os.Stat(nonExistentFilePath)
+	assert.True(t, os.IsNotExist(err), "File should not exist initially")
+
+	// Setup: Create test database and repositories
+	database := test.GetTestDB()
+	_, err = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E96-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E96-%'")
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
+	require.NoError(t, err)
+
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db)
+
+	// Create test epic
+	epic := &models.Epic{
+		Key:      "E96",
+		Title:    "Test Epic for File Not Found",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+	err = epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create test feature
+	feature := &models.Feature{
+		EpicID: epic.ID,
+		Key:    "E96-F96",
+		Title:  "Test Feature for File Not Found",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Setup: Create Creator
+	keygen := NewKeyGenerator(taskRepo, featureRepo)
+	validator := NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, nil)
+
+	// Act: Create a task with custom filename that doesn't exist WITHOUT --create flag
+	input := CreateTaskInput{
+		EpicKey:    "E96",
+		FeatureKey: "F96",
+		Title:      "Test Task with Missing File",
+		AgentType:  "general",
+		Priority:   5,
+		Filename:   "docs/nonexistent-task.md",
+		Create:     false, // Explicitly set to false (or omit, since it should default to false)
+	}
+
+	result, err := creator.CreateTask(ctx, input)
+
+	// Assert: Task creation should fail
+	assert.Error(t, err, "Should fail when file doesn't exist and --create flag is not provided")
+	assert.Nil(t, result, "Result should be nil on error")
+	assert.Contains(t, err.Error(), "does not exist", "Error should mention file doesn't exist")
+
+	// Assert: File should NOT have been created
+	_, err = os.Stat(nonExistentFilePath)
+	assert.True(t, os.IsNotExist(err), "File should not have been created")
+
+	// Assert: Task should NOT have been created in database
+	tasks, err := taskRepo.List(ctx)
+	require.NoError(t, err)
+	for _, task := range tasks {
+		assert.NotEqual(t, "Test Task with Missing File", task.Title, "Task should not exist in database")
+	}
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
 // TestCreator_UsesWorkflowConfigEntryStatus tests that new tasks use the first entry
 // status from workflow config's special_statuses._start_ instead of hardcoded TaskStatusTodo
 func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {

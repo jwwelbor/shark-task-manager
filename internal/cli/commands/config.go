@@ -53,7 +53,14 @@ var configShowCmd = &cobra.Command{
 			"json":     viper.GetBool("json"),
 			"no-color": viper.GetBool("no-color"),
 			"verbose":  viper.GetBool("verbose"),
-			"db":       viper.GetString("db"),
+		}
+
+		// Load database config from .sharkconfig.json (not from --db flag)
+		if configFile != "" {
+			dbConfig, err := loadDatabaseConfigFromFile(configFile)
+			if err == nil && dbConfig != nil {
+				settings["database"] = dbConfig
+			}
 		}
 
 		// Try to load patterns if available
@@ -72,6 +79,12 @@ var configShowCmd = &cobra.Command{
 		for key, value := range settings {
 			if key == "patterns" {
 				fmt.Printf("  %s: (use --patterns flag to view)\n", key)
+			} else if key == "database" {
+				fmt.Printf("  %s:\n", key)
+				dbMap := value.(map[string]interface{})
+				for k, v := range dbMap {
+					fmt.Printf("    %s: %v\n", k, v)
+				}
 			} else {
 				fmt.Printf("  %s: %v\n", key, value)
 			}
@@ -672,6 +685,24 @@ func loadPatternsFromConfig(configPath string) (*patterns.PatternConfig, error) 
 	}
 
 	return config.Patterns, nil
+}
+
+// loadDatabaseConfigFromFile loads database configuration from .sharkconfig.json
+func loadDatabaseConfigFromFile(configPath string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var config struct {
+		Database map[string]interface{} `json:"database"`
+	}
+
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, err
+	}
+
+	return config.Database, nil
 }
 
 // testPatternMatch tests if a pattern matches a string and returns captured groups

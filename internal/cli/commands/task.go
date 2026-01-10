@@ -116,6 +116,7 @@ var taskCreateCmd = &cobra.Command{
 The --agent flag is optional and accepts any string value. If not provided, defaults to "general".
 The --template flag allows using a custom task template file.
 The --file flag allows specifying a custom file path (relative to project root, must end in .md).
+The --create flag creates the file if it doesn't exist (when using --file).
 
 Positional Arguments:
   EPIC      Optional epic key (E##) - can also be specified with --epic flag
@@ -128,13 +129,16 @@ Examples:
   shark task create E07 F20 "Build Login" --agent=frontend
   shark task create E07-F20 "User Service" --agent=backend --priority=5
 
+  # Custom file path examples
+  shark task create E01 F02 "Migration task" --file="docs/tasks/existing.md"          # Assigns existing file
+  shark task create E01 F02 "New task" --file="docs/tasks/new.md" --create           # Creates new file
+
   # Flag syntax (still supported for backward compatibility)
   shark task create "Build Login" --epic=E01 --feature=F02
   shark task create "Build Login" --epic=E01 --feature=F02 --agent=frontend
   shark task create "User Service" --epic=E01 --feature=F02 --agent=backend --priority=5
   shark task create "Database task" --epic=E01 --feature=F02 --agent=database-admin
-  shark task create "Custom task" --epic=E01 --feature=F02 --template=./my-template.md
-  shark task create "Migration task" --epic=E01 --feature=F02 --file="docs/tasks/migration.md"`,
+  shark task create "Custom task" --epic=E01 --feature=F02 --template=./my-template.md`,
 	Args: cobra.RangeArgs(1, 3),
 	RunE: runTaskCreate,
 }
@@ -1082,7 +1086,21 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 
 	// Get filename flag for custom file path
-	filename, _ := cmd.Flags().GetString("filename")
+	// Try all three flag aliases: --file, --filename, --path (priority: path > filename > file)
+	fileFlag, _ := cmd.Flags().GetString("file")
+	filenameFlag, _ := cmd.Flags().GetString("filename")
+	pathFlag, _ := cmd.Flags().GetString("path")
+
+	var filename string
+	if pathFlag != "" {
+		filename = pathFlag
+	} else if filenameFlag != "" {
+		filename = filenameFlag
+	} else if fileFlag != "" {
+		filename = fileFlag
+	}
+
+	create, _ := cmd.Flags().GetBool("create")
 
 	// Validate custom key if provided
 	if customKey != "" && containsSpace(customKey) {
@@ -1133,6 +1151,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		CustomKey:      customKey,
 		Filename:       filename,
 		Force:          force,
+		Create:         create,
 	}
 
 	result, err := creator.CreateTask(ctx, input)
@@ -1827,6 +1846,7 @@ func init() {
 	taskCreateCmd.Flags().Int("order", 0, "Execution order (alias for --execution-order)")
 	taskCreateCmd.Flags().String("key", "", "Custom key for the task (e.g., T-E01-F01-custom). If not provided, auto-generates next sequence number")
 	taskCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
+	taskCreateCmd.Flags().Bool("create", false, "Create file if it doesn't exist when using --file flag")
 
 	// Note: --epic and --feature flags are no longer required since they can be specified positionally
 

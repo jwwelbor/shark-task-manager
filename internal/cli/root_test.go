@@ -263,3 +263,119 @@ func TestFindProjectRoot_NoMarkers(t *testing.T) {
 		t.Errorf("FindProjectRoot() = %v, want %v (current dir when no markers)", root, subdir)
 	}
 }
+
+func TestFindProjectRoot_NestedGitWithParentConfig(t *testing.T) {
+	// This test verifies the fix for the bug where FindProjectRoot() would stop
+	// at the nearest .git directory, missing a parent directory's .sharkconfig.json
+	//
+	// Structure:
+	// tmpDir/                              <- Has .sharkconfig.json
+	//   .sharkconfig.json
+	//   nested-repo/                       <- Has .git (should NOT stop here)
+	//     .git/
+	//     subfolder/                       <- Running from here should find parent config
+
+	tmpDir := t.TempDir()
+
+	// Create .sharkconfig.json in root
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	configContent := `{"database": {"backend": "turso", "url": "libsql://test.turso.io"}}`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to create config file: %v", err)
+	}
+
+	// Create nested-repo with its own .git directory
+	nestedRepo := filepath.Join(tmpDir, "nested-repo")
+	nestedGit := filepath.Join(nestedRepo, ".git")
+	if err := os.MkdirAll(nestedGit, 0755); err != nil {
+		t.Fatalf("Failed to create nested .git directory: %v", err)
+	}
+
+	// Create subfolder within nested-repo
+	subfolder := filepath.Join(nestedRepo, "subfolder")
+	if err := os.MkdirAll(subfolder, 0755); err != nil {
+		t.Fatalf("Failed to create subfolder: %v", err)
+	}
+
+	// Save original working directory
+	originalWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(originalWd); err != nil {
+			t.Errorf("Failed to restore working directory: %v", err)
+		}
+	}()
+
+	// Change to subfolder (within nested git repo)
+	if err := os.Chdir(subfolder); err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+
+	// Find project root - should find parent's .sharkconfig.json, NOT stop at nested .git
+	root, err := FindProjectRoot()
+	if err != nil {
+		t.Errorf("FindProjectRoot() error = %v", err)
+		return
+	}
+
+	// Verify root is the parent directory with .sharkconfig.json, not the nested repo
+	if root != tmpDir {
+		t.Errorf("FindProjectRoot() = %v, want %v (should find parent config, not nested .git)", root, tmpDir)
+	}
+}
+
+func TestFindProjectRoot_NestedGitWithoutParentConfig(t *testing.T) {
+	// This test verifies that when there's no parent config, FindProjectRoot()
+	// falls back to using the .git directory
+	//
+	// Structure:
+	// tmpDir/                              <- No markers
+	//   nested-repo/                       <- Has .git (should stop here as fallback)
+	//     .git/
+	//     subfolder/                       <- Running from here should find nested .git
+
+	tmpDir := t.TempDir()
+
+	// Create nested-repo with its own .git directory (no parent markers)
+	nestedRepo := filepath.Join(tmpDir, "nested-repo")
+	nestedGit := filepath.Join(nestedRepo, ".git")
+	if err := os.MkdirAll(nestedGit, 0755); err != nil {
+		t.Fatalf("Failed to create nested .git directory: %v", err)
+	}
+
+	// Create subfolder within nested-repo
+	subfolder := filepath.Join(nestedRepo, "subfolder")
+	if err := os.MkdirAll(subfolder, 0755); err != nil {
+		t.Fatalf("Failed to create subfolder: %v", err)
+	}
+
+	// Save original working directory
+	originalWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(originalWd); err != nil {
+			t.Errorf("Failed to restore working directory: %v", err)
+		}
+	}()
+
+	// Change to subfolder
+	if err := os.Chdir(subfolder); err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+
+	// Find project root - should find nested .git as fallback
+	root, err := FindProjectRoot()
+	if err != nil {
+		t.Errorf("FindProjectRoot() error = %v", err)
+		return
+	}
+
+	// Verify root is the nested repo (where .git is)
+	if root != nestedRepo {
+		t.Errorf("FindProjectRoot() = %v, want %v (should use .git as fallback)", root, nestedRepo)
+	}
+}

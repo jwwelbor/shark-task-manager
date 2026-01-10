@@ -78,6 +78,7 @@ type CreateTaskInput struct {
 	CustomKey      string // Custom key override (optional)
 	Filename       string // Custom filename path (relative to project root)
 	Force          bool   // Force reassignment if file already claimed
+	Create         bool   // Create file if it doesn't exist (when Filename is specified)
 }
 
 // CreateTaskResult holds the result of task creation
@@ -148,6 +149,16 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		// Check if file exists
 		if _, statErr := os.Stat(fullFilePath); statErr == nil {
 			fileExists = true
+		} else if os.IsNotExist(statErr) {
+			// File doesn't exist - check if Create flag is set
+			if !input.Create {
+				return nil, fmt.Errorf("file '%s' does not exist. Use --create flag to create it", relPath)
+			}
+			// File doesn't exist but Create=true, so we'll create it later
+			fileExists = false
+		} else {
+			// Other stat error (permission denied, etc.)
+			return nil, fmt.Errorf("failed to check file status: %w", statErr)
 		}
 	} else {
 		// Default: derive task path from feature's actual location
