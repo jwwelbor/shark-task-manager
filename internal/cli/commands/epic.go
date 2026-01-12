@@ -915,8 +915,8 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Additional logging for verbose mode is already handled by fileops
-	_ = result // result contains detailed info if needed in future
+	// Capture whether file was linked to existing content
+	fileWasLinked := result.Linked
 
 	// Parse priority flag using shared parsing function (with default "medium")
 	priorityStr, _ := cmd.Flags().GetString("priority")
@@ -983,7 +983,7 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	// Human-readable output with improved messaging
 	requiredSections := cli.GetRequiredSectionsForEntityType("epic")
-	message := cli.FormatEntityCreationMessage("epic", nextKey, epicTitle, actualFilePath, projectRoot, requiredSections)
+	message := cli.FormatEntityCreationMessage("epic", nextKey, epicTitle, actualFilePath, projectRoot, fileWasLinked, requiredSections)
 	fmt.Print(message)
 
 	return nil

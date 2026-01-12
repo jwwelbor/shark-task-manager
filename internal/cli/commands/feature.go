@@ -1151,7 +1151,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 	// Write feature file using unified file writer
 	writer := fileops.NewEntityFileWriter()
-	_, err = writer.WriteEntityFile(fileops.WriteOptions{
+	writeResult, err := writer.WriteEntityFile(fileops.WriteOptions{
 		Content:        buf.Bytes(),
 		ProjectRoot:    projectRoot,
 		FilePath:       featureFilePath,
@@ -1166,6 +1166,9 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		cli.Error(fmt.Sprintf("Error: %v", err))
 		os.Exit(1)
 	}
+
+	// Capture whether file was linked to existing content
+	fileWasLinked := writeResult.Linked
 
 	// Parse status flag using shared parsing function (with default "draft")
 	statusStr, _ := cmd.Flags().GetString("status")
@@ -1209,7 +1212,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 	// Human-readable output with improved messaging
 	requiredSections := cli.GetRequiredSectionsForEntityType("feature")
-	message := cli.FormatEntityCreationMessage("feature", featureKey, featureTitle, featureFilePath, projectRoot, requiredSections)
+	message := cli.FormatEntityCreationMessage("feature", featureKey, featureTitle, featureFilePath, projectRoot, fileWasLinked, requiredSections)
 	fmt.Print(message)
 
 	return nil

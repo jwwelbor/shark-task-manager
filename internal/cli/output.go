@@ -21,22 +21,27 @@ func GetRequiredSectionsForEntityType(entityType string) []string {
 }
 
 // FormatEntityCreationMessage formats a human-readable creation message for epic/feature/task
-func FormatEntityCreationMessage(entityType, entityKey, entityTitle, filePath, projectRoot string, requiredSections []string) string {
+func FormatEntityCreationMessage(entityType, entityKey, entityTitle, filePath, projectRoot string, fileWasLinked bool, requiredSections []string) string {
 	var sb strings.Builder
 
 	// Success header
 	sb.WriteString(fmt.Sprintf("✅ Created %s %s: %s\n", entityType, entityKey, entityTitle))
-	sb.WriteString("⚠️  PLACEHOLDER FILE CREATED - EDITING REQUIRED\n\n")
 
-	// File path
-	sb.WriteString(fmt.Sprintf("File: %s\n\n", filePath))
-
-	// Required actions
-	sb.WriteString("REQUIRED ACTIONS:\n")
-	sb.WriteString("1. Edit the task file to add implementation details\n")
-	sb.WriteString("2. Fill in required sections:\n")
-	for _, section := range requiredSections {
-		sb.WriteString(fmt.Sprintf("   • %s\n", section))
+	if fileWasLinked {
+		// File was linked to existing content
+		sb.WriteString("📎 LINKED TO EXISTING FILE\n\n")
+		sb.WriteString(fmt.Sprintf("File: %s\n\n", filePath))
+		sb.WriteString("No action required - using existing file content.\n")
+	} else {
+		// New placeholder file was created
+		sb.WriteString("⚠️  PLACEHOLDER FILE CREATED - EDITING REQUIRED\n\n")
+		sb.WriteString(fmt.Sprintf("File: %s\n\n", filePath))
+		sb.WriteString("REQUIRED ACTIONS:\n")
+		sb.WriteString("1. Edit the task file to add implementation details\n")
+		sb.WriteString("2. Fill in required sections:\n")
+		for _, section := range requiredSections {
+			sb.WriteString(fmt.Sprintf("   • %s\n", section))
+		}
 	}
 
 	return sb.String()

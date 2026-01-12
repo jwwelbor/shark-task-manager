@@ -91,8 +91,9 @@ type CreateTaskInput struct {
 
 // CreateTaskResult holds the result of task creation
 type CreateTaskResult struct {
-	Task     *models.Task
-	FilePath string
+	Task          *models.Task
+	FilePath      string
+	FileWasLinked bool // True if file existed and was linked, false if new file was created
 }
 
 // CreateTask orchestrates the complete task creation workflow
@@ -333,6 +334,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	}
 
 	// 8. Write markdown file using unified file writer
+	var writeResult *fileops.WriteResult
 	if !fileExists {
 		writer := fileops.NewEntityFileWriter()
 		logFunc := func(msg string) {
@@ -346,7 +348,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		// - Respects input.Create flag for custom filenames
 		createIfMissing := input.Filename == "" || input.Create
 
-		_, err = writer.WriteEntityFile(fileops.WriteOptions{
+		writeResult, err = writer.WriteEntityFile(fileops.WriteOptions{
 			Content:         []byte(markdown),
 			ProjectRoot:     c.projectRoot,
 			FilePath:        filePath,
@@ -370,9 +372,13 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Determine if file was linked or created
+	fileWasLinked := fileExists || (writeResult != nil && writeResult.Linked)
+
 	return &CreateTaskResult{
-		Task:     task,
-		FilePath: filePath,
+		Task:          task,
+		FilePath:      filePath,
+		FileWasLinked: fileWasLinked,
 	}, nil
 }
 

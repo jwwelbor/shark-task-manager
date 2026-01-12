@@ -1172,7 +1172,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 
 	// Human-readable output with improved messaging
 	requiredSections := cli.GetRequiredSectionsForEntityType("task")
-	message := cli.FormatEntityCreationMessage("task", result.Task.Key, result.Task.Title, result.FilePath, projectRoot, requiredSections)
+	message := cli.FormatEntityCreationMessage("task", result.Task.Key, result.Task.Title, result.FilePath, projectRoot, result.FileWasLinked, requiredSections)
 	fmt.Print(message)
 
 	// Trigger cascading status updates for parent feature and epic
