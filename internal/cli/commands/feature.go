@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
+	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -1148,23 +1149,22 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// CRITICAL: Check if file exists before writing to prevent overwriting existing content
-	// If file exists, we link to it in the database but DON'T overwrite it
-	fileExists := false
-	if _, err := os.Stat(featureFilePath); err == nil {
-		fileExists = true
-		if cli.GlobalConfig.Verbose {
-			cli.Info(fmt.Sprintf("File already exists, linking to existing file: %s", featureFilePath))
-		}
-	}
-
-	// Only write file if it doesn't exist
-	if !fileExists {
-		// Write feature file
-		if err := os.WriteFile(featureFilePath, buf.Bytes(), 0644); err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to write feature file: %v", err))
-			os.Exit(1)
-		}
+	// Write feature file using unified file writer
+	writer := fileops.NewEntityFileWriter()
+	_, err = writer.WriteEntityFile(fileops.WriteOptions{
+		Content:        buf.Bytes(),
+		ProjectRoot:    projectRoot,
+		FilePath:       featureFilePath,
+		Verbose:        cli.GlobalConfig.Verbose,
+		EntityType:     "feature",
+		UseAtomicWrite: false, // Keep existing behavior (no O_EXCL)
+		Logger: func(message string) {
+			cli.Info(message)
+		},
+	})
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
 	}
 
 	// Parse status flag using shared parsing function (with default "draft")
