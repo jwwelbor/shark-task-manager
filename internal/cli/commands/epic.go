@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
+	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -896,33 +897,26 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Create parent directories if needed (for custom paths)
-	if customFile != "" {
-		parentDir := filepath.Dir(actualFilePath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to create parent directories: %v", err))
-			os.Exit(1)
-		}
+	// Write epic file using unified file writer
+	writer := fileops.NewEntityFileWriter()
+	result, err := writer.WriteEntityFile(fileops.WriteOptions{
+		Content:        buf.Bytes(),
+		ProjectRoot:    projectRoot,
+		FilePath:       actualFilePath,
+		Verbose:        cli.GlobalConfig.Verbose,
+		EntityType:     "epic",
+		UseAtomicWrite: false, // Epic creation doesn't need atomic write (single process)
+		Logger: func(message string) {
+			cli.Info(message)
+		},
+	})
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
 	}
 
-	// CRITICAL: Check if file exists before writing to prevent overwriting existing content
-	// If file exists, we link to it in the database but DON'T overwrite it
-	fileExists := false
-	if _, err := os.Stat(actualFilePath); err == nil {
-		fileExists = true
-		if cli.GlobalConfig.Verbose {
-			cli.Info(fmt.Sprintf("File already exists, linking to existing file: %s", actualFilePath))
-		}
-	}
-
-	// Only write file if it doesn't exist
-	if !fileExists {
-		// Write epic file
-		if err := os.WriteFile(actualFilePath, buf.Bytes(), 0644); err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to write epic file: %v", err))
-			os.Exit(1)
-		}
-	}
+	// Additional logging for verbose mode is already handled by fileops
+	_ = result // result contains detailed info if needed in future
 
 	// Parse priority flag using shared parsing function (with default "medium")
 	priorityStr, _ := cmd.Flags().GetString("priority")
