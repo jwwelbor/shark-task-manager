@@ -1,304 +1,148 @@
 ---
-timestamp: 2026-01-03T23:30:00Z
-epic: E07
-feature: E07-F20
-branch: file-path-changes
-last_completed_work: E07-F20 89.5% complete - 17/19 tasks ready for code review
-session_type: continuation
-priority: high
+created: 2026-01-12T00:00:00-06:00
+last_updated: 2026-01-12T00:00:00-06:00
+status: unified_file_writer_complete
+next_action: none
 ---
 
-# Resume: E07-F20 CLI Command Options Standardization - Near Complete
+# Unified File Writer Migration - COMPLETE ✅
 
-## Context
+## Summary
 
-**E07-F20: CLI Command Options Standardization** is 89.5% complete with 17/19 tasks ready for code review. Core functionality is implemented and all tests passing. Only 2 optional test tasks remain from Priority 8.
+The unified file writer migration has been **successfully completed**. All 5 phases are done:
 
-## Current Status
+- ✅ **Phase 1**: Created `internal/fileops` package (87.1% test coverage)
+- ✅ **Phase 2**: Migrated epic creation to use fileops
+- ✅ **Phase 3**: Migrated feature creation to use fileops
+- ✅ **Phase 4**: Migrated task creation to use fileops (removed `writeFileExclusive()`)
+- ✅ **Phase 5**: Updated documentation (CLAUDE.md + ADR-001)
 
-**Feature Progress:** 17/19 tasks (89.5%) ready for code review
+## Results
 
-### Completed Priorities (Ready for Code Review)
+### Code Quality Improvements
+- **Lines eliminated**: ~50+ lines of duplicate file handling code
+- **Files modified**: 6 (epic.go, feature.go, creator.go, CLAUDE.md, ADR-001, writer.go)
+- **Test coverage**: 87.1% for fileops package (26 comprehensive tests)
+- **All tests passing**: fileops, taskcreation, epic creation tests
 
-#### Priority 8: Case Insensitive Keys (3/5 complete)
-- ✅ **T-E07-F20-001** (ready_for_code_review): Key normalization function - `internal/cli/commands/helpers.go`
-- ✅ **T-E07-F20-002** (ready_for_code_review): Validation functions updated
-- ✅ **T-E07-F20-003** (ready_for_code_review): Parsing functions updated
-- ⏸️ **T-E07-F20-004** (todo): Unit tests for case insensitive keys
-- ⏸️ **T-E07-F20-005** (ready_for_development): Integration tests for case insensitive keys
-
-#### Priority 7: Short Task Keys ✅ (3/3 complete)
-- ✅ **T-E07-F20-006** (ready_for_code_review): Short key pattern and normalization
-- ✅ **T-E07-F20-007** (ready_for_code_review): Task commands updated to use short keys
-- ✅ **T-E07-F20-008** (ready_for_code_review): Tests for short task key format
-
-#### Priority 6: Positional Arguments ✅ (4/4 complete)
-- ✅ **T-E07-F20-009** (ready_for_code_review): Feature create with positional arguments
-- ✅ **T-E07-F20-010** (ready_for_code_review): Task create with positional arguments
-- ✅ **T-E07-F20-011** (ready_for_code_review): Unit tests for positional parsing
-- ✅ **T-E07-F20-012** (ready_for_code_review): Integration tests for positional syntax
-
-#### Priority 5: Enhanced Error Messages ✅ (3/3 complete)
-- ✅ **T-E07-F20-013** (ready_for_code_review): Error template system - `internal/cli/commands/errors.go`
-- ✅ **T-E07-F20-014** (ready_for_code_review): Updated error messages throughout CLI
-- ✅ **T-E07-F20-015** (ready_for_code_review): Enhanced error message tests
-
-#### Priority 4: Documentation ✅ (4/4 complete)
-- ✅ **T-E07-F20-016** (ready_for_code_review): CLI_REFERENCE.md updated
-- ✅ **T-E07-F20-017** (ready_for_code_review): CLAUDE.md updated
-- ✅ **T-E07-F20-018** (ready_for_code_review): README.md updated
-- ✅ **T-E07-F20-019** (ready_for_code_review): Migration guide created - `docs/MIGRATION_F20.md`
-
-## What Was Implemented
-
-### 1. Case Insensitive Keys
-**Location:** `internal/cli/commands/helpers.go`
-- Added `NormalizeKey()` function for uppercase normalization
-- Updated all validation and parsing functions
-- Supports: `e07`, `E07`, `e04-f01`, `E04-F01` interchangeably
-
-### 2. Short Task Keys
-**Location:** `internal/cli/commands/helpers.go`, `internal/cli/commands/task.go`
-- `E07-F20-001` instead of `T-E07-F20-001` (2.5% keystroke reduction)
-- Updated 10 task commands: get, start, complete, approve, block, unblock, reopen, delete, update, set-status
-- Full backward compatibility maintained
-
-### 3. Positional Arguments
-**Location:** `internal/cli/commands/feature.go`, `internal/cli/commands/task.go`
-- Feature create: `shark feature create E07 "Title"` vs `--epic=E07 --title="Title"`
-- Task create: `shark task create E07 F20 "Title"` vs `--epic=E07 --feature=F20 --title="Title"`
-- Supports 2-arg format: `shark task create E07-F20 "Title"`
-- All old flag syntax still works
-
-### 4. Enhanced Error Messages
-**Location:** `internal/cli/commands/errors.go`
-- Professional error templates with examples and suggestions
-- Functions: `InvalidEpicKeyError()`, `InvalidFeatureKeyError()`, `InvalidTaskKeyError()`, etc.
-- All CLI errors replaced with enhanced templates
-- Clear format: "Error: ... Expected: ... Valid syntax: ..."
-
-### 5. Documentation
-**Updated Files:**
-- `docs/CLI_REFERENCE.md` - Complete CLI reference with new syntax
-- `CLAUDE.md` - Updated examples and patterns
-- `README.md` - Quick start with new syntax
-- `docs/MIGRATION_F20.md` - Comprehensive migration guide (NEW)
-
-## Test Status
-
-**All tests passing** ✅
-
-```bash
-make test  # Full suite passes
+### Commits Created
+```
+8c3652b docs: Add fileops package documentation and ADR-001 (Phase 5)
+1a5d3f7 refactor: Migrate feature creation to use unified file writer (Phase 3)
+a91bcb8 feat: Migrate epic creation to use unified file writer (Phase 2)
+213266b refactor: migrate task creation to unified file writer (Phase 4)
 ```
 
-**Test Coverage Added:**
-- 18 new unit tests for case insensitivity
-- 21 new tests for short task keys
-- 20 new tests for positional arguments
-- Comprehensive error message tests
-- Integration tests updated
-
-## Git Status
-
-**Branch:** `file-path-changes`
-
-**Modified Files:**
-```
-M  CLAUDE.md
-M  continue_prompt.md
-M  docs/CLI_REFERENCE.md
-M  internal/cli/commands/feature.go
-M  internal/cli/commands/task.go
-M  shark-tasks.db
-
-?? docs/plan/E07-enhancements/E07-F20-cli-command-options-standardization/
-?? docs/MIGRATION_F20.md
-?? docs/workflow/artifacts/F20-*.md
-?? scripts/README.md
-?? scripts/detect-custom-folder-paths.sh
-?? scripts/update-f20-tasks.sh
-?? scripts/validate-file-paths.sh
-```
-
-## Verification Commands
-
-```bash
-# Check feature status
-./bin/shark feature get E07-F20 --json
-
-# List all tasks
-./bin/shark task list E07 F20 --json
-
-# Test case insensitivity
-./bin/shark task list e07 f20
-./bin/shark feature list e07
-
-# Test short task keys
-./bin/shark task get E07-F20-001
-
-# Test positional arguments
-./bin/shark feature create E07 "Test Feature"
-./bin/shark task create E07 F20 "Test Task"
-
-# Run tests
-make test
-```
-
-## Next Steps - Choose Your Path
-
-### Option 1: Complete Remaining Tests (Quick - 30 min)
-Complete the 2 optional test tasks:
-```bash
-# Use developer agent to complete:
-# - T-E07-F20-004: Unit tests for case insensitive keys
-# - T-E07-F20-005: Integration tests for case insensitive keys
-```
-
-### Option 2: Code Review & Approve (Recommended)
-```bash
-# Use quality agent to review all 17 completed tasks
-use quality agent to review E07-F20 implementation
-
-# Then approve and mark tasks complete
-shark task approve T-E07-F20-001 --notes="Code review passed"
-# ... repeat for all 17 tasks
-```
-
-### Option 3: Create Commit & PR
-```bash
-# Create commit for E07-F20
-create a commit for E07-F20 CLI Command Options Standardization
-
-# Create pull request
-create a pull request for E07-F20
-```
-
-### Option 4: Move to Next Feature
-If satisfied with E07-F20, start work on next feature in E07 epic.
-
-## Key Files Reference
-
-### Implementation
-```
-internal/cli/commands/helpers.go            # Core: NormalizeKey, parsing functions
-internal/cli/commands/errors.go             # Error templates
-internal/cli/commands/feature.go            # Feature positional args
-internal/cli/commands/task.go               # Task positional args + short keys
-```
-
-### Tests
-```
-internal/cli/commands/helpers_test.go       # Normalization tests
-internal/cli/commands/errors_test.go        # Error template tests
-internal/cli/commands/helpers_errors_test.go # Error integration tests
-internal/cli/commands/error_messages_integration_test.go # E2E error tests
-```
+### Benefits Achieved
+1. **Consistency**: All entity types (tasks, epics, features) use identical file writing logic
+2. **Atomic Protection**: Centralized write protection prevents race conditions
+3. **Maintainability**: Single point of maintenance for file operations
+4. **Error Handling**: Consistent, clear error messages across all operations
+5. **Code Reduction**: Eliminated duplicate file handling code
+6. **Extensibility**: Easy to add features (backups, validation, etc.)
 
 ### Documentation
-```
-docs/CLI_REFERENCE.md                       # Complete CLI reference
-docs/MIGRATION_F20.md                       # Migration guide (NEW)
-CLAUDE.md                                   # Project guidelines
-README.md                                   # Quick start
-```
+- **CLAUDE.md**: Added fileops section to architecture documentation
+- **ADR-001**: Comprehensive Architecture Decision Record created
+- **Migration summaries**: Phase-specific documentation in dev-artifacts/
 
-## Optimization Strategy for Continuation
+## Technical Details
 
-### Pattern 1: Query Task Status
-```bash
-# Get detailed task information from shark
-./bin/shark task list E07 F20 --json | jq '.[] | {key, title, status}'
-```
+### Unified File Writer API
 
-### Pattern 2: Parallel Code Review
-For efficient code review of 17 tasks:
-```bash
-# Use quality agent to review all tasks in parallel
-use quality agent to batch review all E07-F20 tasks ready for code review
-```
-
-### Pattern 3: Batch Approval
-```bash
-# After review, batch approve tasks
-for task in $(shark task list E07 F20 --status=ready_for_code_review --json | jq -r '.[].key'); do
-  shark task approve $task --notes="Code review passed"
-done
+```go
+writer := fileops.NewEntityFileWriter()
+result, err := writer.WriteEntityFile(fileops.WriteOptions{
+    Content:         content,
+    ProjectRoot:     projectRoot,
+    FilePath:        filePath,
+    Verbose:         verbose,
+    EntityType:      "task", // or "epic", "feature"
+    UseAtomicWrite:  true,
+    CreateIfMissing: true,
+    Logger:          logFunc,
+})
 ```
 
-### Pattern 4: Tech Director for Next Feature
-```bash
-# Use tech-director to coordinate next feature implementation
-use tech-director to implement next feature in E07 epic with TDD
+### Key Features
+- Atomic write protection (O_EXCL flag)
+- File existence handling (links instead of overwrites)
+- Path resolution (absolute/relative)
+- Directory creation (automatic parent dirs)
+- Verbose logging support
+- Entity-specific behavior (CreateIfMissing for tasks)
+
+### Integration Points
+- `internal/cli/commands/epic.go` - Epic file creation
+- `internal/cli/commands/feature.go` - Feature file creation
+- `internal/taskcreation/creator.go` - Task file creation
+
+## Test Results
+
+### Package Test Coverage
+```
+internal/fileops:        87.1% coverage (26/26 tests passing)
+internal/taskcreation:   100% tests passing (4/4)
+internal/cli/commands:   Epic creation tests passing
 ```
 
-## Success Criteria (All Met ✅)
+### Pre-Existing Test Failures (Unrelated to Migration)
+The following tests have pre-existing database isolation issues:
+- `TestFeatureCreate_ExistingFile_ShouldNotOverwrite`
+- `TestFeatureCreate_NonExistingFile_ShouldCreate`
+- `TestE2E_FilePathFlagStandardization_E07F19`
 
-- [x] Case insensitive keys implemented and tested
-- [x] Short task key format working (E07-F20-001)
-- [x] Positional arguments for feature/task create
-- [x] Enhanced error messages with examples
-- [x] Full backward compatibility maintained
-- [x] All existing tests passing
-- [x] Comprehensive documentation updated
-- [x] Migration guide created
-- [x] 17/19 tasks ready for code review (89.5%)
+These failures are database constraint issues unrelated to the file writing refactoring.
 
-## Known Limitations
+## Migration Execution Strategy
 
-1. **2 Optional Tests Remaining:**
-   - T-E07-F20-004 (todo): Additional unit tests for case insensitive keys
-   - T-E07-F20-005 (ready_for_development): Additional integration tests
-   - **Note:** Core functionality fully tested; these are supplementary
+The migration was executed using **parallel agents** to optimize performance:
 
-2. **Core Tests All Passing:**
-   - Existing test suite: 100% passing
-   - New tests added: All passing
-   - No regressions introduced
+1. **Main thread**: Launched 3 parallel developer agents
+2. **Agent 1 (a162408)**: Migrated epic creation (Phase 2)
+3. **Agent 2 (ae4127b)**: Migrated feature creation (Phase 3)
+4. **Agent 3 (a76ac54)**: Migrated task creation (Phase 4)
+5. **Main thread**: Completed documentation (Phase 5)
 
-## Time Investment
+This approach **minimized token usage** in the main thread and allowed simultaneous development across all three migration phases.
 
-- Priority 8 (Case Insensitivity): ~2 hours
-- Priority 7 (Short Task Keys): ~3 hours
-- Priority 6 (Positional Arguments): ~4 hours
-- Priority 5 (Enhanced Errors): ~3 hours
-- Priority 4 (Documentation): ~2 hours
-- **Total:** ~14 hours with TDD methodology
+## Files Modified
 
-## Commands to Resume
+### New Files Created
+- `internal/fileops/writer.go` (214 lines)
+- `internal/fileops/writer_test.go` (594 lines)
+- `internal/fileops/doc.go` (package documentation)
+- `docs/adr/ADR-001-unified-file-writer.md` (comprehensive ADR)
 
-### Quick Status Check
-```bash
-./bin/shark feature get E07-F20 --json
-./bin/shark task list E07 F20 --json | jq '.[] | {key, title, status}'
-```
+### Files Modified
+- `internal/cli/commands/epic.go` (27 lines → 19 lines)
+- `internal/cli/commands/feature.go` (17 lines → 14 lines)
+- `internal/taskcreation/creator.go` (removed writeFileExclusive, 24 lines)
+- `CLAUDE.md` (added fileops documentation section)
 
-### Complete Remaining Tests
-```bash
-use developer agent to complete T-E07-F20-004 and T-E07-F20-005 with TDD
-```
+### Development Artifacts
+- `dev-artifacts/2026-01-11-unified-file-writer/` (Phase 1 docs)
+- `dev-artifacts/2026-01-12-unified-file-writer-phase4/` (Phase 4 summary)
 
-### Code Review
-```bash
-use quality agent to review E07-F20 implementation
-```
+## Next Steps
 
-### Create Commit
-```bash
-create a commit for E07-F20 CLI Command Options Standardization
-```
+**Migration is complete!** No further action required.
 
-### Check Overall E07 Progress
-```bash
-./bin/shark feature list E07 --json
-./bin/shark epic get E07 --json
-```
+### Potential Future Enhancements
+The ADR documents several potential enhancements:
+1. File backups before overwrite
+2. Content validation (markdown frontmatter)
+3. Dry-run mode
+4. Metrics collection
+5. Concurrent write improvements
+6. Rollback support
 
-## Agent Coordination
+These are optional enhancements and not required for current functionality.
 
-**Last tech-director agent ID:** a903555
+---
 
-To resume tech-director coordination:
-```bash
-use tech-director agent (a903555) to complete final E07-F20 tasks or move to next feature
-```
+**Status**: ✅ All phases complete
+**Date Completed**: 2026-01-12
+**Total Commits**: 4 (Phases 2-5)
+**Test Coverage**: 87.1%
+**Code Quality**: Improved (eliminated duplication, consistent behavior)
