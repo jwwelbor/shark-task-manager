@@ -905,10 +905,23 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Write epic file
-	if err := os.WriteFile(actualFilePath, buf.Bytes(), 0644); err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to write epic file: %v", err))
-		os.Exit(1)
+	// CRITICAL: Check if file exists before writing to prevent overwriting existing content
+	// If file exists, we link to it in the database but DON'T overwrite it
+	fileExists := false
+	if _, err := os.Stat(actualFilePath); err == nil {
+		fileExists = true
+		if cli.GlobalConfig.Verbose {
+			cli.Info(fmt.Sprintf("File already exists, linking to existing file: %s", actualFilePath))
+		}
+	}
+
+	// Only write file if it doesn't exist
+	if !fileExists {
+		// Write epic file
+		if err := os.WriteFile(actualFilePath, buf.Bytes(), 0644); err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to write epic file: %v", err))
+			os.Exit(1)
+		}
 	}
 
 	// Parse priority flag using shared parsing function (with default "medium")
