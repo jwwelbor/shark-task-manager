@@ -535,6 +535,9 @@ shark task list --json | jq '.[].slug'
 │   │   └── task_history_repository.go
 │   ├── db/                       # Database initialization and schema
 │   │   └── db.go                 # SQLite setup, PRAGMA configuration, schema creation
+│   ├── fileops/                  # Unified file operations (NEW)
+│   │   ├── writer.go             # EntityFileWriter for atomic file creation
+│   │   └── writer_test.go        # Comprehensive test suite (87.1% coverage)
 │   ├── init/                     # Project initialization (folders, config, templates)
 │   ├── sync/                     # File system sync with database
 │   ├── discovery/                # Epic/feature/task discovery from filesystem
@@ -581,7 +584,44 @@ Each entity (Epic, Feature, Task) has a repository with:
 - Subcommands registered via `init()` functions in each command file
 - Commands automatically register themselves when imported
 
-#### 4. **File-Database Sync**
+#### 4. **Unified File Operations (fileops Package)**
+The `internal/fileops` package provides centralized file writing for all entities (epics, features, tasks):
+
+**Key Features:**
+- **Atomic Write Protection**: Uses `O_EXCL` flag to prevent race conditions
+- **File Existence Handling**: Links to existing files instead of overwriting (unless Force=true)
+- **Path Resolution**: Handles both absolute and relative paths
+- **Directory Creation**: Automatically creates parent directories
+- **Verbose Logging**: Optional logger function for debugging
+- **Entity-Specific Behavior**: Task-specific `CreateIfMissing` validation
+
+**Usage Pattern:**
+```go
+writer := fileops.NewEntityFileWriter()
+result, err := writer.WriteEntityFile(fileops.WriteOptions{
+    Content:         content,
+    ProjectRoot:     projectRoot,
+    FilePath:        filePath,
+    Verbose:         verbose,
+    EntityType:      "task", // or "epic", "feature"
+    UseAtomicWrite:  true,   // Recommended for all entities
+    CreateIfMissing: true,   // Task-specific flag
+    Logger:          logFunc,
+})
+```
+
+**Benefits:**
+- Eliminates ~50+ lines of duplicate code across epic/feature/task creation
+- Single point of maintenance for file operations
+- Consistent error handling and behavior
+- 87.1% test coverage with comprehensive positive and negative tests
+
+**Used By:**
+- `internal/cli/commands/epic.go` - Epic file creation
+- `internal/cli/commands/feature.go` - Feature file creation
+- `internal/taskcreation/creator.go` - Task file creation
+
+#### 5. **File-Database Sync**
 - `internal/sync/`: Synchronizes markdown task files with SQLite database
 - Handles conflicts (file vs. database wins strategies)
 - Discovery scans filesystem for epic/feature/task structure
