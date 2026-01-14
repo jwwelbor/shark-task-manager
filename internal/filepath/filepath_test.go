@@ -242,14 +242,28 @@ func TestGetTasksDirectory(t *testing.T) {
 }
 
 func TestCreateTasksDirectory(t *testing.T) {
-	ResetProjectRootCache()
-	defer ResetProjectRootCache()
+	// Save original working directory
+	originalWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(originalWd)
+	}()
 
-	// Use temp directory for testing
+	// Create temp directory with project marker
 	tempDir := t.TempDir()
 
-	// Override project root for this test
-	projectRoot = tempDir
+	// Create .sharkconfig.json marker so FindProjectRoot finds this directory
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0644); err != nil {
+		t.Fatalf("Failed to create config marker: %v", err)
+	}
+
+	// Change to temp directory
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
 
 	epicKey := "E04-test-epic"
 	featureKey := "F01-test-feature"

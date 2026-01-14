@@ -62,7 +62,7 @@ func TestFeatureCreate_ExistingFile_ShouldNotOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalWd)
+	defer func() { _ = os.Chdir(originalWd) }() // Best-effort cleanup
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
@@ -142,7 +142,7 @@ func TestFeatureCreate_NonExistingFile_ShouldCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalWd)
+	defer func() { _ = os.Chdir(originalWd) }() // Best-effort cleanup
 
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)

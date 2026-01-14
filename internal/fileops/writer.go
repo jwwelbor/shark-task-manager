@@ -155,7 +155,6 @@ func (w *EntityFileWriter) resolvePaths(filePath, projectRoot string) (absPath, 
 		if err != nil {
 			// File is outside project root, use absolute path for both
 			relPath = filePath
-			err = nil
 		}
 	} else {
 		// Relative path

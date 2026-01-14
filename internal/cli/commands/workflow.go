@@ -74,10 +74,10 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	_ = ctx // Context available for future use
 
-	// Get config path
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	// Get config path using centralized helper
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 
 	// Load workflow config
@@ -177,10 +177,10 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	_ = ctx // Context available for future use
 
-	// Get config path
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	// Get config path using centralized helper
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 
 	// Load workflow config

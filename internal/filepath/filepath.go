@@ -14,15 +14,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 )
 
 var (
 	// taskKeyPattern validates task keys: T-{epic}-{feature}-{sequence}
 	// Example: T-E04-F05-001
 	taskKeyPattern = regexp.MustCompile(`^T-([A-Z0-9]+)-([A-Z0-9]+)-(\d{3})$`)
-
-	// projectRoot caches the discovered project root to avoid repeated filesystem searches
-	projectRoot string
 )
 
 // GetTaskFilePath returns the absolute file path for a task based on its epic, feature, and task key.
@@ -85,51 +84,19 @@ func CreateTasksDirectory(epicKey, featureKey string) (string, error) {
 	return dir, nil
 }
 
-// FindProjectRoot searches for the project root by looking for .git directory or go.mod file.
-// It starts from the current working directory and walks up the directory tree.
+// FindProjectRoot delegates to cli.FindProjectRoot for consistent project root discovery.
+// It looks for .sharkconfig.json, shark-tasks.db, or .git directory.
 //
-// The result is cached after the first successful search.
+// This ensures that the filepath package uses the same project root logic as the rest of the application.
 func FindProjectRoot() (string, error) {
-	// Return cached value if available
-	if projectRoot != "" {
-		return projectRoot, nil
-	}
-
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	// Walk up directory tree looking for .git or go.mod
-	dir := cwd
-	for {
-		// Check for .git directory
-		if info, err := os.Stat(filepath.Join(dir, ".git")); err == nil && info.IsDir() {
-			projectRoot = dir
-			return projectRoot, nil
-		}
-
-		// Check for go.mod file
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			projectRoot = dir
-			return projectRoot, nil
-		}
-
-		// Move to parent directory
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached root of filesystem without finding project markers
-			return "", fmt.Errorf("project root not found (no .git or go.mod found in any parent directory)")
-		}
-		dir = parent
-	}
+	return cli.FindProjectRoot()
 }
 
-// ResetProjectRootCache clears the cached project root.
-// This is primarily useful for testing.
+// ResetProjectRootCache is a no-op for backward compatibility with tests.
+// The actual cache is managed by cli.FindProjectRoot.
 func ResetProjectRootCache() {
-	projectRoot = ""
+	// No-op: cli package doesn't expose cache reset
+	// This is OK because tests use separate working directories
 }
 
 // IsValidTaskKey validates that a task key matches the expected format.

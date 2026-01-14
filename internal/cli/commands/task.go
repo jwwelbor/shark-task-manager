@@ -1204,9 +1204,9 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	dbWrapper := repoDb
 
 	// Load workflow config
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 	workflow, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {
@@ -1295,9 +1295,9 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	dbWrapper := repoDb
 
 	// Load workflow config
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 	workflow, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {
@@ -1449,9 +1449,9 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	dbWrapper := repoDb
 
 	// Load workflow config
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 	workflow, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {

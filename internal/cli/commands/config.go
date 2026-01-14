@@ -122,7 +122,10 @@ Reports validation results grouped by entity type (epic, feature, task).
 Exits with non-zero status if any errors found (for CI integration).`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Load pattern configuration
-		configFile := ".sharkconfig.json"
+		configFile, err := cli.GetConfigPath()
+		if err != nil {
+			return fmt.Errorf("failed to get config path: %w", err)
+		}
 		patternsConfig, err := loadPatternsFromConfig(configFile)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Failed to load patterns: %v", err))
@@ -237,7 +240,8 @@ Examples:
 			fmt.Println("  No match found")
 
 			// Suggest similar patterns from config
-			if configFile := ".sharkconfig.json"; fileExists(configFile) {
+			configFile, _ := cli.GetConfigPath()
+			if configFile != "" && fileExists(configFile) {
 				patternsConfig, err := loadPatternsFromConfig(configFile)
 				if err == nil {
 					suggestions := findMatchingPatterns(patternsConfig, testString, entityType)
@@ -294,7 +298,10 @@ Examples:
 		}
 
 		// Load pattern configuration
-		configFile := ".sharkconfig.json"
+		configFile, err := cli.GetConfigPath()
+		if err != nil {
+			return fmt.Errorf("failed to get config path: %w", err)
+		}
 		patternsConfig, err := loadPatternsFromConfig(configFile)
 		if err != nil {
 			// Use defaults if no config file
@@ -473,9 +480,9 @@ Examples:
 		}
 
 		// Load current config
-		configPath := viper.GetString("config")
-		if configPath == "" {
-			configPath = ".sharkconfig.json"
+		configPath, err := cli.GetConfigPath()
+		if err != nil {
+			return fmt.Errorf("failed to get config path: %w", err)
 		}
 
 		// Read existing config
@@ -609,7 +616,10 @@ func init() {
 
 // showPatternsConfig displays only the patterns configuration
 func showPatternsConfig() error {
-	configFile := ".sharkconfig.json"
+	configFile, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
 	patternsConfig, err := loadPatternsFromConfig(configFile)
 	if err != nil {
 		cli.Warning("Using default patterns (no config file found)")

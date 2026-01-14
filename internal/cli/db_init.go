@@ -64,5 +64,11 @@ func initDatabase(ctx context.Context) (*repository.DB, error) {
 		return nil, fmt.Errorf("failed to get sql.DB from Turso driver: %w", err)
 	}
 
+	// Apply schema and migrations to the Turso database
+	// This ensures tables like 'ideas' are created on cloud databases
+	if err := db.ApplySchemaAndMigrations(sqlDB); err != nil {
+		return nil, fmt.Errorf("failed to apply schema and migrations: %w", err)
+	}
+
 	return repository.NewDB(sqlDB), nil
 }
