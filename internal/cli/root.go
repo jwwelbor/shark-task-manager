@@ -118,13 +118,14 @@ func init() {
 
 // FindProjectRoot walks up the directory tree to find the project root.
 // It looks for markers with different priorities:
-// 1. .sharkconfig.json (STRONG - stops search immediately)
-// 2. shark-tasks.db (STRONG - stops search immediately)
-// 3. .git/ directory (WEAK - continues searching for strong markers)
+// 1. .sharkconfig.json (STRONGEST - always preferred)
+// 2. shark-tasks.db (STRONG - used if no .sharkconfig.json found)
+// 3. .git/ directory (WEAK - used if no stronger markers found)
 //
-// This priority system ensures that in nested git repositories, shark will
-// find a parent directory's .sharkconfig.json even if a .git directory
-// exists in a subdirectory.
+// The search goes all the way to the filesystem root and returns the BEST marker found,
+// preferring .sharkconfig.json over everything else. This ensures that if .sharkconfig.json
+// exists in the project root but shark-tasks.db exists in a subdirectory (like /docs),
+// we correctly identify the project root.
 //
 // Returns the project root directory, or current directory if no markers found.
 func FindProjectRoot() (string, error) {
@@ -133,21 +134,31 @@ func FindProjectRoot() (string, error) {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
 
+	// Track the best marker found during search
+	var foundConfig string // .sharkconfig.json (highest priority)
+	var foundDB string     // shark-tasks.db (medium priority)
+	var foundGit string    // .git directory (lowest priority)
+
 	currentDir := wd
-	foundGit := "" // Track first .git location as fallback
 
+	// Search from current directory up to filesystem root
 	for {
-		// Check for .sharkconfig.json (STRONG signal - always stop)
-		if _, err := os.Stat(filepath.Join(currentDir, ".sharkconfig.json")); err == nil {
-			return currentDir, nil
+		// Check for .sharkconfig.json (highest priority)
+		// Take the first (closest) one found
+		if foundConfig == "" {
+			if _, err := os.Stat(filepath.Join(currentDir, ".sharkconfig.json")); err == nil {
+				foundConfig = currentDir
+			}
 		}
 
-		// Check for shark-tasks.db (STRONG signal - always stop)
-		if _, err := os.Stat(filepath.Join(currentDir, "shark-tasks.db")); err == nil {
-			return currentDir, nil
+		// Check for shark-tasks.db (medium priority)
+		if foundDB == "" {
+			if _, err := os.Stat(filepath.Join(currentDir, "shark-tasks.db")); err == nil {
+				foundDB = currentDir
+			}
 		}
 
-		// Check for .git directory (WEAK signal - keep looking)
+		// Check for .git directory (lowest priority)
 		if foundGit == "" {
 			if _, err := os.Stat(filepath.Join(currentDir, ".git")); err == nil {
 				foundGit = currentDir
@@ -157,17 +168,53 @@ func FindProjectRoot() (string, error) {
 		// Move up one directory
 		parentDir := filepath.Dir(currentDir)
 
-		// If we've reached the root (parent == current), stop
+		// If we've reached the filesystem root, stop searching
 		if parentDir == currentDir {
-			// Use .git location if found, otherwise working directory
-			if foundGit != "" {
-				return foundGit, nil
-			}
-			return wd, nil
+			break
 		}
 
 		currentDir = parentDir
 	}
+
+	// Return the best marker found, in priority order
+	if foundConfig != "" {
+		return foundConfig, nil
+	}
+	if foundDB != "" {
+		return foundDB, nil
+	}
+	if foundGit != "" {
+		return foundGit, nil
+	}
+
+	// No markers found, use working directory
+	return wd, nil
+}
+
+// GetConfigPath returns the absolute path to .sharkconfig.json.
+// It respects the --config flag if set, otherwise finds the project root
+// and returns the config file path in that directory.
+//
+// This function ensures that config file discovery works consistently
+// from any subdirectory within the project.
+//
+// Returns:
+//   - Absolute path to .sharkconfig.json
+//   - Error if project root cannot be determined
+func GetConfigPath() (string, error) {
+	// If explicit config path was provided via --config flag, use it
+	if GlobalConfig.ConfigFile != "" {
+		return GlobalConfig.ConfigFile, nil
+	}
+
+	// Find project root
+	projectRoot, err := FindProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to find project root: %w", err)
+	}
+
+	// Return config path in project root
+	return filepath.Join(projectRoot, ".sharkconfig.json"), nil
 }
 
 // initConfig reads in config file and ENV variables if set

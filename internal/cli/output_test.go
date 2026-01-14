@@ -87,8 +87,8 @@ func TestFormatEntityCreationMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Call the function
-			message := FormatEntityCreationMessage(tt.entityType, tt.entityKey, tt.entityTitle, tt.filePath, tt.projectRoot, tt.requiredSections)
+			// Call the function (default to fileWasLinked=false for these legacy tests)
+			message := FormatEntityCreationMessage(tt.entityType, tt.entityKey, tt.entityTitle, tt.filePath, tt.projectRoot, false, tt.requiredSections)
 
 			// Check that all required strings are present
 			for _, want := range tt.wantContains {
@@ -211,6 +211,142 @@ func TestFormatEntityCreationJSON(t *testing.T) {
 				} else if len(sections) != len(tt.requiredSections) {
 					t.Errorf("FormatEntityCreationJSON() action has %d sections, want %d", len(sections), len(tt.requiredSections))
 				}
+			}
+		})
+	}
+}
+
+// TestFormatEntityCreationMessageWithFileLinked tests the message when a file is linked to existing content
+func TestFormatEntityCreationMessageWithFileLinked(t *testing.T) {
+	projectRoot := "/home/user/projects/shark"
+	filePath := filepath.Join(projectRoot, "docs/plan/E01-content/F08-indexer/prps/02-vision-api.md")
+
+	tests := []struct {
+		name             string
+		entityType       string
+		entityKey        string
+		entityTitle      string
+		filePath         string
+		projectRoot      string
+		fileWasLinked    bool
+		requiredSections []string
+		wantContains     []string
+		wantNotContains  []string
+	}{
+		{
+			name:             "Task with newly created file",
+			entityType:       "task",
+			entityKey:        "T-E01-F08-001",
+			entityTitle:      "Implement API",
+			filePath:         filePath,
+			projectRoot:      projectRoot,
+			fileWasLinked:    false,
+			requiredSections: []string{"Implementation Plan", "Acceptance Criteria", "Test Plan"},
+			wantContains: []string{
+				"Created task T-E01-F08-001",
+				"Implement API",
+				"PLACEHOLDER FILE CREATED - EDITING REQUIRED",
+				"REQUIRED ACTIONS",
+				"1. Edit the task file to add implementation details",
+				"2. Fill in required sections",
+				"Implementation Plan",
+				"Acceptance Criteria",
+				"Test Plan",
+			},
+			wantNotContains: []string{
+				"LINKED TO EXISTING FILE",
+				"No action required",
+			},
+		},
+		{
+			name:             "Task with linked existing file",
+			entityType:       "task",
+			entityKey:        "T-E01-F08-008",
+			entityTitle:      "Vision API Enhancement",
+			filePath:         filePath,
+			projectRoot:      projectRoot,
+			fileWasLinked:    true,
+			requiredSections: []string{"Implementation Plan", "Acceptance Criteria", "Test Plan"},
+			wantContains: []string{
+				"Created task T-E01-F08-008",
+				"Vision API Enhancement",
+				"LINKED TO EXISTING FILE",
+				"No action required - using existing file content",
+			},
+			wantNotContains: []string{
+				"PLACEHOLDER FILE CREATED",
+				"EDITING REQUIRED",
+				"REQUIRED ACTIONS",
+				"1. Edit the task file",
+			},
+		},
+		{
+			name:             "Epic with linked existing file",
+			entityType:       "epic",
+			entityKey:        "E07",
+			entityTitle:      "User Management",
+			filePath:         filepath.Join(projectRoot, "docs/plan/E07-user-mgmt/epic.md"),
+			projectRoot:      projectRoot,
+			fileWasLinked:    true,
+			requiredSections: []string{"Vision & Goals", "Success Criteria", "Features"},
+			wantContains: []string{
+				"Created epic E07",
+				"User Management",
+				"LINKED TO EXISTING FILE",
+				"No action required",
+			},
+			wantNotContains: []string{
+				"PLACEHOLDER",
+				"EDITING REQUIRED",
+				"REQUIRED ACTIONS",
+			},
+		},
+		{
+			name:             "Feature with newly created file",
+			entityType:       "feature",
+			entityKey:        "E07-F01",
+			entityTitle:      "Authentication",
+			filePath:         filepath.Join(projectRoot, "docs/plan/E07/F01/feature.md"),
+			projectRoot:      projectRoot,
+			fileWasLinked:    false,
+			requiredSections: []string{"Requirements", "Design", "Test Plan"},
+			wantContains: []string{
+				"Created feature E07-F01",
+				"Authentication",
+				"PLACEHOLDER FILE CREATED - EDITING REQUIRED",
+				"REQUIRED ACTIONS",
+				"Requirements",
+				"Design",
+				"Test Plan",
+			},
+			wantNotContains: []string{
+				"LINKED TO EXISTING FILE",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Call the function with the new fileWasLinked parameter
+			message := FormatEntityCreationMessage(tt.entityType, tt.entityKey, tt.entityTitle, tt.filePath, tt.projectRoot, tt.fileWasLinked, tt.requiredSections)
+
+			// Check that all required strings are present
+			for _, want := range tt.wantContains {
+				if !strings.Contains(message, want) {
+					t.Errorf("FormatEntityCreationMessage() message missing %q\nGot:\n%s", want, message)
+				}
+			}
+
+			// Check that unwanted strings are not present
+			for _, notWant := range tt.wantNotContains {
+				if strings.Contains(message, notWant) {
+					t.Errorf("FormatEntityCreationMessage() message should not contain %q\nGot:\n%s", notWant, message)
+				}
+			}
+
+			// Verify absolute path is used
+			if !strings.Contains(message, tt.filePath) {
+				t.Errorf("FormatEntityCreationMessage() should contain absolute path %q\nGot:\n%s", tt.filePath, message)
 			}
 		})
 	}

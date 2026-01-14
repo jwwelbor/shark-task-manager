@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/patterns"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -29,6 +30,7 @@ type Creator struct {
 	featureRepo     *repository.FeatureRepository
 	projectRoot     string
 	workflowService *workflow.Service
+	verbose         bool
 }
 
 // NewCreator creates a new task creator.
@@ -61,7 +63,13 @@ func NewCreator(
 		featureRepo:     featureRepo,
 		projectRoot:     projectRoot,
 		workflowService: workflowService,
+		verbose:         false,
 	}
+}
+
+// SetVerbose enables or disables verbose logging
+func (c *Creator) SetVerbose(verbose bool) {
+	c.verbose = verbose
 }
 
 // CreateTaskInput holds the input for creating a task
@@ -83,8 +91,9 @@ type CreateTaskInput struct {
 
 // CreateTaskResult holds the result of task creation
 type CreateTaskResult struct {
-	Task     *models.Task
-	FilePath string
+	Task          *models.Task
+	FilePath      string
+	FileWasLinked bool // True if file existed and was linked, false if new file was created
 }
 
 // CreateTask orchestrates the complete task creation workflow
@@ -324,9 +333,31 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		return nil, fmt.Errorf("failed to render template: %w", err)
 	}
 
-	// 8. Write markdown file (only if it doesn't already exist)
+	// 8. Write markdown file using unified file writer
+	var writeResult *fileops.WriteResult
 	if !fileExists {
-		err = c.writeFileExclusive(fullFilePath, []byte(markdown))
+		writer := fileops.NewEntityFileWriter()
+		logFunc := func(msg string) {
+			if c.verbose {
+				fmt.Fprintf(os.Stderr, "[task-creator] %s\n", msg)
+			}
+		}
+
+		// Determine if we should create missing file:
+		// - Always true for default paths (no custom filename)
+		// - Respects input.Create flag for custom filenames
+		createIfMissing := input.Filename == "" || input.Create
+
+		writeResult, err = writer.WriteEntityFile(fileops.WriteOptions{
+			Content:         []byte(markdown),
+			ProjectRoot:     c.projectRoot,
+			FilePath:        filePath,
+			Verbose:         c.verbose,
+			EntityType:      "task",
+			UseAtomicWrite:  true,
+			CreateIfMissing: createIfMissing,
+			Logger:          logFunc,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to write task file: %w", err)
 		}
@@ -341,36 +372,14 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Determine if file was linked or created
+	fileWasLinked := fileExists || (writeResult != nil && writeResult.Linked)
+
 	return &CreateTaskResult{
-		Task:     task,
-		FilePath: filePath,
+		Task:          task,
+		FilePath:      filePath,
+		FileWasLinked: fileWasLinked,
 	}, nil
-}
-
-// writeFileExclusive writes a file only if it doesn't exist
-func (c *Creator) writeFileExclusive(path string, data []byte) error {
-	// Ensure directory exists
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	// Create file exclusively (fails if exists)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-	if err != nil {
-		if os.IsExist(err) {
-			return fmt.Errorf("file already exists: %s", path)
-		}
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-	defer file.Close()
-
-	// Write data
-	if _, err := file.Write(data); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-
-	return nil
 }
 
 // ValidateCustomFilename validates custom file paths for tasks, epics, and features.

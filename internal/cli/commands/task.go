@@ -1172,7 +1172,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 
 	// Human-readable output with improved messaging
 	requiredSections := cli.GetRequiredSectionsForEntityType("task")
-	message := cli.FormatEntityCreationMessage("task", result.Task.Key, result.Task.Title, result.FilePath, projectRoot, requiredSections)
+	message := cli.FormatEntityCreationMessage("task", result.Task.Key, result.Task.Title, result.FilePath, projectRoot, result.FileWasLinked, requiredSections)
 	fmt.Print(message)
 
 	// Trigger cascading status updates for parent feature and epic
@@ -1204,9 +1204,9 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	dbWrapper := repoDb
 
 	// Load workflow config
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 	workflow, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {
@@ -1295,9 +1295,9 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	dbWrapper := repoDb
 
 	// Load workflow config
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 	workflow, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {
@@ -1449,9 +1449,9 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	dbWrapper := repoDb
 
 	// Load workflow config
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 	workflow, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {

@@ -368,6 +368,26 @@ END;
 	return err
 }
 
+// ApplySchemaAndMigrations applies the database schema and migrations to an existing connection.
+// This is used for Turso/cloud databases where the connection is already established.
+// For local SQLite databases, use InitDB() instead which handles opening the connection.
+func ApplySchemaAndMigrations(db *sql.DB) error {
+	// Note: configureSQLite() is skipped for Turso as some PRAGMAs may not be supported
+	// Turso handles configuration server-side
+
+	// Create all tables, indexes, and triggers
+	if err := createSchema(db); err != nil {
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// Run migrations for backwards compatibility
+	if err := runMigrations(db); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
+}
+
 // CheckIntegrity runs PRAGMA integrity_check on the database
 func CheckIntegrity(db *sql.DB) error {
 	var result string

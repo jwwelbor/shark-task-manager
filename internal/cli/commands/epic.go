@@ -12,6 +12,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
+	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -896,20 +897,26 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	// Create parent directories if needed (for custom paths)
-	if customFile != "" {
-		parentDir := filepath.Dir(actualFilePath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to create parent directories: %v", err))
-			os.Exit(1)
-		}
-	}
-
-	// Write epic file
-	if err := os.WriteFile(actualFilePath, buf.Bytes(), 0644); err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to write epic file: %v", err))
+	// Write epic file using unified file writer
+	writer := fileops.NewEntityFileWriter()
+	result, err := writer.WriteEntityFile(fileops.WriteOptions{
+		Content:        buf.Bytes(),
+		ProjectRoot:    projectRoot,
+		FilePath:       actualFilePath,
+		Verbose:        cli.GlobalConfig.Verbose,
+		EntityType:     "epic",
+		UseAtomicWrite: false, // Epic creation doesn't need atomic write (single process)
+		Logger: func(message string) {
+			cli.Info(message)
+		},
+	})
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
 		os.Exit(1)
 	}
+
+	// Capture whether file was linked to existing content
+	fileWasLinked := result.Linked
 
 	// Parse priority flag using shared parsing function (with default "medium")
 	priorityStr, _ := cmd.Flags().GetString("priority")
@@ -976,7 +983,7 @@ func runEpicCreate(cmd *cobra.Command, args []string) error {
 
 	// Human-readable output with improved messaging
 	requiredSections := cli.GetRequiredSectionsForEntityType("epic")
-	message := cli.FormatEntityCreationMessage("epic", nextKey, epicTitle, actualFilePath, projectRoot, requiredSections)
+	message := cli.FormatEntityCreationMessage("epic", nextKey, epicTitle, actualFilePath, projectRoot, fileWasLinked, requiredSections)
 	fmt.Print(message)
 
 	return nil

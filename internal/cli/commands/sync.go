@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -150,7 +149,10 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load config to get last_sync_time
-	configPath := findConfigPath()
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
 	configManager := config.NewManager(configPath)
 	cfg, err := configManager.Load()
 	if err != nil {
@@ -365,29 +367,4 @@ func isTerminal() bool {
 		return true
 	}
 	return false
-}
-
-// findConfigPath finds the .sharkconfig.json file by walking up the directory tree
-func findConfigPath() string {
-	// Try current directory first
-	cwd, err := os.Getwd()
-	if err != nil {
-		return ".sharkconfig.json" // Fallback to current directory
-	}
-
-	// Walk up directory tree looking for .sharkconfig.json
-	dir := cwd
-	for {
-		configPath := filepath.Join(dir, ".sharkconfig.json")
-		if _, err := os.Stat(configPath); err == nil {
-			return configPath
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached root, use current directory
-			return filepath.Join(cwd, ".sharkconfig.json")
-		}
-		dir = parent
-	}
 }
