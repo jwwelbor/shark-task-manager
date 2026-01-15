@@ -1,0 +1,69 @@
+{
+  "database": {
+    "backend": "local",
+    "url": "./shark-tasks.db"
+  },
+  "status_flow": {
+    "todo": ["in_progress", "blocked"],
+    "in_progress": ["review", "blocked"],
+    "review": ["done", "in_progress", "blocked"],
+    "done": [],
+    "blocked": ["todo"]
+  },
+  "status_metadata": {
+    "todo": {
+      "color": "gray",
+      "description": "Task created but not started",
+      "phase": "planning",
+      "agent_types": []
+    },
+    "in_progress": {
+      "color": "yellow",
+      "description": "Development work in progress",
+      "phase": "development",
+      "agent_types": ["developer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "developer",
+        "skills": ["implementation", "testing"],
+        "instruction_template": "Start implementing task {task_id}. Write tests first, then implement the solution."
+      }
+    },
+    "review": {
+      "color": "magenta",
+      "description": "Code review in progress",
+      "phase": "review",
+      "agent_types": ["reviewer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "reviewer",
+        "skills": ["code-review", "quality"],
+        "instruction_template": "Review and approve task {task_id}. Check code quality, test coverage, and alignment with requirements."
+      }
+    },
+    "done": {
+      "color": "green",
+      "description": "Task successfully completed",
+      "phase": "done",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "Task {task_id} is complete. Archive and update documentation."
+      }
+    },
+    "blocked": {
+      "color": "red",
+      "description": "Waiting on external dependency or blocker",
+      "phase": "any",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "pause",
+        "instruction_template": "Task {task_id} is blocked. Do not spawn agents. Blocker details documented in task notes."
+      }
+    }
+  },
+  "special_statuses": {
+    "_start_": ["todo"],
+    "_complete_": ["done"]
+  }
+}

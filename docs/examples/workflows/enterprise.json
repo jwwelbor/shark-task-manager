@@ -1,0 +1,234 @@
+{
+  "database": {
+    "backend": "local",
+    "url": "./shark-tasks.db"
+  },
+  "status_flow": {
+    "draft": ["ready_for_refinement", "cancelled"],
+    "ready_for_refinement": ["in_refinement", "cancelled"],
+    "in_refinement": ["ready_for_security_review", "draft"],
+    "ready_for_security_review": ["in_security_review", "cancelled"],
+    "in_security_review": ["ready_for_architecture_review", "draft"],
+    "ready_for_architecture_review": ["in_architecture_review", "cancelled"],
+    "in_architecture_review": ["ready_for_development", "draft"],
+    "ready_for_development": ["in_development", "blocked"],
+    "in_development": ["ready_for_code_review", "blocked"],
+    "ready_for_code_review": ["in_code_review", "in_development"],
+    "in_code_review": ["ready_for_qa", "in_development"],
+    "ready_for_qa": ["in_qa", "in_development"],
+    "in_qa": ["ready_for_compliance_check", "in_development"],
+    "ready_for_compliance_check": ["in_compliance_check", "in_development"],
+    "in_compliance_check": ["ready_for_approval", "in_development"],
+    "ready_for_approval": ["in_approval", "in_development"],
+    "in_approval": ["approved", "in_development"],
+    "approved": ["completed", "blocked"],
+    "completed": [],
+    "blocked": ["ready_for_development"],
+    "rejected": [],
+    "cancelled": []
+  },
+  "status_metadata": {
+    "draft": {
+      "color": "gray",
+      "description": "Task created, awaiting initial triage",
+      "phase": "planning",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "wait_for_triage",
+        "instruction_template": "Task {task_id} is in draft. Requires manual triage before proceeding to requirements gathering."
+      }
+    },
+    "ready_for_refinement": {
+      "color": "cyan",
+      "description": "Queued for requirements gathering",
+      "phase": "planning",
+      "agent_types": ["business-analyst"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "business-analyst",
+        "skills": ["specification-writing", "research", "shark-task-management"],
+        "instruction_template": "Launch business analyst agent for task {task_id}. Gather requirements, document user stories, and define clear acceptance criteria."
+      }
+    },
+    "in_refinement": {
+      "color": "cyan",
+      "description": "Requirements gathering in progress",
+      "phase": "planning",
+      "agent_types": ["business-analyst"]
+    },
+    "ready_for_security_review": {
+      "color": "orange",
+      "description": "Queued for security assessment",
+      "phase": "planning",
+      "agent_types": ["security-engineer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "security-engineer",
+        "skills": ["security", "compliance"],
+        "instruction_template": "Launch security engineer agent for task {task_id}. Review requirements for security risks, compliance needs, and data protection requirements."
+      }
+    },
+    "in_security_review": {
+      "color": "orange",
+      "description": "Security assessment in progress",
+      "phase": "planning",
+      "agent_types": ["security-engineer"]
+    },
+    "ready_for_architecture_review": {
+      "color": "cyan",
+      "description": "Queued for architecture design",
+      "phase": "planning",
+      "agent_types": ["architect"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "architect",
+        "skills": ["architecture", "database-design", "api-design"],
+        "instruction_template": "Launch architect agent for task {task_id}. Design system architecture incorporating security and compliance requirements. Define data models and API contracts."
+      }
+    },
+    "in_architecture_review": {
+      "color": "cyan",
+      "description": "Architecture design in progress",
+      "phase": "planning",
+      "agent_types": ["architect"]
+    },
+    "ready_for_development": {
+      "color": "yellow",
+      "description": "Queued for implementation",
+      "phase": "development",
+      "agent_types": ["developer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "developer",
+        "skills": ["test-driven-development", "implementation", "shark-task-management"],
+        "instruction_template": "Launch developer agent for task {task_id}. Implement solution following TDD approach. Ensure compliance and security requirements are met."
+      }
+    },
+    "in_development": {
+      "color": "yellow",
+      "description": "Implementation in progress",
+      "phase": "development",
+      "agent_types": ["developer"]
+    },
+    "ready_for_code_review": {
+      "color": "magenta",
+      "description": "Queued for peer code review",
+      "phase": "review",
+      "agent_types": ["senior-developer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "senior-developer",
+        "skills": ["code-review", "quality"],
+        "instruction_template": "Launch senior developer agent for peer review of task {task_id}. Verify code quality, test coverage, compliance with standards, and security practices."
+      }
+    },
+    "in_code_review": {
+      "color": "magenta",
+      "description": "Code review in progress",
+      "phase": "review",
+      "agent_types": ["senior-developer"]
+    },
+    "ready_for_qa": {
+      "color": "green",
+      "description": "Queued for functional testing",
+      "phase": "qa",
+      "agent_types": ["qa-engineer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "qa-engineer",
+        "skills": ["testing", "validation"],
+        "instruction_template": "Launch QA engineer agent for task {task_id}. Execute comprehensive test plan. Verify acceptance criteria, security controls, and compliance requirements."
+      }
+    },
+    "in_qa": {
+      "color": "green",
+      "description": "Functional testing in progress",
+      "phase": "qa",
+      "agent_types": ["qa-engineer"]
+    },
+    "ready_for_compliance_check": {
+      "color": "purple",
+      "description": "Queued for compliance verification",
+      "phase": "approval",
+      "agent_types": ["compliance-officer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "compliance-officer",
+        "skills": ["compliance", "audit"],
+        "instruction_template": "Launch compliance officer agent for task {task_id}. Verify compliance with organizational policies, security standards, and regulatory requirements. Prepare audit trail."
+      }
+    },
+    "in_compliance_check": {
+      "color": "purple",
+      "description": "Compliance verification in progress",
+      "phase": "approval",
+      "agent_types": ["compliance-officer"]
+    },
+    "ready_for_approval": {
+      "color": "purple",
+      "description": "Awaiting management approval",
+      "phase": "approval",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "wait_for_triage",
+        "instruction_template": "Task {task_id} is ready for management approval. All technical and compliance gates have passed. Human decision required to approve deployment."
+      }
+    },
+    "in_approval": {
+      "color": "purple",
+      "description": "Management approval in progress",
+      "phase": "approval",
+      "agent_types": []
+    },
+    "approved": {
+      "color": "blue",
+      "description": "Approved, ready for deployment",
+      "phase": "done",
+      "agent_types": []
+    },
+    "completed": {
+      "color": "green",
+      "description": "Successfully deployed to production",
+      "phase": "done",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "Task {task_id} is deployed to production. Archive work, document deployment, and create runbook for operations team."
+      }
+    },
+    "blocked": {
+      "color": "red",
+      "description": "Blocked by external dependency or issue",
+      "phase": "any",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "pause",
+        "instruction_template": "Task {task_id} is blocked. Do not proceed. Blocker details, mitigation plan, and resolution timeline documented in task notes."
+      }
+    },
+    "rejected": {
+      "color": "red",
+      "description": "Rejected during approval process",
+      "phase": "done",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "Task {task_id} has been rejected. Document rejection reason and create follow-up task if needed."
+      }
+    },
+    "cancelled": {
+      "color": "gray",
+      "description": "Task cancelled, no longer needed",
+      "phase": "done",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "Task {task_id} has been cancelled. Clean up partial work and archive for record-keeping."
+      }
+    }
+  },
+  "special_statuses": {
+    "_start_": ["draft"],
+    "_complete_": ["completed", "rejected", "cancelled"]
+  }
+}

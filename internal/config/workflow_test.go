@@ -393,7 +393,7 @@ func TestValidateWorkflow(t *testing.T) {
 			if tc.expectError {
 				if err == nil {
 					t.Error("expected error, got nil")
-				} else if tc.errorMsg != "" && !contains(err.Error(), tc.errorMsg) {
+				} else if tc.errorMsg != "" && !workflowStringContains(err.Error(), tc.errorMsg) {
 					t.Errorf("expected error to contain '%s', got: %v", tc.errorMsg, err)
 				}
 			} else {
@@ -449,7 +449,7 @@ func TestValidateTransition(t *testing.T) {
 
 // Test validation error messages
 func TestValidationErrorMessages(t *testing.T) {
-	err := &ValidationError{
+	err := &WorkflowValidationError{
 		Message: "test error",
 		Fix:     "do this to fix",
 	}
@@ -459,7 +459,7 @@ func TestValidationErrorMessages(t *testing.T) {
 		t.Errorf("expected error message: %s, got: %s", expected, err.Error())
 	}
 
-	errNoFix := &ValidationError{
+	errNoFix := &WorkflowValidationError{
 		Message: "test error",
 	}
 
@@ -595,12 +595,12 @@ func TestLoadActualSharkConfig(t *testing.T) {
 }
 
 // Helper function
-func contains(s, substr string) bool {
+func workflowStringContains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && containsHelper(s, substr)))
+		(len(s) > 0 && len(substr) > 0 && workflowStringContainsHelper(s, substr)))
 }
 
-func containsHelper(s, substr string) bool {
+func workflowStringContainsHelper(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return true

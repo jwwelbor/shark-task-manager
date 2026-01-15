@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -582,5 +583,98 @@ func TestUpdateLastSyncTime_MultipleUpdates(t *testing.T) {
 
 	if !lastSyncTime.Equal(time3) {
 		t.Errorf("GetLastSyncTime() after multiple updates = %v, want %v", lastSyncTime, time3)
+	}
+}
+
+// TestManager_GetActionService returns working action service
+func TestManager_GetActionService(t *testing.T) {
+	// Arrange
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+
+	// Create minimal config
+	configData := map[string]interface{}{
+		"status_flow": map[string]interface{}{
+			"todo":      []string{"in_progress"},
+			"completed": []string{},
+		},
+	}
+
+	data, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal config: %v", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	// Clear workflow cache to force reload
+	ClearWorkflowCache()
+
+	// Act
+	manager := NewManager(configPath)
+	service, err := manager.GetActionService()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("GetActionService() failed: %v", err)
+	}
+
+	if service == nil {
+		t.Fatal("GetActionService() returned nil")
+	}
+
+	// Verify service works
+	ctx := context.Background()
+	actions, err := service.GetAllActions(ctx)
+	if err != nil {
+		t.Fatalf("GetAllActions() failed: %v", err)
+	}
+
+	if actions == nil {
+		t.Fatal("GetAllActions() returned nil")
+	}
+}
+
+// TestManager_GetActionService_Caching returns same instance on multiple calls
+func TestManager_GetActionService_Caching(t *testing.T) {
+	// Arrange
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+
+	configData := map[string]interface{}{
+		"status_flow": map[string]interface{}{
+			"todo": []string{"done"},
+			"done": []string{},
+		},
+	}
+
+	data, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal config: %v", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	ClearWorkflowCache()
+
+	// Act
+	manager := NewManager(configPath)
+	service1, err := manager.GetActionService()
+	if err != nil {
+		t.Fatalf("First GetActionService() failed: %v", err)
+	}
+
+	service2, err := manager.GetActionService()
+	if err != nil {
+		t.Fatalf("Second GetActionService() failed: %v", err)
+	}
+
+	// Assert - should be same instance
+	if service1 != service2 {
+		t.Error("expected same service instance on multiple calls")
 	}
 }

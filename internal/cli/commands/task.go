@@ -495,6 +495,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	epicRepo := repository.NewEpicRepository(repoDb)
 	documentRepo := repository.NewDocumentRepository(repoDb)
+	relationshipRepo := repository.NewTaskRelationshipRepository(repoDb)
 
 	// Get task by key
 	task, err := taskRepo.GetByKey(ctx, taskKey)
@@ -553,15 +554,44 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		relatedDocs = []*models.Document{}
 	}
 
+	// Get blocking relationships
+	// Blocked-by: incoming "blocks" relationships (tasks that block this task)
+	blockedByRels, err := relationshipRepo.GetIncoming(ctx, task.ID, []string{"blocks"})
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch blocked-by relationships: %v\n", err)
+	}
+	blockedByKeys := []string{}
+	for _, rel := range blockedByRels {
+		blocker, err := taskRepo.GetByID(ctx, rel.FromTaskID)
+		if err == nil {
+			blockedByKeys = append(blockedByKeys, blocker.Key)
+		}
+	}
+
+	// Blocks: outgoing "blocks" relationships (tasks this task blocks)
+	blocksRels, err := relationshipRepo.GetOutgoing(ctx, task.ID, []string{"blocks"})
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch blocks relationships: %v\n", err)
+	}
+	blocksKeys := []string{}
+	for _, rel := range blocksRels {
+		blocked, err := taskRepo.GetByID(ctx, rel.ToTaskID)
+		if err == nil {
+			blocksKeys = append(blocksKeys, blocked.Key)
+		}
+	}
+
 	// Output results
 	if cli.GlobalConfig.JSON {
-		// Create enhanced output with dependency status and related docs
+		// Create enhanced output with dependency status, related docs, and blocking relationships
 		output := map[string]interface{}{
 			"task":              task,
 			"path":              dirPath,
 			"filename":          filename,
 			"dependency_status": dependencyStatus,
 			"related_documents": relatedDocs,
+			"blocked_by":        blockedByKeys,
+			"blocks":            blocksKeys,
 		}
 		return cli.OutputJSON(output)
 	}
@@ -617,6 +647,21 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		fmt.Println("\nDependencies:")
 		for depKey, status := range dependencyStatus {
 			fmt.Printf("  - %s: %s\n", depKey, status)
+		}
+	}
+
+	// Display blocking relationships
+	if len(blockedByKeys) > 0 {
+		fmt.Println("\nBlocked By:")
+		for _, key := range blockedByKeys {
+			fmt.Printf("  - %s\n", key)
+		}
+	}
+
+	if len(blocksKeys) > 0 {
+		fmt.Println("\nBlocks:")
+		for _, key := range blocksKeys {
+			fmt.Printf("  - %s\n", key)
 		}
 	}
 

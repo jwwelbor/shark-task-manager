@@ -11,8 +11,9 @@ import (
 
 // Manager handles config file operations
 type Manager struct {
-	configPath string
-	config     *Config
+	configPath    string
+	config        *Config
+	actionService ActionService
 }
 
 // NewManager creates a new config manager
@@ -139,4 +140,17 @@ func (m *Manager) UpdateLastSyncTime(syncTime time.Time) error {
 	}
 
 	return nil
+}
+
+// GetActionService returns the action service for workflow queries
+// Creates service lazily on first call
+func (m *Manager) GetActionService() (ActionService, error) {
+	if m.actionService == nil {
+		service, err := NewActionService(m.configPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create action service: %w", err)
+		}
+		m.actionService = service
+	}
+	return m.actionService, nil
 }

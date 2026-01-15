@@ -884,6 +884,75 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 	return nil
 }
 
+// UpdateStatusWithAction updates a task's status and returns the updated task with orchestrator action
+// This method combines status update with retrieval of orchestrator action from workflow config
+// Returns:
+// - *models.Task: The updated task
+// - *config.PopulatedAction: The orchestrator action for the new status (nil if not defined)
+// - error: Any error that occurred during the update
+func (r *TaskRepository) UpdateStatusWithAction(ctx context.Context, taskKey string, newStatus string) (*models.Task, *config.PopulatedAction, error) {
+	// Get task by key
+	task, err := r.GetByKey(ctx, taskKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// Update task status using existing method
+	taskStatus := models.TaskStatus(newStatus)
+	if err := r.UpdateStatus(ctx, task.ID, taskStatus, nil, nil); err != nil {
+		return nil, nil, fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	// Fetch updated task
+	updatedTask, err := r.GetByID(ctx, task.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get updated task: %w", err)
+	}
+
+	// Get orchestrator action for new status from workflow config
+	action, err := r.getOrchestratorAction(ctx, updatedTask, newStatus)
+	if err != nil {
+		// Log warning but don't fail - action is optional
+		fmt.Printf("WARNING: Failed to get orchestrator action for status %s: %v\n", newStatus, err)
+		action = nil
+	}
+
+	return updatedTask, action, nil
+}
+
+// getOrchestratorAction retrieves and populates orchestrator action for a status
+// Returns nil if no action is defined for the status (not an error)
+func (r *TaskRepository) getOrchestratorAction(ctx context.Context, task *models.Task, status string) (*config.PopulatedAction, error) {
+	// Check if workflow is configured
+	if r.workflow == nil || r.workflow.StatusMetadata == nil {
+		return nil, nil // No workflow - no actions
+	}
+
+	// Get status metadata
+	metadata, exists := r.workflow.StatusMetadata[status]
+	if !exists {
+		return nil, nil // Status not in config - no actions
+	}
+
+	// Check if action is defined
+	if metadata.OrchestratorAction == nil {
+		return nil, nil // No action for this status - OK
+	}
+
+	// Populate template with task ID
+	instruction := metadata.OrchestratorAction.PopulateTemplate(task.Key)
+
+	// Return populated action
+	populatedAction := &config.PopulatedAction{
+		Action:      metadata.OrchestratorAction.Action,
+		AgentType:   metadata.OrchestratorAction.AgentType,
+		Skills:      metadata.OrchestratorAction.Skills,
+		Instruction: instruction,
+	}
+
+	return populatedAction, nil
+}
+
 // BlockTask marks a task as blocked with a reason
 func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason string, agent *string) error {
 	return r.BlockTaskForced(ctx, taskID, reason, agent, false)

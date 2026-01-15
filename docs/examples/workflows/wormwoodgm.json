@@ -1,0 +1,178 @@
+{
+  "database": {
+    "backend": "local",
+    "url": "./shark-tasks.db"
+  },
+  "status_flow": {
+    "draft": ["ready_for_refinement_ba", "cancelled"],
+    "ready_for_refinement_ba": ["in_refinement_ba", "cancelled"],
+    "in_refinement_ba": ["ready_for_refinement_tech", "draft"],
+    "ready_for_refinement_tech": ["in_refinement_tech", "cancelled"],
+    "in_refinement_tech": ["ready_for_development", "draft"],
+    "ready_for_development": ["in_development", "blocked"],
+    "in_development": ["ready_for_code_review", "blocked"],
+    "ready_for_code_review": ["in_code_review", "in_development"],
+    "in_code_review": ["ready_for_qa", "in_development"],
+    "ready_for_qa": ["in_qa", "in_development"],
+    "in_qa": ["ready_for_approval", "in_development"],
+    "ready_for_approval": ["in_approval", "in_development"],
+    "in_approval": ["completed", "in_development"],
+    "completed": [],
+    "blocked": ["ready_for_development"],
+    "cancelled": []
+  },
+  "status_metadata": {
+    "draft": {
+      "color": "gray",
+      "description": "Task created, waiting for business analysis",
+      "phase": "planning",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "wait_for_triage",
+        "instruction_template": "Task {task_id} is in draft. Awaiting triage to assign to business analyst for requirements gathering."
+      }
+    },
+    "ready_for_refinement_ba": {
+      "color": "cyan",
+      "description": "Queued for business analyst review",
+      "phase": "planning",
+      "agent_types": ["business-analyst"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "business-analyst",
+        "skills": ["specification-writing", "shark-task-management", "research"],
+        "instruction_template": "Launch business-analyst agent for task {task_id}. Review requirements, document acceptance criteria, and ensure specifications are clear and testable."
+      }
+    },
+    "in_refinement_ba": {
+      "color": "cyan",
+      "description": "Business analyst is refining requirements",
+      "phase": "planning",
+      "agent_types": ["business-analyst"]
+    },
+    "ready_for_refinement_tech": {
+      "color": "cyan",
+      "description": "Queued for technical architecture review",
+      "phase": "planning",
+      "agent_types": ["architect"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "architect",
+        "skills": ["architecture", "database-design", "api-design"],
+        "instruction_template": "Launch architect agent for task {task_id}. Design system architecture, define data models, and create API contracts based on refined requirements."
+      }
+    },
+    "in_refinement_tech": {
+      "color": "cyan",
+      "description": "Architect is designing solution",
+      "phase": "planning",
+      "agent_types": ["architect"]
+    },
+    "ready_for_development": {
+      "color": "yellow",
+      "description": "Queued for implementation",
+      "phase": "development",
+      "agent_types": ["developer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "developer",
+        "skills": ["test-driven-development", "implementation", "shark-task-management"],
+        "instruction_template": "Launch developer agent for task {task_id}. Write tests first following TDD approach, then implement to pass tests using the technical specifications provided."
+      }
+    },
+    "in_development": {
+      "color": "yellow",
+      "description": "Implementation in progress",
+      "phase": "development",
+      "agent_types": ["developer"]
+    },
+    "ready_for_code_review": {
+      "color": "magenta",
+      "description": "Queued for code review",
+      "phase": "review",
+      "agent_types": ["reviewer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "reviewer",
+        "skills": ["code-review", "quality"],
+        "instruction_template": "Launch code reviewer agent for task {task_id}. Review code for quality, test coverage, adherence to standards, and alignment with specifications."
+      }
+    },
+    "in_code_review": {
+      "color": "magenta",
+      "description": "Code review in progress",
+      "phase": "review",
+      "agent_types": ["reviewer"]
+    },
+    "ready_for_qa": {
+      "color": "green",
+      "description": "Queued for quality assurance testing",
+      "phase": "qa",
+      "agent_types": ["qa-engineer"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "qa-engineer",
+        "skills": ["testing", "validation"],
+        "instruction_template": "Launch QA engineer agent for task {task_id}. Execute test plan, verify acceptance criteria, and validate behavior matches specifications."
+      }
+    },
+    "in_qa": {
+      "color": "green",
+      "description": "Quality assurance testing in progress",
+      "phase": "qa",
+      "agent_types": ["qa-engineer"]
+    },
+    "ready_for_approval": {
+      "color": "purple",
+      "description": "Awaiting final approval",
+      "phase": "approval",
+      "agent_types": ["tech-lead"],
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "tech-lead",
+        "skills": ["quality", "approval"],
+        "instruction_template": "Launch tech-lead agent for final approval of task {task_id}. Verify all quality gates passed and task is ready for production."
+      }
+    },
+    "in_approval": {
+      "color": "purple",
+      "description": "Final approval in progress",
+      "phase": "approval",
+      "agent_types": ["tech-lead"]
+    },
+    "completed": {
+      "color": "green",
+      "description": "Successfully delivered and approved",
+      "phase": "done",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "Task {task_id} is completed. Archive work, update documentation, and mark as delivered."
+      }
+    },
+    "blocked": {
+      "color": "red",
+      "description": "Waiting on external dependency or issue",
+      "phase": "any",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "pause",
+        "instruction_template": "Task {task_id} is blocked. Do not spawn new agents. Blocker reason and resolution plan documented in task notes."
+      }
+    },
+    "cancelled": {
+      "color": "gray",
+      "description": "Task cancelled, no longer needed",
+      "phase": "done",
+      "agent_types": [],
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "Task {task_id} has been cancelled. Clean up any partial work and close associated records."
+      }
+    }
+  },
+  "special_statuses": {
+    "_start_": ["draft"],
+    "_complete_": ["completed", "cancelled"]
+  }
+}

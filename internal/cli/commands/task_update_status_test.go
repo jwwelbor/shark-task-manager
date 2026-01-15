@@ -184,9 +184,12 @@ func TestTaskUpdate_WithStatusFlag_InvalidTransition(t *testing.T) {
 		t.Fatal("Expected error for invalid status transition, got nil")
 	}
 
-	// Verify error is a ValidationError
+	// Verify error is a ValidationError (from validation package)
 	if _, ok := err.(*config.ValidationError); !ok {
-		t.Errorf("Expected ValidationError, got %T: %v", err, err)
+		// Also check for WorkflowValidationError (renamed from ValidationError)
+		if _, ok := err.(*config.WorkflowValidationError); !ok {
+			t.Errorf("Expected ValidationError or WorkflowValidationError, got %T: %v", err, err)
+		}
 	}
 
 	// Verify status did NOT change

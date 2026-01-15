@@ -5,13 +5,13 @@ import (
 	"strings"
 )
 
-// ValidationError represents a workflow configuration validation error
-type ValidationError struct {
+// WorkflowValidationError represents a workflow configuration validation error
+type WorkflowValidationError struct {
 	Message string
 	Fix     string // Suggested fix for the error
 }
 
-func (e *ValidationError) Error() string {
+func (e *WorkflowValidationError) Error() string {
 	if e.Fix != "" {
 		return fmt.Sprintf("%s. Fix: %s", e.Message, e.Fix)
 	}
@@ -29,10 +29,10 @@ func (e *ValidationError) Error() string {
 //
 // Returns:
 // - nil if workflow is valid
-// - ValidationError with actionable message and fix suggestion if invalid
+// - WorkflowValidationError with actionable message and fix suggestion if invalid
 func ValidateWorkflow(workflow *WorkflowConfig) error {
 	if workflow == nil {
-		return &ValidationError{
+		return &WorkflowValidationError{
 			Message: "workflow config is nil",
 			Fix:     "provide a valid workflow configuration",
 		}
@@ -65,7 +65,7 @@ func ValidateWorkflow(workflow *WorkflowConfig) error {
 func validateSpecialStatuses(workflow *WorkflowConfig) error {
 	startStatuses, hasStart := workflow.SpecialStatuses[StartStatusKey]
 	if !hasStart || len(startStatuses) == 0 {
-		return &ValidationError{
+		return &WorkflowValidationError{
 			Message: fmt.Sprintf("missing required special status '%s'", StartStatusKey),
 			Fix:     fmt.Sprintf("add 'special_statuses.%s' array with at least one initial status (e.g., ['todo'])", StartStatusKey),
 		}
@@ -73,7 +73,7 @@ func validateSpecialStatuses(workflow *WorkflowConfig) error {
 
 	completeStatuses, hasComplete := workflow.SpecialStatuses[CompleteStatusKey]
 	if !hasComplete || len(completeStatuses) == 0 {
-		return &ValidationError{
+		return &WorkflowValidationError{
 			Message: fmt.Sprintf("missing required special status '%s'", CompleteStatusKey),
 			Fix:     fmt.Sprintf("add 'special_statuses.%s' array with at least one terminal status (e.g., ['completed'])", CompleteStatusKey),
 		}
@@ -82,7 +82,7 @@ func validateSpecialStatuses(workflow *WorkflowConfig) error {
 	// Verify start statuses exist in status flow
 	for _, status := range startStatuses {
 		if _, exists := workflow.StatusFlow[status]; !exists {
-			return &ValidationError{
+			return &WorkflowValidationError{
 				Message: fmt.Sprintf("start status '%s' is not defined in status_flow", status),
 				Fix:     fmt.Sprintf("add '%s' to status_flow map or remove from %s array", status, StartStatusKey),
 			}
@@ -92,7 +92,7 @@ func validateSpecialStatuses(workflow *WorkflowConfig) error {
 	// Verify complete statuses exist in status flow
 	for _, status := range completeStatuses {
 		if _, exists := workflow.StatusFlow[status]; !exists {
-			return &ValidationError{
+			return &WorkflowValidationError{
 				Message: fmt.Sprintf("complete status '%s' is not defined in status_flow", status),
 				Fix:     fmt.Sprintf("add '%s' to status_flow map or remove from %s array", status, CompleteStatusKey),
 			}
@@ -121,7 +121,7 @@ func validateStatusReferences(workflow *WorkflowConfig) error {
 	}
 
 	if len(undefinedStatuses) > 0 {
-		return &ValidationError{
+		return &WorkflowValidationError{
 			Message: fmt.Sprintf("undefined status references in transitions: %s", strings.Join(undefinedStatuses, ", ")),
 			Fix:     "add missing statuses to status_flow map or remove invalid transition references",
 		}
@@ -166,7 +166,7 @@ func validateReachability(workflow *WorkflowConfig) error {
 	}
 
 	if len(unreachable) > 0 {
-		return &ValidationError{
+		return &WorkflowValidationError{
 			Message: fmt.Sprintf("unreachable statuses (no path from %s): %s", StartStatusKey, strings.Join(unreachable, ", ")),
 			Fix:     fmt.Sprintf("add transitions to make these statuses reachable from %s, or remove them", strings.Join(startStatuses, ", ")),
 		}
@@ -219,7 +219,7 @@ func validateTerminalPaths(workflow *WorkflowConfig) error {
 	}
 
 	if len(deadEnds) > 0 {
-		return &ValidationError{
+		return &WorkflowValidationError{
 			Message: fmt.Sprintf("dead-end statuses (no path to %s): %s", CompleteStatusKey, strings.Join(deadEnds, ", ")),
 			Fix:     fmt.Sprintf("add transitions from these statuses to reach %s, or remove them", strings.Join(completeStatuses, ", ")),
 		}
@@ -238,7 +238,7 @@ func ValidateTransition(workflow *WorkflowConfig, fromStatus, toStatus string) e
 	// Check if fromStatus exists in workflow
 	validNext, exists := workflow.StatusFlow[fromStatus]
 	if !exists {
-		return &ValidationError{
+		return &WorkflowValidationError{
 			Message: fmt.Sprintf("status '%s' is not defined in workflow", fromStatus),
 			Fix:     "add this status to workflow config or use --force to override",
 		}
@@ -253,13 +253,13 @@ func ValidateTransition(workflow *WorkflowConfig, fromStatus, toStatus string) e
 
 	// Invalid transition
 	if len(validNext) == 0 {
-		return &ValidationError{
+		return &WorkflowValidationError{
 			Message: fmt.Sprintf("cannot transition from '%s' (terminal status)", fromStatus),
 			Fix:     "use --force to override workflow validation",
 		}
 	}
 
-	return &ValidationError{
+	return &WorkflowValidationError{
 		Message: fmt.Sprintf("invalid transition from '%s' to '%s'", fromStatus, toStatus),
 		Fix:     fmt.Sprintf("valid transitions from '%s': %s. Use --force to override", fromStatus, strings.Join(validNext, ", ")),
 	}

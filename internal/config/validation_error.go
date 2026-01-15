@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// ValidationError is a general validation error type (alias to OrchestratorValidationError for backward compat)
+type ValidationError = OrchestratorValidationError
+
 // OrchestratorValidationError provides detailed context for orchestrator action configuration errors
 type OrchestratorValidationError struct {
 	StatusName   string // Which status has the error (e.g., "ready_for_development")
