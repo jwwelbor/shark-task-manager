@@ -88,6 +88,10 @@ type StatusMetadata struct {
 	// Used for agent-targeted queries: `shark task list --agent=qa`
 	// Examples: ["developer", "backend", "frontend", "qa", "business-analyst", "tech-lead"]
 	AgentTypes []string `json:"agent_types,omitempty"`
+
+	// OrchestratorAction specifies the action for orchestrators when task enters this status
+	// Optional field for workflow-driven agent spawning (Phase 1 feature)
+	OrchestratorAction *OrchestratorAction `json:"orchestrator_action,omitempty" yaml:"orchestrator_action,omitempty"`
 }
 
 // Special status keys used in SpecialStatuses map

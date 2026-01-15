@@ -189,3 +189,326 @@ func TestDetectBackend(t *testing.T) {
 		})
 	}
 }
+
+// TestStatusMetadata_OrchestratorAction_Load tests loading StatusMetadata with orchestrator_action
+func TestStatusMetadata_OrchestratorAction_Load(t *testing.T) {
+	jsonData := []byte(`{
+		"color": "yellow",
+		"description": "Ready for development",
+		"phase": "development",
+		"orchestrator_action": {
+			"action": "spawn_agent",
+			"agent_type": "developer",
+			"skills": ["test-driven-development", "implementation"],
+			"instruction_template": "Implement task {task_id}"
+		}
+	}`)
+
+	var meta StatusMetadata
+	err := json.Unmarshal(jsonData, &meta)
+	if err != nil {
+		t.Fatalf("failed to unmarshal StatusMetadata: %v", err)
+	}
+
+	if meta.OrchestratorAction == nil {
+		t.Fatal("orchestrator_action should not be nil")
+	}
+
+	if meta.OrchestratorAction.Action != ActionSpawnAgent {
+		t.Errorf("action = %q, want %q", meta.OrchestratorAction.Action, ActionSpawnAgent)
+	}
+
+	if meta.OrchestratorAction.AgentType != "developer" {
+		t.Errorf("agent_type = %q, want %q", meta.OrchestratorAction.AgentType, "developer")
+	}
+
+	if len(meta.OrchestratorAction.Skills) != 2 {
+		t.Errorf("skills length = %d, want 2", len(meta.OrchestratorAction.Skills))
+	}
+
+	if meta.OrchestratorAction.InstructionTemplate != "Implement task {task_id}" {
+		t.Errorf("instruction_template mismatch")
+	}
+}
+
+// TestStatusMetadata_OrchestratorAction_Backward_Compatible tests that missing orchestrator_action is valid
+func TestStatusMetadata_OrchestratorAction_Backward_Compatible(t *testing.T) {
+	jsonData := []byte(`{
+		"color": "blue",
+		"description": "In progress",
+		"phase": "development"
+	}`)
+
+	var meta StatusMetadata
+	err := json.Unmarshal(jsonData, &meta)
+	if err != nil {
+		t.Fatalf("failed to unmarshal StatusMetadata: %v", err)
+	}
+
+	if meta.OrchestratorAction != nil {
+		t.Error("orchestrator_action should be nil for backward compatibility")
+	}
+
+	if meta.Color != "blue" {
+		t.Errorf("color = %q, want %q", meta.Color, "blue")
+	}
+}
+
+// TestStatusMetadata_OrchestratorAction_AllActionTypes tests all action types can be loaded
+func TestStatusMetadata_OrchestratorAction_AllActionTypes(t *testing.T) {
+	tests := []struct {
+		name       string
+		jsonData   string
+		wantAction string
+		validate   func(*OrchestratorAction) error
+	}{
+		{
+			name: "spawn_agent",
+			jsonData: `{
+				"action": "spawn_agent",
+				"agent_type": "developer",
+				"skills": ["implementation"],
+				"instruction_template": "Implement {task_id}"
+			}`,
+			wantAction: ActionSpawnAgent,
+			validate:   nil,
+		},
+		{
+			name: "pause",
+			jsonData: `{
+				"action": "pause",
+				"instruction_template": "Task {task_id} paused"
+			}`,
+			wantAction: ActionPause,
+			validate:   nil,
+		},
+		{
+			name: "wait_for_triage",
+			jsonData: `{
+				"action": "wait_for_triage",
+				"instruction_template": "Task {task_id} needs triage"
+			}`,
+			wantAction: ActionWaitForTriage,
+			validate:   nil,
+		},
+		{
+			name: "archive",
+			jsonData: `{
+				"action": "archive",
+				"instruction_template": "Task {task_id} archived"
+			}`,
+			wantAction: ActionArchive,
+			validate:   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var action OrchestratorAction
+			err := json.Unmarshal([]byte(tt.jsonData), &action)
+			if err != nil {
+				t.Fatalf("failed to unmarshal action: %v", err)
+			}
+
+			if action.Action != tt.wantAction {
+				t.Errorf("action = %q, want %q", action.Action, tt.wantAction)
+			}
+
+			// Validate if validator provided
+			if tt.validate != nil {
+				if err := tt.validate(&action); err != nil {
+					t.Errorf("validation error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestWorkflowConfig_OrchestratorAction_Load tests loading WorkflowConfig with orchestrator_actions
+func TestWorkflowConfig_OrchestratorAction_Load(t *testing.T) {
+	jsonData := []byte(`{
+		"status_flow": {
+			"ready_for_development": ["in_development"],
+			"in_development": ["ready_for_code_review"],
+			"ready_for_code_review": ["completed"],
+			"completed": []
+		},
+		"status_metadata": {
+			"ready_for_development": {
+				"color": "yellow",
+				"phase": "development",
+				"orchestrator_action": {
+					"action": "spawn_agent",
+					"agent_type": "developer",
+					"skills": ["tdd", "implementation"],
+					"instruction_template": "Implement task {task_id}"
+				}
+			},
+			"completed": {
+				"color": "green",
+				"phase": "done",
+				"orchestrator_action": {
+					"action": "archive",
+					"instruction_template": "Task {task_id} completed"
+				}
+			}
+		}
+	}`)
+
+	var config WorkflowConfig
+	err := json.Unmarshal(jsonData, &config)
+	if err != nil {
+		t.Fatalf("failed to unmarshal WorkflowConfig: %v", err)
+	}
+
+	// Check ready_for_development has spawn_agent
+	meta, found := config.GetStatusMetadata("ready_for_development")
+	if !found {
+		t.Fatal("ready_for_development status not found")
+	}
+
+	if meta.OrchestratorAction == nil {
+		t.Fatal("orchestrator_action should not be nil")
+	}
+
+	if meta.OrchestratorAction.Action != ActionSpawnAgent {
+		t.Errorf("action = %q, want %q", meta.OrchestratorAction.Action, ActionSpawnAgent)
+	}
+
+	// Check completed has archive
+	meta, found = config.GetStatusMetadata("completed")
+	if !found {
+		t.Fatal("completed status not found")
+	}
+
+	if meta.OrchestratorAction == nil {
+		t.Fatal("orchestrator_action should not be nil for completed")
+	}
+
+	if meta.OrchestratorAction.Action != ActionArchive {
+		t.Errorf("action = %q, want %q", meta.OrchestratorAction.Action, ActionArchive)
+	}
+}
+
+// TestWorkflowConfig_OrchestratorAction_Missing tests that missing orchestrator_action doesn't break config loading
+func TestWorkflowConfig_OrchestratorAction_Missing(t *testing.T) {
+	jsonData := []byte(`{
+		"status_flow": {
+			"todo": ["in_progress"],
+			"in_progress": ["completed"],
+			"completed": []
+		},
+		"status_metadata": {
+			"todo": {
+				"color": "gray",
+				"phase": "planning"
+			},
+			"in_progress": {
+				"color": "blue",
+				"phase": "development"
+			}
+		}
+	}`)
+
+	var config WorkflowConfig
+	err := json.Unmarshal(jsonData, &config)
+	if err != nil {
+		t.Fatalf("failed to unmarshal WorkflowConfig: %v", err)
+	}
+
+	meta, found := config.GetStatusMetadata("todo")
+	if !found {
+		t.Fatal("todo status not found")
+	}
+
+	if meta.OrchestratorAction != nil {
+		t.Error("orchestrator_action should be nil for backward compatibility")
+	}
+}
+
+// TestOrchestratorAction_Validate_InConfig tests that invalid orchestrator_actions are caught
+func TestOrchestratorAction_Validate_InConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		jsonData    string
+		shouldFail  bool
+		failMessage string
+	}{
+		{
+			name: "invalid action type",
+			jsonData: `{
+				"action": "invalid_action",
+				"instruction_template": "Test"
+			}`,
+			shouldFail:  true,
+			failMessage: "invalid action type",
+		},
+		{
+			name: "spawn_agent without agent_type",
+			jsonData: `{
+				"action": "spawn_agent",
+				"skills": ["implementation"],
+				"instruction_template": "Implement {task_id}"
+			}`,
+			shouldFail:  true,
+			failMessage: "agent_type",
+		},
+		{
+			name: "spawn_agent without skills",
+			jsonData: `{
+				"action": "spawn_agent",
+				"agent_type": "developer",
+				"instruction_template": "Implement {task_id}"
+			}`,
+			shouldFail:  true,
+			failMessage: "skills",
+		},
+		{
+			name: "missing instruction_template",
+			jsonData: `{
+				"action": "pause"
+			}`,
+			shouldFail:  true,
+			failMessage: "instruction_template",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var action OrchestratorAction
+			err := json.Unmarshal([]byte(tt.jsonData), &action)
+			if err != nil {
+				t.Fatalf("failed to unmarshal: %v", err)
+			}
+
+			validErr := action.Validate()
+
+			if tt.shouldFail && validErr == nil {
+				t.Error("expected validation error but got nil")
+			}
+
+			if !tt.shouldFail && validErr != nil {
+				t.Errorf("unexpected validation error: %v", validErr)
+			}
+
+			if tt.shouldFail && validErr != nil && !containsString(validErr.Error(), tt.failMessage) {
+				t.Errorf("error message should contain %q, got: %v", tt.failMessage, validErr)
+			}
+		})
+	}
+}
+
+// containsString checks if a string contains a substring
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && stringContainsHelper(s, substr)))
+}
+
+func stringContainsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
