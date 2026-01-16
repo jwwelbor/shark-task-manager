@@ -295,6 +295,30 @@ Examples:
 	RunE: runTaskSetStatus,
 }
 
+// enrichTasksWithOrchestratorActions enriches tasks with orchestrator action metadata
+// This function attempts to retrieve and populate orchestrator actions for each task
+// based on the task's status. If action retrieval fails for any task, it logs a warning
+// and continues processing other tasks (graceful degradation).
+//
+// Note: This function will be fully implemented when T-E07-F21-006 adds the GetOrchestratorAction
+// method to the TaskRepository. Until then, it serves as a placeholder that can be extended.
+func enrichTasksWithOrchestratorActions(ctx context.Context, repo *repository.TaskRepository, tasks []*models.Task) {
+	if len(tasks) == 0 {
+		return
+	}
+
+	// TODO: When T-E07-F21-006 is implemented, uncomment the following code:
+	// Process each task - errors are logged but don't fail the operation
+	// for _, task := range tasks {
+	//     action, err := repo.GetOrchestratorAction(ctx, task, string(task.Status))
+	//     if err != nil {
+	//         cli.Warning(fmt.Sprintf("Failed to get orchestrator action for task %s: %v", task.Key, err))
+	//         continue
+	//     }
+	//     task.OrchestratorAction = action
+	// }
+}
+
 // runTaskList executes the task list command
 func runTaskList(cmd *cobra.Command, args []string) error {
 	// Create context with timeout
@@ -326,6 +350,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	priorityMin, _ := cmd.Flags().GetInt("priority-min")
 	priorityMax, _ := cmd.Flags().GetInt("priority-max")
 	blocked, _ := cmd.Flags().GetBool("blocked")
+	withActions, _ := cmd.Flags().GetBool("with-actions")
 
 	// Positional arguments take priority over flags
 	if positionalEpic != nil {
@@ -422,6 +447,11 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	showAll, _ := cmd.Flags().GetBool("show-all")
 	tasks = filterTasksByCompletedStatus(tasks, showAll, statusStr)
 
+	// Enrich tasks with orchestrator actions if requested
+	if withActions && len(tasks) > 0 {
+		enrichTasksWithOrchestratorActions(ctx, repo, tasks)
+	}
+
 	// Output results
 	// TODO: Support multiple output formats (markdown, yaml, csv)
 	// See docs/future-enhancements/output-formats.md for implementation plan
@@ -467,6 +497,42 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.OutputTable(headers, rows)
+
+	// Show action summaries if --with-actions flag is set
+	// Note: This will display orchestrator actions once T-E07-F21-006 adds OrchestratorAction field to Task model
+	// TODO: When T-E07-F21-006 is implemented, uncomment this code to display action summaries:
+	_ = withActions // Suppress unused variable warning
+	/*
+		if withActions {
+			// hasActions := false
+			// for _, task := range tasks {
+			//     if task.OrchestratorAction != nil {
+			//         hasActions = true
+			//         break
+			//     }
+			// }
+			//
+			// if hasActions {
+			//     cli.Info("") // Blank line
+			//     cli.Info("Orchestrator Actions:")
+			//     for _, task := range tasks {
+			//         if task.OrchestratorAction != nil {
+			//             action := task.OrchestratorAction
+			//             agentInfo := ""
+			//             if action.AgentType != "" {
+			//                 agentInfo = fmt.Sprintf(" → %s", action.AgentType)
+			//             }
+			//             skillsInfo := ""
+			//             if len(action.Skills) > 0 {
+			//                 skillsInfo = fmt.Sprintf(" (%s)", strings.Join(action.Skills, ", "))
+			//             }
+			//             cli.Info(fmt.Sprintf("  %s: %s%s%s", task.Key, action.Action, agentInfo, skillsInfo))
+			//         }
+			//     }
+			// }
+		}
+	*/
+
 	return nil
 }
 
@@ -1288,8 +1354,9 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	agentFlag, _ := cmd.Flags().GetString("agent")
 	agent := getAgentIdentifier(agentFlag)
 
-	// Update status
-	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, &agent, nil, force); err != nil {
+	// Update status and get orchestrator action for in_progress status
+	updatedTask, orchestratorAction, err := repo.UpdateStatusWithAction(ctx, taskKey, string(models.TaskStatusInProgress))
+	if err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
 
@@ -1309,7 +1376,40 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 		cli.Warning(fmt.Sprintf("Task %s force-started from %s status", taskKey, task.Status))
 	}
 
-	cli.Success(fmt.Sprintf("Task %s started. Status changed to in_progress.", taskKey))
+	// Output result
+	if cli.GlobalConfig.JSON {
+		// Create response with orchestrator action (omitted if nil)
+		response := struct {
+			*models.Task
+			OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
+		}{
+			Task:               updatedTask,
+			OrchestratorAction: orchestratorAction,
+		}
+		return cli.OutputJSON(response)
+	}
+
+	// Human-readable output
+	cli.Success(fmt.Sprintf("Task %s started successfully", taskKey))
+	fmt.Printf("Status: %s → in_progress\n", task.Status)
+	if updatedTask.StartedAt.Valid {
+		fmt.Printf("Started: %s\n", updatedTask.StartedAt.Time.Format("2006-01-02 15:04:05"))
+	}
+
+	// Display orchestrator action if present
+	if orchestratorAction != nil {
+		fmt.Println("\nNext Action:")
+		fmt.Printf("  Type: %s\n", orchestratorAction.Action)
+		if orchestratorAction.AgentType != "" {
+			fmt.Printf("  Agent: %s\n", orchestratorAction.AgentType)
+		}
+		if len(orchestratorAction.Skills) > 0 {
+			fmt.Printf("  Skills: %s\n", strings.Join(orchestratorAction.Skills, ", "))
+		}
+		fmt.Printf("\nInstruction: %s\n", orchestratorAction.Instruction)
+	} else {
+		fmt.Println("\nNext Action: None configured")
+	}
 
 	// Trigger cascading status updates for parent feature and epic
 	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
@@ -1378,8 +1478,9 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 		notes = &notesFlag
 	}
 
-	// Update status (repository handles workflow validation)
-	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusReadyForReview, &agent, notes, force); err != nil {
+	// Update status with orchestrator action (repository handles workflow validation)
+	updatedTask, orchestratorAction, err := repo.UpdateStatusWithAction(ctx, taskKey, string(models.TaskStatusReadyForReview))
+	if err != nil {
 		// Display error with workflow suggestion
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
 		if !force {
@@ -1463,7 +1564,47 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 		cli.Warning(fmt.Sprintf("Task %s force-completed from %s status", taskKey, task.Status))
 	}
 
+	// Return JSON output if requested
+	if cli.GlobalConfig.JSON {
+		// Get feature to get epic_id
+		featureRepo := repository.NewFeatureRepository(dbWrapper)
+		feature, err := featureRepo.GetByID(ctx, updatedTask.FeatureID)
+		var epicID int64
+		if err == nil && feature != nil {
+			epicID = feature.EpicID
+		}
+
+		// Create response with orchestrator_action
+		response := map[string]interface{}{
+			"id":          updatedTask.ID,
+			"key":         updatedTask.Key,
+			"slug":        updatedTask.Slug,
+			"feature_id":  updatedTask.FeatureID,
+			"epic_id":     epicID,
+			"title":       updatedTask.Title,
+			"description": updatedTask.Description,
+			"status":      updatedTask.Status,
+			"priority":    updatedTask.Priority,
+			"agent_type":  updatedTask.AgentType,
+			"depends_on":  updatedTask.DependsOn,
+			"file_path":   updatedTask.FilePath,
+			"created_at":  updatedTask.CreatedAt,
+			"updated_at":  updatedTask.UpdatedAt,
+		}
+
+		// Include orchestrator_action if it exists
+		if orchestratorAction != nil {
+			response["orchestrator_action"] = orchestratorAction
+		}
+
+		return cli.OutputJSON(response)
+	}
+
+	// Human-readable output
 	cli.Success(fmt.Sprintf("Task %s marked ready for review. Status changed to ready_for_review.", taskKey))
+
+	// Display orchestrator action summary
+	displayOrchestratorAction(orchestratorAction)
 
 	// Trigger cascading status updates for parent feature and epic
 	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
@@ -1883,6 +2024,7 @@ func init() {
 	taskListCmd.Flags().IntP("priority-max", "", 0, "Maximum priority (10=lowest priority)")
 	taskListCmd.Flags().BoolP("blocked", "b", false, "Show only blocked tasks")
 	taskListCmd.Flags().Bool("show-all", false, "Show all tasks including completed (by default, completed tasks are hidden)")
+	taskListCmd.Flags().Bool("with-actions", false, "Include orchestrator actions with each task (for batch orchestrator polling)")
 
 	// Add flags for create command
 	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) - can also be specified as first positional argument")
@@ -2267,6 +2409,24 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// displayOrchestratorAction displays the orchestrator action summary in human-readable format
+func displayOrchestratorAction(action *config.PopulatedAction) {
+	if action == nil {
+		fmt.Println("Next Action: None configured")
+		return
+	}
+
+	fmt.Println("\nNext Action:")
+	fmt.Printf("  Type: %s\n", action.Action)
+	if action.AgentType != "" {
+		fmt.Printf("  Agent: %s\n", action.AgentType)
+	}
+	if len(action.Skills) > 0 {
+		fmt.Printf("  Skills: %s\n", strings.Join(action.Skills, ", "))
+	}
+	fmt.Printf("\nInstruction: %s\n", action.Instruction)
 }
 
 // Note: Custom string functions removed - now using standard library:

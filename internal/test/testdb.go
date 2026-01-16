@@ -51,9 +51,15 @@ func GetTestDB() *sql.DB {
 func SeedTestData() (int64, int64) {
 	database := GetTestDB()
 
+	// Clean up any existing E99 data to ensure fresh state
+	// Delete in reverse order of dependencies (tasks -> features -> epics)
+	_, _ = database.Exec("DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.Exec("DELETE FROM features WHERE key LIKE 'E99-%'")
+	_, _ = database.Exec("DELETE FROM epics WHERE key = 'E99'")
+
 	// Create epic via SQL to avoid import cycle
 	result, err := database.Exec(`
-		INSERT OR IGNORE INTO epics (key, title, description, status, priority)
+		INSERT INTO epics (key, title, description, status, priority)
 		VALUES ('E99', 'Test Epic', 'Test epic', 'active', 'high')
 	`)
 	if err != nil {
@@ -66,15 +72,12 @@ func SeedTestData() (int64, int64) {
 	}
 
 	if epicID == 0 {
-		err = database.QueryRow("SELECT id FROM epics WHERE key = 'E99'").Scan(&epicID)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to find epic E99: %v", err))
-		}
+		panic("Failed to get valid epic ID after insert")
 	}
 
 	// Create feature
 	result, err = database.Exec(`
-		INSERT OR IGNORE INTO features (epic_id, key, title, slug, description, status)
+		INSERT INTO features (epic_id, key, title, slug, description, status)
 		VALUES (?, 'E99-F99', 'Test Feature', 'test-feature', 'Test feature', 'active')
 	`, epicID)
 	if err != nil {
@@ -87,10 +90,7 @@ func SeedTestData() (int64, int64) {
 	}
 
 	if featureID == 0 {
-		err = database.QueryRow("SELECT id FROM features WHERE key = 'E99-F99'").Scan(&featureID)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to find feature E99-F99: %v", err))
-		}
+		panic("Failed to get valid feature ID after insert")
 	}
 
 	// Create test tasks

@@ -7,10 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
 
 // TestFeatureCreate_ExistingFile_ShouldNotOverwrite tests that when --file points to an existing file,
@@ -20,20 +17,8 @@ func TestFeatureCreate_ExistingFile_ShouldNotOverwrite(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get test database
-	database := test.GetTestDB()
-	testDb := repository.NewDB(database)
-	defer cli.ResetDB()
-
-	// Clean up any existing test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'TEST-%'")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'TEST-%'")
-
-	// Seed epic for feature
-	epicID, _ := test.SeedTestData()
-
-	// Get repository
-	featureRepo := repository.NewFeatureRepository(testDb)
+	// Create mock repository
+	featureRepo := NewMockFeatureRepository()
 
 	// Create temporary directory for test
 	tempDir := t.TempDir()
@@ -68,18 +53,18 @@ func TestFeatureCreate_ExistingFile_ShouldNotOverwrite(t *testing.T) {
 		t.Fatalf("Failed to change to temp directory: %v", err)
 	}
 
-	// Create feature in database with relative file path
+	// Create feature with relative file path
 	relPath := "docs/plan/existing-feature.md"
 	feature := &models.Feature{
-		Key:      "E99-F99",
-		EpicID:   epicID,
+		Key:      "E99-F98",
+		EpicID:   99, // Mock epic ID
 		Title:    "Test Feature",
 		FilePath: &relPath,
 		Status:   models.FeatureStatusDraft,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {
-		t.Fatalf("Failed to create feature in database: %v", err)
+		t.Fatalf("Failed to create feature: %v", err)
 	}
 
 	// Read file content after feature creation
@@ -94,7 +79,7 @@ func TestFeatureCreate_ExistingFile_ShouldNotOverwrite(t *testing.T) {
 	}
 
 	// Verify feature was linked to file in database
-	createdFeature, err := featureRepo.GetByKey(ctx, "E99-F99")
+	createdFeature, err := featureRepo.GetByKey(ctx, "E99-F98")
 	if err != nil {
 		t.Fatalf("Failed to retrieve feature: %v", err)
 	}
@@ -111,20 +96,8 @@ func TestFeatureCreate_NonExistingFile_ShouldCreate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get test database
-	database := test.GetTestDB()
-	testDb := repository.NewDB(database)
-	defer cli.ResetDB()
-
-	// Clean up any existing test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'TEST-%'")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'TEST-%'")
-
-	// Seed epic for feature
-	epicID, _ := test.SeedTestData()
-
-	// Get repository
-	featureRepo := repository.NewFeatureRepository(testDb)
+	// Create mock repository
+	featureRepo := NewMockFeatureRepository()
 
 	// Create temporary directory for test
 	tempDir := t.TempDir()
@@ -161,17 +134,17 @@ func TestFeatureCreate_NonExistingFile_ShouldCreate(t *testing.T) {
 		t.Fatalf("Failed to write template: %v", err)
 	}
 
-	// Create feature in database
+	// Create feature (use E99-F97 for this test)
 	feature := &models.Feature{
-		Key:      "E98-F98",
-		EpicID:   epicID,
+		Key:      "E99-F97",
+		EpicID:   99, // Mock epic ID
 		Title:    "New Feature",
 		FilePath: &relPath,
 		Status:   models.FeatureStatusDraft,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {
-		t.Fatalf("Failed to create feature in database: %v", err)
+		t.Fatalf("Failed to create feature: %v", err)
 	}
 
 	// Verify file was created
@@ -190,7 +163,7 @@ func TestFeatureCreate_NonExistingFile_ShouldCreate(t *testing.T) {
 	}
 
 	// Verify feature was created with correct file path
-	createdFeature, err := featureRepo.GetByKey(ctx, "E98-F98")
+	createdFeature, err := featureRepo.GetByKey(ctx, "E99-F97")
 	if err != nil {
 		t.Fatalf("Failed to retrieve feature: %v", err)
 	}

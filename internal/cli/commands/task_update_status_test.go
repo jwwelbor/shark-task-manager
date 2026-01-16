@@ -20,9 +20,9 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 
 	// Clean up test data before and after
 	cleanupTestData := func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
-		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E99-F99'")
-		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E97-F97-%'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E97-F97'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E97'")
 	}
 	cleanupTestData()
 	defer cleanupTestData()
@@ -30,7 +30,7 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 	// Create test epic
 	epicRepo := repository.NewEpicRepository(dbWrapper)
 	epic := &models.Epic{
-		Key:      "E99",
+		Key:      "E97",
 		Title:    "Test Epic for Status Update",
 		Status:   models.EpicStatusActive,
 		Priority: models.PriorityMedium,
@@ -44,7 +44,7 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(dbWrapper)
 	feature := &models.Feature{
 		EpicID: epic.ID,
-		Key:    "E99-F99",
+		Key:    "E97-F97",
 		Title:  "Test Feature for Status Update",
 		Status: models.FeatureStatusActive,
 	}
@@ -65,7 +65,7 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 	// Create test task with initial status
 	task := &models.Task{
 		FeatureID: feature.ID,
-		Key:       "T-E99-F99-001",
+		Key:       "T-E97-F97-001",
 		Title:     "Test Task for Status Update",
 		Status:    models.TaskStatusTodo,
 		Priority:  5,

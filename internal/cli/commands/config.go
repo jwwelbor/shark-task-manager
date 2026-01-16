@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/patterns"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -582,6 +583,154 @@ Examples:
 	},
 }
 
+// configGetStatusActionCmd returns the orchestrator action for a status
+var configGetStatusActionCmd = &cobra.Command{
+	Use:   "get-status-action <status>",
+	Short: "Get orchestrator action for a status",
+	Long: `Get the orchestrator action definition for a specific status from workflow configuration.
+
+This command is useful for debugging and testing workflow configuration without actually
+transitioning a task. Optionally provide a task key to populate template variables.
+
+Examples:
+  shark config get-status-action ready_for_development
+  shark config get-status-action ready_for_development --task=T-E01-F03-002
+  shark config get-status-action blocked --json`,
+	Args: cobra.ExactArgs(1),
+	RunE: runConfigGetStatusAction,
+}
+
+func runConfigGetStatusAction(cmd *cobra.Command, args []string) error {
+	status := args[0]
+	taskKeyFlag, _ := cmd.Flags().GetString("task")
+
+	// Load workflow config
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		cli.Error(fmt.Sprintf("Failed to get config path: %v", err))
+		os.Exit(2)
+	}
+
+	// Load the workflow configuration
+	workflowConfig, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Failed to load workflow config: %v", err))
+		os.Exit(2)
+	}
+
+	// Check if workflow config or metadata exists
+	if workflowConfig == nil || workflowConfig.StatusMetadata == nil {
+		cli.Error("No workflow configuration found")
+		os.Exit(2)
+	}
+
+	// Check if status exists in config
+	metadata, exists := workflowConfig.StatusMetadata[status]
+	if !exists {
+		cli.Error(fmt.Sprintf("Status '%s' not found in workflow config", status))
+		os.Exit(1)
+	}
+
+	// Get the orchestrator action (may be nil)
+	action := metadata.OrchestratorAction
+
+	// If task key is provided, populate the template
+	if taskKeyFlag != "" && action != nil {
+		// Validate task key format
+		taskKey, err := NormalizeTaskKey(taskKeyFlag)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Invalid task key format: %s", taskKeyFlag))
+			os.Exit(1)
+		}
+
+		// Populate template with task ID
+		instruction := action.PopulateTemplate(taskKey)
+
+		// Create a PopulatedAction for output
+		populatedAction := &struct {
+			Action      string   `json:"action"`
+			AgentType   string   `json:"agent_type,omitempty"`
+			Skills      []string `json:"skills,omitempty"`
+			Instruction string   `json:"instruction"`
+		}{
+			Action:      action.Action,
+			AgentType:   action.AgentType,
+			Skills:      action.Skills,
+			Instruction: instruction,
+		}
+
+		// Output result
+		if cli.GlobalConfig.JSON {
+			response := map[string]interface{}{
+				"status": status,
+				"action": populatedAction,
+			}
+			return cli.OutputJSON(response)
+		}
+
+		// Human-readable output
+		fmt.Printf("Status: %s\n", status)
+		fmt.Printf("Action: %s\n", action.Action)
+		if action.AgentType != "" {
+			fmt.Printf("Agent Type: %s\n", action.AgentType)
+		}
+		if len(action.Skills) > 0 {
+			fmt.Printf("Skills: %s\n", strings.Join(action.Skills, ", "))
+		}
+		fmt.Printf("Instruction:\n  %s\n", instruction)
+		return nil
+	}
+
+	// If no task key or action is nil, return raw template
+	if action == nil {
+		// No action defined for this status
+		if cli.GlobalConfig.JSON {
+			response := map[string]interface{}{
+				"status": status,
+				"action": nil,
+			}
+			return cli.OutputJSON(response)
+		}
+
+		fmt.Printf("No orchestrator action defined for status '%s'\n", status)
+		return nil
+	}
+
+	// Output action with unpopulated template
+	if cli.GlobalConfig.JSON {
+		populatedAction := &struct {
+			Action      string   `json:"action"`
+			AgentType   string   `json:"agent_type,omitempty"`
+			Skills      []string `json:"skills,omitempty"`
+			Instruction string   `json:"instruction"`
+		}{
+			Action:      action.Action,
+			AgentType:   action.AgentType,
+			Skills:      action.Skills,
+			Instruction: action.InstructionTemplate, // Raw template when no task provided
+		}
+
+		response := map[string]interface{}{
+			"status": status,
+			"action": populatedAction,
+		}
+		return cli.OutputJSON(response)
+	}
+
+	// Human-readable output
+	fmt.Printf("Status: %s\n", status)
+	fmt.Printf("Action: %s\n", action.Action)
+	if action.AgentType != "" {
+		fmt.Printf("Agent Type: %s\n", action.AgentType)
+	}
+	if len(action.Skills) > 0 {
+		fmt.Printf("Skills: %s\n", strings.Join(action.Skills, ", "))
+	}
+	fmt.Printf("Instruction:\n  %s\n", action.InstructionTemplate)
+	fmt.Println("\nNote: Template variables (e.g., {task_id}) not populated. Use --task flag to populate.")
+	return nil
+}
+
 func init() {
 	// Register config command with root
 	cli.RootCmd.AddCommand(configCmd)
@@ -595,6 +744,7 @@ func init() {
 	configCmd.AddCommand(configListPresetsCmd)
 	configCmd.AddCommand(configShowPresetCmd)
 	configCmd.AddCommand(configAddPatternCmd)
+	configCmd.AddCommand(configGetStatusActionCmd)
 
 	// Flags for show command
 	configShowCmd.Flags().Bool("patterns", false, "Show only pattern configuration")
@@ -610,6 +760,9 @@ func init() {
 
 	// Flags for add-pattern command
 	configAddPatternCmd.Flags().String("preset", "", "Name of the preset to add (required)")
+
+	// Flags for get-status-action command
+	configGetStatusActionCmd.Flags().String("task", "", "Task key to populate template variables (optional)")
 }
 
 // Helper functions

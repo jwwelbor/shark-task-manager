@@ -63,7 +63,7 @@ test:
 	@rm -f internal/repository/test-shark-tasks.db*
 	@rm -f /tmp/shark-test-tasks.db*
 	@echo "Running tests..."
-	@export PATH=$$PATH:$$HOME/go/bin && go test -tags "fts5" -v -p=1 ./...
+	@export PATH=$$PATH:$$HOME/go/bin && go test -tags "fts5" -v -p=1 -parallel=1 ./...
 
 # Run tests with coverage
 test-coverage:
@@ -71,7 +71,7 @@ test-coverage:
 	@rm -f internal/repository/test-shark-tasks.db*
 	@rm -f /tmp/shark-test-tasks.db*
 	@echo "Running tests with coverage..."
-	@export PATH=$$PATH:$$HOME/go/bin && go test -tags "fts5" -v -p=1 -coverprofile=coverage.out ./...
+	@export PATH=$$PATH:$$HOME/go/bin && go test -tags "fts5" -v -p=1 -parallel=1 -coverprofile=coverage.out ./...
 	@export PATH=$$PATH:$$HOME/go/bin && go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 

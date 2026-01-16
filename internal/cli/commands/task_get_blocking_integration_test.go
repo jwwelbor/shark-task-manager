@@ -18,20 +18,20 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 	database := test.GetTestDB()
 	db := repository.NewDB(database)
 
-	// Clean up before test
+	// Clean up before test - use unique task keys with E99
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-010', 'T-E99-F99-011', 'T-E99-F99-012')")
 
-	// Create test epic and feature
+	// Seed epic and feature (E99, E99-F99)
 	_, featureID := test.SeedTestData()
 
 	// Create repositories
 	taskRepo := repository.NewTaskRepository(db)
 	relationshipRepo := repository.NewTaskRelationshipRepository(db)
 
-	// Create test tasks
+	// Create test tasks with valid keys
 	taskA := &models.Task{
-		Key:       "T-E99-F01-010",
+		Key:       "T-E99-F99-010",
 		Title:     "Task A - Main Task",
 		Status:    "todo",
 		Priority:  5,
@@ -43,7 +43,7 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 	}
 
 	taskB := &models.Task{
-		Key:       "T-E99-F01-011",
+		Key:       "T-E99-F99-011",
 		Title:     "Task B - Blocks Task A",
 		Status:    "in_progress",
 		Priority:  5,
@@ -55,7 +55,7 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 	}
 
 	taskC := &models.Task{
-		Key:       "T-E99-F01-012",
+		Key:       "T-E99-F99-012",
 		Title:     "Task C - Blocked by Task A",
 		Status:    "todo",
 		Priority:  5,
@@ -173,12 +173,12 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 		}
 
 		// Verify the keys are correct
-		if len(blockedByKeys) != 1 || blockedByKeys[0] != "T-E99-F01-011" {
-			t.Errorf("Expected blocked_by to contain T-E99-F01-011, got %v", blockedByKeys)
+		if len(blockedByKeys) != 1 || blockedByKeys[0] != "T-E99-F99-011" {
+			t.Errorf("Expected blocked_by to contain T-E99-F99-011, got %v", blockedByKeys)
 		}
 
-		if len(blocksKeys) != 1 || blocksKeys[0] != "T-E99-F01-012" {
-			t.Errorf("Expected blocks to contain T-E99-F01-012, got %v", blocksKeys)
+		if len(blocksKeys) != 1 || blocksKeys[0] != "T-E99-F99-012" {
+			t.Errorf("Expected blocks to contain T-E99-F99-012, got %v", blocksKeys)
 		}
 
 		// Test JSON marshaling

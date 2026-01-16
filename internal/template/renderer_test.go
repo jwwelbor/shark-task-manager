@@ -136,7 +136,7 @@ func TestRenderer_ContextVariations(t *testing.T) {
 		{
 			name:     "multiple variables in context, only task_id used",
 			template: "Task {task_id}",
-			context:  map[string]string{
+			context: map[string]string{
 				"task_id":    "T-001",
 				"epic_id":    "E07",
 				"feature_id": "F21",

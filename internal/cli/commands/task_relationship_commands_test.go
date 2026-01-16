@@ -347,22 +347,42 @@ func TestTaskRelationshipTypes(t *testing.T) {
 	database := test.GetTestDB()
 	db := repository.NewDB(database)
 	relRepo := repository.NewTaskRelationshipRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 
-	test.SeedTestData()
-
-	// Clean up
+	// Clean up before test - use unique task keys with E99
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-040', 'T-E99-F99-041')")
 
-	// Get two test tasks
-	var task1ID, task2ID int64
-	err := database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-001'").Scan(&task1ID)
-	if err != nil {
-		t.Fatalf("Failed to get test task 1: %v", err)
+	// Seed epic and feature (E99, E99-F99)
+	_, featureID := test.SeedTestData()
+
+	// Create two test tasks
+	task1 := &models.Task{
+		Key:       "T-E99-F99-040",
+		Title:     "Test Task 1",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
 	}
-	err = database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-002'").Scan(&task2ID)
+	err := taskRepo.Create(ctx, task1)
 	if err != nil {
-		t.Fatalf("Failed to get test task 2: %v", err)
+		t.Fatalf("Failed to create test task 1: %v", err)
 	}
+
+	task2 := &models.Task{
+		Key:       "T-E99-F99-041",
+		Title:     "Test Task 2",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	err = taskRepo.Create(ctx, task2)
+	if err != nil {
+		t.Fatalf("Failed to create test task 2: %v", err)
+	}
+
+	task1ID := task1.ID
+	task2ID := task2.ID
 
 	// Test all relationship types
 	relationshipTypes := []models.RelationshipType{
@@ -415,19 +435,42 @@ func TestTaskRelationshipValidation(t *testing.T) {
 	database := test.GetTestDB()
 	db := repository.NewDB(database)
 	relRepo := repository.NewTaskRelationshipRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 
-	test.SeedTestData()
+	// Clean up before test - use unique task keys with E99
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-050', 'T-E99-F99-051')")
 
-	// Get test tasks
-	var task1ID, task2ID int64
-	err := database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-001'").Scan(&task1ID)
-	if err != nil {
-		t.Fatalf("Failed to get test task 1: %v", err)
+	// Seed epic and feature (E99, E99-F99)
+	_, featureID := test.SeedTestData()
+
+	// Create two test tasks
+	task1 := &models.Task{
+		Key:       "T-E99-F99-050",
+		Title:     "Test Task 1",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
 	}
-	err = database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-002'").Scan(&task2ID)
+	err := taskRepo.Create(ctx, task1)
 	if err != nil {
-		t.Fatalf("Failed to get test task 2: %v", err)
+		t.Fatalf("Failed to create test task 1: %v", err)
 	}
+
+	task2 := &models.Task{
+		Key:       "T-E99-F99-051",
+		Title:     "Test Task 2",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	err = taskRepo.Create(ctx, task2)
+	if err != nil {
+		t.Fatalf("Failed to create test task 2: %v", err)
+	}
+
+	task1ID := task1.ID
+	task2ID := task2.ID
 
 	// Test: Invalid from_task_id
 	t.Run("InvalidFromTaskID", func(t *testing.T) {

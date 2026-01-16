@@ -16,29 +16,24 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	database := test.GetTestDB()
 	db := repository.NewDB(database)
 
-	// Clean up before test
+	// Clean up before test - use unique task keys with E99
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-020', 'T-E99-F99-021', 'T-E99-F99-022')")
 
-	// Create test epic and feature
+	// Seed epic and feature (E99, E99-F99)
 	_, featureID := test.SeedTestData()
-
-	// Verify featureID is valid
-	if featureID == 0 {
-		t.Fatalf("SeedTestData() returned invalid featureID: %d", featureID)
-	}
 
 	// Create repositories
 	taskRepo := repository.NewTaskRepository(db)
 	relationshipRepo := repository.NewTaskRelationshipRepository(db)
 
 	// Create test tasks
-	// Task A: This is the task we'll query (T-E99-F01-002)
-	// Task B blocks Task A (T-E99-F01-001 blocks T-E99-F01-002)
-	// Task A blocks Task C (T-E99-F01-002 blocks T-E99-F01-003)
+	// Task A: This is the task we'll query (T-E99-F99-021)
+	// Task B blocks Task A (T-E99-F99-020 blocks T-E99-F99-021)
+	// Task A blocks Task C (T-E99-F99-021 blocks T-E99-F99-022)
 
 	taskA := &models.Task{
-		Key:       "T-E99-F01-002",
+		Key:       "T-E99-F99-021",
 		Title:     "Task A",
 		Status:    "todo",
 		Priority:  5,
@@ -51,7 +46,7 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	}
 
 	taskB := &models.Task{
-		Key:       "T-E99-F01-001",
+		Key:       "T-E99-F99-020",
 		Title:     "Task B - Blocks Task A",
 		Status:    "in_progress",
 		Priority:  5,
@@ -63,7 +58,7 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	}
 
 	taskC := &models.Task{
-		Key:       "T-E99-F01-003",
+		Key:       "T-E99-F99-022",
 		Title:     "Task C - Blocked by Task A",
 		Status:    "todo",
 		Priority:  5,
@@ -131,8 +126,8 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get blocker task: %v", err)
 		}
-		if blockerTask.Key != "T-E99-F01-001" {
-			t.Errorf("Expected blocker key T-E99-F01-001, got %s", blockerTask.Key)
+		if blockerTask.Key != "T-E99-F99-020" {
+			t.Errorf("Expected blocker key T-E99-F99-020, got %s", blockerTask.Key)
 		}
 	}
 
@@ -148,8 +143,8 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to get blocked task: %v", err)
 		}
-		if blockedTask.Key != "T-E99-F01-003" {
-			t.Errorf("Expected blocked key T-E99-F01-003, got %s", blockedTask.Key)
+		if blockedTask.Key != "T-E99-F99-022" {
+			t.Errorf("Expected blocked key T-E99-F99-022, got %s", blockedTask.Key)
 		}
 	}
 
@@ -157,8 +152,8 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	// This simulates what the task get command should return
 	output := map[string]interface{}{
 		"task":       taskA,
-		"blocked_by": []string{"T-E99-F01-001"},
-		"blocks":     []string{"T-E99-F01-003"},
+		"blocked_by": []string{"T-E99-F99-020"},
+		"blocks":     []string{"T-E99-F99-022"},
 	}
 
 	jsonBytes, err := json.Marshal(output)
@@ -194,17 +189,12 @@ func TestTaskGetNoBlockingRelationships(t *testing.T) {
 	database := test.GetTestDB()
 	db := repository.NewDB(database)
 
-	// Clean up before test
+	// Clean up before test - use unique task key with E99
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E99-F99-030'")
 
-	// Create test epic and feature
+	// Seed epic and feature (E99, E99-F99)
 	_, featureID := test.SeedTestData()
-
-	// Verify featureID is valid
-	if featureID == 0 {
-		t.Fatalf("SeedTestData() returned invalid featureID: %d", featureID)
-	}
 
 	// Create repositories
 	taskRepo := repository.NewTaskRepository(db)
@@ -212,7 +202,7 @@ func TestTaskGetNoBlockingRelationships(t *testing.T) {
 
 	// Create a single task with no relationships
 	task := &models.Task{
-		Key:       "T-E99-F01-999",
+		Key:       "T-E99-F99-030",
 		Title:     "Isolated Task",
 		Status:    "todo",
 		Priority:  5,

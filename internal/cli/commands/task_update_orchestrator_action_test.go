@@ -72,12 +72,12 @@ func TestUpdateStatusResponse_ActionFieldSerializationWithOmitempty(t *testing.T
 
 	// Test that non-spawn actions omit agent fields
 	pauseAction := &config.PopulatedAction{
-		Action:      config.ActionPause,
+		Action: config.ActionPause,
 		// AgentType and Skills are empty for pause
 		Instruction: "Pause processing of {task_id}",
 	}
 
 	assert.Equal(t, config.ActionPause, pauseAction.Action)
 	assert.Empty(t, pauseAction.AgentType) // Should be omitted in JSON due to omitempty
-	assert.Empty(t, pauseAction.Skills)     // Should be omitted in JSON due to omitempty
+	assert.Empty(t, pauseAction.Skills)    // Should be omitted in JSON due to omitempty
 }

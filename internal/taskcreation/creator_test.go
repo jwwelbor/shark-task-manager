@@ -646,3 +646,118 @@ func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
 	config.ClearWorkflowCache()
 }
+
+// TestCreator_StandaloneFeatureFileCreatesTaskInProperFolder tests that when a feature
+// has a standalone file path (e.g., "docs/plan/E01-epic/F11-feature.md" not in a feature folder),
+// tasks are still created in the proper feature folder structure:
+// "docs/plan/E01-epic/E01-F11-slug/tasks/T-E01-F11-001.md"
+// NOT: "docs/plan/E01-epic/tasks/T-E01-F11-001.md"
+//
+// This regression test ensures the bug reported in wormwoodGM project doesn't recur.
+func TestCreator_StandaloneFeatureFileCreatesTaskInProperFolder(t *testing.T) {
+	// Setup: Database and repositories
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := repository.NewDB(database)
+
+	// Repositories
+	taskRepo := repository.NewTaskRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+
+	// Create temp directory for testing
+	tempDir := t.TempDir()
+
+	// Cleanup: Remove any test data from previous runs
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E88-F88%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E88-F88%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E88'")
+
+	// Create test epic with slug
+	epicSlug := "test-epic-standalone"
+	epic := &models.Epic{
+		Key:      "E88",
+		Title:    "Test Epic for Standalone Feature File",
+		Slug:     &epicSlug,
+		Priority: models.PriorityMedium,
+		Status:   models.EpicStatusActive,
+	}
+	err := epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create test feature with a STANDALONE file path (not in a feature folder)
+	// This simulates the wormwoodGM scenario where feature files are directly under the epic folder
+	featureSlug := "standalone-feature"
+	standaloneFilePath := "docs/plan/E88-test-epic-standalone/F88-standalone-feature.md"
+	feature := &models.Feature{
+		EpicID:   epic.ID,
+		Key:      "E88-F88",
+		Title:    "Standalone Feature File",
+		Slug:     &featureSlug,
+		FilePath: &standaloneFilePath, // Standalone file, not in feature folder!
+		Status:   models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Setup: Create Creator
+	keygen := NewKeyGenerator(taskRepo, featureRepo)
+	validator := NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	creator := NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, nil)
+
+	// Act: Create a task for the feature with standalone file path
+	input := CreateTaskInput{
+		EpicKey:    "E88",
+		FeatureKey: "E88-F88",
+		Title:      "Test Task in Proper Feature Folder",
+		AgentType:  "general",
+		Priority:   5,
+	}
+
+	result, err := creator.CreateTask(ctx, input)
+
+	// Assert: Task created successfully
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Task)
+	require.NotNil(t, result.Task.FilePath)
+
+	// Assert: Task file path should be in proper feature folder structure
+	// Expected: docs/plan/{epic-folder}/{feature-folder}/tasks/T-E88-F88-001.md
+	// NOT:      docs/plan/{epic-folder}/tasks/T-E88-F88-001.md (WRONG!)
+
+	// Verify it's NOT the wrong path (task directly under epic folder)
+	wrongPathPattern := filepath.Join("docs", "plan", "E88-", "tasks")
+	assert.NotContains(t, *result.Task.FilePath, wrongPathPattern,
+		"Task should NOT be created directly under epic folder (this was the bug)")
+
+	// Assert: Task path contains both epic and feature keys in directory path
+	assert.Contains(t, *result.Task.FilePath, "E88-",
+		"Task path should contain epic folder (E88-{slug})")
+	assert.Contains(t, *result.Task.FilePath, "E88-F88-",
+		"Task path should contain feature folder (E88-F88-{slug})")
+
+	// Assert: Task path does NOT skip the feature folder layer
+	// The path should have: docs/plan/{epic}/{feature}/tasks/{task}.md
+	// So tasks folder should come after at least 4 parts: docs, plan, epic, feature
+	pathParts := strings.Split(*result.Task.FilePath, string(filepath.Separator))
+	tasksIndex := -1
+	for i, part := range pathParts {
+		if part == "tasks" {
+			tasksIndex = i
+		}
+	}
+	require.NotEqual(t, -1, tasksIndex, "Tasks folder not found in path")
+	// Tasks should be at least index 4: [0]=docs, [1]=plan, [2]=epic-folder, [3]=feature-folder, [4]=tasks
+	assert.GreaterOrEqual(t, tasksIndex, 4,
+		"Tasks folder should come after docs/plan/epic-folder/feature-folder (at least index 4), found at index %d in path: %s",
+		tasksIndex, *result.Task.FilePath)
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", result.Task.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}

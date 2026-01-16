@@ -38,10 +38,10 @@ type PopulatedAction struct {
 
 // ValidationResult contains status action validation results
 type ValidationResult struct {
-	Valid          bool           `json:"valid"`
-	MissingActions []string       `json:"missing_actions,omitempty"` // Statuses without actions
+	Valid          bool            `json:"valid"`
+	MissingActions []string        `json:"missing_actions,omitempty"` // Statuses without actions
 	InvalidActions []InvalidAction `json:"invalid_actions,omitempty"` // Actions with validation errors
-	Warnings       []string       `json:"warnings,omitempty"`        // Non-fatal issues
+	Warnings       []string        `json:"warnings,omitempty"`        // Non-fatal issues
 }
 
 // InvalidAction describes an action that failed validation
@@ -61,9 +61,9 @@ func (e *StatusNotFoundError) Error() string {
 
 // DefaultActionService is the default implementation of ActionService
 type DefaultActionService struct {
-	mu             sync.RWMutex
-	configPath     string
-	workflow       *WorkflowConfig
+	mu         sync.RWMutex
+	configPath string
+	workflow   *WorkflowConfig
 }
 
 // NewActionService creates a new action service

@@ -24,12 +24,12 @@ func TestFeatureCreate_FileAtEpicDirectoryPath(t *testing.T) {
 	database := test.GetTestDB()
 	db := repository.NewDB(database)
 
-	// Clean up test data before and after (using E99 for collision tests)
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E99-%'")
+	// Clean up test data before and after (using E98 for collision tests to avoid interfering with E99)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E98-%'")
 	defer func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
-		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E99-%'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E98-%'")
 	}()
 
 	// Create temporary test directory
@@ -51,7 +51,7 @@ func TestFeatureCreate_FileAtEpicDirectoryPath(t *testing.T) {
 	// Create epic in database
 	epicRepo := repository.NewEpicRepository(db)
 	epic := &models.Epic{
-		Key:      "E99",
+		Key:      "E98",
 		Title:    "Test Epic for Collision",
 		Status:   models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
@@ -62,7 +62,7 @@ func TestFeatureCreate_FileAtEpicDirectoryPath(t *testing.T) {
 
 	// Create a FILE at the path where the epic directory should be
 	// This simulates the bug condition
-	collisionFilePath := filepath.Join(planDir, "E99-test-epic-for-collision")
+	collisionFilePath := filepath.Join(planDir, "E98-test-epic-for-collision")
 	if err := os.WriteFile(collisionFilePath, []byte("This is a file, not a directory"), 0644); err != nil {
 		t.Fatalf("Failed to create collision file: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestFeatureCreate_FileAtEpicDirectoryPath(t *testing.T) {
 	// Instead, we'll test the directory validation logic directly
 
 	// Find epic directory using the same logic as runFeatureCreate
-	epicPattern := filepath.Join("docs", "plan", "E99-*")
+	epicPattern := filepath.Join("docs", "plan", "E98-*")
 	matches, err := filepath.Glob(epicPattern)
 	if err != nil || len(matches) == 0 {
 		t.Fatal("Epic pattern should have matched the file")

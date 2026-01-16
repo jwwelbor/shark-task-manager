@@ -179,15 +179,28 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 
 		// 2. Resolve task path based on feature's base path
 		// Note: We use PathResolver's logic but can't call it directly since task doesn't exist yet
+		useFeaturePath := false
 		if feature.FilePath != nil && *feature.FilePath != "" {
-			// Feature has a file path - derive task path from it
+			// Feature has a file path - check if it's in a proper feature folder structure
 			// Example: feature.FilePath = "docs/plan/E10-advanced-task.../E10-F01-task-notes/feature.md"
 			// Task path should be:      "docs/plan/E10-advanced-task.../E10-F01-task-notes/tasks/T-E10-F01-001.md"
+
 			featureDir := filepath.Dir(*feature.FilePath)
-			relPath := filepath.Join(featureDir, "tasks", key+".md")
-			fullFilePath = filepath.Join(c.projectRoot, relPath)
-			filePath = relPath
-		} else {
+
+			// Check if the feature directory contains the feature key (e.g., "E01-F11")
+			// This ensures we don't use standalone feature files (e.g., "F11-technical-architecture.md")
+			// which would incorrectly resolve to the epic folder
+			baseName := filepath.Base(featureDir)
+			if strings.Contains(baseName, feature.Key) {
+				// Proper feature folder structure - use it
+				relPath := filepath.Join(featureDir, "tasks", key+".md")
+				fullFilePath = filepath.Join(c.projectRoot, relPath)
+				filePath = relPath
+				useFeaturePath = true
+			}
+		}
+
+		if !useFeaturePath {
 			// Default: compute path based on feature's default location
 			// We need to manually construct since task doesn't exist yet
 			epic, err := c.epicRepo.GetByID(ctx, feature.EpicID)

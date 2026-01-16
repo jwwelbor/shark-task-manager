@@ -1,0 +1,389 @@
+{
+  "color_enabled": true,
+  "default_agent": null,
+  "default_epic": null,
+  "json_output": false,
+  "last_sync_time": "2026-01-01T17:28:15-06:00",
+  "patterns": {
+    "epic": {
+      "file": [
+        "^epic\\.md$"
+      ],
+      "folder": [
+        "^E(?P<number>\\d{2})-(?P<slug>[a-z0-9-]+)$",
+        "^(?P<epic_id>tech-debt|bugs|change-cards)$"
+      ],
+      "generation": {
+        "format": "E{number:02d}-{slug}"
+      }
+    },
+    "feature": {
+      "file": [
+        "^prd\\.md$",
+        "^PRD_F(?P<number>\\d{2})-(?P<slug>.+)\\.md$",
+        "^(?P<slug>[a-z0-9-]+)\\.md$"
+      ],
+      "folder": [
+        "^E(?P<epic_num>\\d{2})-F(?P<number>\\d{2})-(?P<slug>[a-z0-9-]+)$"
+      ],
+      "generation": {
+        "format": "E{epic:02d}-F{number:02d}-{slug}"
+      }
+    },
+    "task": {
+      "file": [
+        "^T-E(?P<epic_num>\\d{2})-F(?P<feature_num>\\d{2})-(?P<number>\\d{3}).*\\.md$",
+        "^(?P<number>\\d{3})-(?P<slug>.+)\\.md$",
+        "^(?P<slug>.+)\\.prp\\.md$"
+      ],
+      "folder": [],
+      "generation": {
+        "format": "T-E{epic:02d}-F{feature:02d}-{number:03d}.md"
+      }
+    }
+  },
+  "special_statuses": {
+    "_complete_": [
+      "completed",
+      "cancelled"
+    ],
+    "_start_": [
+      "draft",
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "ready_for_development"
+    ]
+  },
+  "status_flow": {
+    "blocked": [
+      "ready_for_development",
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "cancelled"
+    ],
+    "cancelled": [
+      "draft"
+    ],
+    "completed": [],
+    "draft": [
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "cancelled",
+      "on_hold"
+    ],
+    "in_approval": [
+      "completed",
+      "ready_for_qa",
+      "ready_for_development",
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "on_hold"
+    ],
+    "in_code_review": [
+      "ready_for_qa",
+      "in_development",
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "on_hold"
+    ],
+    "in_development": [
+      "ready_for_code_review",
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "blocked",
+      "on_hold"
+    ],
+    "in_qa": [
+      "ready_for_approval",
+      "in_development",
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "blocked",
+      "on_hold"
+    ],
+    "in_refinement_ba": [
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "ready_for_development",
+      "draft",
+      "blocked",
+      "on_hold"
+    ],
+    "in_research": [
+      "ready_for_refinement_tech",
+      "ready_for_refinement_ba",
+      "draft",
+      "blocked",
+      "on_hold"
+    ],
+    "in_refinement_tech": [
+      "ready_for_development",
+      "ready_for_refinement_ba",
+      "draft",
+      "blocked",
+      "on_hold"
+    ],
+    "on_hold": [
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "ready_for_development",
+      "cancelled"
+    ],
+    "ready_for_approval": [
+      "in_approval",
+      "on_hold"
+    ],
+    "ready_for_code_review": [
+      "in_code_review",
+      "in_development",
+      "on_hold"
+    ],
+    "ready_for_development": [
+      "in_development",
+      "ready_for_refinement_ba",
+      "ready_for_research",
+      "ready_for_refinement_tech",
+      "cancelled",
+      "on_hold"
+    ],
+    "ready_for_qa": [
+      "in_qa",
+      "on_hold"
+    ],
+    "ready_for_refinement_ba": [
+      "in_refinement_ba",
+      "cancelled",
+      "on_hold"
+    ],
+    "ready_for_refinement_tech": [
+      "in_refinement_tech",
+      "cancelled",
+      "on_hold"
+    ],
+    "ready_for_research": [
+      "in_research",
+      "cancelled",
+      "on_hold"
+    ]
+  },
+  "status_flow_version": "1.0",
+  "status_metadata": {
+    "blocked": {
+      "color": "red",
+      "description": "Temporarily blocked by external dependency",
+      "phase": "any",
+      "orchestrator_action": {
+        "action": "pause",
+        "instruction_template": "Task {task_id} is blocked. Do not spawn agent. Wait for blocker resolution."
+      }
+    },
+    "cancelled": {
+      "color": "gray",
+      "description": "Task abandoned or deprecated",
+      "phase": "done",
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "Task {task_id} is cancelled. No agent action needed."
+      }
+    },
+    "completed": {
+      "color": "white",
+      "description": "Task finished and approved",
+      "phase": "done",
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "Task {task_id} is completed. No agent action needed."
+      }
+    },
+    "draft": {
+      "color": "gray",
+      "description": "Task created but not yet refined",
+      "phase": "planning",
+      "orchestrator_action": {
+        "action": "wait_for_triage",
+        "instruction_template": "Task {task_id} is in draft status. Wait for product manager to triage to appropriate workflow stage."
+      }
+    },
+    "in_approval": {
+      "color": "purple",
+      "description": "Under final review",
+      "phase": "approval"
+    },
+    "in_code_review": {
+      "color": "magenta",
+      "description": "Under code review",
+      "phase": "review"
+    },
+    "in_development": {
+      "color": "yellow",
+      "description": "Code implementation in progress",
+      "phase": "development"
+    },
+    "in_qa": {
+      "color": "green",
+      "description": "Being tested",
+      "phase": "qa"
+    },
+    "in_refinement_ba": {
+      "color": "blue",
+      "description": "Being analyzed and specified",
+      "phase": "planning"
+    },
+    "in_refinement_tech": {
+      "color": "blue",
+      "description": "Being analyzed and specified",
+      "phase": "planning"
+    },
+    "in_research": {
+      "color": "cyan",
+      "description": "Gathering background research and context",
+      "phase": "planning"
+    },
+    "on_hold": {
+      "color": "orange",
+      "description": "Intentionally paused",
+      "phase": "any",
+      "orchestrator_action": {
+        "action": "pause",
+        "instruction_template": "Task {task_id} is on hold. Do not spawn agent. Wait for product decision to resume."
+      }
+    },
+    "ready_for_approval": {
+      "agent_types": [
+        "product-manager",
+        "client"
+      ],
+      "color": "purple",
+      "description": "Awaiting final approval",
+      "phase": "approval",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "product-manager",
+        "skills": [
+          "shark-task-management"
+        ],
+        "instruction_template": "Launch a product-manager agent to review task {task_id}. Verify business requirements are met and approve for production or request changes."
+      }
+    },
+    "ready_for_code_review": {
+      "agent_types": [
+        "tech-lead",
+        "code-reviewer"
+      ],
+      "color": "magenta",
+      "description": "Code complete, awaiting review",
+      "phase": "review",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "tech-lead",
+        "skills": [
+          "quality",
+          "shark-task-management"
+        ],
+        "instruction_template": "Launch a tech-lead agent with quality skill to review task {task_id}. Check code quality, security, and adherence to standards. Provide feedback or approve for QA."
+      }
+    },
+    "ready_for_development": {
+      "agent_types": [
+        "developer",
+        "ai-coder"
+      ],
+      "color": "yellow",
+      "description": "Spec complete, ready for implementation",
+      "phase": "development",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "developer",
+        "skills": [
+          "test-driven-development",
+          "implementation",
+          "shark-task-management"
+        ],
+        "instruction_template": "Launch a developer agent with test-driven-development skill to work on task {task_id}. Write tests first, then implement to pass tests following the technical specifications."
+      }
+    },
+    "ready_for_qa": {
+      "agent_types": [
+        "qa",
+        "test-engineer"
+      ],
+      "color": "green",
+      "description": "Ready for quality assurance testing",
+      "phase": "qa",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "qa",
+        "skills": [
+          "quality",
+          "shark-task-management"
+        ],
+        "instruction_template": "Launch a qa agent with quality skill to test task {task_id}. Validate against acceptance criteria and document test results."
+      }
+    },
+    "ready_for_refinement_ba": {
+      "agent_types": [
+        "business-analyst"
+      ],
+      "color": "cyan",
+      "description": "Awaiting business specification and analysis",
+      "phase": "planning",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "business-analyst",
+        "skills": [
+          "specification-writing",
+          "shark-task-management"
+        ],
+        "instruction_template": "Launch a business-analyst agent with specification-writing skill to refine requirements for task {task_id}. Review business requirements and document acceptance criteria."
+      }
+    },
+    "ready_for_refinement_tech": {
+      "agent_types": [
+        "architect"
+      ],
+      "color": "cyan",
+      "description": "Awaiting technical specification and analysis",
+      "phase": "planning",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "architect",
+        "skills": [
+          "architecture",
+          "specification-writing",
+          "shark-task-management"
+        ],
+        "instruction_template": "Launch an architect agent with architecture skill to design technical solution for task {task_id}. Define API contracts and data models based on business requirements."
+      }
+    },
+    "ready_for_research": {
+      "agent_types": [
+        "researcher"
+      ],
+      "color": "cyan",
+      "description": "Awaiting research and context gathering",
+      "phase": "planning",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "researcher",
+        "skills": [
+          "research",
+          "shark-task-management"
+        ],
+        "instruction_template": "Launch a researcher agent with research skill to gather background information for task {task_id}. Conduct discovery research, analyze existing implementations, and prepare context documents to present to the architect for technical design."
+      }
+    }
+  },
+  "database": {
+    "backend": "turso",
+    "url": "libsql://wormwood-gm-wormwoodgm.aws-us-east-1.turso.io",
+    "auth_token_file": "/home/jwwelbor/.turso/wormwood-token"
+  }
+}

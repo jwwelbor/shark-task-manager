@@ -76,8 +76,8 @@ func TestTaskRepository_UpdateStatusWithOrchestratorAction(t *testing.T) {
 	// Create workflow with orchestrator action for ready_for_development status
 	workflow := &config.WorkflowConfig{
 		StatusFlow: map[string][]string{
-			"draft":            {"in_development"},
-			"in_development":   {}, // Terminal state for this test
+			"draft":          {"in_development"},
+			"in_development": {}, // Terminal state for this test
 		},
 		StatusMetadata: map[string]config.StatusMetadata{
 			"draft": {
@@ -88,10 +88,10 @@ func TestTaskRepository_UpdateStatusWithOrchestratorAction(t *testing.T) {
 				Color: "yellow",
 				Phase: "development",
 				OrchestratorAction: &config.OrchestratorAction{
-					Action:               config.ActionSpawnAgent,
-					AgentType:            "developer",
-					Skills:               []string{"backend", "testing"},
-					InstructionTemplate:  "Implement {task_id} following the specification",
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"backend", "testing"},
+					InstructionTemplate: "Implement {task_id} following the specification",
 				},
 			},
 		},
@@ -183,8 +183,8 @@ func TestTaskRepository_UpdateStatusWithoutOrchestratorAction(t *testing.T) {
 	// Create workflow WITHOUT orchestrator action
 	workflow := &config.WorkflowConfig{
 		StatusFlow: map[string][]string{
-			"draft":            {"in_development"},
-			"in_development":   {}, // Terminal state for this test
+			"draft":          {"in_development"},
+			"in_development": {}, // Terminal state for this test
 		},
 		StatusMetadata: map[string]config.StatusMetadata{
 			"draft": {
@@ -291,10 +291,10 @@ func TestTaskRepository_UpdateStatusPopulatesTemplateVariables(t *testing.T) {
 				Color: "yellow",
 				Phase: "development",
 				OrchestratorAction: &config.OrchestratorAction{
-					Action:               config.ActionSpawnAgent,
-					AgentType:            "developer",
-					Skills:               []string{"backend"},
-					InstructionTemplate:  "Begin implementation for task {task_id}",
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"backend"},
+					InstructionTemplate: "Begin implementation for task {task_id}",
 				},
 			},
 		},
