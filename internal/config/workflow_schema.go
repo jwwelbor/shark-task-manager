@@ -89,6 +89,24 @@ type StatusMetadata struct {
 	// Examples: ["developer", "backend", "frontend", "qa", "business-analyst", "tech-lead"]
 	AgentTypes []string `json:"agent_types,omitempty"`
 
+	// ProgressWeight indicates how much this status contributes to overall progress (0.0-1.0)
+	// Used by CalculateProgress() to recognize partial completion:
+	// - 0.0: not started (todo, draft, backlog)
+	// - 0.5: in progress (in_development, in_progress, in_review)
+	// - 0.9: nearly complete (ready_for_approval)
+	// - 1.0: complete (completed, archived)
+	// Default: 0.0 if not specified
+	ProgressWeight float64 `json:"progress_weight"`
+
+	// Responsibility defines who is responsible for work in this status
+	// Values: "agent", "human", "qa_team", "none"
+	// Used for work breakdown calculations (E07-F23)
+	Responsibility string `json:"responsibility,omitempty"`
+
+	// BlocksFeature indicates if tasks in this status block the feature progress
+	// Used to identify blocked work in work breakdown calculations
+	BlocksFeature bool `json:"blocks_feature,omitempty"`
+
 	// OrchestratorAction specifies the action for orchestrators when task enters this status
 	// Optional field for workflow-driven agent spawning (Phase 1 feature)
 	OrchestratorAction *OrchestratorAction `json:"orchestrator_action,omitempty" yaml:"orchestrator_action,omitempty"`
