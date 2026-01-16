@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -447,7 +448,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output as table
-	renderFeatureListTable(featuresWithTaskCount, epicFilter)
+	renderFeatureListTable(featuresWithTaskCount, epicFilter, ctx, repoDb)
 	return nil
 }
 
@@ -564,6 +565,76 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		statusSource = "manual"
 	}
 
+	// Load workflow config for status calculations
+	configPath, err := cli.GetConfigPath()
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", err)
+	}
+
+	var workflowCfg *config.WorkflowConfig
+	var cfg *config.Config
+	if configPath != "" {
+		workflowCfg, err = config.LoadWorkflowConfig(configPath)
+		if err != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load workflow config for status calculations: %v\n", err)
+		}
+
+		// Load full config for work summary calculations
+		manager := config.NewManager(configPath)
+		cfg, err = manager.Load()
+		if err != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
+		}
+	}
+
+	// Convert statusBreakdown []workflow.StatusCount to map[string]int
+	statusCountsMap := make(map[string]int)
+	for _, sc := range statusBreakdown {
+		statusCountsMap[sc.Status] = sc.Count
+	}
+
+	// Calculate progress info using status package
+	var progressInfo *status.ProgressInfo
+	if workflowCfg != nil {
+		progressInfo = status.CalculateProgress(statusCountsMap, workflowCfg)
+	} else {
+		// Fallback if config is not available
+		progressInfo = &status.ProgressInfo{
+			WeightedPct:     feature.ProgressPct,
+			CompletionPct:   feature.ProgressPct,
+			WeightedRatio:   fmt.Sprintf("%d/%d", int(feature.ProgressPct), 100),
+			CompletionRatio: fmt.Sprintf("%d/%d", int(feature.ProgressPct), 100),
+			TotalTasks:      len(tasks),
+		}
+	}
+
+	// Calculate work summary using status package
+	var workSummary *status.WorkSummary
+	if cfg != nil {
+		workSummary = status.CalculateWorkRemaining(statusCountsMap, cfg)
+	} else {
+		workSummary = &status.WorkSummary{
+			TotalTasks:     len(tasks),
+			CompletedTasks: 0,
+			AgentWork:      0,
+			HumanWork:      0,
+			BlockedWork:    0,
+			NotStarted:     len(tasks),
+		}
+	}
+
+	// Get action items for tasks needing attention
+	var actionItems *status.ActionItems
+	if workflowCfg != nil {
+		actionItems = status.GetActionItems(tasks, workflowCfg)
+	} else {
+		actionItems = &status.ActionItems{
+			AwaitingApproval: []*status.TaskActionItem{},
+			Blocked:          []*status.TaskActionItem{},
+			InProgress:       []*status.TaskActionItem{},
+		}
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
@@ -583,12 +654,15 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"tasks":             tasks,
 			"status_breakdown":  statusBreakdown,
 			"related_documents": relatedDocs,
+			"progress":          progressInfo,
+			"work_summary":      workSummary,
+			"action_items":      actionItems,
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
-	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs, workflowService)
+	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs, workflowService, progressInfo, workSummary, actionItems)
 	return nil
 }
 
@@ -639,7 +713,8 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 // renderFeatureDetails renders feature details with tasks table
 // statusBreakdown is workflow-ordered with metadata
 // workflowService is used for color formatting (can be nil for no colors)
-func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown []workflow.StatusCount, path, filename string, relatedDocs []*models.Document, workflowService *workflow.Service) {
+// progressInfo, workSummary, and actionItems provide enhanced status information
+func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown []workflow.StatusCount, path, filename string, relatedDocs []*models.Document, workflowService *workflow.Service, progressInfo *status.ProgressInfo, workSummary *status.WorkSummary, actionItems *status.ActionItems) {
 	// Determine if colors should be enabled
 	colorEnabled := !cli.GlobalConfig.NoColor && workflowService != nil
 
@@ -715,6 +790,86 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 		}
 		_ = pterm.DefaultTable.WithHasHeader().WithData(breakdownData).Render()
 		fmt.Println()
+	}
+
+	// Progress breakdown section (weighted vs completion)
+	if progressInfo != nil {
+		pterm.DefaultSection.Println("Progress Breakdown")
+		fmt.Println()
+		progressData := pterm.TableData{
+			{"Metric", "Value", "Ratio"},
+			{"Weighted Progress", fmt.Sprintf("%.1f%%", progressInfo.WeightedPct), progressInfo.WeightedRatio},
+			{"Completion", fmt.Sprintf("%.1f%%", progressInfo.CompletionPct), progressInfo.CompletionRatio},
+		}
+		_ = pterm.DefaultTable.WithHasHeader().WithData(progressData).Render()
+		fmt.Println()
+	}
+
+	// Work summary section (who's doing what)
+	if workSummary != nil && workSummary.TotalTasks > 0 {
+		pterm.DefaultSection.Println("Work Summary")
+		fmt.Println()
+		workData := [][]string{}
+		if workSummary.CompletedTasks > 0 {
+			workData = append(workData, []string{"✅ Completed", fmt.Sprintf("%d/%d", workSummary.CompletedTasks, workSummary.TotalTasks)})
+		}
+		if workSummary.AgentWork > 0 {
+			workData = append(workData, []string{"🤖 Agent Work", fmt.Sprintf("%d tasks", workSummary.AgentWork)})
+		}
+		if workSummary.HumanWork > 0 {
+			workData = append(workData, []string{"👤 Human Work", fmt.Sprintf("%d tasks", workSummary.HumanWork)})
+		}
+		if workSummary.BlockedWork > 0 {
+			workData = append(workData, []string{"🚫 Blocked", fmt.Sprintf("%d tasks", workSummary.BlockedWork)})
+		}
+		if workSummary.NotStarted > 0 {
+			workData = append(workData, []string{"⏳ Not Started", fmt.Sprintf("%d tasks", workSummary.NotStarted)})
+		}
+		if len(workData) > 0 {
+			_ = pterm.DefaultTable.WithData(workData).Render()
+			fmt.Println()
+		}
+	}
+
+	// Action items section (tasks needing attention)
+	if actionItems != nil {
+		hasActionItems := len(actionItems.AwaitingApproval) > 0 || len(actionItems.Blocked) > 0 || len(actionItems.InProgress) > 0
+		if hasActionItems {
+			pterm.DefaultSection.Println("Action Items")
+			fmt.Println()
+
+			// Awaiting approval
+			if len(actionItems.AwaitingApproval) > 0 {
+				pterm.DefaultBox.WithTitle("⏳ Awaiting Approval").Println(fmt.Sprintf("%d tasks", len(actionItems.AwaitingApproval)))
+				for _, item := range actionItems.AwaitingApproval {
+					ageStr := ""
+					if item.AgeDays != nil {
+						ageStr = fmt.Sprintf(" (%d days)", *item.AgeDays)
+					}
+					fmt.Printf("  - %s: %s%s\n", item.TaskKey, item.Title, ageStr)
+				}
+				fmt.Println()
+			}
+
+			// Blocked
+			if len(actionItems.Blocked) > 0 {
+				pterm.DefaultBox.WithTitle("🚫 Blocked").Println(fmt.Sprintf("%d tasks", len(actionItems.Blocked)))
+				for _, item := range actionItems.Blocked {
+					reasonStr := ""
+					if item.BlockedReason != nil && *item.BlockedReason != "" {
+						reasonStr = fmt.Sprintf(" - %s", *item.BlockedReason)
+					}
+					fmt.Printf("  - %s: %s%s\n", item.TaskKey, item.Title, reasonStr)
+				}
+				fmt.Println()
+			}
+
+			// In progress (summary only)
+			if len(actionItems.InProgress) > 0 {
+				pterm.DefaultBox.WithTitle("🔄 In Progress").Println(fmt.Sprintf("%d tasks", len(actionItems.InProgress)))
+				fmt.Println()
+			}
+		}
 	}
 
 	// Check if all tasks are completed
