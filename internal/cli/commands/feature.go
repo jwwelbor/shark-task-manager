@@ -57,6 +57,19 @@ type FeatureWithTaskCount struct {
 	StatusSource string `json:"status_source"`
 }
 
+// FeatureListItemJSON is the enhanced JSON structure for feature list with health and progress info
+type FeatureListItemJSON struct {
+	Key            string      `json:"key"`
+	Title          string      `json:"title"`
+	EpicID         int64       `json:"epic_id"`
+	Status         string      `json:"status"`
+	StatusOverride bool        `json:"status_override"`
+	Health         string      `json:"health"`
+	Progress       interface{} `json:"progress"`
+	Notes          string      `json:"notes"`
+	TaskCount      int         `json:"task_count"`
+}
+
 // featureCmd represents the feature command group
 var featureCmd = &cobra.Command{
 	Use:     "feature",
@@ -440,9 +453,73 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
+		// Build enhanced JSON output with health and progress info
+		enhancedResults := make([]FeatureListItemJSON, 0, len(featuresWithTaskCount))
+
+		taskRepo := repository.NewTaskRepository(repoDb)
+
+		// Load workflow config
+		configPath, err := cli.GetConfigPath()
+		if err != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", err)
+		}
+		cfg, err := config.LoadWorkflowConfig(configPath)
+		if err != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
+		}
+
+		for _, feature := range featuresWithTaskCount {
+			// Get status breakdown for health and progress calculations
+			statusBreakdown, err := taskRepo.GetStatusBreakdownMap(ctx, feature.ID)
+			if err != nil && cli.GlobalConfig.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get status breakdown for feature %s: %v\n", feature.Key, err)
+			}
+
+			// Convert to string-keyed map
+			statusCounts := make(map[string]int)
+			for taskStatus, count := range statusBreakdown {
+				statusCounts[string(taskStatus)] = count
+			}
+
+			// Calculate health
+			health := calculateHealthIndicator(statusCounts)
+
+			// Calculate progress
+			var progressInfo interface{}
+			if cfg != nil {
+				progress := status.CalculateProgress(statusCounts, cfg)
+				progressInfo = map[string]interface{}{
+					"weighted_pct":     progress.WeightedPct,
+					"completion_pct":   progress.CompletionPct,
+					"weighted_ratio":   progress.WeightedRatio,
+					"completion_ratio": progress.CompletionRatio,
+					"total_tasks":      progress.TotalTasks,
+				}
+			} else {
+				progressInfo = map[string]interface{}{
+					"pct": feature.ProgressPct,
+				}
+			}
+
+			// Generate notes
+			notes := generateNotesColumn(statusCounts)
+
+			enhancedResults = append(enhancedResults, FeatureListItemJSON{
+				Key:            feature.Key,
+				Title:          feature.Title,
+				EpicID:         feature.EpicID,
+				Status:         string(feature.Status),
+				StatusOverride: feature.StatusOverride,
+				Health:         health,
+				Progress:       progressInfo,
+				Notes:          notes,
+				TaskCount:      feature.TaskCount,
+			})
+		}
+
 		result := map[string]interface{}{
-			"results": featuresWithTaskCount,
-			"count":   len(featuresWithTaskCount),
+			"results": enhancedResults,
+			"count":   len(enhancedResults),
 		}
 		return cli.OutputJSON(result)
 	}
@@ -572,18 +649,10 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	}
 
 	var workflowCfg *config.WorkflowConfig
-	var cfg *config.Config
 	if configPath != "" {
 		workflowCfg, err = config.LoadWorkflowConfig(configPath)
 		if err != nil && cli.GlobalConfig.Verbose {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to load workflow config for status calculations: %v\n", err)
-		}
-
-		// Load full config for work summary calculations
-		manager := config.NewManager(configPath)
-		cfg, err = manager.Load()
-		if err != nil && cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
 		}
 	}
 
@@ -610,8 +679,8 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 
 	// Calculate work summary using status package
 	var workSummary *status.WorkSummary
-	if cfg != nil {
-		workSummary = status.CalculateWorkRemaining(statusCountsMap, cfg)
+	if workflowCfg != nil {
+		workSummary = status.CalculateWorkRemaining(statusCountsMap, workflowCfg)
 	} else {
 		workSummary = &status.WorkSummary{
 			TotalTasks:     len(tasks),
@@ -667,27 +736,62 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 }
 
 // renderFeatureListTable renders features as a table
-func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) {
-	// Create table data
+func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context, repoDb *repository.DB) {
+	// Create table data with new columns
 	tableData := pterm.TableData{
-		{"Key", "Title", "Epic ID", "Status", "Progress", "Tasks", "Order"},
+		{"Key", "Title", "Health", "Progress", "Notes", "Status"},
 	}
+
+	// Get task repository for additional data
+	taskRepo := repository.NewTaskRepository(repoDb)
 
 	for _, feature := range features {
 		// Truncate long titles to fit in 80 columns
 		title := feature.Title
-		if len(title) > 25 {
-			title = title[:22] + "..."
+		if len(title) > 20 {
+			title = title[:17] + "..."
 		}
 
-		// Format progress with 1 decimal place
-		progress := fmt.Sprintf("%.1f%%", feature.ProgressPct)
-
-		// Format execution_order (show "-" if NULL)
-		execOrder := "-"
-		if feature.ExecutionOrder != nil {
-			execOrder = fmt.Sprintf("%d", *feature.ExecutionOrder)
+		// Get status breakdown for health and progress calculations
+		statusBreakdown, err := taskRepo.GetStatusBreakdownMap(ctx, feature.ID)
+		if err != nil {
+			if cli.GlobalConfig.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get status breakdown for feature %s: %v\n", feature.Key, err)
+			}
+			statusBreakdown = make(map[models.TaskStatus]int)
 		}
+
+		// Convert to string-keyed map for progress calculation
+		statusCounts := make(map[string]int)
+		for taskStatus, count := range statusBreakdown {
+			statusCounts[string(taskStatus)] = count
+		}
+
+		// Load config for progress calculation
+		configPath, cfgErr := cli.GetConfigPath()
+		if cfgErr != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", cfgErr)
+		}
+		cfg, cfgErr := config.LoadWorkflowConfig(configPath)
+		if cfgErr != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", cfgErr)
+		}
+
+		// Calculate health indicator
+		health := calculateHealthIndicator(statusCounts)
+
+		// Calculate progress with weighted ratio
+		var progressDisplay string
+		if cfg != nil {
+			progress := status.CalculateProgress(statusCounts, cfg)
+			progressDisplay = fmt.Sprintf("%.0f%% (%s)", progress.WeightedPct, progress.WeightedRatio)
+		} else {
+			// Fallback to simple percentage if config unavailable
+			progressDisplay = fmt.Sprintf("%.1f%%", feature.ProgressPct)
+		}
+
+		// Generate notes column
+		notes := generateNotesColumn(statusCounts)
 
 		// Format status with indicator (* for manual override)
 		statusDisplay := string(feature.Status)
@@ -698,16 +802,56 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string) 
 		tableData = append(tableData, []string{
 			feature.Key,
 			title,
-			fmt.Sprintf("%d", feature.EpicID),
+			health,
+			progressDisplay,
+			notes,
 			statusDisplay,
-			progress,
-			fmt.Sprintf("%d", feature.TaskCount),
-			execOrder,
 		})
 	}
 
 	// Render table
 	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
+}
+
+// calculateHealthIndicator calculates health emoji based on status breakdown
+// Returns: 🔴 (at risk, 3+ blocked), 🟡 (attention needed), or 🟢 (healthy)
+func calculateHealthIndicator(statusCounts map[string]int) string {
+	blockedCount := statusCounts[string(models.TaskStatusBlocked)]
+
+	// At risk: 3 or more blocked tasks
+	if blockedCount >= 3 {
+		return "🔴"
+	}
+
+	// Attention needed: 1+ blocked OR any awaiting approval
+	if blockedCount >= 1 || statusCounts["ready_for_approval"] > 0 {
+		return "🟡"
+	}
+
+	// Healthy: on track
+	return "🟢"
+}
+
+// generateNotesColumn generates status summary notes for feature list
+// Shows blocked count and ready for approval count
+func generateNotesColumn(statusCounts map[string]int) string {
+	parts := []string{}
+
+	// Show blocked count if any
+	if blocked := statusCounts[string(models.TaskStatusBlocked)]; blocked > 0 {
+		parts = append(parts, fmt.Sprintf("%d blocked", blocked))
+	}
+
+	// Show ready for approval count if any
+	if ready := statusCounts["ready_for_approval"]; ready > 0 {
+		parts = append(parts, fmt.Sprintf("%d ready", ready))
+	}
+
+	// Return formatted notes
+	if len(parts) == 0 {
+		return "[on track]"
+	}
+	return fmt.Sprintf("[%s]", strings.Join(parts, ", "))
 }
 
 // renderFeatureDetails renders feature details with tasks table
