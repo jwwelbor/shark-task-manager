@@ -485,32 +485,105 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		relatedDocs = []*models.Document{}
 	}
 
+	// Get feature status rollup
+	featureRollup, err := epicRepo.GetFeatureStatusRollup(ctx, epic.ID)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get feature status rollup: %v\n", err)
+	}
+	if featureRollup == nil {
+		featureRollup = make(map[string]int)
+	}
+
+	// Get task status rollup
+	taskRollup, err := epicRepo.GetTaskStatusRollup(ctx, epic.ID)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get task status rollup: %v\n", err)
+	}
+	if taskRollup == nil {
+		taskRollup = make(map[string]int)
+	}
+
+	// Calculate impediments (blocked tasks with their age)
+	blockedTasks := make([]*models.Task, 0)
+	if blockCount, ok := taskRollup[string(models.TaskStatusBlocked)]; ok && blockCount > 0 {
+		// Get all tasks from all features in this epic
+		allTasks, err := taskRepo.ListByEpic(ctx, epic.Key)
+		if err == nil {
+			for _, task := range allTasks {
+				if task.Status == models.TaskStatusBlocked {
+					blockedTasks = append(blockedTasks, task)
+				}
+			}
+		}
+	}
+
+	// Count tasks in approval backlog (ready_for_review status)
+	approvalBacklogCount := 0
+	if approvalCount, ok := taskRollup[string(models.TaskStatusReadyForReview)]; ok {
+		approvalBacklogCount = approvalCount
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
+		// Build feature status summary
+		featureSummary := make(map[string]int)
+		for status, count := range featureRollup {
+			featureSummary[status] = count
+		}
+
+		// Build task status summary
+		taskSummary := make(map[string]int)
+		for status, count := range taskRollup {
+			taskSummary[status] = count
+		}
+
+		// Build impediments list
+		impediments := make([]map[string]interface{}, 0)
+		for _, task := range blockedTasks {
+			blockReason := ""
+			if task.BlockedReason != nil {
+				blockReason = *task.BlockedReason
+			}
+			blockedSince := interface{}(nil)
+			if task.BlockedAt.Valid {
+				blockedSince = task.BlockedAt.Time
+			}
+			impediments = append(impediments, map[string]interface{}{
+				"task_key":      task.Key,
+				"title":         task.Title,
+				"blocked_since": blockedSince,
+				"reason":        blockReason,
+			})
+		}
+
 		result := map[string]interface{}{
-			"id":                epic.ID,
-			"key":               epic.Key,
-			"title":             epic.Title,
-			"description":       epic.Description,
-			"status":            epic.Status,
-			"status_source":     "calculated", // Epic status is always calculated from features
-			"priority":          epic.Priority,
-			"business_value":    epic.BusinessValue,
-			"slug":              epic.Slug,
-			"progress_pct":      epicProgress,
-			"path":              dirPath,
-			"filename":          filename,
-			"file_path":         epic.FilePath,
-			"created_at":        epic.CreatedAt,
-			"updated_at":        epic.UpdatedAt,
-			"features":          featuresWithDetails,
-			"related_documents": relatedDocs,
+			"id":                     epic.ID,
+			"key":                    epic.Key,
+			"title":                  epic.Title,
+			"description":            epic.Description,
+			"status":                 epic.Status,
+			"status_source":          "calculated", // Epic status is always calculated from features
+			"priority":               epic.Priority,
+			"business_value":         epic.BusinessValue,
+			"slug":                   epic.Slug,
+			"progress_pct":           epicProgress,
+			"path":                   dirPath,
+			"filename":               filename,
+			"file_path":              epic.FilePath,
+			"created_at":             epic.CreatedAt,
+			"updated_at":             epic.UpdatedAt,
+			"features":               featuresWithDetails,
+			"related_documents":      relatedDocs,
+			"feature_status_rollup":  featureSummary,
+			"task_status_rollup":     taskSummary,
+			"impediments":            impediments,
+			"approval_backlog_count": approvalBacklogCount,
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
-	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs)
+	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs, featureRollup, taskRollup, blockedTasks, approvalBacklogCount)
 	return nil
 }
 
@@ -544,8 +617,8 @@ func renderEpicListTable(epics []EpicWithProgress) {
 	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
-// renderEpicDetails renders epic details with features table
-func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path, filename string, relatedDocs []*models.Document) {
+// renderEpicDetails renders epic details with features table and rollup information
+func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path, filename string, relatedDocs []*models.Document, featureRollup map[string]int, taskRollup map[string]int, blockedTasks []*models.Task, approvalBacklogCount int) {
 	// Print epic metadata
 	pterm.DefaultSection.Printf("Epic: %s", epic.Key)
 	fmt.Println()
@@ -584,6 +657,73 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 		fmt.Println()
 		for _, doc := range relatedDocs {
 			fmt.Printf("  - %s (%s)\n", doc.Title, doc.FilePath)
+		}
+		fmt.Println()
+	}
+
+	// Feature Status Rollup section
+	if len(featureRollup) > 0 {
+		pterm.DefaultSection.Println("Feature Status Rollup")
+		fmt.Println()
+
+		rollupInfo := [][]string{}
+		for status, count := range featureRollup {
+			rollupInfo = append(rollupInfo, []string{
+				strings.ToTitle(status),
+				fmt.Sprintf("%d", count),
+			})
+		}
+
+		_ = pterm.DefaultTable.WithData(rollupInfo).Render()
+		fmt.Println()
+	}
+
+	// Task Rollup section
+	if len(taskRollup) > 0 {
+		pterm.DefaultSection.Println("Task Rollup")
+		fmt.Println()
+
+		rollupInfo := [][]string{}
+		for status, count := range taskRollup {
+			rollupInfo = append(rollupInfo, []string{
+				strings.ToTitle(status),
+				fmt.Sprintf("%d", count),
+			})
+		}
+
+		_ = pterm.DefaultTable.WithData(rollupInfo).Render()
+		fmt.Println()
+	}
+
+	// Impediments & Risks section
+	if len(blockedTasks) > 0 || approvalBacklogCount > 0 {
+		pterm.DefaultSection.Println("Impediments & Risks")
+		fmt.Println()
+
+		if len(blockedTasks) > 0 {
+			fmt.Printf("Blocked Tasks (%d):\n", len(blockedTasks))
+			for _, task := range blockedTasks {
+				reason := ""
+				if task.BlockedReason != nil && *task.BlockedReason != "" {
+					reason = fmt.Sprintf(" - %s", *task.BlockedReason)
+				}
+				age := ""
+				if task.BlockedAt.Valid && !task.BlockedAt.Time.IsZero() {
+					ageDuration := time.Since(task.BlockedAt.Time)
+					if ageDuration.Hours() < 1 {
+						age = fmt.Sprintf(" (<%d min old)", int(ageDuration.Minutes()))
+					} else if ageDuration.Hours() < 24 {
+						age = fmt.Sprintf(" (%.1f hours old)", ageDuration.Hours())
+					} else {
+						age = fmt.Sprintf(" (%.1f days old)", ageDuration.Hours()/24)
+					}
+				}
+				fmt.Printf("  - %s: %s%s%s\n", task.Key, task.Title, age, reason)
+			}
+		}
+
+		if approvalBacklogCount > 0 {
+			fmt.Printf("Approval Backlog: %d task(s) waiting for review\n", approvalBacklogCount)
 		}
 		fmt.Println()
 	}
