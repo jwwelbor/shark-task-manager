@@ -11,17 +11,17 @@ func TestGetActionItems(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name                   string
-		tasks                  []*models.Task
-		expectedAwaitingCount  int
-		expectedBlockedCount   int
+		name                    string
+		tasks                   []*models.Task
+		expectedAwaitingCount   int
+		expectedBlockedCount    int
 		expectedInProgressCount int
 	}{
 		{
-			name:                   "no tasks",
-			tasks:                  []*models.Task{},
-			expectedAwaitingCount:  0,
-			expectedBlockedCount:   0,
+			name:                    "no tasks",
+			tasks:                   []*models.Task{},
+			expectedAwaitingCount:   0,
+			expectedBlockedCount:    0,
 			expectedInProgressCount: 0,
 		},
 		{
@@ -35,8 +35,8 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now.Add(-24 * time.Hour),
 				},
 			},
-			expectedAwaitingCount:  1,
-			expectedBlockedCount:   0,
+			expectedAwaitingCount:   1,
+			expectedBlockedCount:    0,
 			expectedInProgressCount: 0,
 		},
 		{
@@ -50,8 +50,8 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now.Add(-48 * time.Hour),
 				},
 			},
-			expectedAwaitingCount:  1,
-			expectedBlockedCount:   0,
+			expectedAwaitingCount:   1,
+			expectedBlockedCount:    0,
 			expectedInProgressCount: 0,
 		},
 		{
@@ -65,8 +65,8 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now,
 				},
 			},
-			expectedAwaitingCount:  0,
-			expectedBlockedCount:   1,
+			expectedAwaitingCount:   0,
+			expectedBlockedCount:    1,
 			expectedInProgressCount: 0,
 		},
 		{
@@ -80,8 +80,8 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now,
 				},
 			},
-			expectedAwaitingCount:  0,
-			expectedBlockedCount:   0,
+			expectedAwaitingCount:   0,
+			expectedBlockedCount:    0,
 			expectedInProgressCount: 1,
 		},
 		{
@@ -95,8 +95,8 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now,
 				},
 			},
-			expectedAwaitingCount:  0,
-			expectedBlockedCount:   0,
+			expectedAwaitingCount:   0,
+			expectedBlockedCount:    0,
 			expectedInProgressCount: 1,
 		},
 		{
@@ -138,8 +138,8 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now.Add(-2 * time.Hour),
 				},
 			},
-			expectedAwaitingCount:  2,
-			expectedBlockedCount:   1,
+			expectedAwaitingCount:   2,
+			expectedBlockedCount:    1,
 			expectedInProgressCount: 1,
 		},
 		{
@@ -167,8 +167,8 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now,
 				},
 			},
-			expectedAwaitingCount:  0,
-			expectedBlockedCount:   0,
+			expectedAwaitingCount:   0,
+			expectedBlockedCount:    0,
 			expectedInProgressCount: 3,
 		},
 		{
@@ -196,15 +196,15 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now,
 				},
 			},
-			expectedAwaitingCount:  0,
-			expectedBlockedCount:   0,
+			expectedAwaitingCount:   0,
+			expectedBlockedCount:    0,
 			expectedInProgressCount: 0,
 		},
 		{
-			name:                   "nil task in slice is skipped",
-			tasks:                  []*models.Task{nil},
-			expectedAwaitingCount:  0,
-			expectedBlockedCount:   0,
+			name:                    "nil task in slice is skipped",
+			tasks:                   []*models.Task{nil},
+			expectedAwaitingCount:   0,
+			expectedBlockedCount:    0,
 			expectedInProgressCount: 0,
 		},
 	}
@@ -230,9 +230,9 @@ func TestGetActionItems(t *testing.T) {
 
 func TestGetActionItems_AgeDays(t *testing.T) {
 	tests := []struct {
-		name           string
-		task           *models.Task
-		hoursAgo       int
+		name            string
+		task            *models.Task
+		hoursAgo        int
 		expectedAgeDays int
 	}{
 		{
@@ -243,7 +243,7 @@ func TestGetActionItems_AgeDays(t *testing.T) {
 				Title:  "Task 1",
 				Status: "ready_for_approval",
 			},
-			hoursAgo:       1,
+			hoursAgo:        1,
 			expectedAgeDays: 0,
 		},
 		{
@@ -254,7 +254,7 @@ func TestGetActionItems_AgeDays(t *testing.T) {
 				Title:  "Task 2",
 				Status: "ready_for_approval",
 			},
-			hoursAgo:       24,
+			hoursAgo:        24,
 			expectedAgeDays: 1,
 		},
 		{
@@ -265,7 +265,7 @@ func TestGetActionItems_AgeDays(t *testing.T) {
 				Title:  "Task 3",
 				Status: "ready_for_approval",
 			},
-			hoursAgo:       120,
+			hoursAgo:        120,
 			expectedAgeDays: 5,
 		},
 		{
@@ -276,7 +276,7 @@ func TestGetActionItems_AgeDays(t *testing.T) {
 				Title:  "Task 4",
 				Status: "ready_for_code_review",
 			},
-			hoursAgo:       240,
+			hoursAgo:        240,
 			expectedAgeDays: 10,
 		},
 	}

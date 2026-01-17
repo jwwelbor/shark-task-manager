@@ -84,6 +84,10 @@ lint:
 	@export PATH=$$PATH:$$HOME/go/bin && golangci-lint run
 
 # Format code
+format:
+	@echo "Formatting code..."
+	@export PATH=$$PATH:$$HOME/go/bin && go fmt ./...
+
 fmt:
 	@echo "Formatting code..."
 	@export PATH=$$PATH:$$HOME/go/bin && go fmt ./...

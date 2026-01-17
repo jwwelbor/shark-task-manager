@@ -12,7 +12,7 @@ import "github.com/jwwelbor/shark-task-manager/internal/config"
 //
 // Parameters:
 //   - statusCounts: map of status -> count of tasks in that status
-//   - cfg: Config with status metadata containing responsibility and blocks_feature
+//   - wf: WorkflowConfig with status metadata containing responsibility and blocks_feature
 //
 // Returns WorkSummary with breakdown:
 //   - TotalTasks: total count across all statuses
@@ -21,12 +21,12 @@ import "github.com/jwwelbor/shark-task-manager/internal/config"
 //   - BlockedWork: tasks with blocks_feature=true
 //   - NotStarted: tasks with progress_weight=0.0 (excluding completed)
 //   - CompletedTasks: tasks with progress_weight>=1.0
-func CalculateWorkRemaining(statusCounts map[string]int, cfg *config.Config) *WorkSummary {
+func CalculateWorkRemaining(statusCounts map[string]int, wf *config.WorkflowConfig) *WorkSummary {
 	summary := &WorkSummary{}
 
 	for status, count := range statusCounts {
-		meta := cfg.GetStatusMetadata(status)
-		if meta == nil {
+		meta, exists := wf.StatusMetadata[status]
+		if !exists {
 			// Skip statuses without metadata
 			continue
 		}

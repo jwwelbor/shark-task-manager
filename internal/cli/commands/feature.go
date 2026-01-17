@@ -1956,8 +1956,18 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 				os.Exit(1)
 			}
 
+			// Load workflow config
+			configPath, err := cli.GetConfigPath()
+			if err != nil && cli.GlobalConfig.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", err)
+			}
+			cfg, err := config.LoadWorkflowConfig(configPath)
+			if err != nil && cli.GlobalConfig.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
+			}
+
 			// Recalculate status from tasks
-			calcService := status.NewCalculationService(repoDb)
+			calcService := status.NewCalculationService(repoDb, cfg)
 			result, err := calcService.RecalculateFeatureStatus(ctx, feature.ID)
 			if err != nil {
 				cli.Error(fmt.Sprintf("Error: Failed to recalculate status: %v", err))

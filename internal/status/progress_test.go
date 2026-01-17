@@ -118,7 +118,7 @@ func TestCalculateProgress_MissingMetadata(t *testing.T) {
 
 	// Status "in_progress" not in metadata
 	statusCounts := map[string]int{
-		"completed":  2,
+		"completed":   2,
 		"in_progress": 3,
 	}
 
@@ -175,11 +175,11 @@ func TestCalculateProgress_SingleTaskReadyForApproval(t *testing.T) {
 func TestCalculateProgress_VariousWeights(t *testing.T) {
 	cfg := &config.WorkflowConfig{
 		StatusMetadata: map[string]config.StatusMetadata{
-			"completed":      {ProgressWeight: 1.0},
-			"in_review":      {ProgressWeight: 0.75},
-			"in_progress":    {ProgressWeight: 0.5},
-			"blocked":        {ProgressWeight: 0.25},
-			"todo":           {ProgressWeight: 0.0},
+			"completed":   {ProgressWeight: 1.0},
+			"in_review":   {ProgressWeight: 0.75},
+			"in_progress": {ProgressWeight: 0.5},
+			"blocked":     {ProgressWeight: 0.25},
+			"todo":        {ProgressWeight: 0.0},
 		},
 	}
 

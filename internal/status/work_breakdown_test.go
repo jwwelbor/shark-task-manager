@@ -12,7 +12,7 @@ func TestCalculateWorkRemaining_AllAgentWork(t *testing.T) {
 		"in_development": 5,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"in_development": {
 			Responsibility: "agent",
 			ProgressWeight: 0.5,
@@ -20,7 +20,7 @@ func TestCalculateWorkRemaining_AllAgentWork(t *testing.T) {
 		},
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	if summary.TotalTasks != 5 {
 		t.Errorf("expected TotalTasks=5, got %d", summary.TotalTasks)
@@ -43,7 +43,7 @@ func TestCalculateWorkRemaining_AllHumanWork(t *testing.T) {
 		"in_qa":            2,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"ready_for_review": {
 			Responsibility: "human",
 			ProgressWeight: 0.8,
@@ -56,7 +56,7 @@ func TestCalculateWorkRemaining_AllHumanWork(t *testing.T) {
 		},
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	if summary.TotalTasks != 5 {
 		t.Errorf("expected TotalTasks=5, got %d", summary.TotalTasks)
@@ -75,7 +75,7 @@ func TestCalculateWorkRemaining_BlockedTasks(t *testing.T) {
 		"blocked": 2,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"blocked": {
 			Responsibility: "none",
 			ProgressWeight: 0.0,
@@ -83,7 +83,7 @@ func TestCalculateWorkRemaining_BlockedTasks(t *testing.T) {
 		},
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	if summary.TotalTasks != 2 {
 		t.Errorf("expected TotalTasks=2, got %d", summary.TotalTasks)
@@ -102,7 +102,7 @@ func TestCalculateWorkRemaining_NotStarted(t *testing.T) {
 		"todo": 4,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"todo": {
 			Responsibility: "none",
 			ProgressWeight: 0.0,
@@ -110,7 +110,7 @@ func TestCalculateWorkRemaining_NotStarted(t *testing.T) {
 		},
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	if summary.TotalTasks != 4 {
 		t.Errorf("expected TotalTasks=4, got %d", summary.TotalTasks)
@@ -129,7 +129,7 @@ func TestCalculateWorkRemaining_CompletedTasks(t *testing.T) {
 		"completed": 3,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"completed": {
 			Responsibility: "none",
 			ProgressWeight: 1.0,
@@ -137,7 +137,7 @@ func TestCalculateWorkRemaining_CompletedTasks(t *testing.T) {
 		},
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	if summary.TotalTasks != 3 {
 		t.Errorf("expected TotalTasks=3, got %d", summary.TotalTasks)
@@ -150,14 +150,14 @@ func TestCalculateWorkRemaining_CompletedTasks(t *testing.T) {
 // TestCalculateWorkRemaining_MixedResponsibilities tests that mixed responsibilities are categorized correctly
 func TestCalculateWorkRemaining_MixedResponsibilities(t *testing.T) {
 	statusCounts := map[string]int{
-		"in_development":  5,
+		"in_development":   5,
 		"ready_for_review": 2,
-		"blocked":         1,
-		"todo":            2,
-		"completed":       3,
+		"blocked":          1,
+		"todo":             2,
+		"completed":        3,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"in_development": {
 			Responsibility: "agent",
 			ProgressWeight: 0.5,
@@ -185,7 +185,7 @@ func TestCalculateWorkRemaining_MixedResponsibilities(t *testing.T) {
 		},
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	if summary.TotalTasks != 13 {
 		t.Errorf("expected TotalTasks=13, got %d", summary.TotalTasks)
@@ -214,7 +214,7 @@ func TestCalculateWorkRemaining_MissingMetadata(t *testing.T) {
 		"in_development": 3,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"in_development": {
 			Responsibility: "agent",
 			ProgressWeight: 0.5,
@@ -223,7 +223,7 @@ func TestCalculateWorkRemaining_MissingMetadata(t *testing.T) {
 		// "unknown_status" has no metadata
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	// Only the known status should be counted
 	if summary.TotalTasks != 3 {
@@ -240,7 +240,7 @@ func TestCalculateWorkRemaining_PartialProgressWeight(t *testing.T) {
 		"ready_for_approval": 1,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"ready_for_approval": {
 			Responsibility: "human",
 			ProgressWeight: 0.9,
@@ -248,7 +248,7 @@ func TestCalculateWorkRemaining_PartialProgressWeight(t *testing.T) {
 		},
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	if summary.TotalTasks != 1 {
 		t.Errorf("expected TotalTasks=1, got %d", summary.TotalTasks)
@@ -265,9 +265,9 @@ func TestCalculateWorkRemaining_PartialProgressWeight(t *testing.T) {
 func TestCalculateWorkRemaining_EmptyStatusCounts(t *testing.T) {
 	statusCounts := map[string]int{}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{})
+	wf := createTestWorkflow(map[string]config.StatusMetadata{})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	if summary.TotalTasks != 0 {
 		t.Errorf("expected TotalTasks=0, got %d", summary.TotalTasks)
@@ -295,7 +295,7 @@ func TestCalculateWorkRemaining_OverlapCompletedAndCategory(t *testing.T) {
 		"completed": 2,
 	}
 
-	cfg := createTestConfig(map[string]*config.StatusMetadata{
+	wf := createTestWorkflow(map[string]config.StatusMetadata{
 		"completed": {
 			Responsibility: "agent",
 			ProgressWeight: 1.0,
@@ -303,7 +303,7 @@ func TestCalculateWorkRemaining_OverlapCompletedAndCategory(t *testing.T) {
 		},
 	})
 
-	summary := CalculateWorkRemaining(statusCounts, cfg)
+	summary := CalculateWorkRemaining(statusCounts, wf)
 
 	// Completed tasks should be in both CompletedTasks and their responsibility category
 	if summary.TotalTasks != 2 {
@@ -317,9 +317,9 @@ func TestCalculateWorkRemaining_OverlapCompletedAndCategory(t *testing.T) {
 	}
 }
 
-// Helper function to create a test config with status metadata
-func createTestConfig(metadata map[string]*config.StatusMetadata) *config.Config {
-	cfg := &config.Config{}
-	cfg.SetStatusMetadata(metadata)
-	return cfg
+// Helper function to create a test workflow with status metadata
+func createTestWorkflow(metadata map[string]config.StatusMetadata) *config.WorkflowConfig {
+	return &config.WorkflowConfig{
+		StatusMetadata: metadata,
+	}
 }

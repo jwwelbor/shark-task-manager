@@ -639,7 +639,7 @@ func TestEpicRepository_GetTaskStatusRollup_WithMultipleTasks(t *testing.T) {
 
 	// Create tasks with different statuses
 	statusCounts := map[models.TaskStatus]int{
-		models.TaskStatusTodo:        3,
+		models.TaskStatusTodo:       3,
 		models.TaskStatusInProgress: 2,
 		models.TaskStatusCompleted:  4,
 		models.TaskStatusBlocked:    1,

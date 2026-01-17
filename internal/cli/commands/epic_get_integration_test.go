@@ -19,15 +19,18 @@ func TestEpicGetIntegration_FeatureStatusRollup(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E07')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E07'")
 
-	// Create repositories
-	epicRepo := repository.NewEpicRepository(database)
-	featureRepo := repository.NewFeatureRepository(database)
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
 
 	// Create epic
 	epic := &models.Epic{
-		Key:   "E07",
-		Title: "Enhancements",
-		Slug:  "enhancements",
+		Key:      "E07",
+		Title:    "Enhancements",
+		Slug:     strPtr("enhancements"),
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
@@ -35,9 +38,9 @@ func TestEpicGetIntegration_FeatureStatusRollup(t *testing.T) {
 
 	// Create 3 features with different statuses
 	features := []*models.Feature{
-		{Key: "E07-F01", Title: "Feature 1", Slug: "feature-1", EpicID: epic.ID, Status: "active"},
-		{Key: "E07-F02", Title: "Feature 2", Slug: "feature-2", EpicID: epic.ID, Status: "completed"},
-		{Key: "E07-F03", Title: "Feature 3", Slug: "feature-3", EpicID: epic.ID, Status: "active"},
+		{Key: "E07-F01", Title: "Feature 1", Slug: strPtr("feature-1"), Status: models.FeatureStatusActive, EpicID: epic.ID},
+		{Key: "E07-F02", Title: "Feature 2", Slug: strPtr("feature-2"), Status: models.FeatureStatusCompleted, EpicID: epic.ID},
+		{Key: "E07-F03", Title: "Feature 3", Slug: strPtr("feature-3"), Status: models.FeatureStatusActive, EpicID: epic.ID},
 	}
 
 	for _, feature := range features {
@@ -82,16 +85,19 @@ func TestEpicGetIntegration_TaskStatusRollup(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E08')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E08'")
 
-	// Create repositories
-	epicRepo := repository.NewEpicRepository(database)
-	featureRepo := repository.NewFeatureRepository(database)
-	taskRepo := repository.NewTaskRepository(database)
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 
 	// Create epic
 	epic := &models.Epic{
-		Key:   "E08",
-		Title: "Testing",
-		Slug:  "testing",
+		Key:      "E08",
+		Title:    "Testing",
+		Slug:     strPtr("testing"),
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
@@ -101,8 +107,9 @@ func TestEpicGetIntegration_TaskStatusRollup(t *testing.T) {
 	feature1 := &models.Feature{
 		Key:    "E08-F01",
 		Title:  "Feature 1",
-		Slug:   "feature-1",
+		Slug:   strPtr("feature-1"),
 		EpicID: epic.ID,
+		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature1); err != nil {
 		t.Fatalf("Failed to create feature: %v", err)
@@ -111,8 +118,9 @@ func TestEpicGetIntegration_TaskStatusRollup(t *testing.T) {
 	feature2 := &models.Feature{
 		Key:    "E08-F02",
 		Title:  "Feature 2",
-		Slug:   "feature-2",
+		Slug:   strPtr("feature-2"),
 		EpicID: epic.ID,
+		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature2); err != nil {
 		t.Fatalf("Failed to create feature: %v", err)
@@ -121,13 +129,13 @@ func TestEpicGetIntegration_TaskStatusRollup(t *testing.T) {
 	// Create tasks across both features with different statuses
 	tasks := []*models.Task{
 		// Feature 1 tasks
-		{Key: "TEST-E08-F01-001", Title: "Task 1", Status: "completed", FeatureID: feature1.ID, EpicID: epic.ID},
-		{Key: "TEST-E08-F01-002", Title: "Task 2", Status: "completed", FeatureID: feature1.ID, EpicID: epic.ID},
-		{Key: "TEST-E08-F01-003", Title: "Task 3", Status: "in_progress", FeatureID: feature1.ID, EpicID: epic.ID},
+		{Key: "T-E08-F01-001", Title: "Task 1", Status: models.TaskStatusCompleted, FeatureID: feature1.ID, Priority: 5},
+		{Key: "T-E08-F01-002", Title: "Task 2", Status: models.TaskStatusCompleted, FeatureID: feature1.ID, Priority: 5},
+		{Key: "T-E08-F01-003", Title: "Task 3", Status: models.TaskStatusInProgress, FeatureID: feature1.ID, Priority: 5},
 		// Feature 2 tasks
-		{Key: "TEST-E08-F02-001", Title: "Task 1", Status: "todo", FeatureID: feature2.ID, EpicID: epic.ID},
-		{Key: "TEST-E08-F02-002", Title: "Task 2", Status: "in_progress", FeatureID: feature2.ID, EpicID: epic.ID},
-		{Key: "TEST-E08-F02-003", Title: "Task 3", Status: "in_progress", FeatureID: feature2.ID, EpicID: epic.ID},
+		{Key: "T-E08-F02-001", Title: "Task 1", Status: models.TaskStatusTodo, FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E08-F02-002", Title: "Task 2", Status: models.TaskStatusInProgress, FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E08-F02-003", Title: "Task 3", Status: models.TaskStatusInProgress, FeatureID: feature2.ID, Priority: 5},
 	}
 
 	for _, task := range tasks {
@@ -178,16 +186,19 @@ func TestEpicGetIntegration_ImpedimentsDetection(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E09')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E09'")
 
-	// Create repositories
-	epicRepo := repository.NewEpicRepository(database)
-	featureRepo := repository.NewFeatureRepository(database)
-	taskRepo := repository.NewTaskRepository(database)
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 
 	// Create epic
 	epic := &models.Epic{
-		Key:   "E09",
-		Title: "API Development",
-		Slug:  "api-development",
+		Key:      "E09",
+		Title:    "API Development",
+		Slug:     strPtr("api-development"),
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
@@ -197,8 +208,9 @@ func TestEpicGetIntegration_ImpedimentsDetection(t *testing.T) {
 	feature := &models.Feature{
 		Key:    "E09-F01",
 		Title:  "API Endpoints",
-		Slug:   "api-endpoints",
+		Slug:   strPtr("api-endpoints"),
 		EpicID: epic.ID,
+		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
 		t.Fatalf("Failed to create feature: %v", err)
@@ -206,10 +218,10 @@ func TestEpicGetIntegration_ImpedimentsDetection(t *testing.T) {
 
 	// Create tasks with some blocked
 	tasks := []*models.Task{
-		{Key: "TEST-E09-F01-001", Title: "Design API", Status: "completed", FeatureID: feature.ID, EpicID: epic.ID},
-		{Key: "TEST-E09-F01-002", Title: "Implement Endpoints", Status: "blocked", FeatureID: feature.ID, EpicID: epic.ID},
-		{Key: "TEST-E09-F01-003", Title: "Write Tests", Status: "blocked", FeatureID: feature.ID, EpicID: epic.ID},
-		{Key: "TEST-E09-F01-004", Title: "Deploy", Status: "todo", FeatureID: feature.ID, EpicID: epic.ID},
+		{Key: "T-E09-F01-001", Title: "Design API", Status: models.TaskStatusCompleted, FeatureID: feature.ID, Priority: 5},
+		{Key: "T-E09-F01-002", Title: "Implement Endpoints", Status: models.TaskStatusBlocked, FeatureID: feature.ID, Priority: 5},
+		{Key: "T-E09-F01-003", Title: "Write Tests", Status: models.TaskStatusBlocked, FeatureID: feature.ID, Priority: 5},
+		{Key: "T-E09-F01-004", Title: "Deploy", Status: models.TaskStatusTodo, FeatureID: feature.ID, Priority: 5},
 	}
 
 	for _, task := range tasks {
@@ -252,16 +264,19 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E10')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E10'")
 
-	// Create repositories
-	epicRepo := repository.NewEpicRepository(database)
-	featureRepo := repository.NewFeatureRepository(database)
-	taskRepo := repository.NewTaskRepository(database)
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 
 	// Create epic
 	epic := &models.Epic{
-		Key:   "E10",
-		Title: "Backend Services",
-		Slug:  "backend-services",
+		Key:      "E10",
+		Title:    "Backend Services",
+		Slug:     strPtr("backend-services"),
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
@@ -271,8 +286,9 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 	feature1 := &models.Feature{
 		Key:    "E10-F01",
 		Title:  "Auth Service",
-		Slug:   "auth-service",
+		Slug:   strPtr("auth-service"),
 		EpicID: epic.ID,
+		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature1); err != nil {
 		t.Fatalf("Failed to create feature: %v", err)
@@ -281,8 +297,9 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 	feature2 := &models.Feature{
 		Key:    "E10-F02",
 		Title:  "User Service",
-		Slug:   "user-service",
+		Slug:   strPtr("user-service"),
 		EpicID: epic.ID,
+		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature2); err != nil {
 		t.Fatalf("Failed to create feature: %v", err)
@@ -290,16 +307,16 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 
 	// Feature 1: 2 completed, 2 total (50%)
 	tasks1 := []*models.Task{
-		{Key: "TEST-E10-F01-001", Title: "Task 1", Status: "completed", FeatureID: feature1.ID, EpicID: epic.ID},
-		{Key: "TEST-E10-F01-002", Title: "Task 2", Status: "todo", FeatureID: feature1.ID, EpicID: epic.ID},
+		{Key: "T-E10-F01-001", Title: "Task 1", Status: models.TaskStatusCompleted, FeatureID: feature1.ID, Priority: 5},
+		{Key: "T-E10-F01-002", Title: "Task 2", Status: models.TaskStatusTodo, FeatureID: feature1.ID, Priority: 5},
 	}
 
 	// Feature 2: 4 completed, 4 total (100%)
 	tasks2 := []*models.Task{
-		{Key: "TEST-E10-F02-001", Title: "Task 1", Status: "completed", FeatureID: feature2.ID, EpicID: epic.ID},
-		{Key: "TEST-E10-F02-002", Title: "Task 2", Status: "completed", FeatureID: feature2.ID, EpicID: epic.ID},
-		{Key: "TEST-E10-F02-003", Title: "Task 3", Status: "completed", FeatureID: feature2.ID, EpicID: epic.ID},
-		{Key: "TEST-E10-F02-004", Title: "Task 4", Status: "completed", FeatureID: feature2.ID, EpicID: epic.ID},
+		{Key: "T-E10-F02-001", Title: "Task 1", Status: models.TaskStatusCompleted, FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E10-F02-002", Title: "Task 2", Status: models.TaskStatusCompleted, FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E10-F02-003", Title: "Task 3", Status: models.TaskStatusCompleted, FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E10-F02-004", Title: "Task 4", Status: models.TaskStatusCompleted, FeatureID: feature2.ID, Priority: 5},
 	}
 
 	allTasks := append(tasks1, tasks2...)
@@ -307,6 +324,14 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create task: %v", err)
 		}
+	}
+
+	// Update feature progress (caches progress_pct in database)
+	if err := featureRepo.UpdateProgress(ctx, feature1.ID); err != nil {
+		t.Fatalf("Failed to update feature 1 progress: %v", err)
+	}
+	if err := featureRepo.UpdateProgress(ctx, feature2.ID); err != nil {
+		t.Fatalf("Failed to update feature 2 progress: %v", err)
 	}
 
 	// Calculate feature progress for each
@@ -360,17 +385,20 @@ func TestEpicGetIntegration_JSONOutput(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E11')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E11'")
 
-	// Create repositories
-	epicRepo := repository.NewEpicRepository(database)
-	featureRepo := repository.NewFeatureRepository(database)
-	taskRepo := repository.NewTaskRepository(database)
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 
 	// Create epic
 	epic := &models.Epic{
 		Key:         "E11",
 		Title:       "JSON Test",
-		Slug:        "json-test",
-		Description: "Test epic for JSON serialization",
+		Slug:        strPtr("json-test"),
+		Description: strPtr("Test epic for JSON serialization"),
+		Status:      models.EpicStatusActive,
+		Priority:    models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
@@ -380,8 +408,9 @@ func TestEpicGetIntegration_JSONOutput(t *testing.T) {
 	feature := &models.Feature{
 		Key:    "E11-F01",
 		Title:  "Test Feature",
-		Slug:   "test-feature",
+		Slug:   strPtr("test-feature"),
 		EpicID: epic.ID,
+		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
 		t.Fatalf("Failed to create feature: %v", err)
@@ -389,11 +418,11 @@ func TestEpicGetIntegration_JSONOutput(t *testing.T) {
 
 	// Create task
 	task := &models.Task{
-		Key:       "TEST-E11-F01-001",
+		Key:       "T-E11-F01-001",
 		Title:     "Test Task",
-		Status:    "completed",
+		Status:    models.TaskStatusCompleted,
 		FeatureID: feature.ID,
-		EpicID:    epic.ID,
+		Priority:  5,
 	}
 	if err := taskRepo.Create(ctx, task); err != nil {
 		t.Fatalf("Failed to create task: %v", err)
@@ -464,16 +493,19 @@ func TestEpicGetIntegration_MultipleFeatures(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E12')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E12'")
 
-	// Create repositories
-	epicRepo := repository.NewEpicRepository(database)
-	featureRepo := repository.NewFeatureRepository(database)
-	taskRepo := repository.NewTaskRepository(database)
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 
 	// Create epic
 	epic := &models.Epic{
-		Key:   "E12",
-		Title: "Multi-Feature Test",
-		Slug:  "multi-feature-test",
+		Key:      "E12",
+		Title:    "Multi-Feature Test",
+		Slug:     strPtr("multi-feature-test"),
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
@@ -482,14 +514,14 @@ func TestEpicGetIntegration_MultipleFeatures(t *testing.T) {
 	// Create 4 features with different statuses and completion rates
 	featureData := []struct {
 		key       string
-		status    string
+		status    models.FeatureStatus
 		completed int
 		total     int
 	}{
-		{"E12-F01", "completed", 5, 5},
-		{"E12-F02", "active", 3, 5},
-		{"E12-F03", "planning", 0, 3},
-		{"E12-F04", "blocked", 1, 4},
+		{"E12-F01", models.FeatureStatusCompleted, 5, 5},
+		{"E12-F02", models.FeatureStatusActive, 3, 5},
+		{"E12-F03", models.FeatureStatusDraft, 0, 3},
+		{"E12-F04", models.FeatureStatusArchived, 1, 4},
 	}
 
 	createdFeatures := []*models.Feature{}
@@ -497,9 +529,9 @@ func TestEpicGetIntegration_MultipleFeatures(t *testing.T) {
 		feature := &models.Feature{
 			Key:    fd.key,
 			Title:  "Feature " + fd.key,
-			Slug:   fd.key,
-			Status: fd.status,
+			Slug:   strPtr(fd.key),
 			EpicID: epic.ID,
+			Status: fd.status,
 		}
 		if err := featureRepo.Create(ctx, feature); err != nil {
 			t.Fatalf("Failed to create feature: %v", err)
@@ -508,16 +540,16 @@ func TestEpicGetIntegration_MultipleFeatures(t *testing.T) {
 
 		// Create tasks for this feature
 		for i := 1; i <= fd.total; i++ {
-			taskStatus := "todo"
+			taskStatus := models.TaskStatusTodo
 			if i <= fd.completed {
-				taskStatus = "completed"
+				taskStatus = models.TaskStatusCompleted
 			}
 			task := &models.Task{
-				Key:       "TEST-" + fd.key + "-00" + string(rune('0'+i)),
+				Key:       "T-" + fd.key + "-00" + string(rune('0'+i)),
 				Title:     "Task " + string(rune('0'+i)),
 				Status:    taskStatus,
 				FeatureID: feature.ID,
-				EpicID:    epic.ID,
+				Priority:  5,
 			}
 			if err := taskRepo.Create(ctx, task); err != nil {
 				t.Fatalf("Failed to create task: %v", err)
@@ -542,20 +574,20 @@ func TestEpicGetIntegration_MultipleFeatures(t *testing.T) {
 	}
 
 	// Verify feature status counts
-	if featureRollup["completed"] != 1 {
-		t.Errorf("Expected 1 completed feature, got %d", featureRollup["completed"])
+	if featureRollup[string(models.FeatureStatusCompleted)] != 1 {
+		t.Errorf("Expected 1 completed feature, got %d", featureRollup[string(models.FeatureStatusCompleted)])
 	}
 
-	if featureRollup["active"] != 1 {
-		t.Errorf("Expected 1 active feature, got %d", featureRollup["active"])
+	if featureRollup[string(models.FeatureStatusActive)] != 1 {
+		t.Errorf("Expected 1 active feature, got %d", featureRollup[string(models.FeatureStatusActive)])
 	}
 
-	if featureRollup["planning"] != 1 {
-		t.Errorf("Expected 1 planning feature, got %d", featureRollup["planning"])
+	if featureRollup[string(models.FeatureStatusDraft)] != 1 {
+		t.Errorf("Expected 1 draft feature, got %d", featureRollup[string(models.FeatureStatusDraft)])
 	}
 
-	if featureRollup["blocked"] != 1 {
-		t.Errorf("Expected 1 blocked feature, got %d", featureRollup["blocked"])
+	if featureRollup[string(models.FeatureStatusArchived)] != 1 {
+		t.Errorf("Expected 1 archived feature, got %d", featureRollup[string(models.FeatureStatusArchived)])
 	}
 
 	// Get task status rollup

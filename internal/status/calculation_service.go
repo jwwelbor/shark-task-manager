@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
 
@@ -14,14 +15,16 @@ type CalculationService struct {
 	featureRepo *repository.FeatureRepository
 	epicRepo    *repository.EpicRepository
 	taskRepo    *repository.TaskRepository
+	cfg         *config.WorkflowConfig
 }
 
 // NewCalculationService creates a new StatusCalculationService
-func NewCalculationService(db *repository.DB) *CalculationService {
+func NewCalculationService(db *repository.DB, cfg *config.WorkflowConfig) *CalculationService {
 	return &CalculationService{
 		featureRepo: repository.NewFeatureRepository(db),
 		epicRepo:    repository.NewEpicRepository(db),
 		taskRepo:    repository.NewTaskRepository(db),
+		cfg:         cfg,
 	}
 }
 
@@ -40,8 +43,14 @@ func (s *CalculationService) RecalculateFeatureStatus(ctx context.Context, featu
 		return nil, fmt.Errorf("failed to get task status breakdown: %w", err)
 	}
 
-	// Calculate derived status
-	derivedStatus := DeriveFeatureStatus(taskCounts)
+	// Convert map[models.TaskStatus]int to map[string]int for config-driven derivation
+	stringCounts := make(map[string]int)
+	for status, count := range taskCounts {
+		stringCounts[string(status)] = count
+	}
+
+	// Calculate derived status using workflow config
+	derivedStatus := DeriveFeatureStatus(stringCounts, s.cfg)
 	previousStatus := string(feature.Status)
 	now := time.Now()
 

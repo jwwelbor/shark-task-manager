@@ -916,6 +916,107 @@ shark task unblock E07-F01-001 --json
 
 ---
 
+### `shark task next-status`
+
+Transition a task to the next valid status in the workflow.
+
+**Usage:**
+```bash
+shark task next-status <task-key> [--status=<status>] [--json]
+```
+
+**Flags:**
+- `--status <status>`: Explicitly specify target status (skips selection)
+- `--json`: Output in JSON format
+
+**Behavior:**
+
+When multiple valid transitions are available, behavior depends on the `interactive_mode` configuration:
+
+**Non-Interactive Mode (Default):**
+- Automatically selects the first valid transition from workflow configuration
+- Prints info message showing which status was selected
+- Example: `ℹ Auto-selected next status: in_qa (from 2 options)`
+
+**Interactive Mode (Opt-In):**
+- Displays interactive prompt with numbered options
+- Waits for user input (1-N or Ctrl+C to cancel)
+- Requires `interactive_mode: true` in `.sharkconfig.json`
+
+**When Only One Transition Available:**
+- Always auto-selects the single option (both modes)
+- No prompt or selection message needed
+
+**Examples:**
+
+```bash
+# Non-interactive mode (default) - auto-selects first transition
+shark task next-status E07-F23-006
+# Output:
+# ℹ Auto-selected next status: in_qa (from 2 options)
+# ✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+
+# Interactive mode (when enabled in config)
+# Requires: { "interactive_mode": true } in .sharkconfig.json
+shark task next-status E07-F23-006
+# Output:
+# Task: T-E07-F23-006
+# Current status: ready_for_qa
+#
+# Available transitions:
+#   1) in_qa
+#   2) on_hold
+#
+# Enter selection [1-2]: 1
+# ✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+
+# Explicit status (skips selection in both modes)
+shark task next-status E07-F23-006 --status=in_qa
+# ✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+
+# JSON output
+shark task next-status E07-F23-006 --json
+# Returns available transitions if multiple options
+
+# Case insensitive
+shark task next-status e07-f23-006
+shark task next-status T-E07-F23-006  # Traditional format also works
+```
+
+**Auto-Selection Logic:**
+
+The first transition in the workflow configuration is selected:
+
+```json
+{
+  "status_flow": {
+    "ready_for_qa": ["in_qa", "on_hold"]
+    //               ^^^^^^^^ <- This is auto-selected (non-interactive mode)
+  }
+}
+```
+
+**Configuration Impact:**
+
+| Config Setting | Multiple Transitions | Single Transition |
+|----------------|---------------------|-------------------|
+| `interactive_mode: false` (default) | Auto-selects first option | Auto-selects only option |
+| `interactive_mode: true` | Shows interactive prompt | Auto-selects only option |
+| `--status` flag provided | Uses specified status | Uses specified status |
+
+**Use Cases:**
+
+- **Agent/Automation Workflows:** Use default non-interactive mode
+- **CI/CD Pipelines:** Use default non-interactive mode
+- **Human Manual Operations:** Enable interactive mode in config
+- **Explicit Control:** Use `--status` flag to specify exact transition
+
+**Related Configuration:**
+- See [Interactive Mode Configuration](#interactive-mode-configuration) for details on `interactive_mode` setting
+- See [Workflow Configuration](#workflow-configuration) for status flow definitions
+
+---
+
 ## Task Update API Response Format
 
 This section documents the enhanced task update API response format that includes `orchestrator_action` metadata for AI Agent Orchestrators.
@@ -1746,6 +1847,96 @@ shark config get default_priority
 
 ---
 
+### Interactive Mode Configuration
+
+The `interactive_mode` configuration field controls whether commands prompt for user input when multiple options are available.
+
+**Configuration Field:**
+- **Name:** `interactive_mode`
+- **Type:** Boolean
+- **Default:** `false` (non-interactive)
+- **Purpose:** Controls interactive prompts in status transition commands
+
+**Default Behavior (Non-Interactive):**
+- Commands automatically select the first valid option from workflow configuration
+- Ideal for agent/automation workflows
+- Prints clear message showing which option was selected
+- Never blocks waiting for user input
+
+**Interactive Mode (Opt-In):**
+- Commands display interactive prompts for user selection
+- Requires manual input when multiple options available
+- Suitable for human users who want explicit control
+- Enable by setting `interactive_mode: true` in `.sharkconfig.json`
+
+**Example Configuration:**
+
+```json
+{
+  "interactive_mode": false,
+  "status_flow": {
+    "ready_for_qa": ["in_qa", "on_hold"],
+    "in_qa": ["ready_for_approval", "in_development"]
+  },
+  "status_metadata": {
+    "in_qa": {
+      "color": "yellow",
+      "phase": "qa",
+      "progress_weight": 80
+    }
+  }
+}
+```
+
+**Usage Examples:**
+
+```bash
+# Non-interactive mode (default)
+$ shark task next-status E07-F23-006
+ℹ Auto-selected next status: in_qa (from 2 options)
+✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+
+# Interactive mode (when enabled in config)
+# .sharkconfig.json: { "interactive_mode": true }
+$ shark task next-status E07-F23-006
+Task: T-E07-F23-006
+Current status: ready_for_qa
+
+Available transitions:
+  1) in_qa
+  2) on_hold
+
+Enter selection [1-2]: 1
+✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+```
+
+**When to Use Each Mode:**
+
+| Use Case | Recommended Mode | Reason |
+|----------|------------------|--------|
+| AI Agent workflows | Non-interactive (default) | Agents can't provide interactive input |
+| CI/CD pipelines | Non-interactive (default) | Automation requires predictable behavior |
+| Scripts/batch operations | Non-interactive (default) | Background processes need non-blocking execution |
+| Human users (manual) | Interactive (opt-in) | Explicit control over status transitions |
+| Development/debugging | Interactive (opt-in) | Review options before selecting |
+
+**Auto-Selection Behavior:**
+
+When `interactive_mode` is `false` (default) and multiple transitions are available, the command automatically selects the first transition defined in the workflow configuration:
+
+```json
+{
+  "status_flow": {
+    "ready_for_qa": ["in_qa", "on_hold"]
+    //               ^^^^^^^^  <- This is auto-selected
+  }
+}
+```
+
+The order in `status_flow` determines selection priority. Place the most common/preferred transition first.
+
+---
+
 ## Workflow Configuration
 
 Shark supports customizable workflow configuration through `.sharkconfig.json`. This allows you to define custom status flows, colors, phases, and agent types.
@@ -1754,6 +1945,7 @@ Shark supports customizable workflow configuration through `.sharkconfig.json`. 
 
 ```json
 {
+  "interactive_mode": false,
   "status_flow": {
     "draft": ["ready_for_refinement", "cancelled"],
     "ready_for_refinement": ["in_refinement", "cancelled"],
@@ -1796,6 +1988,11 @@ Shark supports customizable workflow configuration through `.sharkconfig.json`. 
 ```
 
 ### Configuration Options
+
+**interactive_mode**: Controls interactive prompts for status transitions (optional, default: `false`)
+- `false` (default): Auto-select first transition when multiple options available (ideal for agents/automation)
+- `true`: Show interactive prompt for user selection when multiple options available
+- See [Interactive Mode Configuration](#interactive-mode-configuration) for detailed documentation
 
 **status_flow**: Defines valid transitions between statuses
 - Key: Source status

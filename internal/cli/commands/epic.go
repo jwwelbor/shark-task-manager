@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -1606,8 +1607,18 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 
 	if statusFlag != "" {
 		if strings.ToLower(statusFlag) == "auto" {
+			// Load workflow config
+			configPath, err := cli.GetConfigPath()
+			if err != nil && cli.GlobalConfig.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", err)
+			}
+			cfg, err := config.LoadWorkflowConfig(configPath)
+			if err != nil && cli.GlobalConfig.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
+			}
+
 			// Recalculate status from features
-			calcService := status.NewCalculationService(repoDb)
+			calcService := status.NewCalculationService(repoDb, cfg)
 			result, err := calcService.RecalculateEpicStatus(ctx, epic.ID)
 			if err != nil {
 				cli.Error(fmt.Sprintf("Error: Failed to recalculate status: %v", err))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -17,6 +18,38 @@ func setupTestDB(t *testing.T) *repository.DB {
 	return &repository.DB{DB: sqlDB}
 }
 
+func createTestWorkflowConfig() *config.WorkflowConfig {
+	return &config.WorkflowConfig{
+		StatusMetadata: map[string]config.StatusMetadata{
+			"draft": {
+				Phase:          "planning",
+				ProgressWeight: 0.0,
+			},
+			"todo": {
+				Phase:          "planning",
+				ProgressWeight: 0.0,
+			},
+			"in_progress": {
+				Phase:          "development",
+				ProgressWeight: 0.5,
+			},
+			"ready_for_review": {
+				Phase:          "review",
+				ProgressWeight: 0.75,
+			},
+			"completed": {
+				Phase:          "done",
+				ProgressWeight: 1.0,
+			},
+			"blocked": {
+				Phase:         "any",
+				ProgressWeight: 0.0,
+				BlocksFeature: true,
+			},
+		},
+	}
+}
+
 func TestCalculationService_RecalculateFeatureStatus(t *testing.T) {
 	ctx := context.Background()
 	testDB := setupTestDB(t)
@@ -25,7 +58,8 @@ func TestCalculationService_RecalculateFeatureStatus(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(testDB)
 	epicRepo := repository.NewEpicRepository(testDB)
 	taskRepo := repository.NewTaskRepository(testDB)
-	calcService := NewCalculationService(testDB)
+	cfg := createTestWorkflowConfig()
+	calcService := NewCalculationService(testDB, cfg)
 
 	// Create test epic
 	epic := &models.Epic{
@@ -129,7 +163,8 @@ func TestCalculationService_RecalculateEpicStatus(t *testing.T) {
 
 	featureRepo := repository.NewFeatureRepository(testDB)
 	epicRepo := repository.NewEpicRepository(testDB)
-	calcService := NewCalculationService(testDB)
+	cfg := createTestWorkflowConfig()
+	calcService := NewCalculationService(testDB, cfg)
 
 	// Create test epic
 	epic := &models.Epic{
@@ -203,7 +238,8 @@ func TestCalculationService_CascadeFromTask(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(testDB)
 	epicRepo := repository.NewEpicRepository(testDB)
 	taskRepo := repository.NewTaskRepository(testDB)
-	calcService := NewCalculationService(testDB)
+	cfg := createTestWorkflowConfig()
+	calcService := NewCalculationService(testDB, cfg)
 
 	// Create test epic
 	epic := &models.Epic{
@@ -286,7 +322,8 @@ func TestCalculationService_RecalculateAll(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(testDB)
 	epicRepo := repository.NewEpicRepository(testDB)
 	taskRepo := repository.NewTaskRepository(testDB)
-	calcService := NewCalculationService(testDB)
+	cfg := createTestWorkflowConfig()
+	calcService := NewCalculationService(testDB, cfg)
 
 	// Track first task ID for status update
 	var firstTaskID int64

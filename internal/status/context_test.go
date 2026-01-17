@@ -8,93 +8,93 @@ import (
 
 func TestGetStatusContext(t *testing.T) {
 	tests := []struct {
-		name          string
-		statusCounts  map[string]int
-		cfg           *config.WorkflowConfig
+		name            string
+		statusCounts    map[string]int
+		cfg             *config.WorkflowConfig
 		expectedContext string
 	}{
 		{
-			name:          "waiting: ready_for_approval",
-			statusCounts:  map[string]int{"ready_for_approval": 1},
-			cfg:           nil,
+			name:            "waiting: ready_for_approval",
+			statusCounts:    map[string]int{"ready_for_approval": 1},
+			cfg:             nil,
 			expectedContext: "active (waiting)",
 		},
 		{
-			name:          "waiting: ready_for_code_review",
-			statusCounts:  map[string]int{"ready_for_code_review": 2},
-			cfg:           nil,
+			name:            "waiting: ready_for_code_review",
+			statusCounts:    map[string]int{"ready_for_code_review": 2},
+			cfg:             nil,
 			expectedContext: "active (waiting)",
 		},
 		{
-			name:          "waiting: both approval and review",
-			statusCounts:  map[string]int{"ready_for_approval": 1, "ready_for_code_review": 1},
-			cfg:           nil,
+			name:            "waiting: both approval and review",
+			statusCounts:    map[string]int{"ready_for_approval": 1, "ready_for_code_review": 1},
+			cfg:             nil,
 			expectedContext: "active (waiting)",
 		},
 		{
-			name:          "blocked",
-			statusCounts:  map[string]int{"blocked": 1},
-			cfg:           nil,
+			name:            "blocked",
+			statusCounts:    map[string]int{"blocked": 1},
+			cfg:             nil,
 			expectedContext: "active (blocked)",
 		},
 		{
-			name:          "blocked takes precedence over development",
-			statusCounts:  map[string]int{"blocked": 1, "in_progress": 2},
-			cfg:           nil,
+			name:            "blocked takes precedence over development",
+			statusCounts:    map[string]int{"blocked": 1, "in_progress": 2},
+			cfg:             nil,
 			expectedContext: "active (blocked)",
 		},
 		{
-			name:          "development: in_progress",
-			statusCounts:  map[string]int{"in_progress": 3},
-			cfg:           nil,
+			name:            "development: in_progress",
+			statusCounts:    map[string]int{"in_progress": 3},
+			cfg:             nil,
 			expectedContext: "active (development)",
 		},
 		{
-			name:          "development: in_development",
-			statusCounts:  map[string]int{"in_development": 2},
-			cfg:           nil,
+			name:            "development: in_development",
+			statusCounts:    map[string]int{"in_development": 2},
+			cfg:             nil,
 			expectedContext: "active (development)",
 		},
 		{
-			name:          "development: both in_progress and in_development",
-			statusCounts:  map[string]int{"in_progress": 1, "in_development": 1},
-			cfg:           nil,
+			name:            "development: both in_progress and in_development",
+			statusCounts:    map[string]int{"in_progress": 1, "in_development": 1},
+			cfg:             nil,
 			expectedContext: "active (development)",
 		},
 		{
-			name:          "active: todo status only",
-			statusCounts:  map[string]int{"todo": 5},
-			cfg:           nil,
+			name:            "active: todo status only",
+			statusCounts:    map[string]int{"todo": 5},
+			cfg:             nil,
 			expectedContext: "active",
 		},
 		{
-			name:          "active: completed status only",
-			statusCounts:  map[string]int{"completed": 3},
-			cfg:           nil,
+			name:            "active: completed status only",
+			statusCounts:    map[string]int{"completed": 3},
+			cfg:             nil,
 			expectedContext: "active",
 		},
 		{
-			name:          "waiting takes precedence over development",
-			statusCounts:  map[string]int{"ready_for_approval": 1, "in_progress": 2},
-			cfg:           nil,
+			name:            "waiting takes precedence over development",
+			statusCounts:    map[string]int{"ready_for_approval": 1, "in_progress": 2},
+			cfg:             nil,
 			expectedContext: "active (waiting)",
 		},
 		{
-			name:          "waiting takes precedence over blocked",
-			statusCounts:  map[string]int{"ready_for_approval": 1, "blocked": 1},
-			cfg:           nil,
+			name:            "waiting takes precedence over blocked",
+			statusCounts:    map[string]int{"ready_for_approval": 1, "blocked": 1},
+			cfg:             nil,
 			expectedContext: "active (waiting)",
 		},
 		{
-			name:          "empty status counts",
-			statusCounts:  map[string]int{},
-			cfg:           nil,
+			name:            "empty status counts",
+			statusCounts:    map[string]int{},
+			cfg:             nil,
 			expectedContext: "active",
 		},
 		{
-			name:          "development with multiple other statuses",
-			statusCounts:  map[string]int{"todo": 2, "in_progress": 1, "completed": 1},
-			cfg:           nil,
+			name:            "development with multiple other statuses",
+			statusCounts:    map[string]int{"todo": 2, "in_progress": 1, "completed": 1},
+			cfg:             nil,
 			expectedContext: "active (development)",
 		},
 	}
