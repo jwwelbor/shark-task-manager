@@ -409,3 +409,228 @@ func TestGetHistoryByTaskKeyEmptyHistory(t *testing.T) {
 	// No cleanup needed - using seeded data
 	_ = task
 }
+
+// TestTaskHistoryRepository_CreateWithRejectionReason tests creating history with rejection reason
+func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	historyRepo := NewTaskHistoryRepository(db)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean up existing test data
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E98-%')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E98-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
+
+	// Seed test data
+	epicID, featureID := test.SeedTestDataWithKeys("E98", "E98-F98")
+	require.NotZero(t, epicID)
+	require.NotZero(t, featureID)
+
+	// Create test task
+	agentBackend := models.AgentTypeBackend
+	filePath := "docs/test/rejection_task.md"
+	dependsOn := "[]"
+	task := &models.Task{
+		FeatureID: featureID,
+		Key:       "T-E98-F98-101",
+		Title:     "Task to be rejected",
+		Status:    models.TaskStatusReadyForReview,
+		AgentType: &agentBackend,
+		Priority:  5,
+		DependsOn: &dependsOn,
+		FilePath:  &filePath,
+	}
+	err := taskRepo.Create(ctx, task)
+	require.NoError(t, err)
+	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+
+	// Create history with rejection reason
+	oldStatus := string(models.TaskStatusReadyForReview)
+	rejectionReason := "Missing error handling on line 67. Add null check and return error to caller."
+	agent := "code-reviewer-agent"
+	history := &models.TaskHistory{
+		TaskID:          task.ID,
+		OldStatus:       &oldStatus,
+		NewStatus:       string(models.TaskStatusInProgress),
+		Agent:           &agent,
+		RejectionReason: &rejectionReason,
+	}
+
+	err = historyRepo.Create(ctx, history)
+	require.NoError(t, err)
+	require.NotZero(t, history.ID, "history ID should be set after creation")
+
+	// Verify the history record was created with rejection reason
+	retrieved, err := historyRepo.GetByID(ctx, history.ID)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	assert.Equal(t, task.ID, retrieved.TaskID)
+	assert.Equal(t, oldStatus, *retrieved.OldStatus)
+	assert.Equal(t, string(models.TaskStatusInProgress), retrieved.NewStatus)
+	assert.NotNil(t, retrieved.RejectionReason)
+	assert.Equal(t, rejectionReason, *retrieved.RejectionReason)
+}
+
+// TestTaskHistoryRepository_CreateWithoutRejectionReason tests creating history without rejection reason
+func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	historyRepo := NewTaskHistoryRepository(db)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean up existing test data
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E97-%')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E97-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E97-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E97'")
+
+	// Seed test data
+	epicID, featureID := test.SeedTestDataWithKeys("E97", "E97-F97")
+	require.NotZero(t, epicID)
+	require.NotZero(t, featureID)
+
+	// Create test task
+	agentBackend := models.AgentTypeBackend
+	filePath := "docs/test/normal_task.md"
+	dependsOn := "[]"
+	task := &models.Task{
+		FeatureID: featureID,
+		Key:       "T-E97-F97-101",
+		Title:     "Normal task",
+		Status:    models.TaskStatusTodo,
+		AgentType: &agentBackend,
+		Priority:  5,
+		DependsOn: &dependsOn,
+		FilePath:  &filePath,
+	}
+	err := taskRepo.Create(ctx, task)
+	require.NoError(t, err)
+	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+
+	// Create history WITHOUT rejection reason (forward transition)
+	agent := "developer-agent"
+	history := &models.TaskHistory{
+		TaskID:    task.ID,
+		OldStatus: nil,
+		NewStatus: string(models.TaskStatusInProgress),
+		Agent:     &agent,
+		// RejectionReason is nil - not a rejection
+	}
+
+	err = historyRepo.Create(ctx, history)
+	require.NoError(t, err)
+	require.NotZero(t, history.ID)
+
+	// Verify the history record was created without rejection reason
+	retrieved, err := historyRepo.GetByID(ctx, history.ID)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	assert.Nil(t, retrieved.RejectionReason, "rejection reason should be nil for non-rejection transitions")
+}
+
+// TestTaskHistoryRepository_GetRejectionHistoryForTask tests retrieving only rejection records for a task
+func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	historyRepo := NewTaskHistoryRepository(db)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean up existing test data
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E96-%')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E96-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E96-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
+
+	// Seed test data
+	epicID, featureID := test.SeedTestDataWithKeys("E96", "E96-F96")
+	require.NotZero(t, epicID)
+	require.NotZero(t, featureID)
+
+	// Create test task
+	agentBackend := models.AgentTypeBackend
+	filePath := "docs/test/rejection_history_task.md"
+	dependsOn := "[]"
+	task := &models.Task{
+		FeatureID: featureID,
+		Key:       "T-E96-F96-101",
+		Title:     "Task with rejection history",
+		Status:    models.TaskStatusInProgress,
+		AgentType: &agentBackend,
+		Priority:  5,
+		DependsOn: &dependsOn,
+		FilePath:  &filePath,
+	}
+	err := taskRepo.Create(ctx, task)
+	require.NoError(t, err)
+	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+
+	// Create first history: normal transition (no rejection)
+	agent1 := "developer-agent"
+	history1 := &models.TaskHistory{
+		TaskID:    task.ID,
+		OldStatus: nil,
+		NewStatus: string(models.TaskStatusInProgress),
+		Agent:     &agent1,
+	}
+	err = historyRepo.Create(ctx, history1)
+	require.NoError(t, err)
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Create second history: rejection with reason
+	oldStatus2 := string(models.TaskStatusReadyForReview)
+	rejectionReason2 := "Code quality issues: missing test coverage"
+	agent2 := "qa-agent"
+	history2 := &models.TaskHistory{
+		TaskID:          task.ID,
+		OldStatus:       &oldStatus2,
+		NewStatus:       string(models.TaskStatusInProgress),
+		Agent:           &agent2,
+		RejectionReason: &rejectionReason2,
+	}
+	err = historyRepo.Create(ctx, history2)
+	require.NoError(t, err)
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Create third history: another rejection with different reason
+	oldStatus3 := string(models.TaskStatusReadyForReview)
+	rejectionReason3 := "Tests fail on empty input validation"
+	agent3 := "test-agent"
+	history3 := &models.TaskHistory{
+		TaskID:          task.ID,
+		OldStatus:       &oldStatus3,
+		NewStatus:       string(models.TaskStatusInProgress),
+		Agent:           &agent3,
+		RejectionReason: &rejectionReason3,
+	}
+	err = historyRepo.Create(ctx, history3)
+	require.NoError(t, err)
+
+	// Get rejection history for task
+	rejections, err := historyRepo.GetRejectionHistoryForTask(ctx, task.ID)
+	require.NoError(t, err)
+	require.NotNil(t, rejections)
+
+	// Should have 2 rejection records
+	assert.Equal(t, 2, len(rejections), "should have exactly 2 rejection records")
+
+	// Verify rejection reasons are set
+	assert.NotNil(t, rejections[0].RejectionReason)
+	assert.NotNil(t, rejections[1].RejectionReason)
+
+	// Verify the reasons match what we created (order might vary but should be present)
+	reasons := make(map[string]bool)
+	for _, r := range rejections {
+		if r.RejectionReason != nil {
+			reasons[*r.RejectionReason] = true
+		}
+	}
+	assert.Contains(t, reasons, rejectionReason2)
+	assert.Contains(t, reasons, rejectionReason3)
+}

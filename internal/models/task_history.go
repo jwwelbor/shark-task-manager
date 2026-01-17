@@ -4,13 +4,14 @@ import "time"
 
 // TaskHistory represents an audit trail entry for task status changes
 type TaskHistory struct {
-	ID        int64     `json:"id" db:"id"`
-	TaskID    int64     `json:"task_id" db:"task_id"`
-	OldStatus *string   `json:"old_status,omitempty" db:"old_status"`
-	NewStatus string    `json:"new_status" db:"new_status"`
-	Agent     *string   `json:"agent,omitempty" db:"agent"`
-	Notes     *string   `json:"notes,omitempty" db:"notes"`
-	Timestamp time.Time `json:"timestamp" db:"timestamp"`
+	ID                int64     `json:"id" db:"id"`
+	TaskID            int64     `json:"task_id" db:"task_id"`
+	OldStatus         *string   `json:"old_status,omitempty" db:"old_status"`
+	NewStatus         string    `json:"new_status" db:"new_status"`
+	Agent             *string   `json:"agent,omitempty" db:"agent"`
+	Notes             *string   `json:"notes,omitempty" db:"notes"`
+	RejectionReason   *string   `json:"rejection_reason,omitempty" db:"rejection_reason"`
+	Timestamp         time.Time `json:"timestamp" db:"timestamp"`
 }
 
 // Validate validates the TaskHistory fields

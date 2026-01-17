@@ -599,6 +599,16 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to drop custom_folder_path columns: %w", err)
 	}
 
+	// Run task_notes metadata column migration (E07-F22)
+	if err := migrateTaskNotesMetadata(db); err != nil {
+		return fmt.Errorf("failed to migrate task_notes metadata: %w", err)
+	}
+
+	// Run task_history rejection_reason column migration (E07-F22)
+	if err := migrateTaskHistoryRejectionReason(db); err != nil {
+		return fmt.Errorf("failed to migrate task_history rejection_reason: %w", err)
+	}
+
 	return nil
 }
 
@@ -1127,6 +1137,60 @@ func migrateDropCustomFolderPath(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("failed to drop custom_folder_path from features: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// migrateTaskNotesMetadata adds metadata column to task_notes table for storing JSON metadata
+// This supports rejection note tracking with history_id, status transitions, and document paths (E07-F22)
+func migrateTaskNotesMetadata(db *sql.DB) error {
+	// Check if task_notes table has metadata column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('task_notes') WHERE name = 'metadata'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_notes schema for metadata: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add metadata column for storing JSON data
+		if _, err := db.Exec(`ALTER TABLE task_notes ADD COLUMN metadata TEXT;`); err != nil {
+			return fmt.Errorf("failed to add metadata column to task_notes: %w", err)
+		}
+	}
+
+	// Create composite index on (note_type, task_id) for efficient rejection note queries
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_task_notes_type_task ON task_notes(note_type, task_id);`); err != nil {
+		return fmt.Errorf("failed to create index on task_notes(note_type, task_id): %w", err)
+	}
+
+	return nil
+}
+
+// migrateTaskHistoryRejectionReason adds rejection_reason column to task_history table
+// This column stores rejection reasons when tasks are rejected during review/QA (E07-F22)
+func migrateTaskHistoryRejectionReason(db *sql.DB) error {
+	// Check if task_history table has rejection_reason column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('task_history') WHERE name = 'rejection_reason'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_history schema for rejection_reason: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add rejection_reason column for storing rejection reasons
+		if _, err := db.Exec(`ALTER TABLE task_history ADD COLUMN rejection_reason TEXT;`); err != nil {
+			return fmt.Errorf("failed to add rejection_reason column to task_history: %w", err)
+		}
+	}
+
+	// Create index on rejection_reason for filtering rejection records
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_task_history_rejection_reason ON task_history(rejection_reason) WHERE rejection_reason IS NOT NULL;`); err != nil {
+		return fmt.Errorf("failed to create index on task_history(rejection_reason): %w", err)
 	}
 
 	return nil

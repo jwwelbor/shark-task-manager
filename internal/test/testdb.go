@@ -158,3 +158,52 @@ func PriorityPtr(p string) *string {
 func GenerateUniqueKey(epicFeature string, i int) string {
 	return fmt.Sprintf("T-%s-%03d", epicFeature, i)
 }
+
+// SeedTestDataWithKeys creates test data with custom epic and feature keys
+// Returns epic_id, feature_id for use in tests
+func SeedTestDataWithKeys(epicKey, featureKey string) (int64, int64) {
+	database := GetTestDB()
+
+	// Clean up any existing data with these keys to ensure fresh state
+	_, _ = database.Exec("DELETE FROM tasks WHERE key LIKE ?", epicKey+"-%")
+	_, _ = database.Exec("DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create epic
+	result, err := database.Exec(`
+		INSERT INTO epics (key, title, description, status, priority)
+		VALUES (?, 'Test Epic', 'Test epic', 'active', 'high')
+	`, epicKey)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to insert epic with key %s: %v", epicKey, err))
+	}
+
+	epicID, err := result.LastInsertId()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get epic LastInsertId: %v", err))
+	}
+
+	if epicID == 0 {
+		panic("Failed to get valid epic ID after insert")
+	}
+
+	// Create feature
+	result, err = database.Exec(`
+		INSERT INTO features (epic_id, key, title, slug, description, status)
+		VALUES (?, ?, 'Test Feature', 'test-feature', 'Test feature', 'active')
+	`, epicID, featureKey)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to insert feature with key %s: %v", featureKey, err))
+	}
+
+	featureID, err := result.LastInsertId()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get feature LastInsertId: %v", err))
+	}
+
+	if featureID == 0 {
+		panic("Failed to get valid feature ID after insert")
+	}
+
+	return epicID, featureID
+}
