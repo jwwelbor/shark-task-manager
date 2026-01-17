@@ -90,22 +90,27 @@ func IsBackwardTransition(currentStatus, newStatus string, workflow *config.Work
 // ValidateReasonForStatusTransition validates that a reason is provided for backward status transitions.
 //
 // Rules:
-// - Backward transitions (e.g., review → development) require a non-empty reason UNLESS --force is true
+// - Backward transitions (e.g., review → development) require a non-empty reason UNLESS:
+//   - workflow.RequireRejectionReason is false (config option disabled), OR
+//   - --force is true
 // - Forward transitions (e.g., development → review) don't require a reason
 // - Same-phase transitions (e.g., development → blocked) don't require a reason
 // - If force is true, reason is not required
 // - If status is empty, no validation is performed (no status change)
+// - Default behavior: Require rejection reason (backward compatibility)
+//   - If workflow is nil, defaults to requiring reason (true)
+//   - Only disabled when explicitly set to false in config
 //
 // Parameters:
 //   - newStatus: The new status being transitioned to (empty string means no change)
 //   - currentStatus: The task's current status
 //   - reason: The reason provided for the transition
 //   - force: Whether to bypass validation
-//   - workflow: The workflow configuration for phase metadata
+//   - workflow: The workflow configuration for phase metadata and RequireRejectionReason setting
 //
 // Returns:
 // - nil if validation passes
-// - ErrReasonRequired if a backward transition is attempted without a reason (and force is false)
+// - ErrReasonRequired if a backward transition is attempted without a reason (and force is false and config requires it)
 func ValidateReasonForStatusTransition(newStatus, currentStatus, reason string, force bool, workflow *config.WorkflowConfig) error {
 	// If no status change is requested, no validation needed
 	if newStatus == "" {
@@ -119,8 +124,15 @@ func ValidateReasonForStatusTransition(newStatus, currentStatus, reason string, 
 
 	// Check if this is a backward transition
 	if IsBackwardTransition(currentStatus, newStatus, workflow) {
-		// Backward transitions require a non-empty reason
-		if reason == "" {
+		// Check if rejection reasons are required by config
+		// Default to true if workflow is nil (backward compatibility)
+		requireReason := true
+		if workflow != nil {
+			requireReason = workflow.RequireRejectionReason
+		}
+
+		// Only require reason if config enables it
+		if requireReason && reason == "" {
 			return ErrReasonRequired
 		}
 	}

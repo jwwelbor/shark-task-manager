@@ -420,6 +420,7 @@ func getTestWorkflow() *config.WorkflowConfig {
 			"blocked":                  {"draft", "in_development", "ready_for_code_review", "in_qa", "ready_for_approval"},
 			"cancelled":                {},
 		},
+		RequireRejectionReason: true, // Default value - backward compatibility
 		StatusMetadata: map[string]config.StatusMetadata{
 			"draft": {
 				Color:       "gray",
@@ -555,4 +556,150 @@ func TestValidateReasonForStatusTransition(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidateReasonForStatusTransition_ConfigRespected tests that the RequireRejectionReason config option is respected
+func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
+	tests := []struct {
+		name           string
+		workflow       *config.WorkflowConfig
+		currentStatus  string
+		newStatus      string
+		reason         string
+		force          bool
+		expectError    bool
+		description    string
+	}{
+		{
+			name: "require_rejection_reason=true requires reason",
+			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			currentStatus: "ready_for_code_review",
+			newStatus:     "in_development",
+			reason:        "",
+			force:         false,
+			expectError:   true,
+			description:   "When config requires reason, backward transition without reason should fail",
+		},
+		{
+			name: "require_rejection_reason=true with reason succeeds",
+			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			currentStatus: "ready_for_code_review",
+			newStatus:     "in_development",
+			reason:        "Need to fix issues",
+			force:         false,
+			expectError:   false,
+			description:   "When config requires reason and reason is provided, backward transition should succeed",
+		},
+		{
+			name: "require_rejection_reason=false allows no reason",
+			workflow: getTestWorkflowWithRequireRejectionReason(false),
+			currentStatus: "ready_for_code_review",
+			newStatus:     "in_development",
+			reason:        "",
+			force:         false,
+			expectError:   false,
+			description:   "When config does not require reason, backward transition without reason should succeed",
+		},
+		{
+			name: "require_rejection_reason=false with reason succeeds",
+			workflow: getTestWorkflowWithRequireRejectionReason(false),
+			currentStatus: "ready_for_code_review",
+			newStatus:     "in_development",
+			reason:        "Some reason",
+			force:         false,
+			expectError:   false,
+			description:   "When config does not require reason and reason is provided, backward transition should succeed",
+		},
+		{
+			name:          "nil workflow no validation (cannot determine backward)",
+			workflow:      nil,
+			currentStatus: "ready_for_code_review",
+			newStatus:     "in_development",
+			reason:        "",
+			force:         false,
+			expectError:   false,
+			description:   "When workflow is nil, IsBackwardTransition returns false, so no reason validation occurs",
+		},
+		{
+			name:          "nil workflow with reason also passes",
+			workflow:      nil,
+			currentStatus: "ready_for_code_review",
+			newStatus:     "in_development",
+			reason:        "Some reason",
+			force:         false,
+			expectError:   false,
+			description:   "When workflow is nil, even with reason, validation passes (no backward detection)",
+		},
+		{
+			name: "force bypasses require_rejection_reason=true",
+			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			currentStatus: "ready_for_code_review",
+			newStatus:     "in_development",
+			reason:        "",
+			force:         true,
+			expectError:   false,
+			description:   "Force flag should bypass reason requirement even when config requires it",
+		},
+		{
+			name: "forward transition ignores config",
+			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			currentStatus: "in_development",
+			newStatus:     "ready_for_code_review",
+			reason:        "",
+			force:         false,
+			expectError:   false,
+			description:   "Forward transitions should not require reason regardless of config",
+		},
+		{
+			name: "same_phase_transition ignores config",
+			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			currentStatus: "in_development",
+			newStatus:     "blocked",
+			reason:        "",
+			force:         false,
+			expectError:   false,
+			description:   "Same-phase transitions should not require reason regardless of config",
+		},
+		{
+			name: "require_rejection_reason=false on qa_to_development",
+			workflow: getTestWorkflowWithRequireRejectionReason(false),
+			currentStatus: "in_qa",
+			newStatus:     "in_development",
+			reason:        "",
+			force:         false,
+			expectError:   false,
+			description:   "Config disabled: QA rejection without reason should succeed",
+		},
+		{
+			name: "require_rejection_reason=true on qa_to_development",
+			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			currentStatus: "in_qa",
+			newStatus:     "in_development",
+			reason:        "",
+			force:         false,
+			expectError:   true,
+			description:   "Config enabled: QA rejection without reason should fail",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateReasonForStatusTransition(tt.newStatus, tt.currentStatus, tt.reason, tt.force, tt.workflow)
+			if (err != nil) != tt.expectError {
+				t.Errorf("ValidateReasonForStatusTransition() error = %v, expectError %v\nDescription: %s",
+					err, tt.expectError, tt.description)
+			}
+			if tt.expectError && err != nil && err != ErrReasonRequired {
+				t.Errorf("ValidateReasonForStatusTransition() got error %v, expected ErrReasonRequired\nDescription: %s",
+					err, tt.description)
+			}
+		})
+	}
+}
+
+// Helper function to create a test workflow with configurable RequireRejectionReason
+func getTestWorkflowWithRequireRejectionReason(requireReason bool) *config.WorkflowConfig {
+	workflow := getTestWorkflow()
+	workflow.RequireRejectionReason = requireReason
+	return workflow
 }
