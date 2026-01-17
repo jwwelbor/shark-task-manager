@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
@@ -409,7 +410,7 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 		require.NoError(t, err)
 
 		// Try backward transition with force but no reason
-		err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, true)
+		err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, nil, true)
 		assert.NoError(t, err, "Backward transition with force should bypass reason requirement")
 
 		// Verify status changed
@@ -477,4 +478,74 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &whitespacedReason)
 		assert.Error(t, err, "Backward transition with whitespace-only reason should fail")
 	})
+}
+
+// TestTaskRepository_UpdateStatusForced_StoresRejectionReason verifies that rejection reasons are stored in task_history
+func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRepository(db)
+	historyRepo := NewTaskHistoryRepository(db)
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create task in ready_for_review status with unique key
+	timestamp := time.Now().UnixNano() % 1000
+	taskKey := fmt.Sprintf("T-E99-F99-%03d", timestamp)
+	priority := 5
+	task := &models.Task{
+		Key:       taskKey,
+		Title:     "Test Rejection Reason Storage",
+		Status:    models.TaskStatusReadyForReview,
+		FeatureID: featureID,
+		Priority:  priority,
+	}
+
+	err := repo.Create(ctx, task)
+	require.NoError(t, err, "Failed to create test task")
+	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+
+	// Update status with rejection reason (backward transition)
+	rejectionReason := "Missing error handling on line 67"
+	agent := "test-agent"
+	notes := "This needs to be fixed"
+
+	// Call UpdateStatusForced with rejection reason
+	err = repo.UpdateStatusForced(
+		ctx,
+		task.ID,
+		models.TaskStatusInProgress,
+		&agent,
+		&notes,
+		&rejectionReason,  // Now passing rejection reason
+		false,
+	)
+	require.NoError(t, err, "UpdateStatusForced should succeed")
+
+	// Verify task status was updated
+	updatedTask, err := repo.GetByID(ctx, task.ID)
+	require.NoError(t, err, "Failed to get updated task")
+	require.Equal(t, models.TaskStatusInProgress, updatedTask.Status, "Task status should be updated")
+
+	// Verify rejection reason was stored in history
+	history, err := historyRepo.ListByTask(ctx, task.ID)
+	require.NoError(t, err, "Failed to retrieve task history")
+	require.NotEmpty(t, history, "History should have at least one entry")
+
+	// Get the most recent history entry (most recent first in list)
+	lastEntry := history[len(history)-1]
+	require.NotNil(t, lastEntry.OldStatus, "Old status should be present")
+	require.Equal(t, string(models.TaskStatusReadyForReview), *lastEntry.OldStatus, "Old status should match")
+	require.Equal(t, string(models.TaskStatusInProgress), lastEntry.NewStatus, "New status should match")
+
+	// THIS IS THE CRITICAL ASSERTION - rejection reason should be stored
+	// This will FAIL until we implement Step 1-2
+	require.NotNil(t, lastEntry.RejectionReason, "Rejection reason should be stored in history")
+	require.Equal(t, rejectionReason, *lastEntry.RejectionReason, "Rejection reason should match what was provided")
+	require.NotNil(t, lastEntry.Agent, "Agent should be stored")
+	require.Equal(t, agent, *lastEntry.Agent, "Agent should be stored")
+	require.NotNil(t, lastEntry.Notes, "Notes should be stored")
+	require.Equal(t, notes, *lastEntry.Notes, "Notes should be stored")
 }

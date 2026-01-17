@@ -50,15 +50,15 @@ func TestFormatHistoryCSV(t *testing.T) {
 	assert.Len(t, lines, 3, "Should have header + 2 data rows")
 
 	// Check header
-	expectedHeader := "timestamp,task_key,old_status,new_status,agent,notes"
+	expectedHeader := "timestamp,task_key,old_status,new_status,agent,rejection_reason,notes"
 	assert.Equal(t, expectedHeader, lines[0])
 
-	// Check first data row
-	expectedRow1 := "2025-12-27T10:00:00Z,T-E05-F03-001,todo,in_progress,backend-agent-1,Started implementation"
+	// Check first data row (rejection_reason is empty)
+	expectedRow1 := "2025-12-27T10:00:00Z,T-E05-F03-001,todo,in_progress,backend-agent-1,,Started implementation"
 	assert.Equal(t, expectedRow1, lines[1])
 
-	// Check second data row
-	expectedRow2 := "2025-12-27T11:30:00Z,T-E05-F03-001,in_progress,ready_for_review,backend-agent-1,Ready for review"
+	// Check second data row (rejection_reason is empty)
+	expectedRow2 := "2025-12-27T11:30:00Z,T-E05-F03-001,in_progress,ready_for_review,backend-agent-1,,Ready for review"
 	assert.Equal(t, expectedRow2, lines[2])
 }
 
@@ -83,8 +83,8 @@ func TestFormatHistoryCSVWithEmptyFields(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(csv), "\n")
 	assert.Len(t, lines, 2, "Should have header + 1 data row")
 
-	// Check data row with empty fields (only old_status, agent, notes are empty)
-	expectedRow := "2025-12-27T10:00:00Z,T-E05-F03-002,,todo,,"
+	// Check data row with empty fields (old_status, rejection_reason, agent, notes are empty)
+	expectedRow := "2025-12-27T10:00:00Z,T-E05-F03-002,,todo,,,"
 	assert.Equal(t, expectedRow, lines[1])
 }
 
@@ -110,8 +110,8 @@ func TestFormatHistoryCSVWithCommasInNotes(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(csv), "\n")
 	assert.Len(t, lines, 2)
 
-	// Notes should be quoted because they contain commas
-	expectedRow := `2025-12-27T10:00:00Z,T-E05-F03-003,todo,completed,dev-agent,"Fixed bug, added tests, updated docs"`
+	// Notes should be quoted because they contain commas (rejection_reason is empty)
+	expectedRow := `2025-12-27T10:00:00Z,T-E05-F03-003,todo,completed,dev-agent,,"Fixed bug, added tests, updated docs"`
 	assert.Equal(t, expectedRow, lines[1])
 }
 
@@ -137,8 +137,8 @@ func TestFormatHistoryCSVWithQuotesInNotes(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(csv), "\n")
 	assert.Len(t, lines, 2)
 
-	// Quotes should be escaped as double quotes
-	expectedRow := `2025-12-27T10:00:00Z,T-E05-F03-004,todo,completed,dev-agent,"Updated ""main"" function"`
+	// Quotes should be escaped as double quotes (rejection_reason is empty)
+	expectedRow := `2025-12-27T10:00:00Z,T-E05-F03-004,todo,completed,dev-agent,,"Updated ""main"" function"`
 	assert.Equal(t, expectedRow, lines[1])
 }
 
@@ -152,7 +152,7 @@ func TestFormatHistoryCSVEmpty(t *testing.T) {
 	// Should still have header
 	lines := strings.Split(strings.TrimSpace(csv), "\n")
 	assert.Len(t, lines, 1)
-	assert.Equal(t, "timestamp,task_key,old_status,new_status,agent,notes", lines[0])
+	assert.Equal(t, "timestamp,task_key,old_status,new_status,agent,rejection_reason,notes", lines[0])
 }
 
 // TestFormatHistoryJSON tests JSON export of history records

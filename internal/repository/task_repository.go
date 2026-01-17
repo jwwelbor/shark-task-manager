@@ -823,11 +823,11 @@ func (r *TaskRepository) isValidTransition(from models.TaskStatus, to models.Tas
 
 // UpdateStatus atomically updates task status, timestamps, and creates history record
 func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
-	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, false)
+	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, nil, false)
 }
 
 // UpdateStatusForced atomically updates task status with optional validation bypass
-func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, force bool) error {
+func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, force bool) error {
 	// Validate status is valid enum
 	if !r.isValidStatusEnum(newStatus) {
 		return fmt.Errorf("invalid status: %s", newStatus)
@@ -910,12 +910,12 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
 
-	// Create history record
+	// Create history record with rejection reason support
 	historyQuery := `
-		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes, force)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes, rejectionReason, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -1046,9 +1046,9 @@ func (r *TaskRepository) BlockTaskForced(ctx context.Context, taskID int64, reas
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
-	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, reason, force)
+	// Create history record with rejection_reason support
+	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, &reason, nil, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -1110,8 +1110,8 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 	}
 
 	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil, force)
+	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil, nil, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -1126,65 +1126,13 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 
 // ReopenTask reopens a task from ready_for_review back to in_progress
 func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *string, notes *string) error {
-	return r.ReopenTaskForced(ctx, taskID, agent, notes, false)
+	return r.ReopenTaskForced(ctx, taskID, agent, notes, nil, false)
 }
 
 // ReopenTaskForced reopens a task with optional validation bypass
-func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, force bool) error {
-	// Start transaction
-	tx, err := r.db.BeginTxContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Get current task state
-	var currentStatus string
-	err = tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
-	if err == sql.ErrNoRows {
-		return fmt.Errorf("task not found with id %d", taskID)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to get current task status: %w", err)
-	}
-
-	// Validate transition if not forcing
-	currentTaskStatus := models.TaskStatus(currentStatus)
-	if force {
-		fmt.Printf("WARNING: Forced reopen from %s status (taskID=%d)\n", currentStatus, taskID)
-	} else {
-		// Validate transition using workflow config
-		if !r.isValidTransition(currentTaskStatus, models.TaskStatusInProgress) {
-			if r.workflow != nil {
-				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatusInProgress))
-				if validationErr != nil {
-					return validationErr
-				}
-			}
-			return fmt.Errorf("invalid status transition from %s to in_progress", currentStatus)
-		}
-	}
-
-	// Update status and clear completed_at
-	query := `UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?`
-	_, err = tx.ExecContext(ctx, query, models.TaskStatusInProgress, taskID)
-	if err != nil {
-		return fmt.Errorf("failed to update task: %w", err)
-	}
-
-	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusInProgress, agent, notes, force)
-	if err != nil {
-		return fmt.Errorf("failed to create history record: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+// Use rejectionReason for backward transitions to capture why task was rejected
+func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, rejectionReason *string, force bool) error {
+	return r.UpdateStatusForced(ctx, taskID, models.TaskStatusInProgress, agent, notes, rejectionReason, force)
 }
 
 // Delete deletes a task (and its history via CASCADE)

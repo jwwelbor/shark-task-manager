@@ -303,7 +303,7 @@ func promptForSelection(max int) (int, error) {
 func performTransition(ctx context.Context, taskRepo *repository.TaskRepository, repoDb *repository.DB, task *models.Task, targetStatus string, force bool, result *NextStatusResult) error {
 	var err error
 	if force {
-		err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, true)
+		err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, nil, true)
 	} else {
 		err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil)
 	}

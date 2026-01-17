@@ -52,7 +52,7 @@ func TestUpdateStatusForced_BypassValidation(t *testing.T) {
 	}
 
 	// Test 2: Same invalid transition WITH force should succeed
-	err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, true)
+	err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, nil, true)
 	if err != nil {
 		t.Errorf("Forced transition should succeed, got error: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestUpdateStatusForced_ReopenTaskForced(t *testing.T) {
 	}
 
 	// Test 2: Reopen WITH force should succeed
-	err = repo.ReopenTaskForced(ctx, task.ID, &agent, &notes, true)
+	err = repo.ReopenTaskForced(ctx, task.ID, &agent, &notes, nil, true)
 	if err != nil {
 		t.Errorf("Forced reopen should succeed: %v", err)
 	}

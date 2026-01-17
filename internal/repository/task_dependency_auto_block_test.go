@@ -188,7 +188,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 
 				// If task should have non-todo status, update it using forced method
 				if originalStatus != models.TaskStatusTodo {
-					err = taskRepo.UpdateStatusForced(ctx, task.ID, originalStatus, nil, nil, true)
+					err = taskRepo.UpdateStatusForced(ctx, task.ID, originalStatus, nil, nil, nil, true)
 					require.NoError(t, err, "failed to update task to %s", originalStatus)
 
 					// Refresh task to get updated status
@@ -323,7 +323,7 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 
 		// Update status if needed using forced method
 		if originalStatus != models.TaskStatusTodo {
-			err = taskRepo.UpdateStatusForced(ctx, task.ID, originalStatus, nil, nil, true)
+			err = taskRepo.UpdateStatusForced(ctx, task.ID, originalStatus, nil, nil, nil, true)
 			require.NoError(t, err)
 		}
 

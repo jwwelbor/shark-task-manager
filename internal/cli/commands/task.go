@@ -1751,7 +1751,7 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update status (repository handles workflow validation)
-	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, force); err != nil {
+	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, nil, force); err != nil {
 		// Display error with workflow suggestion
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
 		if !force {
@@ -2008,8 +2008,15 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 		notes = &notesFlag
 	}
 
+	// Get rejection reason for backward transitions
+	rejectionReasonFlag, _ := cmd.Flags().GetString("rejection-reason")
+	var rejectionReason *string
+	if rejectionReasonFlag != "" {
+		rejectionReason = &rejectionReasonFlag
+	}
+
 	// Reopen the task atomically
-	if err := repo.ReopenTaskForced(ctx, task.ID, &agent, notes, force); err != nil {
+	if err := repo.ReopenTaskForced(ctx, task.ID, &agent, notes, rejectionReason, force); err != nil {
 		return fmt.Errorf("failed to reopen task: %w", err)
 	}
 
@@ -2370,14 +2377,14 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		// Convert status string to TaskStatus
 		newStatus := models.TaskStatus(status)
 
-		// Pass reason as notes parameter (repository uses notes for rejection reason)
-		var notesPtr *string
+		// Pass reason as rejectionReason parameter (not notes)
+		var rejectionReasonPtr *string
 		if reason != "" {
-			notesPtr = &reason
+			rejectionReasonPtr = &reason
 		}
 
 		// Update status with workflow validation (unless forcing)
-		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, notesPtr, force)
+		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, rejectionReasonPtr, force)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update task status: %s", err.Error()))
 
@@ -2468,7 +2475,7 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update status with workflow validation (unless forcing)
-	err = repo.UpdateStatusForced(ctx, task.ID, taskStatus, nil, notesPtr, force)
+	err = repo.UpdateStatusForced(ctx, task.ID, taskStatus, nil, notesPtr, nil, force)
 	if err != nil {
 		// Extract validation error message if available
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))

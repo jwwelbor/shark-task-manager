@@ -160,7 +160,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 
 		// Force invalid transition (todo -> completed)
 		emergencyNotes := "Emergency hotfix deployment"
-		err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &techLead, &emergencyNotes, true)
+		err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &techLead, &emergencyNotes, nil, true)
 		if err != nil {
 			t.Fatalf("Forced transition should succeed: %v", err)
 		}
