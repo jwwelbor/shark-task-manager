@@ -608,3 +608,204 @@ func workflowStringContainsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+// Test IsBackwardTransition with default workflow
+func TestIsBackwardTransition_DefaultWorkflow(t *testing.T) {
+	workflow := DefaultWorkflow()
+
+	testCases := []struct {
+		name        string
+		fromStatus  string
+		toStatus    string
+		expectError bool
+		isBackward  bool
+	}{
+		// Forward transitions (phase increases)
+		{"planning to development", "todo", "in_progress", false, false},
+		{"development to review", "in_progress", "ready_for_review", false, false},
+		{"review to done", "ready_for_review", "completed", false, false},
+
+		// Backward transitions (phase decreases)
+		{"review back to development", "ready_for_review", "in_progress", false, true},
+		{"development back to planning", "in_progress", "todo", false, true},
+
+		// Lateral/special transitions (blocked phase is special, never backward)
+		{"planning to blocked", "todo", "blocked", false, false},
+		{"development to blocked (special)", "in_progress", "blocked", false, false},
+		{"blocked back to planning", "blocked", "todo", false, false},
+		{"blocked back to development", "blocked", "in_progress", false, false},
+
+		// Same status (no phase change)
+		{"same status", "todo", "todo", false, false},
+
+		// Undefined statuses
+		{"undefined from status", "nonexistent", "todo", true, false},
+		{"undefined to status", "todo", "nonexistent", true, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			isBackward, err := workflow.IsBackwardTransition(tc.fromStatus, tc.toStatus)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error, got: %v", err)
+				}
+
+				if isBackward != tc.isBackward {
+					t.Errorf("expected isBackward=%v, got %v for transition %s → %s",
+						tc.isBackward, isBackward, tc.fromStatus, tc.toStatus)
+				}
+			}
+		})
+	}
+}
+
+// Test IsBackwardTransition with custom workflow
+func TestIsBackwardTransition_CustomWorkflow(t *testing.T) {
+	// Create custom workflow with multiple phases
+	workflow := &WorkflowConfig{
+		Version: "1.0",
+		StatusFlow: map[string][]string{
+			"draft":        {"review", "discard"},
+			"review":       {"approved", "draft"},
+			"approved":     {"published", "review"},
+			"published":    {},
+			"discard":      {},
+		},
+		StatusMetadata: map[string]StatusMetadata{
+			"draft":     {Phase: "planning"},
+			"review":    {Phase: "review"},
+			"approved":  {Phase: "qa"},
+			"published": {Phase: "done"},
+			"discard":   {Phase: "any"},
+		},
+	}
+
+	testCases := []struct {
+		name       string
+		from       string
+		to         string
+		isBackward bool
+	}{
+		// Forward transitions
+		{"draft to review", "draft", "review", false},
+		{"review to approved", "review", "approved", false},
+		{"approved to published", "approved", "published", false},
+
+		// Backward transitions
+		{"review to draft", "review", "draft", true},
+		{"approved to review", "approved", "review", true},
+		{"published to approved", "published", "approved", true},
+
+		// Transitions to "any" phase (special - any phase never participates in backward detection)
+		{"draft to discard (any phase)", "draft", "discard", false},
+		{"published to discard (any phase)", "published", "discard", false}, // "any" phase doesn't participate in backward
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			isBackward, err := workflow.IsBackwardTransition(tc.from, tc.to)
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			if isBackward != tc.isBackward {
+				t.Errorf("expected isBackward=%v, got %v for transition %s → %s",
+					tc.isBackward, isBackward, tc.from, tc.to)
+			}
+		})
+	}
+}
+
+// Test IsBackwardTransition with missing metadata
+func TestIsBackwardTransition_MissingMetadata(t *testing.T) {
+	// Workflow with some statuses missing phase info in metadata
+	workflow := &WorkflowConfig{
+		Version: "1.0",
+		StatusFlow: map[string][]string{
+			"todo": {"done"},
+			"done": {},
+		},
+		StatusMetadata: map[string]StatusMetadata{
+			"todo": {Phase: "planning"},
+			"done": {Phase: ""}, // Status exists but has no phase
+		},
+	}
+
+	// Status with missing phase information - should be treated as not backward
+	isBackward, err := workflow.IsBackwardTransition("todo", "done")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if isBackward {
+		t.Errorf("expected forward transition when phase metadata missing")
+	}
+}
+
+// Test IsBackwardTransition phase ordering
+func TestIsBackwardTransition_PhaseOrdering(t *testing.T) {
+	// Verify specific phase order (planning < development < review < qa < approval < done)
+	workflow := &WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]StatusMetadata{
+			"s1": {Phase: "planning"},      // Order 0
+			"s2": {Phase: "development"},   // Order 1
+			"s3": {Phase: "review"},        // Order 2
+			"s4": {Phase: "qa"},            // Order 3
+			"s5": {Phase: "approval"},      // Order 4
+			"s6": {Phase: "done"},          // Order 5
+			"s7": {Phase: "any"},           // Order 6 (any phase)
+		},
+	}
+
+	testCases := []struct {
+		name       string
+		from       string
+		to         string
+		isBackward bool
+	}{
+		// Forward through ordered phases
+		{"s1 to s2", "s1", "s2", false},
+		{"s2 to s3", "s2", "s3", false},
+		{"s3 to s4", "s3", "s4", false},
+		{"s4 to s5", "s4", "s5", false},
+		{"s5 to s6", "s5", "s6", false},
+
+		// Backward through ordered phases
+		{"s6 to s5", "s6", "s5", true},
+		{"s5 to s4", "s5", "s4", true},
+		{"s4 to s3", "s4", "s3", true},
+		{"s3 to s2", "s3", "s2", true},
+		{"s2 to s1", "s2", "s1", true},
+
+		// Skip forward (still forward)
+		{"s1 to s3", "s1", "s3", false},
+		{"s1 to s6", "s1", "s6", false},
+
+		// Transition to "any" phase
+		{"s1 to s7 (any)", "s1", "s7", false},
+		{"s6 to s7 (any)", "s6", "s7", false},
+		{"s7 to s1 (from any)", "s7", "s1", false}, // "any" doesn't define backward
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			isBackward, err := workflow.IsBackwardTransition(tc.from, tc.to)
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			if isBackward != tc.isBackward {
+				t.Errorf("expected isBackward=%v, got %v for transition %s → %s",
+					tc.isBackward, isBackward, tc.from, tc.to)
+			}
+		})
+	}
+}
