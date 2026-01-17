@@ -529,7 +529,6 @@ func TestEpicRepository_GetFeatureStatusRollup_WithMultipleFeatures(t *testing.T
 		models.FeatureStatusDraft:     1,
 	}
 
-	createdFeatures := []*models.Feature{}
 	i := 1
 	for status, count := range statusCounts {
 		for j := 0; j < count; j++ {
@@ -542,7 +541,6 @@ func TestEpicRepository_GetFeatureStatusRollup_WithMultipleFeatures(t *testing.T
 			}
 			err = featureRepo.Create(ctx, feature)
 			require.NoError(t, err)
-			createdFeatures = append(createdFeatures, feature)
 			i++
 		}
 	}
@@ -645,7 +643,6 @@ func TestEpicRepository_GetTaskStatusRollup_WithMultipleTasks(t *testing.T) {
 		models.TaskStatusBlocked:    1,
 	}
 
-	createdTasks := []*models.Task{}
 	i := 1
 	for status, count := range statusCounts {
 		for j := 0; j < count; j++ {
@@ -658,7 +655,6 @@ func TestEpicRepository_GetTaskStatusRollup_WithMultipleTasks(t *testing.T) {
 			}
 			err = taskRepo.Create(ctx, task)
 			require.NoError(t, err)
-			createdTasks = append(createdTasks, task)
 			i++
 		}
 	}

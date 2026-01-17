@@ -42,9 +42,9 @@ func createTestWorkflowConfig() *config.WorkflowConfig {
 				ProgressWeight: 1.0,
 			},
 			"blocked": {
-				Phase:         "any",
+				Phase:          "any",
 				ProgressWeight: 0.0,
-				BlocksFeature: true,
+				BlocksFeature:  true,
 			},
 		},
 	}
