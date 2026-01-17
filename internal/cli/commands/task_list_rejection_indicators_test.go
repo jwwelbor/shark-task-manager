@@ -182,10 +182,10 @@ func TestTaskListWithRejectionCountField(t *testing.T) {
 // TestHasRejectionsFilter tests the --has-rejections filter flag
 func TestHasRejectionsFilter(t *testing.T) {
 	tests := []struct {
-		name           string
-		tasks          []*models.Task
+		name            string
+		tasks           []*models.Task
 		rejectionCounts map[string]int // task key -> rejection count
-		expectedCount  int
+		expectedCount   int
 	}{
 		{
 			name: "no tasks with rejections",
@@ -252,17 +252,8 @@ func timePtr(t time.Time) *time.Time {
 	return &t
 }
 
-// formatRejectionIndicator formats the rejection indicator symbol
-// This will be implemented in the main code
-func formatRejectionIndicator(count int) string {
-	if count == 0 {
-		return ""
-	}
-	return "⚠️(" + string(rune('0'+count)) + ")"
-}
-
 // filterTasksByRejections filters tasks that have rejections
-// This will be implemented in the main code
+// This is a test helper that mimics the filtering logic
 func filterTasksByRejections(tasks []*models.Task, rejectionCounts map[string]int) []*models.Task {
 	var filtered []*models.Task
 	for _, task := range tasks {

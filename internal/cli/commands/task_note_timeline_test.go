@@ -172,33 +172,33 @@ func TestTimelineJSONWithRejections(t *testing.T) {
 // Test reason truncation with specific lengths
 func TestReasonTruncationLogic(t *testing.T) {
 	tests := []struct {
-		name          string
-		reason        string
-		maxLen        int
+		name           string
+		reason         string
+		maxLen         int
 		expectTruncate bool
 	}{
 		{
-			name:          "short reason",
-			reason:        "Missing error handling",
-			maxLen:        80,
+			name:           "short reason",
+			reason:         "Missing error handling",
+			maxLen:         80,
 			expectTruncate: false,
 		},
 		{
-			name:          "exactly 80 chars",
-			reason:        strings.Repeat("x", 80),
-			maxLen:        80,
+			name:           "exactly 80 chars",
+			reason:         strings.Repeat("x", 80),
+			maxLen:         80,
 			expectTruncate: false,
 		},
 		{
-			name:          "81 chars",
-			reason:        strings.Repeat("x", 81),
-			maxLen:        80,
+			name:           "81 chars",
+			reason:         strings.Repeat("x", 81),
+			maxLen:         80,
 			expectTruncate: true,
 		},
 		{
-			name:          "very long reason",
-			reason:        strings.Repeat("This is a very long reason. ", 10),
-			maxLen:        80,
+			name:           "very long reason",
+			reason:         strings.Repeat("This is a very long reason. ", 10),
+			maxLen:         80,
 			expectTruncate: true,
 		},
 	}

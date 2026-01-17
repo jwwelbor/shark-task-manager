@@ -673,11 +673,11 @@ func TestIsBackwardTransition_CustomWorkflow(t *testing.T) {
 	workflow := &WorkflowConfig{
 		Version: "1.0",
 		StatusFlow: map[string][]string{
-			"draft":        {"review", "discard"},
-			"review":       {"approved", "draft"},
-			"approved":     {"published", "review"},
-			"published":    {},
-			"discard":      {},
+			"draft":     {"review", "discard"},
+			"review":    {"approved", "draft"},
+			"approved":  {"published", "review"},
+			"published": {},
+			"discard":   {},
 		},
 		StatusMetadata: map[string]StatusMetadata{
 			"draft":     {Phase: "planning"},
@@ -756,13 +756,13 @@ func TestIsBackwardTransition_PhaseOrdering(t *testing.T) {
 	workflow := &WorkflowConfig{
 		Version: "1.0",
 		StatusMetadata: map[string]StatusMetadata{
-			"s1": {Phase: "planning"},      // Order 0
-			"s2": {Phase: "development"},   // Order 1
-			"s3": {Phase: "review"},        // Order 2
-			"s4": {Phase: "qa"},            // Order 3
-			"s5": {Phase: "approval"},      // Order 4
-			"s6": {Phase: "done"},          // Order 5
-			"s7": {Phase: "any"},           // Order 6 (any phase)
+			"s1": {Phase: "planning"},    // Order 0
+			"s2": {Phase: "development"}, // Order 1
+			"s3": {Phase: "review"},      // Order 2
+			"s4": {Phase: "qa"},          // Order 3
+			"s5": {Phase: "approval"},    // Order 4
+			"s6": {Phase: "done"},        // Order 5
+			"s7": {Phase: "any"},         // Order 6 (any phase)
 		},
 	}
 

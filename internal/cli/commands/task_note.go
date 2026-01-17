@@ -82,7 +82,7 @@ type TimelineEvent struct {
 	EventType      string    `json:"event_type"` // "status", "rejection", or note type
 	Content        string    `json:"content"`
 	Actor          string    `json:"actor,omitempty"`
-	Reason         string    `json:"reason,omitempty"`         // For rejection events
+	Reason         string    `json:"reason,omitempty"`          // For rejection events
 	ReasonDocument *string   `json:"reason_document,omitempty"` // Document path for rejection
 }
 

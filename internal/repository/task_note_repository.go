@@ -537,14 +537,14 @@ func (r *TaskNoteRepository) CreateRejectionNoteWithTx(
 
 // RejectionHistoryEntry represents a single rejection in task rejection history
 type RejectionHistoryEntry struct {
-	ID               int64   `json:"id"`
-	Timestamp        string  `json:"timestamp"`
-	FromStatus       string  `json:"from_status"`
-	ToStatus         string  `json:"to_status"`
-	RejectedBy       string  `json:"rejected_by"`
-	Reason           string  `json:"reason"`
-	ReasonDocument   *string `json:"reason_document"`
-	HistoryID        int64   `json:"history_id"`
+	ID             int64   `json:"id"`
+	Timestamp      string  `json:"timestamp"`
+	FromStatus     string  `json:"from_status"`
+	ToStatus       string  `json:"to_status"`
+	RejectedBy     string  `json:"rejected_by"`
+	Reason         string  `json:"reason"`
+	ReasonDocument *string `json:"reason_document"`
+	HistoryID      int64   `json:"history_id"`
 }
 
 // GetRejectionHistory retrieves rejection history for a task, ordered by most recent first

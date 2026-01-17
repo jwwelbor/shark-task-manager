@@ -25,10 +25,10 @@ func TestTaskApprove_RejectionReasonDocFlag(t *testing.T) {
 // TestValidateRejectionReasonDocPath tests path validation for --reason-doc flag
 func TestValidateRejectionReasonDocPath(t *testing.T) {
 	tests := []struct {
-		name      string
-		docPath   string
-		wantErr   bool
-		errMsg    string
+		name    string
+		docPath string
+		wantErr bool
+		errMsg  string
 	}{
 		{
 			name:    "valid relative path",

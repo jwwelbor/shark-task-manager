@@ -125,7 +125,7 @@ func TestCreateRejectionNoteWithDocumentPath(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
-	_,_ = test.SeedTestData()
+	_, _ = test.SeedTestData()
 
 	// Get a task
 	var taskID int64
@@ -187,7 +187,7 @@ func TestCreateRejectionNoteWithoutDocumentPath(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
-	_,_ = test.SeedTestData()
+	_, _ = test.SeedTestData()
 
 	// Get a task
 	var taskID int64
@@ -249,7 +249,7 @@ func TestCreateRejectionNoteMetadataStructure(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
-	_,_ = test.SeedTestData()
+	_, _ = test.SeedTestData()
 
 	// Get a task
 	var taskID int64
@@ -331,7 +331,7 @@ func TestCreateRejectionNoteInTransaction(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
-	_,_ = test.SeedTestData()
+	_, _ = test.SeedTestData()
 
 	// Get a task
 	var taskID int64
@@ -410,7 +410,7 @@ func TestCreateRejectionNoteTransactionRollback(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
-	_,_ = test.SeedTestData()
+	_, _ = test.SeedTestData()
 
 	// Get a task
 	var taskID int64
@@ -465,7 +465,7 @@ func TestCreateRejectionNoteValidation(t *testing.T) {
 	noteRepo := NewTaskNoteRepository(db)
 
 	// Seed test data
-	_,_ = test.SeedTestData()
+	_, _ = test.SeedTestData()
 
 	// Get a valid task
 	var taskID int64
@@ -540,7 +540,7 @@ func TestGetRejectionNotesForTask(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
-	_,_ = test.SeedTestData()
+	_, _ = test.SeedTestData()
 
 	// Get a task
 	var taskID int64
@@ -705,46 +705,46 @@ func TestCreateRejectionNoteDocumentPathValidation(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		documentPath      *string
-		expectInMetadata  bool
-		expectedValue     string
-		description       string
+		name             string
+		documentPath     *string
+		expectInMetadata bool
+		expectedValue    string
+		description      string
 	}{
 		{
-			name:              "nil document path",
-			documentPath:      nil,
-			expectInMetadata:  false,
-			expectedValue:     "",
-			description:       "Nil document path should be omitted from metadata",
+			name:             "nil document path",
+			documentPath:     nil,
+			expectInMetadata: false,
+			expectedValue:    "",
+			description:      "Nil document path should be omitted from metadata",
 		},
 		{
-			name:              "empty string document path",
-			documentPath:      toStringPtr(""),
-			expectInMetadata:  false,
-			expectedValue:     "",
-			description:       "Empty string document path should be omitted from metadata",
+			name:             "empty string document path",
+			documentPath:     toStringPtr(""),
+			expectInMetadata: false,
+			expectedValue:    "",
+			description:      "Empty string document path should be omitted from metadata",
 		},
 		{
-			name:              "relative document path",
-			documentPath:      toStringPtr("docs/bugs/BUG-001.md"),
-			expectInMetadata:  true,
-			expectedValue:     "docs/bugs/BUG-001.md",
-			description:       "Relative document path should be preserved",
+			name:             "relative document path",
+			documentPath:     toStringPtr("docs/bugs/BUG-001.md"),
+			expectInMetadata: true,
+			expectedValue:    "docs/bugs/BUG-001.md",
+			description:      "Relative document path should be preserved",
 		},
 		{
-			name:              "document path with special characters",
-			documentPath:      toStringPtr("docs/2025-01-16_review-feedback.md"),
-			expectInMetadata:  true,
-			expectedValue:     "docs/2025-01-16_review-feedback.md",
-			description:       "Document path with special characters should be preserved",
+			name:             "document path with special characters",
+			documentPath:     toStringPtr("docs/2025-01-16_review-feedback.md"),
+			expectInMetadata: true,
+			expectedValue:    "docs/2025-01-16_review-feedback.md",
+			description:      "Document path with special characters should be preserved",
 		},
 		{
-			name:              "document path with backslashes",
-			documentPath:      toStringPtr("docs\\windows\\path.md"),
-			expectInMetadata:  true,
-			expectedValue:     "docs\\windows\\path.md",
-			description:       "Document path with backslashes should be preserved",
+			name:             "document path with backslashes",
+			documentPath:     toStringPtr("docs\\windows\\path.md"),
+			expectInMetadata: true,
+			expectedValue:    "docs\\windows\\path.md",
+			description:      "Document path with backslashes should be preserved",
 		},
 	}
 

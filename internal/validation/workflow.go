@@ -12,17 +12,17 @@ var ErrReasonRequired = errors.New("reason is required for backward status trans
 // PhaseOrder defines the hierarchy of workflow phases
 // Lower order = earlier in workflow, higher order = later in workflow
 var PhaseOrder = map[string]int{
-	"planning":     1,
-	"development":  2,
-	"review":       3,
-	"qa":           4,
-	"approval":     5,
-	"done":         6,
-	"any":          0,
-	"cancelled":    0,
-	"on_hold":      0,
-	"blocked":      0,
-	"paused":       0,
+	"planning":    1,
+	"development": 2,
+	"review":      3,
+	"qa":          4,
+	"approval":    5,
+	"done":        6,
+	"any":         0,
+	"cancelled":   0,
+	"on_hold":     0,
+	"blocked":     0,
+	"paused":      0,
 }
 
 // IsBackwardTransition detects when a status transition moves backward in the workflow.
@@ -93,6 +93,7 @@ func IsBackwardTransition(currentStatus, newStatus string, workflow *config.Work
 // - Backward transitions (e.g., review → development) require a non-empty reason UNLESS:
 //   - workflow.RequireRejectionReason is false (config option disabled), OR
 //   - --force is true
+//
 // - Forward transitions (e.g., development → review) don't require a reason
 // - Same-phase transitions (e.g., development → blocked) don't require a reason
 // - If force is true, reason is not required

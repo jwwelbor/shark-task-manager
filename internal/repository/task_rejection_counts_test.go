@@ -50,14 +50,14 @@ func TestGetRejectionCounts(t *testing.T) {
 
 	// Create test task
 	task := &models.Task{
-		FeatureID:  featureID,
-		Key:        "T-E99-F99-001",
-		Title:      "Test task with rejections",
-		Status:     models.TaskStatusInProgress,
-		Priority:   5,
-		AgentType:  nil,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		FeatureID: featureID,
+		Key:       "T-E99-F99-001",
+		Title:     "Test task with rejections",
+		Status:    models.TaskStatusInProgress,
+		Priority:  5,
+		AgentType: nil,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	err = taskRepo.Create(ctx, task)
@@ -67,28 +67,28 @@ func TestGetRejectionCounts(t *testing.T) {
 	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
 
 	tests := []struct {
-		name               string
-		rejectionCount     int
-		hasLastRejection   bool
-		expectedLastTime   *time.Time
+		name             string
+		rejectionCount   int
+		hasLastRejection bool
+		expectedLastTime *time.Time
 	}{
 		{
-			name:               "task with no rejections",
-			rejectionCount:     0,
-			hasLastRejection:   false,
-			expectedLastTime:   nil,
+			name:             "task with no rejections",
+			rejectionCount:   0,
+			hasLastRejection: false,
+			expectedLastTime: nil,
 		},
 		{
-			name:               "task with one rejection",
-			rejectionCount:     1,
-			hasLastRejection:   true,
-			expectedLastTime:   nil, // Will be set dynamically
+			name:             "task with one rejection",
+			rejectionCount:   1,
+			hasLastRejection: true,
+			expectedLastTime: nil, // Will be set dynamically
 		},
 		{
-			name:               "task with multiple rejections",
-			rejectionCount:     3,
-			hasLastRejection:   true,
-			expectedLastTime:   nil, // Will be set dynamically
+			name:             "task with multiple rejections",
+			rejectionCount:   3,
+			hasLastRejection: true,
+			expectedLastTime: nil, // Will be set dynamically
 		},
 	}
 
@@ -174,13 +174,13 @@ func TestGetRejectionCountsMultipleTasks(t *testing.T) {
 	var taskIDs []int64
 	for i := 1; i <= 3; i++ {
 		task := &models.Task{
-			FeatureID:  featureID,
-			Key:        "T-E88-F88-00" + string(rune('0'+i)),
-			Title:      "Test task " + string(rune('0'+i)),
-			Status:     models.TaskStatusInProgress,
-			Priority:   5,
-			CreatedAt:  time.Now(),
-			UpdatedAt:  time.Now(),
+			FeatureID: featureID,
+			Key:       "T-E88-F88-00" + string(rune('0'+i)),
+			Title:     "Test task " + string(rune('0'+i)),
+			Status:    models.TaskStatusInProgress,
+			Priority:  5,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create task: %v", err)

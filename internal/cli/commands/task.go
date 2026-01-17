@@ -356,6 +356,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	priorityMax, _ := cmd.Flags().GetInt("priority-max")
 	blocked, _ := cmd.Flags().GetBool("blocked")
 	withActions, _ := cmd.Flags().GetBool("with-actions")
+	hasRejections, _ := cmd.Flags().GetBool("has-rejections")
 
 	// Positional arguments take priority over flags
 	if positionalEpic != nil {
@@ -448,6 +449,17 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		tasks = filteredTasks
 	}
 
+	// Filter by rejections if requested
+	if hasRejections {
+		filteredTasks := []*models.Task{}
+		for _, task := range tasks {
+			if task.RejectionCount > 0 {
+				filteredTasks = append(filteredTasks, task)
+			}
+		}
+		tasks = filteredTasks
+	}
+
 	// Filter out completed tasks by default (unless --show-all or explicit status filter)
 	showAll, _ := cmd.Flags().GetBool("show-all")
 	tasks = filterTasksByCompletedStatus(tasks, showAll, statusStr)
@@ -491,8 +503,14 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 			execOrder = fmt.Sprintf("%d", *task.ExecutionOrder)
 		}
 
+		// Add rejection indicator to key if task has rejections
+		keyDisplay := task.Key
+		if task.RejectionCount > 0 {
+			keyDisplay = task.Key + " " + formatRejectionIndicator(task.RejectionCount)
+		}
+
 		rows = append(rows, []string{
-			task.Key,
+			keyDisplay,
 			title,
 			string(task.Status),
 			fmt.Sprintf("%d", task.Priority),
@@ -666,14 +684,14 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	if cli.GlobalConfig.JSON {
 		// Create enhanced output with dependency status, related docs, and blocking relationships
 		output := map[string]interface{}{
-			"task":               task,
-			"path":               dirPath,
-			"filename":           filename,
-			"dependency_status":  dependencyStatus,
-			"related_documents":  relatedDocs,
-			"blocked_by":         blockedByKeys,
-			"blocks":             blocksKeys,
-			"rejection_history":  rejectionHistory,
+			"task":              task,
+			"path":              dirPath,
+			"filename":          filename,
+			"dependency_status": dependencyStatus,
+			"related_documents": relatedDocs,
+			"blocked_by":        blockedByKeys,
+			"blocks":            blocksKeys,
+			"rejection_history": rejectionHistory,
 		}
 		return cli.OutputJSON(output)
 	}
@@ -1135,6 +1153,17 @@ func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.Ta
 
 // filterTasksByCompletedStatus filters out completed tasks unless showAll is true
 // or an explicit status filter is set
+// formatRejectionIndicator formats the rejection indicator symbol and count
+func formatRejectionIndicator(count int) string {
+	if count == 0 {
+		return ""
+	}
+	if count > 9 {
+		return "⚠️(9+)"
+	}
+	return fmt.Sprintf("⚠️(%d)", count)
+}
+
 func filterTasksByCompletedStatus(tasks []*models.Task, showAll bool, statusFilter string) []*models.Task {
 	// If an explicit status filter is set, don't apply default filtering
 	// The status filter will be handled by the repository query
@@ -2063,6 +2092,7 @@ func init() {
 	taskListCmd.Flags().BoolP("blocked", "b", false, "Show only blocked tasks")
 	taskListCmd.Flags().Bool("show-all", false, "Show all tasks including completed (by default, completed tasks are hidden)")
 	taskListCmd.Flags().Bool("with-actions", false, "Include orchestrator actions with each task (for batch orchestrator polling)")
+	taskListCmd.Flags().Bool("has-rejections", false, "Filter tasks that have rejections")
 
 	// Add flags for create command
 	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) - can also be specified as first positional argument")

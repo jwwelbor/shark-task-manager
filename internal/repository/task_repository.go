@@ -543,7 +543,12 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 
 	query += " ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC"
 
-	return r.queryTasks(ctx, query, args...)
+	tasks, err := r.queryTasks(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
 }
 
 // List retrieves all tasks
@@ -558,7 +563,12 @@ func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
 	`
 
-	return r.queryTasks(ctx, query)
+	tasks, err := r.queryTasks(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
 }
 
 // Update updates an existing task
@@ -1912,4 +1922,32 @@ func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64
 	}
 
 	return counts, lastTimes, nil
+}
+
+// enrichTasksWithRejectionData enriches tasks with rejection count and last rejection timestamp
+// This is called after fetching tasks to populate RejectionCount and LastRejectionAt fields
+func (r *TaskRepository) enrichTasksWithRejectionData(ctx context.Context, tasks []*models.Task) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+
+	// Extract task IDs
+	taskIDs := make([]int64, len(tasks))
+	for i, task := range tasks {
+		taskIDs[i] = task.ID
+	}
+
+	// Get rejection counts and timestamps
+	counts, times, err := r.GetRejectionCounts(ctx, taskIDs)
+	if err != nil {
+		return err
+	}
+
+	// Enrich tasks with rejection data
+	for _, task := range tasks {
+		task.RejectionCount = counts[task.ID]
+		task.LastRejectionAt = times[task.ID]
+	}
+
+	return nil
 }

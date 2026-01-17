@@ -14,12 +14,12 @@ func TestHistoryEntryHasRejectionReason(t *testing.T) {
 
 	// Create a HistoryEntry with rejection reason
 	entry := HistoryEntry{
-		Timestamp:      "2026-01-16T10:00:00Z",
-		RelativeAge:    "1 hour ago",
-		OldStatus:      strPtr("in_progress"),
-		NewStatus:      "ready_for_review",
-		Agent:          strPtr("reviewer-1"),
-		Notes:          strPtr("Code review failed"),
+		Timestamp:       "2026-01-16T10:00:00Z",
+		RelativeAge:     "1 hour ago",
+		OldStatus:       strPtr("in_progress"),
+		NewStatus:       "ready_for_review",
+		Agent:           strPtr("reviewer-1"),
+		Notes:           strPtr("Code review failed"),
 		RejectionReason: strPtr("Missing error handling on line 42"),
 	}
 
@@ -198,4 +198,3 @@ func TestFormatHistoryTableWithRejectionReason(t *testing.T) {
 		t.Logf("Empty reason correctly skipped")
 	}
 }
-

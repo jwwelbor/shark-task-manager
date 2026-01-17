@@ -261,15 +261,15 @@ func TestIsBackwardTransitionPhaseOrdering(t *testing.T) {
 
 	// Define phase order
 	phaseOrder := map[string]int{
-		"planning":     1,
-		"development":  2,
-		"review":       3,
-		"qa":           4,
-		"approval":     5,
-		"done":         6,
-		"any":          0,
-		"cancelled":    0, // terminal status like any
-		"on_hold":      0, // special status
+		"planning":    1,
+		"development": 2,
+		"review":      3,
+		"qa":          4,
+		"approval":    5,
+		"done":        6,
+		"any":         0,
+		"cancelled":   0, // terminal status like any
+		"on_hold":     0, // special status
 	}
 
 	// Get all statuses from workflow
@@ -411,14 +411,14 @@ func getTestWorkflow() *config.WorkflowConfig {
 	return &config.WorkflowConfig{
 		Version: "1.0",
 		StatusFlow: map[string][]string{
-			"draft":                    {"in_development", "blocked", "cancelled"},
-			"in_development":           {"ready_for_code_review", "blocked", "cancelled"},
-			"ready_for_code_review":    {"in_qa", "in_development", "blocked", "cancelled"},
-			"in_qa":                    {"ready_for_approval", "in_development", "blocked", "cancelled"},
-			"ready_for_approval":       {"completed", "in_development", "blocked", "cancelled"},
-			"completed":                {},
-			"blocked":                  {"draft", "in_development", "ready_for_code_review", "in_qa", "ready_for_approval"},
-			"cancelled":                {},
+			"draft":                 {"in_development", "blocked", "cancelled"},
+			"in_development":        {"ready_for_code_review", "blocked", "cancelled"},
+			"ready_for_code_review": {"in_qa", "in_development", "blocked", "cancelled"},
+			"in_qa":                 {"ready_for_approval", "in_development", "blocked", "cancelled"},
+			"ready_for_approval":    {"completed", "in_development", "blocked", "cancelled"},
+			"completed":             {},
+			"blocked":               {"draft", "in_development", "ready_for_code_review", "in_qa", "ready_for_approval"},
+			"cancelled":             {},
 		},
 		RequireRejectionReason: true, // Default value - backward compatibility
 		StatusMetadata: map[string]config.StatusMetadata{
@@ -488,60 +488,60 @@ func TestValidateReasonForStatusTransition(t *testing.T) {
 	workflow := getTestWorkflow()
 
 	tests := []struct {
-		name        string
-		newStatus   string
+		name          string
+		newStatus     string
 		currentStatus string
-		reason      string
-		force       bool
-		shouldErr   bool
+		reason        string
+		force         bool
+		shouldErr     bool
 	}{
 		{
-			name:         "no_status_change",
-			newStatus:    "",
+			name:          "no_status_change",
+			newStatus:     "",
 			currentStatus: "in_development",
-			reason:       "",
-			force:        false,
-			shouldErr:    false,
+			reason:        "",
+			force:         false,
+			shouldErr:     false,
 		},
 		{
-			name:         "backward_without_reason",
-			newStatus:    "in_development",
+			name:          "backward_without_reason",
+			newStatus:     "in_development",
 			currentStatus: "ready_for_code_review",
-			reason:       "",
-			force:        false,
-			shouldErr:    true,
+			reason:        "",
+			force:         false,
+			shouldErr:     true,
 		},
 		{
-			name:         "backward_with_reason",
-			newStatus:    "in_development",
+			name:          "backward_with_reason",
+			newStatus:     "in_development",
 			currentStatus: "ready_for_code_review",
-			reason:       "Need to fix bugs",
-			force:        false,
-			shouldErr:    false,
+			reason:        "Need to fix bugs",
+			force:         false,
+			shouldErr:     false,
 		},
 		{
-			name:         "backward_with_force",
-			newStatus:    "in_development",
+			name:          "backward_with_force",
+			newStatus:     "in_development",
 			currentStatus: "ready_for_code_review",
-			reason:       "",
-			force:        true,
-			shouldErr:    false,
+			reason:        "",
+			force:         true,
+			shouldErr:     false,
 		},
 		{
-			name:         "forward_without_reason",
-			newStatus:    "ready_for_code_review",
+			name:          "forward_without_reason",
+			newStatus:     "ready_for_code_review",
 			currentStatus: "in_development",
-			reason:       "",
-			force:        false,
-			shouldErr:    false,
+			reason:        "",
+			force:         false,
+			shouldErr:     false,
 		},
 		{
-			name:         "same_phase_without_reason",
-			newStatus:    "blocked",
+			name:          "same_phase_without_reason",
+			newStatus:     "blocked",
 			currentStatus: "in_development",
-			reason:       "",
-			force:        false,
-			shouldErr:    false,
+			reason:        "",
+			force:         false,
+			shouldErr:     false,
 		},
 	}
 
@@ -561,18 +561,18 @@ func TestValidateReasonForStatusTransition(t *testing.T) {
 // TestValidateReasonForStatusTransition_ConfigRespected tests that the RequireRejectionReason config option is respected
 func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 	tests := []struct {
-		name           string
-		workflow       *config.WorkflowConfig
-		currentStatus  string
-		newStatus      string
-		reason         string
-		force          bool
-		expectError    bool
-		description    string
+		name          string
+		workflow      *config.WorkflowConfig
+		currentStatus string
+		newStatus     string
+		reason        string
+		force         bool
+		expectError   bool
+		description   string
 	}{
 		{
-			name: "require_rejection_reason=true requires reason",
-			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			name:          "require_rejection_reason=true requires reason",
+			workflow:      getTestWorkflowWithRequireRejectionReason(true),
 			currentStatus: "ready_for_code_review",
 			newStatus:     "in_development",
 			reason:        "",
@@ -581,8 +581,8 @@ func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 			description:   "When config requires reason, backward transition without reason should fail",
 		},
 		{
-			name: "require_rejection_reason=true with reason succeeds",
-			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			name:          "require_rejection_reason=true with reason succeeds",
+			workflow:      getTestWorkflowWithRequireRejectionReason(true),
 			currentStatus: "ready_for_code_review",
 			newStatus:     "in_development",
 			reason:        "Need to fix issues",
@@ -591,8 +591,8 @@ func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 			description:   "When config requires reason and reason is provided, backward transition should succeed",
 		},
 		{
-			name: "require_rejection_reason=false allows no reason",
-			workflow: getTestWorkflowWithRequireRejectionReason(false),
+			name:          "require_rejection_reason=false allows no reason",
+			workflow:      getTestWorkflowWithRequireRejectionReason(false),
 			currentStatus: "ready_for_code_review",
 			newStatus:     "in_development",
 			reason:        "",
@@ -601,8 +601,8 @@ func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 			description:   "When config does not require reason, backward transition without reason should succeed",
 		},
 		{
-			name: "require_rejection_reason=false with reason succeeds",
-			workflow: getTestWorkflowWithRequireRejectionReason(false),
+			name:          "require_rejection_reason=false with reason succeeds",
+			workflow:      getTestWorkflowWithRequireRejectionReason(false),
 			currentStatus: "ready_for_code_review",
 			newStatus:     "in_development",
 			reason:        "Some reason",
@@ -631,8 +631,8 @@ func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 			description:   "When workflow is nil, even with reason, validation passes (no backward detection)",
 		},
 		{
-			name: "force bypasses require_rejection_reason=true",
-			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			name:          "force bypasses require_rejection_reason=true",
+			workflow:      getTestWorkflowWithRequireRejectionReason(true),
 			currentStatus: "ready_for_code_review",
 			newStatus:     "in_development",
 			reason:        "",
@@ -641,8 +641,8 @@ func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 			description:   "Force flag should bypass reason requirement even when config requires it",
 		},
 		{
-			name: "forward transition ignores config",
-			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			name:          "forward transition ignores config",
+			workflow:      getTestWorkflowWithRequireRejectionReason(true),
 			currentStatus: "in_development",
 			newStatus:     "ready_for_code_review",
 			reason:        "",
@@ -651,8 +651,8 @@ func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 			description:   "Forward transitions should not require reason regardless of config",
 		},
 		{
-			name: "same_phase_transition ignores config",
-			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			name:          "same_phase_transition ignores config",
+			workflow:      getTestWorkflowWithRequireRejectionReason(true),
 			currentStatus: "in_development",
 			newStatus:     "blocked",
 			reason:        "",
@@ -661,8 +661,8 @@ func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 			description:   "Same-phase transitions should not require reason regardless of config",
 		},
 		{
-			name: "require_rejection_reason=false on qa_to_development",
-			workflow: getTestWorkflowWithRequireRejectionReason(false),
+			name:          "require_rejection_reason=false on qa_to_development",
+			workflow:      getTestWorkflowWithRequireRejectionReason(false),
 			currentStatus: "in_qa",
 			newStatus:     "in_development",
 			reason:        "",
@@ -671,8 +671,8 @@ func TestValidateReasonForStatusTransition_ConfigRespected(t *testing.T) {
 			description:   "Config disabled: QA rejection without reason should succeed",
 		},
 		{
-			name: "require_rejection_reason=true on qa_to_development",
-			workflow: getTestWorkflowWithRequireRejectionReason(true),
+			name:          "require_rejection_reason=true on qa_to_development",
+			workflow:      getTestWorkflowWithRequireRejectionReason(true),
 			currentStatus: "in_qa",
 			newStatus:     "in_development",
 			reason:        "",

@@ -53,7 +53,7 @@ func TestRejectionTypeFiltering(t *testing.T) {
 		TaskID:    100,
 		NoteType:  models.NoteTypeRejection,
 		Content:   "Missing error handling on line 42",
-		CreatedBy: str("reviewer"),
+		CreatedBy: stringPtr("reviewer"),
 		CreatedAt: now,
 	}
 
@@ -62,7 +62,7 @@ func TestRejectionTypeFiltering(t *testing.T) {
 		TaskID:    100,
 		NoteType:  models.NoteTypeDecision,
 		Content:   "Used rejection notes for feedback",
-		CreatedBy: str("developer"),
+		CreatedBy: stringPtr("developer"),
 		CreatedAt: now,
 	}
 
@@ -99,7 +99,7 @@ func TestTimePeriodFiltering(t *testing.T) {
 		TaskID:    100,
 		NoteType:  models.NoteTypeRejection,
 		Content:   "Old rejection",
-		CreatedBy: str("reviewer1"),
+		CreatedBy: stringPtr("reviewer1"),
 		CreatedAt: lastWeek,
 	}
 
@@ -108,7 +108,7 @@ func TestTimePeriodFiltering(t *testing.T) {
 		TaskID:    101,
 		NoteType:  models.NoteTypeRejection,
 		Content:   "Recent rejection",
-		CreatedBy: str("reviewer2"),
+		CreatedBy: stringPtr("reviewer2"),
 		CreatedAt: yesterday,
 	}
 
@@ -144,7 +144,7 @@ func TestSearchWithTextQuery(t *testing.T) {
 			TaskID:    100,
 			NoteType:  models.NoteTypeRejection,
 			Content:   "Missing error handling on line 42",
-			CreatedBy: str("reviewer"),
+			CreatedBy: stringPtr("reviewer"),
 			CreatedAt: now,
 		},
 		{
@@ -152,7 +152,7 @@ func TestSearchWithTextQuery(t *testing.T) {
 			TaskID:    101,
 			NoteType:  models.NoteTypeRejection,
 			Content:   "Wrong validation approach",
-			CreatedBy: str("reviewer"),
+			CreatedBy: stringPtr("reviewer"),
 			CreatedAt: now,
 		},
 	}
@@ -189,7 +189,7 @@ func TestJSONOutput(t *testing.T) {
 				TaskID:    100,
 				NoteType:  models.NoteTypeRejection,
 				Content:   "Missing error handling",
-				CreatedBy: str("reviewer@example.com"),
+				CreatedBy: stringPtr("reviewer@example.com"),
 				CreatedAt: now,
 			},
 		},
@@ -227,7 +227,7 @@ func TestCombinedFilters(t *testing.T) {
 			TaskID:    100,
 			NoteType:  models.NoteTypeRejection,
 			Content:   "Missing validation",
-			CreatedBy: str("reviewer"),
+			CreatedBy: stringPtr("reviewer"),
 			CreatedAt: now,
 		},
 		{
@@ -235,7 +235,7 @@ func TestCombinedFilters(t *testing.T) {
 			TaskID:    101,
 			NoteType:  models.NoteTypeRejection,
 			Content:   "Wrong approach",
-			CreatedBy: str("reviewer"),
+			CreatedBy: stringPtr("reviewer"),
 			CreatedAt: now,
 		},
 	}
@@ -292,7 +292,7 @@ func TestLargeDatasetPerformance(t *testing.T) {
 			TaskID:    int64((i % 100) + 1),
 			NoteType:  models.NoteTypeRejection,
 			Content:   "Some rejection reason at position " + string(rune(i)),
-			CreatedBy: str("reviewer"),
+			CreatedBy: stringPtr("reviewer"),
 			CreatedAt: time.Now(),
 		})
 	}
@@ -320,9 +320,4 @@ func TestLargeDatasetPerformance(t *testing.T) {
 	if elapsed > 500*time.Millisecond {
 		t.Logf("warning: search took %v, expected < 500ms for 1000 notes", elapsed)
 	}
-}
-
-// Helper function to create string pointers
-func str(s string) *string {
-	return &s
 }
