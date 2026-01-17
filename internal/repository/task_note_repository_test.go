@@ -526,3 +526,136 @@ func TestTaskNoteCascadeDelete(t *testing.T) {
 		t.Errorf("Expected 0 notes after task deletion, got %d", len(notes))
 	}
 }
+
+// TestCreateTaskNoteWithMetadata tests creating a task note with metadata
+func TestCreateTaskNoteWithMetadata(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	noteRepo := NewTaskNoteRepository(db)
+
+	_, _ = test.SeedTestData()
+
+	// Get a task to add note to
+	var taskID int64
+	err := database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-001'").Scan(&taskID)
+	if err != nil {
+		t.Fatalf("Failed to get test task: %v", err)
+	}
+
+	// Create a task note with metadata
+	createdBy := "test-agent"
+	metadata := `{"history_id": 123, "from_status": "draft", "to_status": "in_progress"}`
+	note := &models.TaskNote{
+		TaskID:    taskID,
+		NoteType:  models.NoteTypeDecision,
+		Content:   "Rejection reason",
+		CreatedBy: &createdBy,
+		Metadata:  &metadata,
+	}
+
+	err = noteRepo.Create(ctx, note)
+	if err != nil {
+		t.Fatalf("Failed to create task note with metadata: %v", err)
+	}
+
+	if note.ID == 0 {
+		t.Error("Expected note ID to be set after creation")
+	}
+
+	// Retrieve the note and verify metadata
+	retrieved, err := noteRepo.GetByID(ctx, note.ID)
+	if err != nil {
+		t.Fatalf("Failed to get note: %v", err)
+	}
+
+	if retrieved.Metadata == nil {
+		t.Error("Expected metadata to be set")
+	} else if *retrieved.Metadata != metadata {
+		t.Errorf("Expected metadata %q, got %q", metadata, *retrieved.Metadata)
+	}
+}
+
+// TestCreateTaskNoteWithoutMetadata tests creating a task note without metadata
+func TestCreateTaskNoteWithoutMetadata(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	noteRepo := NewTaskNoteRepository(db)
+
+	_, _ = test.SeedTestData()
+
+	// Get a task
+	var taskID int64
+	err := database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-002'").Scan(&taskID)
+	if err != nil {
+		t.Fatalf("Failed to get test task: %v", err)
+	}
+
+	// Create a note without metadata (should be NULL)
+	createdBy := "test-agent"
+	note := &models.TaskNote{
+		TaskID:    taskID,
+		NoteType:  models.NoteTypeComment,
+		Content:   "Simple comment",
+		CreatedBy: &createdBy,
+		Metadata:  nil,
+	}
+
+	err = noteRepo.Create(ctx, note)
+	if err != nil {
+		t.Fatalf("Failed to create task note: %v", err)
+	}
+
+	// Verify note was created with NULL metadata
+	retrieved, err := noteRepo.GetByID(ctx, note.ID)
+	if err != nil {
+		t.Fatalf("Failed to get note: %v", err)
+	}
+
+	if retrieved.Metadata != nil {
+		t.Errorf("Expected metadata to be NULL, got %v", retrieved.Metadata)
+	}
+}
+
+// TestIndexOnNoteTypeAndTaskID tests that the index exists for performance
+func TestIndexOnNoteTypeAndTaskID(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+
+	// Check that the index exists
+	query := `
+		SELECT name FROM sqlite_master
+		WHERE type = 'index'
+		AND name = 'idx_task_notes_type_task'
+	`
+
+	var indexName string
+	err := database.QueryRowContext(ctx, query).Scan(&indexName)
+	if err != nil {
+		t.Fatalf("Index idx_task_notes_type_task not found: %v", err)
+	}
+
+	if indexName != "idx_task_notes_type_task" {
+		t.Errorf("Expected index name 'idx_task_notes_type_task', got %q", indexName)
+	}
+}
+
+// TestMetadataColumnExists tests that metadata column exists in task_notes table
+func TestMetadataColumnExists(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+
+	// Check that metadata column exists
+	var columnCount int
+	err := database.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM pragma_table_info('task_notes') WHERE name = 'metadata'
+	`).Scan(&columnCount)
+	if err != nil {
+		t.Fatalf("Failed to check metadata column: %v", err)
+	}
+
+	if columnCount != 1 {
+		t.Errorf("Expected metadata column to exist, got count %d", columnCount)
+	}
+}

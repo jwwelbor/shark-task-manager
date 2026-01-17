@@ -27,9 +27,9 @@ func (r *TaskNoteRepository) Create(ctx context.Context, note *models.TaskNote) 
 
 	query := `
 		INSERT INTO task_notes (
-			task_id, note_type, content, created_by
+			task_id, note_type, content, created_by, metadata
 		)
-		VALUES (?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -37,6 +37,7 @@ func (r *TaskNoteRepository) Create(ctx context.Context, note *models.TaskNote) 
 		note.NoteType,
 		note.Content,
 		note.CreatedBy,
+		note.Metadata,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create task note: %w", err)
@@ -54,7 +55,7 @@ func (r *TaskNoteRepository) Create(ctx context.Context, note *models.TaskNote) 
 // GetByID retrieves a task note by its ID
 func (r *TaskNoteRepository) GetByID(ctx context.Context, id int64) (*models.TaskNote, error) {
 	query := `
-		SELECT id, task_id, note_type, content, created_by, created_at
+		SELECT id, task_id, note_type, content, created_by, metadata, created_at
 		FROM task_notes
 		WHERE id = ?
 	`
@@ -66,6 +67,7 @@ func (r *TaskNoteRepository) GetByID(ctx context.Context, id int64) (*models.Tas
 		&note.NoteType,
 		&note.Content,
 		&note.CreatedBy,
+		&note.Metadata,
 		&note.CreatedAt,
 	)
 
@@ -82,7 +84,7 @@ func (r *TaskNoteRepository) GetByID(ctx context.Context, id int64) (*models.Tas
 // GetByTaskID retrieves all notes for a task
 func (r *TaskNoteRepository) GetByTaskID(ctx context.Context, taskID int64) ([]*models.TaskNote, error) {
 	query := `
-		SELECT id, task_id, note_type, content, created_by, created_at
+		SELECT id, task_id, note_type, content, created_by, metadata, created_at
 		FROM task_notes
 		WHERE task_id = ?
 		ORDER BY created_at ASC
@@ -103,6 +105,7 @@ func (r *TaskNoteRepository) GetByTaskID(ctx context.Context, taskID int64) ([]*
 			&note.NoteType,
 			&note.Content,
 			&note.CreatedBy,
+			&note.Metadata,
 			&note.CreatedAt,
 		)
 		if err != nil {
@@ -135,7 +138,7 @@ func (r *TaskNoteRepository) GetByTaskIDAndType(ctx context.Context, taskID int6
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, task_id, note_type, content, created_by, created_at
+		SELECT id, task_id, note_type, content, created_by, metadata, created_at
 		FROM task_notes
 		WHERE task_id = ? AND note_type IN (%s)
 		ORDER BY created_at ASC
@@ -156,6 +159,7 @@ func (r *TaskNoteRepository) GetByTaskIDAndType(ctx context.Context, taskID int6
 			&note.NoteType,
 			&note.Content,
 			&note.CreatedBy,
+			&note.Metadata,
 			&note.CreatedAt,
 		)
 		if err != nil {
@@ -179,7 +183,7 @@ func (r *TaskNoteRepository) Search(ctx context.Context, query string, noteTypes
 	if epicKey != "" || featureKey != "" {
 		// Join with tasks, features, epics if filtering by epic/feature
 		sqlQuery = `
-			SELECT tn.id, tn.task_id, tn.note_type, tn.content, tn.created_by, tn.created_at
+			SELECT tn.id, tn.task_id, tn.note_type, tn.content, tn.created_by, tn.metadata, tn.created_at
 			FROM task_notes AS tn
 			INNER JOIN tasks AS t ON tn.task_id = t.id
 			INNER JOIN features AS f ON t.feature_id = f.id
@@ -198,7 +202,7 @@ func (r *TaskNoteRepository) Search(ctx context.Context, query string, noteTypes
 		}
 	} else {
 		sqlQuery = `
-			SELECT id, task_id, note_type, content, created_by, created_at
+			SELECT id, task_id, note_type, content, created_by, metadata, created_at
 			FROM task_notes AS tn
 			WHERE tn.content LIKE ?
 		`
@@ -233,6 +237,7 @@ func (r *TaskNoteRepository) Search(ctx context.Context, query string, noteTypes
 			&note.NoteType,
 			&note.Content,
 			&note.CreatedBy,
+			&note.Metadata,
 			&note.CreatedAt,
 		)
 		if err != nil {
