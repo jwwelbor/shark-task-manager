@@ -681,37 +681,37 @@ Reopen task for rework (transition from `ready_for_review` to `in_progress`).
 
 **Usage:**
 ```bash
-shark task reopen <task-key> [--reason="..."] [--reason-doc="..."] [--notes="..."] [--force] [--json]
+shark task reopen <task-key> [--rejection-reason="..."] [--reason-doc="..."] [--notes="..."] [--force] [--json]
 ```
 
 **Flags:**
-- `--reason <string>`: Required for backward transitions. Explanation of why task is being sent back (e.g., "Missing error handling on line 67")
+- `--rejection-reason <string>`: Required for backward transitions. Explanation of why task is being sent back (e.g., "Missing error handling on line 67")
 - `--reason-doc <path>`: Optional path to detailed document explaining rejection (e.g., code review file or bug report)
 - `--notes <string>`: General notes about the task (different from rejection reason)
 - `--force`: Bypass rejection reason requirement (not recommended - impairs feedback quality)
 - `--json`: Output in JSON format
 
 **Backward Transition Detection:**
-When reopening a task from `ready_for_review`, the system automatically detects this as a backward transition in the workflow. A `--reason` flag is required to explain the rejection. This helps developers understand what needs to be fixed.
+When reopening a task from `ready_for_review`, the system automatically detects this as a backward transition in the workflow. A `--rejection-reason` flag is required to explain the rejection. This helps developers understand what needs to be fixed.
 
 **Examples:**
 
 ```bash
 # Reopen task with required rejection reason (short format, recommended)
-shark task reopen E07-F01-001 --reason="Missing error handling for database.Query() on line 67"
-shark task reopen e07-f01-001 --reason="Missing error handling for database.Query() on line 67"  # Case insensitive
+shark task reopen E07-F01-001 --rejection-reason="Missing error handling for database.Query() on line 67"
+shark task reopen e07-f01-001 --rejection-reason="Missing error handling for database.Query() on line 67"  # Case insensitive
 
 # Reopen with detailed rejection reason
-shark task reopen E07-F01-001 --reason="Tests fail on empty user input. Add input validation before processing."
+shark task reopen E07-F01-001 --rejection-reason="Tests fail on empty user input. Add input validation before processing."
 
 # Reopen with rejection reason and linked document
 shark task reopen E07-F01-001 \
-  --reason="Found 3 critical issues. See code review document for details." \
+  --rejection-reason="Found 3 critical issues. See code review document for details." \
   --reason-doc="docs/reviews/E07-F01-001-code-review.md"
 
 # Reopen with both rejection reason and general notes
 shark task reopen E07-F01-001 \
-  --reason="Missing null check in error path" \
+  --rejection-reason="Missing null check in error path" \
   --notes="Developer acknowledged, fixing now" \
   --json
 
@@ -800,13 +800,13 @@ Backward transitions occur when a task moves to an earlier workflow phase:
 
 ### Rejection Reason Flags
 
-#### --reason (Required for backward transitions)
+#### --rejection-reason (Required for backward transitions)
 
 Explanation of why the task is being rejected. Be specific and actionable.
 
 **Format:**
 ```
---reason="<explanation>"
+--rejection-reason="<explanation>"
 ```
 
 **Best Practices:**
@@ -820,13 +820,13 @@ Explanation of why the task is being rejected. Be specific and actionable.
 **Examples:**
 ```bash
 # Good: Specific and actionable
---reason="Missing error handling for database.Query() on line 67. Add null check and return error to caller."
+--rejection-reason="Missing error handling for database.Query() on line 67. Add null check and return error to caller."
 
 # Better: References specific test
---reason="TestUserRepository_GetByID fails when input is empty. Add input validation before database call."
+--rejection-reason="TestUserRepository_GetByID fails when input is empty. Add input validation before database call."
 
 # Best: With suggested fix
---reason="Critical: SQL injection vulnerability in query builder. Use parameterized queries instead of string concatenation. See OWASP SQL injection guide."
+--rejection-reason="Critical: SQL injection vulnerability in query builder. Use parameterized queries instead of string concatenation. See OWASP SQL injection guide."
 ```
 
 #### --reason-doc (Optional)
@@ -956,11 +956,11 @@ shark task get E07-F01-003 --json | jq '.rejection_history'
 ```bash
 # Simple rejection reason
 shark task reopen E07-F01-003 \
-  --reason="Missing error handling for database.Query() on line 67. Add null check."
+  --rejection-reason="Missing error handling for database.Query() on line 67. Add null check."
 
 # Complex rejection with linked document
 shark task reopen E07-F01-003 \
-  --reason="Found 3 critical issues. See code review document." \
+  --rejection-reason="Found 3 critical issues. See code review document." \
   --reason-doc="docs/reviews/E07-F01-003-code-review.md"
 ```
 
@@ -969,11 +969,11 @@ shark task reopen E07-F01-003 \
 ```bash
 # Test failure with specific steps
 shark task reopen E07-F01-005 \
-  --reason="TestUserRepository_GetByID fails when input is empty. Add input validation."
+  --rejection-reason="TestUserRepository_GetByID fails when input is empty. Add input validation."
 
 # With detailed bug report
 shark task reopen E07-F01-005 \
-  --reason="Critical bug: Memory leak in connection pool. See detailed analysis." \
+  --rejection-reason="Critical bug: Memory leak in connection pool. See detailed analysis." \
   --reason-doc="docs/qa/E07-F01-005-memory-leak-analysis.md"
 ```
 
@@ -994,7 +994,7 @@ shark task get E07-F01-003 --json | jq '.rejection_history[] | .reason'
 
 #### Missing Required Rejection Reason
 
-**Scenario:** Attempting backward transition without `--reason` flag
+**Scenario:** Attempting backward transition without `--rejection-reason` flag
 
 **Error:**
 ```
@@ -1004,11 +1004,11 @@ Task E07-F01-003 is moving from 'ready_for_code_review' to 'in_development'.
 Backward transitions require a rejection reason to provide feedback to developers.
 
 Usage:
-  shark task reopen E07-F01-003 --reason="<specific reason>"
+  shark task reopen E07-F01-003 --rejection-reason="<specific reason>"
 
 Example:
   shark task reopen E07-F01-003 \
-    --reason="Missing error handling on line 67. Add null check."
+    --rejection-reason="Missing error handling on line 67. Add null check."
 
 To bypass (not recommended):
   shark task reopen E07-F01-003 --force
