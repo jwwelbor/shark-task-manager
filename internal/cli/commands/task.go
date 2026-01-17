@@ -1771,8 +1771,39 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 		notes = &notesFlag
 	}
 
+	// Get rejection reason and document path if provided
+	rejectionReasonFlag, _ := cmd.Flags().GetString("rejection-reason")
+	var rejectionReason *string
+	if rejectionReasonFlag != "" {
+		rejectionReason = &rejectionReasonFlag
+	}
+
+	// Handle --reason-doc flag for document linking
+	reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+	if reasonDocFlag != "" {
+		// Validate document path format
+		if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
+			cli.Error(fmt.Sprintf("Invalid document path: %s", err.Error()))
+			os.Exit(1)
+		}
+
+		// Check if document file exists
+		projectRoot, err := cli.FindProjectRoot()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Failed to find project root: %s", err.Error()))
+			os.Exit(2)
+		}
+
+		fullPath := filepath.Join(projectRoot, reasonDocFlag)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			cli.Error(fmt.Sprintf("Document not found: %s", reasonDocFlag))
+			cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
+			os.Exit(1)
+		}
+	}
+
 	// Update status (repository handles workflow validation)
-	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, nil, force); err != nil {
+	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, rejectionReason, force); err != nil {
 		// Display error with workflow suggestion
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
 		if !force {
@@ -2036,6 +2067,30 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 		rejectionReason = &rejectionReasonFlag
 	}
 
+	// Handle --reason-doc flag for document linking
+	reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+	if reasonDocFlag != "" {
+		// Validate document path format
+		if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
+			cli.Error(fmt.Sprintf("Invalid document path: %s", err.Error()))
+			os.Exit(1)
+		}
+
+		// Check if document file exists
+		projectRoot, err := cli.FindProjectRoot()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Failed to find project root: %s", err.Error()))
+			os.Exit(2)
+		}
+
+		fullPath := filepath.Join(projectRoot, reasonDocFlag)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			cli.Error(fmt.Sprintf("Document not found: %s", reasonDocFlag))
+			cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
+			os.Exit(1)
+		}
+	}
+
 	// Reopen the task atomically
 	if err := repo.ReopenTaskForced(ctx, task.ID, &agent, notes, rejectionReason, force); err != nil {
 		return fmt.Errorf("failed to reopen task: %w", err)
@@ -2204,6 +2259,7 @@ func init() {
 	taskUpdateCmd.Flags().String("status", "", "New status for the task (uses workflow validation)")
 	taskUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed or bypass workflow validation for status changes")
 	taskUpdateCmd.Flags().String("reason", "", "Reason for backward status transitions (required unless --force is used)")
+	taskUpdateCmd.Flags().String("reason-doc", "", "Path to document containing rejection reason (relative to project root)")
 
 	// Add flags for set-status command
 	taskSetStatusCmd.Flags().Bool("force", false, "Force status change bypassing workflow validation (use with caution)")
@@ -2377,6 +2433,30 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		// Get force flag and reason flag
 		force, _ := cmd.Flags().GetBool("force")
 		reason, _ := cmd.Flags().GetString("reason")
+
+		// Handle --reason-doc flag for document linking
+		reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+		if reasonDocFlag != "" {
+			// Validate document path format
+			if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
+				cli.Error(fmt.Sprintf("Invalid document path: %s", err.Error()))
+				os.Exit(1)
+			}
+
+			// Check if document file exists
+			projectRoot, err := cli.FindProjectRoot()
+			if err != nil {
+				cli.Error(fmt.Sprintf("Failed to find project root: %s", err.Error()))
+				os.Exit(2)
+			}
+
+			fullPath := filepath.Join(projectRoot, reasonDocFlag)
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				cli.Error(fmt.Sprintf("Document not found: %s", reasonDocFlag))
+				cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
+				os.Exit(1)
+			}
+		}
 
 		// Validate that backward transitions have a reason (unless --force is used)
 		if err := validation.ValidateReasonForStatusTransition(status, string(task.Status), reason, force, workflow); err != nil {
