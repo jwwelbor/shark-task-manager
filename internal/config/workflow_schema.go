@@ -53,7 +53,8 @@ import (
 //	  "special_statuses": {
 //	    "_start_": ["todo"],
 //	    "_complete_": ["completed"]
-//	  }
+//	  },
+//	  "require_rejection_reason": true
 //	}
 type WorkflowConfig struct {
 	// Version of the workflow config schema (default: "1.0")

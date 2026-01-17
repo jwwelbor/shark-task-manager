@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -840,7 +841,6 @@ func TestWorkflowConfig_RequireRejectionReason_DefaultWorkflow(t *testing.T) {
 // TestLoadWorkflowConfig_RequireRejectionReason_Explicit tests loading explicit config value
 func TestLoadWorkflowConfig_RequireRejectionReason_Explicit(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
 
 	tests := []struct {
 		name     string
@@ -899,8 +899,10 @@ func TestLoadWorkflowConfig_RequireRejectionReason_Explicit(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Use unique file path for each test to avoid cache issues
+			configPath := filepath.Join(tmpDir, fmt.Sprintf(".sharkconfig-%d.json", i))
 			if err := os.WriteFile(configPath, []byte(tt.config), 0644); err != nil {
 				t.Fatalf("failed to write test config: %v", err)
 			}
