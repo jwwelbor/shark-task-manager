@@ -1,4 +1,4 @@
-.PHONY: help build run test clean install dev lint fmt vet demo test-db shark install-shark
+.PHONY: help build run test clean install dev lint fmt vet demo test-db test-e2e shark install-shark
 
 # Default target
 help:
@@ -102,6 +102,11 @@ demo: build
 test-db: build
 	@echo "Running database integration tests..."
 	@./bin/test-db
+
+# Run E2E shell tests
+test-e2e: shark
+	@echo "Running E2E shell tests..."
+	@bash test/e2e/test_enhanced_status.sh
 
 # Clean build artifacts
 clean:

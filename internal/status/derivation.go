@@ -3,61 +3,100 @@
 package status
 
 import (
+	"log"
+
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
-// DeriveFeatureStatus calculates feature status from task status counts.
-// Returns empty string if counts are empty (no tasks).
+// DeriveFeatureStatus calculates feature status from task status counts using workflow config.
+// This is the config-driven version that uses the phase field from status_metadata.
 //
-// Rules:
-// - Empty (no tasks): returns FeatureStatusDraft
-// - All completed/archived: returns FeatureStatusCompleted
-// - Any in_progress/ready_for_review/blocked: returns FeatureStatusActive
-// - Some completed + some todo (no active): returns FeatureStatusActive
-// - All todo: returns FeatureStatusDraft
-func DeriveFeatureStatus(counts map[models.TaskStatus]int) models.FeatureStatus {
-	total := 0
-	for _, c := range counts {
-		total += c
+// Parameters:
+//   - statusCounts: map of status -> count (e.g., {"completed": 2, "in_qa": 3})
+//   - cfg: WorkflowConfig containing status_metadata with phase information
+//
+// Returns FeatureStatus based on phase categorization:
+//   - Empty (no tasks): FeatureStatusDraft
+//   - All tasks in phase="done": FeatureStatusCompleted
+//   - Any tasks in phase="development|review|qa|approval|any": FeatureStatusActive
+//   - Mixed completed + planning: FeatureStatusActive (work in progress)
+//   - All tasks in phase="planning": FeatureStatusDraft
+//
+// Unknown statuses (not in config) are treated as planning phase with a warning log.
+func DeriveFeatureStatus(statusCounts map[string]int, cfg *config.WorkflowConfig) models.FeatureStatus {
+	// Handle nil config gracefully
+	if cfg == nil {
+		log.Println("WARN: No workflow config provided to DeriveFeatureStatus, using safe defaults")
+		return models.FeatureStatusDraft
 	}
 
-	// No tasks = draft
+	total := 0
+	completedCount := 0
+	activeCount := 0
+	planningCount := 0
+
+	for status, count := range statusCounts {
+		total += count
+
+		// Get metadata from config
+		meta, found := cfg.GetStatusMetadata(status)
+		if !found {
+			// Unknown status - treat as planning and log warning
+			log.Printf("WARN: Status %q not found in workflow config, treating as planning phase", status)
+			planningCount += count
+			continue
+		}
+
+		// Categorize by phase
+		switch meta.Phase {
+		case "done":
+			completedCount += count
+		case "development", "review", "qa", "approval":
+			activeCount += count
+		case "planning":
+			planningCount += count
+		case "any":
+			// Blocked/on_hold count as active work (blocks feature progress)
+			activeCount += count
+		default:
+			// Unrecognized phase - treat as planning
+			log.Printf("WARN: Unrecognized phase %q for status %q, treating as planning", meta.Phase, status)
+			planningCount += count
+		}
+	}
+
+	// Derive feature status from counts
 	if total == 0 {
 		return models.FeatureStatusDraft
 	}
 
-	// Count completed (completed + archived)
-	completed := counts[models.TaskStatusCompleted] + counts[models.TaskStatusArchived]
-	if completed == total {
+	// All completed → completed
+	if completedCount == total {
 		return models.FeatureStatusCompleted
 	}
 
-	// Count active (in_progress, ready_for_review, blocked)
-	active := counts[models.TaskStatusInProgress] +
-		counts[models.TaskStatusReadyForReview] +
-		counts[models.TaskStatusBlocked]
-	if active > 0 {
+	// Any active work → active
+	if activeCount > 0 {
 		return models.FeatureStatusActive
 	}
 
-	// Check for partial completion (some completed + some todo)
-	// This is a "work in progress" state even without active tasks
-	todo := counts[models.TaskStatusTodo]
-	if completed > 0 && todo > 0 {
+	// Mixed completed + planning = work in progress → active
+	if completedCount > 0 && planningCount > 0 {
 		return models.FeatureStatusActive
 	}
 
-	// All todo = draft
+	// All planning = draft
 	return models.FeatureStatusDraft
 }
 
 // DeriveEpicStatus calculates epic status from feature status counts.
-// Returns empty string if counts are empty (no features).
+// Feature statuses are already derived, so this function uses the typed feature status constants.
 //
 // Rules:
 // - Empty (no features): returns EpicStatusDraft
 // - All completed/archived: returns EpicStatusCompleted
-// - Any active/blocked: returns EpicStatusActive
+// - Any active: returns EpicStatusActive
 // - Some completed + some draft (no active): returns EpicStatusActive
 // - All draft: returns EpicStatusDraft
 func DeriveEpicStatus(counts map[models.FeatureStatus]int) models.EpicStatus {
@@ -95,6 +134,7 @@ func DeriveEpicStatus(counts map[models.FeatureStatus]int) models.EpicStatus {
 }
 
 // IsTaskActiveStatus returns true if the task status counts as "active work"
+// DEPRECATED: Use workflow config phase field instead. This function uses hardcoded logic.
 func IsTaskActiveStatus(status models.TaskStatus) bool {
 	switch status {
 	case models.TaskStatusInProgress,
@@ -107,6 +147,7 @@ func IsTaskActiveStatus(status models.TaskStatus) bool {
 }
 
 // IsTaskCompletedStatus returns true if the task status counts as "completed"
+// DEPRECATED: Use workflow config phase field instead. This function uses hardcoded logic.
 func IsTaskCompletedStatus(status models.TaskStatus) bool {
 	switch status {
 	case models.TaskStatusCompleted,

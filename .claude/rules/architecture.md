@@ -42,6 +42,7 @@ This rule is loaded when working with files in `internal/` or `cmd/` directories
 │   ├── config/                   # Configuration management
 │   ├── patterns/                 # File pattern matching and validation
 │   ├── validation/               # Task/epic/feature validation
+│   ├── status/                   # Config-driven status calculations
 │   ├── reporting/                # Report generation
 │   └── test/                     # Test utilities
 ```
@@ -200,3 +201,146 @@ This feature is particularly useful when AI agents are working in subdirectories
 - No need to track or compute the path to project root
 - No risk of creating duplicate databases in subdirectories
 - Consistent behavior across all project directories
+
+## Enhanced Status Package (internal/status/)
+
+Provides configuration-driven status calculations and displays for features and epics.
+
+### Overview
+
+The status package enables sophisticated status tracking by reading configuration from `.sharkconfig.json` and applying business logic for:
+- **Progress Calculation**: Weighted and completion progress metrics
+- **Work Breakdown**: Categorization by responsibility (agent, human, qa_team)
+- **Health Indicators**: Feature health status (healthy, warning, critical)
+- **Action Items**: Tasks requiring attention (ready_for_* statuses)
+- **Impediments**: Blocked tasks with age tracking
+
+### Core Functions
+
+**Progress Calculation:**
+```go
+CalculateProgress(ctx, feature/epic) -> (weighted%, completion%, total)
+```
+- Weighted progress based on `progress_weight` in status config
+- Completion progress raw percentage of completed tasks
+- Total task count
+
+**Work Breakdown:**
+```go
+CalculateWorkRemaining(ctx, feature) -> WorkSummary
+```
+- Counts tasks by responsibility (agent, human, qa_team, none, blocked)
+- Enables resource allocation and capacity planning
+- Shows distribution of work across team
+
+**Status Context:**
+```go
+GetStatusContext(ctx, feature/epic) -> StatusContext
+```
+- Color information for display
+- Phase information (planning, development, review, qa, done)
+- Progress weight configuration
+- Responsibility assignment
+- Feature blocking configuration
+
+**Action Items:**
+```go
+GetActionItems(ctx, feature/epic) -> map[status][]tasks
+```
+- Tasks grouped by actionable status
+- Filters to statuses with `blocks_feature: true`
+- Enables quick identification of what needs attention
+
+### Configuration Structure
+
+Status metadata is defined in `.sharkconfig.json`:
+
+```json
+{
+  "status_metadata": {
+    "todo": {
+      "color": "gray",
+      "phase": "planning",
+      "progress_weight": 0,
+      "responsibility": "none",
+      "blocks_feature": false
+    },
+    "in_progress": {
+      "color": "yellow",
+      "phase": "development",
+      "progress_weight": 50,
+      "responsibility": "agent",
+      "blocks_feature": false
+    },
+    "ready_for_approval": {
+      "color": "magenta",
+      "phase": "review",
+      "progress_weight": 75,
+      "responsibility": "human",
+      "blocks_feature": true
+    },
+    "completed": {
+      "color": "green",
+      "phase": "done",
+      "progress_weight": 100,
+      "responsibility": "none",
+      "blocks_feature": false
+    }
+  }
+}
+```
+
+**Configuration Fields:**
+- `color`: ANSI color for terminal display (red, green, yellow, blue, cyan, magenta, gray, white, orange, purple)
+- `phase`: Workflow phase for ordering (planning, development, review, qa, approval, done, any)
+- `progress_weight`: Contribution to weighted progress (0-100)
+- `responsibility`: Who owns tasks in this status (agent, human, qa_team, none)
+- `blocks_feature`: Whether status blocks feature completion (true/false)
+
+### Display Integration
+
+The status package is used by:
+
+**Feature Get Command:**
+- Progress breakdown (weighted %, completion %, total)
+- Work summary (by responsibility)
+- Action items (grouped by status)
+
+**Feature List Command:**
+- Health indicators (healthy/warning/critical)
+- Dual progress display (weighted | completion)
+- Action items count
+
+**Epic Get Command:**
+- Feature status rollup (counts by status)
+- Task status rollup (aggregated across features)
+- Impediments list (blocked tasks with age)
+
+### Calculation Formulas
+
+**Weighted Progress:**
+```
+(Σ(weight × count_in_status) / total_tasks) × 100%
+```
+
+**Completion Progress:**
+```
+(completed_tasks / total_tasks) × 100%
+```
+
+**Health Status:**
+```
+health = {
+  "healthy" if no_blockers AND all_approvals_old_< 3_days,
+  "warning" if approvals_old_> 3_days OR minor_blockers,
+  "critical" if multiple_blockers OR high_priority_blocked
+}
+```
+
+### Testing
+
+Status calculations are tested with:
+- Mock configurations with various weight distributions
+- Multiple feature/epic structures
+- Edge cases (0 tasks, all tasks same status, mixed responsibilities)
+- Configuration validation

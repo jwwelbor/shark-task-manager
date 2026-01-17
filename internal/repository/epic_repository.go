@@ -618,3 +618,76 @@ func (r *EpicRepository) CascadeStatusToFeaturesAndTasksByKey(ctx context.Contex
 	}
 	return r.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, targetFeatureStatus, targetTaskStatus)
 }
+
+// ============================================================================
+// Status Rollup Methods (E07-F23)
+// ============================================================================
+
+// GetFeatureStatusRollup returns feature status counts for an epic
+// Uses efficient GROUP BY query to aggregate feature statuses
+// Used for epic status displays and rollup calculations
+func (r *EpicRepository) GetFeatureStatusRollup(ctx context.Context, epicID int64) (map[string]int, error) {
+	query := `
+		SELECT status, COUNT(*) as count
+		FROM features
+		WHERE epic_id = ?
+		GROUP BY status
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, epicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature status rollup: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan feature status count: %w", err)
+		}
+		counts[status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating feature status counts: %w", err)
+	}
+
+	return counts, nil
+}
+
+// GetTaskStatusRollup returns task status counts across all features in an epic
+// Uses efficient JOIN and GROUP BY to aggregate task statuses
+// Used for epic status displays and task rollup calculations
+func (r *EpicRepository) GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error) {
+	query := `
+		SELECT t.status, COUNT(*) as count
+		FROM tasks t
+		JOIN features f ON t.feature_id = f.id
+		WHERE f.epic_id = ?
+		GROUP BY t.status
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, epicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task status rollup: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan task status count: %w", err)
+		}
+		counts[status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating task status counts: %w", err)
+	}
+
+	return counts, nil
+}

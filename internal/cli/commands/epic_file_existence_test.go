@@ -27,7 +27,7 @@ func TestEpicCreate_ExistingFile_ShouldNotOverwrite(t *testing.T) {
 	defer cli.ResetDB()
 
 	// Clean up any existing test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'TEST-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99' OR key LIKE 'TEST-%'")
 
 	// Get repository
 	epicRepo := repository.NewEpicRepository(testDb)

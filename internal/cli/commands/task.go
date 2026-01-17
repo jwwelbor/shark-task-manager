@@ -34,7 +34,17 @@ func getRelativePathTask(absPath string, projectRoot string) string {
 // after a task status change. This is informational - errors are logged but don't
 // fail the operation.
 func triggerStatusCascade(ctx context.Context, dbWrapper *repository.DB, featureID int64) {
-	calcService := status.NewCalculationService(dbWrapper)
+	// Load workflow config
+	configPath, err := cli.GetConfigPath()
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", err)
+	}
+	cfg, err := config.LoadWorkflowConfig(configPath)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
+	}
+
+	calcService := status.NewCalculationService(dbWrapper, cfg)
 	results, err := calcService.CascadeFromFeatureID(ctx, featureID)
 	if err != nil {
 		cli.Warning(fmt.Sprintf("Status cascade failed: %v", err))
