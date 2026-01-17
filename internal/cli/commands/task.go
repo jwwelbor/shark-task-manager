@@ -680,14 +680,35 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get rejection history
-	noteRepo := repository.NewTaskNoteRepository(repoDb)
-	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	// Get rejection history from task_history table
+	historyRepo := repository.NewTaskHistoryRepository(repoDb)
+	rejectionHistoryRaw, err := historyRepo.GetRejectionHistoryForTask(ctx, task.ID)
 	if err != nil && cli.GlobalConfig.Verbose {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch rejection history: %v\n", err)
 	}
-	if rejectionHistory == nil {
-		rejectionHistory = make([]*repository.RejectionHistoryEntry, 0)
+
+	// Convert TaskHistory entries to RejectionHistoryEntry format for display
+	rejectionHistory := make([]*repository.RejectionHistoryEntry, 0)
+	if rejectionHistoryRaw != nil {
+		for _, history := range rejectionHistoryRaw {
+			if history.RejectionReason != nil && *history.RejectionReason != "" {
+				entry := &repository.RejectionHistoryEntry{
+					ID:         history.ID,
+					Timestamp:  history.Timestamp.Format("2006-01-02 15:04:05"),
+					FromStatus: *history.OldStatus,
+					ToStatus:   history.NewStatus,
+					RejectedBy: func() string {
+						if history.Agent != nil {
+							return *history.Agent
+						}
+						return "unknown"
+					}(),
+					Reason:    *history.RejectionReason,
+					HistoryID: history.ID,
+				}
+				rejectionHistory = append(rejectionHistory, entry)
+			}
+		}
 	}
 
 	// Output results

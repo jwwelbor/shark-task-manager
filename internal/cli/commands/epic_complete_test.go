@@ -90,7 +90,7 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 		agent := "test-agent"
 		for _, task := range tasks {
 			if task.Status != models.TaskStatusCompleted {
-				if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, true); err != nil {
+				if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, nil, true); err != nil {
 					t.Fatalf("Failed to complete task: %v", err)
 				}
 			}

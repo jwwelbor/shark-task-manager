@@ -79,7 +79,7 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 	// (simulating what runTaskUpdate should call)
 	// Use in_progress which exists in hardcoded fallback statuses
 	newStatus := models.TaskStatusInProgress
-	err = taskRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, true)
+	err = taskRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, nil, true)
 
 	// ASSERT: Verify the status was updated
 	if err != nil {
@@ -177,7 +177,7 @@ func TestTaskUpdate_WithStatusFlag_InvalidTransition(t *testing.T) {
 	// ACT: Attempt to update status to invalid transition (completed -> todo)
 	// According to workflow, completed has no valid transitions (terminal state)
 	invalidStatus := models.TaskStatus("todo")
-	err = taskRepo.UpdateStatusForced(ctx, task.ID, invalidStatus, nil, nil, false)
+	err = taskRepo.UpdateStatusForced(ctx, task.ID, invalidStatus, nil, nil, nil, false)
 
 	// ASSERT: Verify the transition was rejected
 	if err == nil {

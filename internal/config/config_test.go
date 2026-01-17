@@ -231,6 +231,105 @@ func TestStatusMetadata_OrchestratorAction_Load(t *testing.T) {
 	}
 }
 
+// TestConfig_RequireRejectionReason_DefaultValue tests default value is false
+func TestConfig_RequireRejectionReason_DefaultValue(t *testing.T) {
+	cfg := &Config{}
+	if cfg.RequireRejectionReason != false {
+		t.Errorf("expected default RequireRejectionReason to be false, got: %v", cfg.RequireRejectionReason)
+	}
+}
+
+// TestConfig_RequireRejectionReason_Parsing tests JSON unmarshaling of the field
+func TestConfig_RequireRejectionReason_Parsing(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		want    bool
+		wantErr bool
+	}{
+		{
+			name:    "explicitly true",
+			json:    `{"require_rejection_reason": true}`,
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "explicitly false",
+			json:    `{"require_rejection_reason": false}`,
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:    "omitted (default)",
+			json:    `{}`,
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:    "invalid type (string)",
+			json:    `{"require_rejection_reason": "yes"}`,
+			want:    false,
+			wantErr: true,
+		},
+		{
+			name:    "invalid type (number)",
+			json:    `{"require_rejection_reason": 1}`,
+			want:    false,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg Config
+			err := json.Unmarshal([]byte(tt.json), &cfg)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Unmarshal() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && cfg.RequireRejectionReason != tt.want {
+				t.Errorf("RequireRejectionReason = %v, want %v", cfg.RequireRejectionReason, tt.want)
+			}
+		})
+	}
+}
+
+// TestConfig_IsRequireRejectionReasonEnabled tests the getter method
+func TestConfig_IsRequireRejectionReasonEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *Config
+		want    bool
+	}{
+		{
+			name:   "enabled",
+			config: &Config{RequireRejectionReason: true},
+			want:   true,
+		},
+		{
+			name:   "disabled",
+			config: &Config{RequireRejectionReason: false},
+			want:   false,
+		},
+		{
+			name:   "nil config",
+			config: nil,
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.IsRequireRejectionReasonEnabled()
+			if result != tt.want {
+				t.Errorf("IsRequireRejectionReasonEnabled() = %v, want %v", result, tt.want)
+			}
+		})
+	}
+}
+
 // TestStatusMetadata_OrchestratorAction_Backward_Compatible tests that missing orchestrator_action is valid
 func TestStatusMetadata_OrchestratorAction_Backward_Compatible(t *testing.T) {
 	jsonData := []byte(`{

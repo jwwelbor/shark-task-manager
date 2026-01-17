@@ -878,7 +878,7 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 
 			if isBackward {
 				// Backward transitions require a non-empty reason
-				if notes == nil || strings.TrimSpace(*notes) == "" {
+				if rejectionReason == nil || strings.TrimSpace(*rejectionReason) == "" {
 					return fmt.Errorf("rejection reason required for backward transition from %s to %s: use --reason flag or use --force to bypass", currentStatus, newStatus)
 				}
 			}
@@ -915,9 +915,44 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes, rejectionReason, force)
+	result, err := tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes, rejectionReason, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
+	}
+
+	historyID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get history record id: %w", err)
+	}
+
+	// Create rejection note if rejection reason is provided and transition is backward
+	if rejectionReason != nil && strings.TrimSpace(*rejectionReason) != "" {
+		isBackward := false
+		if r.workflow != nil {
+			var checkErr error
+			isBackward, checkErr = r.workflow.IsBackwardTransition(currentStatus, string(newStatus))
+			if checkErr != nil {
+				// Log but don't fail - the transition already succeeded
+				fmt.Printf("WARNING: Failed to check backward transition for rejection note: %v\n", checkErr)
+			}
+		}
+
+		if isBackward {
+			noteRepo := NewTaskNoteRepository(r.db)
+			rejectedBy := "system"
+			if agent != nil && *agent != "" {
+				rejectedBy = *agent
+			}
+
+			_, err := noteRepo.CreateRejectionNoteWithTx(
+				ctx, tx, taskID, historyID,
+				currentStatus, string(newStatus),
+				*rejectionReason, rejectedBy, nil,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create rejection note: %w", err)
+			}
+		}
 	}
 
 	// Commit transaction

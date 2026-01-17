@@ -16,12 +16,13 @@ type Config struct {
 	Database *DatabaseConfig `json:"database,omitempty"`
 
 	// Other config fields (can be extended as needed)
-	ColorEnabled    *bool                  `json:"color_enabled,omitempty"`
-	DefaultEpic     *string                `json:"default_epic,omitempty"`
-	DefaultAgent    *string                `json:"default_agent,omitempty"`
-	JSONOutput      *bool                  `json:"json_output,omitempty"`
-	InteractiveMode *bool                  `json:"interactive_mode,omitempty"` // Enable interactive prompts (default: false for automation)
-	RawData         map[string]interface{} `json:"-"`                          // Store raw config data to preserve unknown fields
+	ColorEnabled           *bool                  `json:"color_enabled,omitempty"`
+	DefaultEpic            *string                `json:"default_epic,omitempty"`
+	DefaultAgent           *string                `json:"default_agent,omitempty"`
+	JSONOutput             *bool                  `json:"json_output,omitempty"`
+	InteractiveMode        *bool                  `json:"interactive_mode,omitempty"`           // Enable interactive prompts (default: false for automation)
+	RequireRejectionReason bool                   `json:"require_rejection_reason,omitempty"` // NEW: Require rejection reason for backward transitions (default: false)
+	RawData                map[string]interface{} `json:"-"`                                   // Store raw config data to preserve unknown fields
 
 	// statusMetadata holds status metadata for work breakdown calculations
 	// Internal field for testing and programmatic access
@@ -121,4 +122,13 @@ func (c *Config) IsInteractiveModeEnabled() bool {
 		return false // Default: non-interactive for automation
 	}
 	return *c.InteractiveMode
+}
+
+// IsRequireRejectionReasonEnabled returns true if rejection reason is required for backward transitions
+// Defaults to false (optional) for backward compatibility
+func (c *Config) IsRequireRejectionReasonEnabled() bool {
+	if c == nil {
+		return false // Default: rejection reason optional
+	}
+	return c.RequireRejectionReason
 }
