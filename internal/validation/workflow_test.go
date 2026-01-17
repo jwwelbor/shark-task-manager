@@ -481,3 +481,78 @@ func getTestWorkflowWithOnHold() *config.WorkflowConfig {
 	workflow.StatusFlow["in_development"] = append(workflow.StatusFlow["in_development"], "on_hold")
 	return workflow
 }
+
+// TestValidateReasonForStatusTransition tests the reason validation for status transitions
+func TestValidateReasonForStatusTransition(t *testing.T) {
+	workflow := getTestWorkflow()
+
+	tests := []struct {
+		name        string
+		newStatus   string
+		currentStatus string
+		reason      string
+		force       bool
+		shouldErr   bool
+	}{
+		{
+			name:         "no_status_change",
+			newStatus:    "",
+			currentStatus: "in_development",
+			reason:       "",
+			force:        false,
+			shouldErr:    false,
+		},
+		{
+			name:         "backward_without_reason",
+			newStatus:    "in_development",
+			currentStatus: "ready_for_code_review",
+			reason:       "",
+			force:        false,
+			shouldErr:    true,
+		},
+		{
+			name:         "backward_with_reason",
+			newStatus:    "in_development",
+			currentStatus: "ready_for_code_review",
+			reason:       "Need to fix bugs",
+			force:        false,
+			shouldErr:    false,
+		},
+		{
+			name:         "backward_with_force",
+			newStatus:    "in_development",
+			currentStatus: "ready_for_code_review",
+			reason:       "",
+			force:        true,
+			shouldErr:    false,
+		},
+		{
+			name:         "forward_without_reason",
+			newStatus:    "ready_for_code_review",
+			currentStatus: "in_development",
+			reason:       "",
+			force:        false,
+			shouldErr:    false,
+		},
+		{
+			name:         "same_phase_without_reason",
+			newStatus:    "blocked",
+			currentStatus: "in_development",
+			reason:       "",
+			force:        false,
+			shouldErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateReasonForStatusTransition(tt.newStatus, tt.currentStatus, tt.reason, tt.force, workflow)
+			if (err != nil) != tt.shouldErr {
+				t.Errorf("ValidateReasonForStatusTransition() error = %v, shouldErr %v", err, tt.shouldErr)
+			}
+			if tt.shouldErr && err != nil && err != ErrReasonRequired {
+				t.Errorf("ValidateReasonForStatusTransition() got error %v, expected ErrReasonRequired", err)
+			}
+		})
+	}
+}

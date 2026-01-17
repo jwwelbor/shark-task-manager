@@ -263,6 +263,9 @@ var taskUpdateCmd = &cobra.Command{
 	Short: "Update a task",
 	Long: `Update a task's properties such as title, description, priority, agent, or dependencies.
 
+For backward status transitions (e.g., moving from review back to development), you must provide
+a --reason flag to explain why the task is being sent back, unless --force is used.
+
 Supports multiple key formats (numeric, full, or slugged).
 
 Examples:
@@ -271,7 +274,8 @@ Examples:
   shark task update T-E04-F01-001 --priority 1
   shark task update T-E04-F01-001 --agent backend
   shark task update T-E04-F01-001 --filename "docs/tasks/custom.md"
-  shark task update T-E04-F01-001 --depends-on "T-E04-F01-002,T-E04-F01-003"`,
+  shark task update T-E04-F01-001 --depends-on "T-E04-F01-002,T-E04-F01-003"
+  shark task update T-E04-F01-001 --status in_development --reason "Missing error handling"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTaskUpdate,
 }
@@ -2272,7 +2276,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		reason, _ := cmd.Flags().GetString("reason")
 
 		// Validate that backward transitions have a reason (unless --force is used)
-		if err := validation.ValidateReasonForStatusTransition(status, task.Status, reason, force, workflow); err != nil {
+		if err := validation.ValidateReasonForStatusTransition(status, string(task.Status), reason, force, workflow); err != nil {
 			cli.Error(fmt.Sprintf("Error: %s", err.Error()))
 			cli.Info(fmt.Sprintf("Use --reason to provide a reason, or use --force to bypass this requirement"))
 			cli.Info(fmt.Sprintf("Example: shark task update %s --status %s --reason \"Reason for transition\"", taskKey, status))
@@ -2291,8 +2295,14 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		// Convert status string to TaskStatus
 		newStatus := models.TaskStatus(status)
 
+		// Pass reason as notes parameter (repository uses notes for rejection reason)
+		var notesPtr *string
+		if reason != "" {
+			notesPtr = &reason
+		}
+
 		// Update status with workflow validation (unless forcing)
-		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, force)
+		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, notesPtr, force)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update task status: %s", err.Error()))
 

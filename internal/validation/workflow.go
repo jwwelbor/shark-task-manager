@@ -1,8 +1,13 @@
 package validation
 
 import (
+	"errors"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 )
+
+// ErrReasonRequired is returned when a backward status transition is attempted without a reason
+var ErrReasonRequired = errors.New("reason is required for backward status transitions")
 
 // PhaseOrder defines the hierarchy of workflow phases
 // Lower order = earlier in workflow, higher order = later in workflow
@@ -80,4 +85,45 @@ func IsBackwardTransition(currentStatus, newStatus string, workflow *config.Work
 	//
 	// If either phase is 0 (special/any), it's not a backward rejection transition
 	return newOrder < currentOrder && newOrder > 0 && currentOrder > 0
+}
+
+// ValidateReasonForStatusTransition validates that a reason is provided for backward status transitions.
+//
+// Rules:
+// - Backward transitions (e.g., review → development) require a non-empty reason UNLESS --force is true
+// - Forward transitions (e.g., development → review) don't require a reason
+// - Same-phase transitions (e.g., development → blocked) don't require a reason
+// - If force is true, reason is not required
+// - If status is empty, no validation is performed (no status change)
+//
+// Parameters:
+//   - newStatus: The new status being transitioned to (empty string means no change)
+//   - currentStatus: The task's current status
+//   - reason: The reason provided for the transition
+//   - force: Whether to bypass validation
+//   - workflow: The workflow configuration for phase metadata
+//
+// Returns:
+// - nil if validation passes
+// - ErrReasonRequired if a backward transition is attempted without a reason (and force is false)
+func ValidateReasonForStatusTransition(newStatus, currentStatus, reason string, force bool, workflow *config.WorkflowConfig) error {
+	// If no status change is requested, no validation needed
+	if newStatus == "" {
+		return nil
+	}
+
+	// If force is true, bypass validation
+	if force {
+		return nil
+	}
+
+	// Check if this is a backward transition
+	if IsBackwardTransition(currentStatus, newStatus, workflow) {
+		// Backward transitions require a non-empty reason
+		if reason == "" {
+			return ErrReasonRequired
+		}
+	}
+
+	return nil
 }
