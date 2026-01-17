@@ -203,6 +203,31 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 		return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, &result)
 	}
 
+	// Load config to check interactive mode setting
+	cfgManager := config.NewManager(projectRoot)
+	cfg, err := cfgManager.Load()
+	if err != nil {
+		// If config fails to load, default to non-interactive
+		cfg = &config.Config{}
+	}
+
+	// Check if interactive mode is enabled
+	interactiveMode := cfg.IsInteractiveModeEnabled()
+
+	// Non-interactive mode: auto-select first transition
+	if !interactiveMode {
+		if cli.GlobalConfig.JSON {
+			// JSON mode - return available transitions
+			result.Message = "Use --status=<name> to specify target status for JSON output"
+			return cli.OutputJSON(result)
+		}
+
+		// Auto-select first transition
+		targetStatus = transitions[0].TargetStatus
+		cli.Info(fmt.Sprintf("Auto-selected next status: %s (from %d options)", targetStatus, len(transitions)))
+		return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, &result)
+	}
+
 	// Interactive mode
 	if cli.GlobalConfig.JSON {
 		// JSON mode but no target status - return available transitions

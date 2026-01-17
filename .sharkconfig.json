@@ -7,6 +7,7 @@
   "default_agent": null,
   "default_epic": null,
   "json_output": false,
+  "interactive_mode": false,
   "last_sync_time": "2026-01-01T13:41:04-06:00",
   "patterns": {
     "epic": {
@@ -132,56 +133,87 @@
     ]
   },
   "status_flow_version": "1.0",
+  "require_rejection_reason": true,
   "status_metadata": {
     "blocked": {
       "color": "red",
       "description": "Temporarily blocked by external dependency",
-      "phase": "any"
+      "phase": "any",
+      "progress_weight": 0.0,
+      "responsibility": "none",
+      "blocks_feature": true
     },
     "cancelled": {
       "color": "gray",
       "description": "Task abandoned or deprecated",
-      "phase": "done"
+      "phase": "done",
+      "progress_weight": 0.0,
+      "responsibility": "none",
+      "blocks_feature": false
     },
     "completed": {
       "color": "white",
       "description": "Task finished and approved",
-      "phase": "done"
+      "phase": "done",
+      "progress_weight": 1.0,
+      "responsibility": "none",
+      "blocks_feature": false
     },
     "draft": {
       "color": "gray",
       "description": "Task created but not yet refined",
-      "phase": "planning"
+      "phase": "planning",
+      "progress_weight": 0.0,
+      "responsibility": "none",
+      "blocks_feature": false
     },
     "in_approval": {
       "color": "purple",
       "description": "Under final review",
-      "phase": "approval"
+      "phase": "approval",
+      "progress_weight": 0.95,
+      "responsibility": "human",
+      "blocks_feature": false
     },
     "in_code_review": {
       "color": "magenta",
       "description": "Under code review",
-      "phase": "review"
+      "phase": "review",
+      "progress_weight": 0.8,
+      "responsibility": "agent",
+      "blocks_feature": false
     },
     "in_development": {
       "color": "yellow",
       "description": "Code implementation in progress",
-      "phase": "development"
+      "phase": "development",
+      "progress_weight": 0.5,
+      "responsibility": "agent",
+      "blocks_feature": false
     },
     "in_qa": {
       "color": "green",
       "description": "Being tested",
-      "phase": "qa"
+      "phase": "qa",
+      "progress_weight": 0.85,
+      "responsibility": "qa_team",
+      "blocks_feature": false
     },
     "in_refinement": {
       "color": "blue",
       "description": "Being analyzed and specified",
-      "phase": "planning"
+      "phase": "planning",
+      "progress_weight": 0.15,
+      "responsibility": "agent",
+      "blocks_feature": false
     },
     "on_hold": {
       "color": "orange",
       "description": "Intentionally paused",
-      "phase": "any"
+      "phase": "any",
+      "progress_weight": 0.0,
+      "responsibility": "none",
+      "blocks_feature": false
     },
     "ready_for_approval": {
       "agent_types": [
@@ -190,7 +222,10 @@
       ],
       "color": "purple",
       "description": "Awaiting final approval",
-      "phase": "approval"
+      "phase": "approval",
+      "progress_weight": 0.9,
+      "responsibility": "human",
+      "blocks_feature": false
     },
     "ready_for_code_review": {
       "agent_types": [
@@ -199,7 +234,10 @@
       ],
       "color": "magenta",
       "description": "Code complete, awaiting review",
-      "phase": "review"
+      "phase": "review",
+      "progress_weight": 0.75,
+      "responsibility": "agent",
+      "blocks_feature": false
     },
     "ready_for_development": {
       "agent_types": [
@@ -208,7 +246,10 @@
       ],
       "color": "yellow",
       "description": "Spec complete, ready for implementation",
-      "phase": "development"
+      "phase": "development",
+      "progress_weight": 0.25,
+      "responsibility": "none",
+      "blocks_feature": false
     },
     "ready_for_qa": {
       "agent_types": [
@@ -217,7 +258,10 @@
       ],
       "color": "green",
       "description": "Ready for quality assurance testing",
-      "phase": "qa"
+      "phase": "qa",
+      "progress_weight": 0.8,
+      "responsibility": "qa_team",
+      "blocks_feature": false
     },
     "ready_for_refinement": {
       "agent_types": [
@@ -226,7 +270,10 @@
       ],
       "color": "cyan",
       "description": "Awaiting specification and analysis",
-      "phase": "planning"
+      "phase": "planning",
+      "progress_weight": 0.1,
+      "responsibility": "agent",
+      "blocks_feature": false
     }
   }
 }

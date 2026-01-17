@@ -11,6 +11,7 @@ Complete command reference for the Shark Task Manager CLI.
 - [Feature Commands](#feature-commands)
 - [Task Commands](#task-commands)
 - [Task Update API Response Format](#task-update-api-response-format)
+- [Enhanced JSON API Response Fields](#enhanced-json-api-response-fields)
 - [Sync Commands](#sync-commands)
 - [Configuration Commands](#configuration-commands)
 - [Error Messages](#error-messages)
@@ -252,6 +253,81 @@ shark epic get E07 --json
 shark epic get E07-user-management-system --json
 ```
 
+#### Epic Rollups
+
+Epic get now includes comprehensive rollup information for visibility across all features:
+
+**Feature Status Rollup:**
+Shows the distribution of features by status across the epic:
+- Counts features in each workflow status
+- Helps understand feature progression
+- Example: `In Planning: 2, In Development: 3, In Review: 1, Completed: 4`
+
+**Task Status Rollup:**
+Aggregates task counts across all features:
+- Total task count across entire epic
+- Breakdown by status (todo, in_progress, ready_for_*, completed, blocked)
+- Provides full workflow visibility
+- Example: `Total: 47 tasks | Todo: 10 | In Progress: 15 | Ready for Review: 8 | Completed: 12 | Blocked: 2`
+
+**Impediments:**
+Lists all blocked tasks that are impeding progress:
+- Blocked task key and title
+- Parent feature
+- Blocker reason
+- Age of blockage
+- Enables quick identification and resolution of blockers
+
+**Example Table Output:**
+```
+Feature Status Rollup
+  In Planning: 1 | In Development: 2 | In Review: 1 | Completed: 3
+
+Task Status Rollup
+  Total: 47 tasks
+  Todo: 10 | In Progress: 15 | Ready for Review: 8 | Completed: 12 | Blocked: 2
+
+Impediments
+  🔴 T-E07-F01-005 "Setup OAuth providers" (Feature: Authentication, 2 days)
+  🔴 T-E07-F03-012 "Configure Postgres replication" (Feature: Database, 5 days)
+```
+
+**JSON Output:** Enhanced with rollup data:
+```json
+{
+  "id": 7,
+  "key": "E07",
+  "title": "User Management System",
+  "progress": 55.0,
+  "feature_status_rollup": {
+    "in_planning": 1,
+    "in_development": 2,
+    "in_review": 1,
+    "completed": 3
+  },
+  "task_status_rollup": {
+    "total": 47,
+    "todo": 10,
+    "in_progress": 15,
+    "ready_for_approval": 5,
+    "ready_for_qa": 3,
+    "completed": 12,
+    "blocked": 2
+  },
+  "impediments": [
+    {
+      "task_key": "T-E07-F01-005",
+      "task_title": "Setup OAuth providers",
+      "feature_key": "E07-F01",
+      "feature_title": "Authentication",
+      "reason": "Waiting for OAuth provider approval",
+      "blocked_since": "2026-01-14T10:00:00Z",
+      "age_days": 2
+    }
+  ]
+}
+```
+
 ---
 
 ## Feature Commands
@@ -327,6 +403,47 @@ shark feature list --epic=E07 --json
 shark feature list E07-user-management-system --json
 ```
 
+#### Health Indicators
+
+Feature list now displays health indicators in table format:
+
+- **🔴 Red**: Feature has blocked tasks
+- **🟡 Yellow**: Feature has tasks in `ready_for_approval` status for more than 3 days
+- **🟢 Green**: No issues detected
+
+**Progress Format:** Shows both weighted and completion progress:
+- `70.5% | 50%` = 70.5% weighted progress, 50% completion progress
+- Helps identify tasks with high weight that impact overall progress
+
+**Notes Column:** Shows count of action items:
+- Number of tasks awaiting action (in ready_for_* statuses)
+- Quick indicator of workload needing attention
+
+**Example Table Output:**
+```
+Epic    Feature                     Progress         Status  Notes
+E07     Authentication              70.5% | 50%      🟡      4 awaiting
+E07     User Management             100% | 100%      🟢      0 awaiting
+E07     Permission System           45.0% | 20%      🔴      2 blocked
+```
+
+**JSON Output:** Enhanced with health indicators:
+```json
+{
+  "id": 1,
+  "key": "E07-F01",
+  "title": "Authentication",
+  "epic_key": "E07",
+  "progress": 70.5,
+  "weighted_progress": 70.5,
+  "completion_progress": 50.0,
+  "health_status": "warning",
+  "action_items_count": 4,
+  "blocked_count": 0,
+  "ready_for_approval_count": 4
+}
+```
+
 ---
 
 ### `shark feature get`
@@ -369,6 +486,47 @@ shark feature get E07-F01-authentication --json
 - Task list with colored statuses
 - Completion message if all tasks are done
 
+#### Enhanced Status Information
+
+The feature get command now includes three additional sections for improved visibility and tracking:
+
+**Progress Breakdown:**
+Shows weighted and completion progress metrics:
+- **Weighted Progress**: Calculated based on configured `progress_weight` for each status
+- **Completion Progress**: Raw percentage of completed tasks
+- **Total Tasks**: Count of all tasks in feature
+
+**Work Summary:**
+Categorizes tasks by responsibility:
+- **Completed**: Finished and approved tasks
+- **Agent Work**: Tasks assigned to AI agents
+- **Human Work**: Tasks requiring human engineers
+- **QA Work**: Tasks for quality assurance team
+- **Blocked Work**: Tasks blocked by dependencies
+- **Not Started**: Todo tasks
+
+**Action Items:**
+Lists tasks awaiting action, grouped by status:
+- Tasks in `ready_for_approval` status
+- Tasks in `ready_for_qa` status
+- Other actionable statuses from workflow config
+
+**Example Output (Table Format):**
+```
+Progress Breakdown
+  Weighted: 70.5% | Completion: 9.1% | Total: 11 tasks
+
+Work Summary
+  Completed: 1 | Agent Work: 0 | Human Work: 7 | QA Work: 0 | Blocked: 0 | Not Started: 3
+
+Action Items
+  Ready for Approval (4 tasks)
+    - T-E07-F23-001
+    - T-E07-F23-002
+    - T-E07-F23-003
+    - T-E07-F23-004
+```
+
 **JSON Output:**
 ```json
 {
@@ -378,6 +536,24 @@ shark feature get E07-F01-authentication --json
   "title": "Authentication",
   "status": "active",
   "progress_pct": 75.0,
+  "progress_info": {
+    "weighted_progress_pct": 70.5,
+    "completion_progress_pct": 9.1,
+    "total_tasks": 11
+  },
+  "work_summary": {
+    "total_tasks": 11,
+    "completed_tasks": 1,
+    "agent_work": 0,
+    "human_work": 7,
+    "qa_work": 0,
+    "blocked_work": 0,
+    "not_started": 3
+  },
+  "action_items": {
+    "ready_for_approval": ["T-E07-F23-001", "T-E07-F23-002", "T-E07-F23-003", "T-E07-F23-004"],
+    "ready_for_qa": []
+  },
   "tasks": [...],
   "status_breakdown": [
     {"status": "completed", "count": 3, "phase": "done", "color": "green"},
@@ -737,6 +913,107 @@ shark task unblock e07-f01-001  # Case insensitive
 # Unblock task with JSON output
 shark task unblock E07-F01-001 --json
 ```
+
+---
+
+### `shark task next-status`
+
+Transition a task to the next valid status in the workflow.
+
+**Usage:**
+```bash
+shark task next-status <task-key> [--status=<status>] [--json]
+```
+
+**Flags:**
+- `--status <status>`: Explicitly specify target status (skips selection)
+- `--json`: Output in JSON format
+
+**Behavior:**
+
+When multiple valid transitions are available, behavior depends on the `interactive_mode` configuration:
+
+**Non-Interactive Mode (Default):**
+- Automatically selects the first valid transition from workflow configuration
+- Prints info message showing which status was selected
+- Example: `ℹ Auto-selected next status: in_qa (from 2 options)`
+
+**Interactive Mode (Opt-In):**
+- Displays interactive prompt with numbered options
+- Waits for user input (1-N or Ctrl+C to cancel)
+- Requires `interactive_mode: true` in `.sharkconfig.json`
+
+**When Only One Transition Available:**
+- Always auto-selects the single option (both modes)
+- No prompt or selection message needed
+
+**Examples:**
+
+```bash
+# Non-interactive mode (default) - auto-selects first transition
+shark task next-status E07-F23-006
+# Output:
+# ℹ Auto-selected next status: in_qa (from 2 options)
+# ✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+
+# Interactive mode (when enabled in config)
+# Requires: { "interactive_mode": true } in .sharkconfig.json
+shark task next-status E07-F23-006
+# Output:
+# Task: T-E07-F23-006
+# Current status: ready_for_qa
+#
+# Available transitions:
+#   1) in_qa
+#   2) on_hold
+#
+# Enter selection [1-2]: 1
+# ✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+
+# Explicit status (skips selection in both modes)
+shark task next-status E07-F23-006 --status=in_qa
+# ✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+
+# JSON output
+shark task next-status E07-F23-006 --json
+# Returns available transitions if multiple options
+
+# Case insensitive
+shark task next-status e07-f23-006
+shark task next-status T-E07-F23-006  # Traditional format also works
+```
+
+**Auto-Selection Logic:**
+
+The first transition in the workflow configuration is selected:
+
+```json
+{
+  "status_flow": {
+    "ready_for_qa": ["in_qa", "on_hold"]
+    //               ^^^^^^^^ <- This is auto-selected (non-interactive mode)
+  }
+}
+```
+
+**Configuration Impact:**
+
+| Config Setting | Multiple Transitions | Single Transition |
+|----------------|---------------------|-------------------|
+| `interactive_mode: false` (default) | Auto-selects first option | Auto-selects only option |
+| `interactive_mode: true` | Shows interactive prompt | Auto-selects only option |
+| `--status` flag provided | Uses specified status | Uses specified status |
+
+**Use Cases:**
+
+- **Agent/Automation Workflows:** Use default non-interactive mode
+- **CI/CD Pipelines:** Use default non-interactive mode
+- **Human Manual Operations:** Enable interactive mode in config
+- **Explicit Control:** Use `--status` flag to specify exact transition
+
+**Related Configuration:**
+- See [Interactive Mode Configuration](#interactive-mode-configuration) for details on `interactive_mode` setting
+- See [Workflow Configuration](#workflow-configuration) for status flow definitions
 
 ---
 
@@ -1256,6 +1533,218 @@ Orchestrator actions are defined in the `.sharkconfig.json` workflow configurati
 
 ---
 
+## Enhanced JSON API Response Fields
+
+This section documents the enhanced JSON response fields added for improved status tracking and visibility across features and epics.
+
+### Feature Get Enhanced Fields
+
+The `shark feature get` command returns additional fields for comprehensive status visibility:
+
+**Progress Information:**
+```json
+"progress_info": {
+  "weighted_progress_pct": 70.5,
+  "completion_progress_pct": 9.1,
+  "total_tasks": 11
+}
+```
+
+**Work Summary (by responsibility):**
+```json
+"work_summary": {
+  "total_tasks": 11,
+  "completed_tasks": 1,
+  "agent_work": 0,
+  "human_work": 7,
+  "qa_work": 0,
+  "blocked_work": 0,
+  "not_started": 3
+}
+```
+
+**Action Items (by status):**
+```json
+"action_items": {
+  "ready_for_approval": ["T-E07-F23-001", "T-E07-F23-002"],
+  "ready_for_qa": ["T-E07-F23-006"]
+}
+```
+
+**Complete Feature Response:**
+```json
+{
+  "id": 1,
+  "key": "E07-F01",
+  "title": "Authentication",
+  "status": "active",
+  "progress_pct": 75.0,
+  "progress_info": {
+    "weighted_progress_pct": 70.5,
+    "completion_progress_pct": 9.1,
+    "total_tasks": 11
+  },
+  "work_summary": {
+    "total_tasks": 11,
+    "completed_tasks": 1,
+    "agent_work": 0,
+    "human_work": 7,
+    "qa_work": 0,
+    "blocked_work": 0,
+    "not_started": 3
+  },
+  "action_items": {
+    "ready_for_approval": ["T-E07-F23-001", "T-E07-F23-002"],
+    "ready_for_qa": ["T-E07-F23-006"]
+  }
+}
+```
+
+### Feature List Enhanced Fields
+
+The `shark feature list` command returns health indicators and dual progress metrics:
+
+```json
+{
+  "id": 1,
+  "key": "E07-F01",
+  "title": "Authentication",
+  "progress": 70.5,
+  "weighted_progress": 70.5,
+  "completion_progress": 50.0,
+  "health_status": "warning",
+  "action_items_count": 4,
+  "blocked_count": 0,
+  "ready_for_approval_count": 4
+}
+```
+
+**Health Status Values:**
+- `"healthy"`: No blockers, all approval tasks < 3 days
+- `"warning"`: Ready for approval tasks > 3 days, or minor blockers
+- `"critical"`: Multiple blockers or high-priority tasks blocked
+
+### Epic Get Enhanced Fields
+
+The `shark epic get` command returns rollup information across all features:
+
+**Feature Status Rollup:**
+```json
+"feature_status_rollup": {
+  "in_planning": 1,
+  "in_development": 2,
+  "in_review": 1,
+  "completed": 3
+}
+```
+
+**Task Status Rollup:**
+```json
+"task_status_rollup": {
+  "total": 47,
+  "todo": 10,
+  "in_progress": 15,
+  "ready_for_approval": 5,
+  "ready_for_qa": 3,
+  "completed": 12,
+  "blocked": 2
+}
+```
+
+**Impediments (Blocked Tasks):**
+```json
+"impediments": [
+  {
+    "task_key": "T-E07-F01-005",
+    "task_title": "Setup OAuth providers",
+    "feature_key": "E07-F01",
+    "feature_title": "Authentication",
+    "reason": "Waiting for OAuth provider approval",
+    "blocked_since": "2026-01-14T10:00:00Z",
+    "age_days": 2
+  }
+]
+```
+
+**Complete Epic Response:**
+```json
+{
+  "id": 7,
+  "key": "E07",
+  "title": "User Management System",
+  "progress": 55.0,
+  "feature_status_rollup": {
+    "in_planning": 1,
+    "in_development": 2,
+    "in_review": 1,
+    "completed": 3
+  },
+  "task_status_rollup": {
+    "total": 47,
+    "todo": 10,
+    "in_progress": 15,
+    "ready_for_approval": 5,
+    "ready_for_qa": 3,
+    "completed": 12,
+    "blocked": 2
+  },
+  "impediments": [
+    {
+      "task_key": "T-E07-F01-005",
+      "task_title": "Setup OAuth providers",
+      "feature_key": "E07-F01",
+      "feature_title": "Authentication",
+      "reason": "Waiting for OAuth provider approval",
+      "blocked_since": "2026-01-14T10:00:00Z",
+      "age_days": 2
+    }
+  ]
+}
+```
+
+### Configuration-Driven Calculations
+
+All enhanced fields are calculated based on status configuration in `.sharkconfig.json`:
+
+**Status Metadata Configuration:**
+```json
+{
+  "status_metadata": {
+    "completed": {
+      "color": "green",
+      "phase": "done",
+      "progress_weight": 100,
+      "responsibility": "none",
+      "blocks_feature": false
+    },
+    "ready_for_approval": {
+      "color": "magenta",
+      "phase": "review",
+      "progress_weight": 75,
+      "responsibility": "human",
+      "blocks_feature": true
+    },
+    "in_development": {
+      "color": "yellow",
+      "phase": "development",
+      "progress_weight": 50,
+      "responsibility": "agent",
+      "blocks_feature": false
+    }
+  }
+}
+```
+
+**Field Calculations:**
+
+1. **Weighted Progress**: `(sum of progress_weight * task_count) / total_tasks * 100`
+2. **Completion Progress**: `(completed_tasks / total_tasks) * 100`
+3. **Work Breakdown**: Grouped by `responsibility` field (agent, human, qa_team, none)
+4. **Health Status**: Based on `blocks_feature` statuses and age of approval tasks
+5. **Action Items**: Tasks in statuses with `blocks_feature: true`
+
+---
+
 ## Sync Commands
 
 ### `shark sync`
@@ -1358,6 +1847,96 @@ shark config get default_priority
 
 ---
 
+### Interactive Mode Configuration
+
+The `interactive_mode` configuration field controls whether commands prompt for user input when multiple options are available.
+
+**Configuration Field:**
+- **Name:** `interactive_mode`
+- **Type:** Boolean
+- **Default:** `false` (non-interactive)
+- **Purpose:** Controls interactive prompts in status transition commands
+
+**Default Behavior (Non-Interactive):**
+- Commands automatically select the first valid option from workflow configuration
+- Ideal for agent/automation workflows
+- Prints clear message showing which option was selected
+- Never blocks waiting for user input
+
+**Interactive Mode (Opt-In):**
+- Commands display interactive prompts for user selection
+- Requires manual input when multiple options available
+- Suitable for human users who want explicit control
+- Enable by setting `interactive_mode: true` in `.sharkconfig.json`
+
+**Example Configuration:**
+
+```json
+{
+  "interactive_mode": false,
+  "status_flow": {
+    "ready_for_qa": ["in_qa", "on_hold"],
+    "in_qa": ["ready_for_approval", "in_development"]
+  },
+  "status_metadata": {
+    "in_qa": {
+      "color": "yellow",
+      "phase": "qa",
+      "progress_weight": 80
+    }
+  }
+}
+```
+
+**Usage Examples:**
+
+```bash
+# Non-interactive mode (default)
+$ shark task next-status E07-F23-006
+ℹ Auto-selected next status: in_qa (from 2 options)
+✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+
+# Interactive mode (when enabled in config)
+# .sharkconfig.json: { "interactive_mode": true }
+$ shark task next-status E07-F23-006
+Task: T-E07-F23-006
+Current status: ready_for_qa
+
+Available transitions:
+  1) in_qa
+  2) on_hold
+
+Enter selection [1-2]: 1
+✅ Task T-E07-F23-006 transitioned: ready_for_qa → in_qa
+```
+
+**When to Use Each Mode:**
+
+| Use Case | Recommended Mode | Reason |
+|----------|------------------|--------|
+| AI Agent workflows | Non-interactive (default) | Agents can't provide interactive input |
+| CI/CD pipelines | Non-interactive (default) | Automation requires predictable behavior |
+| Scripts/batch operations | Non-interactive (default) | Background processes need non-blocking execution |
+| Human users (manual) | Interactive (opt-in) | Explicit control over status transitions |
+| Development/debugging | Interactive (opt-in) | Review options before selecting |
+
+**Auto-Selection Behavior:**
+
+When `interactive_mode` is `false` (default) and multiple transitions are available, the command automatically selects the first transition defined in the workflow configuration:
+
+```json
+{
+  "status_flow": {
+    "ready_for_qa": ["in_qa", "on_hold"]
+    //               ^^^^^^^^  <- This is auto-selected
+  }
+}
+```
+
+The order in `status_flow` determines selection priority. Place the most common/preferred transition first.
+
+---
+
 ## Workflow Configuration
 
 Shark supports customizable workflow configuration through `.sharkconfig.json`. This allows you to define custom status flows, colors, phases, and agent types.
@@ -1366,6 +1945,7 @@ Shark supports customizable workflow configuration through `.sharkconfig.json`. 
 
 ```json
 {
+  "interactive_mode": false,
   "status_flow": {
     "draft": ["ready_for_refinement", "cancelled"],
     "ready_for_refinement": ["in_refinement", "cancelled"],
@@ -1408,6 +1988,11 @@ Shark supports customizable workflow configuration through `.sharkconfig.json`. 
 ```
 
 ### Configuration Options
+
+**interactive_mode**: Controls interactive prompts for status transitions (optional, default: `false`)
+- `false` (default): Auto-select first transition when multiple options available (ideal for agents/automation)
+- `true`: Show interactive prompt for user selection when multiple options available
+- See [Interactive Mode Configuration](#interactive-mode-configuration) for detailed documentation
 
 **status_flow**: Defines valid transitions between statuses
 - Key: Source status

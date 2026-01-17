@@ -16,11 +16,16 @@ type Config struct {
 	Database *DatabaseConfig `json:"database,omitempty"`
 
 	// Other config fields (can be extended as needed)
-	ColorEnabled *bool                  `json:"color_enabled,omitempty"`
-	DefaultEpic  *string                `json:"default_epic,omitempty"`
-	DefaultAgent *string                `json:"default_agent,omitempty"`
-	JSONOutput   *bool                  `json:"json_output,omitempty"`
-	RawData      map[string]interface{} `json:"-"` // Store raw config data to preserve unknown fields
+	ColorEnabled    *bool                  `json:"color_enabled,omitempty"`
+	DefaultEpic     *string                `json:"default_epic,omitempty"`
+	DefaultAgent    *string                `json:"default_agent,omitempty"`
+	JSONOutput      *bool                  `json:"json_output,omitempty"`
+	InteractiveMode *bool                  `json:"interactive_mode,omitempty"` // Enable interactive prompts (default: false for automation)
+	RawData         map[string]interface{} `json:"-"`                          // Store raw config data to preserve unknown fields
+
+	// statusMetadata holds status metadata for work breakdown calculations
+	// Internal field for testing and programmatic access
+	statusMetadata map[string]*StatusMetadata `json:"-"`
 }
 
 // DatabaseConfig holds configuration for database backend selection
@@ -90,4 +95,30 @@ func DetectBackend(url string) string {
 		return "turso"
 	}
 	return "local"
+}
+
+// GetStatusMetadata returns metadata for a given status
+// Returns nil if status metadata is not configured
+func (c *Config) GetStatusMetadata(status string) *StatusMetadata {
+	if c == nil || c.statusMetadata == nil {
+		return nil
+	}
+	return c.statusMetadata[status]
+}
+
+// SetStatusMetadata sets the status metadata map (used for testing and configuration)
+func (c *Config) SetStatusMetadata(metadata map[string]*StatusMetadata) {
+	if c == nil {
+		return
+	}
+	c.statusMetadata = metadata
+}
+
+// IsInteractiveModeEnabled returns true if interactive mode is enabled in config
+// Defaults to false (non-interactive) for automation/agent workflows
+func (c *Config) IsInteractiveModeEnabled() bool {
+	if c == nil || c.InteractiveMode == nil {
+		return false // Default: non-interactive for automation
+	}
+	return *c.InteractiveMode
 }

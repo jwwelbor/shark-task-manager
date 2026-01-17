@@ -512,3 +512,133 @@ func stringContainsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+// TestConfig_IsInteractiveModeEnabled tests the IsInteractiveModeEnabled method
+func TestConfig_IsInteractiveModeEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *Config
+		expected bool
+	}{
+		{
+			name:     "nil config",
+			config:   nil,
+			expected: false, // Default: non-interactive
+		},
+		{
+			name:     "config with nil InteractiveMode",
+			config:   &Config{},
+			expected: false, // Default: non-interactive
+		},
+		{
+			name: "interactive mode enabled",
+			config: &Config{
+				InteractiveMode: boolPtr(true),
+			},
+			expected: true,
+		},
+		{
+			name: "interactive mode disabled",
+			config: &Config{
+				InteractiveMode: boolPtr(false),
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.IsInteractiveModeEnabled()
+			if result != tt.expected {
+				t.Errorf("IsInteractiveModeEnabled() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestConfig_InteractiveMode_Marshaling tests that InteractiveMode field can be marshaled/unmarshaled
+func TestConfig_InteractiveMode_Marshaling(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   Config
+		expected string
+	}{
+		{
+			name: "interactive mode enabled",
+			config: Config{
+				InteractiveMode: boolPtr(true),
+			},
+			expected: `{"interactive_mode":true}`,
+		},
+		{
+			name: "interactive mode disabled",
+			config: Config{
+				InteractiveMode: boolPtr(false),
+			},
+			expected: `{"interactive_mode":false}`,
+		},
+		{
+			name:     "interactive mode omitted (nil)",
+			config:   Config{},
+			expected: `{}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Marshal to JSON
+			data, err := json.Marshal(tt.config)
+			if err != nil {
+				t.Fatalf("failed to marshal config: %v", err)
+			}
+
+			if string(data) != tt.expected {
+				t.Errorf("marshaled JSON mismatch\ngot:  %s\nwant: %s", string(data), tt.expected)
+			}
+
+			// Unmarshal back
+			var unmarshaled Config
+			if err := json.Unmarshal(data, &unmarshaled); err != nil {
+				t.Fatalf("failed to unmarshal config: %v", err)
+			}
+
+			// Verify field
+			if tt.config.InteractiveMode != nil && unmarshaled.InteractiveMode == nil {
+				t.Error("interactive_mode was lost during unmarshal")
+				return
+			}
+
+			if tt.config.InteractiveMode != nil && unmarshaled.InteractiveMode != nil {
+				if *unmarshaled.InteractiveMode != *tt.config.InteractiveMode {
+					t.Errorf("interactive_mode mismatch: got %v, want %v", *unmarshaled.InteractiveMode, *tt.config.InteractiveMode)
+				}
+			}
+		})
+	}
+}
+
+// TestConfig_InteractiveMode_DefaultBehavior tests that default behavior is non-interactive
+func TestConfig_InteractiveMode_DefaultBehavior(t *testing.T) {
+	// Empty config (no InteractiveMode set)
+	config := Config{}
+
+	if config.IsInteractiveModeEnabled() {
+		t.Error("expected default behavior to be non-interactive (false), got true")
+	}
+
+	// Config loaded from JSON without interactive_mode field
+	jsonData := []byte(`{"color_enabled": true}`)
+	var loaded Config
+	if err := json.Unmarshal(jsonData, &loaded); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+
+	if loaded.IsInteractiveModeEnabled() {
+		t.Error("expected non-interactive when field is missing, got true")
+	}
+}
+
+// boolPtr is a helper function to create a pointer to a bool value
+func boolPtr(b bool) *bool {
+	return &b
+}

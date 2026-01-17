@@ -32,8 +32,8 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 	feature.Slug = &generatedSlug
 
 	query := `
-		INSERT INTO features (epic_id, key, title, slug, description, status, progress_pct, execution_order, file_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO features (epic_id, key, title, slug, description, status, status_override, progress_pct, execution_order, file_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -43,6 +43,7 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 		feature.Slug,
 		feature.Description,
 		feature.Status,
+		feature.StatusOverride,
 		feature.ProgressPct,
 		feature.ExecutionOrder,
 		feature.FilePath,
