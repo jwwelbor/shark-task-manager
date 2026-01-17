@@ -275,6 +275,97 @@ func (r *TaskNoteRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+// SearchWithTimePeriod searches for notes with optional time period filtering
+// since: filter notes created after this timestamp (YYYY-MM-DD format, optional)
+// until: filter notes created before this timestamp (YYYY-MM-DD format, optional)
+func (r *TaskNoteRepository) SearchWithTimePeriod(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string, since string, until string) ([]*models.TaskNote, error) {
+	var sqlQuery string
+	var args []interface{}
+
+	if epicKey != "" || featureKey != "" {
+		// Join with tasks, features, epics if filtering by epic/feature
+		sqlQuery = `
+			SELECT tn.id, tn.task_id, tn.note_type, tn.content, tn.created_by, tn.metadata, tn.created_at
+			FROM task_notes AS tn
+			INNER JOIN tasks AS t ON tn.task_id = t.id
+			INNER JOIN features AS f ON t.feature_id = f.id
+			INNER JOIN epics AS e ON f.epic_id = e.id
+			WHERE tn.content LIKE ?
+		`
+		args = append(args, "%"+query+"%")
+
+		if epicKey != "" {
+			sqlQuery += " AND e.key = ?"
+			args = append(args, epicKey)
+		}
+		if featureKey != "" {
+			sqlQuery += " AND f.key = ?"
+			args = append(args, featureKey)
+		}
+	} else {
+		sqlQuery = `
+			SELECT id, task_id, note_type, content, created_by, metadata, created_at
+			FROM task_notes AS tn
+			WHERE tn.content LIKE ?
+		`
+		args = append(args, "%"+query+"%")
+	}
+
+	// Add note type filter if provided
+	if len(noteTypes) > 0 {
+		placeholders := make([]string, len(noteTypes))
+		for i, noteType := range noteTypes {
+			placeholders[i] = "?"
+			args = append(args, noteType)
+		}
+		sqlQuery += fmt.Sprintf(" AND tn.note_type IN (%s)", strings.Join(placeholders, ","))
+	}
+
+	// Add time period filters
+	if since != "" {
+		sqlQuery += " AND tn.created_at >= ?"
+		args = append(args, since+" 00:00:00")
+	}
+
+	if until != "" {
+		sqlQuery += " AND tn.created_at <= ?"
+		args = append(args, until+" 23:59:59")
+	}
+
+	// Order by created_at descending (most recent first)
+	sqlQuery += " ORDER BY tn.created_at DESC"
+
+	rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search task notes: %w", err)
+	}
+	defer rows.Close()
+
+	var notes []*models.TaskNote
+	for rows.Next() {
+		note := &models.TaskNote{}
+		err := rows.Scan(
+			&note.ID,
+			&note.TaskID,
+			&note.NoteType,
+			&note.Content,
+			&note.CreatedBy,
+			&note.Metadata,
+			&note.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan task note: %w", err)
+		}
+		notes = append(notes, note)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating search results: %w", err)
+	}
+
+	return notes, nil
+}
+
 // RejectionNoteMetadata represents the metadata structure for rejection notes
 type RejectionNoteMetadata struct {
 	HistoryID    int64  `json:"history_id"`
@@ -298,8 +389,8 @@ func (r *TaskNoteRepository) CreateRejectionNote(
 	if taskID == 0 {
 		return nil, fmt.Errorf("failed to create rejection note: task_id must be greater than 0")
 	}
-	if reason == "" {
-		return nil, fmt.Errorf("failed to create rejection note: reason cannot be empty")
+	if strings.TrimSpace(reason) == "" {
+		return nil, fmt.Errorf("failed to create rejection note: reason cannot be empty or whitespace-only")
 	}
 
 	// Build metadata structure
@@ -379,8 +470,8 @@ func (r *TaskNoteRepository) CreateRejectionNoteWithTx(
 	if taskID == 0 {
 		return nil, fmt.Errorf("failed to create rejection note: task_id must be greater than 0")
 	}
-	if reason == "" {
-		return nil, fmt.Errorf("failed to create rejection note: reason cannot be empty")
+	if strings.TrimSpace(reason) == "" {
+		return nil, fmt.Errorf("failed to create rejection note: reason cannot be empty or whitespace-only")
 	}
 
 	// Build metadata structure

@@ -1848,3 +1848,68 @@ func (r *TaskRepository) FilterByMetadataPhase(ctx context.Context, phase string
 
 	return r.queryTasks(ctx, query, args...)
 }
+
+// GetRejectionCounts returns rejection counts and last rejection timestamps for given tasks
+// Uses efficient LEFT JOIN with COUNT aggregation to avoid N+1 queries
+// Returns two maps: taskID -> rejection count and taskID -> last rejection time
+func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64) (map[int64]int, map[int64]*time.Time, error) {
+	if len(taskIDs) == 0 {
+		return make(map[int64]int), make(map[int64]*time.Time), nil
+	}
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(taskIDs))
+	args := make([]interface{}, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `
+		SELECT
+			t.id,
+			COALESCE(COUNT(tn.id), 0) as rejection_count,
+			MAX(tn.created_at) as last_rejection_at
+		FROM tasks t
+		LEFT JOIN task_notes tn ON t.id = tn.task_id AND tn.note_type = 'rejection'
+		WHERE t.id IN (` + strings.Join(placeholders, ",") + `)
+		GROUP BY t.id
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to query rejection counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[int64]int)
+	lastTimes := make(map[int64]*time.Time)
+
+	for rows.Next() {
+		var taskID int64
+		var rejectionCount int
+		var lastRejectionAt sql.NullTime
+
+		if err := rows.Scan(&taskID, &rejectionCount, &lastRejectionAt); err != nil {
+			return nil, nil, fmt.Errorf("failed to scan rejection counts: %w", err)
+		}
+
+		counts[taskID] = rejectionCount
+		if lastRejectionAt.Valid {
+			lastTimes[taskID] = &lastRejectionAt.Time
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("error iterating rejection counts: %w", err)
+	}
+
+	// Ensure all requested task IDs are in the result maps (even if 0 rejections)
+	for _, taskID := range taskIDs {
+		if _, ok := counts[taskID]; !ok {
+			counts[taskID] = 0
+		}
+	}
+
+	return counts, lastTimes, nil
+}

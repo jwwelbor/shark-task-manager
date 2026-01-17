@@ -68,6 +68,9 @@ func DefaultWorkflow() *WorkflowConfig {
 			StartStatusKey:    {"todo"},      // New tasks start in "todo"
 			CompleteStatusKey: {"completed"}, // Tasks complete in "completed"
 		},
+
+		// Require rejection reasons for backward transitions
+		RequireRejectionReason: true,
 	}
 }
 

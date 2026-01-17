@@ -76,12 +76,14 @@ Examples:
 	RunE: runTaskTimeline,
 }
 
-// TimelineEvent represents a unified timeline event (status change or note)
+// TimelineEvent represents a unified timeline event (status change, note, or rejection)
 type TimelineEvent struct {
-	Timestamp time.Time `json:"timestamp"`
-	EventType string    `json:"event_type"` // "status" or note type
-	Content   string    `json:"content"`
-	Actor     string    `json:"actor,omitempty"`
+	Timestamp      time.Time `json:"timestamp"`
+	EventType      string    `json:"event_type"` // "status", "rejection", or note type
+	Content        string    `json:"content"`
+	Actor          string    `json:"actor,omitempty"`
+	Reason         string    `json:"reason,omitempty"`         // For rejection events
+	ReasonDocument *string   `json:"reason_document,omitempty"` // Document path for rejection
 }
 
 // runTaskNoteAdd handles the task note add command
@@ -324,6 +326,46 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		})
 	}
 
+	// Get rejection history and add rejection events to timeline
+	rejections, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	if err != nil {
+		// Log error but don't fail - rejection history is optional
+		cli.Warning(fmt.Sprintf("Failed to get rejection history: %v", err))
+	} else if len(rejections) > 0 {
+		// Add rejection events to timeline
+		for _, rejection := range rejections {
+			// Parse timestamp from rejection history entry
+			rejectionTime, err := time.Parse("2006-01-02 15:04:05", rejection.Timestamp)
+			if err != nil {
+				// Fallback to current time if parsing fails
+				rejectionTime = time.Now()
+			}
+
+			// Truncate reason for timeline view (80 char limit)
+			reason := rejection.Reason
+			if len(reason) > 80 {
+				reason = reason[:77] + "..."
+			}
+
+			// Format rejection event content with warning symbol and transition info
+			var content string
+			if rejection.FromStatus != "" && rejection.ToStatus != "" {
+				content = fmt.Sprintf("⚠️ Rejected by %s: %s → %s", rejection.RejectedBy, rejection.FromStatus, rejection.ToStatus)
+			} else {
+				content = fmt.Sprintf("⚠️ Rejected by %s", rejection.RejectedBy)
+			}
+
+			timeline = append(timeline, TimelineEvent{
+				Timestamp:      rejectionTime,
+				EventType:      "rejection",
+				Content:        content,
+				Actor:          rejection.RejectedBy,
+				Reason:         reason,
+				ReasonDocument: rejection.ReasonDocument,
+			})
+		}
+	}
+
 	// Sort timeline by timestamp
 	for i := 0; i < len(timeline); i++ {
 		for j := i + 1; j < len(timeline); j++ {
@@ -349,7 +391,21 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 
 		if event.EventType == "status" {
 			fmt.Printf("  %s  %s%s\n", event.Timestamp.Format("2006-01-02 15:04"), event.Content, actor)
+		} else if event.EventType == "rejection" {
+			// Special formatting for rejection events
+			fmt.Printf("  %s  %s%s\n", event.Timestamp.Format("2006-01-02 15:04"), event.Content, actor)
+
+			// Display truncated reason on next line if present
+			if event.Reason != "" {
+				fmt.Printf("        Reason: %s\n", event.Reason)
+			}
+
+			// Display document indicator if linked document exists
+			if event.ReasonDocument != nil && *event.ReasonDocument != "" {
+				fmt.Printf("        📄 %s\n", *event.ReasonDocument)
+			}
 		} else {
+			// Other note types
 			fmt.Printf("  %s  [%s] %s%s\n", event.Timestamp.Format("2006-01-02 15:04"), strings.ToUpper(event.EventType), event.Content, actor)
 		}
 	}

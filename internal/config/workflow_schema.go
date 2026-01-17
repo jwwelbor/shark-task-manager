@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // WorkflowConfig defines the structure for configurable status workflows in .sharkconfig.json
 //
@@ -70,6 +73,13 @@ type WorkflowConfig struct {
 	// _start_: array of initial statuses (e.g., ["todo", "backlog"])
 	// _complete_: array of terminal statuses (e.g., ["completed", "archived"])
 	SpecialStatuses map[string][]string `json:"special_statuses"`
+
+	// RequireRejectionReason specifies whether rejection reasons are required for backward transitions
+	// When true: backward transitions must include a reason (--reason flag) or use --force to bypass
+	// When false: backward transitions are allowed without a reason
+	// Default: true (enabled)
+	// Stored in config as "require_rejection_reason": true/false
+	RequireRejectionReason bool `json:"require_rejection_reason"`
 }
 
 // StatusMetadata provides UI and agent-targeting metadata for a status
@@ -116,6 +126,32 @@ func (w *WorkflowConfig) GetStatusMetadata(status string) (StatusMetadata, bool)
 	}
 	meta, found := w.StatusMetadata[status]
 	return meta, found
+}
+
+// UnmarshalJSON implements custom unmarshaling for WorkflowConfig
+// Ensures RequireRejectionReason defaults to true when not specified in JSON
+func (w *WorkflowConfig) UnmarshalJSON(data []byte) error {
+	// Use alias to avoid infinite recursion
+	type Alias WorkflowConfig
+	aux := &struct {
+		RequireRejectionReason *bool `json:"require_rejection_reason"`
+		*Alias
+	}{
+		Alias: (*Alias)(w),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Set default value if not specified in JSON
+	if aux.RequireRejectionReason == nil {
+		w.RequireRejectionReason = true
+	} else {
+		w.RequireRejectionReason = *aux.RequireRejectionReason
+	}
+
+	return nil
 }
 
 // GetStatusesByAgentType returns all statuses that include the given agent type

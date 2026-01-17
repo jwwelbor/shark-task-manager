@@ -25,7 +25,7 @@ var notesSearchCmd = &cobra.Command{
 	Short: "Search note content across all tasks",
 	Long: `Search for notes containing the specified query across all tasks.
 
-The search is case-insensitive and supports filtering by epic, feature, and note type.
+The search is case-insensitive and supports filtering by epic, feature, note type, and time period.
 
 Examples:
   shark notes search "singleton pattern"
@@ -33,7 +33,8 @@ Examples:
   shark notes search "API" --feature E10-F01
   shark notes search "singleton" --type decision
   shark notes search "bug" --type decision,solution --epic E10
-  shark notes search "performance" --json`,
+  shark notes search "missing error" --type rejection --since 2026-01-01
+  shark notes search "performance" --until 2026-01-15 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runNotesSearch,
 }
@@ -52,6 +53,8 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
 	noteTypesStr, _ := cmd.Flags().GetString("type")
+	since, _ := cmd.Flags().GetString("since")
+	until, _ := cmd.Flags().GetString("until")
 
 	// Get database connection
 	repoDb, err := cli.GetDB(cmd.Context())
@@ -78,8 +81,13 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Search notes
-	notes, err := noteRepo.Search(ctx, query, noteTypes, epicKey, featureKey)
+	// Search notes with time period filtering
+	var notes []*models.TaskNote
+	if since != "" || until != "" {
+		notes, err = noteRepo.SearchWithTimePeriod(ctx, query, noteTypes, epicKey, featureKey, since, until)
+	} else {
+		notes, err = noteRepo.Search(ctx, query, noteTypes, epicKey, featureKey)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to search notes: %w", err)
 	}
@@ -157,4 +165,6 @@ func init() {
 	notesSearchCmd.Flags().StringP("epic", "e", "", "Filter by epic key (e.g., E10)")
 	notesSearchCmd.Flags().StringP("feature", "f", "", "Filter by feature key (e.g., E10-F01)")
 	notesSearchCmd.Flags().StringP("type", "t", "", "Filter by note type (comma-separated for multiple)")
+	notesSearchCmd.Flags().String("since", "", "Filter notes created after date (YYYY-MM-DD format)")
+	notesSearchCmd.Flags().String("until", "", "Filter notes created before date (YYYY-MM-DD format)")
 }

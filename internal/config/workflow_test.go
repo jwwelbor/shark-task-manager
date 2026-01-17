@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -805,6 +806,155 @@ func TestIsBackwardTransition_PhaseOrdering(t *testing.T) {
 			if isBackward != tc.isBackward {
 				t.Errorf("expected isBackward=%v, got %v for transition %s → %s",
 					tc.isBackward, isBackward, tc.from, tc.to)
+			}
+		})
+	}
+}
+
+// TestWorkflowConfig_RequireRejectionReason_Default tests that require_rejection_reason defaults to true
+// when unmarshaling from JSON without the field specified
+func TestWorkflowConfig_RequireRejectionReason_Default(t *testing.T) {
+	// When JSON is unmarshaled without require_rejection_reason field, should default to true
+	var workflow WorkflowConfig
+	jsonData := []byte(`{"status_flow_version": "1.0"}`)
+	if err := json.Unmarshal(jsonData, &workflow); err != nil {
+		t.Fatalf("failed to unmarshal JSON: %v", err)
+	}
+
+	// Default should be true (require rejection reasons)
+	if !workflow.RequireRejectionReason {
+		t.Error("expected RequireRejectionReason to default to true when unmarshaling")
+	}
+}
+
+// TestWorkflowConfig_RequireRejectionReason_DefaultWorkflow tests default workflow setting
+func TestWorkflowConfig_RequireRejectionReason_DefaultWorkflow(t *testing.T) {
+	workflow := DefaultWorkflow()
+
+	// Default workflow should require rejection reasons
+	if !workflow.RequireRejectionReason {
+		t.Error("expected default workflow RequireRejectionReason to be true")
+	}
+}
+
+// TestLoadWorkflowConfig_RequireRejectionReason_Explicit tests loading explicit config value
+func TestLoadWorkflowConfig_RequireRejectionReason_Explicit(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	tests := []struct {
+		name     string
+		config   string
+		expected bool
+	}{
+		{
+			name: "require_rejection_reason = true",
+			config: `{
+				"status_flow_version": "1.0",
+				"status_flow": {
+					"todo": ["in_progress"],
+					"in_progress": ["done"],
+					"done": []
+				},
+				"special_statuses": {
+					"_start_": ["todo"],
+					"_complete_": ["done"]
+				},
+				"require_rejection_reason": true
+			}`,
+			expected: true,
+		},
+		{
+			name: "require_rejection_reason = false",
+			config: `{
+				"status_flow_version": "1.0",
+				"status_flow": {
+					"todo": ["in_progress"],
+					"in_progress": ["done"],
+					"done": []
+				},
+				"special_statuses": {
+					"_start_": ["todo"],
+					"_complete_": ["done"]
+				},
+				"require_rejection_reason": false
+			}`,
+			expected: false,
+		},
+		{
+			name: "require_rejection_reason omitted (defaults to true)",
+			config: `{
+				"status_flow_version": "1.0",
+				"status_flow": {
+					"todo": ["in_progress"],
+					"in_progress": ["done"],
+					"done": []
+				},
+				"special_statuses": {
+					"_start_": ["todo"],
+					"_complete_": ["done"]
+				}
+			}`,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(configPath, []byte(tt.config), 0644); err != nil {
+				t.Fatalf("failed to write test config: %v", err)
+			}
+
+			ClearWorkflowCache()
+
+			workflow, err := LoadWorkflowConfig(configPath)
+			if err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+			if workflow == nil {
+				t.Fatal("expected workflow, got nil")
+			}
+
+			if workflow.RequireRejectionReason != tt.expected {
+				t.Errorf("expected RequireRejectionReason=%v, got %v", tt.expected, workflow.RequireRejectionReason)
+			}
+		})
+	}
+}
+
+// TestWorkflowConfig_RequireRejectionReason_JSON tests JSON marshaling/unmarshaling
+func TestWorkflowConfig_RequireRejectionReason_JSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		json     string
+		expected bool
+	}{
+		{
+			name:     "true value",
+			json:     `{"require_rejection_reason": true}`,
+			expected: true,
+		},
+		{
+			name:     "false value",
+			json:     `{"require_rejection_reason": false}`,
+			expected: false,
+		},
+		{
+			name:     "missing field defaults to true",
+			json:     `{}`,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var config WorkflowConfig
+			if err := json.Unmarshal([]byte(tt.json), &config); err != nil {
+				t.Fatalf("failed to unmarshal JSON: %v", err)
+			}
+
+			if config.RequireRejectionReason != tt.expected {
+				t.Errorf("expected RequireRejectionReason=%v, got %v", tt.expected, config.RequireRejectionReason)
 			}
 		})
 	}
