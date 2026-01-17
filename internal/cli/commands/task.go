@@ -2076,6 +2076,7 @@ func init() {
 	taskApproveCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskApproveCmd.Flags().StringP("notes", "n", "", "Approval notes")
 	taskApproveCmd.Flags().String("rejection-reason", "", "Reason for rejection or feedback on the task")
+	taskApproveCmd.Flags().String("reason-doc", "", "Path to document containing rejection reason (relative to project root)")
 	taskApproveCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 
 	// Add flags for exception handling commands
@@ -2087,6 +2088,7 @@ func init() {
 	taskReopenCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskReopenCmd.Flags().StringP("notes", "n", "", "Rework notes")
 	taskReopenCmd.Flags().String("rejection-reason", "", "Reason for rejection or sending task back")
+	taskReopenCmd.Flags().String("reason-doc", "", "Path to document containing rejection reason (relative to project root)")
 	taskReopenCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 
 	// Add flags for update command

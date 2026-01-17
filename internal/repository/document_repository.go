@@ -175,12 +175,21 @@ func (r *DocumentRepository) LinkToFeature(ctx context.Context, featureID, docum
 
 // LinkToTask links a document to a task
 func (r *DocumentRepository) LinkToTask(ctx context.Context, taskID, documentID int64) error {
+	return r.LinkToTaskWithType(ctx, taskID, documentID, "general")
+}
+
+// LinkToTaskWithType links a document to a task with a specific link type
+func (r *DocumentRepository) LinkToTaskWithType(ctx context.Context, taskID, documentID int64, linkType string) error {
+	if linkType == "" {
+		linkType = "general"
+	}
+
 	query := `
-		INSERT OR IGNORE INTO task_documents (task_id, document_id)
-		VALUES (?, ?)
+		INSERT OR IGNORE INTO task_documents (task_id, document_id, link_type)
+		VALUES (?, ?, ?)
 	`
 
-	_, err := r.db.ExecContext(ctx, query, taskID, documentID)
+	_, err := r.db.ExecContext(ctx, query, taskID, documentID, linkType)
 	if err != nil {
 		return fmt.Errorf("failed to link document to task: %w", err)
 	}

@@ -610,6 +610,11 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate task_history rejection_reason: %w", err)
 	}
 
+	// Run task_documents link_type column migration (E07-F22)
+	if err := migrateTaskDocumentsLinkType(db); err != nil {
+		return fmt.Errorf("failed to migrate task_documents link_type: %w", err)
+	}
+
 	return nil
 }
 
@@ -1192,6 +1197,33 @@ func migrateTaskHistoryRejectionReason(db *sql.DB) error {
 	// Create index on rejection_reason for filtering rejection records
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_task_history_rejection_reason ON task_history(rejection_reason) WHERE rejection_reason IS NOT NULL;`); err != nil {
 		return fmt.Errorf("failed to create index on task_history(rejection_reason): %w", err)
+	}
+
+	return nil
+}
+
+// migrateTaskDocumentsLinkType adds link_type column to task_documents table
+// for specifying the type of link between task and document (e.g., rejection_reason) (E07-F22)
+func migrateTaskDocumentsLinkType(db *sql.DB) error {
+	// Check if task_documents table has link_type column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('task_documents') WHERE name = 'link_type'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_documents schema for link_type: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add link_type column for categorizing document links
+		if _, err := db.Exec(`ALTER TABLE task_documents ADD COLUMN link_type TEXT DEFAULT 'general';`); err != nil {
+			return fmt.Errorf("failed to add link_type column to task_documents: %w", err)
+		}
+	}
+
+	// Create index on link_type for filtering by link type
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_task_documents_link_type ON task_documents(link_type);`); err != nil {
+		return fmt.Errorf("failed to create index on task_documents(link_type): %w", err)
 	}
 
 	return nil
