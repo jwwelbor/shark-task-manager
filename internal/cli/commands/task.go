@@ -652,17 +652,28 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Get rejection history
+	noteRepo := repository.NewTaskNoteRepository(repoDb)
+	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch rejection history: %v\n", err)
+	}
+	if rejectionHistory == nil {
+		rejectionHistory = make([]*repository.RejectionHistoryEntry, 0)
+	}
+
 	// Output results
 	if cli.GlobalConfig.JSON {
 		// Create enhanced output with dependency status, related docs, and blocking relationships
 		output := map[string]interface{}{
-			"task":              task,
-			"path":              dirPath,
-			"filename":          filename,
-			"dependency_status": dependencyStatus,
-			"related_documents": relatedDocs,
-			"blocked_by":        blockedByKeys,
-			"blocks":            blocksKeys,
+			"task":               task,
+			"path":               dirPath,
+			"filename":           filename,
+			"dependency_status":  dependencyStatus,
+			"related_documents":  relatedDocs,
+			"blocked_by":         blockedByKeys,
+			"blocks":             blocksKeys,
+			"rejection_history":  rejectionHistory,
 		}
 		return cli.OutputJSON(output)
 	}
@@ -784,6 +795,28 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 			if metadata.CompletionNotes != nil && *metadata.CompletionNotes != "" {
 				fmt.Printf("  Notes: %s\n", *metadata.CompletionNotes)
 			}
+		}
+	}
+
+	// Display rejection history if present
+	if len(rejectionHistory) > 0 {
+		fmt.Printf("\n⚠️  REJECTION HISTORY (%d rejections)\n", len(rejectionHistory))
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+		for _, rejection := range rejectionHistory {
+			// Parse timestamp to format nicely
+			// Format: [2026-01-15 14:30] Rejected by reviewer-agent-001
+			fmt.Printf("\n[%s] Rejected by %s\n", rejection.Timestamp, rejection.RejectedBy)
+			fmt.Printf("%s → %s\n", rejection.FromStatus, rejection.ToStatus)
+
+			fmt.Println("\nReason:")
+			fmt.Printf("%s\n", rejection.Reason)
+
+			if rejection.ReasonDocument != nil {
+				fmt.Printf("\n📄 Related Document: %s\n", *rejection.ReasonDocument)
+			}
+
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		}
 	}
 
