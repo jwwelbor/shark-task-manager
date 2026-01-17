@@ -20,11 +20,11 @@ func TestSearchWithTimePeriodSince(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-%'")
 
 	// Seed test data
-	epicID, featureID := test.SeedTestData()
+	_, featureID := test.SeedTestData()
 
 	// Create a test task
-	taskQuery := `INSERT INTO tasks (key, title, status, feature_id, epic_id) VALUES (?, ?, ?, ?, ?)`
-	result, err := database.ExecContext(ctx, taskQuery, "TEST-E07-F01-999", "Test Task", "todo", featureID, epicID)
+	taskQuery := `INSERT INTO tasks (key, title, status, feature_id) VALUES (?, ?, ?, ?)`
+	result, err := database.ExecContext(ctx, taskQuery, "TEST-E07-F01-999", "Test Task", "todo", featureID)
 	if err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
@@ -91,11 +91,11 @@ func TestSearchWithTimePeriodUntil(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-%'")
 
 	// Seed test data
-	epicID, featureID := test.SeedTestData()
+	_, featureID := test.SeedTestData()
 
 	// Create a test task
-	taskQuery := `INSERT INTO tasks (key, title, status, feature_id, epic_id) VALUES (?, ?, ?, ?, ?)`
-	result, err := database.ExecContext(ctx, taskQuery, "TEST-E07-F01-998", "Test Task", "todo", featureID, epicID)
+	taskQuery := `INSERT INTO tasks (key, title, status, feature_id) VALUES (?, ?, ?, ?)`
+	result, err := database.ExecContext(ctx, taskQuery, "TEST-E07-F01-998", "Test Task", "todo", featureID)
 	if err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
@@ -160,11 +160,11 @@ func TestSearchWithTimePeriodBothDates(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-%'")
 
 	// Seed test data
-	epicID, featureID := test.SeedTestData()
+	_, featureID := test.SeedTestData()
 
 	// Create a test task
-	taskQuery := `INSERT INTO tasks (key, title, status, feature_id, epic_id) VALUES (?, ?, ?, ?, ?)`
-	result, err := database.ExecContext(ctx, taskQuery, "TEST-E07-F01-997", "Test Task", "todo", featureID, epicID)
+	taskQuery := `INSERT INTO tasks (key, title, status, feature_id) VALUES (?, ?, ?, ?)`
+	result, err := database.ExecContext(ctx, taskQuery, "TEST-E07-F01-997", "Test Task", "todo", featureID)
 	if err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
