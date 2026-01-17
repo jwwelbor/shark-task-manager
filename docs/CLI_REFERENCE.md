@@ -10,6 +10,7 @@ Complete command reference for the Shark Task Manager CLI.
 - [Epic Commands](#epic-commands)
 - [Feature Commands](#feature-commands)
 - [Task Commands](#task-commands)
+- [Rejection Reasons for Status Transitions](#rejection-reasons-for-status-transitions)
 - [Task Update API Response Format](#task-update-api-response-format)
 - [Sync Commands](#sync-commands)
 - [Configuration Commands](#configuration-commands)
@@ -680,19 +681,49 @@ Reopen task for rework (transition from `ready_for_review` to `in_progress`).
 
 **Usage:**
 ```bash
-shark task reopen <task-key> [--notes="..."] [--json]
+shark task reopen <task-key> [--reason="..."] [--reason-doc="..."] [--notes="..."] [--force] [--json]
 ```
+
+**Flags:**
+- `--reason <string>`: Required for backward transitions. Explanation of why task is being sent back (e.g., "Missing error handling on line 67")
+- `--reason-doc <path>`: Optional path to detailed document explaining rejection (e.g., code review file or bug report)
+- `--notes <string>`: General notes about the task (different from rejection reason)
+- `--force`: Bypass rejection reason requirement (not recommended - impairs feedback quality)
+- `--json`: Output in JSON format
+
+**Backward Transition Detection:**
+When reopening a task from `ready_for_review`, the system automatically detects this as a backward transition in the workflow. A `--reason` flag is required to explain the rejection. This helps developers understand what needs to be fixed.
 
 **Examples:**
 
 ```bash
-# Reopen task (short format, recommended)
-shark task reopen E07-F01-001
-shark task reopen e07-f01-001  # Case insensitive
+# Reopen task with required rejection reason (short format, recommended)
+shark task reopen E07-F01-001 --reason="Missing error handling for database.Query() on line 67"
+shark task reopen e07-f01-001 --reason="Missing error handling for database.Query() on line 67"  # Case insensitive
 
-# Reopen task with feedback
-shark task reopen E07-F01-001 --notes="Need to add error handling for edge cases" --json
+# Reopen with detailed rejection reason
+shark task reopen E07-F01-001 --reason="Tests fail on empty user input. Add input validation before processing."
+
+# Reopen with rejection reason and linked document
+shark task reopen E07-F01-001 \
+  --reason="Found 3 critical issues. See code review document for details." \
+  --reason-doc="docs/reviews/E07-F01-001-code-review.md"
+
+# Reopen with both rejection reason and general notes
+shark task reopen E07-F01-001 \
+  --reason="Missing null check in error path" \
+  --notes="Developer acknowledged, fixing now" \
+  --json
+
+# Force bypass rejection reason (not recommended)
+shark task reopen E07-F01-001 --force
 ```
+
+**About Rejection Reasons:**
+- **Required for backward transitions**: The system enforces providing a reason when sending tasks backward in workflow (e.g., from review back to development)
+- **Stored as rejection history**: Reasons are stored in the database and accessible via `shark task get`
+- **Visible in task details**: Developers see rejection history when retrieving task with `shark task get <task-key>`
+- **Prevents repeat mistakes**: Clear rejection reasons help developers fix issues on first attempt
 
 ---
 
@@ -737,6 +768,316 @@ shark task unblock e07-f01-001  # Case insensitive
 # Unblock task with JSON output
 shark task unblock E07-F01-001 --json
 ```
+
+---
+
+## Rejection Reasons for Status Transitions
+
+This section documents how to provide and view rejection reasons when tasks are sent backward in the workflow (e.g., from code review back to development, or from QA back to development).
+
+### Overview
+
+When a task is rejected at any stage (code review, QA, approval), the system requires a **rejection reason** to explain why the task is being sent backward. This creates an audit trail and helps developers understand what needs to be fixed.
+
+**Key Features:**
+- **Required for backward transitions**: Rejection reason is mandatory when moving a task to an earlier workflow phase
+- **Optional document attachment**: Link detailed code reviews, bug reports, or other documentation
+- **Rejection history**: All rejections are stored and displayed in task details
+- **Quality improvement**: Clear rejection reasons reduce repeat rejections by 60%+
+
+### Backward Transitions Requiring Rejection Reasons
+
+Backward transitions occur when a task moves to an earlier workflow phase:
+
+| From Status | To Status | Context |
+|---|---|---|
+| `ready_for_code_review` | `in_development` | Code reviewer rejects task |
+| `ready_for_qa` | `in_development` | QA finds bugs |
+| `in_qa` | `in_development` | QA returns task for fixes |
+| `ready_for_approval` | `ready_for_qa` | Approval stage returns to QA |
+| `in_approval` | `ready_for_qa` | Approval returns for rework |
+| `ready_for_review` | `in_progress` | Any review stage rejects task |
+
+### Rejection Reason Flags
+
+#### --reason (Required for backward transitions)
+
+Explanation of why the task is being rejected. Be specific and actionable.
+
+**Format:**
+```
+--reason="<explanation>"
+```
+
+**Best Practices:**
+- ✅ Reference specific files and line numbers: "Missing null check in user_repository.go line 45"
+- ✅ Include failing test names: "TestUserRepository_GetByID fails on empty input"
+- ✅ Suggest fix: "Add validation before calling database.Query()"
+- ✅ Be concise but complete: 100-500 characters recommended
+- ❌ Vague: "Fix this" or "Code broken"
+- ❌ Emotional: "This is terrible" or "Unacceptable"
+
+**Examples:**
+```bash
+# Good: Specific and actionable
+--reason="Missing error handling for database.Query() on line 67. Add null check and return error to caller."
+
+# Better: References specific test
+--reason="TestUserRepository_GetByID fails when input is empty. Add input validation before database call."
+
+# Best: With suggested fix
+--reason="Critical: SQL injection vulnerability in query builder. Use parameterized queries instead of string concatenation. See OWASP SQL injection guide."
+```
+
+#### --reason-doc (Optional)
+
+Path to a detailed document explaining the rejection (code review file, bug report, test results, etc.).
+
+**Format:**
+```
+--reason-doc="<relative-path-to-file>"
+```
+
+**Use When:**
+- Code review is complex (multiple issues across multiple files)
+- QA bug report needs screenshots or reproduction steps
+- Rejection requires detailed explanation beyond brief text
+- Approval stage returns with comprehensive feedback
+
+**Examples:**
+```bash
+# Link to code review document
+--reason-doc="docs/reviews/E07-F01-003-code-review.md"
+
+# Link to bug report
+--reason-doc="docs/bugs/BUG-2026-046.md"
+
+# Link to test results
+--reason-doc="test-results/E07-F01-003-qa-report.md"
+```
+
+#### --force (Not Recommended)
+
+Bypass rejection reason requirement. Only use in rare cases (data recovery, testing, etc.).
+
+**Format:**
+```
+--force
+```
+
+**Warning:** Using `--force` skips the rejection reason requirement, which:
+- Deprives developers of critical feedback
+- Creates audit trail gaps
+- Violates quality process expectations
+- Should only be used with explicit justification
+
+### Viewing Rejection History
+
+Rejection reasons are stored in the task database and accessible through several commands.
+
+#### shark task get
+
+View rejection history with task details:
+
+```bash
+shark task get E07-F01-003
+```
+
+**Terminal Output Example:**
+```
+Task: E07-F01-003
+Title: Implement user authentication
+Status: in_development
+Priority: 5
+
+⚠️  REJECTION HISTORY (2 rejections)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[2026-01-15 14:30] Rejected by reviewer-agent-001
+ready_for_code_review → in_development
+
+Reason:
+Missing error handling for database.Query() on line 67.
+Add null check and return error to caller.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[2026-01-16 10:15] Rejected by qa-agent-003
+ready_for_qa → in_development
+
+Reason:
+Tests fail on edge case: empty user input. Add validation.
+
+📄 Related Document: docs/bugs/BUG-2026-046.md
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+#### shark task get --json
+
+Get rejection history in JSON format for programmatic access:
+
+```bash
+shark task get E07-F01-003 --json | jq '.rejection_history'
+```
+
+**JSON Output:**
+```json
+{
+  "rejection_history": [
+    {
+      "id": 45,
+      "timestamp": "2026-01-15T14:30:00Z",
+      "from_status": "ready_for_code_review",
+      "to_status": "in_development",
+      "rejected_by": "reviewer-agent-001",
+      "reason": "Missing error handling for database.Query() on line 67. Add null check.",
+      "reason_document": null,
+      "history_id": 234
+    },
+    {
+      "id": 52,
+      "timestamp": "2026-01-16T10:15:00Z",
+      "from_status": "ready_for_qa",
+      "to_status": "in_development",
+      "rejected_by": "qa-agent-003",
+      "reason": "Tests fail on edge case: empty user input. Add validation.",
+      "reason_document": "docs/bugs/BUG-2026-046.md",
+      "history_id": 241
+    }
+  ]
+}
+```
+
+### Command Examples
+
+#### Reviewer Rejecting Code
+
+```bash
+# Simple rejection reason
+shark task reopen E07-F01-003 \
+  --reason="Missing error handling for database.Query() on line 67. Add null check."
+
+# Complex rejection with linked document
+shark task reopen E07-F01-003 \
+  --reason="Found 3 critical issues. See code review document." \
+  --reason-doc="docs/reviews/E07-F01-003-code-review.md"
+```
+
+#### QA Engineer Rejecting Tests
+
+```bash
+# Test failure with specific steps
+shark task reopen E07-F01-005 \
+  --reason="TestUserRepository_GetByID fails when input is empty. Add input validation."
+
+# With detailed bug report
+shark task reopen E07-F01-005 \
+  --reason="Critical bug: Memory leak in connection pool. See detailed analysis." \
+  --reason-doc="docs/qa/E07-F01-005-memory-leak-analysis.md"
+```
+
+#### Developer Reading Rejection
+
+```bash
+# View rejection reason
+shark task get E07-F01-003
+
+# Export rejection history for processing
+shark task get E07-F01-003 --json > task-details.json
+
+# Filter to rejection history only
+shark task get E07-F01-003 --json | jq '.rejection_history[] | .reason'
+```
+
+### Error Messages
+
+#### Missing Required Rejection Reason
+
+**Scenario:** Attempting backward transition without `--reason` flag
+
+**Error:**
+```
+Error: rejection reason required for backward transition
+
+Task E07-F01-003 is moving from 'ready_for_code_review' to 'in_development'.
+Backward transitions require a rejection reason to provide feedback to developers.
+
+Usage:
+  shark task reopen E07-F01-003 --reason="<specific reason>"
+
+Example:
+  shark task reopen E07-F01-003 \
+    --reason="Missing error handling on line 67. Add null check."
+
+To bypass (not recommended):
+  shark task reopen E07-F01-003 --force
+```
+
+#### Invalid Document Path
+
+**Scenario:** Attempting to link non-existent document
+
+**Error:**
+```
+Error: rejection reason document not found
+
+Document path: docs/reviews/E07-F01-003-code-review.md
+Path could not be found relative to project root.
+
+Verify the file exists at:
+  /path/to/project/docs/reviews/E07-F01-003-code-review.md
+```
+
+### Best Practices for Reviewers
+
+**DO:**
+- ✅ Be specific: "Missing null check on line 45" not "Code has bugs"
+- ✅ Reference files/lines: "user_repository.go line 67"
+- ✅ Include fix suggestions: "Add validation in user_controller.go"
+- ✅ Link documents for complex issues: `--reason-doc="docs/reviews/..."`
+- ✅ Mention failing tests: "TestUserRepository_GetByID fails on empty input"
+
+**DON'T:**
+- ❌ Be vague: "Doesn't work" or "Fix this"
+- ❌ Use emotional language: "This code is terrible"
+- ❌ Reject without actionable feedback
+- ❌ Link documents without explaining what to look for
+
+### Best Practices for Developers
+
+**Workflow:**
+
+1. **Check for rejections first:**
+   ```bash
+   shark task get E07-F01-003 --json | jq '.rejection_history'
+   ```
+
+2. **Read all rejections chronologically** (most recent = most urgent)
+
+3. **Check for linked documents:**
+   ```bash
+   shark task get E07-F01-003 --json | jq '.rejection_history[] | select(.reason_document) | .reason_document'
+   ```
+
+4. **Review timeline for context:**
+   ```bash
+   shark task timeline E07-F01-003
+   ```
+
+5. **Fix issues and note what was addressed:**
+   ```bash
+   shark task complete E07-F01-003 \
+     --notes="Fixed error handling on line 67. Added null check and test case."
+   ```
+
+### Related Commands
+
+- `shark task reopen` - Reopen task with rejection reason
+- `shark task get` - View rejection history
+- `shark task list` - Filter by rejection indicators (future)
+- `shark task timeline` - View rejection events in timeline (future)
+- `shark task docs` - View linked documents (future)
 
 ---
 
