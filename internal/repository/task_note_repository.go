@@ -443,3 +443,95 @@ func (r *TaskNoteRepository) CreateRejectionNoteWithTx(
 	note.ID = id
 	return note, nil
 }
+
+// RejectionHistoryEntry represents a single rejection in task rejection history
+type RejectionHistoryEntry struct {
+	ID               int64   `json:"id"`
+	Timestamp        string  `json:"timestamp"`
+	FromStatus       string  `json:"from_status"`
+	ToStatus         string  `json:"to_status"`
+	RejectedBy       string  `json:"rejected_by"`
+	Reason           string  `json:"reason"`
+	ReasonDocument   *string `json:"reason_document"`
+	HistoryID        int64   `json:"history_id"`
+}
+
+// GetRejectionHistory retrieves rejection history for a task, ordered by most recent first
+func (r *TaskNoteRepository) GetRejectionHistory(ctx context.Context, taskID int64) ([]*RejectionHistoryEntry, error) {
+	if taskID == 0 {
+		return nil, fmt.Errorf("failed to get rejection history: task_id must be greater than 0")
+	}
+
+	query := `
+		SELECT id, created_at, content, created_by, metadata
+		FROM task_notes
+		WHERE task_id = ? AND note_type = ?
+		ORDER BY id DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, taskID, models.NoteTypeRejection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query rejection history: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []*RejectionHistoryEntry
+	for rows.Next() {
+		var id int64
+		var createdAt string
+		var content string
+		var createdBy *string
+		var metadataStr *string
+
+		err := rows.Scan(&id, &createdAt, &content, &createdBy, &metadataStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan rejection history: %w", err)
+		}
+
+		// Parse metadata JSON to extract status transition and document path
+		var metadata RejectionNoteMetadata
+		if metadataStr != nil && *metadataStr != "" {
+			err := json.Unmarshal([]byte(*metadataStr), &metadata)
+			if err != nil {
+				// Log but don't fail if metadata is invalid
+				if r.db != nil {
+					// Continue with empty metadata
+				}
+			}
+		}
+
+		// Build rejection history entry
+		var rejectedBy string
+		if createdBy != nil {
+			rejectedBy = *createdBy
+		}
+
+		entry := &RejectionHistoryEntry{
+			ID:         id,
+			Timestamp:  createdAt,
+			FromStatus: metadata.FromStatus,
+			ToStatus:   metadata.ToStatus,
+			RejectedBy: rejectedBy,
+			Reason:     content,
+			HistoryID:  metadata.HistoryID,
+		}
+
+		// Include document path if present
+		if metadata.DocumentPath != "" {
+			entry.ReasonDocument = &metadata.DocumentPath
+		}
+
+		entries = append(entries, entry)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rejection history: %w", err)
+	}
+
+	// Return empty slice if no rejections (not nil, not error)
+	if entries == nil {
+		entries = make([]*RejectionHistoryEntry, 0)
+	}
+
+	return entries, nil
+}

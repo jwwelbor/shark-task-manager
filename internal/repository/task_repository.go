@@ -839,6 +839,21 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 			}
 			return fmt.Errorf("invalid status transition from %s to %s", currentStatus, newStatus)
 		}
+
+		// Validate rejection reason for backward transitions
+		if r.workflow != nil {
+			isBackward, err := r.workflow.IsBackwardTransition(currentStatus, string(newStatus))
+			if err != nil {
+				return fmt.Errorf("failed to determine transition direction: %w", err)
+			}
+
+			if isBackward {
+				// Backward transitions require a non-empty reason
+				if notes == nil || strings.TrimSpace(*notes) == "" {
+					return fmt.Errorf("rejection reason required for backward transition from %s to %s: use --reason flag or use --force to bypass", currentStatus, newStatus)
+				}
+			}
+		}
 	}
 
 	// Update status and timestamps

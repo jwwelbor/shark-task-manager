@@ -1,148 +1,262 @@
 ---
-created: 2026-01-12T00:00:00-06:00
-last_updated: 2026-01-12T00:00:00-06:00
-status: unified_file_writer_complete
-next_action: none
+timestamp: 2026-01-16T15:15:00-06:00
+feature: E07-F23
+status: in_progress
+phase: code_review_and_qa
+previous_work: /build orchestration - 8/11 tasks completed
 ---
 
-# Unified File Writer Migration - COMPLETE ✅
+# Resume: Building E07-F23 Enhanced Status Tracking
 
-## Summary
+## Current State
 
-The unified file writer migration has been **successfully completed**. All 5 phases are done:
+**Feature:** E07-F23 - Enhanced Status Tracking and Visibility
+**Command:** `/build E07-F23` (autonomous development orchestration)
+**Progress:** 8/11 tasks completed or in review
+**Phase:** Code review for CLI enhancements (tasks 006, 007, 008)
 
-- ✅ **Phase 1**: Created `internal/fileops` package (87.1% test coverage)
-- ✅ **Phase 2**: Migrated epic creation to use fileops
-- ✅ **Phase 3**: Migrated feature creation to use fileops
-- ✅ **Phase 4**: Migrated task creation to use fileops (removed `writeFileExclusive()`)
-- ✅ **Phase 5**: Updated documentation (CLAUDE.md + ADR-001)
+## Task Status Summary
 
-## Results
-
-### Code Quality Improvements
-- **Lines eliminated**: ~50+ lines of duplicate file handling code
-- **Files modified**: 6 (epic.go, feature.go, creator.go, CLAUDE.md, ADR-001, writer.go)
-- **Test coverage**: 87.1% for fileops package (26 comprehensive tests)
-- **All tests passing**: fileops, taskcreation, epic creation tests
-
-### Commits Created
-```
-8c3652b docs: Add fileops package documentation and ADR-001 (Phase 5)
-1a5d3f7 refactor: Migrate feature creation to use unified file writer (Phase 3)
-a91bcb8 feat: Migrate epic creation to use unified file writer (Phase 2)
-213266b refactor: migrate task creation to unified file writer (Phase 4)
+```bash
+# Quick status check
+shark task list E07 F23 --json | jq '.[] | {key, status}'
 ```
 
-### Benefits Achieved
-1. **Consistency**: All entity types (tasks, epics, features) use identical file writing logic
-2. **Atomic Protection**: Centralized write protection prevents race conditions
-3. **Maintainability**: Single point of maintenance for file operations
-4. **Error Handling**: Consistent, clear error messages across all operations
-5. **Code Reduction**: Eliminated duplicate file handling code
-6. **Extensibility**: Easy to add features (backups, validation, etc.)
+| Task | Title | Status | Phase |
+|------|-------|--------|-------|
+| T-E07-F23-001 | Create Status Package | ✅ ready_for_approval | Done |
+| T-E07-F23-002 | Weighted Progress Calc | ✅ ready_for_approval | Done |
+| T-E07-F23-003 | Work Breakdown Calc | ✅ ready_for_approval | Done |
+| T-E07-F23-004 | Feature Repo Methods | ✅ completed | Done |
+| T-E07-F23-005 | Epic Repo Methods | ✅ ready_for_approval | Done |
+| T-E07-F23-006 | Enhance Feature Get | 🔄 in_code_review | **CURRENT** |
+| T-E07-F23-007 | Enhance Feature List | 🔄 in_code_review | **CURRENT** |
+| T-E07-F23-008 | Enhance Epic Get | 🔄 in_code_review | **CURRENT** |
+| T-E07-F23-009 | Integration Tests | ⏳ ready_for_development | Waiting |
+| T-E07-F23-010 | E2E Tests | ⏳ ready_for_development | Waiting |
+| T-E07-F23-011 | Update Docs | ⏳ ready_for_development | Waiting |
 
-### Documentation
-- **CLAUDE.md**: Added fileops section to architecture documentation
-- **ADR-001**: Comprehensive Architecture Decision Record created
-- **Migration summaries**: Phase-specific documentation in dev-artifacts/
+## Immediate Next Steps
 
-## Technical Details
+### 1. Complete Code Reviews (IN PROGRESS)
 
-### Unified File Writer API
+**Current:** Tech-lead agent reviewing tasks 006, 007, 008
 
-```go
-writer := fileops.NewEntityFileWriter()
-result, err := writer.WriteEntityFile(fileops.WriteOptions{
-    Content:         content,
-    ProjectRoot:     projectRoot,
-    FilePath:        filePath,
-    Verbose:         verbose,
-    EntityType:      "task", // or "epic", "feature"
-    UseAtomicWrite:  true,
-    CreateIfMissing: true,
-    Logger:          logFunc,
-})
+**If interrupted, resume with:**
+```bash
+# Dispatch tech-lead for batch review
+/task subagent_type=tech-lead model=sonnet description="Code review E07-F23 CLI" prompt="
+Review T-E07-F23-006, T-E07-F23-007, T-E07-F23-008 together.
+
+Files to review:
+- internal/cli/commands/feature.go (enhanced get and list)
+- internal/cli/commands/epic.go (enhanced get with rollups)
+
+Verify:
+- make test passes
+- CLI commands work: shark feature get E07-F23, shark feature list E07, shark epic get E07
+- Code quality and integration
+
+CRITICAL: Call shark task next-status on ALL THREE tasks when done.
+Return: DONE: T-E07-F23-006, DONE: T-E07-F23-007, DONE: T-E07-F23-008
+"
 ```
 
-### Key Features
-- Atomic write protection (O_EXCL flag)
-- File existence handling (links instead of overwrites)
-- Path resolution (absolute/relative)
-- Directory creation (automatic parent dirs)
-- Verbose logging support
-- Entity-specific behavior (CreateIfMissing for tasks)
+### 2. QA Testing (NEXT)
 
-### Integration Points
-- `internal/cli/commands/epic.go` - Epic file creation
-- `internal/cli/commands/feature.go` - Feature file creation
-- `internal/taskcreation/creator.go` - Task file creation
+After code reviews pass, dispatch QA for batch testing:
 
-## Test Results
+```bash
+/task subagent_type=qa model=sonnet description="QA test E07-F23 CLI" prompt="
+Test T-E07-F23-006, T-E07-F23-007, T-E07-F23-008.
 
-### Package Test Coverage
-```
-internal/fileops:        87.1% coverage (26/26 tests passing)
-internal/taskcreation:   100% tests passing (4/4)
-internal/cli/commands:   Epic creation tests passing
+Test scenarios:
+1. shark feature get E07-F23 - verify progress breakdown, action items, work summary
+2. shark feature list E07 - verify health indicators and notes
+3. shark epic get E07 - verify feature/task rollups and impediments
+4. Test JSON output for all commands
+5. Run make test
+
+CRITICAL: Call shark task next-status on ALL THREE tasks when pass.
+Return: DONE: T-E07-F23-006, DONE: T-E07-F23-007, DONE: T-E07-F23-008
+"
 ```
 
-### Pre-Existing Test Failures (Unrelated to Migration)
-The following tests have pre-existing database isolation issues:
-- `TestFeatureCreate_ExistingFile_ShouldNotOverwrite`
-- `TestFeatureCreate_NonExistingFile_ShouldCreate`
-- `TestE2E_FilePathFlagStandardization_E07F19`
+### 3. Integration Tests (Task 009)
 
-These failures are database constraint issues unrelated to the file writing refactoring.
+Once 006+007+008 approved:
 
-## Migration Execution Strategy
+```bash
+# Transition to in_development
+shark task update T-E07-F23-009 --status in_development
 
-The migration was executed using **parallel agents** to optimize performance:
+# Dispatch developer
+/task subagent_type=developer model=haiku description="Implement T-E07-F23-009" prompt="
+Implement integration tests for enhanced commands.
 
-1. **Main thread**: Launched 3 parallel developer agents
-2. **Agent 1 (a162408)**: Migrated epic creation (Phase 2)
-3. **Agent 2 (ae4127b)**: Migrated feature creation (Phase 3)
-4. **Agent 3 (a76ac54)**: Migrated task creation (Phase 4)
-5. **Main thread**: Completed documentation (Phase 5)
+Spec: docs/plan/E07-enhancements/E07-F23-enhanced-status-tracking/tasks/T-E07-F23-009.md
 
-This approach **minimized token usage** in the main thread and allowed simultaneous development across all three migration phases.
+Test all calculation functions end-to-end:
+- CalculateProgress with real config
+- CalculateWorkRemaining with real data
+- GetStatusInfo integration
+- CLI output validation
 
-## Files Modified
+CRITICAL: Call shark task next-status T-E07-F23-009 when done.
+"
+```
 
-### New Files Created
-- `internal/fileops/writer.go` (214 lines)
-- `internal/fileops/writer_test.go` (594 lines)
-- `internal/fileops/doc.go` (package documentation)
-- `docs/adr/ADR-001-unified-file-writer.md` (comprehensive ADR)
+### 4. E2E Tests + Docs (Tasks 010, 011)
 
-### Files Modified
-- `internal/cli/commands/epic.go` (27 lines → 19 lines)
-- `internal/cli/commands/feature.go` (17 lines → 14 lines)
-- `internal/taskcreation/creator.go` (removed writeFileExclusive, 24 lines)
-- `CLAUDE.md` (added fileops documentation section)
+Dispatch in parallel once 009 approved:
 
-### Development Artifacts
-- `dev-artifacts/2026-01-11-unified-file-writer/` (Phase 1 docs)
-- `dev-artifacts/2026-01-12-unified-file-writer-phase4/` (Phase 4 summary)
+```bash
+# E2E shell tests
+/task subagent_type=developer model=haiku description="Implement T-E07-F23-010" prompt="
+Add shell script E2E tests for feature get, feature list, epic get.
+Test JSON parsing with jq.
+Spec: docs/plan/E07-enhancements/E07-F23-enhanced-status-tracking/tasks/T-E07-F23-010.md
+"
 
-## Next Steps
+# Documentation updates
+/task subagent_type=developer model=haiku description="Implement T-E07-F23-011" prompt="
+Update CLI reference and architecture docs.
+Add examples for enhanced commands.
+Document JSON response changes.
+Spec: docs/plan/E07-enhancements/E07-F23-enhanced-status-tracking/tasks/T-E07-F23-011.md
+"
+```
 
-**Migration is complete!** No further action required.
+### 5. Generate UAT Guide (FINAL)
 
-### Potential Future Enhancements
-The ADR documents several potential enhancements:
-1. File backups before overwrite
-2. Content validation (markdown frontmatter)
-3. Dry-run mode
-4. Metrics collection
-5. Concurrent write improvements
-6. Rollback support
+When all 11 tasks reach ready_for_approval:
 
-These are optional enhancements and not required for current functionality.
+```
+# User Acceptance Testing Guide - Enhanced Status Tracking
 
----
+## Feature Overview
+Enhanced visibility for feature/epic status with progress breakdown,
+action items, and work summary displays.
 
-**Status**: ✅ All phases complete
-**Date Completed**: 2026-01-12
-**Total Commits**: 4 (Phases 2-5)
-**Test Coverage**: 87.1%
-**Code Quality**: Improved (eliminated duplication, consistent behavior)
+## Test Scenarios
+
+### Scenario 1: Feature Status Visibility
+1. Run: shark feature get E07-F23
+2. Verify: Progress breakdown shows weighted vs completion %
+3. Verify: Action items section lists tasks awaiting attention
+4. Verify: Work summary categorizes by responsibility
+
+### Scenario 2: Feature List Health Indicators
+1. Run: shark feature list E07
+2. Verify: Health indicators (🟢/🟡/🔴) based on blockers
+3. Verify: Notes column shows action items
+4. Verify: Progress format: "X% (Y.Z/total)"
+
+### Scenario 3: Epic-Level Rollups
+1. Run: shark epic get E07
+2. Verify: Feature status rollup aggregates counts
+3. Verify: Task status rollup across all features
+4. Verify: Impediments section shows blocked tasks
+
+## Success Criteria
+- ✅ All enhanced commands display new sections
+- ✅ JSON output includes new fields
+- ✅ All calculations use config-driven weights
+- ✅ Performance < 100ms per command
+```
+
+Save as: `docs/uat/UAT-E07-F23-[Date].md`
+
+## Key Implementation Files
+
+**Core Status Package:**
+- `internal/status/types.go` - Type definitions
+- `internal/status/progress.go` - CalculateProgress
+- `internal/status/work_breakdown.go` - CalculateWorkRemaining
+- `internal/status/context.go` - GetStatusContext (from task 004)
+- `internal/status/action_items.go` - GetActionItems (from task 004)
+
+**Repository Methods:**
+- `internal/repository/feature_repository.go` - GetStatusInfo
+- `internal/repository/epic_repository.go` - GetFeatureStatusRollup, GetTaskStatusRollup
+
+**CLI Enhancements:**
+- `internal/cli/commands/feature.go` - Enhanced get and list
+- `internal/cli/commands/epic.go` - Enhanced get with rollups
+
+**Tests:**
+- `internal/status/*_test.go` - Unit tests (100% coverage)
+- Integration tests (to be added in 009)
+- E2E tests (to be added in 010)
+
+## Workflow Pattern (CRITICAL)
+
+**For each task phase:**
+```
+1. Orchestrator: shark task next-status <task> (ready_for_xxx → in_xxx)
+2. Dispatch agent (developer/tech-lead/qa)
+3. Agent: Do work
+4. Agent: shark task next-status <task> (in_xxx → ready_for_next_phase)
+5. Agent: return "DONE: <task>"
+6. Orchestrator: Check status, dispatch next phase or next task
+```
+
+**Updated Build Skill:**
+- Location: `~/.claude/skills/build/SKILL.md`
+- Section: "Handling Draft Status and Workflow Progression"
+
+## Optimization Strategy
+
+**Keep main thread lightweight:**
+
+1. **Batch reviews** - Review all 3 CLI tasks together
+2. **Parallel agents** - Use haiku for dev, sonnet for review/QA
+3. **Run /compact** - After every 2-3 completions
+4. **Use TodoWrite** - Track progress
+5. **Minimize context** - Don't read implementation code in main thread
+
+**Agent Dispatch Pattern:**
+```bash
+# Good: Dispatch and move on
+/task subagent_type=developer ...
+/task subagent_type=developer ...  # parallel
+# Continue monitoring
+
+# Bad: Wait for each agent sequentially
+/task ... [wait] ... [wait] ... [next task]
+```
+
+## Resume Commands
+
+**Quick resume:**
+```bash
+/build E07-F23
+```
+
+**Manual resume from current phase:**
+```bash
+# 1. Check status
+shark task list E07 F23
+
+# 2. Continue from code review
+# See "Immediate Next Steps" above
+
+# 3. Monitor progress
+shark feature get E07-F23
+```
+
+## Success Indicators
+
+- All 11 tasks reach `ready_for_approval`
+- `make test` passes
+- CLI commands work: `shark feature get`, `shark feature list`, `shark epic get`
+- UAT guide generated and approved
+- No specification contradictions
+- No unresolvable blockers
+
+## Documentation Reference
+
+- **PRD:** `docs/plan/E07-enhancements/E07-F23-enhanced-status-tracking/prd.md`
+- **Architecture:** `docs/plan/E07-enhancements/E07-F23-enhanced-status-tracking/architecture.md`
+- **Implementation Plan:** `docs/plan/E07-enhancements/E07-F23-enhanced-status-tracking/implementation-plan.md`
+- **Task Files:** `docs/plan/E07-enhancements/E07-F23-enhanced-status-tracking/tasks/T-E07-F23-*.md`
