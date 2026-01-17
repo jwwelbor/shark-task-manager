@@ -326,42 +326,51 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Get rejection history and add rejection events to timeline
-	rejections, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	// Get rejection history from task_history table (where rejections are actually stored)
+	historyRejections, err := historyRepo.GetRejectionHistoryForTask(ctx, task.ID)
 	if err != nil {
 		// Log error but don't fail - rejection history is optional
 		cli.Warning(fmt.Sprintf("Failed to get rejection history: %v", err))
-	} else if len(rejections) > 0 {
+	} else if len(historyRejections) > 0 {
 		// Add rejection events to timeline
-		for _, rejection := range rejections {
-			// Parse timestamp from rejection history entry
-			rejectionTime, err := time.Parse("2006-01-02 15:04:05", rejection.Timestamp)
-			if err != nil {
-				// Fallback to current time if parsing fails
-				rejectionTime = time.Now()
+		for _, historyRecord := range historyRejections {
+			// Extract rejection information from task history record
+			agent := ""
+			if historyRecord.Agent != nil {
+				agent = *historyRecord.Agent
 			}
 
 			// Truncate reason for timeline view (80 char limit)
-			reason := rejection.Reason
-			if len(reason) > 80 {
-				reason = reason[:77] + "..."
+			reason := ""
+			if historyRecord.RejectionReason != nil {
+				reason = *historyRecord.RejectionReason
+				if len(reason) > 80 {
+					reason = reason[:77] + "..."
+				}
 			}
 
 			// Format rejection event content with warning symbol and transition info
+			oldStatus := ""
+			if historyRecord.OldStatus != nil {
+				oldStatus = *historyRecord.OldStatus
+			}
+
 			var content string
-			if rejection.FromStatus != "" && rejection.ToStatus != "" {
-				content = fmt.Sprintf("⚠️ Rejected by %s: %s → %s", rejection.RejectedBy, rejection.FromStatus, rejection.ToStatus)
+			if oldStatus != "" && historyRecord.NewStatus != "" {
+				content = fmt.Sprintf("⚠️ Rejected by %s: %s → %s", agent, oldStatus, historyRecord.NewStatus)
+			} else if agent != "" {
+				content = fmt.Sprintf("⚠️ Rejected by %s", agent)
 			} else {
-				content = fmt.Sprintf("⚠️ Rejected by %s", rejection.RejectedBy)
+				content = "⚠️ Rejected"
 			}
 
 			timeline = append(timeline, TimelineEvent{
-				Timestamp:      rejectionTime,
+				Timestamp:      historyRecord.Timestamp,
 				EventType:      "rejection",
 				Content:        content,
-				Actor:          rejection.RejectedBy,
+				Actor:          agent,
 				Reason:         reason,
-				ReasonDocument: rejection.ReasonDocument,
+				ReasonDocument: nil, // Not available in task_history, but could be extracted from Notes field if needed
 			})
 		}
 	}
