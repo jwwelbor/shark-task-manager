@@ -17,6 +17,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/validation"
 	"github.com/spf13/cobra"
 )
 
@@ -2070,6 +2071,7 @@ func init() {
 	taskCompleteCmd.Flags().Int("time-spent", 0, "Time spent in minutes")
 	taskApproveCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskApproveCmd.Flags().StringP("notes", "n", "", "Approval notes")
+	taskApproveCmd.Flags().String("rejection-reason", "", "Reason for rejection or feedback on the task")
 	taskApproveCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 
 	// Add flags for exception handling commands
@@ -2080,6 +2082,7 @@ func init() {
 	taskUnblockCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 	taskReopenCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskReopenCmd.Flags().StringP("notes", "n", "", "Rework notes")
+	taskReopenCmd.Flags().String("rejection-reason", "", "Reason for rejection or sending task back")
 	taskReopenCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 
 	// Add flags for update command
@@ -2093,6 +2096,7 @@ func init() {
 	taskUpdateCmd.Flags().Int("order", -1, "New execution order (-1 = no change)")
 	taskUpdateCmd.Flags().String("status", "", "New status for the task (uses workflow validation)")
 	taskUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed or bypass workflow validation for status changes")
+	taskUpdateCmd.Flags().String("reason", "", "Reason for backward status transitions (required unless --force is used)")
 
 	// Add flags for set-status command
 	taskSetStatusCmd.Flags().Bool("force", false, "Force status change bypassing workflow validation (use with caution)")
@@ -2263,6 +2267,18 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 
+		// Get force flag and reason flag
+		force, _ := cmd.Flags().GetBool("force")
+		reason, _ := cmd.Flags().GetString("reason")
+
+		// Validate that backward transitions have a reason (unless --force is used)
+		if err := validation.ValidateReasonForStatusTransition(status, task.Status, reason, force, workflow); err != nil {
+			cli.Error(fmt.Sprintf("Error: %s", err.Error()))
+			cli.Info(fmt.Sprintf("Use --reason to provide a reason, or use --force to bypass this requirement"))
+			cli.Info(fmt.Sprintf("Example: shark task update %s --status %s --reason \"Reason for transition\"", taskKey, status))
+			os.Exit(3) // Exit code 3 for invalid state
+		}
+
 		// Create repository with workflow support
 		dbWrapper := repoDb
 		var workflowRepo *repository.TaskRepository
@@ -2271,9 +2287,6 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		} else {
 			workflowRepo = repository.NewTaskRepository(dbWrapper)
 		}
-
-		// Get force flag
-		force, _ := cmd.Flags().GetBool("force")
 
 		// Convert status string to TaskStatus
 		newStatus := models.TaskStatus(status)
