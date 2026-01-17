@@ -947,7 +947,6 @@ shark task unblock E07-F01-001 --json
 
 ---
 
-<<<<<<< HEAD
 ## Rejection Reasons for Status Transitions
 
 This section documents how to provide and view rejection reasons when tasks are sent backward in the workflow (e.g., from code review back to development, or from QA back to development).
@@ -1255,7 +1254,9 @@ Verify the file exists at:
 - `shark task list` - Filter by rejection indicators (future)
 - `shark task timeline` - View rejection events in timeline (future)
 - `shark task docs` - View linked documents (future)
-=======
+
+---
+
 ### `shark task next-status`
 
 Transition a task to the next valid status in the workflow.
@@ -1354,7 +1355,6 @@ The first transition in the workflow configuration is selected:
 **Related Configuration:**
 - See [Interactive Mode Configuration](#interactive-mode-configuration) for details on `interactive_mode` setting
 - See [Workflow Configuration](#workflow-configuration) for status flow definitions
->>>>>>> origin/main
 
 ---
 
