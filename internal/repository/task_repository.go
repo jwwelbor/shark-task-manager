@@ -823,7 +823,9 @@ func (r *TaskRepository) isValidTransition(from models.TaskStatus, to models.Tas
 
 // UpdateStatus atomically updates task status, timestamps, and creates history record
 func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
-	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, nil, false)
+	// For backward transitions, use notes as rejection reason if provided
+	// This maintains API compatibility while supporting the rejection reason requirement
+	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, notes, false)
 }
 
 // UpdateStatusForced atomically updates task status with optional validation bypass
@@ -1161,7 +1163,14 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 
 // ReopenTask reopens a task from ready_for_review back to in_progress
 func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *string, notes *string) error {
-	return r.ReopenTaskForced(ctx, taskID, agent, notes, nil, false)
+	// For backward compatibility, treat notes as rejection reason for the reopen
+	// If no notes provided, use a default message or require force
+	if notes == nil || strings.TrimSpace(*notes) == "" {
+		// Default rejection reason when reopening without explicit notes
+		defaultReason := "Task returned for rework"
+		notes = &defaultReason
+	}
+	return r.ReopenTaskForced(ctx, taskID, agent, notes, notes, false)
 }
 
 // ReopenTaskForced reopens a task with optional validation bypass
