@@ -12,12 +12,13 @@ import (
 
 // HistoryExportRecord represents a single history record for export
 type HistoryExportRecord struct {
-	Timestamp time.Time `json:"timestamp"`
-	TaskKey   string    `json:"task_key"`
-	OldStatus *string   `json:"old_status,omitempty"`
-	NewStatus string    `json:"new_status"`
-	Agent     *string   `json:"agent,omitempty"`
-	Notes     *string   `json:"notes,omitempty"`
+	Timestamp       time.Time `json:"timestamp"`
+	TaskKey         string    `json:"task_key"`
+	OldStatus       *string   `json:"old_status,omitempty"`
+	NewStatus       string    `json:"new_status"`
+	Agent           *string   `json:"agent,omitempty"`
+	Notes           *string   `json:"notes,omitempty"`
+	RejectionReason *string   `json:"rejection_reason,omitempty"`
 }
 
 // HistoryWithTask combines a history record with its associated task key
@@ -32,7 +33,7 @@ func FormatHistoryCSV(records []HistoryExportRecord) (string, error) {
 	writer := csv.NewWriter(&builder)
 
 	// Write header
-	header := []string{"timestamp", "task_key", "old_status", "new_status", "agent", "notes"}
+	header := []string{"timestamp", "task_key", "old_status", "new_status", "agent", "rejection_reason", "notes"}
 	if err := writer.Write(header); err != nil {
 		return "", fmt.Errorf("failed to write CSV header: %w", err)
 	}
@@ -45,6 +46,7 @@ func FormatHistoryCSV(records []HistoryExportRecord) (string, error) {
 			stringValue(record.OldStatus),
 			record.NewStatus,
 			stringValue(record.Agent),
+			stringValue(record.RejectionReason),
 			stringValue(record.Notes),
 		}
 		if err := writer.Write(row); err != nil {
@@ -74,12 +76,13 @@ func ConvertToExportRecords(histories []*models.TaskHistory, taskKey string) []H
 	records := make([]HistoryExportRecord, len(histories))
 	for i, h := range histories {
 		records[i] = HistoryExportRecord{
-			Timestamp: h.Timestamp,
-			TaskKey:   taskKey,
-			OldStatus: h.OldStatus,
-			NewStatus: h.NewStatus,
-			Agent:     h.Agent,
-			Notes:     h.Notes,
+			Timestamp:       h.Timestamp,
+			TaskKey:         taskKey,
+			OldStatus:       h.OldStatus,
+			NewStatus:       h.NewStatus,
+			Agent:           h.Agent,
+			Notes:           h.Notes,
+			RejectionReason: h.RejectionReason,
 		}
 	}
 	return records
@@ -90,12 +93,13 @@ func ConvertMultipleTasksToExportRecords(historyWithTasks []HistoryWithTask) []H
 	records := make([]HistoryExportRecord, len(historyWithTasks))
 	for i, ht := range historyWithTasks {
 		records[i] = HistoryExportRecord{
-			Timestamp: ht.History.Timestamp,
-			TaskKey:   ht.TaskKey,
-			OldStatus: ht.History.OldStatus,
-			NewStatus: ht.History.NewStatus,
-			Agent:     ht.History.Agent,
-			Notes:     ht.History.Notes,
+			Timestamp:       ht.History.Timestamp,
+			TaskKey:         ht.TaskKey,
+			OldStatus:       ht.History.OldStatus,
+			NewStatus:       ht.History.NewStatus,
+			Agent:           ht.History.Agent,
+			Notes:           ht.History.Notes,
+			RejectionReason: ht.History.RejectionReason,
 		}
 	}
 	return records

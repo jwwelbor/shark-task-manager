@@ -40,12 +40,13 @@ type HistoryOutput struct {
 
 // HistoryEntry represents a single history record in the output
 type HistoryEntry struct {
-	Timestamp   string  `json:"timestamp"`
-	RelativeAge string  `json:"relative_age"`
-	OldStatus   *string `json:"old_status,omitempty"`
-	NewStatus   string  `json:"new_status"`
-	Agent       *string `json:"agent,omitempty"`
-	Notes       *string `json:"notes,omitempty"`
+	Timestamp       string  `json:"timestamp"`
+	RelativeAge     string  `json:"relative_age"`
+	OldStatus       *string `json:"old_status,omitempty"`
+	NewStatus       string  `json:"new_status"`
+	Agent           *string `json:"agent,omitempty"`
+	Notes           *string `json:"notes,omitempty"`
+	RejectionReason *string `json:"rejection_reason,omitempty"`
 }
 
 func runTaskHistory(cmd *cobra.Command, args []string) error {
@@ -113,12 +114,13 @@ func outputHistoryJSON(taskKey string, histories []*models.TaskHistory) error {
 
 	for i, h := range histories {
 		entries[i] = HistoryEntry{
-			Timestamp:   h.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-			RelativeAge: utils.FormatRelativeTime(h.Timestamp),
-			OldStatus:   h.OldStatus,
-			NewStatus:   h.NewStatus,
-			Agent:       h.Agent,
-			Notes:       h.Notes,
+			Timestamp:       h.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			RelativeAge:     utils.FormatRelativeTime(h.Timestamp),
+			OldStatus:       h.OldStatus,
+			NewStatus:       h.NewStatus,
+			Agent:           h.Agent,
+			Notes:           h.Notes,
+			RejectionReason: h.RejectionReason,
 		}
 	}
 
@@ -167,6 +169,11 @@ func outputHistoryTable(taskKey string, histories []*models.TaskHistory) error {
 		// Print agent if present
 		if h.Agent != nil && *h.Agent != "" {
 			fmt.Printf(pterm.LightCyan("│  ")+"Agent: %s\n", pterm.LightYellow(*h.Agent))
+		}
+
+		// Print rejection reason if present
+		if h.RejectionReason != nil && *h.RejectionReason != "" {
+			fmt.Printf(pterm.LightCyan("│  ")+"Rejection: %s\n", pterm.LightRed(*h.RejectionReason))
 		}
 
 		// Print notes if present
