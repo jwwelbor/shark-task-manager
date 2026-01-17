@@ -17,6 +17,7 @@ const (
 	NoteTypeTesting        NoteType = "testing"        // Test results, coverage
 	NoteTypeFuture         NoteType = "future"         // Future improvements / TODO
 	NoteTypeQuestion       NoteType = "question"       // Unanswered questions
+	NoteTypeRejection      NoteType = "rejection"      // Rejection reason for backward transitions
 )
 
 // TaskNote represents a typed note attached to a task

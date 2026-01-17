@@ -214,7 +214,8 @@ CREATE TABLE IF NOT EXISTS task_notes (
         'implementation',  -- What we actually built
         'testing',         -- Test results, coverage
         'future',          -- Future improvements / TODO
-        'question'         -- Unanswered questions
+        'question',        -- Unanswered questions
+        'rejection'        -- Rejection reason for backward transitions
     )) NOT NULL,
     content TEXT NOT NULL,
     created_by TEXT,

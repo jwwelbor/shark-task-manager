@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -272,4 +273,173 @@ func (r *TaskNoteRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	return nil
+}
+
+// RejectionNoteMetadata represents the metadata structure for rejection notes
+type RejectionNoteMetadata struct {
+	HistoryID    int64  `json:"history_id"`
+	FromStatus   string `json:"from_status"`
+	ToStatus     string `json:"to_status"`
+	DocumentPath string `json:"document_path,omitempty"`
+}
+
+// CreateRejectionNote creates a task note with note_type=rejection and metadata linking to history
+func (r *TaskNoteRepository) CreateRejectionNote(
+	ctx context.Context,
+	taskID int64,
+	historyID int64,
+	fromStatus string,
+	toStatus string,
+	reason string,
+	rejectedBy string,
+	documentPath *string,
+) (*models.TaskNote, error) {
+	// Validate inputs
+	if taskID == 0 {
+		return nil, fmt.Errorf("failed to create rejection note: task_id must be greater than 0")
+	}
+	if reason == "" {
+		return nil, fmt.Errorf("failed to create rejection note: reason cannot be empty")
+	}
+
+	// Build metadata structure
+	metadata := RejectionNoteMetadata{
+		HistoryID:  historyID,
+		FromStatus: fromStatus,
+		ToStatus:   toStatus,
+	}
+
+	// Add document_path if provided (only include if non-nil)
+	if documentPath != nil && *documentPath != "" {
+		metadata.DocumentPath = *documentPath
+	}
+
+	// Marshal metadata to JSON
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rejection note: failed to marshal metadata: %w", err)
+	}
+
+	metadataStr := string(metadataJSON)
+
+	// Create the note
+	note := &models.TaskNote{
+		TaskID:    taskID,
+		NoteType:  models.NoteTypeRejection,
+		Content:   reason,
+		CreatedBy: &rejectedBy,
+		Metadata:  &metadataStr,
+	}
+
+	if err := note.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to create rejection note: validation failed: %w", err)
+	}
+
+	// Insert into database
+	query := `
+		INSERT INTO task_notes (
+			task_id, note_type, content, created_by, metadata
+		)
+		VALUES (?, ?, ?, ?, ?)
+	`
+
+	result, err := r.db.ExecContext(ctx, query,
+		note.TaskID,
+		note.NoteType,
+		note.Content,
+		note.CreatedBy,
+		note.Metadata,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rejection note: failed to insert into database: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rejection note: failed to get last insert id: %w", err)
+	}
+
+	note.ID = id
+	return note, nil
+}
+
+// CreateRejectionNoteWithTx creates a task note with note_type=rejection within a transaction
+func (r *TaskNoteRepository) CreateRejectionNoteWithTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	taskID int64,
+	historyID int64,
+	fromStatus string,
+	toStatus string,
+	reason string,
+	rejectedBy string,
+	documentPath *string,
+) (*models.TaskNote, error) {
+	// Validate inputs
+	if taskID == 0 {
+		return nil, fmt.Errorf("failed to create rejection note: task_id must be greater than 0")
+	}
+	if reason == "" {
+		return nil, fmt.Errorf("failed to create rejection note: reason cannot be empty")
+	}
+
+	// Build metadata structure
+	metadata := RejectionNoteMetadata{
+		HistoryID:  historyID,
+		FromStatus: fromStatus,
+		ToStatus:   toStatus,
+	}
+
+	// Add document_path if provided (only include if non-nil)
+	if documentPath != nil && *documentPath != "" {
+		metadata.DocumentPath = *documentPath
+	}
+
+	// Marshal metadata to JSON
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rejection note: failed to marshal metadata: %w", err)
+	}
+
+	metadataStr := string(metadataJSON)
+
+	// Create the note
+	note := &models.TaskNote{
+		TaskID:    taskID,
+		NoteType:  models.NoteTypeRejection,
+		Content:   reason,
+		CreatedBy: &rejectedBy,
+		Metadata:  &metadataStr,
+	}
+
+	if err := note.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to create rejection note: validation failed: %w", err)
+	}
+
+	// Insert into database within transaction
+	query := `
+		INSERT INTO task_notes (
+			task_id, note_type, content, created_by, metadata
+		)
+		VALUES (?, ?, ?, ?, ?)
+	`
+
+	result, err := tx.ExecContext(ctx, query,
+		note.TaskID,
+		note.NoteType,
+		note.Content,
+		note.CreatedBy,
+		note.Metadata,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rejection note: failed to insert into database: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rejection note: failed to get last insert id: %w", err)
+	}
+
+	note.ID = id
+	return note, nil
 }
