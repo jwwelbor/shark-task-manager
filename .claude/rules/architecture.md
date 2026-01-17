@@ -320,7 +320,7 @@ The status package is used by:
 
 **Weighted Progress:**
 ```
-(Σ(weight × count_in_status) / (100 × total_tasks)) × 100%
+(Σ(weight × count_in_status) / total_tasks) × 100%
 ```
 
 **Completion Progress:**

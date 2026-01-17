@@ -461,6 +461,25 @@ func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*mod
 	return r.queryTasks(ctx, query, epicKey)
 }
 
+// ListBlockedTasksByEpic retrieves all blocked tasks for an epic.
+// This method is more efficient than loading all tasks and filtering client-side.
+func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
+	query := `
+		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
+		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
+		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
+		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
+		       t.verification_status, t.time_spent_minutes, t.context_data
+		FROM tasks t
+		INNER JOIN features f ON t.feature_id = f.id
+		INNER JOIN epics e ON f.epic_id = e.id
+		WHERE e.key = ? AND t.status = ?
+		ORDER BY t.blocked_at DESC NULLS LAST, t.priority ASC, t.created_at ASC
+	`
+
+	return r.queryTasks(ctx, query, epicKey, models.TaskStatusBlocked)
+}
+
 // FilterByStatus retrieves tasks filtered by status
 func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskStatus) ([]*models.Task, error) {
 	query := `
@@ -1279,6 +1298,60 @@ func (r *TaskRepository) GetStatusBreakdownMap(ctx context.Context, featureID in
 	}
 
 	return breakdown, nil
+}
+
+// GetStatusBreakdownMapBatch returns status counts as maps for multiple features in a single query.
+// This method avoids N+1 query problems when fetching breakdowns for many features.
+func (r *TaskRepository) GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error) {
+	if len(featureIDs) == 0 {
+		return make(map[int64]map[models.TaskStatus]int), nil
+	}
+
+	// Build the query with IN clause
+	placeholders := make([]string, len(featureIDs))
+	args := make([]interface{}, len(featureIDs))
+	for i, id := range featureIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT feature_id, status, COUNT(*) as count
+		FROM tasks
+		WHERE feature_id IN (%s)
+		GROUP BY feature_id, status
+	`, strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get batch status breakdown: %w", err)
+	}
+	defer rows.Close()
+
+	// Initialize result map with empty maps for each feature
+	result := make(map[int64]map[models.TaskStatus]int)
+	for _, featureID := range featureIDs {
+		result[featureID] = make(map[models.TaskStatus]int)
+	}
+
+	// Fill in actual counts from query
+	for rows.Next() {
+		var featureID int64
+		var status models.TaskStatus
+		var count int
+
+		if err := rows.Scan(&featureID, &status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan batch status breakdown: %w", err)
+		}
+
+		result[featureID][status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating batch status breakdown: %w", err)
+	}
+
+	return result, nil
 }
 
 // getOrderedStatuses returns all statuses in workflow order

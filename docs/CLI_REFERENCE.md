@@ -1737,7 +1737,7 @@ All enhanced fields are calculated based on status configuration in `.sharkconfi
 
 **Field Calculations:**
 
-1. **Weighted Progress**: `(sum of status_weight * task_count) / (100 * total_tasks) * 100`
+1. **Weighted Progress**: `(sum of progress_weight * task_count) / total_tasks * 100`
 2. **Completion Progress**: `(completed_tasks / total_tasks) * 100`
 3. **Work Breakdown**: Grouped by `responsibility` field (agent, human, qa_team, none)
 4. **Health Status**: Based on `blocks_feature` statuses and age of approval tasks

@@ -468,11 +468,24 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
 		}
 
+		// Batch fetch status breakdowns for all features to avoid N+1 query
+		featureIDs := make([]int64, len(featuresWithTaskCount))
+		for i, feature := range featuresWithTaskCount {
+			featureIDs[i] = feature.ID
+		}
+		statusBreakdownBatch, err := taskRepo.GetStatusBreakdownMapBatch(ctx, featureIDs)
+		if err != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to batch fetch status breakdowns: %v\n", err)
+		}
+		if statusBreakdownBatch == nil {
+			statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
+		}
+
 		for _, feature := range featuresWithTaskCount {
-			// Get status breakdown for health and progress calculations
-			statusBreakdown, err := taskRepo.GetStatusBreakdownMap(ctx, feature.ID)
-			if err != nil && cli.GlobalConfig.Verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to get status breakdown for feature %s: %v\n", feature.Key, err)
+			// Get status breakdown from batch result
+			statusBreakdown := statusBreakdownBatch[feature.ID]
+			if statusBreakdown == nil {
+				statusBreakdown = make(map[models.TaskStatus]int)
 			}
 
 			// Convert to string-keyed map
@@ -482,7 +495,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 			}
 
 			// Calculate health
-			health := calculateHealthIndicator(statusCounts)
+			health := calculateHealthIndicator(statusCounts, cfg)
 
 			// Calculate progress
 			var progressInfo interface{}
@@ -502,7 +515,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 			}
 
 			// Generate notes
-			notes := generateNotesColumn(statusCounts)
+			notes := generateNotesColumn(statusCounts, cfg)
 
 			enhancedResults = append(enhancedResults, FeatureListItemJSON{
 				Key:            feature.Key,
@@ -745,6 +758,29 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 	// Get task repository for additional data
 	taskRepo := repository.NewTaskRepository(repoDb)
 
+	// Batch fetch status breakdowns for all features to avoid N+1 query
+	featureIDs := make([]int64, len(features))
+	for i, feature := range features {
+		featureIDs[i] = feature.ID
+	}
+	statusBreakdownBatch, err := taskRepo.GetStatusBreakdownMapBatch(ctx, featureIDs)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to batch fetch status breakdowns: %v\n", err)
+	}
+	if statusBreakdownBatch == nil {
+		statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
+	}
+
+	// Load config once for all features
+	configPath, cfgErr := cli.GetConfigPath()
+	if cfgErr != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", cfgErr)
+	}
+	cfg, cfgErr := config.LoadWorkflowConfig(configPath)
+	if cfgErr != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", cfgErr)
+	}
+
 	for _, feature := range features {
 		// Truncate long titles to fit in 80 columns
 		title := feature.Title
@@ -752,12 +788,9 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 			title = title[:17] + "..."
 		}
 
-		// Get status breakdown for health and progress calculations
-		statusBreakdown, err := taskRepo.GetStatusBreakdownMap(ctx, feature.ID)
-		if err != nil {
-			if cli.GlobalConfig.Verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to get status breakdown for feature %s: %v\n", feature.Key, err)
-			}
+		// Get status breakdown from batch result
+		statusBreakdown := statusBreakdownBatch[feature.ID]
+		if statusBreakdown == nil {
 			statusBreakdown = make(map[models.TaskStatus]int)
 		}
 
@@ -767,18 +800,8 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 			statusCounts[string(taskStatus)] = count
 		}
 
-		// Load config for progress calculation
-		configPath, cfgErr := cli.GetConfigPath()
-		if cfgErr != nil && cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", cfgErr)
-		}
-		cfg, cfgErr := config.LoadWorkflowConfig(configPath)
-		if cfgErr != nil && cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", cfgErr)
-		}
-
 		// Calculate health indicator
-		health := calculateHealthIndicator(statusCounts)
+		health := calculateHealthIndicator(statusCounts, cfg)
 
 		// Calculate progress with weighted ratio
 		var progressDisplay string
@@ -791,7 +814,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 		}
 
 		// Generate notes column
-		notes := generateNotesColumn(statusCounts)
+		notes := generateNotesColumn(statusCounts, cfg)
 
 		// Format status with indicator (* for manual override)
 		statusDisplay := string(feature.Status)
@@ -815,16 +838,34 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 
 // calculateHealthIndicator calculates health emoji based on status breakdown
 // Returns: 🔴 (at risk, 3+ blocked), 🟡 (attention needed), or 🟢 (healthy)
-func calculateHealthIndicator(statusCounts map[string]int) string {
-	blockedCount := statusCounts[string(models.TaskStatusBlocked)]
+func calculateHealthIndicator(statusCounts map[string]int, cfg *config.WorkflowConfig) string {
+	if cfg == nil {
+		// Fallback to hardcoded behavior if no config
+		blockedCount := statusCounts[string(models.TaskStatusBlocked)]
+		if blockedCount >= 3 {
+			return "🔴"
+		}
+		if blockedCount >= 1 || statusCounts["ready_for_approval"] > 0 {
+			return "🟡"
+		}
+		return "🟢"
+	}
 
-	// At risk: 3 or more blocked tasks
-	if blockedCount >= 3 {
+	// Config-driven approach: check statuses with blocks_feature: true
+	blockingCount := 0
+	for status, count := range statusCounts {
+		if meta, ok := cfg.StatusMetadata[status]; ok && meta.BlocksFeature {
+			blockingCount += count
+		}
+	}
+
+	// At risk: 3 or more blocking tasks
+	if blockingCount >= 3 {
 		return "🔴"
 	}
 
-	// Attention needed: 1+ blocked OR any awaiting approval
-	if blockedCount >= 1 || statusCounts["ready_for_approval"] > 0 {
+	// Attention needed: 1+ blocking tasks
+	if blockingCount >= 1 {
 		return "🟡"
 	}
 
@@ -833,18 +874,36 @@ func calculateHealthIndicator(statusCounts map[string]int) string {
 }
 
 // generateNotesColumn generates status summary notes for feature list
-// Shows blocked count and ready for approval count
-func generateNotesColumn(statusCounts map[string]int) string {
-	parts := []string{}
-
-	// Show blocked count if any
-	if blocked := statusCounts[string(models.TaskStatusBlocked)]; blocked > 0 {
-		parts = append(parts, fmt.Sprintf("%d blocked", blocked))
+// Shows counts of tasks in blocking statuses (blocks_feature: true)
+func generateNotesColumn(statusCounts map[string]int, cfg *config.WorkflowConfig) string {
+	if cfg == nil {
+		// Fallback to hardcoded behavior if no config
+		parts := []string{}
+		if blocked := statusCounts[string(models.TaskStatusBlocked)]; blocked > 0 {
+			parts = append(parts, fmt.Sprintf("%d blocked", blocked))
+		}
+		if ready := statusCounts["ready_for_approval"]; ready > 0 {
+			parts = append(parts, fmt.Sprintf("%d ready", ready))
+		}
+		if len(parts) == 0 {
+			return "[on track]"
+		}
+		return fmt.Sprintf("[%s]", strings.Join(parts, ", "))
 	}
 
-	// Show ready for approval count if any
-	if ready := statusCounts["ready_for_approval"]; ready > 0 {
-		parts = append(parts, fmt.Sprintf("%d ready", ready))
+	// Config-driven approach: show statuses with blocks_feature: true
+	parts := []string{}
+	for status, count := range statusCounts {
+		if count > 0 {
+			if meta, ok := cfg.StatusMetadata[status]; ok && meta.BlocksFeature {
+				// Use a friendly label (e.g., "ready_for_approval" -> "ready")
+				label := status
+				if strings.HasPrefix(status, "ready_for_") {
+					label = strings.TrimPrefix(status, "ready_for_")
+				}
+				parts = append(parts, fmt.Sprintf("%d %s", count, label))
+			}
+		}
 	}
 
 	// Return formatted notes

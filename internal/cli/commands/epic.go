@@ -507,14 +507,11 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	// Calculate impediments (blocked tasks with their age)
 	blockedTasks := make([]*models.Task, 0)
 	if blockCount, ok := taskRollup[string(models.TaskStatusBlocked)]; ok && blockCount > 0 {
-		// Get all tasks from all features in this epic
-		allTasks, err := taskRepo.ListByEpic(ctx, epic.Key)
-		if err == nil {
-			for _, task := range allTasks {
-				if task.Status == models.TaskStatusBlocked {
-					blockedTasks = append(blockedTasks, task)
-				}
-			}
+		// Get only blocked tasks using optimized query
+		var err error
+		blockedTasks, err = taskRepo.ListBlockedTasksByEpic(ctx, epic.Key)
+		if err != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to get blocked tasks: %v\n", err)
 		}
 	}
 
