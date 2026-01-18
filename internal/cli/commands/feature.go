@@ -1799,7 +1799,7 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		}
 
 		// Mark as completed
-		if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, nil, true); err != nil {
+		if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, nil, nil, true); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to complete task %s: %v", task.Key, err))
 			os.Exit(2)
 		}

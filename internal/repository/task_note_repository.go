@@ -582,13 +582,8 @@ func (r *TaskNoteRepository) GetRejectionHistory(ctx context.Context, taskID int
 		// Parse metadata JSON to extract status transition and document path
 		var metadata RejectionNoteMetadata
 		if metadataStr != nil && *metadataStr != "" {
-			err := json.Unmarshal([]byte(*metadataStr), &metadata)
-			if err != nil {
-				// Log but don't fail if metadata is invalid
-				if r.db != nil {
-					// Continue with empty metadata
-				}
-			}
+			// Ignore error - continue with empty metadata if JSON is invalid
+			_ = json.Unmarshal([]byte(*metadataStr), &metadata)
 		}
 
 		// Build rejection history entry

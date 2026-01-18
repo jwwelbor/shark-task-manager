@@ -20,9 +20,9 @@ type Config struct {
 	DefaultEpic            *string                `json:"default_epic,omitempty"`
 	DefaultAgent           *string                `json:"default_agent,omitempty"`
 	JSONOutput             *bool                  `json:"json_output,omitempty"`
-	InteractiveMode        *bool                  `json:"interactive_mode,omitempty"`           // Enable interactive prompts (default: false for automation)
+	InteractiveMode        *bool                  `json:"interactive_mode,omitempty"`         // Enable interactive prompts (default: false for automation)
 	RequireRejectionReason bool                   `json:"require_rejection_reason,omitempty"` // NEW: Require rejection reason for backward transitions (default: false)
-	RawData                map[string]interface{} `json:"-"`                                   // Store raw config data to preserve unknown fields
+	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
 
 	// statusMetadata holds status metadata for work breakdown calculations
 	// Internal field for testing and programmatic access
@@ -131,4 +131,31 @@ func (c *Config) IsRequireRejectionReasonEnabled() bool {
 		return false // Default: rejection reason optional
 	}
 	return c.RequireRejectionReason
+}
+
+// IsBackwardTransition determines whether a transition from oldStatus to newStatus is backward
+// based on ProgressWeight values. A backward transition has lower weight in the new status.
+// This method is used to determine if rejection reason validation should be applied (E07-F22).
+func (c *Config) IsBackwardTransition(oldStatus, newStatus string, weights map[string]float64) bool {
+	// If old and new status are the same, it's not backward
+	if oldStatus == newStatus {
+		return false
+	}
+
+	// If weights map is nil or empty, we can't determine (return false for safety)
+	if len(weights) == 0 {
+		return false
+	}
+
+	// Get the weight for each status
+	oldWeight, oldFound := weights[oldStatus]
+	newWeight, newFound := weights[newStatus]
+
+	// If either status weight is not found, it's not backward
+	if !oldFound || !newFound {
+		return false
+	}
+
+	// Backward transition = moving to lower progress weight
+	return newWeight < oldWeight
 }

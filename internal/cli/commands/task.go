@@ -680,35 +680,14 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get rejection history from task_history table
-	historyRepo := repository.NewTaskHistoryRepository(repoDb)
-	rejectionHistoryRaw, err := historyRepo.GetRejectionHistoryForTask(ctx, task.ID)
+	// Get rejection history from task_notes table (includes document paths)
+	noteRepo := repository.NewTaskNoteRepository(repoDb)
+	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, task.ID)
 	if err != nil && cli.GlobalConfig.Verbose {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch rejection history: %v\n", err)
 	}
-
-	// Convert TaskHistory entries to RejectionHistoryEntry format for display
-	rejectionHistory := make([]*repository.RejectionHistoryEntry, 0)
-	if rejectionHistoryRaw != nil {
-		for _, history := range rejectionHistoryRaw {
-			if history.RejectionReason != nil && *history.RejectionReason != "" {
-				entry := &repository.RejectionHistoryEntry{
-					ID:         history.ID,
-					Timestamp:  history.Timestamp.Format("2006-01-02 15:04:05"),
-					FromStatus: *history.OldStatus,
-					ToStatus:   history.NewStatus,
-					RejectedBy: func() string {
-						if history.Agent != nil {
-							return *history.Agent
-						}
-						return "unknown"
-					}(),
-					Reason:    *history.RejectionReason,
-					HistoryID: history.ID,
-				}
-				rejectionHistory = append(rejectionHistory, entry)
-			}
-		}
+	if rejectionHistory == nil {
+		rejectionHistory = make([]*repository.RejectionHistoryEntry, 0)
 	}
 
 	// Output results
@@ -1780,6 +1759,7 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 
 	// Handle --reason-doc flag for document linking
 	reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+	var documentPath *string
 	if reasonDocFlag != "" {
 		// Validate document path format
 		if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
@@ -1800,10 +1780,13 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 			cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
 			os.Exit(1)
 		}
+
+		// Convert to pointer for passing to repository
+		documentPath = &reasonDocFlag
 	}
 
 	// Update status (repository handles workflow validation)
-	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, rejectionReason, force); err != nil {
+	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, rejectionReason, documentPath, force); err != nil {
 		// Display error with workflow suggestion
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
 		if !force {
@@ -2069,6 +2052,7 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 
 	// Handle --reason-doc flag for document linking
 	reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+	var documentPath *string
 	if reasonDocFlag != "" {
 		// Validate document path format
 		if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
@@ -2089,10 +2073,13 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 			cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
 			os.Exit(1)
 		}
+
+		// Convert to pointer for passing to repository
+		documentPath = &reasonDocFlag
 	}
 
 	// Reopen the task atomically
-	if err := repo.ReopenTaskForced(ctx, task.ID, &agent, notes, rejectionReason, force); err != nil {
+	if err := repo.ReopenTaskForced(ctx, task.ID, &agent, notes, rejectionReason, documentPath, force); err != nil {
 		return fmt.Errorf("failed to reopen task: %w", err)
 	}
 
@@ -2436,6 +2423,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 
 		// Handle --reason-doc flag for document linking
 		reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+		var documentPath *string
 		if reasonDocFlag != "" {
 			// Validate document path format
 			if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
@@ -2456,12 +2444,15 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 				cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
 				os.Exit(1)
 			}
+
+			// Convert to pointer for passing to repository
+			documentPath = &reasonDocFlag
 		}
 
 		// Validate that backward transitions have a reason (unless --force is used)
 		if err := validation.ValidateReasonForStatusTransition(status, string(task.Status), reason, force, workflow); err != nil {
 			cli.Error(fmt.Sprintf("Error: %s", err.Error()))
-			cli.Info(fmt.Sprintf("Use --reason to provide a reason, or use --force to bypass this requirement"))
+			cli.Info("Use --reason to provide a reason, or use --force to bypass this requirement")
 			cli.Info(fmt.Sprintf("Example: shark task update %s --status %s --reason \"Reason for transition\"", taskKey, status))
 			os.Exit(3) // Exit code 3 for invalid state
 		}
@@ -2485,7 +2476,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		}
 
 		// Update status with workflow validation (unless forcing)
-		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, rejectionReasonPtr, force)
+		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, rejectionReasonPtr, documentPath, force)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update task status: %s", err.Error()))
 
@@ -2576,7 +2567,7 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update status with workflow validation (unless forcing)
-	err = repo.UpdateStatusForced(ctx, task.ID, taskStatus, nil, notesPtr, nil, force)
+	err = repo.UpdateStatusForced(ctx, task.ID, taskStatus, nil, notesPtr, nil, nil, force)
 	if err != nil {
 		// Extract validation error message if available
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))

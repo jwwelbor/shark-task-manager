@@ -299,9 +299,9 @@ func TestConfig_RequireRejectionReason_Parsing(t *testing.T) {
 // TestConfig_IsRequireRejectionReasonEnabled tests the getter method
 func TestConfig_IsRequireRejectionReasonEnabled(t *testing.T) {
 	tests := []struct {
-		name    string
-		config  *Config
-		want    bool
+		name   string
+		config *Config
+		want   bool
 	}{
 		{
 			name:   "enabled",
@@ -740,4 +740,74 @@ func TestConfig_InteractiveMode_DefaultBehavior(t *testing.T) {
 // boolPtr is a helper function to create a pointer to a bool value
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// TestConfig_IsBackwardTransition tests whether a status transition is backward
+// based on ProgressWeight values in StatusMetadata (E07-F22)
+func TestConfig_IsBackwardTransition(t *testing.T) {
+	// Create a config with StatusMetadata that has ProgressWeight values
+	cfg := &Config{}
+
+	// Set up the test using the status flow pattern
+	// (This assumes StatusMetadata can be set internally for testing)
+	tests := []struct {
+		name         string
+		oldStatus    string
+		newStatus    string
+		weights      map[string]float64
+		wantBackward bool
+	}{
+		{
+			name:         "backward: high weight to low weight",
+			oldStatus:    "ready_for_code_review",
+			newStatus:    "in_development",
+			weights:      map[string]float64{"ready_for_code_review": 0.85, "in_development": 0.50},
+			wantBackward: true,
+		},
+		{
+			name:         "backward: completed to review",
+			oldStatus:    "completed",
+			newStatus:    "ready_for_code_review",
+			weights:      map[string]float64{"completed": 1.0, "ready_for_code_review": 0.85},
+			wantBackward: true,
+		},
+		{
+			name:         "forward: development to review",
+			oldStatus:    "in_development",
+			newStatus:    "ready_for_code_review",
+			weights:      map[string]float64{"in_development": 0.50, "ready_for_code_review": 0.85},
+			wantBackward: false,
+		},
+		{
+			name:         "equal: same status",
+			oldStatus:    "in_development",
+			newStatus:    "in_development",
+			weights:      map[string]float64{"in_development": 0.50},
+			wantBackward: false,
+		},
+		{
+			name:         "unknown old status",
+			oldStatus:    "unknown_status",
+			newStatus:    "in_development",
+			weights:      map[string]float64{"in_development": 0.50},
+			wantBackward: false,
+		},
+		{
+			name:         "unknown new status",
+			oldStatus:    "in_development",
+			newStatus:    "unknown_status",
+			weights:      map[string]float64{"in_development": 0.50},
+			wantBackward: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cfg.IsBackwardTransition(tt.oldStatus, tt.newStatus, tt.weights)
+			if result != tt.wantBackward {
+				t.Errorf("IsBackwardTransition(%q, %q) = %v, want %v",
+					tt.oldStatus, tt.newStatus, result, tt.wantBackward)
+			}
+		})
+	}
 }

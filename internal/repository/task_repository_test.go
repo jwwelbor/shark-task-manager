@@ -410,7 +410,7 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 		require.NoError(t, err)
 
 		// Try backward transition with force but no reason
-		err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, nil, true)
+		err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, nil, nil, true)
 		assert.NoError(t, err, "Backward transition with force should bypass reason requirement")
 
 		// Verify status changed
@@ -505,7 +505,9 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 
 	err := repo.Create(ctx, task)
 	require.NoError(t, err, "Failed to create test task")
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
 
 	// Update status with rejection reason (backward transition)
 	rejectionReason := "Missing error handling on line 67"
@@ -519,7 +521,8 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 		models.TaskStatusInProgress,
 		&agent,
 		&notes,
-		&rejectionReason,  // Now passing rejection reason
+		&rejectionReason, // Now passing rejection reason
+		nil,              // documentPath
 		false,
 	)
 	require.NoError(t, err, "UpdateStatusForced should succeed")

@@ -345,7 +345,9 @@ func TestCreateRejectionNoteInTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to begin transaction: %v", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Create rejection note within transaction
 	note, err := noteRepo.CreateRejectionNoteWithTx(
@@ -677,7 +679,7 @@ func TestCreateRejectionNoteReasonEdgeCases(t *testing.T) {
 				}
 				if note != nil {
 					// Cleanup
-					database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+					_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
 				}
 			}
 		})
@@ -792,7 +794,7 @@ func TestCreateRejectionNoteDocumentPathValidation(t *testing.T) {
 			}
 
 			// Cleanup
-			database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+			_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
 		})
 	}
 }
@@ -856,7 +858,7 @@ func TestRejectionNotesOrderedByTimestamp(t *testing.T) {
 
 	// Cleanup
 	for _, note := range createdNotes {
-		database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
 	}
 }
 
@@ -966,7 +968,7 @@ func TestRejectionNoteMetadataIntegrity(t *testing.T) {
 			}
 
 			// Cleanup
-			database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+			_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
 		})
 	}
 }

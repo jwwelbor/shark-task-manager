@@ -825,11 +825,11 @@ func (r *TaskRepository) isValidTransition(from models.TaskStatus, to models.Tas
 func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
 	// For backward transitions, use notes as rejection reason if provided
 	// This maintains API compatibility while supporting the rejection reason requirement
-	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, notes, false)
+	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, notes, nil, false)
 }
 
 // UpdateStatusForced atomically updates task status with optional validation bypass
-func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, force bool) error {
+func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
 	// Validate status is valid enum
 	if !r.isValidStatusEnum(newStatus) {
 		return fmt.Errorf("invalid status: %s", newStatus)
@@ -949,7 +949,7 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 			_, err := noteRepo.CreateRejectionNoteWithTx(
 				ctx, tx, taskID, historyID,
 				currentStatus, string(newStatus),
-				*rejectionReason, rejectedBy, nil,
+				*rejectionReason, rejectedBy, documentPath,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create rejection note: %w", err)
@@ -1170,13 +1170,13 @@ func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *st
 		defaultReason := "Task returned for rework"
 		notes = &defaultReason
 	}
-	return r.ReopenTaskForced(ctx, taskID, agent, notes, notes, false)
+	return r.ReopenTaskForced(ctx, taskID, agent, notes, notes, nil, false)
 }
 
 // ReopenTaskForced reopens a task with optional validation bypass
 // Use rejectionReason for backward transitions to capture why task was rejected
-func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, rejectionReason *string, force bool) error {
-	return r.UpdateStatusForced(ctx, taskID, models.TaskStatusInProgress, agent, notes, rejectionReason, force)
+func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+	return r.UpdateStatusForced(ctx, taskID, models.TaskStatusInProgress, agent, notes, rejectionReason, documentPath, force)
 }
 
 // Delete deletes a task (and its history via CASCADE)
@@ -1944,7 +1944,7 @@ func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64
 		SELECT
 			t.id,
 			COALESCE(COUNT(tn.id), 0) as rejection_count,
-			MAX(tn.created_at) as last_rejection_at
+			datetime(MAX(tn.created_at)) as last_rejection_at
 		FROM tasks t
 		LEFT JOIN task_notes tn ON t.id = tn.task_id AND tn.note_type = 'rejection'
 		WHERE t.id IN (` + strings.Join(placeholders, ",") + `)
@@ -1963,15 +1963,20 @@ func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64
 	for rows.Next() {
 		var taskID int64
 		var rejectionCount int
-		var lastRejectionAt sql.NullTime
+		var lastRejectionAtStr sql.NullString
 
-		if err := rows.Scan(&taskID, &rejectionCount, &lastRejectionAt); err != nil {
+		if err := rows.Scan(&taskID, &rejectionCount, &lastRejectionAtStr); err != nil {
 			return nil, nil, fmt.Errorf("failed to scan rejection counts: %w", err)
 		}
 
 		counts[taskID] = rejectionCount
-		if lastRejectionAt.Valid {
-			lastTimes[taskID] = &lastRejectionAt.Time
+		if lastRejectionAtStr.Valid {
+			// Parse the timestamp string
+			parsedTime, err := time.Parse("2006-01-02 15:04:05", lastRejectionAtStr.String)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to parse last_rejection_at: %w", err)
+			}
+			lastTimes[taskID] = &parsedTime
 		}
 	}
 
@@ -1987,32 +1992,4 @@ func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64
 	}
 
 	return counts, lastTimes, nil
-}
-
-// enrichTasksWithRejectionData enriches tasks with rejection count and last rejection timestamp
-// This is called after fetching tasks to populate RejectionCount and LastRejectionAt fields
-func (r *TaskRepository) enrichTasksWithRejectionData(ctx context.Context, tasks []*models.Task) error {
-	if len(tasks) == 0 {
-		return nil
-	}
-
-	// Extract task IDs
-	taskIDs := make([]int64, len(tasks))
-	for i, task := range tasks {
-		taskIDs[i] = task.ID
-	}
-
-	// Get rejection counts and timestamps
-	counts, times, err := r.GetRejectionCounts(ctx, taskIDs)
-	if err != nil {
-		return err
-	}
-
-	// Enrich tasks with rejection data
-	for _, task := range tasks {
-		task.RejectionCount = counts[task.ID]
-		task.LastRejectionAt = times[task.ID]
-	}
-
-	return nil
 }

@@ -25,8 +25,8 @@ func TestGetRejectionCounts(t *testing.T) {
 
 	// Seed epic and feature
 	epicResult, err := database.ExecContext(ctx, `
-		INSERT INTO epics (key, slug, title, description, status)
-		VALUES ('E99', 'test-epic-99', 'Test Epic 99', 'Test', 'active')
+		INSERT INTO epics (key, slug, title, description, status, priority)
+		VALUES ('E99', 'test-epic-99', 'Test Epic 99', 'Test', 'active', 'medium')
 	`)
 	if err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
@@ -37,8 +37,8 @@ func TestGetRejectionCounts(t *testing.T) {
 	}
 
 	featureResult, err := database.ExecContext(ctx, `
-		INSERT INTO features (epic_id, key, slug, title, description)
-		VALUES (?, 'E99-F99', 'test-feature-99', 'Test Feature 99', 'Test')
+		INSERT INTO features (epic_id, key, slug, title, description, status)
+		VALUES (?, 'E99-F99', 'test-feature-99', 'Test Feature 99', 'Test', 'active')
 	`, epicID)
 	if err != nil {
 		t.Fatalf("Failed to create feature: %v", err)
@@ -64,7 +64,9 @@ func TestGetRejectionCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create task: %v", err)
 	}
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
 
 	tests := []struct {
 		name             string
@@ -153,8 +155,8 @@ func TestGetRejectionCountsMultipleTasks(t *testing.T) {
 
 	// Seed epic and feature
 	epicResult, err := database.ExecContext(ctx, `
-		INSERT INTO epics (key, slug, title, description, status)
-		VALUES ('E88', 'test-epic-88', 'Test Epic 88', 'Test', 'active')
+		INSERT INTO epics (key, slug, title, description, status, priority)
+		VALUES ('E88', 'test-epic-88', 'Test Epic 88', 'Test', 'active', 'medium')
 	`)
 	if err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
@@ -162,8 +164,8 @@ func TestGetRejectionCountsMultipleTasks(t *testing.T) {
 	epicID, _ := epicResult.LastInsertId()
 
 	featureResult, err := database.ExecContext(ctx, `
-		INSERT INTO features (epic_id, key, slug, title, description)
-		VALUES (?, 'E88-F88', 'test-feature-88', 'Test Feature 88', 'Test')
+		INSERT INTO features (epic_id, key, slug, title, description, status)
+		VALUES (?, 'E88-F88', 'test-feature-88', 'Test Feature 88', 'Test', 'active')
 	`, epicID)
 	if err != nil {
 		t.Fatalf("Failed to create feature: %v", err)

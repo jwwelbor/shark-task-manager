@@ -18,12 +18,12 @@ Backward transitions occur when a task moves to an earlier workflow phase:
 
 | From Status | To Status | Context |
 |---|---|---|
-| `ready_for_code_review` | `in_development` | Code reviewer rejects task |
-| `ready_for_qa` | `in_development` | QA finds bugs |
-| `in_qa` | `in_development` | QA returns task for fixes |
-| `ready_for_approval` | `ready_for_qa` | Approval stage returns to QA |
+| `in_code_review` | `in_development` | Code reviewer rejects task |
+| `in_qa` | `in_development` | QA finds bugs |
 | `in_approval` | `ready_for_qa` | Approval returns for rework |
-| `ready_for_review` | `in_progress` | Any review stage rejects task |
+| `ready_for_code_review` | `in_development` | Task rejected before code review starts |
+| `ready_for_qa` | `in_development` | Task rejected before QA starts |
+| `ready_for_approval` | `ready_for_qa` | Task rejected before approval starts |
 
 ## Rejection Reason Flags
 

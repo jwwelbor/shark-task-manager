@@ -30,6 +30,13 @@ func TestUpdateStatus_WorkflowValidation(t *testing.T) {
 			config.StartStatusKey:    {"todo"},
 			config.CompleteStatusKey: {"completed"},
 		},
+		StatusMetadata: map[string]config.StatusMetadata{
+			"todo":             {ProgressWeight: 0, Phase: "planning"},
+			"in_progress":      {ProgressWeight: 50, Phase: "development"},
+			"completed":        {ProgressWeight: 100, Phase: "done"},
+			"blocked":          {ProgressWeight: 25, Phase: "planning"},
+			"ready_for_review": {ProgressWeight: 75, Phase: "review"},
+		},
 	}
 
 	repo := NewTaskRepositoryWithWorkflow(db, customWorkflow)

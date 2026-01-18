@@ -160,7 +160,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 
 		// Force invalid transition (todo -> completed)
 		emergencyNotes := "Emergency hotfix deployment"
-		err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &techLead, &emergencyNotes, nil, true)
+		err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &techLead, &emergencyNotes, nil, nil, true)
 		if err != nil {
 			t.Fatalf("Forced transition should succeed: %v", err)
 		}
@@ -297,6 +297,13 @@ func TestWorkflowIntegration_PerformanceBenchmark(t *testing.T) {
 		SpecialStatuses: map[string][]string{
 			config.StartStatusKey:    {"todo"},
 			config.CompleteStatusKey: {"completed"},
+		},
+		StatusMetadata: map[string]config.StatusMetadata{
+			"todo":             {ProgressWeight: 0, Phase: "planning"},
+			"in_progress":      {ProgressWeight: 33, Phase: "development"},
+			"ready_for_review": {ProgressWeight: 66, Phase: "review"},
+			"completed":        {ProgressWeight: 100, Phase: "done"},
+			"blocked":          {ProgressWeight: 0, Phase: "planning"},
 		},
 	}
 

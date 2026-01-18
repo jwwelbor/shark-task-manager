@@ -366,7 +366,9 @@ func TestIntegration_RequireRejectionReason(t *testing.T) {
 	// Test with disabled (false)
 	configData["require_rejection_reason"] = false
 	data, _ = json.MarshalIndent(configData, "", "  ")
-	os.WriteFile(configPath, data, 0644)
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
 
 	manager2 := NewManager(configPath)
 	cfg2, err := manager2.Load()
@@ -389,7 +391,9 @@ func TestIntegration_RequireRejectionReason(t *testing.T) {
 		"color_enabled": true,
 	}
 	data, _ = json.MarshalIndent(configData, "", "  ")
-	os.WriteFile(configPath, data, 0644)
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
 
 	manager3 := NewManager(configPath)
 	cfg3, err := manager3.Load()

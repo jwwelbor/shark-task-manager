@@ -445,7 +445,9 @@ func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 	}
 	err := taskRepo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
 
 	// Create history with rejection reason
 	oldStatus := string(models.TaskStatusReadyForReview)
@@ -509,7 +511,9 @@ func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
 	}
 	err := taskRepo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
 
 	// Create history WITHOUT rejection reason (forward transition)
 	agent := "developer-agent"
@@ -567,7 +571,9 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 	}
 	err := taskRepo.Create(ctx, task)
 	require.NoError(t, err)
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
 
 	// Create first history: normal transition (no rejection)
 	agent1 := "developer-agent"

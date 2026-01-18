@@ -690,7 +690,9 @@ func TestGetRejectionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
 
 	// Create rejection notes with metadata
 	rejectedBy1 := "reviewer-agent-001"
@@ -708,7 +710,9 @@ func TestGetRejectionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create first rejection note: %v", err)
 	}
-	defer database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note1.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note1.ID)
+	}()
 
 	// Create second rejection note without document
 	rejectedBy2 := "qa-agent-003"
@@ -725,7 +729,9 @@ func TestGetRejectionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create second rejection note: %v", err)
 	}
-	defer database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note2.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note2.ID)
+	}()
 
 	// Get rejection history
 	history, err := noteRepo.GetRejectionHistory(ctx, task.ID)
@@ -795,7 +801,9 @@ func TestGetRejectionHistory_EmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
 
 	// Get rejection history - should be empty
 	history, err := noteRepo.GetRejectionHistory(ctx, task.ID)
@@ -836,7 +844,9 @@ func TestGetRejectionHistory_MultipleRejections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
-	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
 
 	// Create 3 rejection notes
 	for i := 1; i <= 3; i++ {
@@ -877,5 +887,5 @@ func TestGetRejectionHistory_MultipleRejections(t *testing.T) {
 	}
 
 	// Cleanup rejection notes
-	database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", task.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", task.ID)
 }

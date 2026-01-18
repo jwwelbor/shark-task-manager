@@ -184,9 +184,6 @@ func TestFormatHistoryTableWithRejectionReason(t *testing.T) {
 	reason := &rejection
 
 	// Verify the reason is available for display
-	if reason == nil {
-		t.Error("rejection reason should not be nil")
-	}
 	if *reason == "" {
 		t.Error("rejection reason should not be empty")
 	}

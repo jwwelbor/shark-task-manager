@@ -268,10 +268,10 @@ func TestRejectionReasonDocFlagIntegration(t *testing.T) {
 // TestRejectionNoteWithDocumentLink tests that rejection notes include document link
 func TestRejectionNoteWithDocumentLink(t *testing.T) {
 	tests := []struct {
-		name          string
-		docPath       string
-		reason        string
-		expectedBoth  bool
+		name         string
+		docPath      string
+		reason       string
+		expectedBoth bool
 	}{
 		{
 			name:         "reason and document",

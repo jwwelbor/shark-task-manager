@@ -31,8 +31,8 @@ func TestSearchWithTimePeriodSince(t *testing.T) {
 
 	taskID, _ := result.LastInsertId()
 	defer func() {
-		database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
-		database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
 	}()
 
 	// Create notes with different timestamps
@@ -102,8 +102,8 @@ func TestSearchWithTimePeriodUntil(t *testing.T) {
 
 	taskID, _ := result.LastInsertId()
 	defer func() {
-		database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
-		database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
 	}()
 
 	// Create notes with different timestamps
@@ -171,8 +171,8 @@ func TestSearchWithTimePeriodBothDates(t *testing.T) {
 
 	taskID, _ := result.LastInsertId()
 	defer func() {
-		database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
-		database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
 	}()
 
 	// Create notes with different timestamps
@@ -182,7 +182,9 @@ func TestSearchWithTimePeriodBothDates(t *testing.T) {
 		Content:   "Very old",
 		CreatedBy: createStr("reviewer"),
 	}
-	noteRepo.Create(ctx, veryOldNote)
+	if err := noteRepo.Create(ctx, veryOldNote); err != nil {
+		t.Fatalf("Failed to create note: %v", err)
+	}
 	_, _ = database.ExecContext(ctx, "UPDATE task_notes SET created_at = '2025-11-01 10:00:00' WHERE id = ?", veryOldNote.ID)
 
 	middleNote := &models.TaskNote{
@@ -191,7 +193,9 @@ func TestSearchWithTimePeriodBothDates(t *testing.T) {
 		Content:   "Middle",
 		CreatedBy: createStr("reviewer"),
 	}
-	noteRepo.Create(ctx, middleNote)
+	if err := noteRepo.Create(ctx, middleNote); err != nil {
+		t.Fatalf("Failed to create note: %v", err)
+	}
 	_, _ = database.ExecContext(ctx, "UPDATE task_notes SET created_at = '2025-12-15 10:00:00' WHERE id = ?", middleNote.ID)
 
 	veryRecentNote := &models.TaskNote{
@@ -200,7 +204,9 @@ func TestSearchWithTimePeriodBothDates(t *testing.T) {
 		Content:   "Very recent",
 		CreatedBy: createStr("reviewer"),
 	}
-	noteRepo.Create(ctx, veryRecentNote)
+	if err := noteRepo.Create(ctx, veryRecentNote); err != nil {
+		t.Fatalf("Failed to create note: %v", err)
+	}
 	_, _ = database.ExecContext(ctx, "UPDATE task_notes SET created_at = '2026-01-15 10:00:00' WHERE id = ?", veryRecentNote.ID)
 
 	// Search notes between 2025-12-01 and 2025-12-31
