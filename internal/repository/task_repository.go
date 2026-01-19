@@ -562,7 +562,12 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 
 	query += " ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC"
 
-	return r.queryTasks(ctx, query, args...)
+	tasks, err := r.queryTasks(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
 }
 
 // List retrieves all tasks
@@ -577,7 +582,12 @@ func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
 	`
 
-	return r.queryTasks(ctx, query)
+	tasks, err := r.queryTasks(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
 }
 
 // Update updates an existing task
@@ -813,11 +823,13 @@ func (r *TaskRepository) isValidTransition(from models.TaskStatus, to models.Tas
 
 // UpdateStatus atomically updates task status, timestamps, and creates history record
 func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
-	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, false)
+	// For backward transitions, use notes as rejection reason if provided
+	// This maintains API compatibility while supporting the rejection reason requirement
+	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, notes, nil, false)
 }
 
 // UpdateStatusForced atomically updates task status with optional validation bypass
-func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, force bool) error {
+func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
 	// Validate status is valid enum
 	if !r.isValidStatusEnum(newStatus) {
 		return fmt.Errorf("invalid status: %s", newStatus)
@@ -858,6 +870,21 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 			}
 			return fmt.Errorf("invalid status transition from %s to %s", currentStatus, newStatus)
 		}
+
+		// Validate rejection reason for backward transitions
+		if r.workflow != nil {
+			isBackward, err := r.workflow.IsBackwardTransition(currentStatus, string(newStatus))
+			if err != nil {
+				return fmt.Errorf("failed to determine transition direction: %w", err)
+			}
+
+			if isBackward {
+				// Backward transitions require a non-empty reason
+				if rejectionReason == nil || strings.TrimSpace(*rejectionReason) == "" {
+					return fmt.Errorf("rejection reason required for backward transition from %s to %s: use --reason flag or use --force to bypass", currentStatus, newStatus)
+				}
+			}
+		}
 	}
 
 	// Update status and timestamps
@@ -885,14 +912,49 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
 
-	// Create history record
+	// Create history record with rejection reason support
 	historyQuery := `
-		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes, force)
+	result, err := tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes, rejectionReason, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
+	}
+
+	historyID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get history record id: %w", err)
+	}
+
+	// Create rejection note if rejection reason is provided and transition is backward
+	if rejectionReason != nil && strings.TrimSpace(*rejectionReason) != "" {
+		isBackward := false
+		if r.workflow != nil {
+			var checkErr error
+			isBackward, checkErr = r.workflow.IsBackwardTransition(currentStatus, string(newStatus))
+			if checkErr != nil {
+				// Log but don't fail - the transition already succeeded
+				fmt.Printf("WARNING: Failed to check backward transition for rejection note: %v\n", checkErr)
+			}
+		}
+
+		if isBackward {
+			noteRepo := NewTaskNoteRepository(r.db)
+			rejectedBy := "system"
+			if agent != nil && *agent != "" {
+				rejectedBy = *agent
+			}
+
+			_, err := noteRepo.CreateRejectionNoteWithTx(
+				ctx, tx, taskID, historyID,
+				currentStatus, string(newStatus),
+				*rejectionReason, rejectedBy, documentPath,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create rejection note: %w", err)
+			}
+		}
 	}
 
 	// Commit transaction
@@ -1021,9 +1083,9 @@ func (r *TaskRepository) BlockTaskForced(ctx context.Context, taskID int64, reas
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
-	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, reason, force)
+	// Create history record with rejection_reason support
+	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, &reason, nil, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -1085,8 +1147,8 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 	}
 
 	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil, force)
+	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil, nil, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -1101,65 +1163,20 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 
 // ReopenTask reopens a task from ready_for_review back to in_progress
 func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *string, notes *string) error {
-	return r.ReopenTaskForced(ctx, taskID, agent, notes, false)
+	// For backward compatibility, treat notes as rejection reason for the reopen
+	// If no notes provided, use a default message or require force
+	if notes == nil || strings.TrimSpace(*notes) == "" {
+		// Default rejection reason when reopening without explicit notes
+		defaultReason := "Task returned for rework"
+		notes = &defaultReason
+	}
+	return r.ReopenTaskForced(ctx, taskID, agent, notes, notes, nil, false)
 }
 
 // ReopenTaskForced reopens a task with optional validation bypass
-func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, force bool) error {
-	// Start transaction
-	tx, err := r.db.BeginTxContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Get current task state
-	var currentStatus string
-	err = tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
-	if err == sql.ErrNoRows {
-		return fmt.Errorf("task not found with id %d", taskID)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to get current task status: %w", err)
-	}
-
-	// Validate transition if not forcing
-	currentTaskStatus := models.TaskStatus(currentStatus)
-	if force {
-		fmt.Printf("WARNING: Forced reopen from %s status (taskID=%d)\n", currentStatus, taskID)
-	} else {
-		// Validate transition using workflow config
-		if !r.isValidTransition(currentTaskStatus, models.TaskStatusInProgress) {
-			if r.workflow != nil {
-				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatusInProgress))
-				if validationErr != nil {
-					return validationErr
-				}
-			}
-			return fmt.Errorf("invalid status transition from %s to in_progress", currentStatus)
-		}
-	}
-
-	// Update status and clear completed_at
-	query := `UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?`
-	_, err = tx.ExecContext(ctx, query, models.TaskStatusInProgress, taskID)
-	if err != nil {
-		return fmt.Errorf("failed to update task: %w", err)
-	}
-
-	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusInProgress, agent, notes, force)
-	if err != nil {
-		return fmt.Errorf("failed to create history record: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+// Use rejectionReason for backward transitions to capture why task was rejected
+func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+	return r.UpdateStatusForced(ctx, taskID, models.TaskStatusInProgress, agent, notes, rejectionReason, documentPath, force)
 }
 
 // Delete deletes a task (and its history via CASCADE)
@@ -1905,4 +1922,74 @@ func (r *TaskRepository) FilterByMetadataPhase(ctx context.Context, phase string
 	`, strings.Join(placeholders, ", "))
 
 	return r.queryTasks(ctx, query, args...)
+}
+
+// GetRejectionCounts returns rejection counts and last rejection timestamps for given tasks
+// Uses efficient LEFT JOIN with COUNT aggregation to avoid N+1 queries
+// Returns two maps: taskID -> rejection count and taskID -> last rejection time
+func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64) (map[int64]int, map[int64]*time.Time, error) {
+	if len(taskIDs) == 0 {
+		return make(map[int64]int), make(map[int64]*time.Time), nil
+	}
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(taskIDs))
+	args := make([]interface{}, len(taskIDs))
+	for i, id := range taskIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `
+		SELECT
+			t.id,
+			COALESCE(COUNT(tn.id), 0) as rejection_count,
+			datetime(MAX(tn.created_at)) as last_rejection_at
+		FROM tasks t
+		LEFT JOIN task_notes tn ON t.id = tn.task_id AND tn.note_type = 'rejection'
+		WHERE t.id IN (` + strings.Join(placeholders, ",") + `)
+		GROUP BY t.id
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to query rejection counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[int64]int)
+	lastTimes := make(map[int64]*time.Time)
+
+	for rows.Next() {
+		var taskID int64
+		var rejectionCount int
+		var lastRejectionAtStr sql.NullString
+
+		if err := rows.Scan(&taskID, &rejectionCount, &lastRejectionAtStr); err != nil {
+			return nil, nil, fmt.Errorf("failed to scan rejection counts: %w", err)
+		}
+
+		counts[taskID] = rejectionCount
+		if lastRejectionAtStr.Valid {
+			// Parse the timestamp string
+			parsedTime, err := time.Parse("2006-01-02 15:04:05", lastRejectionAtStr.String)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to parse last_rejection_at: %w", err)
+			}
+			lastTimes[taskID] = &parsedTime
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("error iterating rejection counts: %w", err)
+	}
+
+	// Ensure all requested task IDs are in the result maps (even if 0 rejections)
+	for _, taskID := range taskIDs {
+		if _, ok := counts[taskID]; !ok {
+			counts[taskID] = 0
+		}
+	}
+
+	return counts, lastTimes, nil
 }

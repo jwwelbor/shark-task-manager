@@ -38,8 +38,8 @@ func (r *TaskHistoryRepository) Create(ctx context.Context, history *models.Task
 	}
 
 	query := `
-		INSERT INTO task_history (task_id, old_status, new_status, agent, notes)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -48,6 +48,7 @@ func (r *TaskHistoryRepository) Create(ctx context.Context, history *models.Task
 		history.NewStatus,
 		history.Agent,
 		history.Notes,
+		history.RejectionReason,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create task history: %w", err)
@@ -65,7 +66,7 @@ func (r *TaskHistoryRepository) Create(ctx context.Context, history *models.Task
 // ListByTask retrieves all history records for a task
 func (r *TaskHistoryRepository) ListByTask(ctx context.Context, taskID int64) ([]*models.TaskHistory, error) {
 	query := `
-		SELECT id, task_id, old_status, new_status, agent, notes, timestamp
+		SELECT id, task_id, old_status, new_status, agent, notes, rejection_reason, timestamp
 		FROM task_history
 		WHERE task_id = ?
 		ORDER BY timestamp DESC
@@ -87,6 +88,7 @@ func (r *TaskHistoryRepository) ListByTask(ctx context.Context, taskID int64) ([
 			&history.NewStatus,
 			&history.Agent,
 			&history.Notes,
+			&history.RejectionReason,
 			&history.Timestamp,
 		)
 		if err != nil {
@@ -151,7 +153,7 @@ func (r *TaskHistoryRepository) ListWithFilters(ctx context.Context, filters His
 
 	// Build query with filters
 	query := `
-		SELECT DISTINCT th.id, th.task_id, th.old_status, th.new_status, th.agent, th.notes, th.timestamp
+		SELECT DISTINCT th.id, th.task_id, th.old_status, th.new_status, th.agent, th.notes, th.rejection_reason, th.timestamp
 		FROM task_history th
 	`
 
@@ -231,6 +233,7 @@ func (r *TaskHistoryRepository) ListWithFilters(ctx context.Context, filters His
 			&history.NewStatus,
 			&history.Agent,
 			&history.Notes,
+			&history.RejectionReason,
 			&history.Timestamp,
 		)
 		if err != nil {
@@ -249,7 +252,7 @@ func (r *TaskHistoryRepository) ListWithFilters(ctx context.Context, filters His
 // GetHistoryByTaskKey retrieves all history records for a task by its key
 func (r *TaskHistoryRepository) GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
 	query := `
-		SELECT th.id, th.task_id, th.old_status, th.new_status, th.agent, th.notes, th.timestamp
+		SELECT th.id, th.task_id, th.old_status, th.new_status, th.agent, th.notes, th.rejection_reason, th.timestamp
 		FROM task_history th
 		INNER JOIN tasks t ON th.task_id = t.id
 		WHERE t.key = ?
@@ -272,6 +275,7 @@ func (r *TaskHistoryRepository) GetHistoryByTaskKey(ctx context.Context, taskKey
 			&history.NewStatus,
 			&history.Agent,
 			&history.Notes,
+			&history.RejectionReason,
 			&history.Timestamp,
 		)
 		if err != nil {
@@ -285,4 +289,71 @@ func (r *TaskHistoryRepository) GetHistoryByTaskKey(ctx context.Context, taskKey
 	}
 
 	return histories, nil
+}
+
+// GetByID retrieves a single history record by ID
+func (r *TaskHistoryRepository) GetByID(ctx context.Context, id int64) (*models.TaskHistory, error) {
+	query := `
+		SELECT id, task_id, old_status, new_status, agent, notes, rejection_reason, timestamp
+		FROM task_history
+		WHERE id = ?
+	`
+
+	history := &models.TaskHistory{}
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&history.ID,
+		&history.TaskID,
+		&history.OldStatus,
+		&history.NewStatus,
+		&history.Agent,
+		&history.Notes,
+		&history.RejectionReason,
+		&history.Timestamp,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task history by id: %w", err)
+	}
+
+	return history, nil
+}
+
+// GetRejectionHistoryForTask retrieves all rejection records (records with rejection_reason) for a task
+func (r *TaskHistoryRepository) GetRejectionHistoryForTask(ctx context.Context, taskID int64) ([]*models.TaskHistory, error) {
+	query := `
+		SELECT id, task_id, old_status, new_status, agent, notes, rejection_reason, timestamp
+		FROM task_history
+		WHERE task_id = ? AND rejection_reason IS NOT NULL
+		ORDER BY timestamp DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rejection history for task: %w", err)
+	}
+	defer rows.Close()
+
+	var rejections []*models.TaskHistory
+	for rows.Next() {
+		history := &models.TaskHistory{}
+		err := rows.Scan(
+			&history.ID,
+			&history.TaskID,
+			&history.OldStatus,
+			&history.NewStatus,
+			&history.Agent,
+			&history.Notes,
+			&history.RejectionReason,
+			&history.Timestamp,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan rejection history: %w", err)
+		}
+		rejections = append(rejections, history)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rejection history: %w", err)
+	}
+
+	return rejections, nil
 }

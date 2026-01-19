@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
@@ -288,4 +289,266 @@ func TestTaskRepository_UpdateCascadesOrder(t *testing.T) {
 	assert.Equal(t, 2, taskOrders["Task D"], "Task D should be at order 2 (moved)")
 	assert.Equal(t, 3, taskOrders["Task B"], "Task B should be at order 3 (shifted)")
 	assert.Equal(t, 4, taskOrders["Task C"], "Task C should be at order 4 (shifted)")
+}
+
+// TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason tests rejection reason validation
+func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRepository(db)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	// Clean up test data first (use unique numbers to avoid conflicts)
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-F98%%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E98-F98%%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
+
+	// Create test epic
+	highValue := models.PriorityHigh
+	testEpic := &models.Epic{
+		Key:           "E98",
+		Title:         "Test Rejection Reasons Epic",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highValue,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
+
+	// Create test feature
+	testFeature := &models.Feature{
+		EpicID: testEpic.ID,
+		Key:    "E98-F98",
+		Title:  "Test Rejection Reasons Feature",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, testFeature)
+	require.NoError(t, err, "Failed to create test feature")
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
+
+	// Create a test task in in_progress status (development phase)
+	task := &models.Task{
+		FeatureID: testFeature.ID,
+		Key:       "T-E98-F98-001",
+		Title:     "Test Rejection Reason Task",
+		Status:    models.TaskStatusInProgress,
+		Priority:  5,
+	}
+	err = repo.Create(ctx, task)
+	require.NoError(t, err)
+	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
+
+	// Get the initial task status
+	initialTask, err := repo.GetByID(ctx, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.TaskStatusInProgress, models.TaskStatus(initialTask.Status))
+
+	t.Run("backward transition without reason should fail", func(t *testing.T) {
+		// Ensure task starts in in_progress
+		current, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		require.Equal(t, models.TaskStatusInProgress, models.TaskStatus(current.Status))
+
+		// Try to update to ready_for_review (forward - should succeed without reason)
+		// Then try to go back to in_progress (backward - should require reason)
+		reason := "Test review"
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, nil, &reason)
+		require.NoError(t, err, "Forward transition should succeed")
+
+		// Verify status changed
+		updated, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		require.Equal(t, models.TaskStatusReadyForReview, models.TaskStatus(updated.Status))
+
+		// Now try backward transition without reason
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, nil)
+		assert.Error(t, err, "Backward transition without reason should fail")
+		assert.Contains(t, err.Error(), "reason", "Error should mention reason requirement")
+
+		// Reset task status for other tests
+		resetReason := "Resetting for next test"
+		_ = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &resetReason)
+	})
+
+	t.Run("backward transition with reason should succeed", func(t *testing.T) {
+		// Reset task to ready_for_review first
+		reason := "Initial review"
+		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, nil, &reason)
+		require.NoError(t, err, "Forward transition should succeed")
+
+		// Verify task is in correct status
+		current, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.TaskStatusReadyForReview, models.TaskStatus(current.Status))
+
+		// Now try backward transition WITH reason (ready_for_review -> in_progress)
+		rejectionReason := "Missing error handling"
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &rejectionReason)
+		assert.NoError(t, err, "Backward transition with reason should succeed")
+
+		// Verify status changed
+		updated, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		require.Equal(t, models.TaskStatusInProgress, models.TaskStatus(updated.Status))
+	})
+
+	t.Run("backward transition with force flag bypasses reason requirement", func(t *testing.T) {
+		// Ensure task is in in_progress first
+		current, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		if current.Status != models.TaskStatusInProgress {
+			resetReason := "Reset for test"
+			_ = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &resetReason)
+		}
+
+		// Reset task to ready_for_review
+		reason := "Review"
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, nil, &reason)
+		require.NoError(t, err)
+
+		// Try backward transition with force but no reason
+		err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, nil, nil, true)
+		assert.NoError(t, err, "Backward transition with force should bypass reason requirement")
+
+		// Verify status changed
+		updated, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		require.Equal(t, models.TaskStatusInProgress, models.TaskStatus(updated.Status))
+	})
+
+	t.Run("forward transition without reason should succeed", func(t *testing.T) {
+		// Ensure task is in in_progress first
+		current, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		if current.Status != models.TaskStatusInProgress {
+			resetReason := "Reset for test"
+			_ = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &resetReason)
+		}
+
+		// Forward transitions (planning -> development) should not require reason
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, nil, nil)
+		assert.NoError(t, err, "Forward transition should succeed without reason")
+
+		// Verify status changed
+		updated, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		require.Equal(t, models.TaskStatusReadyForReview, models.TaskStatus(updated.Status))
+	})
+
+	t.Run("empty reason string should fail for backward transition", func(t *testing.T) {
+		// Ensure task is in in_progress first
+		current, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		if current.Status != models.TaskStatusInProgress {
+			resetReason := "Reset for test"
+			_ = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &resetReason)
+		}
+
+		// Reset to ready_for_review
+		reason := "Review"
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, nil, &reason)
+		require.NoError(t, err)
+
+		// Try with empty reason string
+		emptyReason := ""
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &emptyReason)
+		assert.Error(t, err, "Backward transition with empty reason should fail")
+		assert.Contains(t, err.Error(), "reason", "Error should mention reason is required")
+	})
+
+	t.Run("whitespace-only reason should fail for backward transition", func(t *testing.T) {
+		// Ensure task is in in_progress first
+		current, err := repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		if current.Status != models.TaskStatusInProgress {
+			resetReason := "Reset for test"
+			_ = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &resetReason)
+		}
+
+		// Reset to ready_for_review
+		reason := "Review"
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, nil, &reason)
+		require.NoError(t, err)
+
+		// Try with whitespace-only reason
+		whitespacedReason := "   \t\n  "
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, nil, &whitespacedReason)
+		assert.Error(t, err, "Backward transition with whitespace-only reason should fail")
+	})
+}
+
+// TestTaskRepository_UpdateStatusForced_StoresRejectionReason verifies that rejection reasons are stored in task_history
+func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRepository(db)
+	historyRepo := NewTaskHistoryRepository(db)
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create task in ready_for_review status with unique key
+	timestamp := time.Now().UnixNano() % 1000
+	taskKey := fmt.Sprintf("T-E99-F99-%03d", timestamp)
+	priority := 5
+	task := &models.Task{
+		Key:       taskKey,
+		Title:     "Test Rejection Reason Storage",
+		Status:    models.TaskStatusReadyForReview,
+		FeatureID: featureID,
+		Priority:  priority,
+	}
+
+	err := repo.Create(ctx, task)
+	require.NoError(t, err, "Failed to create test task")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
+
+	// Update status with rejection reason (backward transition)
+	rejectionReason := "Missing error handling on line 67"
+	agent := "test-agent"
+	notes := "This needs to be fixed"
+
+	// Call UpdateStatusForced with rejection reason
+	err = repo.UpdateStatusForced(
+		ctx,
+		task.ID,
+		models.TaskStatusInProgress,
+		&agent,
+		&notes,
+		&rejectionReason, // Now passing rejection reason
+		nil,              // documentPath
+		false,
+	)
+	require.NoError(t, err, "UpdateStatusForced should succeed")
+
+	// Verify task status was updated
+	updatedTask, err := repo.GetByID(ctx, task.ID)
+	require.NoError(t, err, "Failed to get updated task")
+	require.Equal(t, models.TaskStatusInProgress, updatedTask.Status, "Task status should be updated")
+
+	// Verify rejection reason was stored in history
+	history, err := historyRepo.ListByTask(ctx, task.ID)
+	require.NoError(t, err, "Failed to retrieve task history")
+	require.NotEmpty(t, history, "History should have at least one entry")
+
+	// Get the most recent history entry (most recent first in list)
+	lastEntry := history[len(history)-1]
+	require.NotNil(t, lastEntry.OldStatus, "Old status should be present")
+	require.Equal(t, string(models.TaskStatusReadyForReview), *lastEntry.OldStatus, "Old status should match")
+	require.Equal(t, string(models.TaskStatusInProgress), lastEntry.NewStatus, "New status should match")
+
+	// THIS IS THE CRITICAL ASSERTION - rejection reason should be stored
+	// This will FAIL until we implement Step 1-2
+	require.NotNil(t, lastEntry.RejectionReason, "Rejection reason should be stored in history")
+	require.Equal(t, rejectionReason, *lastEntry.RejectionReason, "Rejection reason should match what was provided")
+	require.NotNil(t, lastEntry.Agent, "Agent should be stored")
+	require.Equal(t, agent, *lastEntry.Agent, "Agent should be stored")
+	require.NotNil(t, lastEntry.Notes, "Notes should be stored")
+	require.Equal(t, notes, *lastEntry.Notes, "Notes should be stored")
 }

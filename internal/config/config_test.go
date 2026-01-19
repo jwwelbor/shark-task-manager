@@ -231,6 +231,105 @@ func TestStatusMetadata_OrchestratorAction_Load(t *testing.T) {
 	}
 }
 
+// TestConfig_RequireRejectionReason_DefaultValue tests default value is false
+func TestConfig_RequireRejectionReason_DefaultValue(t *testing.T) {
+	cfg := &Config{}
+	if cfg.RequireRejectionReason != false {
+		t.Errorf("expected default RequireRejectionReason to be false, got: %v", cfg.RequireRejectionReason)
+	}
+}
+
+// TestConfig_RequireRejectionReason_Parsing tests JSON unmarshaling of the field
+func TestConfig_RequireRejectionReason_Parsing(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		want    bool
+		wantErr bool
+	}{
+		{
+			name:    "explicitly true",
+			json:    `{"require_rejection_reason": true}`,
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:    "explicitly false",
+			json:    `{"require_rejection_reason": false}`,
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:    "omitted (default)",
+			json:    `{}`,
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:    "invalid type (string)",
+			json:    `{"require_rejection_reason": "yes"}`,
+			want:    false,
+			wantErr: true,
+		},
+		{
+			name:    "invalid type (number)",
+			json:    `{"require_rejection_reason": 1}`,
+			want:    false,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg Config
+			err := json.Unmarshal([]byte(tt.json), &cfg)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Unmarshal() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && cfg.RequireRejectionReason != tt.want {
+				t.Errorf("RequireRejectionReason = %v, want %v", cfg.RequireRejectionReason, tt.want)
+			}
+		})
+	}
+}
+
+// TestConfig_IsRequireRejectionReasonEnabled tests the getter method
+func TestConfig_IsRequireRejectionReasonEnabled(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *Config
+		want   bool
+	}{
+		{
+			name:   "enabled",
+			config: &Config{RequireRejectionReason: true},
+			want:   true,
+		},
+		{
+			name:   "disabled",
+			config: &Config{RequireRejectionReason: false},
+			want:   false,
+		},
+		{
+			name:   "nil config",
+			config: nil,
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.IsRequireRejectionReasonEnabled()
+			if result != tt.want {
+				t.Errorf("IsRequireRejectionReasonEnabled() = %v, want %v", result, tt.want)
+			}
+		})
+	}
+}
+
 // TestStatusMetadata_OrchestratorAction_Backward_Compatible tests that missing orchestrator_action is valid
 func TestStatusMetadata_OrchestratorAction_Backward_Compatible(t *testing.T) {
 	jsonData := []byte(`{
@@ -641,4 +740,74 @@ func TestConfig_InteractiveMode_DefaultBehavior(t *testing.T) {
 // boolPtr is a helper function to create a pointer to a bool value
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+// TestConfig_IsBackwardTransition tests whether a status transition is backward
+// based on ProgressWeight values in StatusMetadata (E07-F22)
+func TestConfig_IsBackwardTransition(t *testing.T) {
+	// Create a config with StatusMetadata that has ProgressWeight values
+	cfg := &Config{}
+
+	// Set up the test using the status flow pattern
+	// (This assumes StatusMetadata can be set internally for testing)
+	tests := []struct {
+		name         string
+		oldStatus    string
+		newStatus    string
+		weights      map[string]float64
+		wantBackward bool
+	}{
+		{
+			name:         "backward: high weight to low weight",
+			oldStatus:    "ready_for_code_review",
+			newStatus:    "in_development",
+			weights:      map[string]float64{"ready_for_code_review": 0.85, "in_development": 0.50},
+			wantBackward: true,
+		},
+		{
+			name:         "backward: completed to review",
+			oldStatus:    "completed",
+			newStatus:    "ready_for_code_review",
+			weights:      map[string]float64{"completed": 1.0, "ready_for_code_review": 0.85},
+			wantBackward: true,
+		},
+		{
+			name:         "forward: development to review",
+			oldStatus:    "in_development",
+			newStatus:    "ready_for_code_review",
+			weights:      map[string]float64{"in_development": 0.50, "ready_for_code_review": 0.85},
+			wantBackward: false,
+		},
+		{
+			name:         "equal: same status",
+			oldStatus:    "in_development",
+			newStatus:    "in_development",
+			weights:      map[string]float64{"in_development": 0.50},
+			wantBackward: false,
+		},
+		{
+			name:         "unknown old status",
+			oldStatus:    "unknown_status",
+			newStatus:    "in_development",
+			weights:      map[string]float64{"in_development": 0.50},
+			wantBackward: false,
+		},
+		{
+			name:         "unknown new status",
+			oldStatus:    "in_development",
+			newStatus:    "unknown_status",
+			weights:      map[string]float64{"in_development": 0.50},
+			wantBackward: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cfg.IsBackwardTransition(tt.oldStatus, tt.newStatus, tt.weights)
+			if result != tt.wantBackward {
+				t.Errorf("IsBackwardTransition(%q, %q) = %v, want %v",
+					tt.oldStatus, tt.newStatus, result, tt.wantBackward)
+			}
+		})
+	}
 }

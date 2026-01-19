@@ -76,6 +76,10 @@ type Task struct {
 
 	// Context data for resume workflow
 	ContextData *string `json:"context_data,omitempty" db:"context_data"` // JSON structured resume context
+
+	// Rejection metadata fields
+	RejectionCount  int        `json:"rejection_count" db:"-"`             // Derived from task_notes, not stored
+	LastRejectionAt *time.Time `json:"last_rejection_at,omitempty" db:"-"` // Derived from task_notes, not stored
 }
 
 // Validate validates the Task fields

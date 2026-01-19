@@ -6,9 +6,9 @@
   },
   "default_agent": null,
   "default_epic": null,
-  "json_output": false,
   "interactive_mode": false,
-  "last_sync_time": "2026-01-01T13:41:04-06:00",
+  "json_output": false,
+  "last_sync_time": "2026-01-16T23:22:45-06:00",
   "patterns": {
     "epic": {
       "file": [
@@ -47,6 +47,7 @@
       }
     }
   },
+  "require_rejection_reason": true,
   "special_statuses": {
     "_complete_": [
       "completed",
@@ -133,147 +134,146 @@
     ]
   },
   "status_flow_version": "1.0",
-  "require_rejection_reason": true,
   "status_metadata": {
     "blocked": {
+      "blocks_feature": true,
       "color": "red",
       "description": "Temporarily blocked by external dependency",
       "phase": "any",
-      "progress_weight": 0.0,
-      "responsibility": "none",
-      "blocks_feature": true
+      "progress_weight": 0,
+      "responsibility": "none"
     },
     "cancelled": {
+      "blocks_feature": false,
       "color": "gray",
       "description": "Task abandoned or deprecated",
       "phase": "done",
-      "progress_weight": 0.0,
-      "responsibility": "none",
-      "blocks_feature": false
+      "progress_weight": 0,
+      "responsibility": "none"
     },
     "completed": {
+      "blocks_feature": false,
       "color": "white",
       "description": "Task finished and approved",
       "phase": "done",
-      "progress_weight": 1.0,
-      "responsibility": "none",
-      "blocks_feature": false
+      "progress_weight": 1,
+      "responsibility": "none"
     },
     "draft": {
+      "blocks_feature": false,
       "color": "gray",
       "description": "Task created but not yet refined",
       "phase": "planning",
-      "progress_weight": 0.0,
-      "responsibility": "none",
-      "blocks_feature": false
+      "progress_weight": 0,
+      "responsibility": "none"
     },
     "in_approval": {
+      "blocks_feature": false,
       "color": "purple",
       "description": "Under final review",
       "phase": "approval",
       "progress_weight": 0.95,
-      "responsibility": "human",
-      "blocks_feature": false
+      "responsibility": "human"
     },
     "in_code_review": {
+      "blocks_feature": false,
       "color": "magenta",
       "description": "Under code review",
       "phase": "review",
       "progress_weight": 0.8,
-      "responsibility": "agent",
-      "blocks_feature": false
+      "responsibility": "agent"
     },
     "in_development": {
+      "blocks_feature": false,
       "color": "yellow",
       "description": "Code implementation in progress",
       "phase": "development",
       "progress_weight": 0.5,
-      "responsibility": "agent",
-      "blocks_feature": false
+      "responsibility": "agent"
     },
     "in_qa": {
+      "blocks_feature": false,
       "color": "green",
       "description": "Being tested",
       "phase": "qa",
       "progress_weight": 0.85,
-      "responsibility": "qa_team",
-      "blocks_feature": false
+      "responsibility": "qa_team"
     },
     "in_refinement": {
+      "blocks_feature": false,
       "color": "blue",
       "description": "Being analyzed and specified",
       "phase": "planning",
       "progress_weight": 0.15,
-      "responsibility": "agent",
-      "blocks_feature": false
+      "responsibility": "agent"
     },
     "on_hold": {
+      "blocks_feature": false,
       "color": "orange",
       "description": "Intentionally paused",
       "phase": "any",
-      "progress_weight": 0.0,
-      "responsibility": "none",
-      "blocks_feature": false
+      "progress_weight": 0,
+      "responsibility": "none"
     },
     "ready_for_approval": {
       "agent_types": [
         "product-manager",
         "client"
       ],
+      "blocks_feature": false,
       "color": "purple",
       "description": "Awaiting final approval",
       "phase": "approval",
       "progress_weight": 0.9,
-      "responsibility": "human",
-      "blocks_feature": false
+      "responsibility": "human"
     },
     "ready_for_code_review": {
       "agent_types": [
         "tech-lead",
         "code-reviewer"
       ],
+      "blocks_feature": false,
       "color": "magenta",
       "description": "Code complete, awaiting review",
       "phase": "review",
       "progress_weight": 0.75,
-      "responsibility": "agent",
-      "blocks_feature": false
+      "responsibility": "agent"
     },
     "ready_for_development": {
       "agent_types": [
         "developer",
         "ai-coder"
       ],
+      "blocks_feature": false,
       "color": "yellow",
       "description": "Spec complete, ready for implementation",
       "phase": "development",
       "progress_weight": 0.25,
-      "responsibility": "none",
-      "blocks_feature": false
+      "responsibility": "none"
     },
     "ready_for_qa": {
       "agent_types": [
         "qa",
         "test-engineer"
       ],
+      "blocks_feature": false,
       "color": "green",
       "description": "Ready for quality assurance testing",
       "phase": "qa",
       "progress_weight": 0.8,
-      "responsibility": "qa_team",
-      "blocks_feature": false
+      "responsibility": "qa_team"
     },
     "ready_for_refinement": {
       "agent_types": [
         "business-analyst",
         "architect"
       ],
+      "blocks_feature": false,
       "color": "cyan",
       "description": "Awaiting specification and analysis",
       "phase": "planning",
       "progress_weight": 0.1,
-      "responsibility": "agent",
-      "blocks_feature": false
+      "responsibility": "agent"
     }
   }
 }

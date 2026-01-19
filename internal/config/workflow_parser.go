@@ -80,10 +80,11 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	// Parse workflow config from raw data
 	// Re-marshal just the workflow-related fields for clean parsing
 	workflowData := map[string]interface{}{
-		"status_flow_version": rawConfig["status_flow_version"],
-		"status_flow":         rawConfig["status_flow"],
-		"status_metadata":     rawConfig["status_metadata"],
-		"special_statuses":    rawConfig["special_statuses"],
+		"status_flow_version":      rawConfig["status_flow_version"],
+		"status_flow":              rawConfig["status_flow"],
+		"status_metadata":          rawConfig["status_metadata"],
+		"special_statuses":         rawConfig["special_statuses"],
+		"require_rejection_reason": rawConfig["require_rejection_reason"],
 	}
 
 	workflowJSON, err := json.Marshal(workflowData)

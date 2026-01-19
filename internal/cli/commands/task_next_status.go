@@ -45,6 +45,8 @@ func init() {
 	taskNextStatusCmd.Flags().String("status", "", "Target status for direct transition (non-interactive)")
 	taskNextStatusCmd.Flags().Bool("preview", false, "Show available transitions without making changes")
 	taskNextStatusCmd.Flags().Bool("force", false, "Bypass workflow validation")
+	taskNextStatusCmd.Flags().String("reason", "", "Rejection reason for backward transitions")
+	taskNextStatusCmd.Flags().String("reason-doc", "", "Path to document detailing rejection reason (relative to project root)")
 }
 
 // TransitionChoice represents a valid status transition for display
@@ -81,6 +83,8 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 	targetStatus, _ := cmd.Flags().GetString("status")
 	preview, _ := cmd.Flags().GetBool("preview")
 	force, _ := cmd.Flags().GetBool("force")
+	reason, _ := cmd.Flags().GetString("reason")
+	reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
 
 	// Get database connection
 	repoDb, err := cli.GetDB(cmd.Context())
@@ -92,6 +96,27 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to find project root: %w", err)
+	}
+
+	// Validate and process reason-doc flag
+	var documentPath *string
+	if reasonDocFlag != "" {
+		// Validate document path format
+		if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
+			cli.Error(fmt.Sprintf("Invalid document path: %s", err.Error()))
+			os.Exit(1)
+		}
+
+		// Check if document file exists
+		fullPath := filepath.Join(projectRoot, reasonDocFlag)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			cli.Error(fmt.Sprintf("Document not found: %s", reasonDocFlag))
+			cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
+			os.Exit(1)
+		}
+
+		// Convert to pointer for passing to repository
+		documentPath = &reasonDocFlag
 	}
 
 	// Load workflow config for repository
@@ -200,7 +225,7 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 		}
 
 		// Perform transition
-		return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, &result)
+		return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, reason, documentPath, &result)
 	}
 
 	// Load config to check interactive mode setting
@@ -225,7 +250,7 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 		// Auto-select first transition
 		targetStatus = transitions[0].TargetStatus
 		cli.Info(fmt.Sprintf("Auto-selected next status: %s (from %d options)", targetStatus, len(transitions)))
-		return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, &result)
+		return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, reason, documentPath, &result)
 	}
 
 	// Interactive mode
@@ -259,7 +284,7 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	targetStatus = transitions[selection-1].TargetStatus
-	return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, &result)
+	return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, reason, documentPath, &result)
 }
 
 // printTransitions prints available transitions in a formatted list
@@ -300,12 +325,18 @@ func promptForSelection(max int) (int, error) {
 }
 
 // performTransition executes the status transition
-func performTransition(ctx context.Context, taskRepo *repository.TaskRepository, repoDb *repository.DB, task *models.Task, targetStatus string, force bool, result *NextStatusResult) error {
+func performTransition(ctx context.Context, taskRepo *repository.TaskRepository, repoDb *repository.DB, task *models.Task, targetStatus string, force bool, reason string, documentPath *string, result *NextStatusResult) error {
+	// Prepare rejection reason pointer
+	var rejectionReasonPtr *string
+	if reason != "" {
+		rejectionReasonPtr = &reason
+	}
+
 	var err error
 	if force {
-		err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, true)
+		err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, rejectionReasonPtr, documentPath, true)
 	} else {
-		err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil)
+		err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, rejectionReasonPtr, documentPath, false)
 	}
 
 	if err != nil {

@@ -214,7 +214,8 @@ CREATE TABLE IF NOT EXISTS task_notes (
         'implementation',  -- What we actually built
         'testing',         -- Test results, coverage
         'future',          -- Future improvements / TODO
-        'question'         -- Unanswered questions
+        'question',        -- Unanswered questions
+        'rejection'        -- Rejection reason for backward transitions
     )) NOT NULL,
     content TEXT NOT NULL,
     created_by TEXT,
@@ -597,6 +598,26 @@ func runMigrations(db *sql.DB) error {
 	// Run custom_folder_path column removal migration (E07-F19)
 	if err := migrateDropCustomFolderPath(db); err != nil {
 		return fmt.Errorf("failed to drop custom_folder_path columns: %w", err)
+	}
+
+	// Run task_notes metadata column migration (E07-F22)
+	if err := migrateTaskNotesMetadata(db); err != nil {
+		return fmt.Errorf("failed to migrate task_notes metadata: %w", err)
+	}
+
+	// Run task_history rejection_reason column migration (E07-F22)
+	if err := migrateTaskHistoryRejectionReason(db); err != nil {
+		return fmt.Errorf("failed to migrate task_history rejection_reason: %w", err)
+	}
+
+	// Run task_documents link_type column migration (E07-F22)
+	if err := migrateTaskDocumentsLinkType(db); err != nil {
+		return fmt.Errorf("failed to migrate task_documents link_type: %w", err)
+	}
+
+	// Run task_notes note_type CHECK constraint migration to include 'rejection' (E07-F22)
+	if err := migrateTaskNotesNoteTypeConstraint(db); err != nil {
+		return fmt.Errorf("failed to migrate task_notes note_type constraint: %w", err)
 	}
 
 	return nil
@@ -1127,6 +1148,235 @@ func migrateDropCustomFolderPath(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("failed to drop custom_folder_path from features: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// migrateTaskNotesMetadata adds metadata column to task_notes table for storing JSON metadata
+// This supports rejection note tracking with history_id, status transitions, and document paths (E07-F22)
+func migrateTaskNotesMetadata(db *sql.DB) error {
+	// Check if task_notes table has metadata column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('task_notes') WHERE name = 'metadata'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_notes schema for metadata: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add metadata column for storing JSON data
+		if _, err := db.Exec(`ALTER TABLE task_notes ADD COLUMN metadata TEXT;`); err != nil {
+			return fmt.Errorf("failed to add metadata column to task_notes: %w", err)
+		}
+	}
+
+	// Create composite index on (note_type, task_id) for efficient rejection note queries
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_task_notes_type_task ON task_notes(note_type, task_id);`); err != nil {
+		return fmt.Errorf("failed to create index on task_notes(note_type, task_id): %w", err)
+	}
+
+	return nil
+}
+
+// migrateTaskHistoryRejectionReason adds rejection_reason column to task_history table
+// This column stores rejection reasons when tasks are rejected during review/QA (E07-F22)
+func migrateTaskHistoryRejectionReason(db *sql.DB) error {
+	// Check if task_history table has rejection_reason column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('task_history') WHERE name = 'rejection_reason'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_history schema for rejection_reason: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add rejection_reason column for storing rejection reasons
+		if _, err := db.Exec(`ALTER TABLE task_history ADD COLUMN rejection_reason TEXT;`); err != nil {
+			return fmt.Errorf("failed to add rejection_reason column to task_history: %w", err)
+		}
+	}
+
+	// Create index on rejection_reason for filtering rejection records
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_task_history_rejection_reason ON task_history(rejection_reason) WHERE rejection_reason IS NOT NULL;`); err != nil {
+		return fmt.Errorf("failed to create index on task_history(rejection_reason): %w", err)
+	}
+
+	return nil
+}
+
+// migrateTaskDocumentsLinkType adds link_type column to task_documents table
+// for specifying the type of link between task and document (e.g., rejection_reason) (E07-F22)
+func migrateTaskDocumentsLinkType(db *sql.DB) error {
+	// Check if task_documents table has link_type column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('task_documents') WHERE name = 'link_type'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_documents schema for link_type: %w", err)
+	}
+
+	if columnExists == 0 {
+		// Add link_type column for categorizing document links
+		if _, err := db.Exec(`ALTER TABLE task_documents ADD COLUMN link_type TEXT DEFAULT 'general';`); err != nil {
+			return fmt.Errorf("failed to add link_type column to task_documents: %w", err)
+		}
+	}
+
+	// Create index on link_type for filtering by link type
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_task_documents_link_type ON task_documents(link_type);`); err != nil {
+		return fmt.Errorf("failed to create index on task_documents(link_type): %w", err)
+	}
+
+	return nil
+}
+
+// migrateTaskNotesNoteTypeConstraint updates the note_type CHECK constraint in task_notes table
+// to include 'rejection' for storing rejection reasons during backward task transitions (E07-F22)
+// This migration recreates the table with the updated constraint for existing databases
+func migrateTaskNotesNoteTypeConstraint(db *sql.DB) error {
+	// Check if task_notes table exists
+	var tableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_notes'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_notes table: %w", err)
+	}
+
+	// If table doesn't exist, nothing to migrate
+	if tableExists == 0 {
+		return nil
+	}
+
+	// Check if table already allows 'rejection' note type by trying to insert a test value
+	// This is a non-destructive check - the insertion will rollback
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for constraint check: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Try to insert a dummy rejection note to test if the constraint allows it
+	var taskIDExists int
+	err = tx.QueryRow(`SELECT COUNT(*) FROM tasks LIMIT 1`).Scan(&taskIDExists)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check tasks table: %w", err)
+	}
+
+	// If no tasks exist, we can't test, so assume migration needed
+	// (or check the constraint is already updated by trying to create a test entry)
+	if taskIDExists == 0 {
+		// No tasks to test with, just return - the constraint will be enforced on first use
+		return nil
+	}
+
+	// For databases with tasks, we need to recreate the table if constraint is old
+	// Get a task ID to use for testing
+	var testTaskID int64
+	err = tx.QueryRow(`SELECT id FROM tasks LIMIT 1`).Scan(&testTaskID)
+	if err != nil {
+		return nil // No tasks, nothing to check
+	}
+
+	// Try inserting a rejection note
+	result := tx.QueryRow(`
+		INSERT INTO task_notes (task_id, note_type, content)
+		VALUES (?, 'rejection', 'test')
+		RETURNING id;
+	`, testTaskID)
+
+	var noteID int64
+	err = result.Scan(&noteID)
+
+	// If insertion succeeded, constraint already allows 'rejection', so we're done
+	if err == nil {
+		// Clean up the test insertion by rolling back the transaction
+		return nil
+	}
+
+	// If we got a constraint error, we need to migrate the table
+	// Rollback the transaction
+	_ = tx.Rollback()
+
+	// Now perform the actual migration using table recreation
+	tx, err = db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Create new table with updated note_type constraint
+	_, err = tx.Exec(`
+		CREATE TABLE task_notes_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL,
+			note_type TEXT CHECK (note_type IN (
+				'comment',
+				'decision',
+				'blocker',
+				'solution',
+				'reference',
+				'implementation',
+				'testing',
+				'future',
+				'question',
+				'rejection'
+			)) NOT NULL,
+			content TEXT NOT NULL,
+			created_by TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			metadata TEXT,
+			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create new task_notes table: %w", err)
+	}
+
+	// Copy data from old table to new table
+	_, err = tx.Exec(`
+		INSERT INTO task_notes_new (id, task_id, note_type, content, created_by, created_at, metadata)
+		SELECT id, task_id, note_type, content, created_by, created_at, metadata
+		FROM task_notes
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to copy task_notes data: %w", err)
+	}
+
+	// Drop old table
+	_, err = tx.Exec(`DROP TABLE task_notes`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old task_notes table: %w", err)
+	}
+
+	// Rename new table to original name
+	_, err = tx.Exec(`ALTER TABLE task_notes_new RENAME TO task_notes`)
+	if err != nil {
+		return fmt.Errorf("failed to rename task_notes_new to task_notes: %w", err)
+	}
+
+	// Recreate indexes
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes(task_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_notes_type ON task_notes(note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_notes_created_at ON task_notes(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_notes_task_type ON task_notes(task_id, note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_task_notes_type_task ON task_notes(note_type, task_id);`,
+	}
+
+	for _, idx := range indexes {
+		if _, err := tx.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit migration transaction: %w", err)
 	}
 
 	return nil

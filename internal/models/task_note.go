@@ -17,6 +17,7 @@ const (
 	NoteTypeTesting        NoteType = "testing"        // Test results, coverage
 	NoteTypeFuture         NoteType = "future"         // Future improvements / TODO
 	NoteTypeQuestion       NoteType = "question"       // Unanswered questions
+	NoteTypeRejection      NoteType = "rejection"      // Rejection reason for backward transitions
 )
 
 // TaskNote represents a typed note attached to a task
@@ -26,6 +27,7 @@ type TaskNote struct {
 	NoteType  NoteType  `json:"note_type" db:"note_type"`
 	Content   string    `json:"content" db:"content"`
 	CreatedBy *string   `json:"created_by,omitempty" db:"created_by"`
+	Metadata  *string   `json:"metadata,omitempty" db:"metadata"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 

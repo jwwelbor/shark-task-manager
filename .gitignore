@@ -44,4 +44,4 @@ build-errors.log
 *.env.backup
 .env*
 dev-artifacts/
-shark-tasks.db
+shark-tasks.*

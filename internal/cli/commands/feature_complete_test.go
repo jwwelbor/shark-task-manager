@@ -121,7 +121,7 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 
 	// Complete all tasks
 	agent := "test-agent"
-	if err := taskRepo.UpdateStatusForced(ctx, task1.ID, models.TaskStatusCompleted, &agent, nil, true); err != nil {
+	if err := taskRepo.UpdateStatusForced(ctx, task1.ID, models.TaskStatusCompleted, &agent, nil, nil, nil, true); err != nil {
 		t.Fatalf("Failed to complete task: %v", err)
 	}
 

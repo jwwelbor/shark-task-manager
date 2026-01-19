@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -525,4 +526,366 @@ func TestTaskNoteCascadeDelete(t *testing.T) {
 	if len(notes) != 0 {
 		t.Errorf("Expected 0 notes after task deletion, got %d", len(notes))
 	}
+}
+
+// TestCreateTaskNoteWithMetadata tests creating a task note with metadata
+func TestCreateTaskNoteWithMetadata(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	noteRepo := NewTaskNoteRepository(db)
+
+	_, _ = test.SeedTestData()
+
+	// Get a task to add note to
+	var taskID int64
+	err := database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-001'").Scan(&taskID)
+	if err != nil {
+		t.Fatalf("Failed to get test task: %v", err)
+	}
+
+	// Create a task note with metadata
+	createdBy := "test-agent"
+	metadata := `{"history_id": 123, "from_status": "draft", "to_status": "in_progress"}`
+	note := &models.TaskNote{
+		TaskID:    taskID,
+		NoteType:  models.NoteTypeDecision,
+		Content:   "Rejection reason",
+		CreatedBy: &createdBy,
+		Metadata:  &metadata,
+	}
+
+	err = noteRepo.Create(ctx, note)
+	if err != nil {
+		t.Fatalf("Failed to create task note with metadata: %v", err)
+	}
+
+	if note.ID == 0 {
+		t.Error("Expected note ID to be set after creation")
+	}
+
+	// Retrieve the note and verify metadata
+	retrieved, err := noteRepo.GetByID(ctx, note.ID)
+	if err != nil {
+		t.Fatalf("Failed to get note: %v", err)
+	}
+
+	if retrieved.Metadata == nil {
+		t.Error("Expected metadata to be set")
+	} else if *retrieved.Metadata != metadata {
+		t.Errorf("Expected metadata %q, got %q", metadata, *retrieved.Metadata)
+	}
+}
+
+// TestCreateTaskNoteWithoutMetadata tests creating a task note without metadata
+func TestCreateTaskNoteWithoutMetadata(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	noteRepo := NewTaskNoteRepository(db)
+
+	_, _ = test.SeedTestData()
+
+	// Get a task
+	var taskID int64
+	err := database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-002'").Scan(&taskID)
+	if err != nil {
+		t.Fatalf("Failed to get test task: %v", err)
+	}
+
+	// Create a note without metadata (should be NULL)
+	createdBy := "test-agent"
+	note := &models.TaskNote{
+		TaskID:    taskID,
+		NoteType:  models.NoteTypeComment,
+		Content:   "Simple comment",
+		CreatedBy: &createdBy,
+		Metadata:  nil,
+	}
+
+	err = noteRepo.Create(ctx, note)
+	if err != nil {
+		t.Fatalf("Failed to create task note: %v", err)
+	}
+
+	// Verify note was created with NULL metadata
+	retrieved, err := noteRepo.GetByID(ctx, note.ID)
+	if err != nil {
+		t.Fatalf("Failed to get note: %v", err)
+	}
+
+	if retrieved.Metadata != nil {
+		t.Errorf("Expected metadata to be NULL, got %v", retrieved.Metadata)
+	}
+}
+
+// TestIndexOnNoteTypeAndTaskID tests that the index exists for performance
+func TestIndexOnNoteTypeAndTaskID(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+
+	// Check that the index exists
+	query := `
+		SELECT name FROM sqlite_master
+		WHERE type = 'index'
+		AND name = 'idx_task_notes_type_task'
+	`
+
+	var indexName string
+	err := database.QueryRowContext(ctx, query).Scan(&indexName)
+	if err != nil {
+		t.Fatalf("Index idx_task_notes_type_task not found: %v", err)
+	}
+
+	if indexName != "idx_task_notes_type_task" {
+		t.Errorf("Expected index name 'idx_task_notes_type_task', got %q", indexName)
+	}
+}
+
+// TestMetadataColumnExists tests that metadata column exists in task_notes table
+func TestMetadataColumnExists(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+
+	// Check that metadata column exists
+	var columnCount int
+	err := database.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM pragma_table_info('task_notes') WHERE name = 'metadata'
+	`).Scan(&columnCount)
+	if err != nil {
+		t.Fatalf("Failed to check metadata column: %v", err)
+	}
+
+	if columnCount != 1 {
+		t.Errorf("Expected metadata column to exist, got count %d", columnCount)
+	}
+}
+
+// TestGetRejectionHistory tests retrieving rejection history for a task
+func TestGetRejectionHistory(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	noteRepo := NewTaskNoteRepository(db)
+
+	// Clean up existing test rejection notes
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = ? AND task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-F99-%')", "rejection")
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-F99-%')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create a test task
+	taskRepo := NewTaskRepository(db)
+	task := &models.Task{
+		Key:       "T-E99-F99-010",
+		Title:     "Test Task for Rejection History",
+		Status:    models.TaskStatusTodo,
+		FeatureID: featureID,
+		Priority:  5,
+	}
+
+	err := taskRepo.Create(ctx, task)
+	if err != nil {
+		t.Fatalf("Failed to create test task: %v", err)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
+
+	// Create rejection notes with metadata
+	rejectedBy1 := "reviewer-agent-001"
+	docPath := "docs/bugs/BUG-2026-046.md"
+	note1, err := noteRepo.CreateRejectionNote(
+		ctx,
+		task.ID,
+		1001, // historyID
+		"ready_for_code_review",
+		"in_development",
+		"Missing error handling for database.Query() on line 67. Add null check.",
+		rejectedBy1,
+		&docPath,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create first rejection note: %v", err)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note1.ID)
+	}()
+
+	// Create second rejection note without document
+	rejectedBy2 := "qa-agent-003"
+	note2, err := noteRepo.CreateRejectionNote(
+		ctx,
+		task.ID,
+		1002, // historyID
+		"ready_for_qa",
+		"in_development",
+		"Tests fail on edge case: empty user input. Add validation.",
+		rejectedBy2,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create second rejection note: %v", err)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note2.ID)
+	}()
+
+	// Get rejection history
+	history, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetRejectionHistory() error = %v", err)
+	}
+
+	// Verify we got 2 rejections
+	if len(history) != 2 {
+		t.Errorf("Expected 2 rejections, got %d", len(history))
+	}
+
+	// Verify most recent first (note2 was created after note1)
+	if len(history) >= 1 {
+		// The most recent should be note2 (last created)
+		if history[0].RejectedBy != rejectedBy2 {
+			t.Errorf("Expected most recent rejection from %s, got %s", rejectedBy2, history[0].RejectedBy)
+		}
+		if history[0].FromStatus != "ready_for_qa" {
+			t.Errorf("Expected from_status 'ready_for_qa', got %s", history[0].FromStatus)
+		}
+		if history[0].ToStatus != "in_development" {
+			t.Errorf("Expected to_status 'in_development', got %s", history[0].ToStatus)
+		}
+		if history[0].ReasonDocument != nil {
+			t.Errorf("Expected no document for second rejection, got %v", *history[0].ReasonDocument)
+		}
+	}
+
+	// Verify first rejection has document
+	if len(history) >= 2 {
+		if history[1].RejectedBy != rejectedBy1 {
+			t.Errorf("Expected first rejection from %s, got %s", rejectedBy1, history[1].RejectedBy)
+		}
+		if history[1].ReasonDocument == nil {
+			t.Errorf("Expected document path for first rejection, got nil")
+		} else if *history[1].ReasonDocument != docPath {
+			t.Errorf("Expected document path %s, got %s", docPath, *history[1].ReasonDocument)
+		}
+	}
+}
+
+// TestGetRejectionHistory_EmptyList tests GetRejectionHistory returns empty list when no rejections
+func TestGetRejectionHistory_EmptyList(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	noteRepo := NewTaskNoteRepository(db)
+
+	// Clean up
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create a test task with no rejections
+	taskRepo := NewTaskRepository(db)
+	task := &models.Task{
+		Key:       "T-E99-F99-011",
+		Title:     "Test Task No Rejections",
+		Status:    models.TaskStatusTodo,
+		FeatureID: featureID,
+		Priority:  5,
+	}
+
+	err := taskRepo.Create(ctx, task)
+	if err != nil {
+		t.Fatalf("Failed to create test task: %v", err)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
+
+	// Get rejection history - should be empty
+	history, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetRejectionHistory() error = %v", err)
+	}
+
+	if len(history) != 0 {
+		t.Errorf("Expected empty rejection history, got %d entries", len(history))
+	}
+}
+
+// TestGetRejectionHistory_MultipleRejections tests ordering with multiple rejections
+func TestGetRejectionHistory_MultipleRejections(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	noteRepo := NewTaskNoteRepository(db)
+
+	// Clean up
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = ? AND task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-F99-%')", "rejection")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create a test task
+	taskRepo := NewTaskRepository(db)
+	task := &models.Task{
+		Key:       "T-E99-F99-012",
+		Title:     "Test Task Multiple Rejections",
+		Status:    models.TaskStatusTodo,
+		FeatureID: featureID,
+		Priority:  5,
+	}
+
+	err := taskRepo.Create(ctx, task)
+	if err != nil {
+		t.Fatalf("Failed to create test task: %v", err)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+	}()
+
+	// Create 3 rejection notes
+	for i := 1; i <= 3; i++ {
+		rejectedBy := fmt.Sprintf("reviewer-%d", i)
+		_, err := noteRepo.CreateRejectionNote(
+			ctx,
+			task.ID,
+			int64(2000+i), // historyID
+			"ready_for_code_review",
+			"in_development",
+			fmt.Sprintf("Issue %d: Add validation", i),
+			rejectedBy,
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("Failed to create rejection note %d: %v", i, err)
+		}
+	}
+
+	// Get rejection history
+	history, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("GetRejectionHistory() error = %v", err)
+	}
+
+	// Verify 3 rejections
+	if len(history) != 3 {
+		t.Errorf("Expected 3 rejections, got %d", len(history))
+	}
+
+	// Verify they're ordered most recent first (reverse chronological)
+	// The third created note should be first in the list
+	if len(history) >= 1 && history[0].RejectedBy != "reviewer-3" {
+		t.Errorf("Expected most recent from reviewer-3, got %s", history[0].RejectedBy)
+	}
+	if len(history) >= 3 && history[2].RejectedBy != "reviewer-1" {
+		t.Errorf("Expected oldest from reviewer-1, got %s", history[2].RejectedBy)
+	}
+
+	// Cleanup rejection notes
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", task.ID)
 }

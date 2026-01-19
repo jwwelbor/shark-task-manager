@@ -515,7 +515,7 @@ func TestTaskSetStatusCommand(t *testing.T) {
 
 			// Test the workflow validation logic that would be called by the command
 			ctx := context.Background()
-			err = mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(tt.newStatus), nil, nil, tt.force)
+			err = mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(tt.newStatus), nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
@@ -586,7 +586,7 @@ func TestTaskStartWithWorkflow(t *testing.T) {
 
 			// Test status update (simulating task start)
 			ctx := context.Background()
-			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, tt.force)
+			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
@@ -647,7 +647,7 @@ func TestTaskCompleteWithWorkflow(t *testing.T) {
 
 			// Test status update (simulating task complete)
 			ctx := context.Background()
-			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusReadyForReview, nil, nil, tt.force)
+			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusReadyForReview, nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
@@ -708,7 +708,7 @@ func TestTaskApproveWithWorkflow(t *testing.T) {
 
 			// Test status update (simulating task approve)
 			ctx := context.Background()
-			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, nil, nil, tt.force)
+			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
@@ -774,7 +774,7 @@ func (m *MockTaskRepositoryWithWorkflow) GetByKey(ctx context.Context, key strin
 }
 
 // UpdateStatusForced updates task status with optional workflow validation
-func (m *MockTaskRepositoryWithWorkflow) UpdateStatusForced(ctx context.Context, id int64, newStatus models.TaskStatus, agent *string, notes *string, force bool) error {
+func (m *MockTaskRepositoryWithWorkflow) UpdateStatusForced(ctx context.Context, id int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
 	task, err := m.GetByID(ctx, id)
 	if err != nil {
 		return err

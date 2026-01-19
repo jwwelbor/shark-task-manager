@@ -18,12 +18,12 @@ func TestInitCommand(t *testing.T) {
 	}{
 		{
 			name:    "basic initialization",
-			args:    []string{"init", "--non-interactive"},
+			args:    []string{"init", "--non-interactive", "--db", "test-shark.db"},
 			setup:   nil,
 			wantErr: false,
 			verify: func(t *testing.T, tempDir string) {
 				// Verify database exists
-				dbPath := filepath.Join(tempDir, "shark-tasks.db")
+				dbPath := filepath.Join(tempDir, "test-shark.db")
 				if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 					t.Error("Database file was not created")
 				}
@@ -80,16 +80,16 @@ func TestInitCommand(t *testing.T) {
 		},
 		{
 			name: "idempotent initialization",
-			args: []string{"init", "--non-interactive", "--db", "shark-tasks.db"},
+			args: []string{"init", "--non-interactive", "--db", "test-idempotent.db"},
 			setup: func(tempDir string) error {
 				// Run init once first
-				cli.RootCmd.SetArgs([]string{"init", "--non-interactive", "--db", "shark-tasks.db"})
+				cli.RootCmd.SetArgs([]string{"init", "--non-interactive", "--db", "test-idempotent.db"})
 				return cli.RootCmd.Execute()
 			},
 			wantErr: false,
 			verify: func(t *testing.T, tempDir string) {
 				// Verify database exists after second run
-				dbPath := filepath.Join(tempDir, "shark-tasks.db")
+				dbPath := filepath.Join(tempDir, "test-idempotent.db")
 				if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 					t.Error("Database file does not exist after second init")
 				}
@@ -150,14 +150,14 @@ func TestInitCommandJSON(t *testing.T) {
 	}
 
 	// Execute with --json flag
-	cli.RootCmd.SetArgs([]string{"init", "--non-interactive", "--json", "--db", "shark-tasks.db"})
+	cli.RootCmd.SetArgs([]string{"init", "--non-interactive", "--json", "--db", "test-json.db"})
 	err = cli.RootCmd.Execute()
 	if err != nil {
 		t.Fatalf("Command failed: %v", err)
 	}
 
 	// Verify database and config were created even with JSON output
-	dbPath := filepath.Join(tempDir, "shark-tasks.db")
+	dbPath := filepath.Join(tempDir, "test-json.db")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		t.Error("Database file was not created with --json flag")
 	}

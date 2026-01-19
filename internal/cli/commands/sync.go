@@ -81,7 +81,9 @@ Status is managed exclusively in the database and is NOT synced from files.`,
 }
 
 func init() {
-	cli.RootCmd.AddCommand(syncCmd)
+	// DISABLED: Sync command causes catastrophic data loss - wiped all task statuses
+	// DO NOT RE-ENABLE without thorough investigation and fix
+	// cli.RootCmd.AddCommand(syncCmd)
 
 	syncCmd.Flags().StringVar(&syncFolder, "folder", "",
 		"Sync specific folder only (default: docs/plan)")

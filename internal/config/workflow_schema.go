@@ -1,5 +1,10 @@
 package config
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // WorkflowConfig defines the structure for configurable status workflows in .sharkconfig.json
 //
 // Example JSON configuration:
@@ -48,7 +53,8 @@ package config
 //	  "special_statuses": {
 //	    "_start_": ["todo"],
 //	    "_complete_": ["completed"]
-//	  }
+//	  },
+//	  "require_rejection_reason": true
 //	}
 type WorkflowConfig struct {
 	// Version of the workflow config schema (default: "1.0")
@@ -68,6 +74,13 @@ type WorkflowConfig struct {
 	// _start_: array of initial statuses (e.g., ["todo", "backlog"])
 	// _complete_: array of terminal statuses (e.g., ["completed", "archived"])
 	SpecialStatuses map[string][]string `json:"special_statuses"`
+
+	// RequireRejectionReason specifies whether rejection reasons are required for backward transitions
+	// When true: backward transitions must include a reason (--reason flag) or use --force to bypass
+	// When false: backward transitions are allowed without a reason
+	// Default: true (enabled)
+	// Stored in config as "require_rejection_reason": true/false
+	RequireRejectionReason bool `json:"require_rejection_reason"`
 }
 
 // StatusMetadata provides UI and agent-targeting metadata for a status
@@ -134,6 +147,32 @@ func (w *WorkflowConfig) GetStatusMetadata(status string) (StatusMetadata, bool)
 	return meta, found
 }
 
+// UnmarshalJSON implements custom unmarshaling for WorkflowConfig
+// Ensures RequireRejectionReason defaults to true when not specified in JSON
+func (w *WorkflowConfig) UnmarshalJSON(data []byte) error {
+	// Use alias to avoid infinite recursion
+	type Alias WorkflowConfig
+	aux := &struct {
+		RequireRejectionReason *bool `json:"require_rejection_reason"`
+		*Alias
+	}{
+		Alias: (*Alias)(w),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Set default value if not specified in JSON
+	if aux.RequireRejectionReason == nil {
+		w.RequireRejectionReason = true
+	} else {
+		w.RequireRejectionReason = *aux.RequireRejectionReason
+	}
+
+	return nil
+}
+
 // GetStatusesByAgentType returns all statuses that include the given agent type
 // Returns empty slice if no statuses match
 func (w *WorkflowConfig) GetStatusesByAgentType(agentType string) []string {
@@ -167,4 +206,69 @@ func (w *WorkflowConfig) GetStatusesByPhase(phase string) []string {
 		}
 	}
 	return statuses
+}
+
+// getPhaseOrder returns the ordering of phases for backward transition detection
+// Lower numbers represent earlier phases in the workflow
+// Returns -1 for unknown/any phases (which don't participate in backward detection)
+func getPhaseOrder(phase string) int {
+	phaseOrder := map[string]int{
+		"planning":    0,
+		"development": 1,
+		"review":      2,
+		"qa":          3,
+		"approval":    4,
+		"done":        5,
+		"any":         -1, // Special phase that doesn't participate in order
+		"blocked":     -1, // Special phase that doesn't participate in order
+	}
+
+	if order, found := phaseOrder[phase]; found {
+		return order
+	}
+
+	// Unknown phases are treated as non-participating (-1)
+	return -1
+}
+
+// IsBackwardTransition determines if a transition from one status to another is backward
+// based on phase ordering. A backward transition is one where the new phase is ordered
+// before (lower order number) the current phase.
+//
+// Returns:
+//   - (false, nil) for forward transitions or same phase
+//   - (true, nil) for backward transitions
+//   - (false, error) if either status is not found in metadata
+//
+// Special cases:
+//   - Transitions to/from "any" phase are not considered backward
+//   - Transitions to/from "blocked" phase are not considered backward
+//   - If either status lacks phase metadata, returns (false, nil) - not backward
+func (w *WorkflowConfig) IsBackwardTransition(fromStatus, toStatus string) (bool, error) {
+	// Get metadata for both statuses
+	fromMeta, fromFound := w.GetStatusMetadata(fromStatus)
+	toMeta, toFound := w.GetStatusMetadata(toStatus)
+
+	// If either status is not found in metadata, return error
+	if !fromFound || !toFound {
+		return false, fmt.Errorf("status not found in metadata: from=%s (found=%v), to=%s (found=%v)",
+			fromStatus, fromFound, toStatus, toFound)
+	}
+
+	// If either status lacks phase information, treat as not backward
+	if fromMeta.Phase == "" || toMeta.Phase == "" {
+		return false, nil
+	}
+
+	// Get phase orders
+	fromOrder := getPhaseOrder(fromMeta.Phase)
+	toOrder := getPhaseOrder(toMeta.Phase)
+
+	// If either phase is "any" or "blocked" (order = -1), not backward
+	if fromOrder == -1 || toOrder == -1 {
+		return false, nil
+	}
+
+	// Backward if new phase order is less than current phase order
+	return toOrder < fromOrder, nil
 }

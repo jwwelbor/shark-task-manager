@@ -79,6 +79,10 @@ func (m *Manager) Load() (*Config, error) {
 		config.JSONOutput = &jsonOutput
 	}
 
+	if requireRejection, ok := rawData["require_rejection_reason"].(bool); ok {
+		config.RequireRejectionReason = requireRejection
+	}
+
 	m.config = config
 	return config, nil
 }

@@ -324,3 +324,86 @@ func TestIntegration_MultipleManagerInstances(t *testing.T) {
 
 	t.Log("✓ Multiple manager instances can safely share config file")
 }
+
+// TestIntegration_RequireRejectionReason tests that require_rejection_reason is loaded from config
+func TestIntegration_RequireRejectionReason(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+
+	// Create config with require_rejection_reason enabled
+	configData := map[string]interface{}{
+		"require_rejection_reason": true,
+		"color_enabled":            true,
+	}
+
+	data, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal config: %v", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	// Load config via manager
+	manager := NewManager(configPath)
+	cfg, err := manager.Load()
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Verify require_rejection_reason is loaded
+	if !cfg.RequireRejectionReason {
+		t.Error("RequireRejectionReason should be true")
+	}
+
+	if !cfg.IsRequireRejectionReasonEnabled() {
+		t.Error("IsRequireRejectionReasonEnabled() should return true")
+	}
+
+	t.Log("✓ require_rejection_reason loaded correctly via manager")
+
+	// Test with disabled (false)
+	configData["require_rejection_reason"] = false
+	data, _ = json.MarshalIndent(configData, "", "  ")
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	manager2 := NewManager(configPath)
+	cfg2, err := manager2.Load()
+	if err != nil {
+		t.Fatalf("Load() with false failed: %v", err)
+	}
+
+	if cfg2.RequireRejectionReason {
+		t.Error("RequireRejectionReason should be false")
+	}
+
+	if cfg2.IsRequireRejectionReasonEnabled() {
+		t.Error("IsRequireRejectionReasonEnabled() should return false")
+	}
+
+	t.Log("✓ require_rejection_reason=false loaded correctly")
+
+	// Test with omitted field (default false)
+	configData = map[string]interface{}{
+		"color_enabled": true,
+	}
+	data, _ = json.MarshalIndent(configData, "", "  ")
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	manager3 := NewManager(configPath)
+	cfg3, err := manager3.Load()
+	if err != nil {
+		t.Fatalf("Load() with omitted field failed: %v", err)
+	}
+
+	if cfg3.RequireRejectionReason {
+		t.Error("RequireRejectionReason should default to false when omitted")
+	}
+
+	t.Log("✓ require_rejection_reason defaults to false when omitted")
+}

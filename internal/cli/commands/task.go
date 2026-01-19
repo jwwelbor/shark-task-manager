@@ -17,6 +17,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/validation"
 	"github.com/spf13/cobra"
 )
 
@@ -272,6 +273,9 @@ var taskUpdateCmd = &cobra.Command{
 	Short: "Update a task",
 	Long: `Update a task's properties such as title, description, priority, agent, or dependencies.
 
+For backward status transitions (e.g., moving from review back to development), you must provide
+a --reason flag to explain why the task is being sent back, unless --force is used.
+
 Supports multiple key formats (numeric, full, or slugged).
 
 Examples:
@@ -280,7 +284,8 @@ Examples:
   shark task update T-E04-F01-001 --priority 1
   shark task update T-E04-F01-001 --agent backend
   shark task update T-E04-F01-001 --filename "docs/tasks/custom.md"
-  shark task update T-E04-F01-001 --depends-on "T-E04-F01-002,T-E04-F01-003"`,
+  shark task update T-E04-F01-001 --depends-on "T-E04-F01-002,T-E04-F01-003"
+  shark task update T-E04-F01-001 --status in_development --reason "Missing error handling"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTaskUpdate,
 }
@@ -361,6 +366,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	priorityMax, _ := cmd.Flags().GetInt("priority-max")
 	blocked, _ := cmd.Flags().GetBool("blocked")
 	withActions, _ := cmd.Flags().GetBool("with-actions")
+	hasRejections, _ := cmd.Flags().GetBool("has-rejections")
 
 	// Positional arguments take priority over flags
 	if positionalEpic != nil {
@@ -453,6 +459,17 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		tasks = filteredTasks
 	}
 
+	// Filter by rejections if requested
+	if hasRejections {
+		filteredTasks := []*models.Task{}
+		for _, task := range tasks {
+			if task.RejectionCount > 0 {
+				filteredTasks = append(filteredTasks, task)
+			}
+		}
+		tasks = filteredTasks
+	}
+
 	// Filter out completed tasks by default (unless --show-all or explicit status filter)
 	showAll, _ := cmd.Flags().GetBool("show-all")
 	tasks = filterTasksByCompletedStatus(tasks, showAll, statusStr)
@@ -496,8 +513,14 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 			execOrder = fmt.Sprintf("%d", *task.ExecutionOrder)
 		}
 
+		// Add rejection indicator to key if task has rejections
+		keyDisplay := task.Key
+		if task.RejectionCount > 0 {
+			keyDisplay = task.Key + " " + formatRejectionIndicator(task.RejectionCount)
+		}
+
 		rows = append(rows, []string{
-			task.Key,
+			keyDisplay,
 			title,
 			string(task.Status),
 			fmt.Sprintf("%d", task.Priority),
@@ -657,6 +680,16 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Get rejection history from task_notes table (includes document paths)
+	noteRepo := repository.NewTaskNoteRepository(repoDb)
+	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch rejection history: %v\n", err)
+	}
+	if rejectionHistory == nil {
+		rejectionHistory = make([]*repository.RejectionHistoryEntry, 0)
+	}
+
 	// Output results
 	if cli.GlobalConfig.JSON {
 		// Create enhanced output with dependency status, related docs, and blocking relationships
@@ -668,6 +701,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 			"related_documents": relatedDocs,
 			"blocked_by":        blockedByKeys,
 			"blocks":            blocksKeys,
+			"rejection_history": rejectionHistory,
 		}
 		return cli.OutputJSON(output)
 	}
@@ -789,6 +823,28 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 			if metadata.CompletionNotes != nil && *metadata.CompletionNotes != "" {
 				fmt.Printf("  Notes: %s\n", *metadata.CompletionNotes)
 			}
+		}
+	}
+
+	// Display rejection history if present
+	if len(rejectionHistory) > 0 {
+		fmt.Printf("\n⚠️  REJECTION HISTORY (%d rejections)\n", len(rejectionHistory))
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+		for _, rejection := range rejectionHistory {
+			// Parse timestamp to format nicely
+			// Format: [2026-01-15 14:30] Rejected by reviewer-agent-001
+			fmt.Printf("\n[%s] Rejected by %s\n", rejection.Timestamp, rejection.RejectedBy)
+			fmt.Printf("%s → %s\n", rejection.FromStatus, rejection.ToStatus)
+
+			fmt.Println("\nReason:")
+			fmt.Printf("%s\n", rejection.Reason)
+
+			if rejection.ReasonDocument != nil {
+				fmt.Printf("\n📄 Related Document: %s\n", *rejection.ReasonDocument)
+			}
+
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		}
 	}
 
@@ -1107,6 +1163,17 @@ func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.Ta
 
 // filterTasksByCompletedStatus filters out completed tasks unless showAll is true
 // or an explicit status filter is set
+// formatRejectionIndicator formats the rejection indicator symbol and count
+func formatRejectionIndicator(count int) string {
+	if count == 0 {
+		return ""
+	}
+	if count > 9 {
+		return "⚠️(9+)"
+	}
+	return fmt.Sprintf("⚠️(%d)", count)
+}
+
 func filterTasksByCompletedStatus(tasks []*models.Task, showAll bool, statusFilter string) []*models.Task {
 	// If an explicit status filter is set, don't apply default filtering
 	// The status filter will be handled by the repository query
@@ -1683,8 +1750,43 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 		notes = &notesFlag
 	}
 
+	// Get rejection reason and document path if provided
+	rejectionReasonFlag, _ := cmd.Flags().GetString("rejection-reason")
+	var rejectionReason *string
+	if rejectionReasonFlag != "" {
+		rejectionReason = &rejectionReasonFlag
+	}
+
+	// Handle --reason-doc flag for document linking
+	reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+	var documentPath *string
+	if reasonDocFlag != "" {
+		// Validate document path format
+		if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
+			cli.Error(fmt.Sprintf("Invalid document path: %s", err.Error()))
+			os.Exit(1)
+		}
+
+		// Check if document file exists
+		projectRoot, err := cli.FindProjectRoot()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Failed to find project root: %s", err.Error()))
+			os.Exit(2)
+		}
+
+		fullPath := filepath.Join(projectRoot, reasonDocFlag)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			cli.Error(fmt.Sprintf("Document not found: %s", reasonDocFlag))
+			cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
+			os.Exit(1)
+		}
+
+		// Convert to pointer for passing to repository
+		documentPath = &reasonDocFlag
+	}
+
 	// Update status (repository handles workflow validation)
-	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, force); err != nil {
+	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, rejectionReason, documentPath, force); err != nil {
 		// Display error with workflow suggestion
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
 		if !force {
@@ -1941,8 +2043,43 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 		notes = &notesFlag
 	}
 
+	// Get rejection reason for backward transitions
+	rejectionReasonFlag, _ := cmd.Flags().GetString("rejection-reason")
+	var rejectionReason *string
+	if rejectionReasonFlag != "" {
+		rejectionReason = &rejectionReasonFlag
+	}
+
+	// Handle --reason-doc flag for document linking
+	reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+	var documentPath *string
+	if reasonDocFlag != "" {
+		// Validate document path format
+		if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
+			cli.Error(fmt.Sprintf("Invalid document path: %s", err.Error()))
+			os.Exit(1)
+		}
+
+		// Check if document file exists
+		projectRoot, err := cli.FindProjectRoot()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Failed to find project root: %s", err.Error()))
+			os.Exit(2)
+		}
+
+		fullPath := filepath.Join(projectRoot, reasonDocFlag)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			cli.Error(fmt.Sprintf("Document not found: %s", reasonDocFlag))
+			cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
+			os.Exit(1)
+		}
+
+		// Convert to pointer for passing to repository
+		documentPath = &reasonDocFlag
+	}
+
 	// Reopen the task atomically
-	if err := repo.ReopenTaskForced(ctx, task.ID, &agent, notes, force); err != nil {
+	if err := repo.ReopenTaskForced(ctx, task.ID, &agent, notes, rejectionReason, documentPath, force); err != nil {
 		return fmt.Errorf("failed to reopen task: %w", err)
 	}
 
@@ -2035,6 +2172,7 @@ func init() {
 	taskListCmd.Flags().BoolP("blocked", "b", false, "Show only blocked tasks")
 	taskListCmd.Flags().Bool("show-all", false, "Show all tasks including completed (by default, completed tasks are hidden)")
 	taskListCmd.Flags().Bool("with-actions", false, "Include orchestrator actions with each task (for batch orchestrator polling)")
+	taskListCmd.Flags().Bool("has-rejections", false, "Filter tasks that have rejections")
 
 	// Add flags for create command
 	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) - can also be specified as first positional argument")
@@ -2080,6 +2218,8 @@ func init() {
 	taskCompleteCmd.Flags().Int("time-spent", 0, "Time spent in minutes")
 	taskApproveCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskApproveCmd.Flags().StringP("notes", "n", "", "Approval notes")
+	taskApproveCmd.Flags().String("rejection-reason", "", "Reason for rejection or feedback on the task")
+	taskApproveCmd.Flags().String("reason-doc", "", "Path to document containing rejection reason (relative to project root)")
 	taskApproveCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 
 	// Add flags for exception handling commands
@@ -2090,6 +2230,8 @@ func init() {
 	taskUnblockCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 	taskReopenCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskReopenCmd.Flags().StringP("notes", "n", "", "Rework notes")
+	taskReopenCmd.Flags().String("rejection-reason", "", "Reason for rejection or sending task back")
+	taskReopenCmd.Flags().String("reason-doc", "", "Path to document containing rejection reason (relative to project root)")
 	taskReopenCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 
 	// Add flags for update command
@@ -2103,6 +2245,8 @@ func init() {
 	taskUpdateCmd.Flags().Int("order", -1, "New execution order (-1 = no change)")
 	taskUpdateCmd.Flags().String("status", "", "New status for the task (uses workflow validation)")
 	taskUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed or bypass workflow validation for status changes")
+	taskUpdateCmd.Flags().String("reason", "", "Reason for backward status transitions (required unless --force is used)")
+	taskUpdateCmd.Flags().String("reason-doc", "", "Path to document containing rejection reason (relative to project root)")
 
 	// Add flags for set-status command
 	taskSetStatusCmd.Flags().Bool("force", false, "Force status change bypassing workflow validation (use with caution)")
@@ -2273,6 +2417,46 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 
+		// Get force flag and reason flag
+		force, _ := cmd.Flags().GetBool("force")
+		reason, _ := cmd.Flags().GetString("reason")
+
+		// Handle --reason-doc flag for document linking
+		reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
+		var documentPath *string
+		if reasonDocFlag != "" {
+			// Validate document path format
+			if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
+				cli.Error(fmt.Sprintf("Invalid document path: %s", err.Error()))
+				os.Exit(1)
+			}
+
+			// Check if document file exists
+			projectRoot, err := cli.FindProjectRoot()
+			if err != nil {
+				cli.Error(fmt.Sprintf("Failed to find project root: %s", err.Error()))
+				os.Exit(2)
+			}
+
+			fullPath := filepath.Join(projectRoot, reasonDocFlag)
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				cli.Error(fmt.Sprintf("Document not found: %s", reasonDocFlag))
+				cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
+				os.Exit(1)
+			}
+
+			// Convert to pointer for passing to repository
+			documentPath = &reasonDocFlag
+		}
+
+		// Validate that backward transitions have a reason (unless --force is used)
+		if err := validation.ValidateReasonForStatusTransition(status, string(task.Status), reason, force, workflow); err != nil {
+			cli.Error(fmt.Sprintf("Error: %s", err.Error()))
+			cli.Info("Use --reason to provide a reason, or use --force to bypass this requirement")
+			cli.Info(fmt.Sprintf("Example: shark task update %s --status %s --reason \"Reason for transition\"", taskKey, status))
+			os.Exit(3) // Exit code 3 for invalid state
+		}
+
 		// Create repository with workflow support
 		dbWrapper := repoDb
 		var workflowRepo *repository.TaskRepository
@@ -2282,14 +2466,17 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 			workflowRepo = repository.NewTaskRepository(dbWrapper)
 		}
 
-		// Get force flag
-		force, _ := cmd.Flags().GetBool("force")
-
 		// Convert status string to TaskStatus
 		newStatus := models.TaskStatus(status)
 
+		// Pass reason as rejectionReason parameter (not notes)
+		var rejectionReasonPtr *string
+		if reason != "" {
+			rejectionReasonPtr = &reason
+		}
+
 		// Update status with workflow validation (unless forcing)
-		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, force)
+		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, rejectionReasonPtr, documentPath, force)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update task status: %s", err.Error()))
 
@@ -2380,7 +2567,7 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update status with workflow validation (unless forcing)
-	err = repo.UpdateStatusForced(ctx, task.ID, taskStatus, nil, notesPtr, force)
+	err = repo.UpdateStatusForced(ctx, task.ID, taskStatus, nil, notesPtr, nil, nil, force)
 	if err != nil {
 		// Extract validation error message if available
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
