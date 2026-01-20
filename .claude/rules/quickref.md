@@ -37,7 +37,8 @@ make lint              # Run golangci-lint (auto-installs if needed)
 
 # Get next available task
 ./bin/shark task next
-./bin/shark task next --agent=backend
+./bin/shark task next --agent=backend           # Standard agent type
+./bin/shark task next --agent=architect         # Custom agent type
 
 # Get task details
 ./bin/shark task get E07-F20-001
@@ -88,8 +89,12 @@ make lint              # Run golangci-lint (auto-installs if needed)
 ./bin/shark task create E07 F01 "Task Title"                    # 3-arg format
 ./bin/shark task create E07-F01 "Task Title"                    # 2-arg format
 
-# With additional options
+# With additional options (standard agent type)
 ./bin/shark task create E07 F01 "Task Title" --agent=backend --priority=5
+
+# With custom agent type
+./bin/shark task create E07 F01 "Task Title" --agent=architect --priority=3
+./bin/shark task create E07 F01 "Task Title" --agent=business-analyst --priority=4
 
 # With custom file path
 ./bin/shark task create E07 F01 "Task Title" --file="docs/custom/task.md"

@@ -534,6 +534,15 @@ The CLI automatically:
 - Sets initial status to `todo`
 - Validates epic and feature exist
 
+**About Agent Types:**
+
+Shark supports flexible agent type assignment for diverse team structures and multi-agent workflows:
+
+- **Standard agent types** (`frontend`, `backend`, `api`, `testing`, `devops`, `general`) have role-specific templates
+- **Custom agent types** (`architect`, `business-analyst`, `qa`, `tech-lead`, `product-manager`, `ux-designer`, etc.) use the general template
+- Any non-empty string is supported as an agent type
+- Custom types enable multi-agent orchestration: each agent can query their work with `shark task next --agent=<type> --json`
+
 #### 5. Task Lifecycle Management
 
 **Standard workflow:**
