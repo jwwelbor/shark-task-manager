@@ -4,7 +4,7 @@ key: {{.Key}}
 title: {{.Title}}
 epic: {{.Epic}}
 feature: {{.Feature}}
-agent: general
+agent: {{.AgentType}}
 status: todo
 priority: {{.Priority}}
 {{- if .DependsOn}}
