@@ -339,7 +339,7 @@ func TestRenderer_Render_EmptyAgentType_FallbackToGeneral(t *testing.T) {
 	assert.Contains(t, result, "## Requirements")
 }
 
-func TestRenderer_RenderWithSelection_UnknownAgentType(t *testing.T) {
+func TestRenderer_Render_CustomAgentTypeFallback(t *testing.T) {
 	loader := NewLoader("")
 	renderer := NewRenderer(loader)
 
@@ -353,7 +353,7 @@ func TestRenderer_RenderWithSelection_UnknownAgentType(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	result, err := renderer.RenderWithSelection("architect", "", data)
+	result, err := renderer.Render("architect", data)
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, result)

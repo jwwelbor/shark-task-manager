@@ -59,48 +59,6 @@ func (r *Renderer) Render(agentType models.AgentType, data TemplateData) (string
 	return buf.String(), nil
 }
 
-// RenderWithSelection renders a task template with template selection priority:
-// 1. Custom template (if provided)
-// 2. Agent-specific template (if agentType provided and template exists)
-// 3. General template (fallback)
-func (r *Renderer) RenderWithSelection(agentType models.AgentType, customTemplatePath string, data TemplateData) (string, error) {
-	var tmplContent string
-	var err error
-
-	// Priority 1: Custom template
-	if customTemplatePath != "" {
-		tmplContent, err = r.loader.LoadCustomTemplate(customTemplatePath)
-		if err != nil {
-			return "", fmt.Errorf("failed to load custom template: %w", err)
-		}
-	} else if agentType != "" {
-		// Priority 2: Agent-specific template (with fallback to general built-in)
-		tmplContent, err = r.loader.LoadTemplate(agentType)
-		if err != nil {
-			return "", fmt.Errorf("failed to load template: %w", err)
-		}
-	} else {
-		// Priority 3: General template (should not reach here due to default in validator)
-		tmplContent, err = r.loader.LoadTemplate(models.AgentTypeGeneral)
-		if err != nil {
-			return "", fmt.Errorf("failed to load general template: %w", err)
-		}
-	}
-
-	// Create template with custom functions
-	tmpl, err := template.New("task").Funcs(templateFuncs()).Parse(tmplContent)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	// Execute template
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute template: %w", err)
-	}
-
-	return buf.String(), nil
-}
 
 // templateFuncs returns custom template functions
 func templateFuncs() template.FuncMap {
