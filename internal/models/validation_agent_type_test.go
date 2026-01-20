@@ -90,6 +90,14 @@ func TestValidateAgentType_EdgeCases(t *testing.T) {
 		// Special characters in agent types
 		{"with dot agent.dev", "agent.dev", false},
 		{"with underscore and dash qa_engineer-lead", "qa_engineer-lead", false},
+
+		// Length boundary cases
+		{"exactly 100 chars", strings.Repeat("a", 100), false},
+
+		// Trimming behavior
+		{"leading and trailing spaces", "  backend  ", false},
+		{"leading spaces only", "  backend", false},
+		{"trailing spaces only", "backend  ", false},
 	}
 
 	for _, tt := range tests {
@@ -113,6 +121,8 @@ func TestValidateAgentType_InvalidCases(t *testing.T) {
 		{"whitespace only", "   ", true},
 		{"tab whitespace", "\t\t", true},
 		{"newline whitespace", "\n\n", true},
+		{"too long 101 chars", strings.Repeat("a", 101), true},
+		{"too long 150 chars", strings.Repeat("a", 150), true},
 	}
 
 	for _, tt := range tests {
@@ -135,6 +145,8 @@ func TestValidateAgentType_ErrorMessages(t *testing.T) {
 	}{
 		{"empty string error", "", true, "empty"},
 		{"whitespace only error", "   ", true, "empty"},
+		{"too long error", strings.Repeat("a", 101), true, "too long"},
+		{"too long shows count", strings.Repeat("a", 150), true, "maximum 100 characters"},
 	}
 
 	for _, tt := range tests {
