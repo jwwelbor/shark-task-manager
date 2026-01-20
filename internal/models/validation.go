@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // Validation errors
@@ -16,7 +17,7 @@ var (
 	ErrInvalidFeatureStatus = errors.New("invalid feature status: must be draft, active, completed, or archived")
 	// ErrInvalidTaskStatus is deprecated - error messages are now generated dynamically based on workflow config
 	ErrInvalidTaskStatus       = errors.New("invalid task status")
-	ErrInvalidAgentType        = errors.New("invalid agent type: must be frontend, backend, api, testing, devops, or general")
+	ErrInvalidAgentType        = errors.New("invalid agent type: cannot be empty or whitespace-only")
 	ErrInvalidPriority         = errors.New("invalid priority: must be between 1 and 10")
 	ErrInvalidProgressPct      = errors.New("invalid progress_pct: must be between 0.0 and 100.0")
 	ErrInvalidDependsOn        = errors.New("invalid depends_on: must be a valid JSON array of strings")
@@ -158,20 +159,20 @@ func ValidateTaskStatusWithWorkflow(status string, workflow interface{}) error {
 		"Ensure status is defined in .sharkconfig.json workflow", status)
 }
 
-// ValidateAgentType validates the agent type enum
-// Note: As of E07-F01, this accepts any non-empty string value
+// ValidateAgentType validates the agent type
+// Accepts any non-empty string after trimming whitespace
+// Maximum length: 100 characters
 func ValidateAgentType(agentType string) error {
-	validTypes := map[string]bool{
-		"frontend": true,
-		"backend":  true,
-		"api":      true,
-		"testing":  true,
-		"devops":   true,
-		"general":  true,
+	trimmed := strings.TrimSpace(agentType)
+
+	if trimmed == "" {
+		return fmt.Errorf("agent type cannot be empty or whitespace-only")
 	}
-	if !validTypes[agentType] {
-		return fmt.Errorf("invalid agent type '%s'. Valid types are: frontend, backend, api, testing, devops, general", agentType)
+
+	if len(trimmed) > 100 {
+		return fmt.Errorf("agent type too long: maximum 100 characters, got %d", len(trimmed))
 	}
+
 	return nil
 }
 

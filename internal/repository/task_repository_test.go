@@ -552,3 +552,137 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	require.NotNil(t, lastEntry.Notes, "Notes should be stored")
 	require.Equal(t, notes, *lastEntry.Notes, "Notes should be stored")
 }
+
+// TestTaskRepository_CreateWithCustomAgentType tests creating a task with a custom agent type
+func TestTaskRepository_CreateWithCustomAgentType(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	testDB := db.NewDB(database)
+	repo := NewTaskRepository(testDB)
+
+	// Clean up
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-E07-F13-%'")
+
+	// Seed test data
+	epicID, featureID := test.SeedTestData()
+
+	// Create task with custom agent type
+	task := &models.Task{
+		Key:       "TEST-E07-F13-001",
+		Title:     "Test Task",
+		Status:    "todo",
+		AgentType: models.AgentType("architect"),
+		EpicID:    epicID,
+		FeatureID: featureID,
+	}
+
+	err := repo.Create(ctx, task)
+	require.NoError(t, err)
+	require.NotZero(t, task.ID)
+
+	// Retrieve and verify
+	retrieved, err := repo.GetByKey(ctx, "TEST-E07-F13-001")
+	require.NoError(t, err)
+	assert.Equal(t, models.AgentType("architect"), retrieved.AgentType)
+
+	// Cleanup
+	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+}
+
+// TestTaskRepository_CustomAgentType_BackwardCompatibility tests backward compatibility
+func TestTaskRepository_CustomAgentType_BackwardCompatibility(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	testDB := db.NewDB(database)
+	repo := NewTaskRepository(testDB)
+
+	// Clean up
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-E07-F13-STD%'")
+
+	// Seed test data
+	epicID, featureID := test.SeedTestData()
+
+	// Test standard agent types still work
+	standardTypes := []string{"frontend", "backend", "api", "testing", "devops", "general"}
+	taskIDs := []int64{}
+
+	for i, agentType := range standardTypes {
+		task := &models.Task{
+			Key:       "TEST-E07-F13-STD-" + string(rune('0'+i)),
+			Title:     "Standard Task",
+			Status:    "todo",
+			AgentType: models.AgentType(agentType),
+			EpicID:    epicID,
+			FeatureID: featureID,
+		}
+
+		err := repo.Create(ctx, task)
+		require.NoError(t, err, "Failed to create task with standard agent type %q", agentType)
+		taskIDs = append(taskIDs, task.ID)
+
+		// Verify immediately
+		retrieved, err := repo.GetByKey(ctx, task.Key)
+		require.NoError(t, err)
+		assert.Equal(t, models.AgentType(agentType), retrieved.AgentType)
+	}
+
+	defer func() {
+		for _, id := range taskIDs {
+			database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+		}
+	}()
+}
+
+// TestTaskRepository_CustomAgentType_MixedTypes tests standard and custom types coexisting
+func TestTaskRepository_CustomAgentType_MixedTypes(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	testDB := db.NewDB(database)
+	repo := NewTaskRepository(testDB)
+
+	// Clean up
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-E07-F13-MIX%'")
+
+	// Seed test data
+	epicID, featureID := test.SeedTestData()
+
+	// Create mix of standard and custom types
+	taskData := []struct {
+		key       string
+		agentType string
+	}{
+		{"TEST-E07-F13-MIX-001", "frontend"},    // standard
+		{"TEST-E07-F13-MIX-002", "architect"},   // custom
+		{"TEST-E07-F13-MIX-003", "backend"},     // standard
+		{"TEST-E07-F13-MIX-004", "qa"},          // custom
+	}
+
+	taskIDs := []int64{}
+	for _, td := range taskData {
+		task := &models.Task{
+			Key:       td.key,
+			Title:     "Task",
+			Status:    "todo",
+			AgentType: models.AgentType(td.agentType),
+			EpicID:    epicID,
+			FeatureID: featureID,
+		}
+
+		err := repo.Create(ctx, task)
+		require.NoError(t, err)
+		taskIDs = append(taskIDs, task.ID)
+	}
+
+	defer func() {
+		for _, id := range taskIDs {
+			database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+		}
+	}()
+
+	// Verify all tasks were created with correct agent types
+	for _, td := range taskData {
+		retrieved, err := repo.GetByKey(ctx, td.key)
+		require.NoError(t, err)
+		assert.Equal(t, models.AgentType(td.agentType), retrieved.AgentType)
+	}
+}
