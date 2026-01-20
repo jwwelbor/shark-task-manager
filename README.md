@@ -417,9 +417,13 @@ shark feature get e04-f06-authentication --json
 # Get next task for any agent
 shark task next --json
 
-# Get next task for specific agent type
+# Get next task for specific agent type (standard types)
 shark task next --agent=backend --json
 shark task next --agent=frontend --json
+
+# Get next task for specific agent type (custom types)
+shark task next --agent=architect --json
+shark task next --agent=business-analyst --json
 
 # Get next task in specific epic
 shark task next --epic=E04 --json
@@ -459,7 +463,11 @@ shark task list e04-f01                # Case insensitive combined format
 # Using flag syntax (still supported, backward compatible)
 shark task list --epic=E04 --json
 shark task list --epic=E04 --feature=F01 --json
-shark task list --agent=backend --json
+
+# Filter by agent type
+shark task list --agent=backend --json              # Standard agent type
+shark task list --agent=architect --json            # Custom agent type
+shark task list --agent=business-analyst --json     # Custom agent type
 shark task list --epic=E04 --agent=backend --status=todo --json
 ```
 
@@ -493,6 +501,11 @@ shark task create E04-F06 "Implement task validation" \
 
 # Case insensitive
 shark task create e04 f06 "Implement task validation" --agent=backend
+
+# With custom agent type (for multi-agent workflows)
+shark task create E04 F06 "Design system architecture" --agent=architect --priority=2
+shark task create E04 F06 "Elaborate user requirements" --agent=business-analyst --priority=4
+shark task create E04 F06 "Create test strategy" --agent=qa --priority=3
 ```
 
 **Flag syntax (legacy, still supported):**
@@ -510,7 +523,7 @@ shark task create \
 Parameters:
 - Epic and feature keys (required, via positional args or `--epic`/`--feature` flags)
 - Title (required, via positional arg or `--title` flag)
-- `--agent`: Agent type (`frontend`, `backend`, `api`, `testing`, `devops`, `general`)
+- `--agent`: Agent type (any non-empty string; recommended: `frontend`, `backend`, `api`, `testing`, `devops`, `general`, or custom types like `architect`, `business-analyst`, `qa`)
 - `--priority`: Priority 1-10 (default: 5, where 1 = highest)
 - `--description`: Detailed task description
 - `--depends-on`: Comma-separated list of dependency task keys (short format: `E04-F06-001`)
