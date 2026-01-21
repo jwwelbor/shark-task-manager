@@ -11,6 +11,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/formatters"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -18,6 +19,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/validation"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -492,43 +494,17 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	headers := []string{"Key", "Title", "Status", "Priority", "Agent Type", "Order"}
-	rows := [][]string{}
-	for _, task := range tasks {
-		agentTypeStr := "-"
-		if task.AgentType != nil {
-			agentTypeStr = string(*task.AgentType)
-		}
-
-		// Truncate title if too long
-		title := task.Title
-		if len(title) > 40 {
-			title = title[:37] + "..."
-		}
-
-		// Format execution_order (show "-" if NULL)
-		execOrder := "-"
-		if task.ExecutionOrder != nil {
-			execOrder = fmt.Sprintf("%d", *task.ExecutionOrder)
-		}
-
-		// Add rejection indicator to key if task has rejections
-		keyDisplay := task.Key
-		if task.RejectionCount > 0 {
-			keyDisplay = task.Key + " " + formatRejectionIndicator(task.RejectionCount)
-		}
-
-		rows = append(rows, []string{
-			keyDisplay,
-			title,
-			string(task.Status),
-			fmt.Sprintf("%d", task.Priority),
-			agentTypeStr,
-			execOrder,
-		})
+	// Get project root for WorkflowService
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		projectRoot = ""
 	}
+	workflowService := workflow.NewService(projectRoot)
 
-	cli.OutputTable(headers, rows)
+	// Use centralized task table formatter
+	config := formatters.DefaultTaskTableConfig()
+	config.ColorEnabled = !cli.GlobalConfig.NoColor
+	_ = formatters.RenderTaskTable(tasks, workflowService, config)
 
 	// Show action summaries if --with-actions flag is set
 	// Note: This will display orchestrator actions once T-E07-F21-006 adds OrchestratorAction field to Task model

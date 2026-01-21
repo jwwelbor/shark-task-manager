@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
+	"github.com/jwwelbor/shark-task-manager/internal/formatters"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -781,11 +782,18 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", cfgErr)
 	}
 
+	// Get project root for WorkflowService
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		projectRoot = ""
+	}
+	workflowService := workflow.NewService(projectRoot)
+
 	for _, feature := range features {
-		// Widen title column to 60 characters for better readability
+		// Reduce title to 45 characters for 85-90 char terminal width
 		title := feature.Title
-		if len(title) > 60 {
-			title = title[:57] + "..."
+		if len(title) > 45 {
+			title = title[:42] + "..."
 		}
 
 		// Get status breakdown from batch result
@@ -813,8 +821,10 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 			progressDisplay = fmt.Sprintf("%.1f%%", feature.ProgressPct)
 		}
 
-		// Format status with indicator (* for manual override)
-		statusDisplay := string(feature.Status)
+		// Apply color coding using workflow service
+		formatted := workflowService.FormatStatusForDisplay(string(feature.Status), !cli.GlobalConfig.NoColor)
+		statusDisplay := formatted.Colored
+		// Add indicator for manual override
 		if feature.StatusOverride {
 			statusDisplay += "*"
 		}
@@ -1083,42 +1093,10 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	fmt.Println()
 	pterm.DefaultSection.Printf("Tasks (%d total)", len(tasks))
 
-	// Create tasks table
-	tableData := pterm.TableData{
-		{"Key", "Title", "Status", "Priority", "Agent"},
-	}
-
-	for _, task := range tasks {
-		// Widen title column to 60 characters for better readability
-		title := task.Title
-		if len(title) > 60 {
-			title = title[:57] + "..."
-		}
-
-		// Get agent type
-		agent := "none"
-		if task.AgentType != nil {
-			agent = string(*task.AgentType)
-		}
-
-		// Format task status with color if available
-		taskStatusDisplay := string(task.Status)
-		if colorEnabled {
-			formatted := workflowService.FormatStatusForDisplay(string(task.Status), true)
-			taskStatusDisplay = formatted.Colored
-		}
-
-		tableData = append(tableData, []string{
-			task.Key,
-			title,
-			taskStatusDisplay,
-			fmt.Sprintf("%d", task.Priority),
-			agent,
-		})
-	}
-
-	// Render tasks table
-	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
+	// Use centralized task table formatter
+	config := formatters.FeatureGetTaskTableConfig()
+	config.ColorEnabled = colorEnabled
+	_ = formatters.RenderTaskTable(tasks, workflowService, config)
 }
 
 // sortFeatures sorts features by the specified field

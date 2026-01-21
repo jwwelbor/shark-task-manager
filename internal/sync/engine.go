@@ -345,7 +345,7 @@ func (e *SyncEngine) importTask(ctx context.Context, tx *sql.Tx, taskData *TaskM
 
 	// Extract epic and feature keys from task key
 	// Task key format: T-E##-F##-###
-	epicKey, featureKey, err := parseTaskKey(taskData.Key)
+	_, featureKey, err := parseTaskKey(taskData.Key)
 	if err != nil {
 		return fmt.Errorf("invalid task key format %s: %w", taskData.Key, err)
 	}
@@ -354,17 +354,12 @@ func (e *SyncEngine) importTask(ctx context.Context, tx *sql.Tx, taskData *TaskM
 	feature, err := e.featureRepo.GetByKey(ctx, featureKey)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			if opts.CreateMissing && !opts.EnableDiscovery {
-				// Auto-create feature and epic (only when discovery is disabled)
-				// When discovery is enabled, only discovered epics/features should exist
-				feature, err = e.createMissingFeature(ctx, tx, epicKey, featureKey)
-				if err != nil {
-					return fmt.Errorf("failed to create missing feature: %w", err)
-				}
-			} else if opts.EnableDiscovery {
+			// REMOVED: Auto-creation feature caused catastrophic data loss
+			// Always error if feature doesn't exist - user must create epics/features manually
+			if opts.EnableDiscovery {
 				return fmt.Errorf("feature %s not found (task references undiscovered feature - check epic-index.md or folder structure)", featureKey)
 			} else {
-				return fmt.Errorf("feature %s not found (use --create-missing to auto-create)", featureKey)
+				return fmt.Errorf("feature %s not found - create the feature manually with 'shark feature create'", featureKey)
 			}
 		} else {
 			return fmt.Errorf("failed to get feature: %w", err)
@@ -447,42 +442,9 @@ func (e *SyncEngine) updateTask(ctx context.Context, tx *sql.Tx, taskData *TaskM
 	return nil
 }
 
-// createMissingFeature creates a feature and epic if they don't exist
-func (e *SyncEngine) createMissingFeature(ctx context.Context, tx *sql.Tx,
-	epicKey, featureKey string) (*models.Feature, error) {
-
-	// Get or create epic
-	epic, err := e.epicRepo.GetByKey(ctx, epicKey)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// Create epic
-			epic = &models.Epic{
-				Key:      epicKey,
-				Title:    fmt.Sprintf("Auto-created epic %s", epicKey),
-				Status:   models.EpicStatusActive,
-				Priority: models.PriorityMedium,
-			}
-			if err := e.epicRepo.Create(ctx, epic); err != nil {
-				return nil, fmt.Errorf("failed to create epic: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to get epic: %w", err)
-		}
-	}
-
-	// Create feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    featureKey,
-		Title:  fmt.Sprintf("Auto-created feature %s", featureKey),
-		Status: models.FeatureStatusActive,
-	}
-	if err := e.featureRepo.Create(ctx, feature); err != nil {
-		return nil, fmt.Errorf("failed to create feature: %w", err)
-	}
-
-	return feature, nil
-}
+// REMOVED: createMissingFeature function was deleted due to catastrophic data loss.
+// This function created "Auto-created epic X" placeholder entries that wiped real data.
+// The --create-missing flag and all auto-creation functionality has been permanently disabled.
 
 // createTaskHistory creates a task history record
 func (e *SyncEngine) createTaskHistory(ctx context.Context, taskID int64, message string) error {

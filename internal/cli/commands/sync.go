@@ -17,7 +17,7 @@ var (
 	syncFolder            string
 	syncDryRun            bool
 	syncStrategy          string
-	syncCreateMissing     bool
+	// REMOVED syncCreateMissing - caused catastrophic data loss
 	syncCleanup           bool
 	syncPatterns          []string
 	syncForceFullScan     bool
@@ -57,9 +57,6 @@ Status is managed exclusively in the database and is NOT synced from files.`,
   # Manually resolve conflicts interactively
   shark sync --strategy=manual
 
-  # Auto-create missing epics/features
-  shark sync --create-missing
-
   # Delete orphaned database tasks (files deleted)
   shark sync --cleanup
 
@@ -91,8 +88,7 @@ func init() {
 		"Preview changes without applying them")
 	syncCmd.Flags().StringVar(&syncStrategy, "strategy", "file-wins",
 		"Conflict resolution strategy: file-wins, database-wins, newer-wins, manual")
-	syncCmd.Flags().BoolVar(&syncCreateMissing, "create-missing", false,
-		"Auto-create missing epics/features")
+	// REMOVED --create-missing flag - caused catastrophic data loss by creating "Auto-created epic" entries
 	syncCmd.Flags().BoolVar(&syncCleanup, "cleanup", false,
 		"Delete orphaned database tasks (files deleted)")
 	syncCmd.Flags().StringSliceVar(&syncPatterns, "pattern", []string{"task"},
@@ -168,7 +164,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 		FolderPath:        folderPath,
 		DryRun:            syncDryRun,
 		Strategy:          strategy,
-		CreateMissing:     syncCreateMissing,
+		CreateMissing:     false, // HARDCODED FALSE - CreateMissing caused catastrophic data loss
 		Cleanup:           syncCleanup,
 		ForceFullScan:     syncForceFullScan,
 		LastSyncTime:      nil, // Will be set from config if available
