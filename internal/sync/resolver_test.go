@@ -18,7 +18,7 @@ func TestConflictResolver_ResolveConflicts(t *testing.T) {
 		dbDesc := "Old description in database"
 		newPath := "/new/path/task.md"
 		oldPath := "/old/path/task.md"
-		agentType := models.AgentTypeBackend
+		agentType := "backend"
 
 		fileData := &TaskMetadata{
 			Key:         "T-E04-F07-001",
@@ -307,7 +307,7 @@ func TestConflictResolver_ResolveConflicts(t *testing.T) {
 	t.Run("preserves all database-only fields", func(t *testing.T) {
 		// Arrange
 		filePath := "/path/task.md"
-		agentType := models.AgentTypeAPI
+		agentType := "api"
 		assignedAgent := "test-agent"
 		dependsOn := `["T-E04-F07-001"]`
 		blockedReason := "Waiting for API"

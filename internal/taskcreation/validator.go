@@ -46,7 +46,7 @@ type ValidatedTaskData struct {
 	FeatureID             int64
 	NormalizedFeatureKey  string
 	ValidatedDependencies []string
-	AgentType             models.AgentType
+	AgentType             string
 }
 
 // ValidateTaskInput validates all input fields for task creation
@@ -70,17 +70,16 @@ func (v *Validator) ValidateTaskInput(ctx context.Context, input TaskInput) (*Va
 		return nil, fmt.Errorf("feature %s does not belong to epic %s", normalizedFeatureKey, input.EpicKey)
 	}
 
-	// 4. Validate and convert agent type
-	var agentType models.AgentType
-	if input.AgentType != "" {
+	// 4. Validate agent type
+	agentType := input.AgentType
+	if agentType != "" {
 		// Validate agent type against valid values
-		if err := models.ValidateAgentType(input.AgentType); err != nil {
+		if err := models.ValidateAgentType(agentType); err != nil {
 			return nil, err
 		}
-		agentType = models.AgentType(input.AgentType)
 	} else {
 		// Default to general if not provided
-		agentType = models.AgentTypeGeneral
+		agentType = "general"
 	}
 
 	// 5. Validate priority

@@ -769,7 +769,7 @@ func convertIdeaToTask(ctx context.Context, ideaRepo IdeaRepository, epicRepo in
 	}
 
 	// Create task from idea
-	agentType := models.AgentTypeGeneral
+	agentType := "general"
 	task := &models.Task{
 		FeatureID:   feature.ID,
 		Key:         "T-E10-F02-005", // Hardcoded for test compatibility
@@ -818,7 +818,7 @@ func convertIdeaToTaskWithKey(ctx context.Context, ideaRepo IdeaRepository, epic
 	}
 
 	// Create task from idea
-	agentType := models.AgentTypeGeneral
+	agentType := "general"
 	task := &models.Task{
 		FeatureID:   feature.ID,
 		Key:         taskKey,

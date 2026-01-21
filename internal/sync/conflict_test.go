@@ -295,7 +295,7 @@ func TestConflictDetector_DetectConflicts(t *testing.T) {
 	t.Run("does not detect conflicts for database-only fields", func(t *testing.T) {
 		// Arrange
 		filePath := "/path/to/task.md"
-		agentType := models.AgentTypeBackend
+		agentType := "backend"
 		assignedAgent := "agent-1"
 
 		fileData := &TaskMetadata{

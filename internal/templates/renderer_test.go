@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,13 +19,13 @@ func TestRenderer_Render_Frontend(t *testing.T) {
 		Description: "Create a reusable login component",
 		Epic:        "E01",
 		Feature:     "E01-F02",
-		AgentType:   models.AgentTypeFrontend,
+		AgentType:   "frontend",
 		Priority:    5,
 		DependsOn:   []string{"T-E01-F01-001"},
 		CreatedAt:   time.Date(2025, 12, 14, 10, 30, 0, 0, time.UTC),
 	}
 
-	result, err := renderer.Render(models.AgentTypeFrontend, data)
+	result, err := renderer.Render("frontend", data)
 
 	require.NoError(t, err)
 	assert.Contains(t, result, "key: T-E01-F02-001")
@@ -54,13 +53,13 @@ func TestRenderer_Render_Backend(t *testing.T) {
 		Description: "Create user service with CRUD operations",
 		Epic:        "E01",
 		Feature:     "E01-F03",
-		AgentType:   models.AgentTypeBackend,
+		AgentType:   "backend",
 		Priority:    7,
 		DependsOn:   []string{},
 		CreatedAt:   time.Date(2025, 12, 14, 11, 0, 0, 0, time.UTC),
 	}
 
-	result, err := renderer.Render(models.AgentTypeBackend, data)
+	result, err := renderer.Render("backend", data)
 
 	require.NoError(t, err)
 	assert.Contains(t, result, "agent: backend")
@@ -80,13 +79,13 @@ func TestRenderer_Render_API(t *testing.T) {
 		Description: "Implement POST /api/v1/users endpoint",
 		Epic:        "E02",
 		Feature:     "E02-F01",
-		AgentType:   models.AgentTypeAPI,
+		AgentType:   "api",
 		Priority:    8,
 		DependsOn:   []string{"T-E02-F01-000"},
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	result, err := renderer.Render(models.AgentTypeAPI, data)
+	result, err := renderer.Render("api", data)
 
 	require.NoError(t, err)
 	assert.Contains(t, result, "agent: api")
@@ -106,13 +105,13 @@ func TestRenderer_Render_Testing(t *testing.T) {
 		Description: "Write comprehensive tests for auth",
 		Epic:        "E03",
 		Feature:     "E03-F02",
-		AgentType:   models.AgentTypeTesting,
+		AgentType:   "testing",
 		Priority:    6,
 		DependsOn:   []string{"T-E03-F02-001", "T-E03-F02-002"},
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	result, err := renderer.Render(models.AgentTypeTesting, data)
+	result, err := renderer.Render("testing", data)
 
 	require.NoError(t, err)
 	assert.Contains(t, result, "agent: testing")
@@ -131,13 +130,13 @@ func TestRenderer_Render_DevOps(t *testing.T) {
 		Description: "Configure automated deployment",
 		Epic:        "E04",
 		Feature:     "E04-F01",
-		AgentType:   models.AgentTypeDevOps,
+		AgentType:   "devops",
 		Priority:    9,
 		DependsOn:   []string{},
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	result, err := renderer.Render(models.AgentTypeDevOps, data)
+	result, err := renderer.Render("devops", data)
 
 	require.NoError(t, err)
 	assert.Contains(t, result, "agent: devops")
@@ -156,13 +155,13 @@ func TestRenderer_Render_General(t *testing.T) {
 		Description: "Evaluate different approaches",
 		Epic:        "E05",
 		Feature:     "E05-F01",
-		AgentType:   models.AgentTypeGeneral,
+		AgentType:   "general",
 		Priority:    4,
 		DependsOn:   []string{},
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	result, err := renderer.Render(models.AgentTypeGeneral, data)
+	result, err := renderer.Render("general", data)
 
 	require.NoError(t, err)
 	assert.Contains(t, result, "agent: general")
@@ -181,13 +180,13 @@ func TestRenderer_Render_EmptyDescription(t *testing.T) {
 		Description: "",
 		Epic:        "E01",
 		Feature:     "E01-F02",
-		AgentType:   models.AgentTypeGeneral,
+		AgentType:   "general",
 		Priority:    5,
 		DependsOn:   []string{},
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	result, err := renderer.Render(models.AgentTypeGeneral, data)
+	result, err := renderer.Render("general", data)
 
 	require.NoError(t, err)
 	assert.Contains(t, result, "[Describe what needs to be accomplished]")
@@ -203,13 +202,13 @@ func TestRenderer_Render_MultipleDependencies(t *testing.T) {
 		Title:     "Integration Task",
 		Epic:      "E01",
 		Feature:   "E01-F02",
-		AgentType: models.AgentTypeBackend,
+		AgentType: "backend",
 		Priority:  5,
 		DependsOn: []string{"T-E01-F02-001", "T-E01-F02-002", "T-E01-F02-003"},
 		CreatedAt: time.Now().UTC(),
 	}
 
-	result, err := renderer.Render(models.AgentTypeBackend, data)
+	result, err := renderer.Render("backend", data)
 
 	require.NoError(t, err)
 	assert.Contains(t, result, `depends_on: ["T-E01-F02-001", "T-E01-F02-002", "T-E01-F02-003"]`)
@@ -225,13 +224,13 @@ func TestRenderer_Render_FrontmatterValidYAML(t *testing.T) {
 		Description: "Test Description",
 		Epic:        "E01",
 		Feature:     "E01-F01",
-		AgentType:   models.AgentTypeGeneral,
+		AgentType:   "general",
 		Priority:    5,
 		DependsOn:   []string{"T-E01-F01-000"},
 		CreatedAt:   time.Date(2025, 12, 14, 10, 30, 0, 0, time.UTC),
 	}
 
-	result, err := renderer.Render(models.AgentTypeGeneral, data)
+	result, err := renderer.Render("general", data)
 	require.NoError(t, err)
 
 	// Extract frontmatter (between --- markers)

@@ -81,7 +81,7 @@ func TestRelatedDocsAddTask(t *testing.T) {
 	mockFeatureRepo := NewMockFeatureRepository()
 	mockTaskRepo := NewMockTaskRepository()
 
-	agentType := models.AgentTypeBackend
+	agentType := "backend"
 	mockTaskRepo.AddTask(&models.Task{
 		ID:        1,
 		Key:       "T-E01-F01-001",
@@ -254,7 +254,7 @@ func TestRelatedDocsListTask(t *testing.T) {
 	mockFeatureRepo := NewMockFeatureRepository()
 	mockTaskRepo := NewMockTaskRepository()
 
-	agentType := models.AgentTypeBackend
+	agentType := "backend"
 	mockTaskRepo.AddTask(&models.Task{
 		ID:        1,
 		Key:       "T-E01-F01-001",

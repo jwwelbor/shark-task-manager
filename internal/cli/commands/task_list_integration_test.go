@@ -218,7 +218,7 @@ func TestTaskListQueryWithDatabase(t *testing.T) {
 	// Create tasks under the feature
 	for i := 1; i <= 3; i++ {
 		taskKey := fmt.Sprintf("T-%s-%03d", testFeatureKey, i)
-		agentType := models.AgentTypeGeneral
+		agentType := "general"
 		taskFilePath := fmt.Sprintf("docs/plan/%s/tasks/%s.md", testFeatureKey, taskKey)
 		task := &models.Task{
 			Key:         taskKey,

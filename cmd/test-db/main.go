@@ -80,7 +80,7 @@ func main() {
 	// Test Task CRUD
 	fmt.Println("\n--- Testing Task CRUD ---")
 
-	agentType := models.AgentTypeBackend
+	agentType := "backend"
 	task := &models.Task{
 		FeatureID:   feature.ID,
 		Key:         "T-E04-F01-001",

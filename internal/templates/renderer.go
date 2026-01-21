@@ -6,8 +6,6 @@ import (
 	"strings"
 	"text/template"
 	"time"
-
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 // TemplateData holds all variables available to task templates
@@ -17,7 +15,7 @@ type TemplateData struct {
 	Description string
 	Epic        string
 	Feature     string
-	AgentType   models.AgentType
+	AgentType   string
 	Priority    int
 	DependsOn   []string
 	CreatedAt   time.Time
@@ -37,7 +35,7 @@ func NewRenderer(loader *Loader) *Renderer {
 
 // Render renders a task template with the given data
 // Accepts any non-empty agent type string and falls back to general template if needed
-func (r *Renderer) Render(agentType models.AgentType, data TemplateData) (string, error) {
+func (r *Renderer) Render(agentType string, data TemplateData) (string, error) {
 	// Load template for agent type (will fallback to general if agent-specific not found)
 	tmplContent, err := r.loader.LoadTemplate(agentType)
 	if err != nil {
@@ -58,7 +56,6 @@ func (r *Renderer) Render(agentType models.AgentType, data TemplateData) (string
 
 	return buf.String(), nil
 }
-
 
 // templateFuncs returns custom template functions
 func templateFuncs() template.FuncMap {
