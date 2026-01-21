@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,7 +42,7 @@ func TestValidator_ValidateTaskInput_Success(t *testing.T) {
 	assert.Equal(t, epic.ID, result.EpicID)
 	assert.Equal(t, feature.ID, result.FeatureID)
 	assert.Equal(t, "E01-F01", result.NormalizedFeatureKey)
-	assert.Equal(t, models.AgentTypeBackend, result.AgentType)
+	assert.Equal(t, "backend", result.AgentType)
 	assert.Len(t, result.ValidatedDependencies, 1)
 	assert.Equal(t, depTask.Key, result.ValidatedDependencies[0])
 }
@@ -557,8 +556,8 @@ func TestValidator_CustomAgentType_Success(t *testing.T) {
 			// Assert
 			require.NoError(t, err)
 			assert.NotNil(t, result)
-			assert.Equal(t, models.AgentType(tt.agentType), result.AgentType)
-			_ = f // Use feature to avoid unused variable
+            assert.Equal(t, tt.agentType, result.AgentType)
+			_ = f                                           // Use feature to avoid unused variable
 		})
 	}
 }
@@ -596,8 +595,8 @@ func TestValidator_CustomAgentType_BackwardCompatibility(t *testing.T) {
 			// Assert
 			require.NoError(t, err, "Standard agent type %q should work", agentType)
 			assert.NotNil(t, result)
-			assert.Equal(t, models.AgentType(agentType), result.AgentType)
-			_ = f // Use feature to avoid unused variable
+			assert.Equal(t, agentType, result.AgentType) //nolint:staticcheck // AgentType is deprecated but still used in Task model
+			_ = f                                        // Use feature to avoid unused variable
 		})
 	}
 }
@@ -645,8 +644,8 @@ func TestValidator_MultiAgentWorkflow_AllCustomTypes(t *testing.T) {
 			// Assert
 			require.NoError(t, err, "Custom agent type %q should work", agentType)
 			assert.NotNil(t, result)
-			assert.Equal(t, models.AgentType(agentType), result.AgentType)
-			_ = f // Use feature to avoid unused variable
+			assert.Equal(t, agentType, result.AgentType) //nolint:staticcheck // AgentType is deprecated but still used in Task model
+			_ = f                                        // Use feature to avoid unused variable
 		})
 	}
 }
@@ -691,8 +690,8 @@ func TestValidator_SpecializedTeamRoles(t *testing.T) {
 			// Assert
 			require.NoError(t, err, "Specialized role %q should work", agentType)
 			assert.NotNil(t, result)
-			assert.Equal(t, models.AgentType(agentType), result.AgentType)
-			_ = f // Use feature to avoid unused variable
+			assert.Equal(t, agentType, result.AgentType) //nolint:staticcheck // AgentType is deprecated but still used in Task model
+			_ = f                                        // Use feature to avoid unused variable
 		})
 	}
 }
@@ -747,7 +746,7 @@ func TestValidator_CustomAgentType_EdgeCases(t *testing.T) {
 			} else {
 				require.NoError(t, err, "Agent type %q should be valid", tt.agentType)
 				assert.NotNil(t, result)
-				assert.Equal(t, models.AgentType(tt.agentType), result.AgentType)
+				assert.Equal(t, tt.agentType, result.AgentType) //nolint:staticcheck // AgentType is deprecated but still used in Task model
 			}
 			_ = f // Use feature to avoid unused variable
 		})
@@ -783,6 +782,6 @@ func TestValidator_DefaultAgentType_WhenEmpty(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, models.AgentTypeGeneral, result.AgentType)
+	assert.Equal(t, "general", result.AgentType)
 	_ = f // Use feature to avoid unused variable
 }

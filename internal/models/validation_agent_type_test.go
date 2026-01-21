@@ -138,10 +138,10 @@ func TestValidateAgentType_InvalidCases(t *testing.T) {
 // TestValidateAgentType_ErrorMessages tests that error messages are clear and actionable
 func TestValidateAgentType_ErrorMessages(t *testing.T) {
 	tests := []struct {
-		name           string
-		agentType      string
-		wantErr        bool
-		errorContains  string
+		name          string
+		agentType     string
+		wantErr       bool
+		errorContains string
 	}{
 		{"empty string error", "", true, "empty"},
 		{"whitespace only error", "   ", true, "empty"},

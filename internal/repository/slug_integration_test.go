@@ -126,7 +126,7 @@ func TestSlugStorage_AllEntities(t *testing.T) {
 		err = featureRepo.Create(ctx, feature)
 		require.NoError(t, err)
 
-		backendAgent := models.AgentTypeBackend
+		backendAgent := "backend"
 		task := &models.Task{
 			FeatureID: feature.ID,
 			Key:       "T-E99-F99-001",
@@ -205,7 +205,7 @@ func TestSlugStorage_EmptyTitle(t *testing.T) {
 		err = featureRepo.Create(ctx, feature)
 		require.NoError(t, err)
 
-		generalAgent := models.AgentTypeGeneral
+		generalAgent := "general"
 		task := &models.Task{
 			FeatureID: feature.ID,
 			Key:       "T-E99-F99-999",
@@ -362,7 +362,7 @@ func TestSlugStorage_Retrieval(t *testing.T) {
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
-	backendAgent := models.AgentTypeBackend
+	backendAgent := "backend"
 	task := &models.Task{
 		FeatureID: feature.ID,
 		Key:       "T-E99-F01-001",

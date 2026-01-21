@@ -78,7 +78,7 @@ func createTestTask(t *testing.T, db *repository.DB, featureID int64, key, title
 	t.Helper()
 
 	taskRepo := repository.NewTaskRepository(db)
-	agentType := models.AgentTypeGeneral
+	agentType := "general"
 	task := &models.Task{
 		FeatureID:   featureID,
 		Key:         key,

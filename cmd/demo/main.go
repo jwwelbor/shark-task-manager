@@ -85,14 +85,14 @@ func main() {
 		key         string
 		title       string
 		description string
-		agentType   models.AgentType
+		agentType   string
 		priority    int
 	}{
-		{"T-E04-F01-001", "Create ORM Models", "Define Epic, Feature, Task, TaskHistory models", models.AgentTypeBackend, 1},
-		{"T-E04-F01-002", "Implement Validation", "Add validation for keys, enums, and ranges", models.AgentTypeBackend, 2},
-		{"T-E04-F01-003", "Create Database Schema", "Define all tables, indexes, and triggers", models.AgentTypeBackend, 3},
-		{"T-E04-F01-004", "Build Repository Layer", "Implement CRUD operations for all models", models.AgentTypeBackend, 4},
-		{"T-E04-F01-005", "Add Unit Tests", "Create comprehensive test coverage", models.AgentTypeTesting, 5},
+		{"T-E04-F01-001", "Create ORM Models", "Define Epic, Feature, Task, TaskHistory models", "backend", 1},
+		{"T-E04-F01-002", "Implement Validation", "Add validation for keys, enums, and ranges", "backend", 2},
+		{"T-E04-F01-003", "Create Database Schema", "Define all tables, indexes, and triggers", "backend", 3},
+		{"T-E04-F01-004", "Build Repository Layer", "Implement CRUD operations for all models", "backend", 4},
+		{"T-E04-F01-005", "Add Unit Tests", "Create comprehensive test coverage", "testing", 5},
 	}
 
 	createdTasks := []*models.Task{}
@@ -104,14 +104,13 @@ func main() {
 			continue
 		}
 
-		agentType := t.agentType
 		task := &models.Task{
 			FeatureID:   feature.ID,
 			Key:         t.key,
 			Title:       t.title,
 			Description: strPtr(t.description),
 			Status:      models.TaskStatusTodo,
-			AgentType:   &agentType,
+			AgentType:   &t.agentType,
 			Priority:    t.priority,
 			DependsOn:   strPtr("[]"),
 		}
@@ -189,7 +188,7 @@ func main() {
 	fmt.Printf("   Tasks with status 'todo': %d\n", len(todoTasks))
 
 	// Filter by agent type
-	backendTasks, _ := taskRepo.FilterByAgentType(ctx, models.AgentTypeBackend)
+	backendTasks, _ := taskRepo.FilterByAgentType(ctx, "backend")
 	fmt.Printf("   Tasks for backend agent: %d\n", len(backendTasks))
 
 	// Combined filter
