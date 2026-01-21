@@ -556,8 +556,8 @@ func TestValidator_CustomAgentType_Success(t *testing.T) {
 			// Assert
 			require.NoError(t, err)
 			assert.NotNil(t, result)
-            assert.Equal(t, tt.agentType, result.AgentType)
-			_ = f                                           // Use feature to avoid unused variable
+			assert.Equal(t, tt.agentType, result.AgentType)
+			_ = f // Use feature to avoid unused variable
 		})
 	}
 }

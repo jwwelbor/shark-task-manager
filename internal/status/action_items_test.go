@@ -50,7 +50,7 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now.Add(-48 * time.Hour),
 				},
 			},
-			expectedAwaitingCount:   1,
+			expectedAwaitingCount:   0, // ready_for_code_review is NOT awaiting approval
 			expectedBlockedCount:    0,
 			expectedInProgressCount: 0,
 		},
@@ -138,7 +138,7 @@ func TestGetActionItems(t *testing.T) {
 					UpdatedAt: now.Add(-2 * time.Hour),
 				},
 			},
-			expectedAwaitingCount:   2,
+			expectedAwaitingCount:   1, // Only ready_for_approval, not ready_for_code_review
 			expectedBlockedCount:    1,
 			expectedInProgressCount: 1,
 		},
@@ -274,7 +274,7 @@ func TestGetActionItems_AgeDays(t *testing.T) {
 				ID:     4,
 				Key:    "E07-F01-004",
 				Title:  "Task 4",
-				Status: "ready_for_code_review",
+				Status: "ready_for_approval", // Changed to ready_for_approval since ready_for_code_review doesn't count
 			},
 			hoursAgo:        240,
 			expectedAgeDays: 10,

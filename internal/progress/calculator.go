@@ -48,12 +48,18 @@ func CalculateProgress(statusCounts map[string]int, cfg *config.WorkflowConfig) 
 	for status, count := range statusCounts {
 		totalTasks += count
 
-		// Get status metadata from config (defaults to 0.0 weight if not found)
+		// Get status metadata from config
 		weight := 0.0
 		if cfg != nil {
 			meta, found := cfg.GetStatusMetadata(status)
 			if found {
 				weight = meta.ProgressWeight
+			}
+		} else {
+			// Fallback: When no config available, treat completed/archived as 100% (weight 1.0)
+			// This maintains backward compatibility with tests and deployments without config
+			if status == "completed" || status == "archived" {
+				weight = 1.0
 			}
 		}
 
