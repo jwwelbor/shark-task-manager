@@ -252,7 +252,7 @@ func TestRenderer_Render_FrontmatterValidYAML(t *testing.T) {
 	assert.Contains(t, frontmatter, "created_at: 2025-12-14T10:30:00Z")
 }
 
-func TestRenderer_Render_InvalidAgentType(t *testing.T) {
+func TestRenderer_Render_UnknownAgentType_FallbackToGeneral(t *testing.T) {
 	loader := NewLoader("")
 	renderer := NewRenderer(loader)
 
@@ -261,16 +261,104 @@ func TestRenderer_Render_InvalidAgentType(t *testing.T) {
 		Title:     "Test Task",
 		Epic:      "E01",
 		Feature:   "E01-F01",
-		AgentType: "invalid",
+		AgentType: "code-reviewer",
 		Priority:  5,
 		CreatedAt: time.Now().UTC(),
 	}
 
-	result, err := renderer.Render("invalid", data)
+	result, err := renderer.Render("code-reviewer", data)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to load template")
-	assert.Empty(t, result)
+	require.NoError(t, err)
+	assert.NotEmpty(t, result)
+	assert.Contains(t, result, "agent: code-reviewer")
+	assert.Contains(t, result, "## Requirements")
+	assert.Contains(t, result, "## Implementation Plan")
+	assert.Contains(t, result, "## Deliverables")
+}
+
+func TestRenderer_Render_CustomAgentTypeWithHyphens(t *testing.T) {
+	loader := NewLoader("")
+	renderer := NewRenderer(loader)
+
+	data := TemplateData{
+		Key:       "T-E01-F01-002",
+		Title:     "Custom Agent Task",
+		Epic:      "E01",
+		Feature:   "E01-F01",
+		AgentType: "ui-designer",
+		Priority:  5,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	result, err := renderer.Render("ui-designer", data)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result)
+	assert.Contains(t, result, "agent: ui-designer")
+}
+
+func TestRenderer_Render_CustomAgentTypeWithUnderscores(t *testing.T) {
+	loader := NewLoader("")
+	renderer := NewRenderer(loader)
+
+	data := TemplateData{
+		Key:       "T-E01-F01-003",
+		Title:     "Database Architect Task",
+		Epic:      "E01",
+		Feature:   "E01-F01",
+		AgentType: "database_architect",
+		Priority:  5,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	result, err := renderer.Render("database_architect", data)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result)
+	assert.Contains(t, result, "agent: database_architect")
+}
+
+func TestRenderer_Render_EmptyAgentType_FallbackToGeneral(t *testing.T) {
+	loader := NewLoader("")
+	renderer := NewRenderer(loader)
+
+	data := TemplateData{
+		Key:       "T-E01-F01-004",
+		Title:     "Empty Agent Type Task",
+		Epic:      "E01",
+		Feature:   "E01-F01",
+		AgentType: "",
+		Priority:  5,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	result, err := renderer.Render("", data)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result)
+	assert.Contains(t, result, "## Requirements")
+}
+
+func TestRenderer_Render_CustomAgentTypeFallback(t *testing.T) {
+	loader := NewLoader("")
+	renderer := NewRenderer(loader)
+
+	data := TemplateData{
+		Key:       "T-E01-F01-005",
+		Title:     "Custom Architect Task",
+		Epic:      "E01",
+		Feature:   "E01-F01",
+		AgentType: "architect",
+		Priority:  5,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	result, err := renderer.Render("architect", data)
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result)
+	assert.Contains(t, result, "agent: architect")
+	assert.Contains(t, result, "## Requirements")
 }
 
 func TestTemplateFuncs_Join(t *testing.T) {

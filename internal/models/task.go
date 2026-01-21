@@ -32,16 +32,39 @@ const (
 	TaskStatusArchived       TaskStatus = "archived"         // Deprecated: Use workflow config
 )
 
-// AgentType represents the type of agent assigned to a task
+// AgentType represents the type of agent assigned to a task.
+//
+// Deprecated: As of E07-F13, agent types are no longer restricted to predefined constants.
+// Use string literals directly (e.g., "architect", "business-analyst", "qa") or any custom
+// agent type that matches your workflow. The ValidateAgentType() function now accepts any
+// non-empty string. These constants are kept for backward compatibility but new code should
+// use string literals directly.
 type AgentType string
 
 const (
+	// AgentTypeFrontend represents the frontend agent type.
+	// Deprecated: Use string literal "frontend" directly. See AgentType deprecation notice.
 	AgentTypeFrontend AgentType = "frontend"
-	AgentTypeBackend  AgentType = "backend"
-	AgentTypeAPI      AgentType = "api"
-	AgentTypeTesting  AgentType = "testing"
-	AgentTypeDevOps   AgentType = "devops"
-	AgentTypeGeneral  AgentType = "general"
+
+	// AgentTypeBackend represents the backend agent type.
+	// Deprecated: Use string literal "backend" directly. See AgentType deprecation notice.
+	AgentTypeBackend AgentType = "backend"
+
+	// AgentTypeAPI represents the API agent type.
+	// Deprecated: Use string literal "api" directly. See AgentType deprecation notice.
+	AgentTypeAPI AgentType = "api"
+
+	// AgentTypeTesting represents the testing agent type.
+	// Deprecated: Use string literal "testing" directly. See AgentType deprecation notice.
+	AgentTypeTesting AgentType = "testing"
+
+	// AgentTypeDevOps represents the DevOps agent type.
+	// Deprecated: Use string literal "devops" directly. See AgentType deprecation notice.
+	AgentTypeDevOps AgentType = "devops"
+
+	// AgentTypeGeneral represents the general-purpose agent type.
+	// Deprecated: Use string literal "general" directly. See AgentType deprecation notice.
+	AgentTypeGeneral AgentType = "general"
 )
 
 // Task represents an atomic work unit within a feature

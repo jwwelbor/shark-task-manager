@@ -552,3 +552,4 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	require.NotNil(t, lastEntry.Notes, "Notes should be stored")
 	require.Equal(t, notes, *lastEntry.Notes, "Notes should be stored")
 }
+

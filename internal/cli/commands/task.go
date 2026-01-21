@@ -1260,7 +1260,6 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 
 	// Get optional flags
 	agentType, _ := cmd.Flags().GetString("agent")
-	customTemplate, _ := cmd.Flags().GetString("template")
 	description, _ := cmd.Flags().GetString("description")
 	priority, _ := cmd.Flags().GetInt("priority")
 	dependsOn, _ := cmd.Flags().GetString("depends-on")
@@ -1332,7 +1331,6 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		Title:          title,
 		Description:    description,
 		AgentType:      agentType,
-		CustomTemplate: customTemplate,
 		Priority:       priority,
 		DependsOn:      dependsOn,
 		ExecutionOrder: executionOrder,
@@ -2178,7 +2176,6 @@ func init() {
 	taskCreateCmd.Flags().StringP("epic", "e", "", "Epic key (e.g., E01) - can also be specified as first positional argument")
 	taskCreateCmd.Flags().StringP("feature", "f", "", "Feature key (e.g., F02 or E01-F02) - can also be specified as second positional argument")
 	taskCreateCmd.Flags().StringP("agent", "a", "", "Agent type (optional, accepts any string)")
-	taskCreateCmd.Flags().StringP("template", "", "", "Path to custom task template (optional)")
 	taskCreateCmd.Flags().StringP("description", "d", "", "Detailed description (optional)")
 	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority (1=highest, 10=lowest, default 5)")
 	taskCreateCmd.Flags().String("depends-on", "", "Comma-separated dependency task keys (optional)")

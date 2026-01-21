@@ -168,6 +168,70 @@ shark sync --strategy=database-wins
 shark sync --strategy=newer-wins
 ```
 
+## Agent Type Selection
+
+### Choose Appropriate Agent Types
+
+Agent types should match your workflow and team structure:
+
+**Standard Agent Types** (use when working with traditional development roles):
+- `frontend` - Frontend development and UI implementation
+- `backend` - Backend development and API implementation
+- `api` - API design and integration
+- `testing` - Test development and quality assurance
+- `devops` - DevOps and infrastructure
+- `general` - General purpose tasks
+
+**Custom Agent Types** (use for specialized workflow phases and roles):
+- `architect` - System design and architecture decisions
+- `business-analyst` - Requirements elaboration and user stories
+- `qa` - Test planning and quality assurance
+- `tech-lead` - Technical coordination and code review
+- `product-manager` - Feature planning and prioritization
+- `ux-designer` - UI/UX design and prototyping
+
+### Maintain Consistency
+
+```bash
+# Good: Consistent naming
+shark task create E07 F01 "Design system" --agent=architect
+shark task list --agent=architect
+
+# Avoid: Inconsistent naming (always use same string)
+shark task create E07 F01 "Design database" --agent=architect
+shark task create E07 F01 "Design API" --agent=Architect  # Different case
+shark task create E07 F01 "Design schema" --agent=archit  # Typo
+
+# Use standard names for filtering
+shark task next --agent=architect --json  # Matches above tasks
+```
+
+### Multi-Agent Workflows
+
+When coordinating multiple AI agents or team members:
+
+```bash
+# Assign specific agent types to each role
+shark task create E07 F01 "Build API" --agent=backend
+shark task create E07 F01 "Build UI" --agent=frontend
+shark task create E07 F01 "Design architecture" --agent=architect
+
+# Each agent retrieves their work
+shark task next --agent=backend --json      # Backend agent gets their task
+shark task next --agent=frontend --json     # Frontend agent gets their task
+shark task next --agent=architect --json    # Architect gets their task
+
+# Filter by agent for role-based task lists
+shark task list --agent=architect --status=todo --json
+```
+
+### Template Awareness
+
+- **Standard agent types** may have role-specific templates for task creation
+- **Custom agent types** automatically use the `general` template
+- All templates can be customized in `internal/init/shark-templates/`
+- Template choice doesn't affect filtering or task assignment
+
 ## Performance Best Practices
 
 ### Batch Operations

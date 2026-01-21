@@ -152,12 +152,12 @@ func TestValidator_ValidateTaskInput_InvalidAgentType(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 
-	// Test
+	// Test - whitespace-only agent type should fail
 	input := TaskInput{
 		EpicKey:    "E01",
 		FeatureKey: "F01",
 		Title:      "Test Task",
-		AgentType:  "invalid-agent",
+		AgentType:  "   ",
 		Priority:   5,
 	}
 
@@ -166,8 +166,7 @@ func TestValidator_ValidateTaskInput_InvalidAgentType(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "invalid agent type 'invalid-agent'")
-	assert.Contains(t, err.Error(), "frontend, backend, api, testing, devops, general")
+	assert.Contains(t, err.Error(), "cannot be empty")
 }
 
 func TestValidator_ValidateTaskInput_AllAgentTypes(t *testing.T) {
@@ -184,8 +183,13 @@ func TestValidator_ValidateTaskInput_AllAgentTypes(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 	validator := NewValidator(epicRepo, featureRepo, taskRepo)
 
-	// Test all valid agent types
-	agentTypes := []string{"frontend", "backend", "api", "testing", "devops", "general"}
+	// Test all valid agent types - both standard and custom
+	agentTypes := []string{
+		// Standard types
+		"frontend", "backend", "api", "testing", "devops", "general",
+		// Custom types (now supported)
+		"frontend-react", "ml-engineer", "custom-123",
+	}
 
 	for _, agentType := range agentTypes {
 		t.Run(agentType, func(t *testing.T) {
@@ -487,35 +491,6 @@ func TestValidator_ValidateDependencies_WithWhitespace(t *testing.T) {
 	assert.Contains(t, result.ValidatedDependencies, dep2.Key)
 }
 
-func TestValidateAgentType(t *testing.T) {
-	tests := []struct {
-		name      string
-		agentType string
-		wantErr   bool
-	}{
-		{"Frontend", "frontend", false},
-		{"Backend", "backend", false},
-		{"API", "api", false},
-		{"Testing", "testing", false},
-		{"DevOps", "devops", false},
-		{"General", "general", false},
-		{"Invalid", "invalid", true},
-		{"Empty", "", true},
-		{"Uppercase", "FRONTEND", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateAgentType(tt.agentType)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestValidatePriority(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -540,4 +515,274 @@ func TestValidatePriority(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidator_CustomAgentType_Success tests task creation with custom agent types
+func TestValidator_CustomAgentType_Success(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentType string
+	}{
+		{"custom architect", "architect"},
+		{"custom business-analyst", "business-analyst"},
+		{"custom qa", "qa"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, cleanup := setupTestDB(t)
+			defer cleanup()
+
+			// Setup
+			epic := createTestEpic(t, db, "E01")
+			f := createTestFeature(t, db, epic.ID, "E01-F01")
+
+			// Create validator
+			epicRepo := repository.NewEpicRepository(db)
+			featureRepo := repository.NewFeatureRepository(db)
+			taskRepo := repository.NewTaskRepository(db)
+			validator := NewValidator(epicRepo, featureRepo, taskRepo)
+
+			// Test
+			input := TaskInput{
+				EpicKey:    "E01",
+				FeatureKey: "F01",
+				Title:      "Test Task",
+				AgentType:  tt.agentType,
+				Priority:   5,
+			}
+
+			result, err := validator.ValidateTaskInput(context.Background(), input)
+
+			// Assert
+			require.NoError(t, err)
+			assert.NotNil(t, result)
+			assert.Equal(t, models.AgentType(tt.agentType), result.AgentType)
+			_ = f // Use feature to avoid unused variable
+		})
+	}
+}
+
+// TestValidator_CustomAgentType_BackwardCompatibility tests that standard types still work
+func TestValidator_CustomAgentType_BackwardCompatibility(t *testing.T) {
+	standardTypes := []string{"frontend", "backend", "api", "testing", "devops", "general"}
+
+	for _, agentType := range standardTypes {
+		t.Run(agentType, func(t *testing.T) {
+			db, cleanup := setupTestDB(t)
+			defer cleanup()
+
+			// Setup
+			epic := createTestEpic(t, db, "E01")
+			f := createTestFeature(t, db, epic.ID, "E01-F01")
+
+			// Create validator
+			epicRepo := repository.NewEpicRepository(db)
+			featureRepo := repository.NewFeatureRepository(db)
+			taskRepo := repository.NewTaskRepository(db)
+			validator := NewValidator(epicRepo, featureRepo, taskRepo)
+
+			// Test
+			input := TaskInput{
+				EpicKey:    "E01",
+				FeatureKey: "F01",
+				Title:      "Test Task",
+				AgentType:  agentType,
+				Priority:   5,
+			}
+
+			result, err := validator.ValidateTaskInput(context.Background(), input)
+
+			// Assert
+			require.NoError(t, err, "Standard agent type %q should work", agentType)
+			assert.NotNil(t, result)
+			assert.Equal(t, models.AgentType(agentType), result.AgentType)
+			_ = f // Use feature to avoid unused variable
+		})
+	}
+}
+
+// TestValidator_MultiAgentWorkflow_AllCustomTypes tests all multi-agent workflow custom types
+func TestValidator_MultiAgentWorkflow_AllCustomTypes(t *testing.T) {
+	customTypes := []string{
+		"architect",
+		"business-analyst",
+		"product-manager",
+		"qa",
+		"tech-lead",
+		"ux-designer",
+		"data-engineer",
+		"ml-engineer",
+		"security-analyst",
+	}
+
+	for _, agentType := range customTypes {
+		t.Run(agentType, func(t *testing.T) {
+			db, cleanup := setupTestDB(t)
+			defer cleanup()
+
+			// Setup
+			epic := createTestEpic(t, db, "E01")
+			f := createTestFeature(t, db, epic.ID, "E01-F01")
+
+			// Create validator
+			epicRepo := repository.NewEpicRepository(db)
+			featureRepo := repository.NewFeatureRepository(db)
+			taskRepo := repository.NewTaskRepository(db)
+			validator := NewValidator(epicRepo, featureRepo, taskRepo)
+
+			// Test
+			input := TaskInput{
+				EpicKey:    "E01",
+				FeatureKey: "F01",
+				Title:      "Test Task",
+				AgentType:  agentType,
+				Priority:   5,
+			}
+
+			result, err := validator.ValidateTaskInput(context.Background(), input)
+
+			// Assert
+			require.NoError(t, err, "Custom agent type %q should work", agentType)
+			assert.NotNil(t, result)
+			assert.Equal(t, models.AgentType(agentType), result.AgentType)
+			_ = f // Use feature to avoid unused variable
+		})
+	}
+}
+
+// TestValidator_SpecializedTeamRoles tests specialized team role custom types
+func TestValidator_SpecializedTeamRoles(t *testing.T) {
+	specializedRoles := []string{
+		"database-admin",
+		"cloud-architect",
+		"mobile-developer",
+		"accessibility-expert",
+		"performance-engineer",
+		"documentation-writer",
+	}
+
+	for _, agentType := range specializedRoles {
+		t.Run(agentType, func(t *testing.T) {
+			db, cleanup := setupTestDB(t)
+			defer cleanup()
+
+			// Setup
+			epic := createTestEpic(t, db, "E01")
+			f := createTestFeature(t, db, epic.ID, "E01-F01")
+
+			// Create validator
+			epicRepo := repository.NewEpicRepository(db)
+			featureRepo := repository.NewFeatureRepository(db)
+			taskRepo := repository.NewTaskRepository(db)
+			validator := NewValidator(epicRepo, featureRepo, taskRepo)
+
+			// Test
+			input := TaskInput{
+				EpicKey:    "E01",
+				FeatureKey: "F01",
+				Title:      "Test Task",
+				AgentType:  agentType,
+				Priority:   5,
+			}
+
+			result, err := validator.ValidateTaskInput(context.Background(), input)
+
+			// Assert
+			require.NoError(t, err, "Specialized role %q should work", agentType)
+			assert.NotNil(t, result)
+			assert.Equal(t, models.AgentType(agentType), result.AgentType)
+			_ = f // Use feature to avoid unused variable
+		})
+	}
+}
+
+// TestValidator_CustomAgentType_EdgeCases tests edge cases for custom agent types
+func TestValidator_CustomAgentType_EdgeCases(t *testing.T) {
+	testCases := []struct {
+		name      string
+		agentType string
+		wantErr   bool
+		errMsg    string
+	}{
+		{"single character", "a", false, ""},
+		{"with numbers", "agent123", false, ""},
+		{"with special characters", "agent@type", false, ""},
+		{"very long name", "very-long-custom-agent-type-name-that-is-still-valid", false, ""},
+		{"mixed case", "BackEnd-Engineer", false, ""},
+		{"whitespace only", "   ", true, "cannot be empty"},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			db, cleanup := setupTestDB(t)
+			defer cleanup()
+
+			// Setup
+			epic := createTestEpic(t, db, "E01")
+			f := createTestFeature(t, db, epic.ID, "E01-F01")
+
+			// Create validator
+			epicRepo := repository.NewEpicRepository(db)
+			featureRepo := repository.NewFeatureRepository(db)
+			taskRepo := repository.NewTaskRepository(db)
+			validator := NewValidator(epicRepo, featureRepo, taskRepo)
+
+			// Test
+			input := TaskInput{
+				EpicKey:    "E01",
+				FeatureKey: "F01",
+				Title:      "Test Task",
+				AgentType:  tt.agentType,
+				Priority:   5,
+			}
+
+			result, err := validator.ValidateTaskInput(context.Background(), input)
+
+			if tt.wantErr {
+				require.Error(t, err, "Expected error for agent type %q", tt.agentType)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				require.NoError(t, err, "Agent type %q should be valid", tt.agentType)
+				assert.NotNil(t, result)
+				assert.Equal(t, models.AgentType(tt.agentType), result.AgentType)
+			}
+			_ = f // Use feature to avoid unused variable
+		})
+	}
+}
+
+// TestValidator_DefaultAgentType_WhenEmpty tests default to 'general' when agent type is empty
+func TestValidator_DefaultAgentType_WhenEmpty(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Setup
+	epic := createTestEpic(t, db, "E01")
+	f := createTestFeature(t, db, epic.ID, "E01-F01")
+
+	// Create validator
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	validator := NewValidator(epicRepo, featureRepo, taskRepo)
+
+	// Test - no agent type provided
+	input := TaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Test Task",
+		AgentType:  "", // Empty - should default to general
+		Priority:   5,
+	}
+
+	result, err := validator.ValidateTaskInput(context.Background(), input)
+
+	// Assert
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, models.AgentTypeGeneral, result.AgentType)
+	_ = f // Use feature to avoid unused variable
 }

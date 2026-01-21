@@ -170,17 +170,6 @@ func (v *Validator) ValidateFeature(ctx context.Context, epicKey, featureKey str
 	return nil
 }
 
-// ValidateAgentType validates the agent type value
-func ValidateAgentType(agentType string) error {
-	validTypes := []string{"frontend", "backend", "api", "testing", "devops", "general"}
-	for _, valid := range validTypes {
-		if agentType == valid {
-			return nil
-		}
-	}
-	return fmt.Errorf("invalid agent type '%s'. Must be one of: %s", agentType, strings.Join(validTypes, ", "))
-}
-
 // ValidatePriority validates the priority value
 func ValidatePriority(priority int) error {
 	if priority < 1 || priority > 10 {

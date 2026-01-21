@@ -79,7 +79,6 @@ type CreateTaskInput struct {
 	Title          string
 	Description    string
 	AgentType      string
-	CustomTemplate string
 	Priority       int
 	DependsOn      string
 	ExecutionOrder int
@@ -341,7 +340,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		CreatedAt:   now,
 	}
 
-	markdown, err := c.renderer.RenderWithSelection(validated.AgentType, input.CustomTemplate, templateData)
+	markdown, err := c.renderer.Render(validated.AgentType, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render template: %w", err)
 	}

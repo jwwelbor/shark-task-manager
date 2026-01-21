@@ -21,7 +21,10 @@ shark task create --epic=<epic-key> --feature=<feature-key> --title="<title>" [f
 ```
 
 **Optional Flags:**
-- `--agent <type>`: Agent type (`frontend`, `backend`, `api`, `testing`, `devops`, `general`)
+- `--agent <type>`: Agent type (any non-empty string)
+  - **Recommended types** (have specific templates): `frontend`, `backend`, `api`, `testing`, `devops`, `general`
+  - **Custom types** (use general template): `architect`, `business-analyst`, `qa`, `tech-lead`, `product-manager`, `ux-designer`, etc.
+  - Custom agent types are fully supported and stored exactly as entered
 - `--priority <1-10>`: Priority (1 = highest, 10 = lowest, default: 5)
 - `--description <string>`: Detailed description
 - `--depends-on <task-keys>`: Comma-separated list of dependency task keys
@@ -45,6 +48,11 @@ shark task create --epic=E07 --feature=F01 --title="Implement JWT validation"
 
 # Create task with agent and priority
 shark task create E07 F01 "Implement JWT validation" --agent=backend --priority=3
+
+# Create task with custom agent type (multi-agent workflows)
+shark task create E07 F01 "Design system architecture" --agent=architect --priority=2
+shark task create E07 F01 "Elaborate user requirements" --agent=business-analyst --priority=4
+shark task create E07 F01 "Create test strategy" --agent=qa --priority=3
 
 # Create task with dependencies
 shark task create E07 F01 "Add token refresh" \
@@ -95,8 +103,12 @@ shark task list --epic=E07 --feature=F01
 shark task list --status=todo --json
 shark task list --status=in_progress --json
 
-# Filter by agent
+# Filter by agent (standard types)
 shark task list --agent=backend --json
+
+# Filter by agent (custom types)
+shark task list --agent=architect --json
+shark task list --agent=business-analyst --json
 
 # Combine filters
 shark task list E07 --agent=backend --status=todo --json
@@ -196,9 +208,13 @@ Find the next available task to work on.
 # Get next available task (any agent)
 shark task next --json
 
-# Get next task for specific agent
+# Get next task for specific agent (standard types)
 shark task next --agent=backend --json
 shark task next --agent=frontend --json
+
+# Get next task for specific agent (custom types)
+shark task next --agent=architect --json
+shark task next --agent=business-analyst --json
 
 # Get next task in specific epic
 shark task next --epic=E07 --json
@@ -480,6 +496,68 @@ The first transition in the workflow configuration is selected:
 **Related Configuration:**
 - See [Interactive Mode Configuration](interactive-mode.md) for details on `interactive_mode` setting
 - See [Workflow Configuration](workflow-config.md) for status flow definitions
+
+---
+
+## Agent Type Flexibility
+
+Shark supports flexible agent type assignment to accommodate diverse team structures and multi-agent workflows. Any non-empty string can be used as an agent type.
+
+### Recommended Agent Types
+
+These types have specific templates available:
+- `frontend` - Frontend development and UI implementation
+- `backend` - Backend development and API implementation
+- `api` - API design and integration
+- `testing` - Test development and quality assurance
+- `devops` - DevOps and infrastructure
+- `general` - General purpose tasks
+
+### Custom Agent Types
+
+Any custom string can be used as an agent type for specialized roles or multi-agent workflows. Custom types automatically use the `general` template:
+- `architect` - System design and architecture decisions
+- `business-analyst` - Requirements elaboration and user stories
+- `qa` - Test planning and quality assurance
+- `tech-lead` - Technical coordination and code review
+- `product-manager` - Feature planning and prioritization
+- `ux-designer` - UI/UX design and prototyping
+- `data-engineer` - Data pipeline and ETL tasks
+- `ml-specialist` - Machine learning model development
+- `security-auditor` - Security review and compliance
+
+### Template Fallback Behavior
+
+- **Standard agent types** use role-specific templates (if available)
+- **Custom agent types** automatically fall back to the `general` template
+- All agent types are stored exactly as entered (no normalization)
+- Custom agent types work seamlessly with filtering and task assignment
+
+### Examples
+
+```bash
+# Standard agent type (uses backend template)
+shark task create E07 F01 "Build API endpoint" --agent=backend
+
+# Custom agent type (uses general template)
+shark task create E07 F01 "Design system architecture" --agent=architect
+shark task create E07 F01 "Write user stories" --agent=business-analyst
+shark task create E07 F01 "Create test plan" --agent=qa
+
+# Query by custom agent type
+shark task list --agent=architect
+shark task next --agent=business-analyst --json
+```
+
+### Multi-Agent Workflows
+
+Custom agent types enable coordination of multiple AI agents or team members:
+- Assign specific agent types to each role
+- Use `--agent=<type>` to query work for specific agents
+- Filter task lists by agent type for role-based views
+- Each agent can retrieve their next task: `shark task next --agent=<type> --json`
+
+---
 
 ## Related Documentation
 
