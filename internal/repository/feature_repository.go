@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
+	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
 
 // FeatureRepository handles CRUD operations for features
@@ -607,29 +610,61 @@ func (r *FeatureRepository) UpdateFilePath(ctx context.Context, featureKey strin
 	return nil
 }
 
-// CalculateProgress calculates the progress of a feature based on its tasks
-// Formula: (count of tasks with status='completed' OR status='archived') / (total tasks) × 100
+// CalculateProgress calculates the weighted progress of a feature based on task status weights
+// Uses workflow config to apply progress weights to each task status
 func (r *FeatureRepository) CalculateProgress(ctx context.Context, featureID int64) (float64, error) {
+	// Get task status breakdown
 	query := `
-		SELECT
-		    COUNT(*) as total_tasks,
-		    COALESCE(SUM(CASE WHEN status IN ('completed', 'archived') THEN 1 ELSE 0 END), 0) as completed_tasks
+		SELECT status, COUNT(*) as count
 		FROM tasks
 		WHERE feature_id = ?
+		GROUP BY status
 	`
 
-	var totalTasks, completedTasks int
-	err := r.db.QueryRowContext(ctx, query, featureID).Scan(&totalTasks, &completedTasks)
+	rows, err := r.db.QueryContext(ctx, query, featureID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to calculate feature progress: %w", err)
+		return 0, fmt.Errorf("failed to get task status breakdown: %w", err)
+	}
+	defer rows.Close()
+
+	statusCounts := make(map[string]int)
+	for rows.Next() {
+		var taskStatus string
+		var count int
+		if err := rows.Scan(&taskStatus, &count); err != nil {
+			return 0, fmt.Errorf("failed to scan status count: %w", err)
+		}
+		statusCounts[taskStatus] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("error iterating status counts: %w", err)
 	}
 
 	// If feature has no tasks, return 0.0 (not an error)
-	if totalTasks == 0 {
+	if len(statusCounts) == 0 {
 		return 0.0, nil
 	}
 
-	return (float64(completedTasks) / float64(totalTasks)) * 100.0, nil
+	// Load workflow config for weighted progress calculation
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = ""
+	}
+
+	var cfg *config.WorkflowConfig
+	if cwd != "" {
+		configPath := cwd + "/.sharkconfig.json"
+		cfg, err = config.LoadWorkflowConfig(configPath)
+		if err != nil {
+			// If config load fails, use default weights (completion-based)
+			cfg = nil
+		}
+	}
+
+	// Calculate weighted progress using status package
+	progressInfo := status.CalculateProgress(statusCounts, cfg)
+	return progressInfo.WeightedPct, nil
 }
 
 // CalculateProgressByKey calculates the progress of a feature by its key
