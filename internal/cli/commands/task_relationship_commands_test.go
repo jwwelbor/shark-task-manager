@@ -83,7 +83,7 @@ func TestTaskLinkCommand(t *testing.T) {
 	var task1, task2, task3 *models.Task
 
 	for i, taskData := range tasks {
-		agentType := models.AgentTypeGeneral
+		agentType := "general"
 		existing, _ := taskRepo.GetByKey(ctx, taskData.key)
 
 		if existing == nil {

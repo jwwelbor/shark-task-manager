@@ -131,7 +131,7 @@ func TestSlugArchitecture_EndToEnd(t *testing.T) {
 	// Step 5: Create task with automatic slug generation
 	var taskID int64
 	t.Run("5. Task creation with automatic slug", func(t *testing.T) {
-		backendAgent := models.AgentTypeBackend
+		backendAgent := "backend"
 		task := &models.Task{
 			FeatureID: featureID,
 			Key:       "T-E96-F01-001",
@@ -279,7 +279,7 @@ func TestSlugArchitecture_SpecialCharactersWorkflow(t *testing.T) {
 	assert.Equal(t, feature.ID, featureRetrieved.ID)
 
 	// Create task with mixed special characters
-	backendAgent := models.AgentTypeBackend
+	backendAgent := "backend"
 	task := &models.Task{
 		FeatureID: feature.ID,
 		Key:       "T-E95-F01-001",
@@ -399,7 +399,7 @@ func TestSlugArchitecture_ConcurrentAccess(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID) }()
 
-	backendAgent := models.AgentTypeBackend
+	backendAgent := "backend"
 	task := &models.Task{
 		FeatureID: feature.ID,
 		Key:       "T-E93-F01-001",

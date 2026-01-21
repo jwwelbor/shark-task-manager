@@ -384,7 +384,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 
 	// Build filters
 	var status *models.TaskStatus
-	var agentType *models.AgentType
+	var agentType *string
 	var maxPriority *int
 
 	// Parse status filter (can be multiple, comma-separated)
@@ -398,8 +398,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 
 	// Parse agent type filter
 	if agentStr != "" {
-		a := models.AgentType(agentStr)
-		agentType = &a
+		agentType = &agentStr
 	}
 
 	// Handle priority filter
@@ -875,12 +874,11 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 
 	// Build filter for todo status
 	todoStatus := models.TaskStatusTodo
-	var agentType *models.AgentType
+	var agentType *string
 	var epicKeyPtr *string
 
 	if agentStr != "" {
-		a := models.AgentType(agentStr)
-		agentType = &a
+		agentType = &agentStr
 	}
 
 	if epicKey != "" {
@@ -2305,8 +2303,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	// Update agent type if provided
 	agent, _ := cmd.Flags().GetString("agent")
 	if agent != "" {
-		agentType := models.AgentType(agent)
-		task.AgentType = &agentType
+		task.AgentType = &agent
 		changed = true
 	}
 

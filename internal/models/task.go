@@ -32,41 +32,6 @@ const (
 	TaskStatusArchived       TaskStatus = "archived"         // Deprecated: Use workflow config
 )
 
-// AgentType represents the type of agent assigned to a task.
-//
-// Deprecated: As of E07-F13, agent types are no longer restricted to predefined constants.
-// Use string literals directly (e.g., "architect", "business-analyst", "qa") or any custom
-// agent type that matches your workflow. The ValidateAgentType() function now accepts any
-// non-empty string. These constants are kept for backward compatibility but new code should
-// use string literals directly.
-type AgentType string
-
-const (
-	// AgentTypeFrontend represents the frontend agent type.
-	// Deprecated: Use string literal "frontend" directly. See AgentType deprecation notice.
-	AgentTypeFrontend AgentType = "frontend"
-
-	// AgentTypeBackend represents the backend agent type.
-	// Deprecated: Use string literal "backend" directly. See AgentType deprecation notice.
-	AgentTypeBackend AgentType = "backend"
-
-	// AgentTypeAPI represents the API agent type.
-	// Deprecated: Use string literal "api" directly. See AgentType deprecation notice.
-	AgentTypeAPI AgentType = "api"
-
-	// AgentTypeTesting represents the testing agent type.
-	// Deprecated: Use string literal "testing" directly. See AgentType deprecation notice.
-	AgentTypeTesting AgentType = "testing"
-
-	// AgentTypeDevOps represents the DevOps agent type.
-	// Deprecated: Use string literal "devops" directly. See AgentType deprecation notice.
-	AgentTypeDevOps AgentType = "devops"
-
-	// AgentTypeGeneral represents the general-purpose agent type.
-	// Deprecated: Use string literal "general" directly. See AgentType deprecation notice.
-	AgentTypeGeneral AgentType = "general"
-)
-
 // Task represents an atomic work unit within a feature
 type Task struct {
 	ID             int64        `json:"id" db:"id"`
@@ -76,7 +41,7 @@ type Task struct {
 	Slug           *string      `json:"slug,omitempty" db:"slug"`
 	Description    *string      `json:"description,omitempty" db:"description"`
 	Status         TaskStatus   `json:"status" db:"status"`
-	AgentType      *AgentType   `json:"agent_type,omitempty" db:"agent_type"`
+	AgentType      *string      `json:"agent_type,omitempty" db:"agent_type"`
 	Priority       int          `json:"priority" db:"priority"`
 	DependsOn      *string      `json:"depends_on,omitempty" db:"depends_on"` // JSON array
 	AssignedAgent  *string      `json:"assigned_agent,omitempty" db:"assigned_agent"`
@@ -117,7 +82,7 @@ func (t *Task) Validate() error {
 		return err
 	}
 	if t.AgentType != nil {
-		if err := ValidateAgentType(string(*t.AgentType)); err != nil {
+		if err := ValidateAgentType(*t.AgentType); err != nil {
 			return err
 		}
 	}

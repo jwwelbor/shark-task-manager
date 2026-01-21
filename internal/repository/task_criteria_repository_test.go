@@ -43,7 +43,7 @@ func createTestTask(t *testing.T, db *DB) int64 {
 
 	// Create task
 	taskRepo := NewTaskRepository(db)
-	agentType := models.AgentTypeBackend
+	agentType := "backend"
 	task := &models.Task{
 		FeatureID: feature.ID,
 		Key:       "T-E01-F01-001",

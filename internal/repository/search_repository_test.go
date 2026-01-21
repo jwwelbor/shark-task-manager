@@ -55,7 +55,7 @@ func createTestDataForSearch(t *testing.T, db *DB) (int64, int64) {
 	// Create tasks
 	taskRepo := NewTaskRepository(db)
 	desc1 := "Implement automated database schema migrations"
-	agent1 := models.AgentTypeBackend
+	agent1 := "backend"
 	task1 := &models.Task{
 		FeatureID:   feature.ID,
 		Key:         "T-E01-F01-001",
@@ -68,7 +68,7 @@ func createTestDataForSearch(t *testing.T, db *DB) (int64, int64) {
 	require.NoError(t, taskRepo.Create(context.Background(), task1))
 
 	desc2 := "Add full-text search using FTS5"
-	agent2 := models.AgentTypeBackend
+	agent2 := "backend"
 	task2 := &models.Task{
 		FeatureID:   feature.ID,
 		Key:         "T-E01-F01-002",
@@ -81,7 +81,7 @@ func createTestDataForSearch(t *testing.T, db *DB) (int64, int64) {
 	require.NoError(t, taskRepo.Create(context.Background(), task2))
 
 	desc3 := "Create admin dashboard for monitoring"
-	agent3 := models.AgentTypeFrontend
+	agent3 := "frontend"
 	task3 := &models.Task{
 		FeatureID:   feature.ID,
 		Key:         "T-E01-F01-003",
@@ -249,7 +249,7 @@ func TestSearchRepository_SearchByEpic(t *testing.T) {
 
 	taskRepo := NewTaskRepository(db)
 	desc4 := "Optimize database connections"
-	agent4 := models.AgentTypeBackend
+	agent4 := "backend"
 	task4 := &models.Task{
 		FeatureID:   feature2.ID,
 		Key:         "T-E02-F01-001",
@@ -348,7 +348,7 @@ func TestSearchRepository_Search_Limit(t *testing.T) {
 
 	taskRepo := NewTaskRepository(db)
 	desc := "This is a common description"
-	agent := models.AgentTypeBackend
+	agent := "backend"
 	for i := 1; i <= 10; i++ {
 		task := &models.Task{
 			FeatureID:   feature.ID,

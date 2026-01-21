@@ -497,7 +497,7 @@ func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskS
 }
 
 // FilterByAgentType retrieves tasks filtered by agent type
-func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType models.AgentType) ([]*models.Task, error) {
+func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType string) ([]*models.Task, error) {
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
@@ -513,7 +513,7 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType models
 }
 
 // FilterCombined retrieves tasks with multiple filter criteria
-func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *models.AgentType, maxPriority *int) ([]*models.Task, error) {
+func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *string, maxPriority *int) ([]*models.Task, error) {
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,

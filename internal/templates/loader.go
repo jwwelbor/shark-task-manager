@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 //go:embed task_templates/*.md
@@ -33,7 +31,7 @@ func NewLoader(templateDir string) *Loader {
 
 // LoadTemplate loads a template for the given agent type
 // Falls back to general template if agent-specific template not found
-func (l *Loader) LoadTemplate(agentType models.AgentType) (string, error) {
+func (l *Loader) LoadTemplate(agentType string) (string, error) {
 	filename := fmt.Sprintf("task-%s.md", agentType)
 
 	// Try embedded templates first if configured
@@ -44,7 +42,7 @@ func (l *Loader) LoadTemplate(agentType models.AgentType) (string, error) {
 		}
 
 		// If agent-specific template not found and it's not "general", try general template
-		if agentType != models.AgentTypeGeneral {
+		if agentType != "general" {
 			generalFilename := "task-general.md"
 			content, err := embeddedTemplates.ReadFile(filepath.Join("task_templates", generalFilename))
 			if err == nil {
@@ -58,7 +56,7 @@ func (l *Loader) LoadTemplate(agentType models.AgentType) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		// If agent-specific template not found and it's not "general", try general template
-		if agentType != models.AgentTypeGeneral {
+		if agentType != "general" {
 			generalPath := filepath.Join(l.templateDir, "task-general.md")
 			content, err := os.ReadFile(generalPath)
 			if err == nil {
@@ -71,15 +69,14 @@ func (l *Loader) LoadTemplate(agentType models.AgentType) (string, error) {
 	return string(content), nil
 }
 
-
 // GetAvailableAgentTypes returns all available agent types
-func (l *Loader) GetAvailableAgentTypes() []models.AgentType {
-	return []models.AgentType{
-		models.AgentTypeFrontend,
-		models.AgentTypeBackend,
-		models.AgentTypeAPI,
-		models.AgentTypeTesting,
-		models.AgentTypeDevOps,
-		models.AgentTypeGeneral,
+func (l *Loader) GetAvailableAgentTypes() []string {
+	return []string{
+		"frontend",
+		"backend",
+		"api",
+		"testing",
+		"devops",
+		"general",
 	}
 }

@@ -45,7 +45,7 @@ func TestTaskAvailability(t *testing.T) {
 	emptyDeps := "[]"
 	completedDep := `["T-TEST-001"]`
 	incompleteDep := `["T-TEST-002"]`
-	agentType := models.AgentTypeBackend
+	agentType := "backend"
 
 	// Add test tasks to mock repository
 	mockRepo.AddTask(&models.Task{
@@ -134,7 +134,7 @@ func TestTaskAvailability(t *testing.T) {
 func TestDependencyParsing(t *testing.T) {
 	ctx := context.Background()
 	mockRepo := NewMockTaskRepository()
-	agentType := models.AgentTypeBackend
+	agentType := "backend"
 
 	tests := []struct {
 		name            string
@@ -256,7 +256,7 @@ func TestNextTaskSelection(t *testing.T) {
 	// Setup test data
 	emptyDeps := "[]"
 	completedDep := `["T-TEST-001"]`
-	agentType := models.AgentTypeBackend
+	agentType := "backend"
 
 	// Add test tasks to mock repository
 	mockRepo.AddTask(&models.Task{

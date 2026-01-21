@@ -10,7 +10,7 @@ import (
 // TaskRepositoryInterface defines the methods needed for task workflow operations
 type TaskRepositoryInterface interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
-	FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *models.AgentType, maxPriority *int) ([]*models.Task, error)
+	FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *string, maxPriority *int) ([]*models.Task, error)
 }
 
 // MockTaskRepository is a mock implementation of TaskRepository for testing
@@ -41,7 +41,7 @@ func (m *MockTaskRepository) GetByKey(ctx context.Context, key string) (*models.
 }
 
 // FilterCombined filters tasks based on criteria
-func (m *MockTaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *models.AgentType, maxPriority *int) ([]*models.Task, error) {
+func (m *MockTaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *string, maxPriority *int) ([]*models.Task, error) {
 	var result []*models.Task
 	for _, task := range m.tasks {
 		// Apply filters

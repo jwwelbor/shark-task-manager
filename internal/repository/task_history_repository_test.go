@@ -30,8 +30,8 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 	require.NotZero(t, featureID, "featureID should not be zero after seeding")
 
 	// Create test tasks
-	agentBackend := models.AgentTypeBackend
-	agentFrontend := models.AgentTypeFrontend
+	agentBackend := "backend"
+	agentFrontend := "frontend"
 	filePath1 := "docs/test/task1.md"
 	filePath2 := "docs/test/task2.md"
 	dependsOn := "[]"
@@ -430,7 +430,7 @@ func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 	require.NotZero(t, featureID)
 
 	// Create test task
-	agentBackend := models.AgentTypeBackend
+	agentBackend := "backend"
 	filePath := "docs/test/rejection_task.md"
 	dependsOn := "[]"
 	task := &models.Task{
@@ -496,7 +496,7 @@ func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
 	require.NotZero(t, featureID)
 
 	// Create test task
-	agentBackend := models.AgentTypeBackend
+	agentBackend := "backend"
 	filePath := "docs/test/normal_task.md"
 	dependsOn := "[]"
 	task := &models.Task{
@@ -556,7 +556,7 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 	require.NotZero(t, featureID)
 
 	// Create test task
-	agentBackend := models.AgentTypeBackend
+	agentBackend := "backend"
 	filePath := "docs/test/rejection_history_task.md"
 	dependsOn := "[]"
 	task := &models.Task{

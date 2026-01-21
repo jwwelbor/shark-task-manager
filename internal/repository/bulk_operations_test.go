@@ -237,7 +237,7 @@ func TestUpdateMetadata(t *testing.T) {
 	_ = featureRepo.Create(ctx, feature)
 
 	// Create test task with initial agent type
-	initialAgentType := models.AgentTypeFrontend
+	initialAgentType := "frontend"
 	task := &models.Task{
 		FeatureID:   feature.ID,
 		Key:         fmt.Sprintf("T-%s-001", featureKey),
@@ -262,7 +262,7 @@ func TestUpdateMetadata(t *testing.T) {
 	// Also try to change database-only fields (should be ignored)
 	task.Status = models.TaskStatusCompleted
 	task.Priority = 10 // Max valid priority
-	newAgentType := models.AgentTypeBackend
+	newAgentType := "backend"
 	task.AgentType = &newAgentType
 
 	// Update metadata
