@@ -10,15 +10,10 @@
 // blocks_feature metadata from .sharkconfig.json (configured via E07-F14).
 package status
 
-// ProgressInfo provides weighted and completion progress metrics
-// Used by feature get and feature list to show realistic progress
-type ProgressInfo struct {
-	WeightedPct     float64 // Weighted progress (e.g., 68.0) - recognizes partial work
-	CompletionPct   float64 // Traditional completion % (e.g., 40.0) - only completed tasks
-	WeightedRatio   string  // "3.4/5" (weighted tasks complete)
-	CompletionRatio string  // "2/5" (completed tasks / total)
-	TotalTasks      int     // Total task count
-}
+import "github.com/jwwelbor/shark-task-manager/internal/progress"
+
+// ProgressInfo is re-exported from progress package for backward compatibility
+type ProgressInfo = progress.ProgressInfo
 
 // WorkSummary breaks down work by responsibility
 // Used to show who's responsible for remaining work

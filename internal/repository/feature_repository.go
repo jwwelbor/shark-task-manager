@@ -10,8 +10,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/progress"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
-	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
 
 // FeatureRepository handles CRUD operations for features
@@ -662,8 +662,8 @@ func (r *FeatureRepository) CalculateProgress(ctx context.Context, featureID int
 		}
 	}
 
-	// Calculate weighted progress using status package
-	progressInfo := status.CalculateProgress(statusCounts, cfg)
+	// Calculate weighted progress using progress package
+	progressInfo := progress.CalculateProgress(statusCounts, cfg)
 	return progressInfo.WeightedPct, nil
 }
 
