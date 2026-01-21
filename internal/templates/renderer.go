@@ -37,7 +37,7 @@ func NewRenderer(loader *Loader) *Renderer {
 // Accepts any non-empty agent type string and falls back to general template if needed
 func (r *Renderer) Render(agentType string, data TemplateData) (string, error) {
 	// Load template for agent type (will fallback to general if agent-specific not found)
-	tmplContent, err := r.loader.LoadTemplate(agentType)
+	tmplContent, err := r.loader.LoadTemplate(models.AgentType(agentType))
 	if err != nil {
 		return "", fmt.Errorf("failed to load template: %w", err)
 	}
