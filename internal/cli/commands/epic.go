@@ -593,10 +593,10 @@ func renderEpicListTable(epics []EpicWithProgress) {
 	}
 
 	for _, epic := range epics {
-		// Truncate long titles to fit in 80 columns
+		// Widen title column from 30 to 50 characters
 		title := epic.Title
-		if len(title) > 30 {
-			title = title[:27] + "..."
+		if len(title) > 50 {
+			title = title[:47] + "..."
 		}
 
 		// Format progress with 1 decimal place

@@ -750,9 +750,9 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 
 // renderFeatureListTable renders features as a table
 func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context, repoDb *repository.DB) {
-	// Create table data with new columns
+	// Create table data with reordered columns (removed Notes, Health next to Status)
 	tableData := pterm.TableData{
-		{"Key", "Title", "Health", "Progress", "Notes", "Status"},
+		{"Key", "Title", "Progress", "Status", "Health"},
 	}
 
 	// Get task repository for additional data
@@ -782,10 +782,10 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 	}
 
 	for _, feature := range features {
-		// Truncate long titles to fit in 80 columns
+		// Widen title column from 20 to 40 characters
 		title := feature.Title
-		if len(title) > 20 {
-			title = title[:17] + "..."
+		if len(title) > 40 {
+			title = title[:37] + "..."
 		}
 
 		// Get status breakdown from batch result
@@ -813,9 +813,6 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 			progressDisplay = fmt.Sprintf("%.1f%%", feature.ProgressPct)
 		}
 
-		// Generate notes column
-		notes := generateNotesColumn(statusCounts, cfg)
-
 		// Format status with indicator (* for manual override)
 		statusDisplay := string(feature.Status)
 		if feature.StatusOverride {
@@ -825,10 +822,9 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 		tableData = append(tableData, []string{
 			feature.Key,
 			title,
-			health,
 			progressDisplay,
-			notes,
 			statusDisplay,
+			health,
 		})
 	}
 
@@ -923,7 +919,6 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 
 	// Print feature metadata
 	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
-	fmt.Println()
 
 	// Format feature status with color if available
 	featureStatusDisplay := string(feature.Status)
@@ -958,23 +953,22 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	}
 
 	// Render info table
-	_ = pterm.DefaultTable.WithData(info).Render()
 	fmt.Println()
+	_ = pterm.DefaultTable.WithData(info).Render()
 
 	// Related documents section
 	if len(relatedDocs) > 0 {
-		pterm.DefaultSection.Println("Related Documents")
 		fmt.Println()
+		pterm.DefaultSection.Println("Related Documents")
 		for _, doc := range relatedDocs {
 			fmt.Printf("  - %s (%s)\n", doc.Title, doc.FilePath)
 		}
-		fmt.Println()
 	}
 
 	// Task status breakdown (workflow-ordered with colored status names)
 	if len(statusBreakdown) > 0 {
-		pterm.DefaultSection.Println("Task Status Breakdown")
 		fmt.Println()
+		pterm.DefaultSection.Println("Task Status Breakdown")
 		breakdownData := pterm.TableData{
 			{"Status", "Count", "Phase"},
 		}
@@ -991,27 +985,27 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 				sc.Phase,
 			})
 		}
-		_ = pterm.DefaultTable.WithHasHeader().WithData(breakdownData).Render()
 		fmt.Println()
+		_ = pterm.DefaultTable.WithHasHeader().WithData(breakdownData).Render()
 	}
 
 	// Progress breakdown section (weighted vs completion)
 	if progressInfo != nil {
-		pterm.DefaultSection.Println("Progress Breakdown")
 		fmt.Println()
+		pterm.DefaultSection.Println("Progress Breakdown")
 		progressData := pterm.TableData{
 			{"Metric", "Value", "Ratio"},
 			{"Weighted Progress", fmt.Sprintf("%.1f%%", progressInfo.WeightedPct), progressInfo.WeightedRatio},
 			{"Completion", fmt.Sprintf("%.1f%%", progressInfo.CompletionPct), progressInfo.CompletionRatio},
 		}
-		_ = pterm.DefaultTable.WithHasHeader().WithData(progressData).Render()
 		fmt.Println()
+		_ = pterm.DefaultTable.WithHasHeader().WithData(progressData).Render()
 	}
 
 	// Work summary section (who's doing what)
 	if workSummary != nil && workSummary.TotalTasks > 0 {
-		pterm.DefaultSection.Println("Work Summary")
 		fmt.Println()
+		pterm.DefaultSection.Println("Work Summary")
 		workData := [][]string{}
 		if workSummary.CompletedTasks > 0 {
 			workData = append(workData, []string{"✅ Completed", fmt.Sprintf("%d/%d", workSummary.CompletedTasks, workSummary.TotalTasks)})
@@ -1029,8 +1023,8 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 			workData = append(workData, []string{"⏳ Not Started", fmt.Sprintf("%d tasks", workSummary.NotStarted)})
 		}
 		if len(workData) > 0 {
-			_ = pterm.DefaultTable.WithData(workData).Render()
 			fmt.Println()
+			_ = pterm.DefaultTable.WithData(workData).Render()
 		}
 	}
 
@@ -1038,11 +1032,12 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	if actionItems != nil {
 		hasActionItems := len(actionItems.AwaitingApproval) > 0 || len(actionItems.Blocked) > 0 || len(actionItems.InProgress) > 0
 		if hasActionItems {
-			pterm.DefaultSection.Println("Action Items")
 			fmt.Println()
+			pterm.DefaultSection.Println("Action Items")
 
 			// Awaiting approval
 			if len(actionItems.AwaitingApproval) > 0 {
+				fmt.Println()
 				pterm.DefaultBox.WithTitle("⏳ Awaiting Approval").Println(fmt.Sprintf("%d tasks", len(actionItems.AwaitingApproval)))
 				for _, item := range actionItems.AwaitingApproval {
 					ageStr := ""
@@ -1051,11 +1046,11 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 					}
 					fmt.Printf("  - %s: %s%s\n", item.TaskKey, item.Title, ageStr)
 				}
-				fmt.Println()
 			}
 
 			// Blocked
 			if len(actionItems.Blocked) > 0 {
+				fmt.Println()
 				pterm.DefaultBox.WithTitle("🚫 Blocked").Println(fmt.Sprintf("%d tasks", len(actionItems.Blocked)))
 				for _, item := range actionItems.Blocked {
 					reasonStr := ""
@@ -1064,13 +1059,12 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 					}
 					fmt.Printf("  - %s: %s%s\n", item.TaskKey, item.Title, reasonStr)
 				}
-				fmt.Println()
 			}
 
 			// In progress (summary only)
 			if len(actionItems.InProgress) > 0 {
-				pterm.DefaultBox.WithTitle("🔄 In Progress").Println(fmt.Sprintf("%d tasks", len(actionItems.InProgress)))
 				fmt.Println()
+				pterm.DefaultBox.WithTitle("🔄 In Progress").Println(fmt.Sprintf("%d tasks", len(actionItems.InProgress)))
 			}
 		}
 	}
@@ -1078,18 +1072,19 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	// Check if all tasks are completed
 	allTasksCompleted := len(tasks) > 0 && feature.ProgressPct >= 100.0
 	if allTasksCompleted {
-		pterm.Success.Println("All tasks completed! Feature is ready for approval.")
 		fmt.Println()
+		pterm.Success.Println("All tasks completed! Feature is ready for approval.")
 	}
 
 	// Tasks section
 	if len(tasks) == 0 {
+		fmt.Println()
 		pterm.Info.Println("No tasks found for this feature")
 		return
 	}
 
-	pterm.DefaultSection.Printf("Tasks (%d total)", len(tasks))
 	fmt.Println()
+	pterm.DefaultSection.Printf("Tasks (%d total)", len(tasks))
 
 	// Create tasks table
 	tableData := pterm.TableData{
@@ -1097,10 +1092,10 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 	}
 
 	for _, task := range tasks {
-		// Truncate long titles
+		// Widen title column from 30 to 40 characters
 		title := task.Title
-		if len(title) > 30 {
-			title = title[:27] + "..."
+		if len(title) > 40 {
+			title = title[:37] + "..."
 		}
 
 		// Get agent type

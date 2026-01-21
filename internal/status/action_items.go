@@ -38,8 +38,9 @@ func GetActionItems(tasks []*models.Task, cfg *config.WorkflowConfig) *ActionIte
 
 		statusStr := string(task.Status)
 		switch statusStr {
-		case "ready_for_approval", "ready_for_code_review":
-			// Calculate age in days for waiting tasks
+		case "ready_for_approval":
+			// Calculate age in days for waiting tasks (human approval)
+			// Note: ready_for_code_review is not included here as it's for automated checks
 			ageDays := int(now.Sub(task.UpdatedAt).Hours() / 24)
 			items.AwaitingApproval = append(items.AwaitingApproval, &TaskActionItem{
 				TaskKey:       task.Key,
