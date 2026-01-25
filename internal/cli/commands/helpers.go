@@ -271,6 +271,7 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 }
 
 // ParseGetArgs parses positional arguments for the get command dispatcher
+// Now delegates to scope.Interpreter for DRY (Don't Repeat Yourself) principle
 // Case insensitive: normalizes all keys to uppercase
 // Returns (command, key, error)
 // - command: "epic", "feature", or "task"
@@ -282,16 +283,60 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 // - 2 args (E## F## or E## E##-F##): get feature
 // - 3 args (E## F## ### or E## F## #): get task
 func ParseGetArgs(args []string) (command string, key string, err error) {
+	// Import scope package to avoid circular dependency
+	// Use scope.Interpreter for parsing
+	interpreter := newScopeInterpreter()
+	parsedScope, err := interpreter.ParseScope(args)
+	if err != nil {
+		// Wrap error with context if needed for backward compatibility
+		if len(args) == 0 {
+			return "", "", MissingArgumentsError(1, 0, []string{
+				"shark get E07",
+				"shark get E07-F01",
+				"shark get T-E07-F01-001",
+			})
+		}
+		return "", "", err
+	}
+
+	return string(parsedScope.Type), parsedScope.Key, nil
+}
+
+// newScopeInterpreter creates a scope interpreter instance
+// This is a thin wrapper to avoid direct dependency on scope package in this file
+func newScopeInterpreter() scopeInterpreter {
+	return &scopeInterpreterImpl{}
+}
+
+// scopeInterpreter interface defines the contract for scope parsing
+type scopeInterpreter interface {
+	ParseScope(args []string) (*parsedScope, error)
+}
+
+// parsedScope represents a parsed CLI scope
+type parsedScope struct {
+	Type scopeType
+	Key  string
+}
+
+type scopeType string
+
+const (
+	scopeEpic    scopeType = "epic"
+	scopeFeature scopeType = "feature"
+	scopeTask    scopeType = "task"
+)
+
+// scopeInterpreterImpl implements scopeInterpreter using existing helper functions
+type scopeInterpreterImpl struct{}
+
+func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 	if len(args) == 0 {
-		return "", "", MissingArgumentsError(1, 0, []string{
-			"shark get E07",
-			"shark get E07-F01",
-			"shark get T-E07-F01-001",
-		})
+		return nil, fmt.Errorf("no arguments provided")
 	}
 
 	if len(args) > 3 {
-		return "", "", TooManyArgumentsError(3, len(args))
+		return nil, TooManyArgumentsError(3, len(args))
 	}
 
 	// Single argument case
@@ -300,36 +345,42 @@ func ParseGetArgs(args []string) (command string, key string, err error) {
 
 		// Check if it's a task key (T-E##-F##-###)
 		if isTaskKey(normalized) {
-			return "task", normalized, nil
+			return &parsedScope{Type: scopeTask, Key: normalized}, nil
+		}
+
+		// Check if it's a short task key (E##-F##-###)
+		normalizedTaskKey, err := NormalizeTaskKey(normalized)
+		if err == nil {
+			return &parsedScope{Type: scopeTask, Key: normalizedTaskKey}, nil
 		}
 
 		// Check if it's a combined feature key (E##-F##)
 		if IsFeatureKey(normalized) {
-			return "feature", normalized, nil
+			return &parsedScope{Type: scopeFeature, Key: normalized}, nil
 		}
 
 		// Check if it's just an epic key (E##)
 		if IsEpicKey(normalized) {
-			return "epic", normalized, nil
+			return &parsedScope{Type: scopeEpic, Key: normalized}, nil
 		}
 
 		// Check if it looks like it was trying to be a task key (starts with T)
 		if len(normalized) > 0 && normalized[0] == 'T' {
-			return "", "", InvalidTaskKeyError(args[0])
+			return nil, InvalidTaskKeyError(args[0])
 		}
 
 		// Check if it looks like it was trying to be an epic key (starts with E but no dash)
 		if len(normalized) > 0 && normalized[0] == 'E' && !strings.Contains(normalized, "-") {
-			return "", "", InvalidEpicKeyError(args[0])
+			return nil, InvalidEpicKeyError(args[0])
 		}
 
 		// Check if it looks like it was trying to be a feature key (contains dash or starts with F)
 		if strings.Contains(normalized, "-") || (len(normalized) > 0 && normalized[0] == 'F') {
-			return "", "", InvalidFeatureKeyError(args[0])
+			return nil, InvalidFeatureKeyError(args[0])
 		}
 
 		// Generic invalid format
-		return "", "", InvalidPositionalArgsError("get",
+		return nil, InvalidPositionalArgsError("get",
 			fmt.Sprintf("invalid key format %q - expected E##, E##-F##, or T-E##-F##-###", args[0]),
 			[]string{
 				"shark get E07",
@@ -345,7 +396,7 @@ func ParseGetArgs(args []string) (command string, key string, err error) {
 
 		// First argument must be an epic key
 		if !IsEpicKey(epicNormalized) {
-			return "", "", InvalidEpicKeyError(args[0])
+			return nil, InvalidEpicKeyError(args[0])
 		}
 
 		// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
@@ -356,16 +407,16 @@ func ParseGetArgs(args []string) (command string, key string, err error) {
 			// Full feature key - extract the feature suffix
 			_, suffix, err := ParseFeatureKey(featureNormalized)
 			if err != nil {
-				return "", "", err
+				return nil, err
 			}
 			featureSuffix = suffix
 		} else {
-			return "", "", InvalidFeatureKeyError(args[1])
+			return nil, InvalidFeatureKeyError(args[1])
 		}
 
 		// Construct full feature key
 		fullFeatureKey := epicNormalized + "-" + featureSuffix
-		return "feature", fullFeatureKey, nil
+		return &parsedScope{Type: scopeFeature, Key: fullFeatureKey}, nil
 	}
 
 	// Three argument case - must be epic + feature + task number
@@ -375,7 +426,7 @@ func ParseGetArgs(args []string) (command string, key string, err error) {
 
 	// First argument must be an epic key
 	if !IsEpicKey(epicNormalized) {
-		return "", "", InvalidEpicKeyError(args[0])
+		return nil, InvalidEpicKeyError(args[0])
 	}
 
 	// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
@@ -386,22 +437,22 @@ func ParseGetArgs(args []string) (command string, key string, err error) {
 		// Full feature key - extract the feature suffix
 		_, suffix, err := ParseFeatureKey(featureNormalized)
 		if err != nil {
-			return "", "", err
+			return nil, err
 		}
 		featureSuffix = suffix
 	} else {
-		return "", "", InvalidFeatureKeyError(args[1])
+		return nil, InvalidFeatureKeyError(args[1])
 	}
 
 	// Third argument must be a task number (1-999)
 	taskNum, err := parseTaskNumber(arg3)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	// Construct full task key
 	fullTaskKey := fmt.Sprintf("T-%s-%s-%03d", epicNormalized, featureSuffix, taskNum)
-	return "task", fullTaskKey, nil
+	return &parsedScope{Type: scopeTask, Key: fullTaskKey}, nil
 }
 
 // isTaskKey validates if a string is a valid task key format (T-E##-F##-###)
