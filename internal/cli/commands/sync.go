@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	syncFolder            string
-	syncDryRun            bool
-	syncStrategy          string
+	syncFolder   string
+	syncDryRun   bool
+	syncStrategy string
 	// REMOVED syncCreateMissing - caused catastrophic data loss
 	syncCleanup           bool
 	syncPatterns          []string

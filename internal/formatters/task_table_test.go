@@ -131,34 +131,34 @@ func TestFormatTaskTable_RejectionIndicator(t *testing.T) {
 	agentType := "backend"
 
 	tests := []struct {
-		name            string
-		rejectionCount  int
-		showRejections  bool
-		expectedKeyCol  string
+		name           string
+		rejectionCount int
+		showRejections bool
+		expectedKeyCol string
 	}{
 		{
-			name:            "no rejections",
-			rejectionCount:  0,
-			showRejections:  true,
-			expectedKeyCol:  "E07-F01-001",
+			name:           "no rejections",
+			rejectionCount: 0,
+			showRejections: true,
+			expectedKeyCol: "E07-F01-001",
 		},
 		{
-			name:            "one rejection",
-			rejectionCount:  1,
-			showRejections:  true,
-			expectedKeyCol:  "E07-F01-001 🔴×1",
+			name:           "one rejection",
+			rejectionCount: 1,
+			showRejections: true,
+			expectedKeyCol: "E07-F01-001 🔴×1",
 		},
 		{
-			name:            "multiple rejections",
-			rejectionCount:  3,
-			showRejections:  true,
-			expectedKeyCol:  "E07-F01-001 🔴×3",
+			name:           "multiple rejections",
+			rejectionCount: 3,
+			showRejections: true,
+			expectedKeyCol: "E07-F01-001 🔴×3",
 		},
 		{
-			name:            "rejections disabled",
-			rejectionCount:  3,
-			showRejections:  false,
-			expectedKeyCol:  "E07-F01-001",
+			name:           "rejections disabled",
+			rejectionCount: 3,
+			showRejections: false,
+			expectedKeyCol: "E07-F01-001",
 		},
 	}
 
@@ -191,9 +191,9 @@ func TestFormatTaskTable_AgentType(t *testing.T) {
 	backend := "backend"
 
 	tests := []struct {
-		name            string
-		agentType       *string
-		expectedAgent   string
+		name          string
+		agentType     *string
+		expectedAgent string
 	}{
 		{
 			name:          "agent type set",

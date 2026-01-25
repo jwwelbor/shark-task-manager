@@ -437,7 +437,7 @@ func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]
 		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE feature_id = ?
-		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
 	`
 
 	return r.queryTasks(ctx, query, featureID)
@@ -455,7 +455,7 @@ func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*mod
 		INNER JOIN features f ON t.feature_id = f.id
 		INNER JOIN epics e ON f.epic_id = e.id
 		WHERE e.key = ?
-		ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC
+		ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
 	`
 
 	return r.queryTasks(ctx, query, epicKey)
@@ -474,7 +474,7 @@ func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey str
 		INNER JOIN features f ON t.feature_id = f.id
 		INNER JOIN epics e ON f.epic_id = e.id
 		WHERE e.key = ? AND t.status = ?
-		ORDER BY t.blocked_at DESC NULLS LAST, t.priority ASC, t.created_at ASC
+		ORDER BY t.blocked_at DESC NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
 	`
 
 	return r.queryTasks(ctx, query, epicKey, models.TaskStatusBlocked)
@@ -490,7 +490,7 @@ func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskS
 		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE status = ?
-		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
 	`
 
 	return r.queryTasks(ctx, query, status)
@@ -506,7 +506,7 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType string
 		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE agent_type = ?
-		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
 	`
 
 	return r.queryTasks(ctx, query, agentType)
@@ -560,7 +560,7 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 		}
 	}
 
-	query += " ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC"
+	query += " ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC"
 
 	tasks, err := r.queryTasks(ctx, query, args...)
 	if err != nil {
@@ -579,7 +579,7 @@ func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 		       completed_by, completion_notes, files_changed, tests_passed,
 		       verification_status, time_spent_minutes, context_data
 		FROM tasks
-		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
 	`
 
 	tasks, err := r.queryTasks(ctx, query)
@@ -1881,7 +1881,7 @@ func (r *TaskRepository) FilterByMetadataAgentType(ctx context.Context, agentTyp
 		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE status IN (%s)
-		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
 	`, strings.Join(placeholders, ", "))
 
 	return r.queryTasks(ctx, query, args...)
@@ -1918,7 +1918,7 @@ func (r *TaskRepository) FilterByMetadataPhase(ctx context.Context, phase string
 		       verification_status, time_spent_minutes, context_data
 		FROM tasks
 		WHERE status IN (%s)
-		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC
+		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
 	`, strings.Join(placeholders, ", "))
 
 	return r.queryTasks(ctx, query, args...)
