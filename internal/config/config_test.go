@@ -811,3 +811,147 @@ func TestConfig_IsBackwardTransition(t *testing.T) {
 		})
 	}
 }
+
+// TestConfig_GetViewer_DefaultValue tests that GetViewer returns "cat" by default
+func TestConfig_GetViewer_DefaultValue(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *Config
+		want   string
+	}{
+		{
+			name:   "nil config",
+			config: nil,
+			want:   "cat",
+		},
+		{
+			name:   "config with nil Viewer",
+			config: &Config{},
+			want:   "cat",
+		},
+		{
+			name: "config with empty Viewer",
+			config: &Config{
+				Viewer: stringPtr(""),
+			},
+			want: "cat",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.GetViewer()
+			if result != tt.want {
+				t.Errorf("GetViewer() = %v, want %v", result, tt.want)
+			}
+		})
+	}
+}
+
+// TestConfig_GetViewer_CustomValue tests that GetViewer returns custom viewer
+func TestConfig_GetViewer_CustomValue(t *testing.T) {
+	tests := []struct {
+		name   string
+		viewer string
+		want   string
+	}{
+		{
+			name:   "glow viewer",
+			viewer: "glow",
+			want:   "glow",
+		},
+		{
+			name:   "nano viewer",
+			viewer: "nano",
+			want:   "nano",
+		},
+		{
+			name:   "bat viewer",
+			viewer: "bat",
+			want:   "bat",
+		},
+		{
+			name:   "less viewer",
+			viewer: "less",
+			want:   "less",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &Config{
+				Viewer: &tt.viewer,
+			}
+			result := config.GetViewer()
+			if result != tt.want {
+				t.Errorf("GetViewer() = %v, want %v", result, tt.want)
+			}
+		})
+	}
+}
+
+// TestConfig_Viewer_Marshaling tests that Viewer field can be marshaled/unmarshaled
+func TestConfig_Viewer_Marshaling(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   Config
+		expected string
+	}{
+		{
+			name: "config with glow viewer",
+			config: Config{
+				Viewer: stringPtr("glow"),
+			},
+			expected: `{"viewer":"glow"}`,
+		},
+		{
+			name: "config with cat viewer",
+			config: Config{
+				Viewer: stringPtr("cat"),
+			},
+			expected: `{"viewer":"cat"}`,
+		},
+		{
+			name:     "config without viewer (nil)",
+			config:   Config{},
+			expected: `{}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Marshal to JSON
+			data, err := json.Marshal(tt.config)
+			if err != nil {
+				t.Fatalf("failed to marshal config: %v", err)
+			}
+
+			if string(data) != tt.expected {
+				t.Errorf("marshaled JSON mismatch\ngot:  %s\nwant: %s", string(data), tt.expected)
+			}
+
+			// Unmarshal back
+			var unmarshaled Config
+			if err := json.Unmarshal(data, &unmarshaled); err != nil {
+				t.Fatalf("failed to unmarshal config: %v", err)
+			}
+
+			// Verify field
+			if tt.config.Viewer != nil && unmarshaled.Viewer == nil {
+				t.Error("viewer was lost during unmarshal")
+				return
+			}
+
+			if tt.config.Viewer != nil && unmarshaled.Viewer != nil {
+				if *unmarshaled.Viewer != *tt.config.Viewer {
+					t.Errorf("viewer mismatch: got %v, want %v", *unmarshaled.Viewer, *tt.config.Viewer)
+				}
+			}
+		})
+	}
+}
+
+// stringPtr is a helper function to create a pointer to a string value
+func stringPtr(s string) *string {
+	return &s
+}

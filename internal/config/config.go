@@ -22,6 +22,7 @@ type Config struct {
 	JSONOutput             *bool                  `json:"json_output,omitempty"`
 	InteractiveMode        *bool                  `json:"interactive_mode,omitempty"`         // Enable interactive prompts (default: false for automation)
 	RequireRejectionReason bool                   `json:"require_rejection_reason,omitempty"` // NEW: Require rejection reason for backward transitions (default: false)
+	Viewer                 *string                `json:"viewer,omitempty"`                   // External viewer command for spec files (glow, nano, bat, less, cat, etc). Default: "cat"
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
 
 	// statusMetadata holds status metadata for work breakdown calculations
@@ -131,6 +132,16 @@ func (c *Config) IsRequireRejectionReasonEnabled() bool {
 		return false // Default: rejection reason optional
 	}
 	return c.RequireRejectionReason
+}
+
+// GetViewer returns the configured viewer command or default "cat"
+// The viewer is used by the shark view command to open specification files
+// Examples: "glow", "nano", "bat", "less", "cat"
+func (c *Config) GetViewer() string {
+	if c == nil || c.Viewer == nil || *c.Viewer == "" {
+		return "cat" // Default viewer
+	}
+	return *c.Viewer
 }
 
 // IsBackwardTransition determines whether a transition from oldStatus to newStatus is backward
