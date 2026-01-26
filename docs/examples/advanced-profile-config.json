@@ -18,14 +18,25 @@
   },
   "status_flow": {
     "blocked": [
+      "draft",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
       "ready_for_development",
-      "ready_for_refinement",
+      "ready_for_code_review",
+      "ready_for_qa",
+      "ready_for_approval",
       "cancelled"
     ],
     "cancelled": [],
+    "changes_requested": [
+      "in_development",
+      "ready_for_refinement_ba",
+      "blocked",
+      "on_hold"
+    ],
     "completed": [],
     "draft": [
-      "ready_for_refinement",
+      "ready_for_refinement_ba",
       "cancelled",
       "on_hold"
     ],
@@ -33,38 +44,50 @@
       "completed",
       "ready_for_qa",
       "ready_for_development",
-      "ready_for_refinement",
+      "ready_for_refinement_ba",
       "on_hold"
     ],
     "in_code_review": [
       "ready_for_qa",
       "in_development",
-      "ready_for_refinement",
+      "ready_for_refinement_ba",
       "on_hold"
     ],
     "in_development": [
       "ready_for_code_review",
-      "ready_for_refinement",
+      "ready_for_refinement_ba",
       "blocked",
       "on_hold"
     ],
     "in_qa": [
       "ready_for_approval",
       "in_development",
-      "ready_for_refinement",
+      "ready_for_refinement_ba",
       "blocked",
       "on_hold"
     ],
-    "in_refinement": [
+    "in_refinement_ba": [
+      "ready_for_refinement_tech",
+      "draft",
+      "blocked",
+      "on_hold"
+    ],
+    "in_refinement_tech": [
       "ready_for_development",
       "draft",
       "blocked",
       "on_hold"
     ],
     "on_hold": [
-      "ready_for_refinement",
+      "ready_for_refinement_ba",
       "ready_for_development",
       "cancelled"
+    ],
+    "qa_failed": [
+      "in_development",
+      "ready_for_refinement_ba",
+      "blocked",
+      "on_hold"
     ],
     "ready_for_approval": [
       "in_approval",
@@ -77,7 +100,7 @@
     ],
     "ready_for_development": [
       "in_development",
-      "ready_for_refinement",
+      "ready_for_refinement_ba",
       "cancelled",
       "on_hold"
     ],
@@ -85,9 +108,12 @@
       "in_qa",
       "on_hold"
     ],
-    "ready_for_refinement": [
-      "in_refinement",
-      "cancelled",
+    "ready_for_refinement_ba": [
+      "in_refinement_ba",
+      "on_hold"
+    ],
+    "ready_for_refinement_tech": [
+      "in_refinement_tech",
       "on_hold"
     ]
   },
@@ -108,6 +134,14 @@
       "phase": "done",
       "progress_weight": 0,
       "responsibility": "none"
+    },
+    "changes_requested": {
+      "blocks_feature": false,
+      "color": "orange",
+      "description": "Code review changes requested",
+      "phase": "development",
+      "progress_weight": 0.6,
+      "responsibility": "agent"
     },
     "completed": {
       "blocks_feature": false,
@@ -157,13 +191,21 @@
       "progress_weight": 0.85,
       "responsibility": "qa_team"
     },
-    "in_refinement": {
+    "in_refinement_ba": {
+      "blocks_feature": false,
+      "color": "cyan",
+      "description": "Under business analysis",
+      "phase": "planning",
+      "progress_weight": 0.1,
+      "responsibility": "human"
+    },
+    "in_refinement_tech": {
       "blocks_feature": false,
       "color": "blue",
-      "description": "Being analyzed and specified",
+      "description": "Under technical review",
       "phase": "planning",
-      "progress_weight": 0.15,
-      "responsibility": "agent"
+      "progress_weight": 0.2,
+      "responsibility": "human"
     },
     "on_hold": {
       "blocks_feature": false,
@@ -173,65 +215,61 @@
       "progress_weight": 0,
       "responsibility": "none"
     },
-    "ready_for_approval": {
-      "agent_types": [
-        "product-manager",
-        "client"
-      ],
+    "qa_failed": {
       "blocks_feature": false,
-      "color": "purple",
-      "description": "Awaiting final approval",
-      "phase": "approval",
-      "progress_weight": 0.9,
-      "responsibility": "human"
-    },
-    "ready_for_code_review": {
-      "agent_types": [
-        "tech-lead",
-        "code-reviewer"
-      ],
-      "blocks_feature": false,
-      "color": "magenta",
-      "description": "Code complete, awaiting review",
-      "phase": "review",
-      "progress_weight": 0.75,
+      "color": "orange",
+      "description": "QA testing failed",
+      "phase": "development",
+      "progress_weight": 0.5,
       "responsibility": "agent"
     },
+    "ready_for_approval": {
+      "blocks_feature": true,
+      "color": "cyan",
+      "description": "Ready for final approval",
+      "phase": "approval",
+      "progress_weight": 0.9,
+      "responsibility": "none"
+    },
+    "ready_for_code_review": {
+      "blocks_feature": true,
+      "color": "magenta",
+      "description": "Awaiting code review",
+      "phase": "review",
+      "progress_weight": 0.75,
+      "responsibility": "human"
+    },
     "ready_for_development": {
-      "agent_types": [
-        "developer",
-        "ai-coder"
-      ],
       "blocks_feature": false,
-      "color": "yellow",
-      "description": "Spec complete, ready for implementation",
-      "phase": "development",
+      "color": "orange",
+      "description": "Ready for development",
+      "phase": "planning",
       "progress_weight": 0.25,
       "responsibility": "none"
     },
     "ready_for_qa": {
-      "agent_types": [
-        "qa",
-        "test-engineer"
-      ],
-      "blocks_feature": false,
-      "color": "green",
-      "description": "Ready for quality assurance testing",
-      "phase": "qa",
-      "progress_weight": 0.8,
-      "responsibility": "qa_team"
-    },
-    "ready_for_refinement": {
-      "agent_types": [
-        "business-analyst",
-        "architect"
-      ],
       "blocks_feature": false,
       "color": "cyan",
-      "description": "Awaiting specification and analysis",
+      "description": "Ready for QA testing",
+      "phase": "qa",
+      "progress_weight": 0.85,
+      "responsibility": "none"
+    },
+    "ready_for_refinement_ba": {
+      "blocks_feature": false,
+      "color": "cyan",
+      "description": "Awaiting business analysis",
       "phase": "planning",
-      "progress_weight": 0.1,
-      "responsibility": "agent"
+      "progress_weight": 0.05,
+      "responsibility": "human"
+    },
+    "ready_for_refinement_tech": {
+      "blocks_feature": false,
+      "color": "blue",
+      "description": "Awaiting technical review",
+      "phase": "planning",
+      "progress_weight": 0.15,
+      "responsibility": "human"
     }
   },
   "project_root": null,

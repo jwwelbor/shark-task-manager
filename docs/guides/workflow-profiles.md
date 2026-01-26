@@ -52,17 +52,19 @@ todo → in_progress → ready_for_review → completed
 
 **Planning Phase:**
 - `draft` - Initial task creation
-- `ready_for_refinement` - Ready for BA refinement
-- `in_refinement` - Being refined by BA
+- `ready_for_refinement_ba` - Ready for business analyst review
+- `in_refinement_ba` - Under business analysis
+- `ready_for_refinement_tech` - Ready for technical review
+- `in_refinement_tech` - Under technical review
+- `ready_for_development` - Refined and ready to implement
 
 **Development Phase:**
-- `ready_for_development` - Ready to start coding
 - `in_development` - Implementation in progress
 
 **Review Phase:**
 - `ready_for_code_review` - Code complete, needs review
 - `in_code_review` - Tech lead reviewing
-- `changes_requested` - Revisions needed
+- `changes_requested` - Code review revisions requested
 
 **QA Phase:**
 - `ready_for_qa` - Ready for testing
@@ -82,16 +84,17 @@ todo → in_progress → ready_for_review → completed
 **Characteristics:**
 - Status flow enforcement
 - Multiple agent types (ba, tech_lead, developer, qa, product_owner)
+- Two-phase refinement (business analysis → technical review)
 - Granular progress tracking
 - Responsibility assignment
 - Special status groups
 
 **Agent Types:**
-- **ba** (Business Analyst) - Refinement statuses
-- **tech_lead** - Code review, architecture
-- **developer** - Implementation
-- **qa** - Testing and validation
-- **product_owner** - Final approval
+- **ba** (Business Analyst) - Business analysis refinement (ready_for_refinement_ba, in_refinement_ba)
+- **tech_lead** - Technical refinement and code review (ready_for_refinement_tech, in_refinement_tech, ready_for_code_review, in_code_review)
+- **developer** - Implementation (in_development, changes_requested)
+- **qa** - Testing and validation (ready_for_qa, in_qa, qa_failed)
+- **product_owner** - Final approval (ready_for_approval, in_approval)
 
 ## Choosing a Profile
 
