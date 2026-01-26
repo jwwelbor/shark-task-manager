@@ -32,12 +32,12 @@ type ConfigDefaults struct {
 
 // WorkflowProfile represents a predefined workflow configuration
 type WorkflowProfile struct {
-	Name              string                   `json:"name"`
-	Description       string                   `json:"description"`
+	Name              string                     `json:"name"`
+	Description       string                     `json:"description"`
 	StatusMetadata    map[string]*StatusMetadata `json:"status_metadata"`
-	StatusFlow        map[string][]string      `json:"status_flow,omitempty"`
-	SpecialStatuses   map[string][]string      `json:"special_statuses,omitempty"`
-	StatusFlowVersion string                   `json:"status_flow_version,omitempty"`
+	StatusFlow        map[string][]string        `json:"status_flow,omitempty"`
+	SpecialStatuses   map[string][]string        `json:"special_statuses,omitempty"`
+	StatusFlowVersion string                     `json:"status_flow_version,omitempty"`
 }
 
 // StatusMetadata represents metadata for a single status
@@ -63,20 +63,20 @@ type UpdateOptions struct {
 
 // UpdateResult represents the result of a config update
 type UpdateResult struct {
-	Success     bool            `json:"success"`
-	ProfileName string          `json:"profile_name,omitempty"`
-	BackupPath  string          `json:"backup_path,omitempty"`
-	Changes     *ChangeReport   `json:"changes"`
-	ConfigPath  string          `json:"config_path"`
-	DryRun      bool            `json:"dry_run"`
+	Success     bool          `json:"success"`
+	ProfileName string        `json:"profile_name,omitempty"`
+	BackupPath  string        `json:"backup_path,omitempty"`
+	Changes     *ChangeReport `json:"changes"`
+	ConfigPath  string        `json:"config_path"`
+	DryRun      bool          `json:"dry_run"`
 }
 
 // ChangeReport details what changed during update
 type ChangeReport struct {
-	Added       []string      `json:"added"`
-	Preserved   []string      `json:"preserved"`
-	Overwritten []string      `json:"overwritten"`
-	Stats       *ChangeStats  `json:"stats"`
+	Added       []string     `json:"added"`
+	Preserved   []string     `json:"preserved"`
+	Overwritten []string     `json:"overwritten"`
+	Stats       *ChangeStats `json:"stats"`
 }
 
 // ChangeStats provides detailed change statistics

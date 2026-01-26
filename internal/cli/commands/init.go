@@ -140,7 +140,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		profileService := init_pkg.NewProfileService(result.ConfigPath)
 		profileOpts := init_pkg.UpdateOptions{
 			ConfigPath:     result.ConfigPath,
-			WorkflowName:   "basic",  // Apply basic profile by default
+			WorkflowName:   "basic", // Apply basic profile by default
 			DryRun:         false,
 			Force:          false,
 			NonInteractive: initNonInteractive || cli.GlobalConfig.JSON,

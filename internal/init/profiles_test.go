@@ -195,8 +195,8 @@ func TestBasicProfile_ProgressWeights(t *testing.T) {
 	profile, _ := GetProfile("basic")
 
 	tests := []struct {
-		status       string
-		expectedWt   float64
+		status     string
+		expectedWt float64
 	}{
 		{"todo", 0.0},
 		{"in_progress", 0.5},

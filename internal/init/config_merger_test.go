@@ -68,14 +68,14 @@ func TestMerge_PreserveFields(t *testing.T) {
 	merger := NewConfigMerger()
 
 	base := map[string]interface{}{
-		"database":    "old_db.db",
-		"viewer":      "vim",
+		"database":     "old_db.db",
+		"viewer":       "vim",
 		"project_root": "/old/path",
 	}
 
 	overlay := map[string]interface{}{
-		"database":    "new_db.db",
-		"viewer":      "nano",
+		"database":     "new_db.db",
+		"viewer":       "nano",
 		"project_root": "/new/path",
 	}
 
@@ -161,8 +161,8 @@ func TestMerge_NestedMaps(t *testing.T) {
 
 	base := map[string]interface{}{
 		"settings": map[string]interface{}{
-			"color":    true,
-			"verbose":  false,
+			"color":   true,
+			"verbose": false,
 			"nested": map[string]interface{}{
 				"deep": "value1",
 			},
@@ -173,8 +173,8 @@ func TestMerge_NestedMaps(t *testing.T) {
 		"settings": map[string]interface{}{
 			"verbose": true,
 			"nested": map[string]interface{}{
-				"deep":  "value2",
-				"new":   "value3",
+				"deep": "value2",
+				"new":  "value3",
 			},
 		},
 	}
@@ -342,16 +342,16 @@ func TestDetectChanges(t *testing.T) {
 	merger := NewConfigMerger()
 
 	old := map[string]interface{}{
-		"a":      1,
-		"b":      2,
-		"keep":   "same",
+		"a":    1,
+		"b":    2,
+		"keep": "same",
 	}
 
 	new := map[string]interface{}{
-		"a":      1,
-		"b":      20,
-		"keep":   "same",
-		"added":  3,
+		"a":     1,
+		"b":     20,
+		"keep":  "same",
+		"added": 3,
 	}
 
 	report := merger.DetectChanges(old, new)
