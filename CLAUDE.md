@@ -134,9 +134,9 @@ Shark supports two workflow profiles that define task status flows and agent res
 - Designed for team development with defined roles
 - Status flow enforcement
 - Agent routing by status:
-  - **ba** (Business Analyst): Refinement phase (ready_for_refinement, in_refinement)
+  - **ba** (Business Analyst): Refinement phase (ready_for_refinement_ba, in_refinement_ba)
   - **developer**: Development phase (ready_for_development, in_development)
-  - **tech_lead**: Code review phase (ready_for_code_review, in_code_review)
+  - **tech_lead**: Code review and technical refinement phases (ready_for_code_review, in_code_review, ready_for_refinement_tech, in_refinement_tech)
   - **qa**: QA phase (ready_for_qa, in_qa)
   - **product_owner**: Approval phase (ready_for_approval, in_approval)
 
