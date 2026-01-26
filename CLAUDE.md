@@ -100,18 +100,59 @@ Slugs are auto-generated from titles and both formats work in all commands.
 
 ### Task Lifecycle
 
+Shark supports two workflow profiles with different status sets and agent assignments.
+
+**Basic Profile (Default):**
 ```
 todo → in_progress → ready_for_review → completed
                   ↘ blocked ↗
 ```
 
+**Advanced Profile (TDD Workflow):**
+Comprehensive multi-stage workflow covering planning, development, review, QA, and approval phases. See [Workflow Profiles Guide](docs/guides/workflow-profiles.md) for details.
+
 Commands:
-- `shark task start <task>` - todo → in_progress
-- `shark task complete <task>` - in_progress → ready_for_review
-- `shark task approve <task>` - ready_for_review → completed
-- `shark task reopen <task>` - ready_for_review → in_progress
-- `shark task block <task> --reason="..."` - any → blocked
-- `shark task unblock <task>` - blocked → previous state
+- `shark task start <task>` - Start task (transitions based on profile)
+- `shark task complete <task>` - Mark ready for next review phase
+- `shark task approve <task>` - Final approval/completion
+- `shark task reopen <task>` - Move back to in-progress
+- `shark task block <task> --reason="..."` - Block on dependency
+- `shark task unblock <task>` - Remove block
+
+### Workflow Profiles & Agent Routing
+
+Shark supports two workflow profiles that define task status flows and agent responsibilities.
+
+**Basic Profile (5 statuses):**
+- Simple linear workflow: todo → in_progress → ready_for_review → completed
+- Suitable for solo developers or small teams
+- No status flow enforcement
+- Single agent responsibility
+
+**Advanced Profile (19 statuses):**
+- Comprehensive TDD workflow with multiple phases
+- Designed for team development with defined roles
+- Status flow enforcement
+- Agent routing by status:
+  - **ba** (Business Analyst): Refinement phase (ready_for_refinement, in_refinement)
+  - **developer**: Development phase (ready_for_development, in_development)
+  - **tech_lead**: Code review phase (ready_for_code_review, in_code_review)
+  - **qa**: QA phase (ready_for_qa, in_qa)
+  - **product_owner**: Approval phase (ready_for_approval, in_approval)
+
+**Switching Profiles:**
+```bash
+# Apply basic workflow
+shark init update --workflow=basic
+
+# Apply advanced workflow
+shark init update --workflow=advanced
+
+# Preview changes before applying
+shark init update --workflow=advanced --dry-run
+```
+
+See [Workflow Profiles Guide](docs/guides/workflow-profiles.md) for comprehensive documentation.
 
 ### Project Root Auto-Detection
 
@@ -128,6 +169,7 @@ You can run shark commands from any subdirectory.
 
 - **Architecture Details**: @.claude/rules/architecture.md
 - **Complete CLI Reference**: @docs/CLI_REFERENCE.md
+- **Workflow Profiles Guide**: @docs/guides/workflow-profiles.md
 - **Turso Cloud Setup**: @docs/TURSO_QUICKSTART.md
 - **Turso Migration Guide**: @docs/TURSO_MIGRATION.md
 - **Original Full Documentation**: @CLAUDE.md.backup (if needed)

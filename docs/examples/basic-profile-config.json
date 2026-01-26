@@ -1,0 +1,53 @@
+{
+  "database": {
+    "backend": "local",
+    "url": "./shark-tasks.db"
+  },
+  "color_enabled": true,
+  "default_epic": null,
+  "default_agent": null,
+  "status_metadata": {
+    "todo": {
+      "color": "gray",
+      "phase": "planning",
+      "progress_weight": 0.0,
+      "responsibility": "none",
+      "blocks_feature": false,
+      "description": "Task not started"
+    },
+    "in_progress": {
+      "color": "yellow",
+      "phase": "development",
+      "progress_weight": 0.5,
+      "responsibility": "agent",
+      "blocks_feature": false,
+      "description": "Work in progress"
+    },
+    "ready_for_review": {
+      "color": "magenta",
+      "phase": "review",
+      "progress_weight": 0.75,
+      "responsibility": "human",
+      "blocks_feature": true,
+      "description": "Awaiting human review"
+    },
+    "completed": {
+      "color": "green",
+      "phase": "done",
+      "progress_weight": 1.0,
+      "responsibility": "none",
+      "blocks_feature": false,
+      "description": "Task finished"
+    },
+    "blocked": {
+      "color": "red",
+      "phase": "any",
+      "progress_weight": 0.0,
+      "responsibility": "none",
+      "blocks_feature": true,
+      "description": "Blocked by external dependency"
+    }
+  },
+  "project_root": null,
+  "viewer": null
+}

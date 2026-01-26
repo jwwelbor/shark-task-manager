@@ -29,6 +29,7 @@ Complete command reference for the Shark Task Manager CLI.
 ## Configuration Files
 
 - **[Workflow Configuration](cli-reference/workflow-config.md)** - Customize status flows, colors, phases
+- **[Workflow Profiles](guides/workflow-profiles.md)** - Apply predefined workflow profiles (basic, advanced)
 - **[Interactive Mode](cli-reference/interactive-mode.md)** - Configure interactive prompts
 
 ## Reference
