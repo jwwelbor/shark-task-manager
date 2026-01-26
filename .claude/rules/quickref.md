@@ -116,7 +116,7 @@ make lint              # Run golangci-lint (auto-installs if needed)
 ./bin/shark sync --strategy=database-wins
 ```
 
-## Configuration
+## Configuration & Initialization
 
 ```bash
 # View configuration
@@ -124,6 +124,13 @@ make lint              # Run golangci-lint (auto-installs if needed)
 
 # Set configuration
 ./bin/shark config set <key> <value>
+
+# Update Shark configuration with workflow profiles
+./bin/shark init update                           # Add missing fields
+./bin/shark init update --workflow=basic          # Apply basic workflow
+./bin/shark init update --workflow=advanced       # Apply advanced workflow
+./bin/shark init update --workflow=advanced --dry-run  # Preview changes
+./bin/shark init update --workflow=basic --force  # Force overwrite
 ```
 
 ## Cloud Database (Turso)

@@ -1398,28 +1398,28 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		featureFilePath = absPath
 		customFilePath = &relPath
 	} else {
-		// Default behavior: create feature in standard directory structure
-		// Find epic directory
-		epicPattern := fmt.Sprintf("docs/plan/%s-*", featureCreateEpic)
-		matches, err := filepath.Glob(epicPattern)
-		if err != nil || len(matches) == 0 {
-			cli.Error(fmt.Sprintf("Error: Epic directory not found for %s", featureCreateEpic))
-			cli.Info("The epic exists in the database but the directory structure is missing.")
+		// Default behavior: create feature in epic's directory (from database)
+		// Use PathResolver to get epic's correct directory path
+		pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, nil, projectRoot)
+		epicPath, err := pathResolver.ResolveEpicPath(ctx, epic.Key)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to resolve epic directory: %v", err))
 			os.Exit(1)
 		}
 
-		epicDir := matches[0]
+		// Extract directory from epic.md path (remove filename)
+		epicDir := filepath.Dir(epicPath)
 
-		// Validate that the match is actually a directory, not a file
+		// Validate that the epic directory exists
 		fileInfo, err := os.Stat(epicDir)
 		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to access epic path: %v", err))
+			cli.Error(fmt.Sprintf("Error: Epic directory does not exist: %s", epicDir))
+			cli.Info("Run 'shark init' to create the directory structure")
 			os.Exit(1)
 		}
 		if !fileInfo.IsDir() {
 			cli.Error(fmt.Sprintf("Error: Expected directory but found file at: %s", epicDir))
 			cli.Info("Please remove or rename the file to resolve the conflict")
-			cli.Info("The file may have been created manually or by another process")
 			os.Exit(1)
 		}
 

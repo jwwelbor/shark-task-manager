@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -15,6 +16,9 @@ import (
 var (
 	initNonInteractive bool
 	initForce          bool
+	workflowName       string
+	updateForce        bool
+	updateDryRun       bool
 )
 
 var initCmd = &cobra.Command{
@@ -36,13 +40,51 @@ This command is idempotent and safe to run multiple times.`,
 	RunE: runInit,
 }
 
+var initUpdateCmd = &cobra.Command{
+	Use:   "update [flags]",
+	Short: "Update Shark configuration",
+	Long: `Update Shark configuration with workflow profiles or add missing fields.
+
+Without --workflow flag, adds missing configuration fields while preserving
+all existing values.
+
+With --workflow flag, applies the specified workflow profile (basic or advanced).
+
+Use --dry-run to preview changes before applying.`,
+	Example: `  # Add missing fields only
+  shark init update
+
+  # Apply basic workflow (5 statuses)
+  shark init update --workflow=basic
+
+  # Apply advanced workflow (19 statuses)
+  shark init update --workflow=advanced
+
+  # Preview changes without applying
+  shark init update --workflow=advanced --dry-run
+
+  # Force overwrite existing status configurations
+  shark init update --workflow=basic --force`,
+	RunE: runInitUpdate,
+}
+
 func init() {
 	cli.RootCmd.AddCommand(initCmd)
+	initCmd.AddCommand(initUpdateCmd)
 
+	// Existing init flags
 	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false,
 		"Skip all prompts (use defaults)")
 	initCmd.Flags().BoolVar(&initForce, "force", false,
 		"Overwrite existing config and templates")
+
+	// Update subcommand flags
+	initUpdateCmd.Flags().StringVar(&workflowName, "workflow", "",
+		"Apply workflow profile (basic, advanced)")
+	initUpdateCmd.Flags().BoolVar(&updateForce, "force", false,
+		"Overwrite existing status configurations")
+	initUpdateCmd.Flags().BoolVar(&updateDryRun, "dry-run", false,
+		"Preview changes without applying")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -91,6 +133,30 @@ func runInit(cmd *cobra.Command, args []string) error {
 			})
 		}
 		return err
+	}
+
+	// If config was created, apply basic profile by default
+	if result.ConfigCreated {
+		profileService := init_pkg.NewProfileService(result.ConfigPath)
+		profileOpts := init_pkg.UpdateOptions{
+			ConfigPath:     result.ConfigPath,
+			WorkflowName:   "basic", // Apply basic profile by default
+			DryRun:         false,
+			Force:          false,
+			NonInteractive: initNonInteractive || cli.GlobalConfig.JSON,
+			Verbose:        cli.GlobalConfig.Verbose,
+		}
+
+		_, err := profileService.ApplyProfile(profileOpts)
+		if err != nil {
+			if cli.GlobalConfig.JSON {
+				return cli.OutputJSON(map[string]interface{}{
+					"status": "error",
+					"error":  fmt.Sprintf("failed to apply default workflow profile: %v", err),
+				})
+			}
+			return fmt.Errorf("failed to apply default workflow profile: %w", err)
+		}
 	}
 
 	// Output results
@@ -145,4 +211,108 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 	fmt.Println("1. Edit .sharkconfig.json to set default epic and agent")
 	fmt.Println("2. Create tasks with: shark task create \"Task title\" --epic=E01 --feature=F01 --agent=backend")
 	fmt.Println("3. Import existing tasks with: shark sync")
+
+	// Only show profile message if config was created
+	if result.ConfigCreated {
+		fmt.Println()
+		fmt.Println("Workflow profile applied: basic (5 statuses: todo, in_progress, ready_for_review, completed, blocked)")
+		fmt.Println("To upgrade to advanced profile: shark init update --workflow=advanced")
+	}
+}
+
+func runInitUpdate(cmd *cobra.Command, args []string) error {
+	// Determine config path
+	configPath := ".sharkconfig.json"
+	if configFlag := cmd.Flag("config"); configFlag != nil && configFlag.Value.String() != "" {
+		configPath = configFlag.Value.String()
+	}
+
+	// Create profile service
+	service := init_pkg.NewProfileService(configPath)
+
+	// Build update options
+	opts := init_pkg.UpdateOptions{
+		ConfigPath:     configPath,
+		WorkflowName:   workflowName,
+		Force:          updateForce,
+		DryRun:         updateDryRun,
+		NonInteractive: cli.GlobalConfig.JSON,
+		Verbose:        cli.GlobalConfig.Verbose,
+	}
+
+	// Apply profile (or add missing fields if no workflow specified)
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+		}
+		return fmt.Errorf("failed to update config: %w", err)
+	}
+
+	// Output results
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(result)
+	}
+
+	displayUpdateResult(result)
+	return nil
+}
+
+func displayUpdateResult(result *init_pkg.UpdateResult) {
+	// Header
+	if result.DryRun {
+		cli.Info("DRY RUN - No changes applied")
+		fmt.Println()
+	}
+
+	// Success message
+	if result.ProfileName != "" {
+		cli.Success(fmt.Sprintf("Applied %s workflow profile", result.ProfileName))
+	} else {
+		cli.Success("Updated configuration")
+	}
+	fmt.Println()
+
+	// Backup info
+	if result.BackupPath != "" {
+		fmt.Printf("✓ Backed up config to %s\n", result.BackupPath)
+		fmt.Println()
+	}
+
+	// Changes summary
+	changes := result.Changes
+	if len(changes.Added) > 0 {
+		fmt.Printf("  Added: %s\n", strings.Join(changes.Added, ", "))
+	}
+	if len(changes.Overwritten) > 0 {
+		fmt.Printf("  Overwritten: %s\n", strings.Join(changes.Overwritten, ", "))
+	}
+	if len(changes.Preserved) > 0 {
+		fmt.Printf("  Preserved: %s\n", strings.Join(changes.Preserved, ", "))
+	}
+
+	// Statistics
+	if changes.Stats != nil {
+		fmt.Println()
+		fmt.Printf("  Statuses: %d added\n", changes.Stats.StatusesAdded)
+		if changes.Stats.FlowsAdded > 0 {
+			fmt.Printf("  Flows: %d added\n", changes.Stats.FlowsAdded)
+		}
+		if changes.Stats.GroupsAdded > 0 {
+			fmt.Printf("  Groups: %d added\n", changes.Stats.GroupsAdded)
+		}
+		fmt.Printf("  Fields: %d preserved\n", changes.Stats.FieldsPreserved)
+	}
+
+	// Final status
+	if !result.DryRun {
+		fmt.Println()
+		fmt.Printf("✓ Config updated: %s\n", result.ConfigPath)
+	} else {
+		fmt.Println()
+		cli.Info("Run without --dry-run to apply these changes")
+	}
 }
