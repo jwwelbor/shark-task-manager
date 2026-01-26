@@ -211,9 +211,13 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 	fmt.Println("1. Edit .sharkconfig.json to set default epic and agent")
 	fmt.Println("2. Create tasks with: shark task create \"Task title\" --epic=E01 --feature=F01 --agent=backend")
 	fmt.Println("3. Import existing tasks with: shark sync")
-	fmt.Println()
-	fmt.Println("Workflow profile applied: basic (5 statuses: todo, in_progress, ready_for_review, completed, blocked)")
-	fmt.Println("To upgrade to advanced profile: shark init update --workflow=advanced")
+
+	// Only show profile message if config was created
+	if result.ConfigCreated {
+		fmt.Println()
+		fmt.Println("Workflow profile applied: basic (5 statuses: todo, in_progress, ready_for_review, completed, blocked)")
+		fmt.Println("To upgrade to advanced profile: shark init update --workflow=advanced")
+	}
 }
 
 func runInitUpdate(cmd *cobra.Command, args []string) error {
