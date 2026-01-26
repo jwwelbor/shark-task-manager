@@ -285,12 +285,12 @@ func profileToMap(profile *WorkflowProfile) map[string]interface{} {
 	}
 
 	// Add status_flow if present
-	if profile.StatusFlow != nil && len(profile.StatusFlow) > 0 {
+	if len(profile.StatusFlow) > 0 {
 		result["status_flow"] = profile.StatusFlow
 	}
 
 	// Add special_statuses if present
-	if profile.SpecialStatuses != nil && len(profile.SpecialStatuses) > 0 {
+	if len(profile.SpecialStatuses) > 0 {
 		result["special_statuses"] = profile.SpecialStatuses
 	}
 

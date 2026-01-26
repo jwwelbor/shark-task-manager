@@ -419,32 +419,6 @@ func TestInitUpdateEmptyConfig(t *testing.T) {
 	}
 }
 
-// Helper function
-func containsString(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-// removeANSI removes ANSI color codes from a string
-func removeANSI(s string) string {
-	result := ""
-	inEscape := false
-	for _, r := range s {
-		if r == '\033' {
-			inEscape = true
-		} else if inEscape && r == 'm' {
-			inEscape = false
-		} else if !inEscape && r != '[' {
-			result += string(r)
-		}
-	}
-	return result
-}
-
 // TestInitUpdateCommandHasCorrectFlags tests that the command is properly configured
 func TestInitUpdateCommandHasCorrectFlags(t *testing.T) {
 	// Verify initUpdateCmd exists and has the right flags
