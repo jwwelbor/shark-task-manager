@@ -546,17 +546,6 @@ Shark CLI is available for macOS, Linux, and Windows through multiple installati
 
 ### Quick Install
 
-**macOS** (Homebrew):
-```bash
-brew install jwwelbor/shark/shark
-```
-
-**Windows** (Scoop):
-```powershell
-scoop bucket add shark https://github.com/jwwelbor/scoop-shark
-scoop install shark
-```
-
 **Linux/macOS** (Manual):
 ```bash
 curl -fsSL https://github.com/jwwelbor/shark-task-manager/releases/latest/download/shark_$(uname -s)_$(uname -m).tar.gz -o shark.tar.gz
@@ -646,26 +635,7 @@ shark --version
    make install-shark
    ```
 
-#### Windows
-
-**Option 1: Scoop (Recommended)**
-
-1. Add the Shark bucket:
-   ```powershell
-   scoop bucket add shark https://github.com/jwwelbor/scoop-shark
-   ```
-
-2. Install Shark:
-   ```powershell
-   scoop install shark
-   ```
-
-3. Verify installation:
-   ```powershell
-   shark --version
-   ```
-
-**Option 2: Manual Installation**
+**Manual Installation**
 
 1. Download `shark_*_windows_amd64.zip` from the [latest release](https://github.com/jwwelbor/shark-task-manager/releases/latest)
 
@@ -710,23 +680,6 @@ $actual = (Get-FileHash shark.zip -Algorithm SHA256).Hash.ToLower()
 $expected = (Get-Content checksums.txt | Select-String "windows").ToString().Split()[0]
 if ($actual -eq $expected) { Write-Host "✅ Verified" }
 ```
-
-For more details, see [SECURITY.md](SECURITY.md).
-
-### Upgrading
-
-**Homebrew**:
-```bash
-brew upgrade shark
-```
-
-**Scoop**:
-```powershell
-scoop update shark
-```
-
-**Manual Installation**: Download and install the latest version following the manual installation steps above.
-
 ---
 
 
@@ -749,7 +702,7 @@ The application uses SQLite for data persistence with a complete schema:
 - WAL mode for better concurrency
 - Comprehensive validation at application layer
 
-The database file (`shark-tasks.db`) is automatically created on first run.
+The database file (`shark-tasks.db`) is automatically created on first run. Turso cloud sqlite db is also supported.
 
 See [internal/db/README.md](internal/db/README.md) for detailed schema documentation.
 
