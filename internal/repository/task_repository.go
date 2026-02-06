@@ -830,27 +830,43 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 
 // UpdateStatusForced atomically updates task status with optional validation bypass
 func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+	_, err := r.updateStatusForcedInternal(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
+	return err
+}
+
+// UpdateStatusForcedWithUnblock atomically updates task status and, when the new
+// status is completed or archived, auto-unblocks dependent tasks whose dependencies
+// are all satisfied. Returns the keys of auto-unblocked tasks.
+func (r *TaskRepository) UpdateStatusForcedWithUnblock(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error) {
+	return r.updateStatusForcedInternal(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
+}
+
+// updateStatusForcedInternal is the shared implementation for UpdateStatusForced
+// and UpdateStatusForcedWithUnblock. It performs the status update and auto-unblock
+// in a single transaction, returning any auto-unblocked task keys.
+func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error) {
 	// Validate status is valid enum
 	if !r.isValidStatusEnum(newStatus) {
-		return fmt.Errorf("invalid status: %s", newStatus)
+		return nil, fmt.Errorf("invalid status: %s", newStatus)
 	}
 	// Start transaction
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	// Get current task state
 	var currentStatus string
+	var taskKey string
 	var startedAt, completedAt, blockedAt sql.NullTime
-	err = tx.QueryRowContext(ctx, "SELECT status, started_at, completed_at, blocked_at FROM tasks WHERE id = ?", taskID).
-		Scan(&currentStatus, &startedAt, &completedAt, &blockedAt)
+	err = tx.QueryRowContext(ctx, "SELECT key, status, started_at, completed_at, blocked_at FROM tasks WHERE id = ?", taskID).
+		Scan(&taskKey, &currentStatus, &startedAt, &completedAt, &blockedAt)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("task not found with id %d", taskID)
+		return nil, fmt.Errorf("task not found with id %d", taskID)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to get current task status: %w", err)
+		return nil, fmt.Errorf("failed to get current task status: %w", err)
 	}
 
 	// Validate transition if not forcing
@@ -865,23 +881,23 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 			if r.workflow != nil {
 				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(newStatus))
 				if validationErr != nil {
-					return validationErr
+					return nil, validationErr
 				}
 			}
-			return fmt.Errorf("invalid status transition from %s to %s", currentStatus, newStatus)
+			return nil, fmt.Errorf("invalid status transition from %s to %s", currentStatus, newStatus)
 		}
 
 		// Validate rejection reason for backward transitions
 		if r.workflow != nil {
 			isBackward, err := r.workflow.IsBackwardTransition(currentStatus, string(newStatus))
 			if err != nil {
-				return fmt.Errorf("failed to determine transition direction: %w", err)
+				return nil, fmt.Errorf("failed to determine transition direction: %w", err)
 			}
 
 			if isBackward {
 				// Backward transitions require a non-empty reason
 				if rejectionReason == nil || strings.TrimSpace(*rejectionReason) == "" {
-					return fmt.Errorf("rejection reason required for backward transition from %s to %s: use --reason flag or use --force to bypass", currentStatus, newStatus)
+					return nil, fmt.Errorf("rejection reason required for backward transition from %s to %s: use --reason flag or use --force to bypass", currentStatus, newStatus)
 				}
 			}
 		}
@@ -909,7 +925,7 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 
 	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
-		return fmt.Errorf("failed to update task status: %w", err)
+		return nil, fmt.Errorf("failed to update task status: %w", err)
 	}
 
 	// Create history record with rejection reason support
@@ -919,12 +935,12 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 	`
 	result, err := tx.ExecContext(ctx, historyQuery, taskID, currentStatus, newStatus, agent, notes, rejectionReason, force)
 	if err != nil {
-		return fmt.Errorf("failed to create history record: %w", err)
+		return nil, fmt.Errorf("failed to create history record: %w", err)
 	}
 
 	historyID, err := result.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("failed to get history record id: %w", err)
+		return nil, fmt.Errorf("failed to get history record id: %w", err)
 	}
 
 	// Create rejection note if rejection reason is provided and transition is backward
@@ -952,17 +968,26 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 				*rejectionReason, rejectedBy, documentPath,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to create rejection note: %w", err)
+				return nil, fmt.Errorf("failed to create rejection note: %w", err)
 			}
+		}
+	}
+
+	// Auto-unblock dependents when transitioning to completed or archived
+	var unblockedKeys []string
+	if newStatus == models.TaskStatusCompleted || newStatus == models.TaskStatusArchived {
+		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, taskKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to auto-unblock dependents: %w", err)
 		}
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return nil
+	return unblockedKeys, nil
 }
 
 // UpdateStatusWithAction updates a task's status and returns the updated task with orchestrator action

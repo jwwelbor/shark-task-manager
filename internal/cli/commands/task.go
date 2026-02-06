@@ -32,6 +32,16 @@ func getRelativePathTask(absPath string, projectRoot string) string {
 	return relPath
 }
 
+// displayAutoUnblockedTasks shows which tasks were auto-unblocked after a status change.
+func displayAutoUnblockedTasks(unblockedKeys []string) {
+	if len(unblockedKeys) > 0 {
+		cli.Info(fmt.Sprintf("Auto-unblocked %d dependent task(s):", len(unblockedKeys)))
+		for _, key := range unblockedKeys {
+			cli.Info(fmt.Sprintf("  - %s (now todo)", key))
+		}
+	}
+}
+
 // triggerStatusCascade triggers cascading status updates for parent feature and epic
 // after a task status change. This is informational - errors are logged but don't
 // fail the operation.
@@ -1757,8 +1767,9 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 		documentPath = &reasonDocFlag
 	}
 
-	// Update status (repository handles workflow validation)
-	if err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, rejectionReason, documentPath, force); err != nil {
+	// Update status with auto-unblock (repository handles workflow validation)
+	unblockedKeys, err := repo.UpdateStatusForcedWithUnblock(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, rejectionReason, documentPath, force)
+	if err != nil {
 		// Display error with workflow suggestion
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
 		if !force {
@@ -1771,7 +1782,19 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 		cli.Warning(fmt.Sprintf("Task %s force-approved from %s status", taskKey, task.Status))
 	}
 
+	// JSON output with auto_unblocked field
+	if cli.GlobalConfig.JSON {
+		response := map[string]interface{}{
+			"key":            taskKey,
+			"status":         "completed",
+			"message":        fmt.Sprintf("Task %s approved and completed.", taskKey),
+			"auto_unblocked": unblockedKeys,
+		}
+		return cli.OutputJSON(response)
+	}
+
 	cli.Success(fmt.Sprintf("Task %s approved and completed.", taskKey))
+	displayAutoUnblockedTasks(unblockedKeys)
 
 	// Trigger cascading status updates for parent feature and epic
 	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
@@ -2445,13 +2468,13 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 			rejectionReasonPtr = &reason
 		}
 
-		// Update status with workflow validation (unless forcing)
-		err = workflowRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, rejectionReasonPtr, documentPath, force)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to update task status: %s", err.Error()))
+		// Update status with workflow validation and auto-unblock (unless forcing)
+		unblockedKeys, updateErr := workflowRepo.UpdateStatusForcedWithUnblock(ctx, task.ID, newStatus, nil, nil, rejectionReasonPtr, documentPath, force)
+		if updateErr != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to update task status: %s", updateErr.Error()))
 
 			// If this is a validation error, suggest using --force
-			if !force && (strings.Contains(err.Error(), "invalid status transition") || strings.Contains(err.Error(), "transition")) {
+			if !force && (strings.Contains(updateErr.Error(), "invalid status transition") || strings.Contains(updateErr.Error(), "transition")) {
 				cli.Info("Use --force to bypass workflow validation")
 			}
 
@@ -2464,6 +2487,11 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		}
 
 		changed = true
+
+		// Display auto-unblocked tasks (after status change output)
+		if !cli.GlobalConfig.JSON {
+			displayAutoUnblockedTasks(unblockedKeys)
+		}
 	}
 
 	if !changed {
@@ -2536,8 +2564,8 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 		notesPtr = &notes
 	}
 
-	// Update status with workflow validation (unless forcing)
-	err = repo.UpdateStatusForced(ctx, task.ID, taskStatus, nil, notesPtr, nil, nil, force)
+	// Update status with workflow validation and auto-unblock (unless forcing)
+	unblockedKeys, err := repo.UpdateStatusForcedWithUnblock(ctx, task.ID, taskStatus, nil, notesPtr, nil, nil, force)
 	if err != nil {
 		// Extract validation error message if available
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
@@ -2562,6 +2590,7 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 			"previous_status": task.Status,
 			"new_status":      newStatus,
 			"forced":          force,
+			"auto_unblocked":  unblockedKeys,
 		}
 		if notes != "" {
 			output["notes"] = notes
@@ -2574,6 +2603,8 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	if notes != "" {
 		fmt.Printf("Notes: %s\n", notes)
 	}
+
+	displayAutoUnblockedTasks(unblockedKeys)
 
 	return nil
 }
