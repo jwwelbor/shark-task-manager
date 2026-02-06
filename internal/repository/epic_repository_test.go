@@ -796,11 +796,11 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 	taskRepo := NewTaskRepository(db)
 
-	// Use unique epic key
-	epicNum := 10 + (time.Now().UnixNano() % 90)
-	epicKey := fmt.Sprintf("E%02d", epicNum)
+	// Use deterministic key outside the random range (E10-E99) used by other repo tests
+	// and outside E01-E05 used by status/benchmark tests
+	epicKey := "E08"
 
-	// Clean up
+	// Pre-cleanup: CASCADE delete handles features and tasks
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic
@@ -812,6 +812,9 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+	}()
 
 	// Create multiple features with tasks
 	for f := 1; f <= 5; f++ {
@@ -848,7 +851,4 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 	taskRollup, err := epicRepo.GetTaskStatusRollup(ctx, epic.ID)
 	require.NoError(t, err)
 	assert.Equal(t, 50, taskRollup[string(models.TaskStatusCompleted)])
-
-	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
 }

@@ -693,9 +693,8 @@ func TestGetDashboard_FilterByEpic(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Clear and seed test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this test creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E01', 'E02')")
 
 	// Create two epics
 	result1, _ := database.ExecContext(ctx, `
@@ -769,9 +768,8 @@ func TestGetDashboard_MultipleAgentTypes(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Clear and seed test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this test creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E01', 'E02')")
 
 	// Create test epic and feature
 	result, _ := database.ExecContext(ctx, `
@@ -797,8 +795,8 @@ func TestGetDashboard_MultipleAgentTypes(t *testing.T) {
 			(?, 'T-E01-F01-005', 'Unassigned Task', 'in_progress', NULL, 5, '[]')
 	`, featureID, featureID, featureID, featureID, featureID)
 
-	// Request dashboard
-	req := &StatusRequest{}
+	// Request dashboard (scoped to E01 to avoid cross-package data pollution)
+	req := &StatusRequest{EpicKey: "E01"}
 	dashboard, err := service.GetDashboard(ctx, req)
 
 	if err != nil {
@@ -846,9 +844,8 @@ func TestGetDashboard_NoActiveTasks(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Clear and seed test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this test creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E01', 'E02')")
 
 	// Create test epic and feature
 	result, _ := database.ExecContext(ctx, `
@@ -871,8 +868,8 @@ func TestGetDashboard_NoActiveTasks(t *testing.T) {
 			(?, 'T-E01-F01-002', 'Todo Task', 'todo', 'backend', 5, '[]')
 	`, featureID, featureID)
 
-	// Request dashboard
-	req := &StatusRequest{}
+	// Request dashboard (scoped to E01 to avoid cross-package data pollution)
+	req := &StatusRequest{EpicKey: "E01"}
 	dashboard, err := service.GetDashboard(ctx, req)
 
 	if err != nil {
@@ -893,9 +890,8 @@ func TestGetProjectSummary_ZeroDivision(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Clear all data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this test creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E01', 'E02')")
 
 	// Create epic and feature but no tasks
 	result, _ := database.ExecContext(ctx, `
@@ -909,7 +905,7 @@ func TestGetProjectSummary_ZeroDivision(t *testing.T) {
 		VALUES (?, 'E01-F01', 'Test Feature', 'Test feature', 'active')
 	`, epicID)
 
-	summary, err := service.getProjectSummary(ctx, "")
+	summary, err := service.getProjectSummary(ctx, "E01")
 	if err != nil {
 		t.Fatalf("getProjectSummary failed: %v", err)
 	}
@@ -975,9 +971,8 @@ func TestGetBlockedTasks_OrderedByPriority(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Clear and seed test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this test creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E01', 'E02')")
 
 	// Create test epic and feature
 	result, _ := database.ExecContext(ctx, `
@@ -1004,7 +999,7 @@ func TestGetBlockedTasks_OrderedByPriority(t *testing.T) {
 			(?, 'T-E01-F01-003', 'Medium Priority', 'blocked', 5, '[]', ?, 'Reason 3')
 	`, featureID, earlier.Format(time.RFC3339), featureID, now.Format(time.RFC3339), featureID, earlier.Format(time.RFC3339))
 
-	blockedTasks, err := service.getBlockedTasks(ctx, "")
+	blockedTasks, err := service.getBlockedTasks(ctx, "E01")
 	if err != nil {
 		t.Fatalf("getBlockedTasks failed: %v", err)
 	}
@@ -1028,9 +1023,8 @@ func TestGetActiveTasks_WithNullAgentType(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Clear and seed test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this test creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E01', 'E02')")
 
 	// Create test epic and feature
 	result, _ := database.ExecContext(ctx, `
@@ -1054,7 +1048,7 @@ func TestGetActiveTasks_WithNullAgentType(t *testing.T) {
 		t.Fatalf("Failed to create task: %v", err)
 	}
 
-	activeTasks, err := service.getActiveTasks(ctx, "")
+	activeTasks, err := service.getActiveTasks(ctx, "E01")
 	if err != nil {
 		t.Fatalf("getActiveTasks failed: %v", err)
 	}
@@ -1082,9 +1076,8 @@ func TestGetBlockedTasks_WithNullBlockedReason(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Clear and seed test data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this test creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E01', 'E02')")
 
 	// Create test epic and feature
 	result, _ := database.ExecContext(ctx, `
@@ -1105,7 +1098,7 @@ func TestGetBlockedTasks_WithNullBlockedReason(t *testing.T) {
 		VALUES (?, 'T-E01-F01-001', 'Blocked Task', 'blocked', 5, '[]', NULL)
 	`, featureID)
 
-	blockedTasks, err := service.getBlockedTasks(ctx, "")
+	blockedTasks, err := service.getBlockedTasks(ctx, "E01")
 	if err != nil {
 		t.Fatalf("getBlockedTasks failed: %v", err)
 	}
@@ -1147,9 +1140,8 @@ func TestGetDashboard_ConcurrentAccess(t *testing.T) {
 	service := NewStatusService(db)
 
 	// Clear and seed minimal data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this test creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E01', 'E02')")
 
 	result, _ := database.ExecContext(ctx, `
 		INSERT INTO epics (key, title, description, status, priority)
@@ -1277,7 +1269,7 @@ func TestGetActiveTasks_EmptyAgentTypeString(t *testing.T) {
 		VALUES (?, ?, 'Empty Agent Task', 'in_progress', '', 5, '[]')
 	`, featureID, taskKey)
 
-	activeTasks, err := service.getActiveTasks(ctx, "")
+	activeTasks, err := service.getActiveTasks(ctx, epicKey)
 	if err != nil {
 		t.Fatalf("getActiveTasks failed: %v", err)
 	}
