@@ -66,29 +66,35 @@ After any status transition to `completed` or `archived`, evaluate all tasks tha
 
 ## Design
 
-### Key Files to Modify
+### Key Files Modified
 
 | File | Change |
 |------|--------|
-| `internal/repository/task_dependency.go` | Add `CompleteTaskWithAutoUnblock()` method |
-| `internal/repository/task_repository.go` | Call auto-unblock from `UpdateStatusForced` when new status is completed/archived |
-| `internal/cli/commands/task.go` | Surface auto-unblocked tasks in output |
+| `internal/repository/task_dependency.go` | Add `AutoUnblockDependents()` method, dependency block reason constants |
+| `internal/repository/task_repository.go` | `UpdateStatusForcedWithUnblock()` calls auto-unblock when new status is completed/archived |
+| `internal/cli/commands/task.go` | `displayAutoUnblockedTasks()` helper surfaces auto-unblocked tasks in output |
+| `internal/cli/commands/task_next_status.go` | Uses shared helper for auto-unblock display |
 
 ### Algorithm
 
 ```
-CompleteTaskWithAutoUnblock(ctx, taskID, ...):
+UpdateStatusForcedWithUnblock(ctx, taskID, newStatus, ...):
   1. Begin transaction
-  2. Update task status to completed (existing logic)
-  3. Get all dependents of this task (GetTaskDependents)
-  4. For each dependent that is blocked:
-     a. Check blocked_reason matches dependency pattern
-     b. Parse ALL dependencies from depends_on + task_relationships
-     c. Check if ALL dependencies are completed/archived
-     d. If yes: set status=todo, clear blocked_at/blocked_reason
-     e. Create task_history entry
-  5. Commit transaction
-  6. Return list of auto-unblocked task keys
+  2. Update task status (existing updateStatusForcedInternal logic)
+  3. If newStatus is completed or archived:
+     a. Get task key from ID
+     b. Call AutoUnblockDependents(ctx, tx, taskKey)
+  4. Commit transaction
+  5. Return list of auto-unblocked task keys
+
+AutoUnblockDependents(ctx, tx, completedTaskKey):
+  1. Get all dependents via getTaskDependentsInTx (checks both depends_on JSON + task_relationships table)
+  2. For each dependent that is blocked:
+     a. Check blocked_reason matches dependency pattern (DependencyReopenedBlockReasonPrefix or AutoBlockedReasonPrefix)
+     b. Check ALL dependencies satisfied via allDependenciesSatisfiedInTx (checks both depends_on JSON + task_relationships table)
+     c. If yes: set status=todo, clear blocked_at/blocked_reason via unblockTaskInTx
+     d. Create task_history entry with "Auto-unblocked: all dependencies satisfied"
+  3. Return list of auto-unblocked task keys
 ```
 
 ### Dependency-Block Detection

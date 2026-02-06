@@ -32,6 +32,16 @@ func getRelativePathTask(absPath string, projectRoot string) string {
 	return relPath
 }
 
+// displayAutoUnblockedTasks shows which tasks were auto-unblocked after a status change.
+func displayAutoUnblockedTasks(unblockedKeys []string) {
+	if len(unblockedKeys) > 0 {
+		cli.Info(fmt.Sprintf("Auto-unblocked %d dependent task(s):", len(unblockedKeys)))
+		for _, key := range unblockedKeys {
+			cli.Info(fmt.Sprintf("  - %s (now todo)", key))
+		}
+	}
+}
+
 // triggerStatusCascade triggers cascading status updates for parent feature and epic
 // after a task status change. This is informational - errors are logged but don't
 // fail the operation.
@@ -1784,14 +1794,7 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Task %s approved and completed.", taskKey))
-
-	// Display auto-unblocked tasks
-	if len(unblockedKeys) > 0 {
-		cli.Info(fmt.Sprintf("Auto-unblocked %d dependent task(s):", len(unblockedKeys)))
-		for _, key := range unblockedKeys {
-			cli.Info(fmt.Sprintf("  - %s (now todo)", key))
-		}
-	}
+	displayAutoUnblockedTasks(unblockedKeys)
 
 	// Trigger cascading status updates for parent feature and epic
 	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
@@ -2486,11 +2489,8 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		changed = true
 
 		// Display auto-unblocked tasks (after status change output)
-		if len(unblockedKeys) > 0 && !cli.GlobalConfig.JSON {
-			cli.Info(fmt.Sprintf("Auto-unblocked %d dependent task(s):", len(unblockedKeys)))
-			for _, key := range unblockedKeys {
-				cli.Info(fmt.Sprintf("  - %s (now todo)", key))
-			}
+		if !cli.GlobalConfig.JSON {
+			displayAutoUnblockedTasks(unblockedKeys)
 		}
 	}
 
@@ -2604,13 +2604,7 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Notes: %s\n", notes)
 	}
 
-	// Display auto-unblocked tasks
-	if len(unblockedKeys) > 0 {
-		cli.Info(fmt.Sprintf("Auto-unblocked %d dependent task(s):", len(unblockedKeys)))
-		for _, key := range unblockedKeys {
-			cli.Info(fmt.Sprintf("  - %s (now todo)", key))
-		}
-	}
+	displayAutoUnblockedTasks(unblockedKeys)
 
 	return nil
 }

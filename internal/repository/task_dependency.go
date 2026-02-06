@@ -11,6 +11,14 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
+// Constants for dependency block reason prefixes.
+// These are used to identify tasks blocked due to dependency relationships
+// (as opposed to manual blocks) for auto-unblock eligibility.
+const (
+	DependencyReopenedBlockReasonPrefix = "Prerequisite task "
+	AutoBlockedReasonPrefix             = "Auto-blocked:"
+)
+
 // ValidateTaskDependencies validates that adding a task with given dependencies
 // would not create circular dependencies. This should be called before creating
 // or updating a task with dependencies.
@@ -223,13 +231,14 @@ func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID 
 	return nil
 }
 
-// getTaskDependentsInTx returns all tasks that depend on the given task within a transaction
+// getTaskDependentsInTx returns all tasks that depend on the given task within a transaction.
+// It checks both the legacy depends_on JSON field and the task_relationships table.
 func (r *TaskRepository) getTaskDependentsInTx(ctx context.Context, tx *sql.Tx, taskKey string) ([]*models.Task, error) {
-	// Get the task's feature_id
-	var featureID int64
-	err := tx.QueryRowContext(ctx, "SELECT feature_id FROM tasks WHERE key = ?", taskKey).Scan(&featureID)
+	// Get the task's id and feature_id
+	var taskID, featureID int64
+	err := tx.QueryRowContext(ctx, "SELECT id, feature_id FROM tasks WHERE key = ?", taskKey).Scan(&taskID, &featureID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get feature_id: %w", err)
+		return nil, fmt.Errorf("failed to get task info: %w", err)
 	}
 
 	// Get all tasks in the feature
@@ -266,8 +275,17 @@ func (r *TaskRepository) getTaskDependentsInTx(ctx context.Context, tx *sql.Tx, 
 		allTasks = append(allTasks, task)
 	}
 
-	// Find tasks that depend on taskKey
+	// Build a map of task ID -> task for quick lookup
+	taskByID := make(map[int64]*models.Task)
+	for _, t := range allTasks {
+		taskByID[t.ID] = t
+	}
+
+	// Track dependent keys to avoid duplicates
+	seen := make(map[string]bool)
 	dependents := []*models.Task{}
+
+	// 1. Check legacy depends_on JSON field
 	for _, t := range allTasks {
 		if t.DependsOn == nil || *t.DependsOn == "" || *t.DependsOn == "[]" {
 			continue
@@ -279,10 +297,35 @@ func (r *TaskRepository) getTaskDependentsInTx(ctx context.Context, tx *sql.Tx, 
 		}
 
 		for _, dep := range deps {
-			if dep == taskKey {
+			if dep == taskKey && !seen[t.Key] {
 				dependents = append(dependents, t)
+				seen[t.Key] = true
 				break
 			}
+		}
+	}
+
+	// 2. Check task_relationships table for incoming depends_on relationships
+	// (tasks where from_task depends_on to_task=completedTask)
+	relQuery := `
+		SELECT from_task_id FROM task_relationships
+		WHERE to_task_id = ? AND relationship_type = 'depends_on'
+	`
+	relRows, err := tx.QueryContext(ctx, relQuery, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query task_relationships: %w", err)
+	}
+	defer relRows.Close()
+
+	for relRows.Next() {
+		var fromTaskID int64
+		if err := relRows.Scan(&fromTaskID); err != nil {
+			return nil, fmt.Errorf("failed to scan relationship: %w", err)
+		}
+
+		if t, ok := taskByID[fromTaskID]; ok && !seen[t.Key] {
+			dependents = append(dependents, t)
+			seen[t.Key] = true
 		}
 	}
 
@@ -302,7 +345,7 @@ func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql
 	}
 
 	// Block this task
-	reason := fmt.Sprintf("Prerequisite task %s was reopened", reopenedTaskKey)
+	reason := fmt.Sprintf("%s%s was reopened", DependencyReopenedBlockReasonPrefix, reopenedTaskKey)
 	query := `UPDATE tasks SET status = ?, blocked_at = CURRENT_TIMESTAMP, blocked_reason = ? WHERE id = ?`
 	_, err := tx.ExecContext(ctx, query, models.TaskStatusBlocked, reason, task.ID)
 	if err != nil {
@@ -385,31 +428,55 @@ func isDependencyBlocked(task *models.Task) bool {
 		return false
 	}
 	reason := *task.BlockedReason
-	return strings.HasPrefix(reason, "Prerequisite task ") ||
-		strings.HasPrefix(reason, "Auto-blocked:")
+	return strings.HasPrefix(reason, DependencyReopenedBlockReasonPrefix) ||
+		strings.HasPrefix(reason, AutoBlockedReasonPrefix)
 }
 
-// allDependenciesSatisfiedInTx checks whether every task in the dependent's
-// depends_on list is completed or archived.
+// allDependenciesSatisfiedInTx checks whether every dependency of the task
+// is completed or archived. It checks both the legacy depends_on JSON field
+// and the task_relationships table.
 func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *sql.Tx, task *models.Task) (bool, error) {
-	if task.DependsOn == nil || *task.DependsOn == "" || *task.DependsOn == "[]" {
-		return true, nil
-	}
-
-	var deps []string
-	if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err != nil {
-		return false, fmt.Errorf("invalid depends_on JSON for %s: %w", task.Key, err)
-	}
-
-	for _, depKey := range deps {
-		var status string
-		err := tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE key = ?", depKey).Scan(&status)
-		if err == sql.ErrNoRows {
-			// Dependency task doesn't exist - treat as unsatisfied
-			return false, nil
+	// 1. Check legacy depends_on JSON field
+	if task.DependsOn != nil && *task.DependsOn != "" && *task.DependsOn != "[]" {
+		var deps []string
+		if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err != nil {
+			return false, fmt.Errorf("invalid depends_on JSON for %s: %w", task.Key, err)
 		}
-		if err != nil {
-			return false, fmt.Errorf("failed to check status of dependency %s: %w", depKey, err)
+
+		for _, depKey := range deps {
+			var status string
+			err := tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE key = ?", depKey).Scan(&status)
+			if err == sql.ErrNoRows {
+				// Dependency task doesn't exist - treat as unsatisfied
+				return false, nil
+			}
+			if err != nil {
+				return false, fmt.Errorf("failed to check status of dependency %s: %w", depKey, err)
+			}
+
+			depStatus := models.TaskStatus(status)
+			if depStatus != models.TaskStatusCompleted && depStatus != models.TaskStatusArchived {
+				return false, nil
+			}
+		}
+	}
+
+	// 2. Check task_relationships table for outgoing depends_on relationships
+	relQuery := `
+		SELECT t.status FROM task_relationships tr
+		JOIN tasks t ON t.id = tr.to_task_id
+		WHERE tr.from_task_id = ? AND tr.relationship_type = 'depends_on'
+	`
+	rows, err := tx.QueryContext(ctx, relQuery, task.ID)
+	if err != nil {
+		return false, fmt.Errorf("failed to query task_relationships for %s: %w", task.Key, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		if err := rows.Scan(&status); err != nil {
+			return false, fmt.Errorf("failed to scan relationship dependency status: %w", err)
 		}
 
 		depStatus := models.TaskStatus(status)

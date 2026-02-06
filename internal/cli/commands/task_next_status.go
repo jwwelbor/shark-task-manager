@@ -352,14 +352,7 @@ func performTransition(ctx context.Context, taskRepo *repository.TaskRepository,
 	}
 
 	cli.Success(fmt.Sprintf("Transitioned: %s -> %s", result.CurrentStatus, targetStatus))
-
-	// Display auto-unblocked tasks
-	if len(unblockedKeys) > 0 {
-		cli.Info(fmt.Sprintf("Auto-unblocked %d dependent task(s):", len(unblockedKeys)))
-		for _, key := range unblockedKeys {
-			cli.Info(fmt.Sprintf("  - %s (now todo)", key))
-		}
-	}
+	displayAutoUnblockedTasks(unblockedKeys)
 
 	return nil
 }

@@ -17,7 +17,8 @@ func setupAutoUnblockTest(t *testing.T) (int64, int64, func()) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 
-	// Clean up any leftover test data
+	// Clean up any leftover test data (task_relationships first due to FK)
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E97-F01-%') OR to_task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E97-F01-%')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E97-F01-%')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E97-F01-%'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E97-F01'")
@@ -43,6 +44,7 @@ func setupAutoUnblockTest(t *testing.T) (int64, int64, func()) {
 	featureID, _ := featureResult.LastInsertId()
 
 	cleanup := func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E97-F01-%') OR to_task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E97-F01-%')")
 		_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E97-F01-%')")
 		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E97-F01-%'")
 		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E97-F01'")
@@ -501,4 +503,287 @@ func TestAutoUnblock_UpdateStatusForced_NoUnblockForNonCompletionStatus(t *testi
 	t2, err := taskRepo.GetByKey(ctx, "T-E97-F01-002")
 	require.NoError(t, err)
 	assert.Equal(t, models.TaskStatusBlocked, t2.Status)
+}
+
+// Tests for task_relationships table support
+
+func TestAutoUnblock_TaskRelationships_SingleDependency(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	taskRepo := NewTaskRepository(db)
+
+	_, featureID, cleanup := setupAutoUnblockTest(t)
+	defer cleanup()
+
+	// Create T-001 (completed) and T-002 (blocked, depends on T-001 via task_relationships)
+	task1 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
+		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+	}
+	task2 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+		// No depends_on JSON field — dependency is via task_relationships only
+	}
+
+	require.NoError(t, taskRepo.Create(ctx, task1))
+	require.NoError(t, taskRepo.Create(ctx, task2))
+
+	// Create task_relationship: task2 depends_on task1
+	_, err := database.ExecContext(ctx,
+		"INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, 'depends_on')",
+		task2.ID, task1.ID)
+	require.NoError(t, err)
+
+	// Set dependency-pattern blocked reason
+	_, err = database.ExecContext(ctx,
+		"UPDATE tasks SET blocked_reason = ?, blocked_at = CURRENT_TIMESTAMP WHERE id = ?",
+		"Prerequisite task T-E97-F01-001 was reopened", task2.ID)
+	require.NoError(t, err)
+
+	// Auto-unblock: task1 is completed, task2 depends only on task1 via task_relationships
+	tx, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	assert.Equal(t, []string{"T-E97-F01-002"}, unblocked)
+
+	// Verify DB state
+	updated, err := taskRepo.GetByKey(ctx, "T-E97-F01-002")
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatusTodo, updated.Status)
+}
+
+func TestAutoUnblock_TaskRelationships_MultipleDeps_PartialCompletion(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	taskRepo := NewTaskRepository(db)
+
+	_, featureID, cleanup := setupAutoUnblockTest(t)
+	defer cleanup()
+
+	// T-001 completed, T-002 in_progress, T-003 depends on both via task_relationships
+	task1 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
+		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+	}
+	task2 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+		Status: models.TaskStatusInProgress, Priority: 5, Description: stringPtr(""),
+	}
+	task3 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
+		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+	}
+
+	require.NoError(t, taskRepo.Create(ctx, task1))
+	require.NoError(t, taskRepo.Create(ctx, task2))
+	require.NoError(t, taskRepo.Create(ctx, task3))
+
+	// Create relationships: task3 depends_on task1 and task2
+	_, err := database.ExecContext(ctx,
+		"INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, 'depends_on')",
+		task3.ID, task1.ID)
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx,
+		"INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, 'depends_on')",
+		task3.ID, task2.ID)
+	require.NoError(t, err)
+
+	// Set dependency-pattern blocked reason
+	_, err = database.ExecContext(ctx,
+		"UPDATE tasks SET blocked_reason = ?, blocked_at = CURRENT_TIMESTAMP WHERE id = ?",
+		"Prerequisite task T-E97-F01-001 was reopened", task3.ID)
+	require.NoError(t, err)
+
+	// Completing task1 should NOT unblock task3 (task2 still in_progress)
+	tx, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	assert.Empty(t, unblocked, "should NOT unblock when not all task_relationships deps are completed")
+}
+
+func TestAutoUnblock_TaskRelationships_AllCompleted(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	taskRepo := NewTaskRepository(db)
+
+	_, featureID, cleanup := setupAutoUnblockTest(t)
+	defer cleanup()
+
+	// Both T-001 and T-002 completed, T-003 depends on both via task_relationships
+	task1 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
+		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+	}
+	task2 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+	}
+	task3 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
+		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+	}
+
+	require.NoError(t, taskRepo.Create(ctx, task1))
+	require.NoError(t, taskRepo.Create(ctx, task2))
+	require.NoError(t, taskRepo.Create(ctx, task3))
+
+	// Create relationships: task3 depends_on task1 and task2
+	_, err := database.ExecContext(ctx,
+		"INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, 'depends_on')",
+		task3.ID, task1.ID)
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx,
+		"INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, 'depends_on')",
+		task3.ID, task2.ID)
+	require.NoError(t, err)
+
+	// Set dependency-pattern blocked reason
+	_, err = database.ExecContext(ctx,
+		"UPDATE tasks SET blocked_reason = ?, blocked_at = CURRENT_TIMESTAMP WHERE id = ?",
+		"Prerequisite task T-E97-F01-001 was reopened", task3.ID)
+	require.NoError(t, err)
+
+	// Completing task2 (last dep) SHOULD unblock task3
+	tx, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-002")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	assert.Equal(t, []string{"T-E97-F01-003"}, unblocked)
+
+	// Verify DB state
+	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatusTodo, t3.Status)
+}
+
+func TestAutoUnblock_MixedDependencies_LegacyAndRelationships(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	taskRepo := NewTaskRepository(db)
+
+	_, featureID, cleanup := setupAutoUnblockTest(t)
+	defer cleanup()
+
+	// T-001 completed, T-002 completed
+	// T-003 depends on T-001 via depends_on JSON AND on T-002 via task_relationships
+	task1 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
+		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+	}
+	task2 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+	}
+	task3 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
+		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001"]`), // Legacy depends_on
+	}
+
+	require.NoError(t, taskRepo.Create(ctx, task1))
+	require.NoError(t, taskRepo.Create(ctx, task2))
+	require.NoError(t, taskRepo.Create(ctx, task3))
+
+	// Also add task_relationships: task3 depends_on task2
+	_, err := database.ExecContext(ctx,
+		"INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, 'depends_on')",
+		task3.ID, task2.ID)
+	require.NoError(t, err)
+
+	// Set dependency-pattern blocked reason
+	_, err = database.ExecContext(ctx,
+		"UPDATE tasks SET blocked_reason = ?, blocked_at = CURRENT_TIMESTAMP WHERE id = ?",
+		"Prerequisite task T-E97-F01-001 was reopened", task3.ID)
+	require.NoError(t, err)
+
+	// Both dependencies satisfied — should unblock
+	tx, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-002")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	assert.Equal(t, []string{"T-E97-F01-003"}, unblocked)
+
+	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatusTodo, t3.Status)
+}
+
+func TestAutoUnblock_MixedDependencies_PartialSatisfied(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	taskRepo := NewTaskRepository(db)
+
+	_, featureID, cleanup := setupAutoUnblockTest(t)
+	defer cleanup()
+
+	// T-001 completed, T-002 in_progress
+	// T-003 depends on T-001 via depends_on JSON AND on T-002 via task_relationships
+	task1 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
+		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+	}
+	task2 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+		Status: models.TaskStatusInProgress, Priority: 5, Description: stringPtr(""),
+	}
+	task3 := &models.Task{
+		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
+		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001"]`), // Legacy dep satisfied
+	}
+
+	require.NoError(t, taskRepo.Create(ctx, task1))
+	require.NoError(t, taskRepo.Create(ctx, task2))
+	require.NoError(t, taskRepo.Create(ctx, task3))
+
+	// task_relationships dep NOT satisfied (task2 in_progress)
+	_, err := database.ExecContext(ctx,
+		"INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, 'depends_on')",
+		task3.ID, task2.ID)
+	require.NoError(t, err)
+
+	// Set dependency-pattern blocked reason
+	_, err = database.ExecContext(ctx,
+		"UPDATE tasks SET blocked_reason = ?, blocked_at = CURRENT_TIMESTAMP WHERE id = ?",
+		"Prerequisite task T-E97-F01-001 was reopened", task3.ID)
+	require.NoError(t, err)
+
+	// Legacy dep satisfied but relationship dep not — should NOT unblock
+	tx, err := db.BeginTxContext(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	unblocked, err := taskRepo.AutoUnblockDependents(ctx, tx, "T-E97-F01-001")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	assert.Empty(t, unblocked, "should NOT unblock when task_relationships dep is unsatisfied")
+
+	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
+	require.NoError(t, err)
+	assert.Equal(t, models.TaskStatusBlocked, t3.Status)
 }
