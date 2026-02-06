@@ -1398,35 +1398,18 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		featureFilePath = absPath
 		customFilePath = &relPath
 	} else {
-		// Default behavior: create feature in epic's directory (from database)
-		// Use PathResolver to get epic's correct directory path
+		// Default behavior: derive feature path from epic's stored location via PathResolver
 		pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, nil, projectRoot)
-		epicPath, err := pathResolver.ResolveEpicPath(ctx, epic.Key)
+		epicBaseDir, err := pathResolver.ResolveFeatureBaseDir(ctx, epic.Key)
 		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to resolve epic directory: %v", err))
+			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
 
-		// Extract directory from epic.md path (remove filename)
-		epicDir := filepath.Dir(epicPath)
+		// Feature directory: {epicBaseDir}/{feature-slug}/
+		featureDir := filepath.Join(projectRoot, epicBaseDir, featureSlug)
 
-		// Validate that the epic directory exists
-		fileInfo, err := os.Stat(epicDir)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Epic directory does not exist: %s", epicDir))
-			cli.Info("Run 'shark init' to create the directory structure")
-			os.Exit(1)
-		}
-		if !fileInfo.IsDir() {
-			cli.Error(fmt.Sprintf("Error: Expected directory but found file at: %s", epicDir))
-			cli.Info("Please remove or rename the file to resolve the conflict")
-			os.Exit(1)
-		}
-
-		// Create feature directory
-		featureDir := fmt.Sprintf("%s/%s", epicDir, featureSlug)
-
-		// Check if feature already exists
+		// Check if feature directory already exists
 		if _, err := os.Stat(featureDir); err == nil {
 			cli.Error(fmt.Sprintf("Error: Feature directory already exists: %s", featureDir))
 			os.Exit(1)
@@ -1438,9 +1421,9 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 
-		// Set both featureFilePath and customFilePath
-		featureFilePath = fmt.Sprintf("%s/feature.md", featureDir)
-		relPath := featureFilePath // This is already a relative path from project root
+		// Set both featureFilePath and customFilePath (relative path for DB)
+		relPath := filepath.Join(epicBaseDir, featureSlug, "feature.md")
+		featureFilePath = filepath.Join(projectRoot, relPath)
 		customFilePath = &relPath
 	}
 

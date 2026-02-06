@@ -18,9 +18,8 @@ func BenchmarkGetDashboard_EmptyDatabase(b *testing.B) {
 	service := NewStatusService(db)
 
 	// Clear all data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this benchmark creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'E0%'")
 
 	req := &StatusRequest{}
 
@@ -201,9 +200,8 @@ func setupSmallProject(b *testing.B, database *sql.DB) {
 	ctx := context.Background()
 
 	// Clear existing data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this benchmark creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'E0%'")
 
 	// Create 5 epics
 	for epicNum := 1; epicNum <= 5; epicNum++ {
@@ -260,9 +258,8 @@ func setupLargeProject(b *testing.B, database *sql.DB) {
 	ctx := context.Background()
 
 	// Clear existing data
-	_, _ = database.ExecContext(ctx, "DELETE FROM tasks")
-	_, _ = database.ExecContext(ctx, "DELETE FROM features")
-	_, _ = database.ExecContext(ctx, "DELETE FROM epics")
+	// Scoped cleanup: only delete keys this benchmark creates (CASCADE handles features/tasks)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key LIKE 'E0%'")
 
 	// Create 20 epics
 	for epicNum := 1; epicNum <= 20; epicNum++ {

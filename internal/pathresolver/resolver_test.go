@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -362,5 +363,311 @@ func TestPathPrecedence_EpicWithAllOptions(t *testing.T) {
 	expected := filepath.Join(projectRoot, explicitPath)
 	if path != expected {
 		t.Errorf("expected explicit path %s, got %s", expected, path)
+	}
+}
+
+// --- ResolveFeatureBaseDir tests ---
+
+func TestResolveFeatureBaseDir_EpicWithFilePath(t *testing.T) {
+	ctx := context.Background()
+
+	epicPath := "docs/plan/E01-my-epic/epic.md"
+	mockEpicRepo := &MockEpicRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				ID:       1,
+				Key:      "E01",
+				Title:    "My Epic",
+				FilePath: &epicPath,
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(mockEpicRepo, nil, nil, "/project")
+	dir, err := resolver.ResolveFeatureBaseDir(ctx, "E01")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := "docs/plan/E01-my-epic"
+	if dir != expected {
+		t.Errorf("expected %s, got %s", expected, dir)
+	}
+}
+
+func TestResolveFeatureBaseDir_EpicWithCustomPath(t *testing.T) {
+	ctx := context.Background()
+
+	epicPath := "backend/docs/roadmap/epic.md"
+	mockEpicRepo := &MockEpicRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				ID:       1,
+				Key:      "E01",
+				Title:    "My Epic",
+				FilePath: &epicPath,
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(mockEpicRepo, nil, nil, "/project")
+	dir, err := resolver.ResolveFeatureBaseDir(ctx, "E01")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := "backend/docs/roadmap"
+	if dir != expected {
+		t.Errorf("expected %s, got %s", expected, dir)
+	}
+}
+
+func TestResolveFeatureBaseDir_EpicWithNoFilePath_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+
+	mockEpicRepo := &MockEpicRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				ID:    1,
+				Key:   "E07",
+				Title: "Epic Without Path",
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(mockEpicRepo, nil, nil, "/project")
+	_, err := resolver.ResolveFeatureBaseDir(ctx, "E07")
+
+	if err == nil {
+		t.Fatal("expected error when epic has no file_path, got nil")
+	}
+
+	// Should mention the epic key
+	if !strings.Contains(err.Error(), "E07") {
+		t.Errorf("error should mention epic key E07, got: %v", err)
+	}
+	// Should suggest the fix command
+	if !strings.Contains(err.Error(), "shark epic update") {
+		t.Errorf("error should suggest 'shark epic update' command, got: %v", err)
+	}
+	// Should mention --file flag
+	if !strings.Contains(err.Error(), "--file") {
+		t.Errorf("error should mention --file flag, got: %v", err)
+	}
+}
+
+func TestResolveFeatureBaseDir_EpicWithEmptyFilePath_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+
+	emptyPath := ""
+	mockEpicRepo := &MockEpicRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				ID:       1,
+				Key:      "E07",
+				Title:    "Epic With Empty Path",
+				FilePath: &emptyPath,
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(mockEpicRepo, nil, nil, "/project")
+	_, err := resolver.ResolveFeatureBaseDir(ctx, "E07")
+
+	if err == nil {
+		t.Fatal("expected error when epic has empty file_path, got nil")
+	}
+	if !strings.Contains(err.Error(), "shark epic update") {
+		t.Errorf("error should suggest fix command, got: %v", err)
+	}
+}
+
+func TestResolveFeatureBaseDir_EpicNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	mockEpicRepo := &MockEpicRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, errors.New("epic not found")
+		},
+	}
+
+	resolver := NewPathResolver(mockEpicRepo, nil, nil, "/project")
+	_, err := resolver.ResolveFeatureBaseDir(ctx, "E99")
+
+	if err == nil {
+		t.Fatal("expected error for non-existent epic, got nil")
+	}
+}
+
+// --- ResolveTaskBaseDir tests ---
+
+func TestResolveTaskBaseDir_FeatureWithFilePath(t *testing.T) {
+	ctx := context.Background()
+
+	featurePath := "docs/plan/E01-my-epic/E01-F01-auth/feature.md"
+	mockFeatureRepo := &MockFeatureRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				ID:       1,
+				EpicID:   1,
+				Key:      "E01-F01",
+				Title:    "Auth Feature",
+				FilePath: &featurePath,
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(nil, mockFeatureRepo, nil, "/project")
+	dir, err := resolver.ResolveTaskBaseDir(ctx, "E01-F01")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := "docs/plan/E01-my-epic/E01-F01-auth"
+	if dir != expected {
+		t.Errorf("expected %s, got %s", expected, dir)
+	}
+}
+
+func TestResolveTaskBaseDir_FeatureAtCustomPath(t *testing.T) {
+	ctx := context.Background()
+
+	featurePath := "backend/docs/features/auth-feature.md"
+	mockFeatureRepo := &MockFeatureRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				ID:       1,
+				EpicID:   1,
+				Key:      "E01-F01",
+				Title:    "Auth Feature",
+				FilePath: &featurePath,
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(nil, mockFeatureRepo, nil, "/project")
+	dir, err := resolver.ResolveTaskBaseDir(ctx, "E01-F01")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Task should go under the feature file's directory, NOT docs/plan/
+	expected := "backend/docs/features"
+	if dir != expected {
+		t.Errorf("expected %s, got %s", expected, dir)
+	}
+}
+
+func TestResolveTaskBaseDir_StandaloneFeatureFile(t *testing.T) {
+	ctx := context.Background()
+
+	// Feature file stored directly in epic folder (no feature subfolder)
+	featurePath := "docs/plan/E01-my-epic/F11-technical-architecture.md"
+	mockFeatureRepo := &MockFeatureRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				ID:       1,
+				EpicID:   1,
+				Key:      "E01-F11",
+				Title:    "Technical Architecture",
+				FilePath: &featurePath,
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(nil, mockFeatureRepo, nil, "/project")
+	dir, err := resolver.ResolveTaskBaseDir(ctx, "E01-F11")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Tasks should go under the feature file's directory
+	expected := "docs/plan/E01-my-epic"
+	if dir != expected {
+		t.Errorf("expected %s, got %s", expected, dir)
+	}
+}
+
+func TestResolveTaskBaseDir_FeatureWithNoFilePath_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+
+	mockFeatureRepo := &MockFeatureRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				ID:     1,
+				EpicID: 1,
+				Key:    "E07-F03",
+				Title:  "Feature Without Path",
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(nil, mockFeatureRepo, nil, "/project")
+	_, err := resolver.ResolveTaskBaseDir(ctx, "E07-F03")
+
+	if err == nil {
+		t.Fatal("expected error when feature has no file_path, got nil")
+	}
+
+	// Should mention the feature key
+	if !strings.Contains(err.Error(), "E07-F03") {
+		t.Errorf("error should mention feature key E07-F03, got: %v", err)
+	}
+	// Should suggest the fix command
+	if !strings.Contains(err.Error(), "shark feature update") {
+		t.Errorf("error should suggest 'shark feature update' command, got: %v", err)
+	}
+	// Should mention --file flag
+	if !strings.Contains(err.Error(), "--file") {
+		t.Errorf("error should mention --file flag, got: %v", err)
+	}
+}
+
+func TestResolveTaskBaseDir_FeatureWithEmptyFilePath_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+
+	emptyPath := ""
+	mockFeatureRepo := &MockFeatureRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				ID:       1,
+				EpicID:   1,
+				Key:      "E07-F03",
+				Title:    "Feature With Empty Path",
+				FilePath: &emptyPath,
+			}, nil
+		},
+	}
+
+	resolver := NewPathResolver(nil, mockFeatureRepo, nil, "/project")
+	_, err := resolver.ResolveTaskBaseDir(ctx, "E07-F03")
+
+	if err == nil {
+		t.Fatal("expected error when feature has empty file_path, got nil")
+	}
+	if !strings.Contains(err.Error(), "shark feature update") {
+		t.Errorf("error should suggest fix command, got: %v", err)
+	}
+}
+
+func TestResolveTaskBaseDir_FeatureNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	mockFeatureRepo := &MockFeatureRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, errors.New("feature not found")
+		},
+	}
+
+	resolver := NewPathResolver(nil, mockFeatureRepo, nil, "/project")
+	_, err := resolver.ResolveTaskBaseDir(ctx, "E99-F99")
+
+	if err == nil {
+		t.Fatal("expected error for non-existent feature, got nil")
 	}
 }

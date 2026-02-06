@@ -173,3 +173,45 @@ func (pr *PathResolver) ResolveTaskPath(ctx context.Context, taskKey string) (st
 
 	return filepath.Join(pr.projectRoot, taskPath), nil
 }
+
+// ResolveFeatureBaseDir returns the relative directory path where new feature files
+// should be created, based on the parent epic's stored file_path.
+// If the epic has no file_path set, returns a friendly error directing the user
+// to set the path with the appropriate command.
+func (pr *PathResolver) ResolveFeatureBaseDir(ctx context.Context, epicKey string) (string, error) {
+	epic, err := pr.epicRepo.GetByKey(ctx, epicKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to get epic %s: %w", epicKey, err)
+	}
+
+	if epic.FilePath != nil && *epic.FilePath != "" {
+		return filepath.Dir(*epic.FilePath), nil
+	}
+
+	return "", fmt.Errorf(
+		"cannot create feature: epic %s has no file path set in the database.\n"+
+			"Set it with: shark epic update %s --file=\"docs/plan/%s/epic.md\"",
+		epic.Key, epic.Key, epic.Key,
+	)
+}
+
+// ResolveTaskBaseDir returns the relative directory path where new task files
+// should be created, based on the parent feature's stored file_path.
+// If the feature has no file_path set, returns a friendly error directing the user
+// to set the path with the appropriate command.
+func (pr *PathResolver) ResolveTaskBaseDir(ctx context.Context, featureKey string) (string, error) {
+	feature, err := pr.featureRepo.GetByKey(ctx, featureKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to get feature %s: %w", featureKey, err)
+	}
+
+	if feature.FilePath != nil && *feature.FilePath != "" {
+		return filepath.Dir(*feature.FilePath), nil
+	}
+
+	return "", fmt.Errorf(
+		"cannot create task: feature %s has no file path set in the database.\n"+
+			"Set it with: shark feature update %s --file=\"docs/plan/<epic-folder>/%s/feature.md\"",
+		feature.Key, feature.Key, feature.Key,
+	)
+}

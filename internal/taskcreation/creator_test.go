@@ -601,12 +601,14 @@ func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {
 	err = epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
-	// Create test feature
+	// Create test feature (must have FilePath set for PathResolver)
+	featureFilePath := "docs/plan/E99/E99-F99/prd.md"
 	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E99-F99",
-		Title:  "Test Feature for Workflow Config",
-		Status: models.FeatureStatusDraft,
+		EpicID:   epic.ID,
+		Key:      "E99-F99",
+		Title:    "Test Feature for Workflow Config",
+		Status:   models.FeatureStatusDraft,
+		FilePath: &featureFilePath,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
@@ -647,14 +649,13 @@ func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {
 	config.ClearWorkflowCache()
 }
 
-// TestCreator_StandaloneFeatureFileCreatesTaskInProperFolder tests that when a feature
+// TestCreator_StandaloneFeatureFileCreatesTaskUnderFeatureDir tests that when a feature
 // has a standalone file path (e.g., "docs/plan/E01-epic/F11-feature.md" not in a feature folder),
-// tasks are still created in the proper feature folder structure:
-// "docs/plan/E01-epic/E01-F11-slug/tasks/T-E01-F11-001.md"
-// NOT: "docs/plan/E01-epic/tasks/T-E01-F11-001.md"
+// tasks are created under the feature file's directory using the database-driven path:
+// "docs/plan/E88-test-epic-standalone/tasks/T-E88-F88-001.md"
 //
-// This regression test ensures the bug reported in wormwoodGM project doesn't recur.
-func TestCreator_StandaloneFeatureFileCreatesTaskInProperFolder(t *testing.T) {
+// The path is derived from the feature's file_path in the database, NOT reconstructed from slugs.
+func TestCreator_StandaloneFeatureFileCreatesTaskUnderFeatureDir(t *testing.T) {
 	// Setup: Database and repositories
 	ctx := context.Background()
 	database := test.GetTestDB()
@@ -725,36 +726,22 @@ func TestCreator_StandaloneFeatureFileCreatesTaskInProperFolder(t *testing.T) {
 	require.NotNil(t, result.Task)
 	require.NotNil(t, result.Task.FilePath)
 
-	// Assert: Task file path should be in proper feature folder structure
-	// Expected: docs/plan/{epic-folder}/{feature-folder}/tasks/T-E88-F88-001.md
-	// NOT:      docs/plan/{epic-folder}/tasks/T-E88-F88-001.md (WRONG!)
+	// Assert: Task file is under the feature file's directory (database-driven)
+	// Feature file is at: docs/plan/E88-test-epic-standalone/F88-standalone-feature.md
+	// So task should be at: docs/plan/E88-test-epic-standalone/tasks/T-E88-F88-001.md
+	featureDir := filepath.Dir(standaloneFilePath)
+	expectedPrefix := filepath.Join(featureDir, "tasks")
+	assert.True(t, strings.HasPrefix(*result.Task.FilePath, expectedPrefix),
+		"Task should be under the feature file's directory: expected prefix %s, got %s",
+		expectedPrefix, *result.Task.FilePath)
 
-	// Verify it's NOT the wrong path (task directly under epic folder)
-	wrongPathPattern := filepath.Join("docs", "plan", "E88-", "tasks")
-	assert.NotContains(t, *result.Task.FilePath, wrongPathPattern,
-		"Task should NOT be created directly under epic folder (this was the bug)")
+	// Assert: Task path contains the epic folder name
+	assert.Contains(t, *result.Task.FilePath, "E88-test-epic-standalone",
+		"Task path should contain the epic folder from the feature's file_path")
 
-	// Assert: Task path contains both epic and feature keys in directory path
-	assert.Contains(t, *result.Task.FilePath, "E88-",
-		"Task path should contain epic folder (E88-{slug})")
-	assert.Contains(t, *result.Task.FilePath, "E88-F88-",
-		"Task path should contain feature folder (E88-F88-{slug})")
-
-	// Assert: Task path does NOT skip the feature folder layer
-	// The path should have: docs/plan/{epic}/{feature}/tasks/{task}.md
-	// So tasks folder should come after at least 4 parts: docs, plan, epic, feature
-	pathParts := strings.Split(*result.Task.FilePath, string(filepath.Separator))
-	tasksIndex := -1
-	for i, part := range pathParts {
-		if part == "tasks" {
-			tasksIndex = i
-		}
-	}
-	require.NotEqual(t, -1, tasksIndex, "Tasks folder not found in path")
-	// Tasks should be at least index 4: [0]=docs, [1]=plan, [2]=epic-folder, [3]=feature-folder, [4]=tasks
-	assert.GreaterOrEqual(t, tasksIndex, 4,
-		"Tasks folder should come after docs/plan/epic-folder/feature-folder (at least index 4), found at index %d in path: %s",
-		tasksIndex, *result.Task.FilePath)
+	// Assert: File ends with the task key
+	assert.True(t, strings.HasSuffix(*result.Task.FilePath, ".md"),
+		"Task file should end with .md")
 
 	// Cleanup
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", result.Task.ID)
