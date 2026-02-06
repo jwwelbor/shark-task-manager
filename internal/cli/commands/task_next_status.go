@@ -68,6 +68,7 @@ type NextStatusResult struct {
 	NewStatus            string             `json:"new_status,omitempty"`
 	Transitioned         bool               `json:"transitioned"`
 	Message              string             `json:"message,omitempty"`
+	AutoUnblocked        []string           `json:"auto_unblocked,omitempty"`
 }
 
 func runTaskNextStatus(cmd *cobra.Command, args []string) error {
@@ -332,19 +333,15 @@ func performTransition(ctx context.Context, taskRepo *repository.TaskRepository,
 		rejectionReasonPtr = &reason
 	}
 
-	var err error
-	if force {
-		err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, rejectionReasonPtr, documentPath, true)
-	} else {
-		err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, rejectionReasonPtr, documentPath, false)
-	}
-
+	// Use UpdateStatusForcedWithUnblock to get auto-unblocked task keys
+	unblockedKeys, err := taskRepo.UpdateStatusForcedWithUnblock(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, rejectionReasonPtr, documentPath, force)
 	if err != nil {
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 
 	result.NewStatus = targetStatus
 	result.Transitioned = true
+	result.AutoUnblocked = unblockedKeys
 
 	// Trigger cascade
 	triggerStatusCascade(ctx, repoDb, task.FeatureID)
@@ -355,5 +352,14 @@ func performTransition(ctx context.Context, taskRepo *repository.TaskRepository,
 	}
 
 	cli.Success(fmt.Sprintf("Transitioned: %s -> %s", result.CurrentStatus, targetStatus))
+
+	// Display auto-unblocked tasks
+	if len(unblockedKeys) > 0 {
+		cli.Info(fmt.Sprintf("Auto-unblocked %d dependent task(s):", len(unblockedKeys)))
+		for _, key := range unblockedKeys {
+			cli.Info(fmt.Sprintf("  - %s (now todo)", key))
+		}
+	}
+
 	return nil
 }

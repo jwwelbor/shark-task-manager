@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/dependency"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -328,6 +329,112 @@ func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql
 		if err := r.blockTaskAndDependentsInTx(ctx, tx, dependent, reopenedTaskKey, blockedTasks); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// AutoUnblockDependents checks all tasks that depend on the completed task and
+// unblocks those whose dependencies are all satisfied. Only tasks blocked with
+// a dependency-pattern reason (set by ReopenTaskWithAutoBlock) are eligible.
+// Returns the keys of tasks that were auto-unblocked.
+func (r *TaskRepository) AutoUnblockDependents(ctx context.Context, tx *sql.Tx, completedTaskKey string) ([]string, error) {
+	// Get dependents of the completed task
+	dependents, err := r.getTaskDependentsInTx(ctx, tx, completedTaskKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dependents: %w", err)
+	}
+
+	var unblocked []string
+	for _, dependent := range dependents {
+		// Only consider blocked tasks
+		if dependent.Status != models.TaskStatusBlocked {
+			continue
+		}
+
+		// Only auto-unblock tasks blocked due to dependencies (not manual blocks)
+		if !isDependencyBlocked(dependent) {
+			continue
+		}
+
+		// Check if ALL dependencies of this task are now completed/archived
+		allSatisfied, err := r.allDependenciesSatisfiedInTx(ctx, tx, dependent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check dependencies for %s: %w", dependent.Key, err)
+		}
+
+		if !allSatisfied {
+			continue
+		}
+
+		// Unblock the task: set status to todo, clear blocked_at and blocked_reason
+		if err := r.unblockTaskInTx(ctx, tx, dependent); err != nil {
+			return nil, fmt.Errorf("failed to unblock %s: %w", dependent.Key, err)
+		}
+
+		unblocked = append(unblocked, dependent.Key)
+	}
+
+	return unblocked, nil
+}
+
+// isDependencyBlocked returns true if the task was blocked due to a dependency
+// (by ReopenTaskWithAutoBlock), not a manual block.
+func isDependencyBlocked(task *models.Task) bool {
+	if task.BlockedReason == nil || *task.BlockedReason == "" {
+		return false
+	}
+	reason := *task.BlockedReason
+	return strings.HasPrefix(reason, "Prerequisite task ") ||
+		strings.HasPrefix(reason, "Auto-blocked:")
+}
+
+// allDependenciesSatisfiedInTx checks whether every task in the dependent's
+// depends_on list is completed or archived.
+func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *sql.Tx, task *models.Task) (bool, error) {
+	if task.DependsOn == nil || *task.DependsOn == "" || *task.DependsOn == "[]" {
+		return true, nil
+	}
+
+	var deps []string
+	if err := json.Unmarshal([]byte(*task.DependsOn), &deps); err != nil {
+		return false, fmt.Errorf("invalid depends_on JSON for %s: %w", task.Key, err)
+	}
+
+	for _, depKey := range deps {
+		var status string
+		err := tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE key = ?", depKey).Scan(&status)
+		if err == sql.ErrNoRows {
+			// Dependency task doesn't exist - treat as unsatisfied
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("failed to check status of dependency %s: %w", depKey, err)
+		}
+
+		depStatus := models.TaskStatus(status)
+		if depStatus != models.TaskStatusCompleted && depStatus != models.TaskStatusArchived {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// unblockTaskInTx transitions a task from blocked to todo within a transaction,
+// clearing blocked_at and blocked_reason, and recording history.
+func (r *TaskRepository) unblockTaskInTx(ctx context.Context, tx *sql.Tx, task *models.Task) error {
+	query := `UPDATE tasks SET status = ?, blocked_at = NULL, blocked_reason = NULL WHERE id = ?`
+	_, err := tx.ExecContext(ctx, query, models.TaskStatusTodo, task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to unblock task: %w", err)
+	}
+
+	notes := "Auto-unblocked: all dependencies satisfied"
+	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, models.TaskStatusTodo, nil, notes, false)
+	if err != nil {
+		return fmt.Errorf("failed to create history record: %w", err)
 	}
 
 	return nil
