@@ -32,6 +32,27 @@ func getRelativePathTask(absPath string, projectRoot string) string {
 	return relPath
 }
 
+// newWorkflowAwareTaskRepository creates a task repository with workflow support.
+// Returns the repository, the loaded workflow config (may be nil), and any error.
+func newWorkflowAwareTaskRepository(db *repository.DB) (*repository.TaskRepository, *config.WorkflowConfig, error) {
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get config path: %w", err)
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(db, workflow)
+	} else {
+		repo = repository.NewTaskRepository(db)
+	}
+	return repo, workflow, nil
+}
+
 // displayAutoUnblockedTasks shows which tasks were auto-unblocked after a status change.
 func displayAutoUnblockedTasks(unblockedKeys []string) {
 	if len(unblockedKeys) > 0 {
@@ -1471,7 +1492,7 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1666,7 +1687,7 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	displayOrchestratorAction(orchestratorAction)
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1797,7 +1818,7 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	displayAutoUnblockedTasks(unblockedKeys)
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1840,20 +1861,9 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository with workflow support
-	configPath, err := cli.GetConfigPath()
+	repo, workflow, err := newWorkflowAwareTaskRepository(repoDb)
 	if err != nil {
-		return fmt.Errorf("failed to get config path: %w", err)
-	}
-	workflow, err := config.LoadWorkflowConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load workflow config: %w", err)
-	}
-
-	var repo *repository.TaskRepository
-	if workflow != nil {
-		repo = repository.NewTaskRepositoryWithWorkflow(repoDb, workflow)
-	} else {
-		repo = repository.NewTaskRepository(repoDb)
+		return err
 	}
 
 	// Get task by key
@@ -1913,7 +1923,7 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Task %s blocked. Reason: %s", taskKey, reason))
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1938,21 +1948,9 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository with workflow support
-	dbWrapper := repoDb
-	configPath, err := cli.GetConfigPath()
+	repo, _, err := newWorkflowAwareTaskRepository(repoDb)
 	if err != nil {
-		return fmt.Errorf("failed to get config path: %w", err)
-	}
-	workflow, err := config.LoadWorkflowConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load workflow config: %w", err)
-	}
-
-	var repo *repository.TaskRepository
-	if workflow != nil {
-		repo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
-	} else {
-		repo = repository.NewTaskRepository(dbWrapper)
+		return err
 	}
 
 	// Get task by key
@@ -1988,7 +1986,7 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Task %s unblocked and returned to todo queue", taskKey))
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -2013,21 +2011,9 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Create repository with workflow support
-	dbWrapper := repoDb
-	configPath, err := cli.GetConfigPath()
+	repo, workflow, err := newWorkflowAwareTaskRepository(repoDb)
 	if err != nil {
-		return fmt.Errorf("failed to get config path: %w", err)
-	}
-	workflow, err := config.LoadWorkflowConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load workflow config: %w", err)
-	}
-
-	var repo *repository.TaskRepository
-	if workflow != nil {
-		repo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
-	} else {
-		repo = repository.NewTaskRepository(dbWrapper)
+		return err
 	}
 
 	// Get task by key
@@ -2128,7 +2114,7 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Task %s reopened for rework.", taskKey))
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -2174,7 +2160,7 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Task %s deleted successfully", taskKey))
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, featureID)
+	triggerStatusCascade(ctx, repoDb, featureID)
 
 	return nil
 }
@@ -2445,13 +2431,11 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		// Load workflow config for status validation
 		configPath, err := cli.GetConfigPath()
 		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to get config path: %v", err))
-			os.Exit(1)
+			return fmt.Errorf("failed to get config path: %w", err)
 		}
 		workflow, err := config.LoadWorkflowConfig(configPath)
 		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to load workflow config: %v", err))
-			os.Exit(1)
+			return fmt.Errorf("failed to load workflow config: %w", err)
 		}
 
 		// Get force flag and reason flag
