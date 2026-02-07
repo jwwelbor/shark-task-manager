@@ -308,12 +308,12 @@ func TestWorkflowPhaseBasedReopenTargets(t *testing.T) {
 		// Verify reopen targets do NOT include review, qa, approval, done, or any phases
 		forbiddenPhases := map[string]bool{
 			"ready_for_code_review": true,
-			"in_code_review":       true,
-			"ready_for_qa":         true,
-			"in_qa":                true,
-			"ready_for_approval":   true,
-			"completed":            true,
-			"blocked":              true,
+			"in_code_review":        true,
+			"ready_for_qa":          true,
+			"in_qa":                 true,
+			"ready_for_approval":    true,
+			"completed":             true,
+			"blocked":               true,
 		}
 
 		for _, target := range reopenTargets {
@@ -340,10 +340,10 @@ func TestWorkflowPhaseBasedReopenTargets(t *testing.T) {
 		basicWorkflow := &config.WorkflowConfig{
 			StatusMetadata: map[string]config.StatusMetadata{
 				"todo":             {Phase: "planning"},
-				"in_progress":     {Phase: "development"},
+				"in_progress":      {Phase: "development"},
 				"ready_for_review": {Phase: "review"},
-				"completed":       {Phase: "done"},
-				"blocked":         {Phase: "any"},
+				"completed":        {Phase: "done"},
+				"blocked":          {Phase: "any"},
 			},
 		}
 
