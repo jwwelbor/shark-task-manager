@@ -244,6 +244,43 @@ func TestLoadWorkflowConfig_UnsupportedVersion(t *testing.T) {
 	}
 }
 
+// Test workflow parser - supported 1.x versions
+func TestLoadWorkflowConfig_Supported1xVersions(t *testing.T) {
+	versions := []string{"1.0", "1.1", "1.2", "1.99"}
+	for _, version := range versions {
+		t.Run(version, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+			configContent := fmt.Sprintf(`{
+				"status_flow_version": %q,
+				"status_flow": {
+					"todo": ["done"],
+					"done": []
+				},
+				"special_statuses": {
+					"_start_": ["todo"],
+					"_complete_": ["done"]
+				}
+			}`, version)
+
+			if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+				t.Fatalf("failed to write test config: %v", err)
+			}
+
+			ClearWorkflowCache()
+
+			wf, err := LoadWorkflowConfig(configPath)
+			if err != nil {
+				t.Errorf("version %s should be supported, got error: %v", version, err)
+			}
+			if wf != nil && wf.Version != version {
+				t.Errorf("expected version %s, got %s", version, wf.Version)
+			}
+		})
+	}
+}
+
 // Test GetWorkflowOrDefault
 func TestGetWorkflowOrDefault(t *testing.T) {
 	ClearWorkflowCache()

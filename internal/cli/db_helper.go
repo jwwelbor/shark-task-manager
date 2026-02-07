@@ -47,19 +47,20 @@ func GetDatabaseConfig(configPath string) (config.DatabaseConfig, error) {
 		return config.DatabaseConfig{}, fmt.Errorf("invalid database config format")
 	}
 
-	// Extract fields
+	// Extract fields, expanding environment variables in string values
+	// so .sharkconfig.json can use $VAR or ${VAR} references for local overrides
 	dbConfig := config.DatabaseConfig{}
 
 	if backend, ok := dbConfigMap["backend"].(string); ok {
-		dbConfig.Backend = backend
+		dbConfig.Backend = os.ExpandEnv(backend)
 	}
 
 	if url, ok := dbConfigMap["url"].(string); ok {
-		dbConfig.URL = url
+		dbConfig.URL = os.ExpandEnv(url)
 	}
 
 	if authTokenFile, ok := dbConfigMap["auth_token_file"].(string); ok {
-		dbConfig.AuthTokenFile = authTokenFile
+		dbConfig.AuthTokenFile = os.ExpandEnv(authTokenFile)
 	}
 
 	if embeddedReplica, ok := dbConfigMap["embedded_replica"].(bool); ok {

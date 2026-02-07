@@ -1839,8 +1839,22 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	}
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
-	repo := repository.NewTaskRepository(repoDb)
+	// Create repository with workflow support
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(repoDb, workflow)
+	} else {
+		repo = repository.NewTaskRepository(repoDb)
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1855,7 +1869,6 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	// Validate current status allows transition to blocked unless forcing
 	// Use workflow config to determine valid transitions
 	if !force {
-		workflow := repo.GetWorkflow()
 		if workflow != nil && workflow.StatusFlow != nil {
 			allowedTransitions := workflow.StatusFlow[string(task.Status)]
 			canBlock := false
@@ -1924,9 +1937,23 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	}
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
+	// Create repository with workflow support
 	dbWrapper := repoDb
-	repo := repository.NewTaskRepository(dbWrapper)
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
+	} else {
+		repo = repository.NewTaskRepository(dbWrapper)
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1985,9 +2012,23 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	}
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
+	// Create repository with workflow support
 	dbWrapper := repoDb
-	repo := repository.NewTaskRepository(dbWrapper)
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
+	} else {
+		repo = repository.NewTaskRepository(dbWrapper)
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -2002,12 +2043,14 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	// Validate current status allows reopening (typically means transitioning back to an earlier workflow stage)
 	// Use workflow config to determine valid transitions
 	if !force {
-		workflow := repo.GetWorkflow()
 		if workflow != nil && workflow.StatusFlow != nil {
 			allowedTransitions := workflow.StatusFlow[string(task.Status)]
 			canReopen := false
-			// Reopen typically means going back to a development/refinement status
-			reopenTargets := []string{"in_development", "in_progress", "ready_for_development", "ready_for_refinement", "in_refinement"}
+			// Get reopen targets from planning and development phases
+			reopenTargets := append(
+				workflow.GetStatusesByPhase("planning"),
+				workflow.GetStatusesByPhase("development")...,
+			)
 			for _, nextStatus := range allowedTransitions {
 				for _, target := range reopenTargets {
 					if nextStatus == target {
@@ -2400,9 +2443,10 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	status, _ := cmd.Flags().GetString("status")
 	if status != "" {
 		// Load workflow config for status validation
-		configPath := cli.GlobalConfig.ConfigFile
-		if configPath == "" {
-			configPath = ".sharkconfig.json"
+		configPath, err := cli.GetConfigPath()
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to get config path: %v", err))
+			os.Exit(1)
 		}
 		workflow, err := config.LoadWorkflowConfig(configPath)
 		if err != nil {
@@ -2531,9 +2575,9 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	dbWrapper := repoDb
 
 	// Load workflow config for repository
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 	workflow, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {

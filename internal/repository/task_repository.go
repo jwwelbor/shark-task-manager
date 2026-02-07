@@ -845,8 +845,8 @@ func (r *TaskRepository) UpdateStatusForcedWithUnblock(ctx context.Context, task
 // and UpdateStatusForcedWithUnblock. It performs the status update and auto-unblock
 // in a single transaction, returning any auto-unblocked task keys.
 func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error) {
-	// Validate status is valid enum
-	if !r.isValidStatusEnum(newStatus) {
+	// Validate status is valid enum (skip when force=true to allow any status string)
+	if !force && !r.isValidStatusEnum(newStatus) {
 		return nil, fmt.Errorf("invalid status: %s", newStatus)
 	}
 	// Start transaction
