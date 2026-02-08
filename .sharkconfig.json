@@ -458,7 +458,7 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "wait_for_triage",
-        "instruction_template": "Task {task_id} is in draft status. Update with next-status to begin planning."
+        "instruction_template": "Task {task_id} is in todo status. Update with next-status to begin planning."
       }
     }
   }
