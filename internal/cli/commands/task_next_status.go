@@ -121,7 +121,10 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load workflow config for repository
-	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
 	workflowConfig := config.GetWorkflowOrDefault(configPath)
 
 	// Get task - use workflow-aware repository

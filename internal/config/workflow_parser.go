@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -113,9 +114,9 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 		workflow.SpecialStatuses = make(map[string][]string)
 	}
 
-	// Validate version is supported
-	if workflow.Version != "1.0" {
-		return nil, fmt.Errorf("unsupported workflow config version %s (supported: 1.0). Upgrade Shark to use this config", workflow.Version)
+	// Validate version is supported (any 1.x version)
+	if !strings.HasPrefix(workflow.Version, "1.") {
+		return nil, fmt.Errorf("unsupported workflow config version %s (supported: 1.x). Upgrade Shark to use this config", workflow.Version)
 	}
 
 	// Cache the parsed config

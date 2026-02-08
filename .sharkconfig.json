@@ -1,8 +1,9 @@
 {
   "color_enabled": true,
   "database": {
-    "backend": "local",
-    "url": "./shark-tasks.db"
+    "backend": "$SHARK_DB_BACKEND",
+    "url": "$SHARK_DB_URL",
+    "auth_token_file": "$SHARK_AUTH_TOKEN_FILE"
   },
   "default_agent": null,
   "default_epic": null,

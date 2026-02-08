@@ -32,6 +32,27 @@ func getRelativePathTask(absPath string, projectRoot string) string {
 	return relPath
 }
 
+// newWorkflowAwareTaskRepository creates a task repository with workflow support.
+// Returns the repository, the loaded workflow config (may be nil), and any error.
+func newWorkflowAwareTaskRepository(db *repository.DB) (*repository.TaskRepository, *config.WorkflowConfig, error) {
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get config path: %w", err)
+	}
+	workflow, err := config.LoadWorkflowConfig(configPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load workflow config: %w", err)
+	}
+
+	var repo *repository.TaskRepository
+	if workflow != nil {
+		repo = repository.NewTaskRepositoryWithWorkflow(db, workflow)
+	} else {
+		repo = repository.NewTaskRepository(db)
+	}
+	return repo, workflow, nil
+}
+
 // displayAutoUnblockedTasks shows which tasks were auto-unblocked after a status change.
 func displayAutoUnblockedTasks(unblockedKeys []string) {
 	if len(unblockedKeys) > 0 {
@@ -1471,7 +1492,7 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1666,7 +1687,7 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	displayOrchestratorAction(orchestratorAction)
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1797,7 +1818,7 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	displayAutoUnblockedTasks(unblockedKeys)
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1839,8 +1860,11 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	}
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
-	repo := repository.NewTaskRepository(repoDb)
+	// Create repository with workflow support
+	repo, workflow, err := newWorkflowAwareTaskRepository(repoDb)
+	if err != nil {
+		return err
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1855,7 +1879,6 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	// Validate current status allows transition to blocked unless forcing
 	// Use workflow config to determine valid transitions
 	if !force {
-		workflow := repo.GetWorkflow()
 		if workflow != nil && workflow.StatusFlow != nil {
 			allowedTransitions := workflow.StatusFlow[string(task.Status)]
 			canBlock := false
@@ -1900,7 +1923,7 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Task %s blocked. Reason: %s", taskKey, reason))
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1924,9 +1947,11 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	}
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
-	dbWrapper := repoDb
-	repo := repository.NewTaskRepository(dbWrapper)
+	// Create repository with workflow support
+	repo, _, err := newWorkflowAwareTaskRepository(repoDb)
+	if err != nil {
+		return err
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -1961,7 +1986,7 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Task %s unblocked and returned to todo queue", taskKey))
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -1985,9 +2010,11 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	}
 	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
-	dbWrapper := repoDb
-	repo := repository.NewTaskRepository(dbWrapper)
+	// Create repository with workflow support
+	repo, workflow, err := newWorkflowAwareTaskRepository(repoDb)
+	if err != nil {
+		return err
+	}
 
 	// Get task by key
 	task, err := repo.GetByKey(ctx, taskKey)
@@ -2002,12 +2029,14 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	// Validate current status allows reopening (typically means transitioning back to an earlier workflow stage)
 	// Use workflow config to determine valid transitions
 	if !force {
-		workflow := repo.GetWorkflow()
 		if workflow != nil && workflow.StatusFlow != nil {
 			allowedTransitions := workflow.StatusFlow[string(task.Status)]
 			canReopen := false
-			// Reopen typically means going back to a development/refinement status
-			reopenTargets := []string{"in_development", "in_progress", "ready_for_development", "ready_for_refinement", "in_refinement"}
+			// Get reopen targets from planning and development phases
+			reopenTargets := append(
+				workflow.GetStatusesByPhase("planning"),
+				workflow.GetStatusesByPhase("development")...,
+			)
 			for _, nextStatus := range allowedTransitions {
 				for _, target := range reopenTargets {
 					if nextStatus == target {
@@ -2085,7 +2114,7 @@ func runTaskReopen(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Task %s reopened for rework.", taskKey))
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, task.FeatureID)
+	triggerStatusCascade(ctx, repoDb, task.FeatureID)
 
 	return nil
 }
@@ -2131,7 +2160,7 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	cli.Success(fmt.Sprintf("Task %s deleted successfully", taskKey))
 
 	// Trigger cascading status updates for parent feature and epic
-	triggerStatusCascade(ctx, dbWrapper, featureID)
+	triggerStatusCascade(ctx, repoDb, featureID)
 
 	return nil
 }
@@ -2400,14 +2429,13 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	status, _ := cmd.Flags().GetString("status")
 	if status != "" {
 		// Load workflow config for status validation
-		configPath := cli.GlobalConfig.ConfigFile
-		if configPath == "" {
-			configPath = ".sharkconfig.json"
+		configPath, err := cli.GetConfigPath()
+		if err != nil {
+			return fmt.Errorf("failed to get config path: %w", err)
 		}
 		workflow, err := config.LoadWorkflowConfig(configPath)
 		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to load workflow config: %v", err))
-			os.Exit(1)
+			return fmt.Errorf("failed to load workflow config: %w", err)
 		}
 
 		// Get force flag and reason flag
@@ -2531,9 +2559,9 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	dbWrapper := repoDb
 
 	// Load workflow config for repository
-	configPath := cli.GlobalConfig.ConfigFile
-	if configPath == "" {
-		configPath = ".sharkconfig.json"
+	configPath, err := cli.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 	workflow, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {
