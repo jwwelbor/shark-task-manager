@@ -112,7 +112,9 @@ shark feature create --epic=E07 --title="Authentication"  # Flag syntax (legacy)
 
 ## Command Implementation Pattern
 
-### Standard Command Structure
+### Standard Command Structure (Target Pattern)
+
+CLI commands must be **thin wrappers**: parse arguments, call a service, format output. **No business logic in commands.**
 
 ```go
 var myCmd = &cobra.Command{
@@ -132,31 +134,51 @@ func init() {
 }
 
 func runMyCommand(cmd *cobra.Command, args []string) error {
-    // Get database
-    repoDb, err := cli.GetDB(cmd.Context())
+    // 1. Parse arguments
+    taskKey := args[0]
+
+    // 2. Call service (all business logic lives in services)
+    svc := cli.GetTaskService()
+    result, err := svc.CompleteTask(cmd.Context(), taskKey, notes)
     if err != nil {
-        return fmt.Errorf("failed to get database: %w", err)
+        return err
     }
 
-    // Create repository
-    repo := repository.NewTaskRepository(repoDb)
-
-    // Business logic
-    // ...
-
-    // Output result
+    // 3. Format output
     if cli.GlobalConfig.JSON {
         return cli.OutputJSON(result)
     }
 
-    cli.Success("Operation completed")
+    cli.Success(fmt.Sprintf("Task %s completed", result.Key))
     return nil
 }
 ```
 
+### Anti-Pattern: Direct Repository Access (Legacy - Do Not Add More)
+
+> **DEPRECATED**: Many existing commands call repositories directly. This is being
+> refactored in Epic E15. Do NOT add new commands that follow this pattern.
+
+```go
+// BAD - do not do this in new code
+func runMyCommand(cmd *cobra.Command, args []string) error {
+    repoDb, err := cli.GetDB(cmd.Context())
+    repo := repository.NewTaskRepository(repoDb)
+    // ... business logic that should be in a service ...
+}
+```
+
+### What Belongs Where
+
+| Layer | Responsibilities | Does NOT Belong |
+|-------|-----------------|-----------------|
+| **CLI Command** | Parse args/flags, call service, format JSON/table output, exit codes | Business rules, repo calls, transactions, filtering logic |
+| **Service** | Business rules, validation, orchestration, transactions, status transitions | Argument parsing, output formatting, Cobra dependencies |
+| **Repository** | CRUD queries, data access, prepared statements | Progress calculation, status derivation, workflow logic |
+
 ### Testing Commands
 
-**CRITICAL**: Write tests using MOCKED repositories (never use real database in CLI tests)
+**CRITICAL**: Write tests using MOCKED services (or mocked repositories for legacy commands). Never use real database in CLI tests.
 
 ```go
 // See .claude/rules/testing/cli-tests.md for details

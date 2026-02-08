@@ -57,19 +57,19 @@ func TestUpdateStatus_WorkflowValidation(t *testing.T) {
 	agent := "workflow-validation-test"
 
 	// Test 1: Valid transition (todo -> in_progress)
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err != nil {
 		t.Errorf("Valid transition todo->in_progress should succeed, got error: %v", err)
 	}
 
 	// Verify status was updated
 	updatedTask, _ := repo.GetByID(ctx, task.ID)
-	if updatedTask.Status != models.TaskStatusInProgress {
+	if updatedTask.Status != models.TaskStatus("in_progress") {
 		t.Errorf("Expected status in_progress, got %s", updatedTask.Status)
 	}
 
 	// Test 2: Invalid transition (in_progress -> todo) - should fail
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusTodo, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("todo"), &agent, nil)
 	if err == nil {
 		t.Error("Invalid transition in_progress->todo should fail, but succeeded")
 	}
@@ -80,13 +80,13 @@ func TestUpdateStatus_WorkflowValidation(t *testing.T) {
 	}
 
 	// Test 3: Valid transition (in_progress -> completed)
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
 	if err != nil {
 		t.Errorf("Valid transition in_progress->completed should succeed, got error: %v", err)
 	}
 
 	// Test 4: Invalid transition from terminal status (completed -> in_progress)
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err == nil {
 		t.Error("Transition from terminal status should fail, but succeeded")
 	}
@@ -108,30 +108,30 @@ func TestUpdateStatus_DefaultWorkflowValidation(t *testing.T) {
 	}
 
 	// Reset to todo
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "default-workflow-test"
 
 	// Valid transition: todo -> in_progress
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err != nil {
 		t.Errorf("Valid transition should succeed: %v", err)
 	}
 
 	// Invalid transition: in_progress -> completed (skipping ready_for_review)
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
 	if err == nil {
 		t.Error("Invalid transition in_progress->completed should fail (must go through ready_for_review)")
 	}
 
 	// Valid transition: in_progress -> ready_for_review
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), &agent, nil)
 	if err != nil {
 		t.Errorf("Valid transition should succeed: %v", err)
 	}
 
 	// Valid transition: ready_for_review -> completed
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
 	if err != nil {
 		t.Errorf("Valid transition should succeed: %v", err)
 	}
@@ -153,24 +153,24 @@ func TestUpdateStatus_BlockedTransitions(t *testing.T) {
 	}
 
 	// Reset to todo
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "blocked-workflow-test"
 
 	// Valid: todo -> blocked
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusBlocked, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("blocked"), &agent, nil)
 	if err != nil {
 		t.Errorf("Valid transition todo->blocked should succeed: %v", err)
 	}
 
 	// Valid: blocked -> in_progress
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err != nil {
 		t.Errorf("Valid transition blocked->in_progress should succeed: %v", err)
 	}
 
 	// Valid: in_progress -> blocked
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusBlocked, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("blocked"), &agent, nil)
 	if err != nil {
 		t.Errorf("Valid transition in_progress->blocked should succeed: %v", err)
 	}
@@ -207,12 +207,12 @@ func TestUpdateStatus_ErrorMessages(t *testing.T) {
 	}
 
 	// Set task to todo status
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "error-message-test"
 
 	// Try invalid transition (todo -> completed, skipping in_progress and ready_for_review)
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
 
 	// Verify error contains helpful information
 	if err == nil {

@@ -29,6 +29,12 @@ func GetActionItems(tasks []*models.Task, cfg *config.WorkflowConfig) *ActionIte
 		InProgress:       []*TaskActionItem{},
 	}
 
+	// Use default workflow if cfg is nil
+	workflowCfg := cfg
+	if workflowCfg == nil {
+		workflowCfg = config.DefaultWorkflow()
+	}
+
 	now := time.Now()
 
 	for _, task := range tasks {
@@ -37,10 +43,17 @@ func GetActionItems(tasks []*models.Task, cfg *config.WorkflowConfig) *ActionIte
 		}
 
 		statusStr := string(task.Status)
-		switch statusStr {
-		case "ready_for_approval":
+
+		// Use workflow config metadata for phase-based categorization
+		meta, found := workflowCfg.GetStatusMetadata(statusStr)
+		if !found {
+			// Fallback for unknown statuses: skip them
+			continue
+		}
+
+		switch {
+		case meta.Phase == "approval":
 			// Calculate age in days for waiting tasks (human approval)
-			// Note: ready_for_code_review is not included here as it's for automated checks
 			ageDays := int(now.Sub(task.UpdatedAt).Hours() / 24)
 			items.AwaitingApproval = append(items.AwaitingApproval, &TaskActionItem{
 				TaskKey:       task.Key,
@@ -50,10 +63,9 @@ func GetActionItems(tasks []*models.Task, cfg *config.WorkflowConfig) *ActionIte
 				BlockedReason: nil,
 			})
 
-		case "blocked":
-			// For blocked tasks, include the block reason if available
-			// Note: block reason would typically come from task history or additional field
-			// For now, we use a pointer to nil since the reason isn't in the current model
+		case meta.Phase == "any" || meta.Phase == "blocked":
+			// Handle blocked/any-phase statuses (basic workflow uses "blocked" phase,
+			// advanced workflow uses "any" phase for the blocked status)
 			items.Blocked = append(items.Blocked, &TaskActionItem{
 				TaskKey:       task.Key,
 				Title:         task.Title,
@@ -62,8 +74,8 @@ func GetActionItems(tasks []*models.Task, cfg *config.WorkflowConfig) *ActionIte
 				BlockedReason: nil,
 			})
 
-		case "in_progress", "in_development":
-			// Track tasks currently in progress
+		case meta.Phase == "development":
+			// Track tasks currently in development
 			items.InProgress = append(items.InProgress, &TaskActionItem{
 				TaskKey:       task.Key,
 				Title:         task.Title,

@@ -430,17 +430,19 @@ func runTaskBlocks(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	ws := cli.GetWorkflowService()
+
 	fmt.Println("Blocks (waiting on this task):")
 	for _, b := range blocked {
 		status := getStatusIcon(b.TaskStatus)
 		completed := ""
-		if task.Status == "completed" {
+		if ws.IsTerminalStatus(string(task.Status)) {
 			completed = " (unblocked)"
 		}
 		fmt.Printf("  %s %s: %s%s\n", status, b.TaskKey, b.TaskTitle, completed)
 	}
 
-	if task.Status == "completed" {
+	if ws.IsTerminalStatus(string(task.Status)) {
 		fmt.Println("\nThis task is completed - all downstream tasks are unblocked.")
 	}
 

@@ -53,7 +53,7 @@ func TestTaskRepository_GetByKey_NumericFormat(t *testing.T) {
 		FeatureID: testFeature.ID,
 		Key:       "T-E94-F01-100",
 		Title:     "Test Numeric Key Lookup",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 
@@ -111,7 +111,7 @@ func TestTaskRepository_GetByKey_SluggedFormat(t *testing.T) {
 		FeatureID: testFeature.ID,
 		Key:       "T-E98-F01-001",
 		Title:     "Implement User Authentication",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 
@@ -175,7 +175,7 @@ func TestTaskRepository_GetByKey_SlugMismatch(t *testing.T) {
 		FeatureID: testFeature.ID,
 		Key:       "T-E98-F02-001",
 		Title:     "Fix Database Bug",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 
@@ -238,7 +238,7 @@ func TestTaskRepository_GetByKey_PartialSlugMatch(t *testing.T) {
 		FeatureID: testFeature.ID,
 		Key:       "T-E98-F03-001",
 		Title:     "Implement Advanced User Authentication System With Multi-Factor Support And Session Management",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 
@@ -305,7 +305,7 @@ func TestTaskRepository_GetByKey_NoSlug(t *testing.T) {
 		FeatureID: testFeature.ID,
 		Key:       "T-E98-F04-001",
 		Title:     "Legacy Task Without Slug",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 

@@ -23,8 +23,9 @@ See [Task Commands (Full)](task-commands-full.md) for complete documentation of 
 ### Creating and Starting a Task
 
 ```bash
-# Create task (positional syntax)
-shark task create E07 F01 "Implement JWT validation" --agent=backend --priority=3
+# Create task (positional syntax) - use --order for sequencing
+shark task create E07 F01 "Implement JWT validation" --agent=backend --order=1
+shark task create E07 F01 "Add token refresh" --agent=backend --order=2 --priority=3
 
 # Start the task
 shark task start E07-F01-001 --agent="ai-agent-001" --json

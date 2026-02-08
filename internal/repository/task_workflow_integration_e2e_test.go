@@ -86,7 +86,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id = ?", task.ID)
 
 	// Reset to todo
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	developer := "alice-dev"
 	techLead := "bob-lead"
@@ -94,28 +94,28 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 	// Scenario 1: Normal development workflow
 	t.Run("HappyPath", func(t *testing.T) {
 		// Step 1: Start work (todo -> in_progress)
-		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &developer, nil)
+		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &developer, nil)
 		if err != nil {
 			t.Fatalf("Failed to start task: %v", err)
 		}
 
 		// Step 2: Complete and submit for review (in_progress -> ready_for_review)
 		notes := "Implementation complete, tests passing"
-		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &developer, &notes)
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), &developer, &notes)
 		if err != nil {
 			t.Fatalf("Failed to submit for review: %v", err)
 		}
 
 		// Step 3: Tech lead approves (ready_for_review -> completed)
 		approvalNotes := "LGTM, merging"
-		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &techLead, &approvalNotes)
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &techLead, &approvalNotes)
 		if err != nil {
 			t.Fatalf("Failed to approve: %v", err)
 		}
 
 		// Verify final state
 		finalTask, _ := repo.GetByID(ctx, task.ID)
-		if finalTask.Status != models.TaskStatusCompleted {
+		if finalTask.Status != models.TaskStatus("completed") {
 			t.Errorf("Expected final status completed, got %s", finalTask.Status)
 		}
 
@@ -130,10 +130,10 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 	// Scenario 2: Invalid transitions are blocked
 	t.Run("InvalidTransitionsBlocked", func(t *testing.T) {
 		// Reset to in_progress
-		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusInProgress, task.ID)
+		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("in_progress"), task.ID)
 
 		// Try to skip ready_for_review and go directly to completed
-		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &developer, nil)
+		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &developer, nil)
 		if err == nil {
 			t.Error("Should not allow skipping ready_for_review")
 		}
@@ -145,7 +145,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 
 		// Verify task status didn't change
 		unchangedTask, _ := repo.GetByID(ctx, task.ID)
-		if unchangedTask.Status != models.TaskStatusInProgress {
+		if unchangedTask.Status != models.TaskStatus("in_progress") {
 			t.Errorf("Task status should not have changed, got %s", unchangedTask.Status)
 		}
 	})
@@ -156,18 +156,18 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 		_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id = ?", task.ID)
 
 		// Reset to todo
-		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 		// Force invalid transition (todo -> completed)
 		emergencyNotes := "Emergency hotfix deployment"
-		err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &techLead, &emergencyNotes, nil, nil, true)
+		err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), &techLead, &emergencyNotes, nil, nil, true)
 		if err != nil {
 			t.Fatalf("Forced transition should succeed: %v", err)
 		}
 
 		// Verify transition succeeded
 		forcedTask, _ := repo.GetByID(ctx, task.ID)
-		if forcedTask.Status != models.TaskStatusCompleted {
+		if forcedTask.Status != models.TaskStatus("completed") {
 			t.Errorf("Expected forced transition to succeed, got status %s", forcedTask.Status)
 		}
 
@@ -184,7 +184,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 	// Scenario 4: Blocking and unblocking workflow
 	t.Run("BlockingWorkflow", func(t *testing.T) {
 		// Reset to in_progress
-		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusInProgress, task.ID)
+		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("in_progress"), task.ID)
 
 		// Block task
 		blockReason := "Waiting for API specification"
@@ -195,7 +195,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 
 		// Verify blocked
 		blockedTask, _ := repo.GetByID(ctx, task.ID)
-		if blockedTask.Status != models.TaskStatusBlocked {
+		if blockedTask.Status != models.TaskStatus("blocked") {
 			t.Errorf("Expected status blocked, got %s", blockedTask.Status)
 		}
 
@@ -207,7 +207,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 
 		// Verify unblocked
 		unblockedTask, _ := repo.GetByID(ctx, task.ID)
-		if unblockedTask.Status != models.TaskStatusTodo {
+		if unblockedTask.Status != models.TaskStatus("todo") {
 			t.Errorf("Expected status todo after unblock, got %s", unblockedTask.Status)
 		}
 	})
@@ -215,7 +215,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 	// Scenario 5: Reopen workflow
 	t.Run("ReopenWorkflow", func(t *testing.T) {
 		// Set to ready_for_review
-		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusReadyForReview, task.ID)
+		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("ready_for_review"), task.ID)
 
 		// Tech lead requests changes
 		reopenNotes := "Found bug in edge case handling, please fix"
@@ -226,7 +226,7 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 
 		// Verify reopened
 		reopenedTask, _ := repo.GetByID(ctx, task.ID)
-		if reopenedTask.Status != models.TaskStatusInProgress {
+		if reopenedTask.Status != models.TaskStatus("in_progress") {
 			t.Errorf("Expected status in_progress after reopen, got %s", reopenedTask.Status)
 		}
 	})
@@ -248,29 +248,29 @@ func TestWorkflowIntegration_DefaultWorkflowBackwardCompatibility(t *testing.T) 
 	}
 
 	// Reset to todo
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "backward-compat-test"
 
 	// Test classic workflow: todo -> in_progress -> ready_for_review -> completed
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err != nil {
 		t.Fatalf("Classic transition todo->in_progress failed: %v", err)
 	}
 
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), &agent, nil)
 	if err != nil {
 		t.Fatalf("Classic transition in_progress->ready_for_review failed: %v", err)
 	}
 
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
 	if err != nil {
 		t.Fatalf("Classic transition ready_for_review->completed failed: %v", err)
 	}
 
 	// Verify final state
 	finalTask, _ := repo.GetByID(ctx, task.ID)
-	if finalTask.Status != models.TaskStatusCompleted {
+	if finalTask.Status != models.TaskStatus("completed") {
 		t.Errorf("Expected completed status, got %s", finalTask.Status)
 	}
 }
@@ -321,16 +321,16 @@ func TestWorkflowIntegration_PerformanceBenchmark(t *testing.T) {
 
 	for i := 0; i < 50; i++ {
 		// Reset to todo
-		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 		// Valid transition
-		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 		if err == nil {
 			validTransitions++
 		}
 
 		// Invalid transition
-		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil)
+		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
 		if err != nil {
 			invalidTransitions++
 		}

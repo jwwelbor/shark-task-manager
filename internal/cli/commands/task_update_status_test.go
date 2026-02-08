@@ -53,11 +53,8 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
-	// Load workflow config
-	workflow, err := config.LoadWorkflowConfig(".sharkconfig.json")
-	if err != nil {
-		t.Fatalf("Failed to load workflow config: %v", err)
-	}
+	// Use default workflow config (no dependency on real .sharkconfig.json)
+	workflow := config.DefaultWorkflow()
 
 	// Create task repository with workflow
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
@@ -67,7 +64,7 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E97-F97-001",
 		Title:     "Test Task for Status Update",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, task)
@@ -78,7 +75,7 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 	// ACT: Update the task status using the repository method
 	// (simulating what runTaskUpdate should call)
 	// Use in_progress which exists in hardcoded fallback statuses
-	newStatus := models.TaskStatusInProgress
+	newStatus := models.TaskStatus("in_progress")
 	err = taskRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, nil, nil, true)
 
 	// ASSERT: Verify the status was updated
@@ -152,11 +149,8 @@ func TestTaskUpdate_WithStatusFlag_InvalidTransition(t *testing.T) {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
-	// Load workflow config
-	workflow, err := config.LoadWorkflowConfig(".sharkconfig.json")
-	if err != nil {
-		t.Fatalf("Failed to load workflow config: %v", err)
-	}
+	// Use default workflow config (no dependency on real .sharkconfig.json)
+	workflow := config.DefaultWorkflow()
 
 	// Create task repository with workflow
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)

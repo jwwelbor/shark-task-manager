@@ -105,7 +105,7 @@ func TestTaskGetPathDisplay(t *testing.T) {
 				FeatureID: feature.ID,
 				Key:       taskKey,
 				Title:     "Test Task " + tt.name,
-				Status:    models.TaskStatusTodo,
+				Status:    models.TaskStatus("todo"),
 				Priority:  5,
 			}
 			if tt.customTaskFilename != nil {

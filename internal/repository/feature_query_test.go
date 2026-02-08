@@ -242,7 +242,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 		Key:         fmt.Sprintf("T-%s-001", featureKey),
 		Title:       "Task 1",
 		Description: stringPtr("Task 1"),
-		Status:      models.TaskStatusCompleted,
+		Status:      models.TaskStatus("completed"),
 		Priority:    1,
 	}
 	err = taskRepo.Create(ctx, task1)
@@ -253,7 +253,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 		Key:         fmt.Sprintf("T-%s-002", featureKey),
 		Title:       "Task 2",
 		Description: stringPtr("Task 2"),
-		Status:      models.TaskStatusInProgress,
+		Status:      models.TaskStatus("in_progress"),
 		Priority:    2,
 	}
 	err = taskRepo.Create(ctx, task2)
@@ -264,7 +264,7 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 		Key:         fmt.Sprintf("T-%s-003", featureKey),
 		Title:       "Task 3",
 		Description: stringPtr("Task 3"),
-		Status:      models.TaskStatusTodo,
+		Status:      models.TaskStatus("todo"),
 		Priority:    3,
 	}
 	err = taskRepo.Create(ctx, task3)
@@ -346,7 +346,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 			Key:         fmt.Sprintf("T-%s-001", featureKey),
 			Title:       "Completed Task 1",
 			Description: stringPtr("Completed"),
-			Status:      models.TaskStatusCompleted,
+			Status:      models.TaskStatus("completed"),
 			Priority:    1,
 		},
 		{
@@ -354,7 +354,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 			Key:         fmt.Sprintf("T-%s-002", featureKey),
 			Title:       "Completed Task 2",
 			Description: stringPtr("Completed"),
-			Status:      models.TaskStatusCompleted,
+			Status:      models.TaskStatus("completed"),
 			Priority:    1,
 		},
 		{
@@ -362,7 +362,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 			Key:         fmt.Sprintf("T-%s-003", featureKey),
 			Title:       "In Progress Task 1",
 			Description: stringPtr("In Progress"),
-			Status:      models.TaskStatusInProgress,
+			Status:      models.TaskStatus("in_progress"),
 			Priority:    2,
 		},
 		{
@@ -370,7 +370,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 			Key:         fmt.Sprintf("T-%s-004", featureKey),
 			Title:       "In Progress Task 2",
 			Description: stringPtr("In Progress"),
-			Status:      models.TaskStatusInProgress,
+			Status:      models.TaskStatus("in_progress"),
 			Priority:    2,
 		},
 		{
@@ -378,7 +378,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 			Key:         fmt.Sprintf("T-%s-005", featureKey),
 			Title:       "Todo Task",
 			Description: stringPtr("Todo"),
-			Status:      models.TaskStatusTodo,
+			Status:      models.TaskStatus("todo"),
 			Priority:    3,
 		},
 		{
@@ -386,7 +386,7 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 			Key:         fmt.Sprintf("T-%s-006", featureKey),
 			Title:       "Blocked Task",
 			Description: stringPtr("Blocked"),
-			Status:      models.TaskStatusBlocked,
+			Status:      models.TaskStatus("blocked"),
 			Priority:    4,
 		},
 	}
@@ -442,12 +442,12 @@ func TestTaskRepository_GetStatusBreakdown(t *testing.T) {
 		breakdown, err := taskRepo.GetStatusBreakdownMap(ctx, feature.ID)
 		require.NoError(t, err)
 
-		assert.Equal(t, 2, breakdown[models.TaskStatusCompleted])
-		assert.Equal(t, 2, breakdown[models.TaskStatusInProgress])
-		assert.Equal(t, 1, breakdown[models.TaskStatusTodo])
-		assert.Equal(t, 1, breakdown[models.TaskStatusBlocked])
-		assert.Equal(t, 0, breakdown[models.TaskStatusReadyForReview])
-		assert.Equal(t, 0, breakdown[models.TaskStatusArchived])
+		assert.Equal(t, 2, breakdown[models.TaskStatus("completed")])
+		assert.Equal(t, 2, breakdown[models.TaskStatus("in_progress")])
+		assert.Equal(t, 1, breakdown[models.TaskStatus("todo")])
+		assert.Equal(t, 1, breakdown[models.TaskStatus("blocked")])
+		assert.Equal(t, 0, breakdown[models.TaskStatus("ready_for_review")])
+		assert.Equal(t, 0, breakdown[models.TaskStatus("archived")])
 	})
 }
 

@@ -136,7 +136,7 @@ func TestSlugArchitecture_EndToEnd(t *testing.T) {
 			FeatureID: featureID,
 			Key:       "T-E96-F01-001",
 			Title:     "Add indexes to user queries table",
-			Status:    models.TaskStatusTodo,
+			Status:    models.TaskStatus("todo"),
 			AgentType: &backendAgent,
 			Priority:  8,
 		}
@@ -284,7 +284,7 @@ func TestSlugArchitecture_SpecialCharactersWorkflow(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E95-F01-001",
 		Title:     "Fix Bug: API -> Database Connection",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &backendAgent,
 		Priority:  7,
 	}
@@ -404,7 +404,7 @@ func TestSlugArchitecture_ConcurrentAccess(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E93-F01-001",
 		Title:     "Concurrent Task Test",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &backendAgent,
 		Priority:  5,
 	}

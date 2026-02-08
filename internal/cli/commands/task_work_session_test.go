@@ -53,7 +53,7 @@ func TestTaskContextSetAndGet(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E99-F01-001",
 		Title:     "Test Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, task)
@@ -124,7 +124,7 @@ func TestTaskContextCompletedSteps(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E99-F01-002",
 		Title:     "Test Task 2",
-		Status:    models.TaskStatusInProgress,
+		Status:    models.TaskStatus("in_progress"),
 		Priority:  7,
 	}
 	err = taskRepo.Create(ctx, task)
@@ -198,7 +198,7 @@ func TestWorkSessionCreationAndRetrieval(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E99-F01-003",
 		Title:     "Test Task 3",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, task)
@@ -279,7 +279,7 @@ func TestWorkSessionStats(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E99-F01-004",
 		Title:     "Test Task 4",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, task)
@@ -383,7 +383,7 @@ func TestSessionAnalyticsByEpic(t *testing.T) {
 			FeatureID: feature.ID,
 			Key:       taskKey,
 			Title:     "Test Task",
-			Status:    models.TaskStatusTodo,
+			Status:    models.TaskStatus("todo"),
 			Priority:  5,
 		}
 		err = taskRepo.Create(ctx, task)
@@ -549,7 +549,7 @@ func TestResumeContextStructure(t *testing.T) {
 		ID:       1,
 		Key:      "T-E99-F01-001",
 		Title:    "Test Task",
-		Status:   models.TaskStatusInProgress,
+		Status:   models.TaskStatus("in_progress"),
 		Priority: 5,
 	}
 

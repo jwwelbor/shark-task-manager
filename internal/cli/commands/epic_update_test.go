@@ -103,9 +103,9 @@ func TestEpicUpdate_StatusCascadeWithForce(t *testing.T) {
 
 		// Create tasks for this feature in various statuses
 		statuses := []models.TaskStatus{
-			models.TaskStatusTodo,
-			models.TaskStatusInProgress,
-			models.TaskStatusBlocked,
+			models.TaskStatus("todo"),
+			models.TaskStatus("in_progress"),
+			models.TaskStatus("blocked"),
 		}
 
 		for j, status := range statuses {
@@ -132,7 +132,7 @@ func TestEpicUpdate_StatusCascadeWithForce(t *testing.T) {
 	}
 
 	// Call cascade method (simulating --force behavior)
-	err = epicRepo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatusCompleted)
+	err = epicRepo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed"))
 	if err != nil {
 		t.Fatalf("Failed to cascade status to features and tasks: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestEpicUpdate_StatusCascadeWithForce(t *testing.T) {
 		}
 
 		for _, task := range tasks {
-			if task.Status != models.TaskStatusCompleted {
+			if task.Status != models.TaskStatus("completed") {
 				t.Errorf("Task %s status = %s, expected completed (force cascade should have updated it)", task.Key, task.Status)
 			}
 		}

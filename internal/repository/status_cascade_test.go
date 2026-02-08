@@ -46,12 +46,12 @@ func TestGetTaskStatusBreakdown(t *testing.T) {
 
 	// Create tasks with various statuses
 	tasks := []*models.Task{
-		{FeatureID: feature.ID, Key: "T-E98-F01-001", Title: "Todo Task 1", Status: models.TaskStatusTodo, Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-002", Title: "Todo Task 2", Status: models.TaskStatusTodo, Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-003", Title: "In Progress Task", Status: models.TaskStatusInProgress, Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-004", Title: "Completed Task 1", Status: models.TaskStatusCompleted, Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-005", Title: "Completed Task 2", Status: models.TaskStatusCompleted, Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-006", Title: "Blocked Task", Status: models.TaskStatusBlocked, Priority: 5},
+		{FeatureID: feature.ID, Key: "T-E98-F01-001", Title: "Todo Task 1", Status: models.TaskStatus("todo"), Priority: 5},
+		{FeatureID: feature.ID, Key: "T-E98-F01-002", Title: "Todo Task 2", Status: models.TaskStatus("todo"), Priority: 5},
+		{FeatureID: feature.ID, Key: "T-E98-F01-003", Title: "In Progress Task", Status: models.TaskStatus("in_progress"), Priority: 5},
+		{FeatureID: feature.ID, Key: "T-E98-F01-004", Title: "Completed Task 1", Status: models.TaskStatus("completed"), Priority: 5},
+		{FeatureID: feature.ID, Key: "T-E98-F01-005", Title: "Completed Task 2", Status: models.TaskStatus("completed"), Priority: 5},
+		{FeatureID: feature.ID, Key: "T-E98-F01-006", Title: "Blocked Task", Status: models.TaskStatus("blocked"), Priority: 5},
 	}
 
 	for _, task := range tasks {
@@ -63,10 +63,10 @@ func TestGetTaskStatusBreakdown(t *testing.T) {
 	counts, err := featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
 	require.NoError(t, err)
 
-	assert.Equal(t, 2, counts[models.TaskStatusTodo], "Should have 2 todo tasks")
-	assert.Equal(t, 1, counts[models.TaskStatusInProgress], "Should have 1 in_progress task")
-	assert.Equal(t, 2, counts[models.TaskStatusCompleted], "Should have 2 completed tasks")
-	assert.Equal(t, 1, counts[models.TaskStatusBlocked], "Should have 1 blocked task")
+	assert.Equal(t, 2, counts[models.TaskStatus("todo")], "Should have 2 todo tasks")
+	assert.Equal(t, 1, counts[models.TaskStatus("in_progress")], "Should have 1 in_progress task")
+	assert.Equal(t, 2, counts[models.TaskStatus("completed")], "Should have 2 completed tasks")
+	assert.Equal(t, 1, counts[models.TaskStatus("blocked")], "Should have 1 blocked task")
 
 	// Cleanup
 	_, _ = db.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-%'")

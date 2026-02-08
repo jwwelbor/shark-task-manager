@@ -121,12 +121,16 @@ For backwards compatibility, noun-first commands also work:
 ./bin/shark task create E07 F01 "Task Title"                    # 3-arg format
 ./bin/shark task create E07-F01 "Task Title"                    # 2-arg format
 
-# With additional options (standard agent type)
-./bin/shark task create E07 F01 "Task Title" --agent=backend --priority=5
+# With execution order (primary sequencing - lower runs first)
+./bin/shark task create E07 F01 "Task Title" --order=1
+./bin/shark task create E07 F01 "Task Title" --order=2 --agent=backend
+
+# With priority (secondary to execution order)
+./bin/shark task create E07 F01 "Task Title" --order=1 --priority=3
 
 # With custom agent type
-./bin/shark task create E07 F01 "Task Title" --agent=architect --priority=3
-./bin/shark task create E07 F01 "Task Title" --agent=business-analyst --priority=4
+./bin/shark task create E07 F01 "Task Title" --agent=architect --order=1
+./bin/shark task create E07 F01 "Task Title" --agent=business-analyst --order=2
 
 # With custom file path
 ./bin/shark task create E07 F01 "Task Title" --file="docs/custom/task.md"

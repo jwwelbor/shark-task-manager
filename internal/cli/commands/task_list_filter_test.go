@@ -20,11 +20,11 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 		{
 			name: "Default behavior - hide completed tasks",
 			inputTasks: []*models.Task{
-				{Key: "T-E01-F01-001", Status: models.TaskStatusTodo, Title: "Task 1"},
-				{Key: "T-E01-F01-002", Status: models.TaskStatusInProgress, Title: "Task 2"},
-				{Key: "T-E01-F01-003", Status: models.TaskStatusCompleted, Title: "Task 3"},
-				{Key: "T-E01-F01-004", Status: models.TaskStatusReadyForReview, Title: "Task 4"},
-				{Key: "T-E01-F01-005", Status: models.TaskStatusCompleted, Title: "Task 5"},
+				{Key: "T-E01-F01-001", Status: models.TaskStatus("todo"), Title: "Task 1"},
+				{Key: "T-E01-F01-002", Status: models.TaskStatus("in_progress"), Title: "Task 2"},
+				{Key: "T-E01-F01-003", Status: models.TaskStatus("completed"), Title: "Task 3"},
+				{Key: "T-E01-F01-004", Status: models.TaskStatus("ready_for_review"), Title: "Task 4"},
+				{Key: "T-E01-F01-005", Status: models.TaskStatus("completed"), Title: "Task 5"},
 			},
 			showAllFlag:               false,
 			statusFlag:                "",
@@ -34,11 +34,11 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 		{
 			name: "With --show-all - include completed tasks",
 			inputTasks: []*models.Task{
-				{Key: "T-E01-F01-001", Status: models.TaskStatusTodo, Title: "Task 1"},
-				{Key: "T-E01-F01-002", Status: models.TaskStatusInProgress, Title: "Task 2"},
-				{Key: "T-E01-F01-003", Status: models.TaskStatusCompleted, Title: "Task 3"},
-				{Key: "T-E01-F01-004", Status: models.TaskStatusReadyForReview, Title: "Task 4"},
-				{Key: "T-E01-F01-005", Status: models.TaskStatusCompleted, Title: "Task 5"},
+				{Key: "T-E01-F01-001", Status: models.TaskStatus("todo"), Title: "Task 1"},
+				{Key: "T-E01-F01-002", Status: models.TaskStatus("in_progress"), Title: "Task 2"},
+				{Key: "T-E01-F01-003", Status: models.TaskStatus("completed"), Title: "Task 3"},
+				{Key: "T-E01-F01-004", Status: models.TaskStatus("ready_for_review"), Title: "Task 4"},
+				{Key: "T-E01-F01-005", Status: models.TaskStatus("completed"), Title: "Task 5"},
 			},
 			showAllFlag:               true,
 			statusFlag:                "",
@@ -51,8 +51,8 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 			// this function is called, so inputTasks would already be filtered.
 			// This test simulates that the repository already filtered the tasks.
 			inputTasks: []*models.Task{
-				{Key: "T-E01-F01-002", Status: models.TaskStatusCompleted, Title: "Task 2"},
-				{Key: "T-E01-F01-003", Status: models.TaskStatusCompleted, Title: "Task 3"},
+				{Key: "T-E01-F01-002", Status: models.TaskStatus("completed"), Title: "Task 2"},
+				{Key: "T-E01-F01-003", Status: models.TaskStatus("completed"), Title: "Task 3"},
 			},
 			showAllFlag:               false,
 			statusFlag:                "completed",
@@ -62,8 +62,8 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 		{
 			name: "Only completed tasks - default hides all",
 			inputTasks: []*models.Task{
-				{Key: "T-E01-F01-001", Status: models.TaskStatusCompleted, Title: "Task 1"},
-				{Key: "T-E01-F01-002", Status: models.TaskStatusCompleted, Title: "Task 2"},
+				{Key: "T-E01-F01-001", Status: models.TaskStatus("completed"), Title: "Task 1"},
+				{Key: "T-E01-F01-002", Status: models.TaskStatus("completed"), Title: "Task 2"},
 			},
 			showAllFlag:               false,
 			statusFlag:                "",
@@ -73,8 +73,8 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 		{
 			name: "Only completed tasks - show-all shows them",
 			inputTasks: []*models.Task{
-				{Key: "T-E01-F01-001", Status: models.TaskStatusCompleted, Title: "Task 1"},
-				{Key: "T-E01-F01-002", Status: models.TaskStatusCompleted, Title: "Task 2"},
+				{Key: "T-E01-F01-001", Status: models.TaskStatus("completed"), Title: "Task 1"},
+				{Key: "T-E01-F01-002", Status: models.TaskStatus("completed"), Title: "Task 2"},
 			},
 			showAllFlag:               true,
 			statusFlag:                "",
@@ -92,9 +92,9 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 		{
 			name: "All non-completed tasks - no filtering needed",
 			inputTasks: []*models.Task{
-				{Key: "T-E01-F01-001", Status: models.TaskStatusTodo, Title: "Task 1"},
-				{Key: "T-E01-F01-002", Status: models.TaskStatusInProgress, Title: "Task 2"},
-				{Key: "T-E01-F01-003", Status: models.TaskStatusBlocked, Title: "Task 3"},
+				{Key: "T-E01-F01-001", Status: models.TaskStatus("todo"), Title: "Task 1"},
+				{Key: "T-E01-F01-002", Status: models.TaskStatus("in_progress"), Title: "Task 2"},
+				{Key: "T-E01-F01-003", Status: models.TaskStatus("blocked"), Title: "Task 3"},
 			},
 			showAllFlag:               false,
 			statusFlag:                "",
@@ -116,7 +116,7 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 			// Verify whether completed tasks are included
 			hasCompleted := false
 			for _, task := range filteredTasks {
-				if task.Status == models.TaskStatusCompleted {
+				if task.Status == models.TaskStatus("completed") {
 					hasCompleted = true
 					break
 				}
@@ -130,7 +130,7 @@ func TestTaskListFiltering_HideCompletedByDefault(t *testing.T) {
 			// no task should be completed
 			if !tt.showAllFlag && tt.statusFlag == "" {
 				for _, task := range filteredTasks {
-					if task.Status == models.TaskStatusCompleted {
+					if task.Status == models.TaskStatus("completed") {
 						t.Errorf("Found completed task %s when showAll=false and no status filter", task.Key)
 					}
 				}

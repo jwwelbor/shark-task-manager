@@ -125,26 +125,50 @@ Shark uses consistent exit codes for CLI commands:
 - **3**: Invalid state (e.g., trying to complete a task that's not in_progress)
 
 ### Exit Code Pattern
+
+Commands translate service errors into exit codes. Business logic (status checks, etc.) belongs in the service layer, not the command.
+
 ```go
+// Service layer returns typed errors
+func (s *TaskService) CompleteTask(ctx context.Context, key string) (*models.Task, error) {
+    task, err := s.repo.GetByKey(ctx, key)
+    if err != nil {
+        return nil, err // NotFoundError propagates up
+    }
+
+    if !s.workflowSvc.IsValidTransition(string(task.Status), "completed") {
+        return nil, &InvalidStateError{
+            Status:  string(task.Status),
+            Message: "task must be in a completable state",
+        }
+    }
+
+    // ... complete the task ...
+    return task, nil
+}
+
+// Command layer translates errors to exit codes
 func runCommand(cmd *cobra.Command, args []string) error {
-    task, err := repo.GetByKey(ctx, args[0])
+    svc := cli.GetTaskService()
+    task, err := svc.CompleteTask(cmd.Context(), args[0])
     if err != nil {
         var notFoundErr *repository.NotFoundError
         if errors.As(err, &notFoundErr) {
             cli.Error(fmt.Sprintf("Task not found: %s", args[0]))
-            os.Exit(1) // Exit code 1 for not found
+            os.Exit(1)
         }
 
-        cli.Error(fmt.Sprintf("Database error: %v", err))
-        os.Exit(2) // Exit code 2 for database error
+        var stateErr *services.InvalidStateError
+        if errors.As(err, &stateErr) {
+            cli.Error(stateErr.Message)
+            os.Exit(3)
+        }
+
+        cli.Error(fmt.Sprintf("Error: %v", err))
+        os.Exit(2)
     }
 
-    if task.Status != "in_progress" {
-        cli.Error("Task must be in_progress to complete")
-        os.Exit(3) // Exit code 3 for invalid state
-    }
-
-    // ... rest of command logic ...
+    cli.Success(fmt.Sprintf("Task %s completed", task.Key))
     return nil
 }
 ```

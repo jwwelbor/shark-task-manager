@@ -451,7 +451,7 @@ func TestEndSessionAlreadyEnded(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E97-F01-001",
 		Title:     "Test Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, task)
@@ -699,7 +699,7 @@ func TestGetSessionAnalyticsByEpic(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E98-F01-001",
 		Title:     "Test Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, task)

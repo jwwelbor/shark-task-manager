@@ -306,7 +306,7 @@ func createTaskWithFilePath(ctx context.Context, repo *repository.TaskRepository
 		Key:       taskKey,
 		Title:     title,
 		FilePath:  filePathPtr,
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 

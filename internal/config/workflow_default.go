@@ -73,20 +73,3 @@ func DefaultWorkflow() *WorkflowConfig {
 		RequireRejectionReason: true,
 	}
 }
-
-// IsDefaultStatus checks if a status exists in the default workflow
-// Useful for validation and migration scenarios
-func IsDefaultStatus(status string) bool {
-	defaultStatuses := []string{"todo", "in_progress", "ready_for_review", "completed", "blocked"}
-	for _, s := range defaultStatuses {
-		if s == status {
-			return true
-		}
-	}
-	return false
-}
-
-// DefaultStatuses returns all statuses in the default workflow
-func DefaultStatuses() []string {
-	return []string{"todo", "in_progress", "ready_for_review", "completed", "blocked"}
-}

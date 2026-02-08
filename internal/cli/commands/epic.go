@@ -506,7 +506,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 
 	// Calculate impediments (blocked tasks with their age)
 	blockedTasks := make([]*models.Task, 0)
-	if blockCount, ok := taskRollup[string(models.TaskStatusBlocked)]; ok && blockCount > 0 {
+	if blockCount, ok := taskRollup[string(models.TaskStatus("blocked"))]; ok && blockCount > 0 {
 		// Get only blocked tasks using optimized query
 		var err error
 		blockedTasks, err = taskRepo.ListBlockedTasksByEpic(ctx, epic.Key)
@@ -517,7 +517,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 
 	// Count tasks in approval backlog (ready_for_review status)
 	approvalBacklogCount := 0
-	if approvalCount, ok := taskRollup[string(models.TaskStatusReadyForReview)]; ok {
+	if approvalCount, ok := taskRollup[string(models.TaskStatus("ready_for_review"))]; ok {
 		approvalBacklogCount = approvalCount
 	}
 
@@ -1236,8 +1236,8 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Count completed and reviewed tasks
-	completedCount := totalStatusBreakdown[models.TaskStatusCompleted]
-	reviewedCount := totalStatusBreakdown[models.TaskStatusReadyForReview]
+	completedCount := totalStatusBreakdown[models.TaskStatus("completed")]
+	reviewedCount := totalStatusBreakdown[models.TaskStatus("ready_for_review")]
 	allDoneCount := completedCount + reviewedCount
 
 	// Check if all tasks are already completed/reviewed
@@ -1253,10 +1253,10 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		fmt.Print("Status breakdown: ")
 		breakdownParts := []string{}
 		for _, status := range []models.TaskStatus{
-			models.TaskStatusTodo,
-			models.TaskStatusInProgress,
-			models.TaskStatusBlocked,
-			models.TaskStatusReadyForReview,
+			models.TaskStatus("todo"),
+			models.TaskStatus("in_progress"),
+			models.TaskStatus("blocked"),
+			models.TaskStatus("ready_for_review"),
 		} {
 			if count, ok := totalStatusBreakdown[status]; ok && count > 0 {
 				breakdownParts = append(breakdownParts, fmt.Sprintf("%d %s", count, status))
@@ -1270,7 +1270,7 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		for _, feature := range features {
 			breakdown := featureTaskBreakdown[feature.Key]
 			totalInFeature := featureTaskCounts[feature.Key]
-			completedInFeature := breakdown[models.TaskStatusCompleted] + breakdown[models.TaskStatusReadyForReview]
+			completedInFeature := breakdown[models.TaskStatus("completed")] + breakdown[models.TaskStatus("ready_for_review")]
 
 			if completedInFeature == totalInFeature {
 				fmt.Printf("  %s: %d tasks (all ready_for_review or completed)\n", feature.Key, totalInFeature)
@@ -1281,9 +1281,9 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 				// Show breakdown for this feature
 				parts := []string{}
 				for _, status := range []models.TaskStatus{
-					models.TaskStatusTodo,
-					models.TaskStatusInProgress,
-					models.TaskStatusBlocked,
+					models.TaskStatus("todo"),
+					models.TaskStatus("in_progress"),
+					models.TaskStatus("blocked"),
 				} {
 					if count, ok := breakdown[status]; ok && count > 0 {
 						parts = append(parts, fmt.Sprintf("%d %s", count, status))
@@ -1303,14 +1303,14 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 
 		// First, collect all blocked tasks
 		for _, task := range allTasks {
-			if task.Status == models.TaskStatusBlocked {
+			if task.Status == models.TaskStatus("blocked") {
 				problematicTasks = append(problematicTasks, task)
 			}
 		}
 
 		// Then, collect other incomplete tasks
 		for _, task := range allTasks {
-			if task.Status != models.TaskStatusBlocked && task.Status != models.TaskStatusCompleted && task.Status != models.TaskStatusReadyForReview {
+			if task.Status != models.TaskStatus("blocked") && task.Status != models.TaskStatus("completed") && task.Status != models.TaskStatus("ready_for_review") {
 				problematicTasks = append(problematicTasks, task)
 			}
 		}
@@ -1322,7 +1322,7 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, task := range problematicTasks {
-			if task.Status == models.TaskStatusBlocked {
+			if task.Status == models.TaskStatus("blocked") {
 				reason := ""
 				if task.BlockedReason != nil && *task.BlockedReason != "" {
 					reason = fmt.Sprintf(" - %s", *task.BlockedReason)
@@ -1366,13 +1366,13 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 
 	for _, task := range allTasks {
 		// Skip already completed tasks
-		if task.Status == models.TaskStatusCompleted {
+		if task.Status == models.TaskStatus("completed") {
 			completedTaskCount++
 			continue
 		}
 
 		// Mark as completed
-		if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, nil, nil, true); err != nil {
+		if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), &agent, nil, nil, nil, true); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to complete task %s: %v", task.Key, err))
 			os.Exit(2)
 		}
@@ -1419,10 +1419,10 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 	if cli.GlobalConfig.JSON {
 		// Build status breakdown map for JSON
 		statusBreakdownMap := make(map[string]int)
-		statusBreakdownMap["todo"] = totalStatusBreakdown[models.TaskStatusTodo]
-		statusBreakdownMap["in_progress"] = totalStatusBreakdown[models.TaskStatusInProgress]
-		statusBreakdownMap["blocked"] = totalStatusBreakdown[models.TaskStatusBlocked]
-		statusBreakdownMap["ready_for_review"] = totalStatusBreakdown[models.TaskStatusReadyForReview]
+		statusBreakdownMap["todo"] = totalStatusBreakdown[models.TaskStatus("todo")]
+		statusBreakdownMap["in_progress"] = totalStatusBreakdown[models.TaskStatus("in_progress")]
+		statusBreakdownMap["blocked"] = totalStatusBreakdown[models.TaskStatus("blocked")]
+		statusBreakdownMap["ready_for_review"] = totalStatusBreakdown[models.TaskStatus("ready_for_review")]
 		statusBreakdownMap["completed"] = completedCount + completedTaskCount
 
 		result := map[string]interface{}{
@@ -1440,10 +1440,10 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 	// Human-readable output
 	if force && hasIncomplete {
 		// Had to force complete
-		todoCount := totalStatusBreakdown[models.TaskStatusTodo]
-		inProgressCount := totalStatusBreakdown[models.TaskStatusInProgress]
-		blockedCount := totalStatusBreakdown[models.TaskStatusBlocked]
-		readyCount := totalStatusBreakdown[models.TaskStatusReadyForReview]
+		todoCount := totalStatusBreakdown[models.TaskStatus("todo")]
+		inProgressCount := totalStatusBreakdown[models.TaskStatus("in_progress")]
+		blockedCount := totalStatusBreakdown[models.TaskStatus("blocked")]
+		readyCount := totalStatusBreakdown[models.TaskStatus("ready_for_review")]
 
 		breakdownStr := fmt.Sprintf("%d todo, %d in_progress, %d blocked, %d ready_for_review", todoCount, inProgressCount, blockedCount, readyCount)
 		cli.Success(fmt.Sprintf("Epic %s completed: Force-completed %d tasks (%s)", epicKey, completedTaskCount, breakdownStr))
@@ -1637,7 +1637,7 @@ func runEpicUpdate(cmd *cobra.Command, args []string) error {
 
 		// Cascade status to child features and tasks if --force is used and status is completed
 		if force && epic.Status == models.EpicStatusCompleted {
-			if err := epicRepo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatusCompleted); err != nil {
+			if err := epicRepo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
 				cli.Error(fmt.Sprintf("Error: Failed to cascade status to features and tasks: %v", err))
 				os.Exit(1)
 			}

@@ -17,13 +17,14 @@
 
 2. **Create Tasks** in the feature:
    ```bash
-   # Positional syntax (recommended)
-   ./bin/shark task create E07 F01 "Task Title" --priority=5
+   # Positional syntax (recommended) - use --order for sequencing
+   ./bin/shark task create E07 F01 "Task Title" --order=1
+   ./bin/shark task create E07 F01 "Second Task" --order=2 --priority=3
    # OR combined format
-   ./bin/shark task create E07-F01 "Task Title" --priority=5
+   ./bin/shark task create E07-F01 "Task Title" --order=1
 
    # Flag syntax (legacy, still supported)
-   ./bin/shark task create --epic=E07 --feature=F01 --title="Task Title" --priority=5
+   ./bin/shark task create --epic=E07 --feature=F01 --title="Task Title" --order=1
    ```
 
 3. **Update task file** at `docs/plan/{epic}/{feature}/tasks/{task-key}.md`:
@@ -148,9 +149,20 @@ dev-artifacts/2025-12-18-fix-database-bug/
        cli.RootCmd.AddCommand(myCmd)
    }
    ```
-4. Handle `cli.GlobalConfig` for JSON/verbose output
-5. Call appropriate repository methods for data operations
-6. **CRITICAL**: Write tests using MOCKED repositories (never use real database in CLI tests)
+4. **Command must be a thin wrapper**: parse args/flags, call a service method, format output
+5. Handle `cli.GlobalConfig` for JSON/verbose output
+6. **Do NOT put business logic in commands** - call service methods instead
+7. **Do NOT call repository methods directly** from commands - go through the service layer
+8. **CRITICAL**: Write tests using MOCKED services (never use real database in CLI tests)
+
+### Adding a Service Method
+1. Add method to the appropriate service in `internal/services/` (e.g., `task_service.go`)
+2. Service method should:
+   - Contain all business logic, validation, and orchestration
+   - Call repository methods for data access
+   - Use `workflow.Service` for status/transition validation
+   - Return domain objects and errors (no CLI/formatting concerns)
+   - Manage transactions when multiple repo calls are needed
 
 ### Adding a Repository Method
 1. Open the relevant repository file (`task_repository.go`, `epic_repository.go`, etc.)
@@ -159,6 +171,7 @@ dev-artifacts/2025-12-18-fix-database-bug/
    - Returns error as second value (`(T, error)`)
    - Uses prepared statements or parameterized queries
    - Includes proper error wrapping: `fmt.Errorf("operation failed: %w", err)`
+   - **Contains only data access logic** - no business rules, progress calculation, or status derivation
 
 ### Running a Single Test
 ```bash

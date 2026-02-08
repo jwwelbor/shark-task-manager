@@ -59,7 +59,7 @@ func TestTaskCreation_EndToEnd(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, "T-E01-F01-001", result.Task.Key)
 	assert.Equal(t, "Test Task", result.Task.Title)
-	assert.Equal(t, models.TaskStatusTodo, result.Task.Status)
+	assert.Equal(t, models.TaskStatus("todo"), result.Task.Status)
 	assert.NotEmpty(t, result.FilePath)
 
 	// Verify database record

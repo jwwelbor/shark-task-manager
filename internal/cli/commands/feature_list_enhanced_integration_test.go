@@ -71,9 +71,9 @@ func TestFeatureListIntegration_ProgressFormatValidation(t *testing.T) {
 
 		// Create tasks
 		for i := 1; i <= fd.total; i++ {
-			status := models.TaskStatusTodo
+			status := models.TaskStatus("todo")
 			if i <= fd.completed {
-				status = models.TaskStatusCompleted
+				status = models.TaskStatus("completed")
 			}
 			task := &models.Task{
 				Key:       "T-" + fd.key + "-00" + string(rune('0'+i)),
@@ -282,9 +282,9 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 
 	// Feature 1: Add healthy tasks (mix of completed and in progress)
 	for i := 1; i <= 4; i++ {
-		status := models.TaskStatusCompleted
+		status := models.TaskStatus("completed")
 		if i > 2 {
-			status = models.TaskStatusInProgress
+			status = models.TaskStatus("in_progress")
 		}
 		task := &models.Task{
 			Key:       "T-E15-F01-00" + string(rune('0'+i)),
@@ -300,7 +300,7 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 	}
 
 	// Feature 2: Add at-risk tasks (some blocked)
-	tasks2 := []models.TaskStatus{models.TaskStatusCompleted, models.TaskStatusInProgress, models.TaskStatusBlocked, models.TaskStatusTodo}
+	tasks2 := []models.TaskStatus{models.TaskStatus("completed"), models.TaskStatus("in_progress"), models.TaskStatus("blocked"), models.TaskStatus("todo")}
 	for i, status := range tasks2 {
 		task := &models.Task{
 			Key:       "T-E15-F02-00" + string(rune('0'+i+1)),
@@ -320,7 +320,7 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 		task := &models.Task{
 			Key:       "T-E15-F03-00" + string(rune('0'+i)),
 			Title:     "Task " + string(rune('0'+i)),
-			Status:    models.TaskStatusBlocked,
+			Status:    models.TaskStatus("blocked"),
 			FeatureID: feature3.ID,
 			Priority:  5,
 			Slug:      strPtr("task-" + string(rune('0'+i))),
@@ -345,7 +345,7 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 
 		// Determine health based on blocked task percentage
 		var health string
-		blockedCount := statusCounts[string(models.TaskStatusBlocked)]
+		blockedCount := statusCounts[string(models.TaskStatus("blocked"))]
 		totalCount := len(tasks)
 
 		if totalCount == 0 {

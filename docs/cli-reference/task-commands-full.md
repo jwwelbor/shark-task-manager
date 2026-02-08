@@ -25,7 +25,9 @@ shark task create --epic=<epic-key> --feature=<feature-key> --title="<title>" [f
   - **Recommended types** (have specific templates): `frontend`, `backend`, `api`, `testing`, `devops`, `general`
   - **Custom types** (use general template): `architect`, `business-analyst`, `qa`, `tech-lead`, `product-manager`, `ux-designer`, etc.
   - Custom agent types are fully supported and stored exactly as entered
-- `--priority <1-10>`: Priority (1 = highest, 10 = lowest, default: 5)
+- `--order <int>`: Execution order within feature (primary sequencing - lower runs first)
+- `--execution-order <int>`: Alias for `--order`
+- `--priority <1-10>`: Priority level (1 = highest, 10 = lowest, default: 5). Secondary to execution order.
 - `--description <string>`: Detailed description
 - `--depends-on <task-keys>`: Comma-separated list of dependency task keys
 - `--file <path>`: Custom file path (relative to root, must include .md)
@@ -46,13 +48,17 @@ shark task create e07-f01 "Implement JWT validation"  # Case insensitive
 # Create task with flag syntax (legacy)
 shark task create --epic=E07 --feature=F01 --title="Implement JWT validation"
 
-# Create task with agent and priority
-shark task create E07 F01 "Implement JWT validation" --agent=backend --priority=3
+# Create task with execution order (primary sequencing)
+shark task create E07 F01 "Implement JWT validation" --agent=backend --order=1
+shark task create E07 F01 "Add token refresh" --agent=backend --order=2
+
+# Create task with order and priority
+shark task create E07 F01 "Implement JWT validation" --agent=backend --order=1 --priority=3
 
 # Create task with custom agent type (multi-agent workflows)
-shark task create E07 F01 "Design system architecture" --agent=architect --priority=2
-shark task create E07 F01 "Elaborate user requirements" --agent=business-analyst --priority=4
-shark task create E07 F01 "Create test strategy" --agent=qa --priority=3
+shark task create E07 F01 "Design system architecture" --agent=architect --order=1
+shark task create E07 F01 "Elaborate user requirements" --agent=business-analyst --order=2
+shark task create E07 F01 "Create test strategy" --agent=qa --order=3
 
 # Create task with dependencies
 shark task create E07 F01 "Add token refresh" \
@@ -226,7 +232,7 @@ shark task next --epic=E07 --agent=backend --json
 **Returns:**
 - Tasks in `todo` status
 - With all dependencies completed
-- Sorted by priority (1 = highest)
+- Sorted by execution order (lowest first), then priority (1 = highest)
 
 ---
 

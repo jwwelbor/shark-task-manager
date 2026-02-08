@@ -94,7 +94,7 @@ Some other content here.
 		FeatureID: feature.ID,
 		Key:       "T-E99-F99-001",
 		Title:     "Test Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 		FilePath:  &filePathStr,
 	}
@@ -239,7 +239,7 @@ func TestTaskCriteriaCheckAndFail(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E99-F99-002",
 		Title:     "Test Task 2",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, task)
@@ -398,7 +398,7 @@ func TestFeatureCriteriaAggregation(t *testing.T) {
 			FeatureID: feature.ID,
 			Key:       fmt.Sprintf("T-E99-F99-%03d", i),
 			Title:     fmt.Sprintf("Test Task %d", i),
-			Status:    models.TaskStatusTodo,
+			Status:    models.TaskStatus("todo"),
 			Priority:  5,
 		}
 		err = taskRepo.Create(ctx, task)

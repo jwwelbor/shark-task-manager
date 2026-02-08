@@ -129,13 +129,13 @@ func TestEpicGetIntegration_TaskStatusRollup(t *testing.T) {
 	// Create tasks across both features with different statuses
 	tasks := []*models.Task{
 		// Feature 1 tasks
-		{Key: "T-E08-F01-001", Title: "Task 1", Status: models.TaskStatusCompleted, FeatureID: feature1.ID, Priority: 5},
-		{Key: "T-E08-F01-002", Title: "Task 2", Status: models.TaskStatusCompleted, FeatureID: feature1.ID, Priority: 5},
-		{Key: "T-E08-F01-003", Title: "Task 3", Status: models.TaskStatusInProgress, FeatureID: feature1.ID, Priority: 5},
+		{Key: "T-E08-F01-001", Title: "Task 1", Status: models.TaskStatus("completed"), FeatureID: feature1.ID, Priority: 5},
+		{Key: "T-E08-F01-002", Title: "Task 2", Status: models.TaskStatus("completed"), FeatureID: feature1.ID, Priority: 5},
+		{Key: "T-E08-F01-003", Title: "Task 3", Status: models.TaskStatus("in_progress"), FeatureID: feature1.ID, Priority: 5},
 		// Feature 2 tasks
-		{Key: "T-E08-F02-001", Title: "Task 1", Status: models.TaskStatusTodo, FeatureID: feature2.ID, Priority: 5},
-		{Key: "T-E08-F02-002", Title: "Task 2", Status: models.TaskStatusInProgress, FeatureID: feature2.ID, Priority: 5},
-		{Key: "T-E08-F02-003", Title: "Task 3", Status: models.TaskStatusInProgress, FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E08-F02-001", Title: "Task 1", Status: models.TaskStatus("todo"), FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E08-F02-002", Title: "Task 2", Status: models.TaskStatus("in_progress"), FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E08-F02-003", Title: "Task 3", Status: models.TaskStatus("in_progress"), FeatureID: feature2.ID, Priority: 5},
 	}
 
 	for _, task := range tasks {
@@ -218,10 +218,10 @@ func TestEpicGetIntegration_ImpedimentsDetection(t *testing.T) {
 
 	// Create tasks with some blocked
 	tasks := []*models.Task{
-		{Key: "T-E09-F01-001", Title: "Design API", Status: models.TaskStatusCompleted, FeatureID: feature.ID, Priority: 5},
-		{Key: "T-E09-F01-002", Title: "Implement Endpoints", Status: models.TaskStatusBlocked, FeatureID: feature.ID, Priority: 5},
-		{Key: "T-E09-F01-003", Title: "Write Tests", Status: models.TaskStatusBlocked, FeatureID: feature.ID, Priority: 5},
-		{Key: "T-E09-F01-004", Title: "Deploy", Status: models.TaskStatusTodo, FeatureID: feature.ID, Priority: 5},
+		{Key: "T-E09-F01-001", Title: "Design API", Status: models.TaskStatus("completed"), FeatureID: feature.ID, Priority: 5},
+		{Key: "T-E09-F01-002", Title: "Implement Endpoints", Status: models.TaskStatus("blocked"), FeatureID: feature.ID, Priority: 5},
+		{Key: "T-E09-F01-003", Title: "Write Tests", Status: models.TaskStatus("blocked"), FeatureID: feature.ID, Priority: 5},
+		{Key: "T-E09-F01-004", Title: "Deploy", Status: models.TaskStatus("todo"), FeatureID: feature.ID, Priority: 5},
 	}
 
 	for _, task := range tasks {
@@ -307,16 +307,16 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 
 	// Feature 1: 2 completed, 2 total (50%)
 	tasks1 := []*models.Task{
-		{Key: "T-E10-F01-001", Title: "Task 1", Status: models.TaskStatusCompleted, FeatureID: feature1.ID, Priority: 5},
-		{Key: "T-E10-F01-002", Title: "Task 2", Status: models.TaskStatusTodo, FeatureID: feature1.ID, Priority: 5},
+		{Key: "T-E10-F01-001", Title: "Task 1", Status: models.TaskStatus("completed"), FeatureID: feature1.ID, Priority: 5},
+		{Key: "T-E10-F01-002", Title: "Task 2", Status: models.TaskStatus("todo"), FeatureID: feature1.ID, Priority: 5},
 	}
 
 	// Feature 2: 4 completed, 4 total (100%)
 	tasks2 := []*models.Task{
-		{Key: "T-E10-F02-001", Title: "Task 1", Status: models.TaskStatusCompleted, FeatureID: feature2.ID, Priority: 5},
-		{Key: "T-E10-F02-002", Title: "Task 2", Status: models.TaskStatusCompleted, FeatureID: feature2.ID, Priority: 5},
-		{Key: "T-E10-F02-003", Title: "Task 3", Status: models.TaskStatusCompleted, FeatureID: feature2.ID, Priority: 5},
-		{Key: "T-E10-F02-004", Title: "Task 4", Status: models.TaskStatusCompleted, FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E10-F02-001", Title: "Task 1", Status: models.TaskStatus("completed"), FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E10-F02-002", Title: "Task 2", Status: models.TaskStatus("completed"), FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E10-F02-003", Title: "Task 3", Status: models.TaskStatus("completed"), FeatureID: feature2.ID, Priority: 5},
+		{Key: "T-E10-F02-004", Title: "Task 4", Status: models.TaskStatus("completed"), FeatureID: feature2.ID, Priority: 5},
 	}
 
 	allTasks := append(tasks1, tasks2...)
@@ -420,7 +420,7 @@ func TestEpicGetIntegration_JSONOutput(t *testing.T) {
 	task := &models.Task{
 		Key:       "T-E11-F01-001",
 		Title:     "Test Task",
-		Status:    models.TaskStatusCompleted,
+		Status:    models.TaskStatus("completed"),
 		FeatureID: feature.ID,
 		Priority:  5,
 	}
@@ -540,9 +540,9 @@ func TestEpicGetIntegration_MultipleFeatures(t *testing.T) {
 
 		// Create tasks for this feature
 		for i := 1; i <= fd.total; i++ {
-			taskStatus := models.TaskStatusTodo
+			taskStatus := models.TaskStatus("todo")
 			if i <= fd.completed {
-				taskStatus = models.TaskStatusCompleted
+				taskStatus = models.TaskStatus("completed")
 			}
 			task := &models.Task{
 				Key:       "T-" + fd.key + "-00" + string(rune('0'+i)),

@@ -56,7 +56,7 @@ func TestBulkCreateValidationFailure(t *testing.T) {
 			FeatureID: feature.ID,
 			Key:       "", // Invalid: empty key
 			Title:     "Invalid Task",
-			Status:    models.TaskStatusTodo,
+			Status:    models.TaskStatus("todo"),
 		},
 	}
 
@@ -105,14 +105,14 @@ func TestBulkCreateRollback(t *testing.T) {
 			FeatureID: feature.ID,
 			Key:       fmt.Sprintf("T-%s-200", featureKey),
 			Title:     "First Task",
-			Status:    models.TaskStatusTodo,
+			Status:    models.TaskStatus("todo"),
 			Priority:  1,
 		},
 		{
 			FeatureID: feature.ID,
 			Key:       fmt.Sprintf("T-%s-200", featureKey), // Duplicate key
 			Title:     "Duplicate Task",
-			Status:    models.TaskStatusTodo,
+			Status:    models.TaskStatus("todo"),
 			Priority:  1,
 		},
 	}
@@ -161,8 +161,8 @@ func TestGetByKeysPartial(t *testing.T) {
 	_ = featureRepo.Create(ctx, feature)
 
 	// Create 2 tasks with known keys
-	task1 := &models.Task{FeatureID: feature.ID, Key: fmt.Sprintf("T-%s-001", featureKey), Title: "Task 1", Status: models.TaskStatusTodo, Priority: 1}
-	task2 := &models.Task{FeatureID: feature.ID, Key: fmt.Sprintf("T-%s-002", featureKey), Title: "Task 2", Status: models.TaskStatusTodo, Priority: 1}
+	task1 := &models.Task{FeatureID: feature.ID, Key: fmt.Sprintf("T-%s-001", featureKey), Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 1}
+	task2 := &models.Task{FeatureID: feature.ID, Key: fmt.Sprintf("T-%s-002", featureKey), Title: "Task 2", Status: models.TaskStatus("todo"), Priority: 1}
 	_ = taskRepo.Create(ctx, task1)
 	_ = taskRepo.Create(ctx, task2)
 
@@ -243,7 +243,7 @@ func TestUpdateMetadata(t *testing.T) {
 		Key:         fmt.Sprintf("T-%s-001", featureKey),
 		Title:       "Original Title",
 		Description: test.StringPtr("Original Description"),
-		Status:      models.TaskStatusTodo,
+		Status:      models.TaskStatus("todo"),
 		Priority:    5,
 		AgentType:   &initialAgentType,
 	}
@@ -260,7 +260,7 @@ func TestUpdateMetadata(t *testing.T) {
 	task.FilePath = test.StringPtr("/new/path/to/task.md")
 
 	// Also try to change database-only fields (should be ignored)
-	task.Status = models.TaskStatusCompleted
+	task.Status = models.TaskStatus("completed")
 	task.Priority = 10 // Max valid priority
 	newAgentType := "backend"
 	task.AgentType = &newAgentType
@@ -318,7 +318,7 @@ func TestUpdateMetadataNotFound(t *testing.T) {
 		ID:       99999, // Non-existent ID
 		Key:      "T-E99-F99-999",
 		Title:    "Fake Task",
-		Status:   models.TaskStatusTodo,
+		Status:   models.TaskStatus("todo"),
 		Priority: 1,
 	}
 

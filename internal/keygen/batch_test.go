@@ -68,7 +68,7 @@ func TestBatchProcessing_NoDuplicateKeys(t *testing.T) {
 			Key:         fmt.Sprintf("T-E04-F02-%03d", i),
 			Title:       fmt.Sprintf("Task %d", i),
 			Description: nil,
-			Status:      models.TaskStatusTodo,
+			Status:      models.TaskStatus("todo"),
 			AgentType:   nil,
 			Priority:    2,
 		}
@@ -217,7 +217,7 @@ func TestBatchProcessing_WithExistingKeys(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E04-F02-001",
 		Title:     "Existing Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  2,
 	}
 	if err := taskRepo.Create(ctx, task); err != nil {

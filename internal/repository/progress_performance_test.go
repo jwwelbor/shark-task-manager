@@ -15,10 +15,10 @@ func TestFeatureProgressPerformance(t *testing.T) {
 
 	// Create test data
 	_, featureID := setupProgressTest(t, 83, 1, []models.TaskStatus{
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusTodo,
-		models.TaskStatusTodo,
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("todo"),
+		models.TaskStatus("todo"),
 	})
 
 	// Get the SQL query plan
@@ -61,14 +61,14 @@ func TestEpicProgressPerformance(t *testing.T) {
 
 	// Create test data with multiple features
 	epicID, feature1ID := setupProgressTest(t, 84, 1, []models.TaskStatus{
-		models.TaskStatusCompleted,
-		models.TaskStatusTodo,
+		models.TaskStatus("completed"),
+		models.TaskStatus("todo"),
 	})
 	_ = featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Create second feature with 1 completed task using setupProgressTest helper
 	_, feature2ID := setupProgressTest(t, 84, 2, []models.TaskStatus{
-		models.TaskStatusCompleted,
+		models.TaskStatus("completed"),
 	})
 	_ = featureRepo.UpdateProgress(ctx, feature2ID)
 
@@ -118,9 +118,9 @@ func BenchmarkFeatureProgress(b *testing.B) {
 	statuses := make([]models.TaskStatus, 100)
 	for i := 0; i < 100; i++ {
 		if i < 50 {
-			statuses[i] = models.TaskStatusCompleted
+			statuses[i] = models.TaskStatus("completed")
 		} else {
-			statuses[i] = models.TaskStatusTodo
+			statuses[i] = models.TaskStatus("todo")
 		}
 	}
 
@@ -176,9 +176,9 @@ func BenchmarkEpicProgress(b *testing.B) {
 
 		// Create 10 tasks (5 completed, 5 todo)
 		for t := 1; t <= 10; t++ {
-			status := models.TaskStatusTodo
+			status := models.TaskStatus("todo")
 			if t <= 5 {
-				status = models.TaskStatusCompleted
+				status = models.TaskStatus("completed")
 			}
 			_, _ = database.Exec(`
 				INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)

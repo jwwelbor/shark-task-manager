@@ -403,9 +403,9 @@ func TestEpicRepository_CalculateProgress_MixedFeatureStatuses(t *testing.T) {
 
 	// Create 4 tasks for Feature 2 (2 completed, 2 todo)
 	for i := 1; i <= 4; i++ {
-		status := models.TaskStatusTodo
+		status := models.TaskStatus("todo")
 		if i <= 2 {
-			status = models.TaskStatusCompleted
+			status = models.TaskStatus("completed")
 		}
 		task := &models.Task{
 			FeatureID: f2.ID,
@@ -637,10 +637,10 @@ func TestEpicRepository_GetTaskStatusRollup_WithMultipleTasks(t *testing.T) {
 
 	// Create tasks with different statuses
 	statusCounts := map[models.TaskStatus]int{
-		models.TaskStatusTodo:       3,
-		models.TaskStatusInProgress: 2,
-		models.TaskStatusCompleted:  4,
-		models.TaskStatusBlocked:    1,
+		models.TaskStatus("todo"):        3,
+		models.TaskStatus("in_progress"): 2,
+		models.TaskStatus("completed"):   4,
+		models.TaskStatus("blocked"):     1,
 	}
 
 	i := 1
@@ -665,13 +665,13 @@ func TestEpicRepository_GetTaskStatusRollup_WithMultipleTasks(t *testing.T) {
 
 	// Verify counts
 	assert.NotNil(t, rollup, "Rollup should not be nil")
-	assert.Equal(t, 3, rollup[string(models.TaskStatusTodo)],
+	assert.Equal(t, 3, rollup[string(models.TaskStatus("todo"))],
 		"Should have 3 todo tasks")
-	assert.Equal(t, 2, rollup[string(models.TaskStatusInProgress)],
+	assert.Equal(t, 2, rollup[string(models.TaskStatus("in_progress"))],
 		"Should have 2 in_progress tasks")
-	assert.Equal(t, 4, rollup[string(models.TaskStatusCompleted)],
+	assert.Equal(t, 4, rollup[string(models.TaskStatus("completed"))],
 		"Should have 4 completed tasks")
-	assert.Equal(t, 1, rollup[string(models.TaskStatusBlocked)],
+	assert.Equal(t, 1, rollup[string(models.TaskStatus("blocked"))],
 		"Should have 1 blocked task")
 
 	// Cleanup
@@ -728,7 +728,7 @@ func TestEpicRepository_GetTaskStatusRollup_MultipleFeatures(t *testing.T) {
 				FeatureID: feature.ID,
 				Key:       fmt.Sprintf("T-%s-%03d", feature.Key, taskNum),
 				Title:     fmt.Sprintf("Task %d", taskNum),
-				Status:    models.TaskStatusCompleted,
+				Status:    models.TaskStatus("completed"),
 				Priority:  5,
 			}
 			err = taskRepo.Create(ctx, task)
@@ -743,7 +743,7 @@ func TestEpicRepository_GetTaskStatusRollup_MultipleFeatures(t *testing.T) {
 
 	// Verify counts
 	assert.NotNil(t, rollup, "Rollup should not be nil")
-	assert.Equal(t, 6, rollup[string(models.TaskStatusCompleted)],
+	assert.Equal(t, 6, rollup[string(models.TaskStatus("completed"))],
 		"Should have 6 completed tasks (3 in each feature)")
 	assert.Equal(t, 1, len(rollup), "Map should contain only 1 status")
 
@@ -834,7 +834,7 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 				FeatureID: feature.ID,
 				Key:       fmt.Sprintf("T-%s-%03d", feature.Key, taskNum),
 				Title:     fmt.Sprintf("Task %d", taskNum),
-				Status:    models.TaskStatusCompleted,
+				Status:    models.TaskStatus("completed"),
 				Priority:  5,
 			}
 			err = taskRepo.Create(ctx, task)
@@ -850,5 +850,5 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 	// Test task rollup query
 	taskRollup, err := epicRepo.GetTaskStatusRollup(ctx, epic.ID)
 	require.NoError(t, err)
-	assert.Equal(t, 50, taskRollup[string(models.TaskStatusCompleted)])
+	assert.Equal(t, 50, taskRollup[string(models.TaskStatus("completed"))])
 }

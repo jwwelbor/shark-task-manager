@@ -240,16 +240,16 @@ func TestTaskMetadata_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "invalid status",
+			name: "any non-empty status accepted",
 			metadata: TaskMetadata{
 				TaskKey: "T-E04-F05-001",
-				Status:  "invalid_status",
+				Status:  "custom_workflow_status",
 				Title:   "Test task",
 			},
-			wantErr: true,
+			wantErr: false, // Parser only checks non-empty; workflow validation happens at CLI layer
 		},
 		{
-			name: "all valid statuses",
+			name: "standard status accepted",
 			metadata: TaskMetadata{
 				TaskKey: "T-E04-F05-001",
 				Status:  "completed",

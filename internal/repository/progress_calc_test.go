@@ -110,16 +110,16 @@ func TestFeatureProgress_CompletedTasks(t *testing.T) {
 
 	// 7 completed, 2 in_progress, 1 todo = 70% progress
 	statuses := []models.TaskStatus{
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusInProgress,
-		models.TaskStatusInProgress,
-		models.TaskStatusTodo,
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("in_progress"),
+		models.TaskStatus("in_progress"),
+		models.TaskStatus("todo"),
 	}
 
 	_, featureID := setupProgressTest(t, 91, 1, statuses)
@@ -143,16 +143,16 @@ func TestFeatureProgress_CompletedAndArchived(t *testing.T) {
 
 	// 5 completed + 2 archived = 7 done out of 10 = 70%
 	statuses := []models.TaskStatus{
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusArchived,
-		models.TaskStatusArchived,
-		models.TaskStatusTodo,
-		models.TaskStatusTodo,
-		models.TaskStatusTodo,
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("archived"),
+		models.TaskStatus("archived"),
+		models.TaskStatus("todo"),
+		models.TaskStatus("todo"),
+		models.TaskStatus("todo"),
 	}
 
 	_, featureID := setupProgressTest(t, 92, 1, statuses)
@@ -175,11 +175,11 @@ func TestFeatureProgress_AllCompleted(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	statuses := []models.TaskStatus{
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
-		models.TaskStatusCompleted,
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("completed"),
 	}
 
 	_, featureID := setupProgressTest(t, 93, 1, statuses)
@@ -202,11 +202,11 @@ func TestFeatureProgress_NoneCompleted(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	statuses := []models.TaskStatus{
-		models.TaskStatusTodo,
-		models.TaskStatusTodo,
-		models.TaskStatusTodo,
-		models.TaskStatusInProgress,
-		models.TaskStatusInProgress,
+		models.TaskStatus("todo"),
+		models.TaskStatus("todo"),
+		models.TaskStatus("todo"),
+		models.TaskStatus("in_progress"),
+		models.TaskStatus("in_progress"),
 	}
 
 	_, featureID := setupProgressTest(t, 94, 1, statuses)
@@ -230,10 +230,10 @@ func TestFeatureProgress_BlockedNotCounted(t *testing.T) {
 
 	// 1 completed, 2 blocked, 1 todo = 25% (only completed counts)
 	statuses := []models.TaskStatus{
-		models.TaskStatusCompleted,
-		models.TaskStatusBlocked,
-		models.TaskStatusBlocked,
-		models.TaskStatusTodo,
+		models.TaskStatus("completed"),
+		models.TaskStatus("blocked"),
+		models.TaskStatus("blocked"),
+		models.TaskStatus("todo"),
 	}
 
 	_, featureID := setupProgressTest(t, 95, 1, statuses)
@@ -292,9 +292,9 @@ func TestEpicProgress_MultipleFeatures(t *testing.T) {
 	statuses1 := make([]models.TaskStatus, 10)
 	for i := 0; i < 10; i++ {
 		if i < 5 {
-			statuses1[i] = models.TaskStatusCompleted
+			statuses1[i] = models.TaskStatus("completed")
 		} else {
-			statuses1[i] = models.TaskStatusTodo
+			statuses1[i] = models.TaskStatus("todo")
 		}
 	}
 	epicID, feature1ID := setupProgressTest(t, epicNum, 1, statuses1)
@@ -303,7 +303,7 @@ func TestEpicProgress_MultipleFeatures(t *testing.T) {
 	// Feature 2: 100% with 10 tasks (same epic, different feature)
 	statuses2 := make([]models.TaskStatus, 10)
 	for i := 0; i < 10; i++ {
-		statuses2[i] = models.TaskStatusCompleted
+		statuses2[i] = models.TaskStatus("completed")
 	}
 	_, feature2ID := setupProgressTest(t, epicNum, 2, statuses2)
 	_ = featureRepo.UpdateProgress(ctx, feature2ID)
@@ -330,14 +330,14 @@ func TestEpicProgress_SimpleAverage(t *testing.T) {
 
 	// Feature 1: 100% with 1 task (E98-F01)
 	epicID, feature1ID := setupProgressTest(t, 98, 1, []models.TaskStatus{
-		models.TaskStatusCompleted,
+		models.TaskStatus("completed"),
 	})
 	_ = featureRepo.UpdateProgress(ctx, feature1ID)
 
 	// Feature 2: 0% with 9 tasks (E98-F02)
 	statuses2 := make([]models.TaskStatus, 9)
 	for i := 0; i < 9; i++ {
-		statuses2[i] = models.TaskStatusTodo
+		statuses2[i] = models.TaskStatus("todo")
 	}
 	_, feature2ID := setupProgressTest(t, 98, 2, statuses2)
 	_ = featureRepo.UpdateProgress(ctx, feature2ID)

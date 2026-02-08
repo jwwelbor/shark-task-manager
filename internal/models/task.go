@@ -8,30 +8,6 @@ import (
 // TaskStatus represents the status of a task
 type TaskStatus string
 
-// DEPRECATED: These constants are deprecated and will be removed in a future version.
-// They represent a hardcoded set of statuses that limits workflow flexibility.
-//
-// Recommended Migration:
-// - Use workflow config to define statuses: .sharkconfig.json "status_flow"
-// - Query valid statuses from config using validation.StatusValidator
-// - Use string literals directly when status is known to exist in workflow
-//
-// Example migration:
-//
-//	Before: if task.Status == models.TaskStatusTodo { ... }
-//	After:  if task.Status == TaskStatus("todo") { ... }
-//	Better: validator.IsStartStatus(string(task.Status))
-//
-// These constants are kept temporarily for backward compatibility.
-const (
-	TaskStatusTodo           TaskStatus = "todo"             // Deprecated: Use workflow config
-	TaskStatusInProgress     TaskStatus = "in_progress"      // Deprecated: Use workflow config
-	TaskStatusBlocked        TaskStatus = "blocked"          // Deprecated: Use workflow config
-	TaskStatusReadyForReview TaskStatus = "ready_for_review" // Deprecated: Use workflow config
-	TaskStatusCompleted      TaskStatus = "completed"        // Deprecated: Use workflow config
-	TaskStatusArchived       TaskStatus = "archived"         // Deprecated: Use workflow config
-)
-
 // Task represents an atomic work unit within a feature
 type Task struct {
 	ID             int64        `json:"id" db:"id"`

@@ -80,9 +80,9 @@ func TestEpicListingIntegration(t *testing.T) {
 
 		// Create 4 tasks: 2 completed, 2 todo = 50% progress
 		for ti := 0; ti < 4; ti++ {
-			status := models.TaskStatusTodo
+			status := models.TaskStatus("todo")
 			if ti < 2 {
-				status = models.TaskStatusCompleted
+				status = models.TaskStatus("completed")
 			}
 			taskKey := fmt.Sprintf("T-%s-%03d", featureKey, ti+1)
 			_, _ = database.Exec(`
@@ -152,16 +152,16 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 
 	// Create 10 tasks: 7 completed, 2 in_progress, 1 todo
 	taskStatuses := []models.TaskStatus{
-		models.TaskStatusCompleted,  // 1
-		models.TaskStatusCompleted,  // 2
-		models.TaskStatusCompleted,  // 3
-		models.TaskStatusCompleted,  // 4
-		models.TaskStatusCompleted,  // 5
-		models.TaskStatusCompleted,  // 6
-		models.TaskStatusCompleted,  // 7
-		models.TaskStatusInProgress, // 8
-		models.TaskStatusInProgress, // 9
-		models.TaskStatusTodo,       // 10
+		models.TaskStatus("completed"),   // 1
+		models.TaskStatus("completed"),   // 2
+		models.TaskStatus("completed"),   // 3
+		models.TaskStatus("completed"),   // 4
+		models.TaskStatus("completed"),   // 5
+		models.TaskStatus("completed"),   // 6
+		models.TaskStatus("completed"),   // 7
+		models.TaskStatus("in_progress"), // 8
+		models.TaskStatus("in_progress"), // 9
+		models.TaskStatus("todo"),        // 10
 	}
 
 	for i, status := range taskStatuses {

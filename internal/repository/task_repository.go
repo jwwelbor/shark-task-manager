@@ -477,7 +477,7 @@ func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey str
 		ORDER BY t.blocked_at DESC NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
 	`
 
-	return r.queryTasks(ctx, query, epicKey, models.TaskStatusBlocked)
+	return r.queryTasks(ctx, query, epicKey, models.TaskStatus("blocked"))
 }
 
 // FilterByStatus retrieves tasks filtered by status
@@ -791,12 +791,12 @@ func (r *TaskRepository) isValidStatusEnum(status models.TaskStatus) bool {
 
 	// Fallback to hardcoded statuses if no workflow config
 	validStatuses := []models.TaskStatus{
-		models.TaskStatusTodo,
-		models.TaskStatusInProgress,
-		models.TaskStatusBlocked,
-		models.TaskStatusReadyForReview,
-		models.TaskStatusCompleted,
-		models.TaskStatusArchived,
+		models.TaskStatus("todo"),
+		models.TaskStatus("in_progress"),
+		models.TaskStatus("blocked"),
+		models.TaskStatus("ready_for_review"),
+		models.TaskStatus("completed"),
+		models.TaskStatus("archived"),
 	}
 	for _, valid := range validStatuses {
 		if status == valid {
@@ -909,13 +909,13 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 	args := []interface{}{newStatus}
 
 	// Set appropriate timestamp based on new status
-	if newStatus == models.TaskStatusInProgress && !startedAt.Valid {
+	if newStatus == models.TaskStatus("in_progress") && !startedAt.Valid {
 		query += ", started_at = ?"
 		args = append(args, now)
-	} else if newStatus == models.TaskStatusCompleted && !completedAt.Valid {
+	} else if newStatus == models.TaskStatus("completed") && !completedAt.Valid {
 		query += ", completed_at = ?"
 		args = append(args, now)
-	} else if newStatus == models.TaskStatusBlocked && !blockedAt.Valid {
+	} else if newStatus == models.TaskStatus("blocked") && !blockedAt.Valid {
 		query += ", blocked_at = ?"
 		args = append(args, now)
 	}
@@ -975,7 +975,7 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 
 	// Auto-unblock dependents when transitioning to completed or archived
 	var unblockedKeys []string
-	if newStatus == models.TaskStatusCompleted || newStatus == models.TaskStatusArchived {
+	if newStatus == models.TaskStatus("completed") || newStatus == models.TaskStatus("archived") {
 		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, taskKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to auto-unblock dependents: %w", err)
@@ -1089,9 +1089,9 @@ func (r *TaskRepository) BlockTaskForced(ctx context.Context, taskID int64, reas
 		fmt.Printf("WARNING: Forced block from %s status (taskID=%d)\n", currentStatus, taskID)
 	} else {
 		// Validate transition using workflow config
-		if !r.isValidTransition(currentTaskStatus, models.TaskStatusBlocked) {
+		if !r.isValidTransition(currentTaskStatus, models.TaskStatus("blocked")) {
 			if r.workflow != nil {
-				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatusBlocked))
+				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatus("blocked")))
 				if validationErr != nil {
 					return validationErr
 				}
@@ -1103,14 +1103,14 @@ func (r *TaskRepository) BlockTaskForced(ctx context.Context, taskID int64, reas
 	// Update status, blocked_at, and blocked_reason
 	now := time.Now()
 	query := `UPDATE tasks SET status = ?, blocked_at = ?, blocked_reason = ? WHERE id = ?`
-	_, err = tx.ExecContext(ctx, query, models.TaskStatusBlocked, now, reason, taskID)
+	_, err = tx.ExecContext(ctx, query, models.TaskStatus("blocked"), now, reason, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
 	// Create history record with rejection_reason support
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusBlocked, agent, &reason, nil, force)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatus("blocked"), agent, &reason, nil, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -1153,9 +1153,9 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 		fmt.Printf("WARNING: Forced unblock from %s status (taskID=%d)\n", currentStatus, taskID)
 	} else {
 		// Validate transition using workflow config
-		if !r.isValidTransition(currentTaskStatus, models.TaskStatusTodo) {
+		if !r.isValidTransition(currentTaskStatus, models.TaskStatus("todo")) {
 			if r.workflow != nil {
-				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatusTodo))
+				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatus("todo")))
 				if validationErr != nil {
 					return validationErr
 				}
@@ -1166,14 +1166,14 @@ func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, ag
 
 	// Update status and clear blocked fields
 	query := `UPDATE tasks SET status = ?, blocked_at = NULL, blocked_reason = NULL WHERE id = ?`
-	_, err = tx.ExecContext(ctx, query, models.TaskStatusTodo, taskID)
+	_, err = tx.ExecContext(ctx, query, models.TaskStatus("todo"), taskID)
 	if err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusTodo, agent, nil, nil, force)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatus("todo"), agent, nil, nil, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -1201,7 +1201,7 @@ func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *st
 // ReopenTaskForced reopens a task with optional validation bypass
 // Use rejectionReason for backward transitions to capture why task was rejected
 func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
-	return r.UpdateStatusForced(ctx, taskID, models.TaskStatusInProgress, agent, notes, rejectionReason, documentPath, force)
+	return r.UpdateStatusForced(ctx, taskID, models.TaskStatus("in_progress"), agent, notes, rejectionReason, documentPath, force)
 }
 
 // Delete deletes a task (and its history via CASCADE)
@@ -1316,12 +1316,12 @@ func (r *TaskRepository) GetStatusBreakdownMap(ctx context.Context, featureID in
 
 	// Initialize breakdown with common statuses set to 0
 	breakdown := map[models.TaskStatus]int{
-		models.TaskStatusTodo:           0,
-		models.TaskStatusInProgress:     0,
-		models.TaskStatusBlocked:        0,
-		models.TaskStatusReadyForReview: 0,
-		models.TaskStatusCompleted:      0,
-		models.TaskStatusArchived:       0,
+		models.TaskStatus("todo"):             0,
+		models.TaskStatus("in_progress"):      0,
+		models.TaskStatus("blocked"):          0,
+		models.TaskStatus("ready_for_review"): 0,
+		models.TaskStatus("completed"):        0,
+		models.TaskStatus("archived"):         0,
 	}
 
 	// Fill in actual counts from query

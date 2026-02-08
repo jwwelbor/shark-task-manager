@@ -58,7 +58,7 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 		FeatureID: feature1.ID,
 		Key:       "T-E99-F01-001",
 		Title:     "Task 1",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	if err := taskRepo.Create(ctx, task1); err != nil {
@@ -69,7 +69,7 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 		FeatureID: feature1.ID,
 		Key:       "T-E99-F01-002",
 		Title:     "Task 2",
-		Status:    models.TaskStatusInProgress,
+		Status:    models.TaskStatus("in_progress"),
 		Priority:  5,
 	}
 	if err := taskRepo.Create(ctx, task2); err != nil {
@@ -92,7 +92,7 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 		FeatureID: feature2.ID,
 		Key:       "T-E99-F02-001",
 		Title:     "Task 3",
-		Status:    models.TaskStatusBlocked,
+		Status:    models.TaskStatus("blocked"),
 		Priority:  5,
 	}
 	if err := taskRepo.Create(ctx, task3); err != nil {
@@ -136,8 +136,8 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 	// Simulate what runEpicComplete does with the fix
 	agent := "test-agent"
 	for _, task := range allTasks {
-		if task.Status != models.TaskStatusCompleted {
-			if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, nil, nil, true); err != nil {
+		if task.Status != models.TaskStatus("completed") {
+			if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), &agent, nil, nil, nil, true); err != nil {
 				t.Fatalf("Failed to complete task %s: %v", task.Key, err)
 			}
 		}
@@ -210,7 +210,7 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 			t.Fatalf("Failed to list tasks for feature %s: %v", feature.Key, err)
 		}
 		for _, task := range tasks {
-			if task.Status != models.TaskStatusCompleted {
+			if task.Status != models.TaskStatus("completed") {
 				t.Errorf("Task %s status is %s, expected completed", task.Key, task.Status)
 			}
 		}

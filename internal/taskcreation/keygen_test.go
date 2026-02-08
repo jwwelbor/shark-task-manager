@@ -84,7 +84,7 @@ func createTestTask(t *testing.T, db *repository.DB, featureID int64, key, title
 		Key:         key,
 		Title:       title,
 		Description: nil,
-		Status:      models.TaskStatusTodo,
+		Status:      models.TaskStatus("todo"),
 		AgentType:   &agentType,
 		Priority:    5,
 		DependsOn:   nil,

@@ -6,6 +6,15 @@ paths: "internal/cli/**/*"
 
 This rule is loaded when working with CLI-related files.
 
+## Command Layer Responsibility
+
+CLI commands must be **thin wrappers** with three responsibilities only:
+1. **Parse** arguments and flags
+2. **Call** a service method (all business logic lives in `internal/services/`)
+3. **Format** output (JSON, table, success/error messages)
+
+**Commands must NOT**: contain business logic, call repositories directly, manage transactions, implement filtering/validation logic, or check workflow rules. See `@.claude/rules/architecture.md` for the full layering rules.
+
 ## CLI Output Patterns
 
 ### Check for JSON Output
@@ -54,23 +63,31 @@ func init() {
 
 ## Validation Patterns
 
-### Model Validation
-- Models have `Validate()` methods in `internal/models/validation.go`
-- Validate at model layer BEFORE database operations
-- Database constraints (CHECK, FOREIGN KEY) provide additional safety
+Two levels of validation:
+- **Model layer** (`internal/models/validation.go`): Basic structural validation (non-empty, range checks). Must NOT hardcode status lists or import workflow packages.
+- **Service layer** (`internal/services/`): Business rule validation (workflow status checks, transition validity) via `workflow.Service`.
 
 ### Example
 ```go
-task := &models.Task{
-    Title: title,
-    // ... other fields
-}
+// In service layer (correct place for business validation)
+func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*models.Task, error) {
+    task := &models.Task{
+        Title:  input.Title,
+        Status: models.TaskStatus(s.workflowSvc.GetDefaultStatus()),
+    }
 
-if err := task.Validate(); err != nil {
-    return fmt.Errorf("validation failed: %w", err)
-}
+    // Structural validation (model layer)
+    if err := task.Validate(); err != nil {
+        return nil, fmt.Errorf("validation failed: %w", err)
+    }
 
-// Proceed with database operation
+    // Business validation (service layer)
+    if err := s.workflowSvc.ValidateStatus(string(task.Status)); err != nil {
+        return nil, err
+    }
+
+    return task, s.repo.Create(ctx, task)
+}
 ```
 
 ## Key Format Flexibility

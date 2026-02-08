@@ -67,7 +67,7 @@ func TestAutoUnblock_SingleDependency(t *testing.T) {
 		FeatureID:   featureID,
 		Key:         "T-E97-F01-001",
 		Title:       "Prerequisite Task",
-		Status:      models.TaskStatusCompleted,
+		Status:      models.TaskStatus("completed"),
 		Priority:    5,
 		DependsOn:   nil,
 		Description: stringPtr("No dependencies"),
@@ -76,7 +76,7 @@ func TestAutoUnblock_SingleDependency(t *testing.T) {
 		FeatureID:   featureID,
 		Key:         "T-E97-F01-002",
 		Title:       "Dependent Task",
-		Status:      models.TaskStatusBlocked,
+		Status:      models.TaskStatus("blocked"),
 		Priority:    5,
 		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
 		Description: stringPtr("Depends on task 1"),
@@ -106,7 +106,7 @@ func TestAutoUnblock_SingleDependency(t *testing.T) {
 	// Verify DB state
 	updated, err := taskRepo.GetByKey(ctx, "T-E97-F01-002")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusTodo, updated.Status)
+	assert.Equal(t, models.TaskStatus("todo"), updated.Status)
 	assert.Nil(t, updated.BlockedReason)
 }
 
@@ -122,15 +122,15 @@ func TestAutoUnblock_MultipleDeps_PartialCompletion(t *testing.T) {
 	// T-001 completed, T-002 in_progress, T-003 depends on both
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusInProgress, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("in_progress"), Priority: 5, Description: stringPtr(""),
 	}
 	task3 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatusBlocked, Priority: 5,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn:   stringPtr(`["T-E97-F01-001", "T-E97-F01-002"]`),
 		Description: stringPtr(""),
 	}
@@ -159,7 +159,7 @@ func TestAutoUnblock_MultipleDeps_PartialCompletion(t *testing.T) {
 	// Verify task3 is still blocked
 	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, t3.Status)
+	assert.Equal(t, models.TaskStatus("blocked"), t3.Status)
 }
 
 func TestAutoUnblock_MultipleDeps_AllCompleted(t *testing.T) {
@@ -174,15 +174,15 @@ func TestAutoUnblock_MultipleDeps_AllCompleted(t *testing.T) {
 	// Both T-001 and T-002 completed, T-003 depends on both
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task3 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatusBlocked, Priority: 5,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn:   stringPtr(`["T-E97-F01-001", "T-E97-F01-002"]`),
 		Description: stringPtr(""),
 	}
@@ -211,7 +211,7 @@ func TestAutoUnblock_MultipleDeps_AllCompleted(t *testing.T) {
 	// Verify DB state
 	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusTodo, t3.Status)
+	assert.Equal(t, models.TaskStatus("todo"), t3.Status)
 	assert.Nil(t, t3.BlockedReason)
 }
 
@@ -227,11 +227,11 @@ func TestAutoUnblock_ManualBlockSkipped(t *testing.T) {
 	// T-001 completed, T-002 blocked manually (not dependency-blocked)
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusBlocked, Priority: 5,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
 		Description: stringPtr(""),
 	}
@@ -259,7 +259,7 @@ func TestAutoUnblock_ManualBlockSkipped(t *testing.T) {
 	// Verify task2 is still blocked with original reason
 	t2, err := taskRepo.GetByKey(ctx, "T-E97-F01-002")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, t2.Status)
+	assert.Equal(t, models.TaskStatus("blocked"), t2.Status)
 	assert.NotNil(t, t2.BlockedReason)
 	assert.Equal(t, "Waiting on API key from infrastructure team", *t2.BlockedReason)
 }
@@ -276,7 +276,7 @@ func TestAutoUnblock_NoDependents(t *testing.T) {
 	// T-001 completed, no dependents
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -304,11 +304,11 @@ func TestAutoUnblock_NonBlockedDependentSkipped(t *testing.T) {
 	// T-001 completed, T-002 depends on T-001 but is in_progress (not blocked)
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusInProgress, Priority: 5,
+		Status: models.TaskStatus("in_progress"), Priority: 5,
 		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
 		Description: stringPtr(""),
 	}
@@ -338,11 +338,11 @@ func TestAutoUnblock_HistoryRecorded(t *testing.T) {
 
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusBlocked, Priority: 5,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
 		Description: stringPtr(""),
 	}
@@ -385,11 +385,11 @@ func TestAutoUnblock_AutoBlockedPrefixPattern(t *testing.T) {
 
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusBlocked, Priority: 5,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
 		Description: stringPtr(""),
 	}
@@ -426,11 +426,11 @@ func TestAutoUnblock_ViaUpdateStatusForcedWithUnblock(t *testing.T) {
 	// T-001 in_progress, T-002 blocked (depends on T-001)
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusInProgress, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("in_progress"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusBlocked, Priority: 5,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
 		Description: stringPtr(""),
 	}
@@ -445,7 +445,7 @@ func TestAutoUnblock_ViaUpdateStatusForcedWithUnblock(t *testing.T) {
 
 	// Use the high-level method: complete task1, expect task2 to auto-unblock
 	unblockedKeys, err := taskRepo.UpdateStatusForcedWithUnblock(
-		ctx, task1.ID, models.TaskStatusCompleted, nil, nil, nil, nil, true,
+		ctx, task1.ID, models.TaskStatus("completed"), nil, nil, nil, nil, true,
 	)
 	require.NoError(t, err)
 
@@ -454,12 +454,12 @@ func TestAutoUnblock_ViaUpdateStatusForcedWithUnblock(t *testing.T) {
 	// Verify task2 is now todo
 	t2, err := taskRepo.GetByKey(ctx, "T-E97-F01-002")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusTodo, t2.Status)
+	assert.Equal(t, models.TaskStatus("todo"), t2.Status)
 
 	// Verify task1 is completed
 	t1, err := taskRepo.GetByKey(ctx, "T-E97-F01-001")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusCompleted, t1.Status)
+	assert.Equal(t, models.TaskStatus("completed"), t1.Status)
 }
 
 func TestAutoUnblock_UpdateStatusForced_NoUnblockForNonCompletionStatus(t *testing.T) {
@@ -474,11 +474,11 @@ func TestAutoUnblock_UpdateStatusForced_NoUnblockForNonCompletionStatus(t *testi
 	// T-001 todo, T-002 blocked (depends on T-001)
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusTodo, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("todo"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusBlocked, Priority: 5,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
 		Description: stringPtr(""),
 	}
@@ -493,7 +493,7 @@ func TestAutoUnblock_UpdateStatusForced_NoUnblockForNonCompletionStatus(t *testi
 
 	// Move task1 to in_progress (not completed) - should NOT trigger auto-unblock
 	unblockedKeys, err := taskRepo.UpdateStatusForcedWithUnblock(
-		ctx, task1.ID, models.TaskStatusInProgress, nil, nil, nil, nil, true,
+		ctx, task1.ID, models.TaskStatus("in_progress"), nil, nil, nil, nil, true,
 	)
 	require.NoError(t, err)
 
@@ -502,7 +502,7 @@ func TestAutoUnblock_UpdateStatusForced_NoUnblockForNonCompletionStatus(t *testi
 	// Verify task2 is still blocked
 	t2, err := taskRepo.GetByKey(ctx, "T-E97-F01-002")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, t2.Status)
+	assert.Equal(t, models.TaskStatus("blocked"), t2.Status)
 }
 
 // Tests for task_relationships table support
@@ -519,11 +519,11 @@ func TestAutoUnblock_TaskRelationships_SingleDependency(t *testing.T) {
 	// Create T-001 (completed) and T-002 (blocked, depends on T-001 via task_relationships)
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
 		// No depends_on JSON field — dependency is via task_relationships only
 	}
 
@@ -556,7 +556,7 @@ func TestAutoUnblock_TaskRelationships_SingleDependency(t *testing.T) {
 	// Verify DB state
 	updated, err := taskRepo.GetByKey(ctx, "T-E97-F01-002")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusTodo, updated.Status)
+	assert.Equal(t, models.TaskStatus("todo"), updated.Status)
 }
 
 func TestAutoUnblock_TaskRelationships_MultipleDeps_PartialCompletion(t *testing.T) {
@@ -571,15 +571,15 @@ func TestAutoUnblock_TaskRelationships_MultipleDeps_PartialCompletion(t *testing
 	// T-001 completed, T-002 in_progress, T-003 depends on both via task_relationships
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusInProgress, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("in_progress"), Priority: 5, Description: stringPtr(""),
 	}
 	task3 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -626,15 +626,15 @@ func TestAutoUnblock_TaskRelationships_AllCompleted(t *testing.T) {
 	// Both T-001 and T-002 completed, T-003 depends on both via task_relationships
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task3 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -671,7 +671,7 @@ func TestAutoUnblock_TaskRelationships_AllCompleted(t *testing.T) {
 	// Verify DB state
 	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusTodo, t3.Status)
+	assert.Equal(t, models.TaskStatus("todo"), t3.Status)
 }
 
 func TestAutoUnblock_MixedDependencies_LegacyAndRelationships(t *testing.T) {
@@ -687,15 +687,15 @@ func TestAutoUnblock_MixedDependencies_LegacyAndRelationships(t *testing.T) {
 	// T-003 depends on T-001 via depends_on JSON AND on T-002 via task_relationships
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task3 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
 		DependsOn: stringPtr(`["T-E97-F01-001"]`), // Legacy depends_on
 	}
 
@@ -728,7 +728,7 @@ func TestAutoUnblock_MixedDependencies_LegacyAndRelationships(t *testing.T) {
 
 	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusTodo, t3.Status)
+	assert.Equal(t, models.TaskStatus("todo"), t3.Status)
 }
 
 func TestAutoUnblock_MixedDependencies_PartialSatisfied(t *testing.T) {
@@ -744,15 +744,15 @@ func TestAutoUnblock_MixedDependencies_PartialSatisfied(t *testing.T) {
 	// T-003 depends on T-001 via depends_on JSON AND on T-002 via task_relationships
 	task1 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatusCompleted, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
 	}
 	task2 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatusInProgress, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("in_progress"), Priority: 5, Description: stringPtr(""),
 	}
 	task3 := &models.Task{
 		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatusBlocked, Priority: 5, Description: stringPtr(""),
+		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
 		DependsOn: stringPtr(`["T-E97-F01-001"]`), // Legacy dep satisfied
 	}
 
@@ -785,5 +785,5 @@ func TestAutoUnblock_MixedDependencies_PartialSatisfied(t *testing.T) {
 
 	t3, err := taskRepo.GetByKey(ctx, "T-E97-F01-003")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, t3.Status)
+	assert.Equal(t, models.TaskStatus("blocked"), t3.Status)
 }

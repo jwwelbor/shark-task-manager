@@ -110,19 +110,19 @@ func TestBuildDependencyTreeSimple(t *testing.T) {
 		ID:     1,
 		Key:    "T-E01-F01-001",
 		Title:  "Base task",
-		Status: models.TaskStatusCompleted,
+		Status: models.TaskStatus("completed"),
 	}
 	task2 := &models.Task{
 		ID:     2,
 		Key:    "T-E01-F01-002",
 		Title:  "Middle task",
-		Status: models.TaskStatusInProgress,
+		Status: models.TaskStatus("in_progress"),
 	}
 	task3 := &models.Task{
 		ID:     3,
 		Key:    "T-E01-F01-003",
 		Title:  "Top task",
-		Status: models.TaskStatusTodo,
+		Status: models.TaskStatus("todo"),
 	}
 
 	taskRepo.AddTask(task1)
@@ -171,25 +171,25 @@ func TestBuildDependencyTreeMultipleDeps(t *testing.T) {
 		ID:     1,
 		Key:    "T-E01-F01-001",
 		Title:  "Dep 1",
-		Status: models.TaskStatusCompleted,
+		Status: models.TaskStatus("completed"),
 	}
 	task2 := &models.Task{
 		ID:     2,
 		Key:    "T-E01-F01-002",
 		Title:  "Dep 2",
-		Status: models.TaskStatusCompleted,
+		Status: models.TaskStatus("completed"),
 	}
 	task3 := &models.Task{
 		ID:     3,
 		Key:    "T-E01-F01-003",
 		Title:  "Dep 3",
-		Status: models.TaskStatusInProgress,
+		Status: models.TaskStatus("in_progress"),
 	}
 	task4 := &models.Task{
 		ID:     4,
 		Key:    "T-E01-F01-004",
 		Title:  "Main task",
-		Status: models.TaskStatusTodo,
+		Status: models.TaskStatus("todo"),
 	}
 
 	taskRepo.AddTask(task1)
@@ -238,7 +238,7 @@ func TestBuildDependencyTreeNoDeps(t *testing.T) {
 		ID:     1,
 		Key:    "T-E01-F01-001",
 		Title:  "Standalone task",
-		Status: models.TaskStatusTodo,
+		Status: models.TaskStatus("todo"),
 	}
 
 	taskRepo.AddTask(task1)
@@ -266,19 +266,19 @@ func TestBuildDependencyTreeCircular(t *testing.T) {
 		ID:     1,
 		Key:    "T-E01-F01-001",
 		Title:  "Task 1",
-		Status: models.TaskStatusTodo,
+		Status: models.TaskStatus("todo"),
 	}
 	task2 := &models.Task{
 		ID:     2,
 		Key:    "T-E01-F01-002",
 		Title:  "Task 2",
-		Status: models.TaskStatusTodo,
+		Status: models.TaskStatus("todo"),
 	}
 	task3 := &models.Task{
 		ID:     3,
 		Key:    "T-E01-F01-003",
 		Title:  "Task 3",
-		Status: models.TaskStatusTodo,
+		Status: models.TaskStatus("todo"),
 	}
 
 	taskRepo.AddTask(task1)
@@ -327,21 +327,21 @@ func TestRenderTreeSimple(t *testing.T) {
 		Task: &models.Task{
 			Key:    "T-E01-F01-003",
 			Title:  "Top task",
-			Status: models.TaskStatusTodo,
+			Status: models.TaskStatus("todo"),
 		},
 		Dependencies: []*DependencyTree{
 			{
 				Task: &models.Task{
 					Key:    "T-E01-F01-002",
 					Title:  "Middle task",
-					Status: models.TaskStatusInProgress,
+					Status: models.TaskStatus("in_progress"),
 				},
 				Dependencies: []*DependencyTree{
 					{
 						Task: &models.Task{
 							Key:    "T-E01-F01-001",
 							Title:  "Base task",
-							Status: models.TaskStatusCompleted,
+							Status: models.TaskStatus("completed"),
 						},
 						Dependencies: []*DependencyTree{},
 					},
@@ -365,11 +365,11 @@ func TestGetStatusIconForTree(t *testing.T) {
 		status       models.TaskStatus
 		expectedIcon string
 	}{
-		{models.TaskStatusCompleted, "✓"},
-		{models.TaskStatusInProgress, "•"},
-		{models.TaskStatusBlocked, "✗"},
-		{models.TaskStatusTodo, "○"},
-		{models.TaskStatusReadyForReview, "⊙"},
+		{models.TaskStatus("completed"), "✓"},
+		{models.TaskStatus("in_progress"), "•"},
+		{models.TaskStatus("blocked"), "✗"},
+		{models.TaskStatus("todo"), "○"},
+		{models.TaskStatus("ready_for_review"), "⊙"},
 	}
 
 	for _, tt := range tests {

@@ -2,6 +2,8 @@ package commands
 
 import (
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 )
 
 // TestParseEpicStatus tests parsing and validation of epic status values
@@ -178,25 +180,30 @@ func TestParseFeatureStatus(t *testing.T) {
 	}
 }
 
-// TestParseTaskStatus tests parsing and validation of task status values
+// TestParseTaskStatus tests parsing and validation of task status values.
+// Validation is now config-driven via workflow.Service.ValidateStatus().
+// Valid statuses are determined by the project's .sharkconfig.json workflow config.
 func TestParseTaskStatus(t *testing.T) {
+	// Reset workflow service to ensure clean state for this test
+	cli.ResetWorkflowService()
+	defer cli.ResetWorkflowService()
+
+	// Get the actual valid statuses from the workflow service for documentation
+	svc := cli.GetWorkflowService()
+	allStatuses := svc.GetAllStatusesOrdered()
+	t.Logf("Workflow has %d valid statuses: %v", len(allStatuses), allStatuses)
+
 	tests := []struct {
 		name      string
 		input     string
 		wantValue string
 		wantErr   bool
 	}{
-		// Valid status values (old workflow)
+		// Valid statuses from the project workflow config
 		{
 			name:      "valid todo status",
 			input:     "todo",
 			wantValue: "todo",
-			wantErr:   false,
-		},
-		{
-			name:      "valid in_progress status",
-			input:     "in_progress",
-			wantValue: "in_progress",
 			wantErr:   false,
 		},
 		{
@@ -206,40 +213,15 @@ func TestParseTaskStatus(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "valid ready_for_review status",
-			input:     "ready_for_review",
-			wantValue: "ready_for_review",
-			wantErr:   false,
-		},
-		{
 			name:      "valid completed status",
 			input:     "completed",
 			wantValue: "completed",
 			wantErr:   false,
 		},
 		{
-			name:      "valid archived status",
-			input:     "archived",
-			wantValue: "archived",
-			wantErr:   false,
-		},
-		// Valid status values (new workflow)
-		{
 			name:      "valid draft status",
 			input:     "draft",
 			wantValue: "draft",
-			wantErr:   false,
-		},
-		{
-			name:      "valid ready_for_refinement status",
-			input:     "ready_for_refinement",
-			wantValue: "ready_for_refinement",
-			wantErr:   false,
-		},
-		{
-			name:      "valid in_refinement status",
-			input:     "in_refinement",
-			wantValue: "in_refinement",
 			wantErr:   false,
 		},
 		{
@@ -302,7 +284,7 @@ func TestParseTaskStatus(t *testing.T) {
 			wantValue: "cancelled",
 			wantErr:   false,
 		},
-		// Case-insensitive parsing
+		// Case-insensitive parsing (normalized to lowercase)
 		{
 			name:      "uppercase TODO",
 			input:     "TODO",
@@ -310,15 +292,15 @@ func TestParseTaskStatus(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "mixed case In_Progress",
-			input:     "In_Progress",
-			wantValue: "in_progress",
+			name:      "mixed case In_Development",
+			input:     "In_Development",
+			wantValue: "in_development",
 			wantErr:   false,
 		},
 		{
-			name:      "mixed case READY_FOR_REVIEW",
-			input:     "READY_FOR_REVIEW",
-			wantValue: "ready_for_review",
+			name:      "mixed case READY_FOR_QA",
+			input:     "READY_FOR_QA",
+			wantValue: "ready_for_qa",
 			wantErr:   false,
 		},
 		// Invalid status values

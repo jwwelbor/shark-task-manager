@@ -225,7 +225,7 @@ func TestTaskListQueryWithDatabase(t *testing.T) {
 			FeatureID:   createdFeature.ID,
 			Title:       fmt.Sprintf("Test Task %d", i),
 			Description: strPtr("Task for integration testing"),
-			Status:      models.TaskStatusTodo,
+			Status:      models.TaskStatus("todo"),
 			AgentType:   &agentType,
 			Priority:    i,
 			FilePath:    &taskFilePath,

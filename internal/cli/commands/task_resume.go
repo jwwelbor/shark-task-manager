@@ -124,7 +124,7 @@ func runTaskResume(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build completion metadata if task is completed
-	if task.Status == models.TaskStatusCompleted || task.Status == models.TaskStatusReadyForReview {
+	if task.Status == models.TaskStatus("completed") || task.Status == models.TaskStatus("ready_for_review") {
 		completionMeta := &models.CompletionMetadata{
 			CompletedBy:      task.CompletedBy,
 			CompletionNotes:  task.CompletionNotes,
@@ -375,16 +375,16 @@ func printResumeContext(ctx *ResumeContext) {
 		}
 	} else {
 		switch ctx.Task.Status {
-		case models.TaskStatusTodo:
+		case models.TaskStatus("todo"):
 			fmt.Printf("│ Run: shark task start %s\n", ctx.Task.Key)
-		case models.TaskStatusInProgress:
+		case models.TaskStatus("in_progress"):
 			fmt.Printf("│ Continue implementation\n")
 			fmt.Printf("│ When done: shark task complete %s\n", ctx.Task.Key)
-		case models.TaskStatusReadyForReview:
+		case models.TaskStatus("ready_for_review"):
 			fmt.Printf("│ Awaiting review\n│ To approve: shark task approve %s\n", ctx.Task.Key)
-		case models.TaskStatusCompleted:
+		case models.TaskStatus("completed"):
 			fmt.Printf("│ Task completed\n")
-		case models.TaskStatusBlocked:
+		case models.TaskStatus("blocked"):
 			fmt.Printf("│ Resolve blocker, then: shark task unblock %s\n", ctx.Task.Key)
 		}
 	}
