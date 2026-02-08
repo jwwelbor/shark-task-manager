@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -171,5 +172,84 @@ func TestAliasCommandsHaveCorrectArgsValidation(t *testing.T) {
 				t.Errorf("%s command should have Args validator", tt.cmdName)
 			}
 		})
+	}
+}
+
+// TestUnblockAliasHelpTextUsesConfigDrivenDefaultStatus verifies that the unblock
+// alias command's Long description uses the workflow config's default status
+// instead of a hardcoded "todo" string.
+func TestUnblockAliasHelpTextUsesConfigDrivenDefaultStatus(t *testing.T) {
+	cmd, _, err := cli.RootCmd.Find([]string{"unblock"})
+	if err != nil {
+		t.Fatalf("unblock command not found: %v", err)
+	}
+	if cmd == nil {
+		t.Fatal("unblock command is nil")
+	}
+
+	// The Long description should contain the default status from workflow config
+	defaultStatus := cli.GetWorkflowService().GetDefaultStatus()
+	if !strings.Contains(cmd.Long, defaultStatus) {
+		t.Errorf("unblock Long description should contain default status %q, got: %s", defaultStatus, cmd.Long)
+	}
+
+	// Verify it does NOT contain a hardcoded "todo" that isn't the actual default
+	// (This test passes trivially when default IS "todo", but catches regressions
+	// if someone hardcodes a different status)
+	if defaultStatus != "todo" && strings.Contains(cmd.Long, "to todo status") {
+		t.Errorf("unblock Long description contains hardcoded 'todo' but default status is %q", defaultStatus)
+	}
+}
+
+// TestTaskListStatusFlagIsConfigDriven verifies that the task list command's
+// --status flag description is generated from the workflow config.
+func TestTaskListStatusFlagIsConfigDriven(t *testing.T) {
+	cmd, _, err := cli.RootCmd.Find([]string{"task", "list"})
+	if err != nil {
+		t.Fatalf("task list command not found: %v", err)
+	}
+	if cmd == nil {
+		t.Fatal("task list command is nil")
+	}
+
+	statusFlag := cmd.Flags().Lookup("status")
+	if statusFlag == nil {
+		t.Fatal("task list command missing --status flag")
+	}
+
+	// The flag description should start with "Status filter ("
+	if !strings.HasPrefix(statusFlag.Usage, "Status filter (") {
+		t.Errorf("status flag usage should start with 'Status filter (', got: %s", statusFlag.Usage)
+	}
+
+	// It should contain at least some statuses from the workflow config
+	allStatuses := cli.GetWorkflowService().GetAllStatusesOrdered()
+	for _, status := range allStatuses {
+		if !strings.Contains(statusFlag.Usage, status) {
+			t.Errorf("status flag usage should contain workflow status %q, got: %s", status, statusFlag.Usage)
+		}
+	}
+
+	// It should NOT be the old hardcoded string
+	if statusFlag.Usage == "Filter by status (todo, in_progress, completed, blocked)" {
+		t.Error("status flag usage still contains hardcoded status list instead of config-driven values")
+	}
+}
+
+// TestTaskUnblockHelpTextUsesConfigDrivenDefaultStatus verifies that the task unblock
+// command's Long description uses the workflow config's default status.
+func TestTaskUnblockHelpTextUsesConfigDrivenDefaultStatus(t *testing.T) {
+	cmd, _, err := cli.RootCmd.Find([]string{"task", "unblock"})
+	if err != nil {
+		t.Fatalf("task unblock command not found: %v", err)
+	}
+	if cmd == nil {
+		t.Fatal("task unblock command is nil")
+	}
+
+	// The Long description should contain the default status from workflow config
+	defaultStatus := cli.GetWorkflowService().GetDefaultStatus()
+	if !strings.Contains(cmd.Long, defaultStatus) {
+		t.Errorf("task unblock Long description should contain default status %q, got: %s", defaultStatus, cmd.Long)
 	}
 }

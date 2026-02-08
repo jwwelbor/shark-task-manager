@@ -3,14 +3,49 @@ package config
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
+// testConfigDir creates a temp directory with a valid .sharkconfig.json and returns its path.
+func testConfigDir(t testing.TB) string {
+	t.Helper()
+	tmpDir := t.(*testing.T).TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	configContent := `{
+		"status_flow_version": "1.0",
+		"status_flow": {
+			"todo": ["in_progress", "blocked"],
+			"in_progress": ["ready_for_review", "blocked"],
+			"ready_for_review": ["completed", "in_progress"],
+			"completed": [],
+			"blocked": ["todo", "in_progress"]
+		},
+		"special_statuses": {
+			"_start_": ["todo"],
+			"_complete_": ["completed"]
+		},
+		"status_metadata": {
+			"todo": {"color": "gray", "phase": "planning"},
+			"in_progress": {"color": "blue", "phase": "development"},
+			"ready_for_review": {"color": "yellow", "phase": "review"},
+			"completed": {"color": "green", "phase": "done"},
+			"blocked": {"color": "red", "phase": "any"}
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return configPath
+}
+
 // TestNewActionService tests service creation with valid config
 func TestNewActionService(t *testing.T) {
-	configPath := ".sharkconfig.json"
+	ClearWorkflowCache()
+	configPath := testConfigDir(t)
 
 	service, err := NewActionService(configPath)
 
@@ -367,11 +402,23 @@ func BenchmarkGetStatusActionPopulated(b *testing.B) {
 	}
 }
 
-// setupTestService creates a test service with default/test config
+// setupTestService creates a test service with a temp config file
 func setupTestService(t interface{ Fatal(...interface{}) }) *DefaultActionService {
 	ClearWorkflowCache()
 
-	service, err := NewActionService(".sharkconfig.json")
+	// Create temp config for test isolation
+	tt, ok := t.(*testing.T)
+	if !ok {
+		// Fallback for benchmarks: use a nonexistent path (will get default workflow)
+		service, err := NewActionService("/nonexistent/.sharkconfig.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return service
+	}
+
+	configPath := testConfigDir(tt)
+	service, err := NewActionService(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,20 +22,20 @@ func TestCompleteWorkflow(t *testing.T) {
 	}
 
 	// Reset task to todo status in case a previous test modified it
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "workflow-test-agent"
 
 	// Workflow: todo -> in_progress -> ready_for_review -> completed
 
 	// Step 1: Start task
-	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err != nil {
 		t.Fatalf("Failed to start task: %v", err)
 	}
 
 	updatedTask, _ := taskRepo.GetByID(ctx, task.ID)
-	if updatedTask.Status != models.TaskStatusInProgress {
+	if updatedTask.Status != models.TaskStatus("in_progress") {
 		t.Errorf("Expected status in_progress, got %s", updatedTask.Status)
 	}
 	if !updatedTask.StartedAt.Valid {
@@ -44,25 +44,25 @@ func TestCompleteWorkflow(t *testing.T) {
 
 	// Step 2: Complete task
 	notes := "Implementation finished"
-	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &agent, &notes)
+	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), &agent, &notes)
 	if err != nil {
 		t.Fatalf("Failed to complete task: %v", err)
 	}
 
 	updatedTask, _ = taskRepo.GetByID(ctx, task.ID)
-	if updatedTask.Status != models.TaskStatusReadyForReview {
+	if updatedTask.Status != models.TaskStatus("ready_for_review") {
 		t.Errorf("Expected status ready_for_review, got %s", updatedTask.Status)
 	}
 
 	// Step 3: Approve task
 	approvalNotes := "LGTM"
-	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, &approvalNotes)
+	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, &approvalNotes)
 	if err != nil {
 		t.Fatalf("Failed to approve task: %v", err)
 	}
 
 	updatedTask, _ = taskRepo.GetByID(ctx, task.ID)
-	if updatedTask.Status != models.TaskStatusCompleted {
+	if updatedTask.Status != models.TaskStatus("completed") {
 		t.Errorf("Expected status completed, got %s", updatedTask.Status)
 	}
 	if !updatedTask.CompletedAt.Valid {
@@ -94,12 +94,12 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	}
 
 	// Reset task to todo status in case a previous test modified it
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "block-test-agent"
 
 	// Start the task
-	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil); err != nil {
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil); err != nil {
 		t.Fatalf("Failed to update task status to in_progress: %v", err)
 	}
 
@@ -111,7 +111,7 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	}
 
 	blockedTask, _ := taskRepo.GetByID(ctx, task.ID)
-	if blockedTask.Status != models.TaskStatusBlocked {
+	if blockedTask.Status != models.TaskStatus("blocked") {
 		t.Errorf("Expected status blocked, got %s", blockedTask.Status)
 	}
 	if blockedTask.BlockedReason == nil || *blockedTask.BlockedReason != reason {
@@ -128,7 +128,7 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	}
 
 	unblockedTask, _ := taskRepo.GetByID(ctx, task.ID)
-	if unblockedTask.Status != models.TaskStatusTodo {
+	if unblockedTask.Status != models.TaskStatus("todo") {
 		t.Errorf("Expected status todo after unblock, got %s", unblockedTask.Status)
 	}
 	if unblockedTask.BlockedReason != nil {
@@ -153,15 +153,15 @@ func TestReopenWorkflow(t *testing.T) {
 	}
 
 	// Reset task to todo status in case a previous test modified it
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "reopen-test-agent"
 
 	// Complete workflow to ready_for_review
-	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil); err != nil {
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil); err != nil {
 		t.Fatalf("Failed to update task status to in_progress: %v", err)
 	}
-	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &agent, nil); err != nil {
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), &agent, nil); err != nil {
 		t.Fatalf("Failed to update task status to ready_for_review: %v", err)
 	}
 
@@ -173,7 +173,7 @@ func TestReopenWorkflow(t *testing.T) {
 	}
 
 	reopenedTask, _ := taskRepo.GetByID(ctx, task.ID)
-	if reopenedTask.Status != models.TaskStatusInProgress {
+	if reopenedTask.Status != models.TaskStatus("in_progress") {
 		t.Errorf("Expected status in_progress after reopen, got %s", reopenedTask.Status)
 	}
 	if reopenedTask.CompletedAt.Valid {
@@ -181,7 +181,7 @@ func TestReopenWorkflow(t *testing.T) {
 	}
 
 	// Can complete again after rework
-	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusReadyForReview, &agent, nil)
+	err = taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), &agent, nil)
 	if err != nil {
 		t.Errorf("Should be able to complete task again after reopen: %v", err)
 	}

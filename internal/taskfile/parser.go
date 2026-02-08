@@ -146,7 +146,10 @@ func ParseTaskFileContent(content string) (*TaskFile, error) {
 	}, nil
 }
 
-// Validate validates the task metadata
+// Validate validates the task metadata.
+// This performs basic structural validation (required fields, non-empty checks).
+// Status is checked for non-empty only; workflow-aware status validation should
+// be performed at the CLI/command layer using workflow.Service.ValidateStatus().
 func (m *TaskMetadata) Validate() error {
 	if m.TaskKey == "" {
 		return fmt.Errorf("task_key is required")
@@ -156,20 +159,6 @@ func (m *TaskMetadata) Validate() error {
 	}
 	if m.Title == "" {
 		return fmt.Errorf("title is required")
-	}
-
-	// Validate status is one of the valid values
-	validStatuses := map[string]bool{
-		"todo":             true,
-		"in_progress":      true,
-		"blocked":          true,
-		"ready_for_review": true,
-		"completed":        true,
-		"archived":         true,
-	}
-
-	if !validStatuses[m.Status] {
-		return fmt.Errorf("invalid status: %s (must be one of: todo, in_progress, blocked, ready_for_review, completed, archived)", m.Status)
 	}
 
 	return nil

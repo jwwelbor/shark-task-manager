@@ -55,14 +55,14 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E01-F01-001",
 		Title:     "Test Task 1",
-		Status:    models.TaskStatusReadyForReview,
+		Status:    models.TaskStatus("ready_for_review"),
 		Priority:  5,
 	}
 	task2 := &models.Task{
 		FeatureID: feature.ID,
 		Key:       "T-E01-F01-002",
 		Title:     "Test Task 2",
-		Status:    models.TaskStatusReadyForReview,
+		Status:    models.TaskStatus("ready_for_review"),
 		Priority:  5,
 	}
 
@@ -89,8 +89,8 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 
 		agent := "test-agent"
 		for _, task := range tasks {
-			if task.Status != models.TaskStatusCompleted {
-				if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, nil, nil, true); err != nil {
+			if task.Status != models.TaskStatus("completed") {
+				if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), &agent, nil, nil, nil, true); err != nil {
 					t.Fatalf("Failed to complete task: %v", err)
 				}
 			}

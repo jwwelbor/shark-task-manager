@@ -98,11 +98,11 @@ func TestFeatureUpdate_StatusCascadeWithForce(t *testing.T) {
 
 	// Create tasks in various statuses
 	statuses := []models.TaskStatus{
-		models.TaskStatusTodo,
-		models.TaskStatusInProgress,
-		models.TaskStatusReadyForReview,
-		models.TaskStatusBlocked,
-		models.TaskStatusArchived,
+		models.TaskStatus("todo"),
+		models.TaskStatus("in_progress"),
+		models.TaskStatus("ready_for_review"),
+		models.TaskStatus("blocked"),
+		models.TaskStatus("archived"),
 	}
 
 	for i, status := range statuses {
@@ -135,7 +135,7 @@ func TestFeatureUpdate_StatusCascadeWithForce(t *testing.T) {
 	}
 
 	// Call cascade method (simulating --force behavior)
-	err = featureRepo.CascadeStatusToTasks(ctx, feature.ID, models.TaskStatusCompleted)
+	err = featureRepo.CascadeStatusToTasks(ctx, feature.ID, models.TaskStatus("completed"))
 	if err != nil {
 		t.Fatalf("Failed to cascade status to tasks: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestFeatureUpdate_StatusCascadeWithForce(t *testing.T) {
 	}
 
 	for _, task := range tasks {
-		if task.Status != models.TaskStatusCompleted {
+		if task.Status != models.TaskStatus("completed") {
 			t.Errorf("Task %s status = %s, expected completed (force cascade should have updated it)", task.Key, task.Status)
 		}
 	}

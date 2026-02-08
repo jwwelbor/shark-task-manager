@@ -88,29 +88,6 @@ func TestDefaultWorkflowIsValid(t *testing.T) {
 	}
 }
 
-// Test IsDefaultStatus
-func TestIsDefaultStatus(t *testing.T) {
-	testCases := []struct {
-		status   string
-		expected bool
-	}{
-		{"todo", true},
-		{"in_progress", true},
-		{"ready_for_review", true},
-		{"completed", true},
-		{"blocked", true},
-		{"invalid", false},
-		{"custom_status", false},
-	}
-
-	for _, tc := range testCases {
-		result := IsDefaultStatus(tc.status)
-		if result != tc.expected {
-			t.Errorf("IsDefaultStatus(%s): expected %v, got %v", tc.status, tc.expected, result)
-		}
-	}
-}
-
 // Test workflow parser - missing file
 func TestLoadWorkflowConfig_MissingFile(t *testing.T) {
 	workflow, err := LoadWorkflowConfig("/nonexistent/config.json")
@@ -562,74 +539,99 @@ func TestWorkflowCache(t *testing.T) {
 	}
 }
 
-// Test loading actual .sharkconfig.json from project root
-// This test reproduces the parsing error: json: cannot unmarshal object into Go struct field
-func TestLoadActualSharkConfig(t *testing.T) {
-	// Find project root by walking up from current directory
-	currentDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get working directory: %v", err)
+// Test loading a complex workflow config from a temp file
+// (Replaces old TestLoadActualSharkConfig which read the real project config)
+func TestLoadComplexWorkflowConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	// Create a multi-status workflow config similar to real project configs
+	configContent := `{
+		"status_flow_version": "1.0",
+		"status_flow": {
+			"draft": ["ready_for_refinement"],
+			"ready_for_refinement": ["in_refinement", "blocked"],
+			"in_refinement": ["ready_for_development", "blocked"],
+			"ready_for_development": ["in_development", "blocked"],
+			"in_development": ["ready_for_code_review", "blocked"],
+			"ready_for_code_review": ["in_code_review"],
+			"in_code_review": ["ready_for_qa", "in_development"],
+			"ready_for_qa": ["in_qa"],
+			"in_qa": ["ready_for_approval", "in_development"],
+			"ready_for_approval": ["in_approval"],
+			"in_approval": ["completed", "in_development"],
+			"blocked": ["draft", "ready_for_refinement", "in_refinement", "ready_for_development", "in_development"],
+			"on_hold": ["draft"],
+			"completed": [],
+			"cancelled": []
+		},
+		"special_statuses": {
+			"_start_": ["draft"],
+			"_complete_": ["completed", "cancelled"]
+		},
+		"status_metadata": {
+			"draft": {"color": "gray", "phase": "planning"},
+			"ready_for_refinement": {"color": "cyan", "phase": "planning"},
+			"in_refinement": {"color": "cyan", "phase": "planning"},
+			"ready_for_development": {"color": "blue", "phase": "development"},
+			"in_development": {"color": "blue", "phase": "development"},
+			"ready_for_code_review": {"color": "yellow", "phase": "review"},
+			"in_code_review": {"color": "yellow", "phase": "review"},
+			"ready_for_qa": {"color": "magenta", "phase": "qa"},
+			"in_qa": {"color": "magenta", "phase": "qa"},
+			"ready_for_approval": {"color": "cyan", "phase": "approval"},
+			"in_approval": {"color": "cyan", "phase": "approval"},
+			"blocked": {"color": "red", "phase": "any"},
+			"on_hold": {"color": "gray", "phase": "any"},
+			"completed": {"color": "green", "phase": "done"},
+			"cancelled": {"color": "gray", "phase": "done"}
+		}
+	}`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
 	}
 
-	// Walk up to find .sharkconfig.json
-	projectRoot := currentDir
-	for {
-		configPath := filepath.Join(projectRoot, ".sharkconfig.json")
-		if _, err := os.Stat(configPath); err == nil {
-			// Found it
-			ClearWorkflowCache()
+	ClearWorkflowCache()
 
-			workflow, err := LoadWorkflowConfig(configPath)
-			if err != nil {
-				t.Fatalf("failed to load actual .sharkconfig.json: %v", err)
-			}
+	workflow, err := LoadWorkflowConfig(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
 
-			if workflow == nil {
-				t.Fatal("expected workflow config, got nil")
-			}
+	if workflow == nil {
+		t.Fatal("expected workflow config, got nil")
+	}
 
-			// Verify the 14-status workflow exists
-			expectedStatuses := []string{
-				"draft", "ready_for_refinement", "in_refinement",
-				"ready_for_development", "in_development",
-				"ready_for_code_review", "in_code_review",
-				"ready_for_qa", "in_qa",
-				"ready_for_approval", "in_approval",
-				"blocked", "on_hold",
-				"completed", "cancelled",
-			}
+	expectedStatuses := []string{
+		"draft", "ready_for_refinement", "in_refinement",
+		"ready_for_development", "in_development",
+		"ready_for_code_review", "in_code_review",
+		"ready_for_qa", "in_qa",
+		"ready_for_approval", "in_approval",
+		"blocked", "on_hold",
+		"completed", "cancelled",
+	}
 
-			if len(workflow.StatusFlow) != len(expectedStatuses) {
-				t.Errorf("expected %d statuses, got %d", len(expectedStatuses), len(workflow.StatusFlow))
-			}
+	if len(workflow.StatusFlow) != len(expectedStatuses) {
+		t.Errorf("expected %d statuses, got %d", len(expectedStatuses), len(workflow.StatusFlow))
+	}
 
-			for _, status := range expectedStatuses {
-				if _, exists := workflow.StatusFlow[status]; !exists {
-					t.Errorf("expected status %s to exist in workflow", status)
-				}
-			}
-
-			// Verify special statuses
-			startStatuses := workflow.SpecialStatuses[StartStatusKey]
-			if len(startStatuses) == 0 {
-				t.Error("expected _start_ statuses to be defined")
-			}
-
-			completeStatuses := workflow.SpecialStatuses[CompleteStatusKey]
-			if len(completeStatuses) == 0 {
-				t.Error("expected _complete_ statuses to be defined")
-			}
-
-			return
+	for _, status := range expectedStatuses {
+		if _, exists := workflow.StatusFlow[status]; !exists {
+			t.Errorf("expected status %s to exist in workflow", status)
 		}
+	}
 
-		parent := filepath.Dir(projectRoot)
-		if parent == projectRoot {
-			// Reached root, config not found - skip this test
-			t.Skip("Could not find .sharkconfig.json in project tree")
-			return
-		}
-		projectRoot = parent
+	// Verify special statuses
+	startStatuses := workflow.SpecialStatuses[StartStatusKey]
+	if len(startStatuses) == 0 {
+		t.Error("expected _start_ statuses to be defined")
+	}
+
+	completeStatuses := workflow.SpecialStatuses[CompleteStatusKey]
+	if len(completeStatuses) == 0 {
+		t.Error("expected _complete_ statuses to be defined")
 	}
 }
 

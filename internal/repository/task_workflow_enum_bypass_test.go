@@ -403,10 +403,10 @@ func TestIsValidStatusEnum_WithWorkflow(t *testing.T) {
 	t.Run("default repo only accepts basic statuses", func(t *testing.T) {
 		defaultRepo := NewTaskRepository(db)
 
-		if !defaultRepo.isValidStatusEnum(models.TaskStatusTodo) {
+		if !defaultRepo.isValidStatusEnum(models.TaskStatus("todo")) {
 			t.Error("'todo' should be valid in default repo")
 		}
-		if !defaultRepo.isValidStatusEnum(models.TaskStatusInProgress) {
+		if !defaultRepo.isValidStatusEnum(models.TaskStatus("in_progress")) {
 			t.Error("'in_progress' should be valid in default repo")
 		}
 		if defaultRepo.isValidStatusEnum("ready_for_refinement_tech") {

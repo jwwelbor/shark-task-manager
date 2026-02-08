@@ -4,6 +4,7 @@
 package workflow
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -50,7 +51,7 @@ func (s *Service) GetWorkflow() *config.WorkflowConfig {
 func (s *Service) GetInitialStatus() models.TaskStatus {
 	startStatuses, exists := s.workflow.SpecialStatuses[config.StartStatusKey]
 	if !exists || len(startStatuses) == 0 {
-		return models.TaskStatusTodo
+		return models.TaskStatus("todo")
 	}
 	return models.TaskStatus(startStatuses[0])
 }
@@ -60,7 +61,7 @@ func (s *Service) GetInitialStatus() models.TaskStatus {
 func (s *Service) GetEntryStatuses() []string {
 	startStatuses, exists := s.workflow.SpecialStatuses[config.StartStatusKey]
 	if !exists {
-		return []string{string(models.TaskStatusTodo)}
+		return []string{"todo"}
 	}
 	return startStatuses
 }
@@ -70,7 +71,7 @@ func (s *Service) GetEntryStatuses() []string {
 func (s *Service) GetTerminalStatuses() []string {
 	completeStatuses, exists := s.workflow.SpecialStatuses[config.CompleteStatusKey]
 	if !exists {
-		return []string{string(models.TaskStatusCompleted)}
+		return []string{"completed"}
 	}
 	return completeStatuses
 }
@@ -359,4 +360,65 @@ func colorizeStatus(status, colorName string) string {
 func (s *Service) GetColorForStatus(status string) string {
 	meta := s.GetStatusMetadata(status)
 	return meta.Color
+}
+
+// ValidateStatus returns nil if the given status is valid in the current workflow,
+// or a descriptive error listing valid statuses otherwise.
+func (s *Service) ValidateStatus(status string) error {
+	if s.IsValidStatus(status) {
+		return nil
+	}
+
+	allStatuses := s.GetAllStatusesOrdered()
+	return fmt.Errorf("invalid status %q; valid statuses: %s", status, strings.Join(allStatuses, ", "))
+}
+
+// StatusHelpText returns formatted help text listing all statuses grouped by phase.
+// Each phase is shown as a header followed by its statuses with description and color info.
+func (s *Service) StatusHelpText() string {
+	var b strings.Builder
+
+	phases := s.GetPhases()
+	for i, phase := range phases {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("[%s]\n", phase))
+
+		statuses := s.GetStatusesByPhase(phase)
+		for _, status := range statuses {
+			meta := s.GetStatusMetadata(status)
+			line := fmt.Sprintf("  %-30s", status)
+			if meta.Description != "" {
+				line += " - " + meta.Description
+			}
+			if meta.Color != "" {
+				line += fmt.Sprintf(" (%s)", meta.Color)
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+
+	return b.String()
+}
+
+// StatusFlagDescription returns a short one-line description suitable for Cobra flag help text.
+// Format: "Status filter (todo|in_progress|completed|blocked)"
+func (s *Service) StatusFlagDescription() string {
+	allStatuses := s.GetAllStatusesOrdered()
+	return "Status filter (" + strings.Join(allStatuses, "|") + ")"
+}
+
+// IsCompletedStatus returns true if the given status represents a completed/terminal state.
+// This is a semantic alias for IsTerminalStatus, intended for use in commands that check
+// whether a task is "done" rather than whether it has no outgoing transitions.
+func (s *Service) IsCompletedStatus(status string) bool {
+	return s.IsTerminalStatus(status)
+}
+
+// GetDefaultStatus returns the initial status for new tasks as a string.
+// This is a convenience wrapper around GetInitialStatus that returns a string
+// instead of models.TaskStatus.
+func (s *Service) GetDefaultStatus() string {
+	return string(s.GetInitialStatus())
 }

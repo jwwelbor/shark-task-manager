@@ -176,8 +176,8 @@ func TestGetUnverifiedTasks_Skipped(t *testing.T) {
 
 	// Mark both tasks as ready_for_review AFTER setting metadata
 	// (this ensures the status isn't reverted by test seed data)
-	_ = taskRepo.UpdateStatus(ctx, task1.ID, models.TaskStatusReadyForReview, &agent, nil)
-	_ = taskRepo.UpdateStatus(ctx, task2.ID, models.TaskStatusReadyForReview, &agent, nil)
+	_ = taskRepo.UpdateStatus(ctx, task1.ID, models.TaskStatus("ready_for_review"), &agent, nil)
+	_ = taskRepo.UpdateStatus(ctx, task2.ID, models.TaskStatus("ready_for_review"), &agent, nil)
 
 	// Get unverified tasks
 	unverifiedTasks, err := taskRepo.GetUnverifiedTasks(ctx)

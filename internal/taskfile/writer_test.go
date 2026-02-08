@@ -295,14 +295,16 @@ func TestUpdateTaskMetadata_ValidationError(t *testing.T) {
 		t.Fatalf("Failed to create initial file: %v", err)
 	}
 
-	// Try to update with invalid status
+	// Try to update with empty status (basic validation catches this)
+	// Note: Workflow-aware status validation happens at the CLI layer,
+	// not in the parser. The parser only checks required fields.
 	err = UpdateTaskMetadata(filePath, func(m *TaskMetadata) error {
-		m.Status = "invalid_status"
+		m.Status = ""
 		return nil
 	})
 
 	if err == nil {
-		t.Error("UpdateTaskMetadata() expected error for invalid status, got nil")
+		t.Error("UpdateTaskMetadata() expected error for empty status, got nil")
 	}
 
 	// Verify file wasn't changed

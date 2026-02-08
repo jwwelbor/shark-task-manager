@@ -109,7 +109,7 @@ func main() {
 			Key:         t.key,
 			Title:       t.title,
 			Description: strPtr(t.description),
-			Status:      models.TaskStatusTodo,
+			Status:      models.TaskStatus("todo"),
 			AgentType:   &t.agentType,
 			Priority:    t.priority,
 			DependsOn:   strPtr("[]"),
@@ -128,8 +128,8 @@ func main() {
 	agent := "demo-agent"
 
 	// Mark first task as in progress
-	if len(createdTasks) > 0 && createdTasks[0].Status == models.TaskStatusTodo {
-		if err := taskRepo.UpdateStatus(ctx, createdTasks[0].ID, models.TaskStatusInProgress, &agent, strPtr("Starting implementation")); err != nil {
+	if len(createdTasks) > 0 && createdTasks[0].Status == models.TaskStatus("todo") {
+		if err := taskRepo.UpdateStatus(ctx, createdTasks[0].ID, models.TaskStatus("in_progress"), &agent, strPtr("Starting implementation")); err != nil {
 			log.Fatal("Failed to update task status:", err)
 		}
 		fmt.Printf("   ✓ %s → in_progress\n", createdTasks[0].Key)
@@ -137,8 +137,8 @@ func main() {
 
 	// Mark first three tasks as completed
 	for i := 0; i < 3 && i < len(createdTasks); i++ {
-		if createdTasks[i].Status != models.TaskStatusCompleted {
-			if err := taskRepo.UpdateStatus(ctx, createdTasks[i].ID, models.TaskStatusCompleted, &agent, strPtr("Implementation complete")); err != nil {
+		if createdTasks[i].Status != models.TaskStatus("completed") {
+			if err := taskRepo.UpdateStatus(ctx, createdTasks[i].ID, models.TaskStatus("completed"), &agent, strPtr("Implementation complete")); err != nil {
 				log.Fatal("Failed to update task status:", err)
 			}
 			fmt.Printf("   ✓ %s → completed\n", createdTasks[i].Key)
@@ -184,7 +184,7 @@ func main() {
 	fmt.Println("   ─────────────────────────────────────────")
 
 	// Filter by status
-	todoTasks, _ := taskRepo.FilterByStatus(ctx, models.TaskStatusTodo)
+	todoTasks, _ := taskRepo.FilterByStatus(ctx, models.TaskStatus("todo"))
 	fmt.Printf("   Tasks with status 'todo': %d\n", len(todoTasks))
 
 	// Filter by agent type
@@ -192,7 +192,7 @@ func main() {
 	fmt.Printf("   Tasks for backend agent: %d\n", len(backendTasks))
 
 	// Combined filter
-	todoStatus := models.TaskStatusTodo
+	todoStatus := models.TaskStatus("todo")
 	maxPriority := 3
 	filteredTasks, _ := taskRepo.FilterCombined(ctx, &todoStatus, nil, nil, &maxPriority)
 	fmt.Printf("   High-priority todo tasks (priority ≤ 3): %d\n", len(filteredTasks))
@@ -209,17 +209,17 @@ func strPtr(s string) *string {
 
 func getStatusIcon(status models.TaskStatus) string {
 	switch status {
-	case models.TaskStatusTodo:
+	case models.TaskStatus("todo"):
 		return "⭕"
-	case models.TaskStatusInProgress:
+	case models.TaskStatus("in_progress"):
 		return "🔄"
-	case models.TaskStatusCompleted:
+	case models.TaskStatus("completed"):
 		return "✅"
-	case models.TaskStatusBlocked:
+	case models.TaskStatus("blocked"):
 		return "🚫"
-	case models.TaskStatusReadyForReview:
+	case models.TaskStatus("ready_for_review"):
 		return "👀"
-	case models.TaskStatusArchived:
+	case models.TaskStatus("archived"):
 		return "📦"
 	default:
 		return "❓"

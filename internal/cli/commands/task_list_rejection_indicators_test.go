@@ -23,7 +23,7 @@ func TestTaskListRejectionIndicators(t *testing.T) {
 			task: &models.Task{
 				Key:    "E07-F01-001",
 				Title:  "Implement feature",
-				Status: models.TaskStatusTodo,
+				Status: models.TaskStatus("todo"),
 			},
 			rejectionCount:     0,
 			lastRejectionTime:  nil,
@@ -35,7 +35,7 @@ func TestTaskListRejectionIndicators(t *testing.T) {
 			task: &models.Task{
 				Key:    "E07-F01-002",
 				Title:  "Fix bug",
-				Status: models.TaskStatusInProgress,
+				Status: models.TaskStatus("in_progress"),
 			},
 			rejectionCount:     1,
 			lastRejectionTime:  timePtr(time.Now().Add(-2 * time.Hour)),
@@ -47,7 +47,7 @@ func TestTaskListRejectionIndicators(t *testing.T) {
 			task: &models.Task{
 				Key:    "E07-F01-003",
 				Title:  "Update docs",
-				Status: models.TaskStatusInProgress,
+				Status: models.TaskStatus("in_progress"),
 			},
 			rejectionCount:     3,
 			lastRejectionTime:  timePtr(time.Now()),
@@ -155,7 +155,7 @@ func TestTaskListWithRejectionCountField(t *testing.T) {
 			task := &models.Task{
 				Key:      "E07-F01-001",
 				Title:    "Test task",
-				Status:   models.TaskStatusTodo,
+				Status:   models.TaskStatus("todo"),
 				Priority: 5,
 			}
 
@@ -190,8 +190,8 @@ func TestHasRejectionsFilter(t *testing.T) {
 		{
 			name: "no tasks with rejections",
 			tasks: []*models.Task{
-				{Key: "E07-F01-001", Status: models.TaskStatusTodo},
-				{Key: "E07-F01-002", Status: models.TaskStatusTodo},
+				{Key: "E07-F01-001", Status: models.TaskStatus("todo")},
+				{Key: "E07-F01-002", Status: models.TaskStatus("todo")},
 			},
 			rejectionCounts: map[string]int{
 				"E07-F01-001": 0,
@@ -202,9 +202,9 @@ func TestHasRejectionsFilter(t *testing.T) {
 		{
 			name: "some tasks with rejections",
 			tasks: []*models.Task{
-				{Key: "E07-F01-001", Status: models.TaskStatusInProgress},
-				{Key: "E07-F01-002", Status: models.TaskStatusInProgress},
-				{Key: "E07-F01-003", Status: models.TaskStatusTodo},
+				{Key: "E07-F01-001", Status: models.TaskStatus("in_progress")},
+				{Key: "E07-F01-002", Status: models.TaskStatus("in_progress")},
+				{Key: "E07-F01-003", Status: models.TaskStatus("todo")},
 			},
 			rejectionCounts: map[string]int{
 				"E07-F01-001": 1,
@@ -216,8 +216,8 @@ func TestHasRejectionsFilter(t *testing.T) {
 		{
 			name: "all tasks with rejections",
 			tasks: []*models.Task{
-				{Key: "E07-F01-001", Status: models.TaskStatusInProgress},
-				{Key: "E07-F01-002", Status: models.TaskStatusInProgress},
+				{Key: "E07-F01-001", Status: models.TaskStatus("in_progress")},
+				{Key: "E07-F01-002", Status: models.TaskStatus("in_progress")},
 			},
 			rejectionCounts: map[string]int{
 				"E07-F01-001": 3,

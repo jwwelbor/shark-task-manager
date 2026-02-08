@@ -41,25 +41,25 @@ func TestUpdateStatusForced_BypassValidation(t *testing.T) {
 	}
 
 	// Reset to todo
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "force-test-agent"
 
 	// Test 1: Invalid transition WITHOUT force should fail
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
 	if err == nil {
 		t.Error("Invalid transition todo->completed should fail without force flag")
 	}
 
 	// Test 2: Same invalid transition WITH force should succeed
-	err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, &agent, nil, nil, nil, true)
+	err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), &agent, nil, nil, nil, true)
 	if err != nil {
 		t.Errorf("Forced transition should succeed, got error: %v", err)
 	}
 
 	// Verify status was updated
 	updatedTask, _ := repo.GetByID(ctx, task.ID)
-	if updatedTask.Status != models.TaskStatusCompleted {
+	if updatedTask.Status != models.TaskStatus("completed") {
 		t.Errorf("Expected status completed after forced transition, got %s", updatedTask.Status)
 	}
 
@@ -67,7 +67,7 @@ func TestUpdateStatusForced_BypassValidation(t *testing.T) {
 	var forced bool
 	err = database.QueryRowContext(ctx,
 		"SELECT forced FROM task_history WHERE task_id = ? AND new_status = ? ORDER BY timestamp DESC LIMIT 1",
-		task.ID, models.TaskStatusCompleted).Scan(&forced)
+		task.ID, models.TaskStatus("completed")).Scan(&forced)
 
 	if err != nil {
 		t.Fatalf("Failed to query history: %v", err)
@@ -109,10 +109,10 @@ func TestUpdateStatusForced_BlockTaskForced(t *testing.T) {
 	}
 
 	// Clean up any existing history for this task from previous test runs
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id = ? AND new_status = ?", task.ID, models.TaskStatusBlocked)
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id = ? AND new_status = ?", task.ID, models.TaskStatus("blocked"))
 
 	// Set task to completed
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusCompleted, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("completed"), task.ID)
 
 	agent := "block-force-test"
 	reason := "Emergency rollback needed"
@@ -131,7 +131,7 @@ func TestUpdateStatusForced_BlockTaskForced(t *testing.T) {
 
 	// Verify blocked
 	blockedTask, _ := repo.GetByID(ctx, task.ID)
-	if blockedTask.Status != models.TaskStatusBlocked {
+	if blockedTask.Status != models.TaskStatus("blocked") {
 		t.Errorf("Expected status blocked, got %s", blockedTask.Status)
 	}
 
@@ -139,7 +139,7 @@ func TestUpdateStatusForced_BlockTaskForced(t *testing.T) {
 	var forced bool
 	err = database.QueryRowContext(ctx,
 		"SELECT forced FROM task_history WHERE task_id = ? AND new_status = ? ORDER BY timestamp DESC LIMIT 1",
-		task.ID, models.TaskStatusBlocked).Scan(&forced)
+		task.ID, models.TaskStatus("blocked")).Scan(&forced)
 
 	if err != nil {
 		t.Fatalf("Failed to query history: %v", err)
@@ -181,7 +181,7 @@ func TestUpdateStatusForced_ReopenTaskForced(t *testing.T) {
 	}
 
 	// Set to ready_for_review
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusReadyForReview, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("ready_for_review"), task.ID)
 
 	agent := "reopen-force-test"
 	notes := "Found critical bug, needs rework"
@@ -200,7 +200,7 @@ func TestUpdateStatusForced_ReopenTaskForced(t *testing.T) {
 
 	// Verify reopened
 	reopenedTask, _ := repo.GetByID(ctx, task.ID)
-	if reopenedTask.Status != models.TaskStatusInProgress {
+	if reopenedTask.Status != models.TaskStatus("in_progress") {
 		t.Errorf("Expected status in_progress after reopen, got %s", reopenedTask.Status)
 	}
 
@@ -208,7 +208,7 @@ func TestUpdateStatusForced_ReopenTaskForced(t *testing.T) {
 	var forced bool
 	err = database.QueryRowContext(ctx,
 		"SELECT forced FROM task_history WHERE task_id = ? AND new_status = ? ORDER BY timestamp DESC LIMIT 1",
-		task.ID, models.TaskStatusInProgress).Scan(&forced)
+		task.ID, models.TaskStatus("in_progress")).Scan(&forced)
 
 	if err != nil {
 		t.Fatalf("Failed to query history: %v", err)
@@ -251,7 +251,7 @@ func TestUpdateStatusForced_UnblockTaskForced(t *testing.T) {
 
 	// Set to blocked
 	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ?, blocked_reason = ? WHERE id = ?",
-		models.TaskStatusBlocked, "Test blocking", task.ID)
+		models.TaskStatus("blocked"), "Test blocking", task.ID)
 
 	agent := "unblock-force-test"
 
@@ -269,7 +269,7 @@ func TestUpdateStatusForced_UnblockTaskForced(t *testing.T) {
 
 	// Verify unblocked
 	unblockedTask, _ := repo.GetByID(ctx, task.ID)
-	if unblockedTask.Status != models.TaskStatusTodo {
+	if unblockedTask.Status != models.TaskStatus("todo") {
 		t.Errorf("Expected status todo after unblock, got %s", unblockedTask.Status)
 	}
 
@@ -278,7 +278,7 @@ func TestUpdateStatusForced_UnblockTaskForced(t *testing.T) {
 	var newStatus string
 	err = database.QueryRowContext(ctx,
 		"SELECT forced, new_status FROM task_history WHERE task_id = ? AND old_status = ? ORDER BY timestamp DESC LIMIT 1",
-		task.ID, models.TaskStatusBlocked).Scan(&forced, &newStatus)
+		task.ID, models.TaskStatus("blocked")).Scan(&forced, &newStatus)
 
 	if err != nil && err != sql.ErrNoRows {
 		t.Fatalf("Failed to query history: %v", err)
@@ -304,12 +304,12 @@ func TestUpdateStatusForced_NormalTransitionsNotForced(t *testing.T) {
 	}
 
 	// Reset to todo
-	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatusTodo, task.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "normal-transition-test"
 
 	// Perform normal valid transition
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, nil)
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err != nil {
 		t.Fatalf("Valid transition should succeed: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestUpdateStatusForced_NormalTransitionsNotForced(t *testing.T) {
 	var forced bool
 	err = database.QueryRowContext(ctx,
 		"SELECT forced FROM task_history WHERE task_id = ? AND new_status = ? ORDER BY timestamp DESC LIMIT 1",
-		task.ID, models.TaskStatusInProgress).Scan(&forced)
+		task.ID, models.TaskStatus("in_progress")).Scan(&forced)
 
 	if err != nil {
 		t.Fatalf("Failed to query history: %v", err)

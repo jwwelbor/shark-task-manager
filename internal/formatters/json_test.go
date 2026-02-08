@@ -337,7 +337,7 @@ func TestFormatFeatureGetJSON(t *testing.T) {
 					FeatureID: 1,
 					Key:       "E01-F01-T01",
 					Title:     "Task 1",
-					Status:    models.TaskStatusCompleted,
+					Status:    models.TaskStatus("completed"),
 					Priority:  5,
 				},
 				{
@@ -345,13 +345,13 @@ func TestFormatFeatureGetJSON(t *testing.T) {
 					FeatureID: 1,
 					Key:       "E01-F01-T02",
 					Title:     "Task 2",
-					Status:    models.TaskStatusInProgress,
+					Status:    models.TaskStatus("in_progress"),
 					Priority:  3,
 				},
 			},
 			breakdown: map[models.TaskStatus]int{
-				models.TaskStatusCompleted:  1,
-				models.TaskStatusInProgress: 1,
+				models.TaskStatus("completed"):   1,
+				models.TaskStatus("in_progress"): 1,
 			},
 			validate: func(t *testing.T, output string) {
 				var result map[string]interface{}

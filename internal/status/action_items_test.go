@@ -4,8 +4,43 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
+
+// testWorkflowConfig returns a workflow config with both basic and advanced statuses
+// for use in action_items tests. It covers all statuses referenced in tests.
+func testWorkflowConfig() *config.WorkflowConfig {
+	return &config.WorkflowConfig{
+		Version: "1.0",
+		StatusFlow: map[string][]string{
+			"todo":                  {"in_progress", "blocked"},
+			"draft":                 {"ready_for_refinement_ba"},
+			"in_progress":           {"ready_for_review", "blocked"},
+			"in_development":        {"ready_for_code_review", "blocked"},
+			"ready_for_review":      {"completed", "in_progress"},
+			"ready_for_code_review": {"in_code_review"},
+			"ready_for_approval":    {"in_approval"},
+			"completed":             {},
+			"blocked":               {"todo", "in_progress"},
+		},
+		StatusMetadata: map[string]config.StatusMetadata{
+			"todo":                  {Color: "gray", Phase: "planning"},
+			"draft":                 {Color: "gray", Phase: "planning"},
+			"in_progress":           {Color: "blue", Phase: "development"},
+			"in_development":        {Color: "blue", Phase: "development"},
+			"ready_for_review":      {Color: "yellow", Phase: "review"},
+			"ready_for_code_review": {Color: "yellow", Phase: "review"},
+			"ready_for_approval":    {Color: "cyan", Phase: "approval"},
+			"completed":             {Color: "green", Phase: "done"},
+			"blocked":               {Color: "red", Phase: "any"},
+		},
+		SpecialStatuses: map[string][]string{
+			config.StartStatusKey:    {"todo", "draft"},
+			config.CompleteStatusKey: {"completed"},
+		},
+	}
+}
 
 func TestGetActionItems(t *testing.T) {
 	now := time.Now()
@@ -211,7 +246,7 @@ func TestGetActionItems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			items := GetActionItems(tt.tasks, nil)
+			items := GetActionItems(tt.tasks, testWorkflowConfig())
 
 			if len(items.AwaitingApproval) != tt.expectedAwaitingCount {
 				t.Errorf("AwaitingApproval count: got %d, want %d", len(items.AwaitingApproval), tt.expectedAwaitingCount)
@@ -286,7 +321,7 @@ func TestGetActionItems_AgeDays(t *testing.T) {
 			now := time.Now()
 			tt.task.UpdatedAt = now.Add(-time.Duration(tt.hoursAgo) * time.Hour)
 
-			items := GetActionItems([]*models.Task{tt.task}, nil)
+			items := GetActionItems([]*models.Task{tt.task}, testWorkflowConfig())
 
 			if len(items.AwaitingApproval) != 1 {
 				t.Fatalf("Expected 1 awaiting approval task, got %d", len(items.AwaitingApproval))
@@ -313,7 +348,7 @@ func TestGetActionItems_TaskMetadata(t *testing.T) {
 		UpdatedAt: time.Now().Add(-24 * time.Hour),
 	}
 
-	items := GetActionItems([]*models.Task{task}, nil)
+	items := GetActionItems([]*models.Task{task}, testWorkflowConfig())
 
 	if len(items.AwaitingApproval) != 1 {
 		t.Fatalf("Expected 1 task, got %d", len(items.AwaitingApproval))
@@ -347,7 +382,7 @@ func TestGetActionItems_BlockedTaskMetadata(t *testing.T) {
 		UpdatedAt: time.Now(),
 	}
 
-	items := GetActionItems([]*models.Task{task}, nil)
+	items := GetActionItems([]*models.Task{task}, testWorkflowConfig())
 
 	if len(items.Blocked) != 1 {
 		t.Fatalf("Expected 1 blocked task, got %d", len(items.Blocked))
@@ -390,7 +425,7 @@ func TestGetActionItems_InProgressTaskMetadata(t *testing.T) {
 		},
 	}
 
-	items := GetActionItems(tasks, nil)
+	items := GetActionItems(tasks, testWorkflowConfig())
 
 	if len(items.InProgress) != 2 {
 		t.Fatalf("Expected 2 in progress tasks, got %d", len(items.InProgress))
@@ -412,7 +447,7 @@ func TestGetActionItems_InProgressTaskMetadata(t *testing.T) {
 }
 
 func TestGetActionItems_EmptyInput(t *testing.T) {
-	items := GetActionItems(nil, nil)
+	items := GetActionItems(nil, testWorkflowConfig())
 
 	if items == nil {
 		t.Fatal("Expected non-nil ActionItems, got nil")

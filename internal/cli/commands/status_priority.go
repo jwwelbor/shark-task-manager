@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -58,7 +59,7 @@ func ParseFeatureStatus(status string) (string, error) {
 
 // ParseTaskStatus parses and validates a task status value.
 // Input is case-insensitive and normalized to lowercase.
-// Supports both old workflow (todo, in_progress, etc.) and new workflow (draft, in_development, etc.).
+// Validates against the workflow configuration from .sharkconfig.json via workflow.Service.
 // Returns the normalized status value or an error if invalid.
 func ParseTaskStatus(status string) (string, error) {
 	// Trim whitespace and normalize to lowercase
@@ -69,8 +70,9 @@ func ParseTaskStatus(status string) (string, error) {
 		return "", fmt.Errorf("task status cannot be empty")
 	}
 
-	// Validate using the model validation function (supports both workflows)
-	if err := models.ValidateTaskStatus(normalized); err != nil {
+	// Validate using the workflow service (config-driven)
+	svc := cli.GetWorkflowService()
+	if err := svc.ValidateStatus(normalized); err != nil {
 		return "", err
 	}
 

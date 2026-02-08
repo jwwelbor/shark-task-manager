@@ -98,7 +98,7 @@ func TestCalculationService_RecalculateFeatureStatus(t *testing.T) {
 				FeatureID: feature.ID,
 				Key:       "T-E01-F01-00" + string(rune('0'+i)),
 				Title:     "Todo Task",
-				Status:    models.TaskStatusTodo,
+				Status:    models.TaskStatus("todo"),
 				Priority:  5,
 			}
 			err := taskRepo.Create(ctx, task)
@@ -113,7 +113,7 @@ func TestCalculationService_RecalculateFeatureStatus(t *testing.T) {
 
 	t.Run("in_progress_activates_feature", func(t *testing.T) {
 		// Update a task to in_progress
-		err := taskRepo.UpdateStatusForced(ctx, taskIDs[0], models.TaskStatusInProgress, nil, nil, nil, nil, true)
+		err := taskRepo.UpdateStatusForced(ctx, taskIDs[0], models.TaskStatus("in_progress"), nil, nil, nil, nil, true)
 		require.NoError(t, err)
 
 		result, err := calcService.RecalculateFeatureStatus(ctx, feature.ID)
@@ -125,7 +125,7 @@ func TestCalculationService_RecalculateFeatureStatus(t *testing.T) {
 	t.Run("all_completed_completes_feature", func(t *testing.T) {
 		// Complete all tasks
 		for _, id := range taskIDs {
-			err := taskRepo.UpdateStatusForced(ctx, id, models.TaskStatusCompleted, nil, nil, nil, nil, true)
+			err := taskRepo.UpdateStatusForced(ctx, id, models.TaskStatus("completed"), nil, nil, nil, nil, true)
 			require.NoError(t, err)
 		}
 
@@ -141,7 +141,7 @@ func TestCalculationService_RecalculateFeatureStatus(t *testing.T) {
 		require.NoError(t, err)
 
 		// Reopen a task
-		err = taskRepo.UpdateStatusForced(ctx, taskIDs[0], models.TaskStatusTodo, nil, nil, nil, nil, true)
+		err = taskRepo.UpdateStatusForced(ctx, taskIDs[0], models.TaskStatus("todo"), nil, nil, nil, nil, true)
 		require.NoError(t, err)
 
 		result, err := calcService.RecalculateFeatureStatus(ctx, feature.ID)
@@ -266,7 +266,7 @@ func TestCalculationService_CascadeFromTask(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E03-F01-001",
 		Title:     "Cascade Test Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, task)
@@ -274,7 +274,7 @@ func TestCalculationService_CascadeFromTask(t *testing.T) {
 
 	t.Run("cascade_updates_both_feature_and_epic", func(t *testing.T) {
 		// Start the task (make it in_progress)
-		err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, nil, nil, true)
+		err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("in_progress"), nil, nil, nil, nil, true)
 		require.NoError(t, err)
 
 		results, err := calcService.CascadeFromTask(ctx, "T-E03-F01-001")
@@ -301,7 +301,7 @@ func TestCalculationService_CascadeFromTask(t *testing.T) {
 
 	t.Run("complete_task_completes_feature_and_epic", func(t *testing.T) {
 		// Complete the only task
-		err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, nil, nil, nil, nil, true)
+		err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), nil, nil, nil, nil, true)
 		require.NoError(t, err)
 
 		results, err := calcService.CascadeFromTask(ctx, "T-E03-F01-001")
@@ -354,7 +354,7 @@ func TestCalculationService_RecalculateAll(t *testing.T) {
 				FeatureID: feature.ID,
 				Key:       "T-E0" + string(rune('0'+i)) + "-F0" + string(rune('0'+j)) + "-001",
 				Title:     "Test Task",
-				Status:    models.TaskStatusTodo,
+				Status:    models.TaskStatus("todo"),
 				Priority:  5,
 			}
 			err = taskRepo.Create(ctx, task)
@@ -368,7 +368,7 @@ func TestCalculationService_RecalculateAll(t *testing.T) {
 	}
 
 	// Make one task in_progress to see changes
-	err := taskRepo.UpdateStatusForced(ctx, firstTaskID, models.TaskStatusInProgress, nil, nil, nil, nil, true)
+	err := taskRepo.UpdateStatusForced(ctx, firstTaskID, models.TaskStatus("in_progress"), nil, nil, nil, nil, true)
 	require.NoError(t, err)
 
 	summary, err := calcService.RecalculateAll(ctx)

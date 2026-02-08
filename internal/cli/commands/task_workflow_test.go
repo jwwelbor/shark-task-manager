@@ -28,7 +28,7 @@ func testIsTaskAvailable(ctx context.Context, task *models.Task, repo TaskReposi
 		}
 
 		// Dependency must be completed or archived
-		if depTask.Status != models.TaskStatusCompleted && depTask.Status != models.TaskStatusArchived {
+		if depTask.Status != models.TaskStatus("completed") && depTask.Status != models.TaskStatus("archived") {
 			return false
 		}
 	}
@@ -52,7 +52,7 @@ func TestTaskAvailability(t *testing.T) {
 		ID:        1,
 		Key:       "T-TEST-001",
 		Title:     "Completed Task",
-		Status:    models.TaskStatusCompleted,
+		Status:    models.TaskStatus("completed"),
 		AgentType: &agentType,
 		Priority:  1,
 		DependsOn: &emptyDeps,
@@ -62,7 +62,7 @@ func TestTaskAvailability(t *testing.T) {
 		ID:        2,
 		Key:       "T-TEST-002",
 		Title:     "Todo Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  2,
 		DependsOn: &emptyDeps,
@@ -72,7 +72,7 @@ func TestTaskAvailability(t *testing.T) {
 		ID:        3,
 		Key:       "T-TEST-003",
 		Title:     "Task with Dependency",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  3,
 		DependsOn: &completedDep,
@@ -82,7 +82,7 @@ func TestTaskAvailability(t *testing.T) {
 		ID:        4,
 		Key:       "T-TEST-004",
 		Title:     "Task with Incomplete Dependency",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  4,
 		DependsOn: &incompleteDep,
@@ -168,7 +168,7 @@ func TestDependencyParsing(t *testing.T) {
 				FeatureID: 1,
 				Key:       "T-PARSE-TEST",
 				Title:     "Parsing Test",
-				Status:    models.TaskStatusTodo,
+				Status:    models.TaskStatus("todo"),
 				AgentType: &agentType,
 				Priority:  1,
 				DependsOn: &tt.dependsOn,
@@ -189,20 +189,20 @@ func TestStateTransitionLogic(t *testing.T) {
 	// These are the rules enforced by the CLI commands
 
 	validTransitions := map[string]map[string]bool{
-		string(models.TaskStatusTodo): {
-			string(models.TaskStatusInProgress): true,
-			string(models.TaskStatusBlocked):    true,
+		string(models.TaskStatus("todo")): {
+			string(models.TaskStatus("in_progress")): true,
+			string(models.TaskStatus("blocked")):     true,
 		},
-		string(models.TaskStatusInProgress): {
-			string(models.TaskStatusReadyForReview): true,
-			string(models.TaskStatusBlocked):        true,
+		string(models.TaskStatus("in_progress")): {
+			string(models.TaskStatus("ready_for_review")): true,
+			string(models.TaskStatus("blocked")):          true,
 		},
-		string(models.TaskStatusReadyForReview): {
-			string(models.TaskStatusCompleted):  true,
-			string(models.TaskStatusInProgress): true, // reopen
+		string(models.TaskStatus("ready_for_review")): {
+			string(models.TaskStatus("completed")):   true,
+			string(models.TaskStatus("in_progress")): true, // reopen
 		},
-		string(models.TaskStatusBlocked): {
-			string(models.TaskStatusTodo): true,
+		string(models.TaskStatus("blocked")): {
+			string(models.TaskStatus("todo")): true,
 		},
 	}
 
@@ -212,20 +212,20 @@ func TestStateTransitionLogic(t *testing.T) {
 		isValid bool
 	}{
 		// Valid transitions
-		{models.TaskStatusTodo, models.TaskStatusInProgress, true},
-		{models.TaskStatusInProgress, models.TaskStatusReadyForReview, true},
-		{models.TaskStatusReadyForReview, models.TaskStatusCompleted, true},
-		{models.TaskStatusTodo, models.TaskStatusBlocked, true},
-		{models.TaskStatusInProgress, models.TaskStatusBlocked, true},
-		{models.TaskStatusBlocked, models.TaskStatusTodo, true},
-		{models.TaskStatusReadyForReview, models.TaskStatusInProgress, true},
+		{models.TaskStatus("todo"), models.TaskStatus("in_progress"), true},
+		{models.TaskStatus("in_progress"), models.TaskStatus("ready_for_review"), true},
+		{models.TaskStatus("ready_for_review"), models.TaskStatus("completed"), true},
+		{models.TaskStatus("todo"), models.TaskStatus("blocked"), true},
+		{models.TaskStatus("in_progress"), models.TaskStatus("blocked"), true},
+		{models.TaskStatus("blocked"), models.TaskStatus("todo"), true},
+		{models.TaskStatus("ready_for_review"), models.TaskStatus("in_progress"), true},
 
 		// Invalid transitions
-		{models.TaskStatusCompleted, models.TaskStatusInProgress, false},
-		{models.TaskStatusTodo, models.TaskStatusCompleted, false},
-		{models.TaskStatusTodo, models.TaskStatusReadyForReview, false},
-		{models.TaskStatusBlocked, models.TaskStatusInProgress, false},
-		{models.TaskStatusBlocked, models.TaskStatusCompleted, false},
+		{models.TaskStatus("completed"), models.TaskStatus("in_progress"), false},
+		{models.TaskStatus("todo"), models.TaskStatus("completed"), false},
+		{models.TaskStatus("todo"), models.TaskStatus("ready_for_review"), false},
+		{models.TaskStatus("blocked"), models.TaskStatus("in_progress"), false},
+		{models.TaskStatus("blocked"), models.TaskStatus("completed"), false},
 	}
 
 	for _, tt := range tests {
@@ -263,7 +263,7 @@ func TestNextTaskSelection(t *testing.T) {
 		ID:        1,
 		Key:       "T-TEST-001",
 		Title:     "Completed Task",
-		Status:    models.TaskStatusCompleted,
+		Status:    models.TaskStatus("completed"),
 		AgentType: &agentType,
 		Priority:  1,
 		DependsOn: &emptyDeps,
@@ -273,7 +273,7 @@ func TestNextTaskSelection(t *testing.T) {
 		ID:        2,
 		Key:       "T-TEST-002",
 		Title:     "Todo Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  2,
 		DependsOn: &emptyDeps,
@@ -283,14 +283,14 @@ func TestNextTaskSelection(t *testing.T) {
 		ID:        3,
 		Key:       "T-TEST-003",
 		Title:     "Task with Dependency",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  3,
 		DependsOn: &completedDep,
 	})
 
 	// Query for todo tasks
-	todoStatus := models.TaskStatusTodo
+	todoStatus := models.TaskStatus("todo")
 	tasks, err := mockRepo.FilterCombined(ctx, &todoStatus, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to get todo tasks: %v", err)

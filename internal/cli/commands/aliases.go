@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"fmt"
+
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
@@ -135,4 +137,15 @@ func init() {
 	// Add flags for unblock command
 	unblockCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	unblockCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
+
+	// Override unblock help text with config-driven default status
+	defaultStatus := cli.GetWorkflowService().GetDefaultStatus()
+	unblockCmd.Long = fmt.Sprintf(`Shortcut for 'shark task unblock'. Unblock a task and return it to %s status.
+
+Use --force to bypass status transition validation. This allows unblocking a task
+from any status (not just 'blocked'). Use with caution as this is an administrative override.
+
+Examples:
+  shark unblock E07-F01-001
+  shark unblock T-E04-F01-001`, defaultStatus)
 }

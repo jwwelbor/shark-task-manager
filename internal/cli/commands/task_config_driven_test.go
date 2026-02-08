@@ -59,7 +59,7 @@ func TestTaskBlockCommand_HardcodedStatusValidation(t *testing.T) {
 		},
 		{
 			name:          "block from todo status works",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			shouldBlock:   true,
 			workflowConfig: &config.WorkflowConfig{
 				StatusFlow: map[string][]string{
@@ -258,8 +258,8 @@ func TestRepositoryFallbackTransitions_ShouldBeRemoved(t *testing.T) {
 	t.Log("")
 	t.Log("Current fallback code:")
 	t.Log("  validTransitions := map[models.TaskStatus][]models.TaskStatus{")
-	t.Log("      models.TaskStatusTodo: {models.TaskStatusInProgress, models.TaskStatusBlocked},")
-	t.Log("      models.TaskStatusInProgress: {models.TaskStatusReadyForReview, models.TaskStatusBlocked},")
+	t.Log(`      "todo": {"in_progress", "blocked"},`)
+	t.Log(`      "in_progress": {"ready_for_review", "blocked"},`)
 	t.Log("      ...")
 	t.Log("  }")
 	t.Log("")

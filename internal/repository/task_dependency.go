@@ -209,21 +209,21 @@ func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID 
 	currentTaskStatus := models.TaskStatus(currentStatus)
 	if !force {
 		// Only allow reopening from ready_for_review
-		if currentTaskStatus != models.TaskStatusReadyForReview {
+		if currentTaskStatus != models.TaskStatus("ready_for_review") {
 			return fmt.Errorf("invalid status transition from %s to in_progress", currentStatus)
 		}
 	}
 
 	// Update status and clear completed_at
 	query := `UPDATE tasks SET status = ?, completed_at = NULL WHERE id = ?`
-	_, err = tx.ExecContext(ctx, query, models.TaskStatusInProgress, taskID)
+	_, err = tx.ExecContext(ctx, query, models.TaskStatus("in_progress"), taskID)
 	if err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatusInProgress, agent, notes, force)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatus("in_progress"), agent, notes, force)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -340,21 +340,21 @@ func (r *TaskRepository) blockTaskAndDependentsInTx(ctx context.Context, tx *sql
 	}
 
 	// Skip completed and archived tasks
-	if task.Status == models.TaskStatusCompleted || task.Status == models.TaskStatusArchived {
+	if task.Status == models.TaskStatus("completed") || task.Status == models.TaskStatus("archived") {
 		return nil
 	}
 
 	// Block this task
 	reason := fmt.Sprintf("%s%s was reopened", DependencyReopenedBlockReasonPrefix, reopenedTaskKey)
 	query := `UPDATE tasks SET status = ?, blocked_at = CURRENT_TIMESTAMP, blocked_reason = ? WHERE id = ?`
-	_, err := tx.ExecContext(ctx, query, models.TaskStatusBlocked, reason, task.ID)
+	_, err := tx.ExecContext(ctx, query, models.TaskStatus("blocked"), reason, task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to block task: %w", err)
 	}
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, models.TaskStatusBlocked, nil, reason, false)
+	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, models.TaskStatus("blocked"), nil, reason, false)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}
@@ -391,7 +391,7 @@ func (r *TaskRepository) AutoUnblockDependents(ctx context.Context, tx *sql.Tx, 
 	var unblocked []string
 	for _, dependent := range dependents {
 		// Only consider blocked tasks
-		if dependent.Status != models.TaskStatusBlocked {
+		if dependent.Status != models.TaskStatus("blocked") {
 			continue
 		}
 
@@ -455,7 +455,7 @@ func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *s
 			}
 
 			depStatus := models.TaskStatus(status)
-			if depStatus != models.TaskStatusCompleted && depStatus != models.TaskStatusArchived {
+			if depStatus != models.TaskStatus("completed") && depStatus != models.TaskStatus("archived") {
 				return false, nil
 			}
 		}
@@ -480,7 +480,7 @@ func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *s
 		}
 
 		depStatus := models.TaskStatus(status)
-		if depStatus != models.TaskStatusCompleted && depStatus != models.TaskStatusArchived {
+		if depStatus != models.TaskStatus("completed") && depStatus != models.TaskStatus("archived") {
 			return false, nil
 		}
 	}
@@ -492,14 +492,14 @@ func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *s
 // clearing blocked_at and blocked_reason, and recording history.
 func (r *TaskRepository) unblockTaskInTx(ctx context.Context, tx *sql.Tx, task *models.Task) error {
 	query := `UPDATE tasks SET status = ?, blocked_at = NULL, blocked_reason = NULL WHERE id = ?`
-	_, err := tx.ExecContext(ctx, query, models.TaskStatusTodo, task.ID)
+	_, err := tx.ExecContext(ctx, query, models.TaskStatus("todo"), task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to unblock task: %w", err)
 	}
 
 	notes := "Auto-unblocked: all dependencies satisfied"
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, models.TaskStatusTodo, nil, notes, false)
+	_, err = tx.ExecContext(ctx, historyQuery, task.ID, task.Status, models.TaskStatus("todo"), nil, notes, false)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}

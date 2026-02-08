@@ -59,7 +59,7 @@ func TestTaskUpdate_PriorityAndDependencies(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E90-F90-001",
 		Title:     "Dependency Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, depTask)
@@ -72,7 +72,7 @@ func TestTaskUpdate_PriorityAndDependencies(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E90-F90-002",
 		Title:     "Main Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		Priority:  5,
 	}
 	err = taskRepo.Create(ctx, mainTask)

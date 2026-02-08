@@ -96,67 +96,22 @@ func ValidateFeatureStatus(status string) error {
 	return nil
 }
 
-// ValidateTaskStatus validates the task status enum
-// DEPRECATED: This function uses hardcoded statuses and will be removed in a future version.
-// Use ValidateTaskStatusWithWorkflow instead for config-driven validation.
+// ValidateTaskStatus performs basic validation on a task status string.
+// It only checks that the status is non-empty after trimming whitespace.
 //
-// This function is kept for backward compatibility and now uses the default workflow.
+// This function does NOT validate against workflow-defined statuses because
+// the models package cannot import the workflow package (circular dependency).
+// For workflow-aware validation, callers at the CLI/command layer should use:
+//
+//	cli.GetWorkflowService().ValidateStatus(status)
+//
+// This basic check is still useful at the model layer to catch obviously
+// invalid data (empty strings) before it reaches the database.
 func ValidateTaskStatus(status string) error {
-	// Use default workflow for validation to maintain backward compatibility
-	// while preparing for full config-driven validation
-	return ValidateTaskStatusWithWorkflow(status, nil)
-}
-
-// ValidateTaskStatusWithWorkflow validates a task status against a workflow config.
-// If workflow is nil, uses the default workflow.
-// This is the config-driven replacement for ValidateTaskStatus.
-func ValidateTaskStatusWithWorkflow(status string, workflow interface{}) error {
-	// Import here to avoid circular dependency - we'll handle this properly
-	// For now, accept nil and validate against known statuses from the workflow
-	// The actual implementation will be in the validation package
-
-	// Temporary implementation that accepts both old and new workflow statuses
-	// This will be replaced once all callers are updated to use the validation package
-
-	// Check if status is in the old hardcoded list (backward compatibility)
-	oldStatuses := map[string]bool{
-		"todo":             true,
-		"in_progress":      true,
-		"blocked":          true,
-		"ready_for_review": true,
-		"completed":        true,
-		"archived":         true,
+	if strings.TrimSpace(status) == "" {
+		return fmt.Errorf("%w: status cannot be empty", ErrInvalidTaskStatus)
 	}
-
-	// Check if status is in the new 14-status workflow
-	newStatuses := map[string]bool{
-		"draft":                 true,
-		"ready_for_refinement":  true,
-		"in_refinement":         true,
-		"ready_for_development": true,
-		"in_development":        true,
-		"ready_for_code_review": true,
-		"in_code_review":        true,
-		"ready_for_qa":          true,
-		"in_qa":                 true,
-		"ready_for_approval":    true,
-		"in_approval":           true,
-		"blocked":               true,
-		"on_hold":               true,
-		"completed":             true,
-		"cancelled":             true,
-	}
-
-	// Accept status if it's in either the old or new workflow
-	// This provides a migration path
-	if oldStatuses[status] || newStatuses[status] {
-		return nil
-	}
-
-	// If workflow is provided, we could validate against it
-	// For now, return error with helpful message
-	return fmt.Errorf("invalid task status %q: not found in default or extended workflow. "+
-		"Ensure status is defined in .sharkconfig.json workflow", status)
+	return nil
 }
 
 // ValidateAgentType validates the agent type

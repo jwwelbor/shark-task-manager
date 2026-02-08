@@ -2,22 +2,25 @@ package patterns
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
-// TestIntegration_LoadActualSharkConfig tests loading the actual .sharkconfig.json from the project root
-func TestIntegration_LoadActualSharkConfig(t *testing.T) {
-	configPath := ".sharkconfig.json"
+// TestIntegration_LoadSharkConfig tests loading a .sharkconfig.json with pattern definitions
+func TestIntegration_LoadSharkConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
 
-	// Skip test if config file doesn't exist (common in CI without project root)
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		t.Skipf("Config file %s not found, skipping integration test", configPath)
+	// Create a config with default patterns (empty patterns triggers default merge)
+	configContent := `{}`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
 	}
 
-	// Load registry from actual config
+	// Load registry from test config (will use default patterns)
 	registry, err := LoadPatternRegistryFromFile(configPath, false)
 	if err != nil {
-		t.Fatalf("Failed to load registry from .sharkconfig.json: %v", err)
+		t.Fatalf("Failed to load registry from test config: %v", err)
 	}
 
 	t.Run("Epic folder patterns work", func(t *testing.T) {

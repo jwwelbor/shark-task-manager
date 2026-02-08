@@ -137,9 +137,9 @@ func DeriveEpicStatus(counts map[models.FeatureStatus]int) models.EpicStatus {
 // DEPRECATED: Use workflow config phase field instead. This function uses hardcoded logic.
 func IsTaskActiveStatus(status models.TaskStatus) bool {
 	switch status {
-	case models.TaskStatusInProgress,
-		models.TaskStatusReadyForReview,
-		models.TaskStatusBlocked:
+	case models.TaskStatus("in_progress"),
+		models.TaskStatus("ready_for_review"),
+		models.TaskStatus("blocked"):
 		return true
 	default:
 		return false
@@ -150,8 +150,8 @@ func IsTaskActiveStatus(status models.TaskStatus) bool {
 // DEPRECATED: Use workflow config phase field instead. This function uses hardcoded logic.
 func IsTaskCompletedStatus(status models.TaskStatus) bool {
 	switch status {
-	case models.TaskStatusCompleted,
-		models.TaskStatusArchived:
+	case models.TaskStatus("completed"),
+		models.TaskStatus("archived"):
 		return true
 	default:
 		return false

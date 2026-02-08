@@ -68,7 +68,7 @@ func TestEndToEndKeyGeneration(t *testing.T) {
 			Key:         fmt.Sprintf("T-E04-F02-%03d", i),
 			Title:       fmt.Sprintf("Task %d", i),
 			Description: nil,
-			Status:      models.TaskStatusTodo,
+			Status:      models.TaskStatus("todo"),
 			AgentType:   nil,
 			Priority:    2,
 		}

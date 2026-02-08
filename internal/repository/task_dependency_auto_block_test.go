@@ -54,7 +54,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-001",
 					Title:       "Base Task",
-					Status:      models.TaskStatusReadyForReview, // Will be reopened
+					Status:      models.TaskStatus("ready_for_review"), // Will be reopened
 					Priority:    5,
 					DependsOn:   nil,
 					Description: stringPtr("Base task"),
@@ -63,7 +63,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-002",
 					Title:       "Dependent Task",
-					Status:      models.TaskStatusInProgress, // Should be blocked
+					Status:      models.TaskStatus("in_progress"), // Should be blocked
 					Priority:    5,
 					DependsOn:   stringPtr(`["T-E96-F01-001"]`),
 					Description: stringPtr("Depends on base task"),
@@ -80,7 +80,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-003",
 					Title:       "Base Task",
-					Status:      models.TaskStatusReadyForReview,
+					Status:      models.TaskStatus("ready_for_review"),
 					Priority:    5,
 					DependsOn:   nil,
 					Description: stringPtr("Base task"),
@@ -89,7 +89,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-004",
 					Title:       "Middle Task",
-					Status:      models.TaskStatusInProgress,
+					Status:      models.TaskStatus("in_progress"),
 					Priority:    5,
 					DependsOn:   stringPtr(`["T-E96-F01-003"]`),
 					Description: stringPtr("Depends on base"),
@@ -98,7 +98,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-005",
 					Title:       "Leaf Task",
-					Status:      models.TaskStatusTodo,
+					Status:      models.TaskStatus("todo"),
 					Priority:    5,
 					DependsOn:   stringPtr(`["T-E96-F01-004"]`),
 					Description: stringPtr("Depends on middle"),
@@ -115,7 +115,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-006",
 					Title:       "Base Task",
-					Status:      models.TaskStatusReadyForReview,
+					Status:      models.TaskStatus("ready_for_review"),
 					Priority:    5,
 					DependsOn:   nil,
 					Description: stringPtr("Base task"),
@@ -124,7 +124,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-007",
 					Title:       "Completed Dependent",
-					Status:      models.TaskStatusCompleted, // Already completed, shouldn't be blocked
+					Status:      models.TaskStatus("completed"), // Already completed, shouldn't be blocked
 					Priority:    5,
 					DependsOn:   stringPtr(`["T-E96-F01-006"]`),
 					Description: stringPtr("Completed dependent"),
@@ -133,7 +133,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-008",
 					Title:       "Active Dependent",
-					Status:      models.TaskStatusInProgress, // Should be blocked
+					Status:      models.TaskStatus("in_progress"), // Should be blocked
 					Priority:    5,
 					DependsOn:   stringPtr(`["T-E96-F01-006"]`),
 					Description: stringPtr("Active dependent"),
@@ -150,7 +150,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-009",
 					Title:       "Isolated Task",
-					Status:      models.TaskStatusReadyForReview,
+					Status:      models.TaskStatus("ready_for_review"),
 					Priority:    5,
 					DependsOn:   nil,
 					Description: stringPtr("No dependents"),
@@ -159,7 +159,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 					FeatureID:   featureID,
 					Key:         "T-E96-F01-010",
 					Title:       "Independent Task",
-					Status:      models.TaskStatusInProgress,
+					Status:      models.TaskStatus("in_progress"),
 					Priority:    5,
 					DependsOn:   nil, // No dependency
 					Description: stringPtr("Independent"),
@@ -182,12 +182,12 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 			for _, task := range tt.setupTasks {
 				// Create task with todo status first
 				originalStatus := task.Status
-				task.Status = models.TaskStatusTodo
+				task.Status = models.TaskStatus("todo")
 				err := taskRepo.Create(ctx, task)
 				require.NoError(t, err, "failed to create setup task")
 
 				// If task should have non-todo status, update it using forced method
-				if originalStatus != models.TaskStatusTodo {
+				if originalStatus != models.TaskStatus("todo") {
 					err = taskRepo.UpdateStatusForced(ctx, task.ID, originalStatus, nil, nil, nil, nil, true)
 					require.NoError(t, err, "failed to update task to %s", originalStatus)
 
@@ -208,13 +208,13 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 			// Verify reopened task is now in_progress
 			reopenedTask, err := taskRepo.GetByKey(ctx, tt.taskToReopen)
 			require.NoError(t, err)
-			assert.Equal(t, models.TaskStatusInProgress, reopenedTask.Status, "reopened task should be in_progress")
+			assert.Equal(t, models.TaskStatus("in_progress"), reopenedTask.Status, "reopened task should be in_progress")
 
 			// Verify expected blocked tasks are now blocked
 			for _, expectedBlockedKey := range tt.expectedBlockedTasks {
 				task, err := taskRepo.GetByKey(ctx, expectedBlockedKey)
 				require.NoError(t, err, "failed to get task %s", expectedBlockedKey)
-				assert.Equal(t, models.TaskStatusBlocked, task.Status,
+				assert.Equal(t, models.TaskStatus("blocked"), task.Status,
 					"task %s should be blocked after prerequisite was reopened", expectedBlockedKey)
 				assert.NotNil(t, task.BlockedReason, "blocked task should have a reason")
 				assert.Contains(t, *task.BlockedReason, tt.taskToReopen,
@@ -225,7 +225,7 @@ func TestTaskRepository_AutoBlockDependents_OnReopen(t *testing.T) {
 			for _, expectedUnblockedKey := range tt.expectedUnblockedTasks {
 				task, err := taskRepo.GetByKey(ctx, expectedUnblockedKey)
 				require.NoError(t, err, "failed to get task %s", expectedUnblockedKey)
-				assert.NotEqual(t, models.TaskStatusBlocked, task.Status,
+				assert.NotEqual(t, models.TaskStatus("blocked"), task.Status,
 					"task %s should not be blocked", expectedUnblockedKey)
 			}
 
@@ -277,7 +277,7 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 			FeatureID:   featureID,
 			Key:         "T-E95-F01-001",
 			Title:       "Base Task",
-			Status:      models.TaskStatusReadyForReview,
+			Status:      models.TaskStatus("ready_for_review"),
 			Priority:    5,
 			DependsOn:   nil,
 			Description: stringPtr("Base task"),
@@ -286,7 +286,7 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 			FeatureID:   featureID,
 			Key:         "T-E95-F01-002",
 			Title:       "Task 2",
-			Status:      models.TaskStatusInProgress,
+			Status:      models.TaskStatus("in_progress"),
 			Priority:    5,
 			DependsOn:   stringPtr(`["T-E95-F01-001"]`),
 			Description: stringPtr("Depends on T1"),
@@ -295,7 +295,7 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 			FeatureID:   featureID,
 			Key:         "T-E95-F01-003",
 			Title:       "Task 3",
-			Status:      models.TaskStatusTodo,
+			Status:      models.TaskStatus("todo"),
 			Priority:    5,
 			DependsOn:   stringPtr(`["T-E95-F01-002"]`),
 			Description: stringPtr("Depends on T2"),
@@ -304,7 +304,7 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 			FeatureID:   featureID,
 			Key:         "T-E95-F01-004",
 			Title:       "Task 4",
-			Status:      models.TaskStatusTodo,
+			Status:      models.TaskStatus("todo"),
 			Priority:    5,
 			DependsOn:   stringPtr(`["T-E95-F01-001", "T-E95-F01-003"]`),
 			Description: stringPtr("Depends on T1 and T3 (diamond)"),
@@ -317,12 +317,12 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 
 		// Create with todo status first
 		originalStatus := task.Status
-		task.Status = models.TaskStatusTodo
+		task.Status = models.TaskStatus("todo")
 		err := taskRepo.Create(ctx, task)
 		require.NoError(t, err)
 
 		// Update status if needed using forced method
-		if originalStatus != models.TaskStatusTodo {
+		if originalStatus != models.TaskStatus("todo") {
 			err = taskRepo.UpdateStatusForced(ctx, task.ID, originalStatus, nil, nil, nil, nil, true)
 			require.NoError(t, err)
 		}
@@ -348,18 +348,18 @@ func TestTaskRepository_ReopenTaskWithAutoBlock_TransitiveBlocking(t *testing.T)
 	// Verify T1 is now in_progress
 	t1, err := taskRepo.GetByKey(ctx, "T-E95-F01-001")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusInProgress, t1.Status)
+	assert.Equal(t, models.TaskStatus("in_progress"), t1.Status)
 
 	// Verify all transitive dependents are blocked
 	t2, err := taskRepo.GetByKey(ctx, "T-E95-F01-002")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, t2.Status, "T2 should be blocked (direct dependent of T1)")
+	assert.Equal(t, models.TaskStatus("blocked"), t2.Status, "T2 should be blocked (direct dependent of T1)")
 
 	t3, err := taskRepo.GetByKey(ctx, "T-E95-F01-003")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, t3.Status, "T3 should be blocked (transitive dependent via T2)")
+	assert.Equal(t, models.TaskStatus("blocked"), t3.Status, "T3 should be blocked (transitive dependent via T2)")
 
 	t4, err := taskRepo.GetByKey(ctx, "T-E95-F01-004")
 	require.NoError(t, err)
-	assert.Equal(t, models.TaskStatusBlocked, t4.Status, "T4 should be blocked (depends on T1 and T3)")
+	assert.Equal(t, models.TaskStatus("blocked"), t4.Status, "T4 should be blocked (depends on T1 and T3)")
 }

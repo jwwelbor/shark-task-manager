@@ -40,7 +40,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		FeatureID: featureID,
 		Key:       "T-E99-F99-901",
 		Title:     "History Test Task 1",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &agentBackend,
 		Priority:  5,
 		DependsOn: &dependsOn,
@@ -53,7 +53,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		FeatureID: featureID,
 		Key:       "T-E99-F99-902",
 		Title:     "History Test Task 2",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &agentFrontend,
 		Priority:  5,
 		DependsOn: &dependsOn,
@@ -72,7 +72,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 	history1 := &models.TaskHistory{
 		TaskID:    task1.ID,
 		OldStatus: nil,
-		NewStatus: string(models.TaskStatusTodo),
+		NewStatus: string(models.TaskStatus("todo")),
 		Agent:     &agent1,
 		Notes:     &notes1,
 	}
@@ -81,11 +81,11 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond) // Ensure different timestamps
 
-	oldStatus1 := string(models.TaskStatusTodo)
+	oldStatus1 := string(models.TaskStatus("todo"))
 	history2 := &models.TaskHistory{
 		TaskID:    task1.ID,
 		OldStatus: &oldStatus1,
-		NewStatus: string(models.TaskStatusInProgress),
+		NewStatus: string(models.TaskStatus("in_progress")),
 		Agent:     &agent1,
 		Notes:     &notes2,
 	}
@@ -94,11 +94,11 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	oldStatus2 := string(models.TaskStatusInProgress)
+	oldStatus2 := string(models.TaskStatus("in_progress"))
 	history3 := &models.TaskHistory{
 		TaskID:    task1.ID,
 		OldStatus: &oldStatus2,
-		NewStatus: string(models.TaskStatusCompleted),
+		NewStatus: string(models.TaskStatus("completed")),
 		Agent:     &agent1,
 		Notes:     nil,
 	}
@@ -111,7 +111,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 	history4 := &models.TaskHistory{
 		TaskID:    task2.ID,
 		OldStatus: nil,
-		NewStatus: string(models.TaskStatusTodo),
+		NewStatus: string(models.TaskStatus("todo")),
 		Agent:     &agent2,
 		Notes:     nil,
 	}
@@ -120,11 +120,11 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	oldStatus3 := string(models.TaskStatusTodo)
+	oldStatus3 := string(models.TaskStatus("todo"))
 	history5 := &models.TaskHistory{
 		TaskID:    task2.ID,
 		OldStatus: &oldStatus3,
-		NewStatus: string(models.TaskStatusInProgress),
+		NewStatus: string(models.TaskStatus("in_progress")),
 		Agent:     &agent2,
 		Notes:     nil,
 	}
@@ -188,8 +188,8 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 
 	// Test 5: Filter by status change (old -> new)
 	t.Run("FilterByStatusChange", func(t *testing.T) {
-		oldSt := string(models.TaskStatusTodo)
-		newSt := string(models.TaskStatusInProgress)
+		oldSt := string(models.TaskStatus("todo"))
+		newSt := string(models.TaskStatus("in_progress"))
 		filters := HistoryFilters{
 			OldStatus: &oldSt,
 			NewStatus: &newSt,
@@ -304,7 +304,7 @@ func TestGetHistoryByTaskKey(t *testing.T) {
 	history1 := &models.TaskHistory{
 		TaskID:    task.ID,
 		OldStatus: nil,
-		NewStatus: string(models.TaskStatusInProgress),
+		NewStatus: string(models.TaskStatus("in_progress")),
 		Agent:     &agent1,
 		Notes:     &notes1,
 	}
@@ -318,13 +318,13 @@ func TestGetHistoryByTaskKey(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Create second history record
-	oldStatus := string(models.TaskStatusInProgress)
+	oldStatus := string(models.TaskStatus("in_progress"))
 	agent2 := "test-agent-2"
 	notes2 := "Completed the implementation"
 	history2 := &models.TaskHistory{
 		TaskID:    task.ID,
 		OldStatus: &oldStatus,
-		NewStatus: string(models.TaskStatusReadyForReview),
+		NewStatus: string(models.TaskStatus("ready_for_review")),
 		Agent:     &agent2,
 		Notes:     &notes2,
 	}
@@ -344,8 +344,8 @@ func TestGetHistoryByTaskKey(t *testing.T) {
 	assert.Equal(t, 2, len(histories), "Expected 2 history records")
 
 	// Verify chronological order (oldest first for timeline display)
-	assert.Equal(t, string(models.TaskStatusInProgress), histories[0].NewStatus)
-	assert.Equal(t, string(models.TaskStatusReadyForReview), histories[1].NewStatus)
+	assert.Equal(t, string(models.TaskStatus("in_progress")), histories[0].NewStatus)
+	assert.Equal(t, string(models.TaskStatus("ready_for_review")), histories[1].NewStatus)
 
 	// Verify agents and notes
 	assert.NotNil(t, histories[0].Agent)
@@ -437,7 +437,7 @@ func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 		FeatureID: featureID,
 		Key:       "T-E98-F98-101",
 		Title:     "Task to be rejected",
-		Status:    models.TaskStatusReadyForReview,
+		Status:    models.TaskStatus("ready_for_review"),
 		AgentType: &agentBackend,
 		Priority:  5,
 		DependsOn: &dependsOn,
@@ -450,13 +450,13 @@ func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 	}()
 
 	// Create history with rejection reason
-	oldStatus := string(models.TaskStatusReadyForReview)
+	oldStatus := string(models.TaskStatus("ready_for_review"))
 	rejectionReason := "Missing error handling on line 67. Add null check and return error to caller."
 	agent := "code-reviewer-agent"
 	history := &models.TaskHistory{
 		TaskID:          task.ID,
 		OldStatus:       &oldStatus,
-		NewStatus:       string(models.TaskStatusInProgress),
+		NewStatus:       string(models.TaskStatus("in_progress")),
 		Agent:           &agent,
 		RejectionReason: &rejectionReason,
 	}
@@ -471,7 +471,7 @@ func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 	require.NotNil(t, retrieved)
 	assert.Equal(t, task.ID, retrieved.TaskID)
 	assert.Equal(t, oldStatus, *retrieved.OldStatus)
-	assert.Equal(t, string(models.TaskStatusInProgress), retrieved.NewStatus)
+	assert.Equal(t, string(models.TaskStatus("in_progress")), retrieved.NewStatus)
 	assert.NotNil(t, retrieved.RejectionReason)
 	assert.Equal(t, rejectionReason, *retrieved.RejectionReason)
 }
@@ -503,7 +503,7 @@ func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
 		FeatureID: featureID,
 		Key:       "T-E97-F97-101",
 		Title:     "Normal task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		AgentType: &agentBackend,
 		Priority:  5,
 		DependsOn: &dependsOn,
@@ -520,7 +520,7 @@ func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
 	history := &models.TaskHistory{
 		TaskID:    task.ID,
 		OldStatus: nil,
-		NewStatus: string(models.TaskStatusInProgress),
+		NewStatus: string(models.TaskStatus("in_progress")),
 		Agent:     &agent,
 		// RejectionReason is nil - not a rejection
 	}
@@ -563,7 +563,7 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 		FeatureID: featureID,
 		Key:       "T-E96-F96-101",
 		Title:     "Task with rejection history",
-		Status:    models.TaskStatusInProgress,
+		Status:    models.TaskStatus("in_progress"),
 		AgentType: &agentBackend,
 		Priority:  5,
 		DependsOn: &dependsOn,
@@ -580,7 +580,7 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 	history1 := &models.TaskHistory{
 		TaskID:    task.ID,
 		OldStatus: nil,
-		NewStatus: string(models.TaskStatusInProgress),
+		NewStatus: string(models.TaskStatus("in_progress")),
 		Agent:     &agent1,
 	}
 	err = historyRepo.Create(ctx, history1)
@@ -589,13 +589,13 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Create second history: rejection with reason
-	oldStatus2 := string(models.TaskStatusReadyForReview)
+	oldStatus2 := string(models.TaskStatus("ready_for_review"))
 	rejectionReason2 := "Code quality issues: missing test coverage"
 	agent2 := "qa-agent"
 	history2 := &models.TaskHistory{
 		TaskID:          task.ID,
 		OldStatus:       &oldStatus2,
-		NewStatus:       string(models.TaskStatusInProgress),
+		NewStatus:       string(models.TaskStatus("in_progress")),
 		Agent:           &agent2,
 		RejectionReason: &rejectionReason2,
 	}
@@ -605,13 +605,13 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Create third history: another rejection with different reason
-	oldStatus3 := string(models.TaskStatusReadyForReview)
+	oldStatus3 := string(models.TaskStatus("ready_for_review"))
 	rejectionReason3 := "Tests fail on empty input validation"
 	agent3 := "test-agent"
 	history3 := &models.TaskHistory{
 		TaskID:          task.ID,
 		OldStatus:       &oldStatus3,
-		NewStatus:       string(models.TaskStatusInProgress),
+		NewStatus:       string(models.TaskStatus("in_progress")),
 		Agent:           &agent3,
 		RejectionReason: &rejectionReason3,
 	}

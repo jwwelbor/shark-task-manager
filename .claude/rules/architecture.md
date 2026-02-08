@@ -19,13 +19,17 @@ This rule is loaded when working with files in `internal/` or `cmd/` directories
 │
 ├── internal/                     # Private application code
 │   ├── cli/                      # CLI framework and commands
-│   │   ├── commands/             # Command implementations (init, task, epic, feature, sync, etc.)
+│   │   ├── commands/             # Thin command wrappers (parse args, call services, format output)
 │   │   └── root.go               # Root command with global config
+│   ├── services/                 # ⭐ Service layer - ALL business logic lives here (E15 target)
+│   │   ├── task_service.go       # Task lifecycle, status transitions, dependency checks
+│   │   ├── feature_service.go    # Feature CRUD, progress, health, action items
+│   │   └── epic_service.go       # Epic CRUD, feature rollups, impediments
 │   ├── models/                   # Data types (Epic, Feature, Task, TaskHistory)
-│   ├── repository/               # Data access layer
-│   │   ├── epic_repository.go    # Epic CRUD + progress calculation
-│   │   ├── feature_repository.go # Feature CRUD + progress calculation
-│   │   ├── task_repository.go    # Task CRUD + atomic status updates
+│   ├── repository/               # Data access layer (pure CRUD, no business logic)
+│   │   ├── epic_repository.go    # Epic CRUD
+│   │   ├── feature_repository.go # Feature CRUD
+│   │   ├── task_repository.go    # Task CRUD
 │   │   └── task_history_repository.go
 │   ├── db/                       # Database initialization and schema
 │   │   └── db.go                 # SQLite setup, PRAGMA configuration, schema creation
@@ -49,26 +53,46 @@ This rule is loaded when working with files in `internal/` or `cmd/` directories
 
 ## Data Flow
 
-**CLI Command → Command Handler → Repository → Database**
+**CLI Command → Service Layer → Repository → Database**
 
-1. **Command Layer** (`internal/cli/commands/`): Parse arguments, call repositories
-2. **Repository Layer** (`internal/repository/`): CRUD operations, transactions, validation
-3. **Database Layer** (`internal/db/`): SQLite schema, constraints, triggers
-4. **Models** (`internal/models/`): Strongly-typed data structures with validation
+1. **Command Layer** (`internal/cli/commands/`): Parse arguments, format output. **Must NOT contain business logic.**
+2. **Service Layer** (`internal/services/`): All business logic, orchestration, validation, and transactions.
+3. **Repository Layer** (`internal/repository/`): Pure data access (CRUD, queries). **Must NOT contain business logic.**
+4. **Database Layer** (`internal/db/`): SQLite schema, constraints, triggers
+5. **Models** (`internal/models/`): Strongly-typed data structures with basic structural validation
+
+### Architecture Anti-Patterns to Avoid
+
+- **Fat Controllers**: CLI commands must NOT create repositories directly or contain business logic. They call services.
+- **Smart Repositories**: Repositories must NOT contain progress calculation, status derivation, or workflow logic. They do data access only.
+- **Bypassing Services**: New code must NOT call repository methods from CLI commands. Always go through a service.
+
+### Current State (Legacy)
+
+Many existing CLI commands still call repositories directly (fat controller pattern from pre-E15 architecture). This is being refactored in Epic E15. When modifying existing commands, prefer extracting logic into services rather than adding more logic to commands. For new commands, always use the service layer pattern.
 
 ## Key Design Patterns
 
-### 1. Dependency Injection via Constructors
+### 1. Service Layer (Primary Business Logic Layer)
+Services encapsulate all business logic and are the bridge between entry points (CLI, HTTP API) and data access:
+- Each domain entity has a service: `TaskService`, `FeatureService`, `EpicService`
+- Services receive repositories via constructor injection
+- Services own transactions, validation, orchestration, and business rules
+- Services are reusable across CLI and HTTP API entry points
+- Existing partial services: `workflow.Service`, `status.CalculationService`, `taskcreation.Creator`
+
+### 2. Dependency Injection via Constructors
+- Services created with injected repositories: `NewTaskService(repo, workflowSvc)`
 - Repositories created with injected DB: `NewTaskRepository(db *DB)`
 - No DI framework; constructor injection is explicit and compile-safe
-- Manual wiring in command handlers
+- Wiring happens at the entry point (CLI `init()` or HTTP server setup)
 
-### 2. Repository Pattern for Data Access
+### 3. Repository Pattern for Data Access
 Each entity (Epic, Feature, Task) has a repository with:
 - CRUD methods (Create, Read, Update, Delete)
 - Query methods (GetByID, GetByStatus, List, Filter)
 - Atomic operations (especially task status transitions)
-- Progress calculation for parents (Epic/Feature progress from Task completion)
+- **Repositories must NOT contain**: progress calculation, status derivation, business rules, or workflow logic
 
 ### 3. Cobra Command Structure
 - `RootCmd` in `internal/cli/root.go` with global flags (`--json`, `--no-color`, `--verbose`)
@@ -130,7 +154,33 @@ All CLI commands use a centralized database initialization system for consistenc
 - Automatic cleanup via Cobra lifecycle hooks
 - Cloud-aware (reads `.sharkconfig.json` for backend selection)
 
-**Usage in Commands:**
+**Usage in Commands (Target Pattern - via Services):**
+
+```go
+func runMyCommand(cmd *cobra.Command, args []string) error {
+    // Parse arguments
+    taskKey := args[0]
+
+    // Call service (services handle DB access internally)
+    svc := cli.GetTaskService()
+    result, err := svc.GetTask(cmd.Context(), taskKey)
+    if err != nil {
+        return err
+    }
+
+    // Format output
+    if cli.GlobalConfig.JSON {
+        return cli.OutputJSON(result)
+    }
+    cli.Success(fmt.Sprintf("Task: %s", result.Title))
+    return nil
+}
+```
+
+**Usage in Commands (Legacy Pattern - direct repo access):**
+
+> **NOTE**: This pattern is deprecated. New commands should use the service layer.
+> Existing commands using this pattern are being refactored in Epic E15.
 
 ```go
 func runMyCommand(cmd *cobra.Command, args []string) error {
@@ -140,11 +190,10 @@ func runMyCommand(cmd *cobra.Command, args []string) error {
         return fmt.Errorf("failed to get database: %w", err)
     }
 
-    // Use database
+    // DEPRECATED: Direct repo access from commands
     repo := repository.NewTaskRepository(repoDb)
-    // ... business logic ...
+    // ... business logic that should be in a service ...
 
-    // Note: Connection closed automatically by PersistentPostRunE hook
     return nil
 }
 ```
@@ -170,13 +219,6 @@ func TestMyCommand(t *testing.T) {
 - **Local SQLite**: Default, file-based (shark-tasks.db)
 - **Turso Cloud**: Cloud-hosted SQLite for multi-machine access
 - Backend selection is automatic based on `.sharkconfig.json`
-
-**Architecture Benefits:**
-- ✅ 370 lines of duplicate code eliminated
-- ✅ All 74 commands get cloud support automatically
-- ✅ Single point of maintenance
-- ✅ Consistent error handling
-- ✅ Easy to add future enhancements (pooling, metrics)
 
 ## Project Root Auto-Detection
 

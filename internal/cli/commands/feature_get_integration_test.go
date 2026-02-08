@@ -55,28 +55,28 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 		{
 			Key:       "T-E07-F01-001",
 			Title:     "Task 1",
-			Status:    models.TaskStatusCompleted,
+			Status:    models.TaskStatus("completed"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
 		{
 			Key:       "T-E07-F01-002",
 			Title:     "Task 2",
-			Status:    models.TaskStatusCompleted,
+			Status:    models.TaskStatus("completed"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
 		{
 			Key:       "T-E07-F01-003",
 			Title:     "Task 3",
-			Status:    models.TaskStatusInProgress,
+			Status:    models.TaskStatus("in_progress"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
 		{
 			Key:       "T-E07-F01-004",
 			Title:     "Task 4",
-			Status:    models.TaskStatusTodo,
+			Status:    models.TaskStatus("todo"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
@@ -152,10 +152,10 @@ func TestFeatureGetIntegration_GetStatusInfo(t *testing.T) {
 		key    string
 		status models.TaskStatus
 	}{
-		{"T-E07-F02-001", models.TaskStatusTodo},
-		{"T-E07-F02-002", models.TaskStatusInProgress},
-		{"T-E07-F02-003", models.TaskStatusInProgress},
-		{"T-E07-F02-004", models.TaskStatusCompleted},
+		{"T-E07-F02-001", models.TaskStatus("todo")},
+		{"T-E07-F02-002", models.TaskStatus("in_progress")},
+		{"T-E07-F02-003", models.TaskStatus("in_progress")},
+		{"T-E07-F02-004", models.TaskStatus("completed")},
 	}
 
 	createdTasks := []*models.Task{}
@@ -191,14 +191,14 @@ func TestFeatureGetIntegration_GetStatusInfo(t *testing.T) {
 	}
 
 	// Verify counts: 1 todo, 2 in_progress, 1 completed
-	if statusCounts[string(models.TaskStatusTodo)] != 1 {
-		t.Errorf("Expected 1 todo task, got %d", statusCounts[string(models.TaskStatusTodo)])
+	if statusCounts[string(models.TaskStatus("todo"))] != 1 {
+		t.Errorf("Expected 1 todo task, got %d", statusCounts[string(models.TaskStatus("todo"))])
 	}
-	if statusCounts[string(models.TaskStatusInProgress)] != 2 {
-		t.Errorf("Expected 2 in_progress tasks, got %d", statusCounts[string(models.TaskStatusInProgress)])
+	if statusCounts[string(models.TaskStatus("in_progress"))] != 2 {
+		t.Errorf("Expected 2 in_progress tasks, got %d", statusCounts[string(models.TaskStatus("in_progress"))])
 	}
-	if statusCounts[string(models.TaskStatusCompleted)] != 1 {
-		t.Errorf("Expected 1 completed task, got %d", statusCounts[string(models.TaskStatusCompleted)])
+	if statusCounts[string(models.TaskStatus("completed"))] != 1 {
+		t.Errorf("Expected 1 completed task, got %d", statusCounts[string(models.TaskStatus("completed"))])
 	}
 
 	// Cleanup
@@ -253,7 +253,7 @@ func TestFeatureGetIntegration_FeatureGetCommandJSONOutput(t *testing.T) {
 	task := &models.Task{
 		Key:       "T-E07-F03-001",
 		Title:     "Sample Task",
-		Status:    models.TaskStatusTodo,
+		Status:    models.TaskStatus("todo"),
 		FeatureID: feature.ID,
 		Priority:  5,
 		Slug:      strPtr("sample-task"),
@@ -401,9 +401,9 @@ func TestFeatureGetIntegration_MultipleFeatures(t *testing.T) {
 
 		// Create tasks for this feature
 		for i := 1; i <= fd.taskCount; i++ {
-			status := models.TaskStatusTodo
+			status := models.TaskStatus("todo")
 			if i <= fd.completed {
-				status = models.TaskStatusCompleted
+				status = models.TaskStatus("completed")
 			}
 			task := &models.Task{
 				Key:       "T-E07-" + fd.key[4:] + "-00" + string(rune('0'+i)),

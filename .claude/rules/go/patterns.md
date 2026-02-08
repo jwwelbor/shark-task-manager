@@ -68,18 +68,13 @@ func (r *Repository) UpdateWithTransaction(ctx context.Context, id int64) error 
 
 ## Validation
 
-- Models have `Validate()` methods in `internal/models/validation.go`
-- Validate at model layer BEFORE database operations
+Two levels of validation:
+- **Model layer** (`internal/models/validation.go`): Basic structural validation only (non-empty checks, range checks). Models must NOT import workflow or config packages.
+- **Service layer**: Workflow-aware validation (valid statuses, transitions) via `workflow.Service`. This is where business rule validation belongs.
 - Database constraints (CHECK, FOREIGN KEY) provide additional safety
 
-### Validation Pattern
+### Model Validation Pattern (Structural Only)
 ```go
-type Task struct {
-    Title    string
-    Status   string
-    Priority int
-}
-
 func (t *Task) Validate() error {
     if strings.TrimSpace(t.Title) == "" {
         return errors.New("title cannot be empty")
@@ -89,12 +84,35 @@ func (t *Task) Validate() error {
         return errors.New("priority must be between 1 and 10")
     }
 
-    validStatuses := []string{"todo", "in_progress", "ready_for_review", "completed", "blocked"}
-    if !contains(validStatuses, t.Status) {
-        return fmt.Errorf("invalid status: %s", t.Status)
+    if strings.TrimSpace(string(t.Status)) == "" {
+        return errors.New("status cannot be empty")
     }
 
+    // NOTE: Status validity is checked at the service layer via
+    // workflow.Service.ValidateStatus(), NOT here. Do NOT hardcode
+    // status lists in models.
     return nil
+}
+```
+
+### Service Validation Pattern (Business Rules)
+```go
+func (s *TaskService) StartTask(ctx context.Context, key string) error {
+    task, err := s.repo.GetByKey(ctx, key)
+    if err != nil {
+        return err
+    }
+
+    // Workflow-aware validation belongs in services
+    if err := s.workflowSvc.ValidateStatus(string(task.Status)); err != nil {
+        return err
+    }
+
+    if !s.workflowSvc.IsValidTransition(string(task.Status), "in_progress") {
+        return fmt.Errorf("cannot start task in status %s", task.Status)
+    }
+
+    return s.repo.UpdateStatus(ctx, key, "in_progress")
 }
 ```
 
@@ -170,25 +188,37 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 
 ## Dependency Injection
 
+- Services created with injected repositories: `NewTaskService(repo, workflowSvc)`
 - Repositories created with injected DB: `NewTaskRepository(db *DB)`
 - No DI framework; constructor injection is explicit and compile-safe
-- Manual wiring in command handlers
+- Wiring happens at entry points (CLI init, HTTP server setup), not in command handlers
 
 ### Constructor Pattern
 ```go
-// Constructor function
-func NewService(repo *TaskRepository, config *Config) *Service {
-    return &Service{
-        repo:   repo,
-        config: config,
+// Service constructor - receives repository dependencies
+func NewTaskService(repo *TaskRepository, workflowSvc *workflow.Service) *TaskService {
+    return &TaskService{
+        repo:        repo,
+        workflowSvc: workflowSvc,
     }
 }
 
-// Usage
+// Repository constructor - receives DB dependency
+func NewTaskRepository(db *db.DB) *TaskRepository {
+    return &TaskRepository{db: db}
+}
+
+// Wiring at entry point (not in individual commands)
 repo := repository.NewTaskRepository(db)
-config := config.Load()
-service := NewService(repo, config)
+workflowSvc := workflow.NewService(projectRoot)
+taskSvc := services.NewTaskService(repo, workflowSvc)
 ```
+
+### Layering Rules
+- **CLI commands** call services, never repositories directly
+- **Services** call repositories and other services
+- **Repositories** call the database only
+- Business logic belongs in services, not commands or repositories
 
 ## Context Usage
 

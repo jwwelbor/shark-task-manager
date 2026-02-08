@@ -168,10 +168,10 @@ Positional Arguments:
   TITLE     Task title (required)
 
 Examples:
-  # Positional argument syntax (new, recommended)
+  # Positional argument syntax (recommended)
   shark task create E07 F20 "Implement user authentication"
-  shark task create E07 F20 "Build Login" --agent=frontend
-  shark task create E07-F20 "User Service" --agent=backend --priority=5
+  shark task create E07 F20 "Build Login" --agent=frontend --order=1
+  shark task create E07-F20 "User Service" --agent=backend --order=2 --priority=5
 
   # Custom file path examples
   shark task create E01 F02 "Migration task" --file="docs/tasks/existing.md"          # Assigns existing file
@@ -179,8 +179,8 @@ Examples:
 
   # Flag syntax (still supported for backward compatibility)
   shark task create "Build Login" --epic=E01 --feature=F02
-  shark task create "Build Login" --epic=E01 --feature=F02 --agent=frontend
-  shark task create "User Service" --epic=E01 --feature=F02 --agent=backend --priority=5
+  shark task create "Build Login" --epic=E01 --feature=F02 --agent=frontend --order=1
+  shark task create "User Service" --epic=E01 --feature=F02 --agent=backend --order=2 --priority=5
   shark task create "Database task" --epic=E01 --feature=F02 --agent=database-admin
   shark task create "Custom task" --epic=E01 --feature=F02 --template=./my-template.md`,
 	Args: cobra.RangeArgs(1, 3),
@@ -484,7 +484,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	if blocked {
 		filteredTasks := []*models.Task{}
 		for _, task := range tasks {
-			if task.Status == models.TaskStatusBlocked {
+			if task.Status == models.TaskStatus("blocked") {
 				filteredTasks = append(filteredTasks, task)
 			}
 		}
@@ -880,7 +880,7 @@ func runTaskNext(cmd *cobra.Command, args []string) error {
 	epicKey, _ := cmd.Flags().GetString("epic")
 
 	// Build filter for todo status
-	todoStatus := models.TaskStatusTodo
+	todoStatus := models.TaskStatus("todo")
 	var agentType *string
 	var epicKeyPtr *string
 
@@ -1123,6 +1123,8 @@ func bothNil(a, b *int) bool {
 
 // isTaskAvailable checks if a task's dependencies are all completed or archived
 func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.TaskRepository, relRepo *repository.TaskRelationshipRepository) bool {
+	ws := cli.GetWorkflowService()
+
 	// First, check the old depends_on field for backward compatibility
 	if task.DependsOn != nil && *task.DependsOn != "" && *task.DependsOn != "[]" {
 		var deps []string
@@ -1134,8 +1136,8 @@ func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.Ta
 					return false // Dependency not found
 				}
 
-				// Dependency must be completed or archived
-				if depTask.Status != models.TaskStatusCompleted && depTask.Status != models.TaskStatusArchived {
+				// Dependency must be in a terminal status (completed, archived, cancelled, etc.)
+				if !ws.IsTerminalStatus(string(depTask.Status)) {
 					return false
 				}
 			}
@@ -1157,8 +1159,8 @@ func isTaskAvailable(ctx context.Context, task *models.Task, repo *repository.Ta
 			return false // Dependency not found
 		}
 
-		// Dependency must be completed or archived
-		if depTask.Status != models.TaskStatusCompleted && depTask.Status != models.TaskStatusArchived {
+		// Dependency must be in a terminal status (completed, archived, cancelled, etc.)
+		if !ws.IsTerminalStatus(string(depTask.Status)) {
 			return false // Incomplete dependency blocks this task
 		}
 	}
@@ -1191,10 +1193,11 @@ func filterTasksByCompletedStatus(tasks []*models.Task, showAll bool, statusFilt
 		return tasks
 	}
 
-	// Default behavior: filter out completed tasks
+	// Default behavior: filter out terminal (completed/cancelled) tasks
+	ws := cli.GetWorkflowService()
 	filtered := make([]*models.Task, 0, len(tasks))
 	for _, task := range tasks {
-		if task.Status != models.TaskStatusCompleted {
+		if !ws.IsTerminalStatus(string(task.Status)) {
 			filtered = append(filtered, task)
 		}
 	}
@@ -1435,7 +1438,7 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 	agent := getAgentIdentifier(agentFlag)
 
 	// Update status and get orchestrator action for in_progress status
-	updatedTask, orchestratorAction, err := repo.UpdateStatusWithAction(ctx, taskKey, string(models.TaskStatusInProgress))
+	updatedTask, orchestratorAction, err := repo.UpdateStatusWithAction(ctx, taskKey, string(models.TaskStatus("in_progress")))
 	if err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
@@ -1559,7 +1562,7 @@ func runTaskComplete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update status with orchestrator action (repository handles workflow validation)
-	updatedTask, orchestratorAction, err := repo.UpdateStatusWithAction(ctx, taskKey, string(models.TaskStatusReadyForReview))
+	updatedTask, orchestratorAction, err := repo.UpdateStatusWithAction(ctx, taskKey, string(models.TaskStatus("ready_for_review")))
 	if err != nil {
 		// Display error with workflow suggestion
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
@@ -1789,7 +1792,7 @@ func runTaskApprove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update status with auto-unblock (repository handles workflow validation)
-	unblockedKeys, err := repo.UpdateStatusForcedWithUnblock(ctx, task.ID, models.TaskStatusCompleted, &agent, notes, rejectionReason, documentPath, force)
+	unblockedKeys, err := repo.UpdateStatusForcedWithUnblock(ctx, task.ID, models.TaskStatus("completed"), &agent, notes, rejectionReason, documentPath, force)
 	if err != nil {
 		// Display error with workflow suggestion
 		cli.Error(fmt.Sprintf("Failed to update task status: %s", err.Error()))
@@ -1964,7 +1967,7 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 
 	// Validate current status is "blocked" unless forcing
-	if !force && task.Status != models.TaskStatusBlocked {
+	if !force && task.Status != models.TaskStatus("blocked") {
 		cli.Error(fmt.Sprintf("Invalid state transition from %s to todo. Task must be in 'blocked' status.", task.Status))
 		cli.Info("Use --force to bypass this validation")
 		os.Exit(3)
@@ -2187,7 +2190,7 @@ func init() {
 	taskCmd.AddCommand(taskSetStatusCmd)
 
 	// Add flags for list command
-	taskListCmd.Flags().StringP("status", "s", "", "Filter by status (todo, in_progress, completed, blocked)")
+	taskListCmd.Flags().StringP("status", "s", "", cli.GetWorkflowService().StatusFlagDescription())
 	taskListCmd.Flags().StringP("epic", "e", "", "Filter by epic key")
 	taskListCmd.Flags().StringP("feature", "f", "", "Filter by feature key")
 	taskListCmd.Flags().StringP("agent", "a", "", "Filter by assigned agent")
@@ -2203,10 +2206,10 @@ func init() {
 	taskCreateCmd.Flags().StringP("feature", "f", "", "Feature key (e.g., F02 or E01-F02) - can also be specified as second positional argument")
 	taskCreateCmd.Flags().StringP("agent", "a", "", "Agent type (optional, accepts any string)")
 	taskCreateCmd.Flags().StringP("description", "d", "", "Detailed description (optional)")
-	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority (1=highest, 10=lowest, default 5)")
+	taskCreateCmd.Flags().Int("order", 0, "Execution order within feature (primary sequencing - lower runs first)")
+	taskCreateCmd.Flags().Int("execution-order", 0, "Execution order within feature (alias for --order)")
+	taskCreateCmd.Flags().IntP("priority", "p", 5, "Priority level 1-10 (secondary to execution order, default: 5)")
 	taskCreateCmd.Flags().String("depends-on", "", "Comma-separated dependency task keys (optional)")
-	taskCreateCmd.Flags().Int("execution-order", 0, "Execution order (optional, 0 = not set)")
-	taskCreateCmd.Flags().Int("order", 0, "Execution order (alias for --execution-order)")
 	taskCreateCmd.Flags().String("key", "", "Custom key for the task (e.g., T-E01-F01-custom). If not provided, auto-generates next sequence number")
 	taskCreateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed by another task")
 	taskCreateCmd.Flags().Bool("create", false, "Create file if it doesn't exist when using --file flag")
@@ -2251,6 +2254,14 @@ func init() {
 	taskBlockCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
 	taskUnblockCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskUnblockCmd.Flags().Bool("force", false, "Force status change bypassing validation (use with caution)")
+
+	// Override unblock help text with config-driven default status
+	defaultStatus := cli.GetWorkflowService().GetDefaultStatus()
+	taskUnblockCmd.Long = fmt.Sprintf(`Unblock a task and return it to %s status.
+
+Use --force to bypass status transition validation. This allows unblocking a task
+from any status (not just 'blocked'). Use with caution as this is an administrative override.`, defaultStatus)
+
 	taskReopenCmd.Flags().StringP("agent", "", "", "Agent identifier (defaults to USER env var)")
 	taskReopenCmd.Flags().StringP("notes", "n", "", "Rework notes")
 	taskReopenCmd.Flags().String("rejection-reason", "", "Reason for rejection or sending task back")

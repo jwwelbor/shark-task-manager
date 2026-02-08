@@ -151,7 +151,7 @@ func TestService_GetInitialStatus_Fallback(t *testing.T) {
 	svc := NewService(tempDir)
 
 	// Should fall back to "todo"
-	assert.Equal(t, models.TaskStatusTodo, svc.GetInitialStatus())
+	assert.Equal(t, models.TaskStatus("todo"), svc.GetInitialStatus())
 }
 
 func TestService_GetEntryStatuses(t *testing.T) {

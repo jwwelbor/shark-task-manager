@@ -112,7 +112,7 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 		FeatureID: feature.ID,
 		Key:       "T-E01-F01-001",
 		Title:     "Test Task 1",
-		Status:    models.TaskStatusReadyForReview,
+		Status:    models.TaskStatus("ready_for_review"),
 		Priority:  5,
 	}
 	if err := taskRepo.Create(ctx, task1); err != nil {
@@ -121,7 +121,7 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 
 	// Complete all tasks
 	agent := "test-agent"
-	if err := taskRepo.UpdateStatusForced(ctx, task1.ID, models.TaskStatusCompleted, &agent, nil, nil, nil, true); err != nil {
+	if err := taskRepo.UpdateStatusForced(ctx, task1.ID, models.TaskStatus("completed"), &agent, nil, nil, nil, true); err != nil {
 		t.Fatalf("Failed to complete task: %v", err)
 	}
 

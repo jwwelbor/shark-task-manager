@@ -86,7 +86,7 @@ func main() {
 		Key:         "T-E04-F01-001",
 		Title:       "Create ORM Models",
 		Description: strPtr("Define Epic, Feature, Task, TaskHistory models"),
-		Status:      models.TaskStatusTodo,
+		Status:      models.TaskStatus("todo"),
 		AgentType:   &agentType,
 		Priority:    3,
 		DependsOn:   strPtr("[]"),
@@ -102,7 +102,7 @@ func main() {
 
 	agent := "test-agent"
 	notes := "Starting implementation"
-	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusInProgress, &agent, &notes); err != nil {
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, &notes); err != nil {
 		log.Fatal("Failed to update task status:", err)
 	}
 	fmt.Println("✓ Updated task status to in_progress")
@@ -137,7 +137,7 @@ func main() {
 	fmt.Printf("✓ Feature progress: %.1f%% (0/1 tasks completed)\n", progress)
 
 	// Complete the task and recalculate
-	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatusCompleted, &agent, nil); err != nil {
+	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil); err != nil {
 		log.Fatal("Failed to complete task:", err)
 	}
 

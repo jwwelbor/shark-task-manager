@@ -91,7 +91,7 @@ func TestTaskLinkCommand(t *testing.T) {
 				Key:       taskData.key,
 				FeatureID: feature.ID,
 				Title:     taskData.title,
-				Status:    models.TaskStatusTodo,
+				Status:    models.TaskStatus("todo"),
 				AgentType: &agentType,
 				Priority:  i + 1,
 			}

@@ -449,21 +449,21 @@ func TestTaskSetStatusCommand(t *testing.T) {
 	}{
 		{
 			name:          "valid_transition_todo_to_in_progress",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			newStatus:     "in_progress",
 			force:         false,
 			expectError:   false,
 		},
 		{
 			name:          "valid_transition_in_progress_to_ready_for_review",
-			currentStatus: models.TaskStatusInProgress,
+			currentStatus: models.TaskStatus("in_progress"),
 			newStatus:     "ready_for_review",
 			force:         false,
 			expectError:   false,
 		},
 		{
 			name:          "invalid_transition_todo_to_completed",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			newStatus:     "completed",
 			force:         false,
 			expectError:   true,
@@ -471,14 +471,14 @@ func TestTaskSetStatusCommand(t *testing.T) {
 		},
 		{
 			name:          "invalid_transition_with_force",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			newStatus:     "completed",
 			force:         true,
 			expectError:   false,
 		},
 		{
 			name:          "valid_transition_with_force",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			newStatus:     "in_progress",
 			force:         true,
 			expectError:   false,
@@ -550,19 +550,19 @@ func TestTaskStartWithWorkflow(t *testing.T) {
 	}{
 		{
 			name:          "valid_start_from_todo",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			force:         false,
 			expectError:   false,
 		},
 		{
 			name:          "invalid_start_from_completed",
-			currentStatus: models.TaskStatusCompleted,
+			currentStatus: models.TaskStatus("completed"),
 			force:         false,
 			expectError:   true,
 		},
 		{
 			name:          "force_start_from_completed",
-			currentStatus: models.TaskStatusCompleted,
+			currentStatus: models.TaskStatus("completed"),
 			force:         true,
 			expectError:   false,
 		},
@@ -586,7 +586,7 @@ func TestTaskStartWithWorkflow(t *testing.T) {
 
 			// Test status update (simulating task start)
 			ctx := context.Background()
-			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusInProgress, nil, nil, nil, nil, tt.force)
+			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("in_progress"), nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
@@ -611,19 +611,19 @@ func TestTaskCompleteWithWorkflow(t *testing.T) {
 	}{
 		{
 			name:          "valid_complete_from_in_progress",
-			currentStatus: models.TaskStatusInProgress,
+			currentStatus: models.TaskStatus("in_progress"),
 			force:         false,
 			expectError:   false,
 		},
 		{
 			name:          "invalid_complete_from_todo",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			force:         false,
 			expectError:   true,
 		},
 		{
 			name:          "force_complete_from_todo",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			force:         true,
 			expectError:   false,
 		},
@@ -647,7 +647,7 @@ func TestTaskCompleteWithWorkflow(t *testing.T) {
 
 			// Test status update (simulating task complete)
 			ctx := context.Background()
-			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusReadyForReview, nil, nil, nil, nil, tt.force)
+			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("ready_for_review"), nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
@@ -672,19 +672,19 @@ func TestTaskApproveWithWorkflow(t *testing.T) {
 	}{
 		{
 			name:          "valid_approve_from_ready_for_review",
-			currentStatus: models.TaskStatusReadyForReview,
+			currentStatus: models.TaskStatus("ready_for_review"),
 			force:         false,
 			expectError:   false,
 		},
 		{
 			name:          "invalid_approve_from_todo",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			force:         false,
 			expectError:   true,
 		},
 		{
 			name:          "force_approve_from_todo",
-			currentStatus: models.TaskStatusTodo,
+			currentStatus: models.TaskStatus("todo"),
 			force:         true,
 			expectError:   false,
 		},
@@ -708,7 +708,7 @@ func TestTaskApproveWithWorkflow(t *testing.T) {
 
 			// Test status update (simulating task approve)
 			ctx := context.Background()
-			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatusCompleted, nil, nil, nil, nil, tt.force)
+			err := mockRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), nil, nil, nil, nil, tt.force)
 
 			if tt.expectError {
 				if err == nil {
