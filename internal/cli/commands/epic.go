@@ -65,7 +65,7 @@ type FeatureWithDetails struct {
 var epicCmd = &cobra.Command{
 	Use:     "epic",
 	Short:   "Manage epics",
-	GroupID: "essentials",
+	GroupID: "entities",
 	Long: `Query and manage epics with automatic progress calculation.
 
 Examples:

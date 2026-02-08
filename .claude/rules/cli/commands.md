@@ -8,6 +8,35 @@ This rule is loaded when working with CLI command implementations.
 
 ## Command Categories
 
+### Smart Dispatchers (Recommended Primary Interface)
+
+Smart dispatchers automatically detect the entity type based on key format. These are the recommended commands for most operations:
+
+- `shark list [EPIC] [FEATURE] [--json]` - Smart list dispatcher
+  - No args: List all epics
+  - With epic key: `shark list E07` - List features in epic
+  - With epic and feature: `shark list E07 F01` - List tasks in feature
+  - Auto-detection: Key format determines what to list
+
+- `shark get <KEY> [--json]` - Smart get dispatcher (auto-detects entity type)
+  - Epic format: `shark get E07` - Get epic details
+  - Feature format: `shark get E07-F01` - Get feature details (also works: `shark get F01`)
+  - Task format: `shark get E07-F01-001` - Get task details (also works: `shark get T-E07-F01-001`)
+
+- `shark status <KEY> [--json]` - Get entity status and progress
+  - `shark status E07` - Epic status with feature rollups
+  - `shark status E07-F01` - Feature status with task breakdown
+  - `shark status E07-F01-001` - Task status and history
+
+- `shark history <KEY> [--json]` - Get entity change history
+  - `shark history E07-F01-001` - Task change history
+  - `shark history E07-F01` - Feature change history
+
+All smart dispatchers support:
+- Case insensitive keys: `e07`, `E07`, `E07-user-management` all work
+- `--json` flag for machine-readable output
+- Both numeric and slugged key formats
+
 ### Initialization
 - `shark init --non-interactive`: Setup project infrastructure (folders, database, config)
 

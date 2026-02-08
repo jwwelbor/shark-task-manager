@@ -28,9 +28,39 @@ make lint              # Run golangci-lint (auto-installs if needed)
 
 ## Common Shark Commands
 
-### Task Management
+### Smart Dispatchers (Recommended)
+
+Smart dispatchers automatically detect entity type from key format. Use these for most operations:
+
 ```bash
-# List tasks
+# List entities (auto-detects based on args)
+./bin/shark list                 # List epics
+./bin/shark list E07             # List features in epic E07
+./bin/shark list E04 F01         # List tasks in feature E04-F01
+./bin/shark list --json          # JSON output
+
+# Get entity details (auto-detects from key format)
+./bin/shark get E07              # Get epic E07
+./bin/shark get E07-F01          # Get feature E07-F01
+./bin/shark get E07-F20-001      # Get task E07-F20-001
+./bin/shark get E07-F01 --json   # JSON output
+
+# Get entity status and progress
+./bin/shark status E07           # Epic status and feature rollups
+./bin/shark status E07-F01       # Feature status and progress
+./bin/shark status E07-F01-001   # Task status
+
+# Get entity change history
+./bin/shark history E07-F01-001  # Task change history
+./bin/shark history E07-F01      # Feature change history
+```
+
+### Task Management (Alternative noun-first syntax)
+
+For backwards compatibility, noun-first commands also work:
+
+```bash
+# List tasks (also available as: shark list [EPIC] [FEATURE])
 ./bin/shark task list
 ./bin/shark task list E04        # Filter by epic
 ./bin/shark task list E04 F01    # Filter by epic and feature
@@ -40,7 +70,7 @@ make lint              # Run golangci-lint (auto-installs if needed)
 ./bin/shark task next --agent=backend           # Standard agent type
 ./bin/shark task next --agent=architect         # Custom agent type
 
-# Get task details
+# Get task details (also available as: shark get E07-F20-001)
 ./bin/shark task get E07-F20-001
 
 # Task lifecycle
@@ -51,7 +81,8 @@ make lint              # Run golangci-lint (auto-installs if needed)
 ./bin/shark task unblock E07-F20-001
 ```
 
-### Feature Management
+### Feature Management (also available via smart dispatchers)
+
 ```bash
 # Create feature (positional syntax recommended)
 ./bin/shark feature create E07 "Feature Title"
@@ -59,16 +90,17 @@ make lint              # Run golangci-lint (auto-installs if needed)
 # Create feature with custom file path
 ./bin/shark feature create E07 "Feature Title" --file="docs/custom/path.md"
 
-# List features
+# List features (also available as: shark list E07)
 ./bin/shark feature list
 ./bin/shark feature list E07     # Filter by epic
 
-# Get feature details
+# Get feature details (also available as: shark get E07-F01)
 ./bin/shark feature get E07-F01
 ./bin/shark feature get F01      # Short format also works
 ```
 
-### Epic Management
+### Epic Management (also available via smart dispatchers)
+
 ```bash
 # Create epic
 ./bin/shark epic create --title="Epic Title"
@@ -76,10 +108,10 @@ make lint              # Run golangci-lint (auto-installs if needed)
 # Create epic with custom file path
 ./bin/shark epic create --title="Epic Title" --file="docs/custom/epic.md"
 
-# List epics
+# List epics (also available as: shark list)
 ./bin/shark epic list
 
-# Get epic details
+# Get epic details (also available as: shark get E07)
 ./bin/shark epic get E07
 ```
 

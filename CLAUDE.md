@@ -25,11 +25,23 @@ make shark             # Build only shark CLI
 make test              # Run all tests
 make test-coverage     # Run tests with HTML coverage report
 
-# Common commands
-./bin/shark task list           # List tasks
-./bin/shark task next           # Get next available task
-./bin/shark feature create E07 "Feature Title"
-./bin/shark task create E07 F01 "Task Title"
+# Smart Dispatchers (Recommended - auto-detect entity type from key)
+./bin/shark list                # List epics
+./bin/shark list E07            # List features in epic E07
+./bin/shark list E07 F01        # List tasks in feature E07-F01
+./bin/shark get E07             # Get epic details
+./bin/shark get E07-F01         # Get feature details
+./bin/shark get E07-F01-001     # Get task details
+./bin/shark status E07-F01      # Get feature progress and status
+./bin/shark history E07-F01-001 # Get task change history
+
+# Task Lifecycle
+./bin/shark task next                                  # Get next available task
+./bin/shark task start E07-F01-001                     # Start task
+./bin/shark task complete E07-F01-001 --notes="Done"   # Mark for review
+./bin/shark task approve E07-F01-001                   # Approve/complete
+./bin/shark task create E07 F01 "Task Title"           # Create task
+./bin/shark feature create E07 "Feature Title"         # Create feature
 ```
 
 ---

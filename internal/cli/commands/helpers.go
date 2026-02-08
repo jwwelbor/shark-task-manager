@@ -585,3 +585,80 @@ func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
 
 	return &epicKey, &featureKey, &title, nil
 }
+
+// DetectEntityType detects the entity type from a key string.
+// Returns "epic", "feature", "task", or "unknown" based on the key format.
+// Case insensitive: e07, E07, E07-enhancements all return "epic"
+//
+// Examples:
+//
+//	E07 -> "epic"
+//	E07-user-management -> "epic"
+//	E07-F01 -> "feature"
+//	F01 -> "feature"
+//	E07-F01-auth -> "feature"
+//	T-E07-F01-001 -> "task"
+//	E07-F01-001 -> "task"
+//	E07-F01-001-slug -> "task"
+//	invalid -> "unknown"
+func DetectEntityType(key string) string {
+	// Handle empty string
+	if key == "" {
+		return "unknown"
+	}
+
+	// Normalize to uppercase for case-insensitive matching
+	normalized := NormalizeKey(key)
+
+	// Check task patterns first (most specific)
+	// Full format: T-E##-F##-###
+	if isTaskKey(normalized) {
+		return "task"
+	}
+
+	// Short format task keys (E##-F##-### or with slug)
+	// Try normalizing as task key - this handles both short format and slugged keys
+	if _, err := NormalizeTaskKey(normalized); err == nil {
+		return "task"
+	}
+
+	// Check feature key patterns
+	// Full feature key: E##-F##
+	if IsFeatureKey(normalized) {
+		return "feature"
+	}
+
+	// Feature suffix: F##
+	if IsFeatureKeySuffix(normalized) {
+		return "feature"
+	}
+
+	// Check epic patterns
+	// Base epic key: E##
+	if IsEpicKey(normalized) {
+		return "epic"
+	}
+
+	// Check for slugged keys: E##-slug (epic) or E##-F##-slug (feature)
+	// Split and validate parts - reject keys with empty segments (e.g., "E07-")
+	parts := strings.Split(normalized, "-")
+	for _, p := range parts {
+		if p == "" {
+			return "unknown"
+		}
+	}
+
+	// Feature with slug: E##-F##-slug (parts[0]=E##, parts[1]=F##, rest=slug)
+	// Must check before epic-with-slug since E##-F##-slug also starts with E##
+	if len(parts) >= 3 && IsEpicKey(parts[0]) && IsFeatureKeySuffix(parts[1]) {
+		return "feature"
+	}
+
+	// Epic with slug: E##-slug (parts[0]=E##, rest=slug)
+	// This handles E07-enhancements, E07-user-management, etc.
+	if len(parts) >= 2 && IsEpicKey(parts[0]) {
+		return "epic"
+	}
+
+	return "unknown"
+}
