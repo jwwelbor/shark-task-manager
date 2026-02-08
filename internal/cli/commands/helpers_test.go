@@ -882,6 +882,12 @@ func TestDetectEntityType(t *testing.T) {
 		{"Feature suffix F99", "F99", "feature"},
 		{"Feature suffix lowercase f01", "f01", "feature"},
 
+		// Feature keys - suffix with slug (F##-slug)
+		{"Feature suffix with slug F01-auth", "F01-auth", "feature"},
+		{"Feature suffix with slug F20-cli-improvements", "F20-cli-improvements", "feature"},
+		{"Feature suffix with slug lowercase f01-some-slug", "f01-some-slug", "feature"},
+		{"Feature suffix with long slug F01-authentication-feature", "F01-authentication-feature", "feature"},
+
 		// Task keys - full format (T-E##-F##-###)
 		{"Task full T-E07-F01-001", "T-E07-F01-001", "task"},
 		{"Task full T-E04-F05-100", "T-E04-F05-100", "task"},
@@ -960,6 +966,12 @@ func TestDetectEntityTypeEdgeCases(t *testing.T) {
 			input:    "E07-F01-001-this-is-a-very-long-slug-that-describes-the-task",
 			expected: "task",
 			reason:   "Slugged task keys should still be detected",
+		},
+		{
+			name:     "Feature suffix with slug F01-auth",
+			input:    "F01-auth",
+			expected: "feature",
+			reason:   "F##-slug should be detected as feature, not unknown",
 		},
 	}
 

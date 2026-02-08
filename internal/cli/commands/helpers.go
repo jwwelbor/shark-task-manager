@@ -596,6 +596,7 @@ func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
 //	E07-user-management -> "epic"
 //	E07-F01 -> "feature"
 //	F01 -> "feature"
+//	F01-auth -> "feature"
 //	E07-F01-auth -> "feature"
 //	T-E07-F01-001 -> "task"
 //	E07-F01-001 -> "task"
@@ -651,6 +652,12 @@ func DetectEntityType(key string) string {
 	// Feature with slug: E##-F##-slug (parts[0]=E##, parts[1]=F##, rest=slug)
 	// Must check before epic-with-slug since E##-F##-slug also starts with E##
 	if len(parts) >= 3 && IsEpicKey(parts[0]) && IsFeatureKeySuffix(parts[1]) {
+		return "feature"
+	}
+
+	// Feature suffix with slug: F##-slug (parts[0]=F##, rest=slug)
+	// This handles F01-authentication, F20-cli-improvements, etc.
+	if len(parts) >= 2 && IsFeatureKeySuffix(parts[0]) {
 		return "feature"
 	}
 
