@@ -75,7 +75,7 @@ type FeatureListItemJSON struct {
 var featureCmd = &cobra.Command{
 	Use:     "feature",
 	Short:   "Manage features",
-	GroupID: "essentials",
+	GroupID: "entities",
 	Long: `Query and manage features within epics.
 
 Examples:

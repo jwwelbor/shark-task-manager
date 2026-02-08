@@ -96,7 +96,7 @@ func triggerStatusCascade(ctx context.Context, dbWrapper *repository.DB, feature
 var taskCmd = &cobra.Command{
 	Use:     "task",
 	Short:   "Manage tasks",
-	GroupID: "essentials",
+	GroupID: "entities",
 	Long: `Task lifecycle operations including listing, creating, updating, and managing task status.
 
 Examples:

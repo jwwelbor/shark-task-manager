@@ -853,6 +853,159 @@ func TestParseTaskCreateArgs(t *testing.T) {
 	}
 }
 
+// TestDetectEntityType tests the entity type detection function
+func TestDetectEntityType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Epic keys
+		{"Epic E07", "E07", "epic"},
+		{"Epic E01", "E01", "epic"},
+		{"Epic E99", "E99", "epic"},
+		{"Epic lowercase e07", "e07", "epic"},
+		{"Epic with slug E07-user-management", "E07-user-management", "epic"},
+		{"Epic with slug E07-enhancements", "E07-enhancements", "epic"},
+		{"Epic with slug lowercase e07-user-management", "e07-user-management", "epic"},
+
+		// Feature keys - full format (E##-F##)
+		{"Feature E07-F01", "E07-F01", "feature"},
+		{"Feature E04-F05", "E04-F05", "feature"},
+		{"Feature lowercase e07-f01", "e07-f01", "feature"},
+		{"Feature with slug E07-F01-auth", "E07-F01-auth", "feature"},
+		{"Feature with slug E07-F01-authentication-feature", "E07-F01-authentication-feature", "feature"},
+
+		// Feature keys - suffix format (F##)
+		{"Feature suffix F01", "F01", "feature"},
+		{"Feature suffix F20", "F20", "feature"},
+		{"Feature suffix F99", "F99", "feature"},
+		{"Feature suffix lowercase f01", "f01", "feature"},
+
+		// Feature keys - suffix with slug (F##-slug)
+		{"Feature suffix with slug F01-auth", "F01-auth", "feature"},
+		{"Feature suffix with slug F20-cli-improvements", "F20-cli-improvements", "feature"},
+		{"Feature suffix with slug lowercase f01-some-slug", "f01-some-slug", "feature"},
+		{"Feature suffix with long slug F01-authentication-feature", "F01-authentication-feature", "feature"},
+
+		// Task keys - full format (T-E##-F##-###)
+		{"Task full T-E07-F01-001", "T-E07-F01-001", "task"},
+		{"Task full T-E04-F05-100", "T-E04-F05-100", "task"},
+		{"Task full lowercase t-e07-f01-001", "t-e07-f01-001", "task"},
+		{"Task full with slug T-E07-F01-001-implement-auth", "T-E07-F01-001-implement-auth", "task"},
+
+		// Task keys - short format (E##-F##-###)
+		{"Task short E07-F01-001", "E07-F01-001", "task"},
+		{"Task short E04-F05-100", "E04-F05-100", "task"},
+		{"Task short lowercase e07-f01-001", "e07-f01-001", "task"},
+		{"Task short with slug E07-F01-001-implement-auth", "E07-F01-001-implement-auth", "task"},
+		{"Task short with slug E07-F25-002-add-entity-type-detection", "E07-F25-002-add-entity-type-detection", "task"},
+
+		// Invalid/Unknown formats
+		{"Empty string", "", "unknown"},
+		{"Invalid E1", "E1", "unknown"},
+		{"Invalid E001", "E001", "unknown"},
+		{"Invalid F1", "F1", "unknown"},
+		{"Invalid F001", "F001", "unknown"},
+		{"Invalid random", "random-key", "unknown"},
+		{"Invalid number only", "123", "unknown"},
+		{"Invalid special chars", "E##-F##", "unknown"},
+		{"Invalid partial E07-", "E07-", "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DetectEntityType(tt.input)
+			if result != tt.expected {
+				t.Errorf("DetectEntityType(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestDetectEntityTypeEdgeCases tests edge cases and tricky distinctions
+func TestDetectEntityTypeEdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+		reason   string
+	}{
+		{
+			name:     "Epic with dash vs feature",
+			input:    "E07-enhancements",
+			expected: "epic",
+			reason:   "Should be epic because 'enhancements' is not F## pattern",
+		},
+		{
+			name:     "Feature key E07-F01",
+			input:    "E07-F01",
+			expected: "feature",
+			reason:   "Should be feature because it matches E##-F## pattern",
+		},
+		{
+			name:     "Task short E07-F01-001",
+			input:    "E07-F01-001",
+			expected: "task",
+			reason:   "Should be task because it has task number",
+		},
+		{
+			name:     "Epic E07 with mixed case",
+			input:    "e07",
+			expected: "epic",
+			reason:   "Case insensitive epic key",
+		},
+		{
+			name:     "Feature F01 suffix",
+			input:    "F01",
+			expected: "feature",
+			reason:   "Valid feature suffix format",
+		},
+		{
+			name:     "Task with very long slug",
+			input:    "E07-F01-001-this-is-a-very-long-slug-that-describes-the-task",
+			expected: "task",
+			reason:   "Slugged task keys should still be detected",
+		},
+		{
+			name:     "Feature suffix with slug F01-auth",
+			input:    "F01-auth",
+			expected: "feature",
+			reason:   "F##-slug should be detected as feature, not unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DetectEntityType(tt.input)
+			if result != tt.expected {
+				t.Errorf("DetectEntityType(%q) = %q, want %q (%s)", tt.input, result, tt.expected, tt.reason)
+			}
+		})
+	}
+}
+
+// BenchmarkDetectEntityType benchmarks the DetectEntityType function
+func BenchmarkDetectEntityType(b *testing.B) {
+	testCases := []string{
+		"E07",
+		"E07-F01",
+		"F01",
+		"T-E07-F01-001",
+		"E07-F01-001",
+		"E07-user-management",
+		"invalid",
+	}
+
+	for _, tc := range testCases {
+		b.Run(tc, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				DetectEntityType(tc)
+			}
+		})
+	}
+}
+
 // Helper functions for tests (ParseFeatureCreateArgs-specific)
 func ptrToString(p *string) string {
 	if p == nil {
