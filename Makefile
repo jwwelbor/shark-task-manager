@@ -52,7 +52,8 @@ install-shark: shark
 		if [ -w "$$INSTALL_DIR" ]; then \
 			cp bin/shark "$$LOC"; \
 		else \
-			sudo cp bin/shark "$$LOC"; \
+			echo "Error: Insufficient permissions to write to $$INSTALL_DIR. Please run 'sudo make install-shark' to update '$$LOC'."; \
+			exit 1; \
 		fi; \
 		echo "  Updated."; \
 	done; \

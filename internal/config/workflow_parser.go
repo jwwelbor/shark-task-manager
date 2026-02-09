@@ -131,9 +131,14 @@ func LoadWorkflowConfig(configPath string) (*WorkflowConfig, error) {
 	return &workflow, nil
 }
 
-// ClearWorkflowCache clears the in-memory workflow config cache
-// Used for testing or when config file changes
+// ClearWorkflowCache clears all workflow caches (multi-level and legacy).
+// This should be used in tests when the config file is modified.
 func ClearWorkflowCache() {
+	multiLevelCacheLock.Lock()
+	defer multiLevelCacheLock.Unlock()
+	multiLevelCache = nil
+	multiLevelCachePath = ""
+
 	workflowCacheLock.Lock()
 	defer workflowCacheLock.Unlock()
 	workflowCache = nil
@@ -251,20 +256,6 @@ func LoadMultiLevelWorkflowOrDefault(configPath string) *MultiLevelWorkflow {
 		return &MultiLevelWorkflow{}
 	}
 	return multi
-}
-
-// ClearMultiLevelWorkflowCache clears the multi-level workflow cache.
-// Also clears the legacy single-level cache.
-func ClearMultiLevelWorkflowCache() {
-	multiLevelCacheLock.Lock()
-	defer multiLevelCacheLock.Unlock()
-	multiLevelCache = nil
-	multiLevelCachePath = ""
-
-	workflowCacheLock.Lock()
-	defer workflowCacheLock.Unlock()
-	workflowCache = nil
-	workflowCachePath = ""
 }
 
 // parseWorkflowSection parses a workflow config from a raw JSON section.

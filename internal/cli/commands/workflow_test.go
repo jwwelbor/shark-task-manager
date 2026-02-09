@@ -532,7 +532,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config.ClearMultiLevelWorkflowCache()
+			config.ClearWorkflowCache()
 
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
@@ -590,7 +590,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 func TestWorkflowValidateMultiLevel_SourceField(t *testing.T) {
 	originalConfig := cli.GlobalConfig
 	defer func() { cli.GlobalConfig = originalConfig }()
-	config.ClearMultiLevelWorkflowCache()
+	config.ClearWorkflowCache()
 
 	configContent := `{
 		"task_folder_base": "docs/plan",
