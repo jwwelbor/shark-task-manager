@@ -190,14 +190,14 @@ func performEntityTransition(ctx context.Context, svc entityTransitioner, _ inte
 
 // EntityNextStatusResult contains the result of a next-status operation for epics/features.
 type EntityNextStatusResult struct {
-	EntityType           string                    `json:"entity_type"`
-	EntityKey            string                    `json:"entity_key"`
-	CurrentStatus        string                    `json:"current_status"`
-	CurrentPhase         string                    `json:"current_phase,omitempty"`
-	AvailableTransitions []EntityTransitionChoice  `json:"available_transitions"`
-	NewStatus            string                    `json:"new_status,omitempty"`
-	Transitioned         bool                      `json:"transitioned"`
-	Message              string                    `json:"message,omitempty"`
+	EntityType           string                   `json:"entity_type"`
+	EntityKey            string                   `json:"entity_key"`
+	CurrentStatus        string                   `json:"current_status"`
+	CurrentPhase         string                   `json:"current_phase,omitempty"`
+	AvailableTransitions []EntityTransitionChoice `json:"available_transitions"`
+	NewStatus            string                   `json:"new_status,omitempty"`
+	Transitioned         bool                     `json:"transitioned"`
+	Message              string                   `json:"message,omitempty"`
 }
 
 // EntityTransitionChoice represents a valid status transition for display.

@@ -5,6 +5,9 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/spf13/cobra"
@@ -174,12 +177,12 @@ func displayWorkflowHumanReadable(workflow *config.WorkflowConfig) error {
 
 // levelValidationResult holds validation results for a single workflow level.
 type levelValidationResult struct {
-	Level      string `json:"level"`
-	Valid      bool   `json:"valid"`
-	Source     string `json:"source"` // "custom" or "default"
-	Statuses   int    `json:"statuses"`
-	Transitions int   `json:"transitions"`
-	Error      string `json:"error,omitempty"`
+	Level       string `json:"level"`
+	Valid       bool   `json:"valid"`
+	Source      string `json:"source"` // "custom" or "default"
+	Statuses    int    `json:"statuses"`
+	Transitions int    `json:"transitions"`
+	Error       string `json:"error,omitempty"`
 }
 
 // runWorkflowValidate implements the workflow validate command.
@@ -265,10 +268,11 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 	// Human-readable output
 	fmt.Println()
 	for _, lr := range results {
+		titleCase := cases.Title(language.English)
 		if lr.Valid {
-			fmt.Printf("  %s workflow: valid (%d statuses, %s)\n", strings.Title(lr.Level), lr.Statuses, lr.Source)
+			fmt.Printf("  %s workflow: valid (%d statuses, %s)\n", titleCase.String(lr.Level), lr.Statuses, lr.Source)
 		} else {
-			fmt.Printf("  %s workflow: INVALID (%s)\n", strings.Title(lr.Level), lr.Source)
+			fmt.Printf("  %s workflow: INVALID (%s)\n", titleCase.String(lr.Level), lr.Source)
 			fmt.Printf("    Error: %s\n", lr.Error)
 		}
 	}

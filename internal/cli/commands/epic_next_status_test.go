@@ -11,8 +11,8 @@ import (
 
 // mockEpicServiceForTest wraps a mock EpicService for testing the next-status command.
 type mockEpicServiceForTest struct {
-	getNextStatusFn     func(ctx context.Context, epicKey string) (*services.NextStatusInfo, error)
-	transitionStatusFn  func(ctx context.Context, epicKey string, targetStatus string, force bool) (*services.TransitionResult, error)
+	getNextStatusFn    func(ctx context.Context, epicKey string) (*services.NextStatusInfo, error)
+	transitionStatusFn func(ctx context.Context, epicKey string, targetStatus string, force bool) (*services.TransitionResult, error)
 }
 
 func (m *mockEpicServiceForTest) GetNextStatus(ctx context.Context, epicKey string) (*services.NextStatusInfo, error) {

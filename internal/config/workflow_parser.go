@@ -273,7 +273,7 @@ func parseWorkflowSection(raw json.RawMessage, sectionName string) (*WorkflowCon
 	}
 
 	// Check if it has any meaningful content
-	if wf.StatusFlow == nil || len(wf.StatusFlow) == 0 {
+	if len(wf.StatusFlow) == 0 {
 		return nil, nil
 	}
 

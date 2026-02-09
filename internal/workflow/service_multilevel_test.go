@@ -242,12 +242,12 @@ func TestForLevel_WithCustomWorkflow(t *testing.T) {
 	customEpic := &config.WorkflowConfig{
 		Version: "1.0",
 		StatusFlow: map[string][]string{
-			"new":        {"planning"},
-			"planning":   {"active"},
-			"active":     {"done"},
-			"done":       {},
+			"new":      {"planning"},
+			"planning": {"active"},
+			"active":   {"done"},
+			"done":     {},
 		},
-		StatusMetadata:  make(map[string]config.StatusMetadata),
+		StatusMetadata: make(map[string]config.StatusMetadata),
 		SpecialStatuses: map[string][]string{
 			config.StartStatusKey:    {"new"},
 			config.CompleteStatusKey: {"done"},
