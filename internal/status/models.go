@@ -73,6 +73,9 @@ type EpicSummary struct {
 	TasksBlocked    int     `json:"tasks_blocked"`
 	FeaturesTotal   int     `json:"features_total"`
 	FeaturesActive  int     `json:"features_active"`
+	DisplayMode     string  `json:"display_mode,omitempty"` // "planning" or "aggregation"
+	IsPlanning      bool    `json:"is_planning,omitempty"`
+	Phase           string  `json:"phase,omitempty"`
 }
 
 // TaskInfo represents an active task in the dashboard
