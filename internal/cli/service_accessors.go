@@ -36,3 +36,16 @@ func GetFeatureService() *services.FeatureService {
 	workflowSvc := workflow.NewService(projectRoot)
 	return services.NewFeatureService(featureRepo, workflowSvc)
 }
+
+// GetDisplayService returns a DisplayService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+func GetDisplayService() *services.DisplayService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	projectRoot, _ := FindProjectRoot()
+	workflowSvc := workflow.NewService(projectRoot)
+	return services.NewDisplayService(db, workflowSvc)
+}

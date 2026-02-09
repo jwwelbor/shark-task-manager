@@ -17,6 +17,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
@@ -58,7 +59,9 @@ type EpicWithProgress struct {
 // FeatureWithDetails wraps a Feature with task count
 type FeatureWithDetails struct {
 	*models.Feature
-	TaskCount int `json:"task_count"`
+	TaskCount  int    `json:"task_count"`
+	IsPlanning bool   `json:"is_planning,omitempty"`
+	Phase      string `json:"phase,omitempty"`
 }
 
 // epicCmd represents the epic command group
@@ -405,6 +408,33 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		projectRoot = ""
 	}
 
+	// Check for planning mode via DisplayService
+	displaySvc := cli.GetDisplayService()
+	displayMode := displaySvc.DetermineEpicDisplayMode(epic)
+
+	if displayMode == services.DisplayModePlanning {
+		info, err := displaySvc.GetEpicDisplayInfo(ctx, epicKey)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to get epic display info: %v", err))
+			os.Exit(2)
+		}
+
+		// Resolve path for planning mode
+		if projectRoot != "" {
+			pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
+			absPath, pathErr := pathResolver.ResolveEpicPath(ctx, epic.Key)
+			if pathErr == nil {
+				info.ResolvedPath = getRelativePath(absPath, projectRoot)
+			}
+		}
+
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(info)
+		}
+		renderEpicPlanning(info)
+		return nil
+	}
+
 	// Resolve epic path using PathResolver
 	var resolvedPath string
 	if projectRoot != "" {
@@ -464,9 +494,19 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			taskCount = 0
 		}
 
+		// Check if feature is in planning mode
+		featureMode := displaySvc.DetermineFeatureDisplayMode(feature)
+		isPlanning := featureMode == services.DisplayModePlanning
+		featurePhase := ""
+		if isPlanning {
+			featurePhase = displaySvc.GetFeaturePhase(string(feature.Status))
+		}
+
 		featuresWithDetails = append(featuresWithDetails, FeatureWithDetails{
-			Feature:   feature,
-			TaskCount: taskCount,
+			Feature:    feature,
+			TaskCount:  taskCount,
+			IsPlanning: isPlanning,
+			Phase:      featurePhase,
 		})
 	}
 
@@ -583,6 +623,72 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	// Output as formatted text
 	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs, featureRollup, taskRollup, blockedTasks, approvalBacklogCount)
 	return nil
+}
+
+// renderEpicPlanning renders an epic in planning mode showing workflow position
+func renderEpicPlanning(info *services.EpicDisplayInfo) {
+	epic := info.Epic
+
+	// Print epic metadata
+	pterm.DefaultSection.Printf("Epic: %s", epic.Key)
+	fmt.Println()
+
+	// Build info rows
+	epicInfo := [][]string{
+		{"Title", epic.Title},
+		{"Status", fmt.Sprintf("%s (workflow)", string(epic.Status))},
+	}
+
+	if info.Phase != "" {
+		epicInfo = append(epicInfo, []string{"Phase", info.Phase})
+	}
+
+	if info.PhaseDescription != "" {
+		epicInfo = append(epicInfo, []string{"Phase Description", info.PhaseDescription})
+	}
+
+	if epic.Priority != "" {
+		epicInfo = append(epicInfo, []string{"Priority", string(epic.Priority)})
+	}
+
+	if info.ResolvedPath != "" {
+		epicInfo = append(epicInfo, []string{"Path", info.ResolvedPath})
+	}
+
+	if epic.Description != nil && *epic.Description != "" {
+		epicInfo = append(epicInfo, []string{"Description", *epic.Description})
+	}
+
+	if epic.BusinessValue != nil {
+		epicInfo = append(epicInfo, []string{"Business Value", string(*epic.BusinessValue)})
+	}
+
+	_ = pterm.DefaultTable.WithData(epicInfo).Render()
+	fmt.Println()
+
+	// Workflow position
+	if info.WorkflowPosition != nil {
+		pterm.DefaultSection.Println("Workflow Position")
+		fmt.Println()
+
+		for i, st := range info.WorkflowPosition.Statuses {
+			marker := "  "
+			if i == info.WorkflowPosition.CurrentIndex {
+				marker = "> "
+			}
+			label := st
+			if i < info.WorkflowPosition.CurrentIndex {
+				label = fmt.Sprintf("%s (done)", st)
+			}
+			fmt.Printf("%s%s\n", marker, label)
+		}
+		fmt.Println()
+	}
+
+	// Planning mode message about features
+	if len(info.Features) == 0 {
+		pterm.Info.Println("No features yet (epic is still being refined)")
+	}
 }
 
 // renderEpicListTable renders epics as a table
@@ -747,15 +853,20 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 			title = title[:32] + "..."
 		}
 
-		// Format progress with 1 decimal place
+		// Format progress - show (planning) for planning mode features
 		progress := fmt.Sprintf("%.1f%%", feature.ProgressPct)
+		taskDisplay := fmt.Sprintf("%d", feature.TaskCount)
+		if feature.IsPlanning {
+			progress = "(planning)"
+			taskDisplay = "-"
+		}
 
 		tableData = append(tableData, []string{
 			feature.Key,
 			title,
 			string(feature.Status),
 			progress,
-			fmt.Sprintf("%d", feature.TaskCount),
+			taskDisplay,
 		})
 	}
 

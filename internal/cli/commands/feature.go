@@ -18,6 +18,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
@@ -585,6 +586,33 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
+	// Check for planning mode via DisplayService
+	displaySvc := cli.GetDisplayService()
+	displayMode := displaySvc.DetermineFeatureDisplayMode(feature)
+
+	if displayMode == services.DisplayModePlanning {
+		info, err := displaySvc.GetFeatureDisplayInfo(ctx, featureKey)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Failed to get feature display info: %v", err))
+			os.Exit(2)
+		}
+
+		// Resolve path for planning mode
+		if projectRoot != "" {
+			pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
+			absPath, pathErr := pathResolver.ResolveFeaturePath(ctx, feature.Key)
+			if pathErr == nil {
+				info.ResolvedPath = getRelativePathFeature(absPath, projectRoot)
+			}
+		}
+
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(info)
+		}
+		renderFeaturePlanning(info)
+		return nil
+	}
+
 	// Resolve feature path using PathResolver
 	var resolvedPath string
 	if projectRoot != "" {
@@ -747,6 +775,65 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	// Output as formatted text
 	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs, workflowService, progressInfo, workSummary, actionItems)
 	return nil
+}
+
+// renderFeaturePlanning renders a feature in planning mode showing workflow position
+func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
+	feature := info.Feature
+
+	// Print feature metadata
+	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
+	fmt.Println()
+
+	// Build info rows
+	featureInfo := [][]string{
+		{"Title", feature.Title},
+		{"Epic ID", fmt.Sprintf("%d", feature.EpicID)},
+		{"Status", fmt.Sprintf("%s (workflow)", string(feature.Status))},
+	}
+
+	if info.Phase != "" {
+		featureInfo = append(featureInfo, []string{"Phase", info.Phase})
+	}
+
+	if info.PhaseDescription != "" {
+		featureInfo = append(featureInfo, []string{"Phase Description", info.PhaseDescription})
+	}
+
+	if info.ResolvedPath != "" {
+		featureInfo = append(featureInfo, []string{"Path", info.ResolvedPath})
+	}
+
+	if feature.Description != nil && *feature.Description != "" {
+		featureInfo = append(featureInfo, []string{"Description", *feature.Description})
+	}
+
+	_ = pterm.DefaultTable.WithData(featureInfo).Render()
+	fmt.Println()
+
+	// Workflow position
+	if info.WorkflowPosition != nil {
+		pterm.DefaultSection.Println("Workflow Position")
+		fmt.Println()
+
+		for i, st := range info.WorkflowPosition.Statuses {
+			marker := "  "
+			if i == info.WorkflowPosition.CurrentIndex {
+				marker = "> "
+			}
+			label := st
+			if i < info.WorkflowPosition.CurrentIndex {
+				label = fmt.Sprintf("%s (done)", st)
+			}
+			fmt.Printf("%s%s\n", marker, label)
+		}
+		fmt.Println()
+	}
+
+	// Planning mode message about tasks
+	if len(info.Tasks) == 0 {
+		pterm.Info.Println("No tasks yet (feature is still being refined)")
+	}
 }
 
 // renderFeatureListTable renders features as a table

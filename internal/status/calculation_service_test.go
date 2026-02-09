@@ -383,3 +383,255 @@ func TestCalculationService_RecalculateAll(t *testing.T) {
 	// Duration may be 0 for fast operations (sub-millisecond)
 	assert.GreaterOrEqual(t, summary.DurationMs, int64(0))
 }
+
+func createFeatureWorkflowConfig() *config.WorkflowConfig {
+	return &config.WorkflowConfig{
+		StatusFlow: map[string][]string{
+			"draft":     {"active"},
+			"active":    {"completed"},
+			"completed": {},
+		},
+		StatusMetadata: map[string]config.StatusMetadata{
+			"draft":     {Phase: "planning", IsPlanning: true},
+			"active":    {Phase: "execution", AggregatesFrom: "tasks"},
+			"completed": {Phase: "done"},
+		},
+		SpecialStatuses: map[string][]string{
+			config.StartStatusKey:       {"draft"},
+			config.CompleteStatusKey:    {"completed"},
+			config.AggregationStatusKey: {"active"},
+		},
+	}
+}
+
+func createEpicWorkflowConfig() *config.WorkflowConfig {
+	return &config.WorkflowConfig{
+		StatusFlow: map[string][]string{
+			"draft":     {"active"},
+			"active":    {"completed"},
+			"completed": {},
+		},
+		StatusMetadata: map[string]config.StatusMetadata{
+			"draft":     {Phase: "planning", IsPlanning: true},
+			"active":    {Phase: "execution", AggregatesFrom: "features"},
+			"completed": {Phase: "done"},
+		},
+		SpecialStatuses: map[string][]string{
+			config.StartStatusKey:       {"draft"},
+			config.CompleteStatusKey:    {"completed"},
+			config.AggregationStatusKey: {"active"},
+		},
+	}
+}
+
+func TestCalculationService_FeaturePlanningModeBypass(t *testing.T) {
+	ctx := context.Background()
+	testDB := setupTestDB(t)
+	defer testDB.Close()
+
+	featureRepo := repository.NewFeatureRepository(testDB)
+	epicRepo := repository.NewEpicRepository(testDB)
+	taskRepo := repository.NewTaskRepository(testDB)
+	cfg := createTestWorkflowConfig()
+	calcService := NewCalculationService(testDB, cfg)
+	calcService.SetFeatureWorkflow(createFeatureWorkflowConfig())
+
+	// Create test epic
+	epic := &models.Epic{
+		Key:      "E01",
+		Title:    "Test Epic",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create feature in planning state (draft)
+	feature := &models.Feature{
+		EpicID: epic.ID,
+		Key:    "E01-F01",
+		Title:  "Test Feature",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Create task (would normally trigger status derivation)
+	task := &models.Task{
+		FeatureID: feature.ID,
+		Key:       "T-E01-F01-001",
+		Title:     "Test Task",
+		Status:    models.TaskStatus("in_progress"),
+		Priority:  5,
+	}
+	err = taskRepo.Create(ctx, task)
+	require.NoError(t, err)
+
+	// Recalculate feature - should be SKIPPED because feature is in planning mode
+	result, err := calcService.RecalculateFeatureStatus(ctx, feature.ID)
+	require.NoError(t, err)
+
+	assert.True(t, result.WasSkipped, "feature in planning mode should be skipped")
+	assert.Contains(t, result.SkipReason, "planning mode")
+	assert.Equal(t, "draft", result.PreviousStatus)
+	assert.Equal(t, "draft", result.NewStatus)
+
+	// Verify feature status was NOT changed
+	updated, err := featureRepo.GetByID(ctx, feature.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.FeatureStatusDraft, updated.Status)
+
+	_ = taskRepo // suppress unused
+}
+
+func TestCalculationService_FeatureAggregationModeStillWorks(t *testing.T) {
+	ctx := context.Background()
+	testDB := setupTestDB(t)
+	defer testDB.Close()
+
+	featureRepo := repository.NewFeatureRepository(testDB)
+	epicRepo := repository.NewEpicRepository(testDB)
+	taskRepo := repository.NewTaskRepository(testDB)
+	cfg := createTestWorkflowConfig()
+	calcService := NewCalculationService(testDB, cfg)
+	calcService.SetFeatureWorkflow(createFeatureWorkflowConfig())
+
+	// Create test epic
+	epic := &models.Epic{
+		Key:      "E01",
+		Title:    "Test Epic",
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create feature in ACTIVE state (not planning = should aggregate)
+	feature := &models.Feature{
+		EpicID: epic.ID,
+		Key:    "E01-F01",
+		Title:  "Test Feature",
+		Status: models.FeatureStatusActive,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Create task
+	task := &models.Task{
+		FeatureID: feature.ID,
+		Key:       "T-E01-F01-001",
+		Title:     "Test Task",
+		Status:    models.TaskStatus("in_progress"),
+		Priority:  5,
+	}
+	err = taskRepo.Create(ctx, task)
+	require.NoError(t, err)
+
+	// Recalculate feature - should NOT be skipped (active is not planning)
+	result, err := calcService.RecalculateFeatureStatus(ctx, feature.ID)
+	require.NoError(t, err)
+
+	assert.False(t, result.WasSkipped, "feature in aggregation mode should not be skipped")
+
+	_ = taskRepo // suppress unused
+}
+
+func TestCalculationService_NoFeatureWorkflowDefaultsToAggregation(t *testing.T) {
+	ctx := context.Background()
+	testDB := setupTestDB(t)
+	defer testDB.Close()
+
+	featureRepo := repository.NewFeatureRepository(testDB)
+	epicRepo := repository.NewEpicRepository(testDB)
+	taskRepo := repository.NewTaskRepository(testDB)
+	cfg := createTestWorkflowConfig()
+	calcService := NewCalculationService(testDB, cfg)
+	// NOTE: no SetFeatureWorkflow called - backward compat test
+
+	// Create test epic
+	epic := &models.Epic{
+		Key:      "E01",
+		Title:    "Test Epic",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create feature in draft state (but no feature workflow = always aggregates)
+	feature := &models.Feature{
+		EpicID: epic.ID,
+		Key:    "E01-F01",
+		Title:  "Test Feature",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Create task
+	task := &models.Task{
+		FeatureID: feature.ID,
+		Key:       "T-E01-F01-001",
+		Title:     "Test Task",
+		Status:    models.TaskStatus("todo"),
+		Priority:  5,
+	}
+	err = taskRepo.Create(ctx, task)
+	require.NoError(t, err)
+
+	// Recalculate feature - should NOT be skipped (no feature workflow = backward compat)
+	result, err := calcService.RecalculateFeatureStatus(ctx, feature.ID)
+	require.NoError(t, err)
+
+	assert.False(t, result.WasSkipped, "with no feature workflow, should not be skipped")
+
+	_ = taskRepo // suppress unused
+}
+
+func TestCalculationService_EpicPlanningModeBypass(t *testing.T) {
+	ctx := context.Background()
+	testDB := setupTestDB(t)
+	defer testDB.Close()
+
+	featureRepo := repository.NewFeatureRepository(testDB)
+	epicRepo := repository.NewEpicRepository(testDB)
+	cfg := createTestWorkflowConfig()
+	calcService := NewCalculationService(testDB, cfg)
+	calcService.SetEpicWorkflow(createEpicWorkflowConfig())
+
+	// Create test epic in planning mode (draft)
+	epic := &models.Epic{
+		Key:      "E01",
+		Title:    "Test Epic",
+		Status:   models.EpicStatusDraft,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, epic)
+	require.NoError(t, err)
+
+	// Create feature (would normally trigger epic status derivation)
+	feature := &models.Feature{
+		EpicID: epic.ID,
+		Key:    "E01-F01",
+		Title:  "Test Feature",
+		Status: models.FeatureStatusActive,
+	}
+	err = featureRepo.Create(ctx, feature)
+	require.NoError(t, err)
+
+	// Recalculate epic - should be SKIPPED because epic is in planning mode
+	result, err := calcService.RecalculateEpicStatus(ctx, epic.ID)
+	require.NoError(t, err)
+
+	assert.True(t, result.WasSkipped, "epic in planning mode should be skipped")
+	assert.Contains(t, result.SkipReason, "planning mode")
+	assert.Equal(t, "draft", result.PreviousStatus)
+	assert.Equal(t, "draft", result.NewStatus)
+
+	// Verify epic status was NOT changed
+	updated, err := epicRepo.GetByID(ctx, epic.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.EpicStatusDraft, updated.Status)
+
+	_ = featureRepo // suppress unused
+}
