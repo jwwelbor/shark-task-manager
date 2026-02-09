@@ -21,10 +21,12 @@ var workflowShowActionsCmd = &cobra.Command{
 
 Shows actions grouped by workflow phase with agent types and skills.
 Provides a complete overview of which agents handle which statuses.
+Displays all three entity levels (epic, feature, task) by default.
 
 Flags:
   --status <status>      Show action for specific status only
   --action-type <type>   Filter by action type (spawn_agent, pause, wait_for_triage, archive)
+  --level <level>        Filter by entity level (epic, feature, task)
 
 Exit codes:
   0 - Success
@@ -32,8 +34,9 @@ Exit codes:
   2 - Configuration error
 
 Examples:
-  shark workflow show-actions                        Show all actions
-  shark workflow show-actions --json                 JSON format
+  shark workflow show-actions                        Show all levels
+  shark workflow show-actions --level=epic           Show only epic actions
+  shark workflow show-actions --level=task --json    Task actions in JSON (backward compatible)
   shark workflow show-actions --status=ready_for_development
   shark workflow show-actions --action-type=spawn_agent --json`,
 	RunE: runWorkflowShowActions,
@@ -43,6 +46,7 @@ Examples:
 var (
 	showActionsStatus     string
 	showActionsActionType string
+	showActionsLevel      string
 )
 
 func init() {
@@ -51,6 +55,8 @@ func init() {
 		"Filter to show action for specific status")
 	workflowShowActionsCmd.Flags().StringVar(&showActionsActionType, "action-type", "",
 		"Filter by action type (spawn_agent, pause, wait_for_triage, archive)")
+	workflowShowActionsCmd.Flags().StringVar(&showActionsLevel, "level", "",
+		"Filter by entity level (epic, feature, task)")
 }
 
 // WorkflowActionsDisplay is the output structure for show-actions command
@@ -85,10 +91,37 @@ var PhaseOrder = map[string]int{
 	"any":         7,
 }
 
+// MultiLevelActionsDisplay wraps per-level action displays for multi-level output
+type MultiLevelActionsDisplay struct {
+	EpicActions    *WorkflowActionsDisplay  `json:"epic_actions,omitempty"`
+	FeatureActions *WorkflowActionsDisplay  `json:"feature_actions,omitempty"`
+	TaskActions    *WorkflowActionsDisplay  `json:"task_actions,omitempty"`
+	Summary        MultiLevelActionsSummary `json:"summary"`
+}
+
+// MultiLevelActionsSummary provides per-level totals and action counts
+type MultiLevelActionsSummary struct {
+	EpicTotal          int `json:"epic_total"`
+	EpicWithActions    int `json:"epic_with_actions"`
+	FeatureTotal       int `json:"feature_total"`
+	FeatureWithActions int `json:"feature_with_actions"`
+	TaskTotal          int `json:"task_total"`
+	TaskWithActions    int `json:"task_with_actions"`
+}
+
 // runWorkflowShowActions implements the show-actions command
 func runWorkflowShowActions(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	_ = ctx // Context available for future use
+
+	// Validate --level flag
+	if showActionsLevel != "" {
+		validLevels := map[string]bool{"epic": true, "feature": true, "task": true}
+		if !validLevels[showActionsLevel] {
+			cli.Error(fmt.Sprintf("Invalid level '%s'. Valid levels: epic, feature, task", showActionsLevel))
+			os.Exit(1)
+		}
+	}
 
 	// Get config path using centralized helper
 	configPath, err := cli.GetConfigPath()
@@ -96,21 +129,7 @@ func runWorkflowShowActions(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get config path: %w", err)
 	}
 
-	// Load workflow config
-	workflow, err := config.LoadWorkflowConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load workflow config: %w", err)
-	}
-
-	// If no custom workflow, use default
-	if workflow == nil {
-		workflow = config.DefaultWorkflow()
-		if !cli.GlobalConfig.JSON {
-			cli.Warning("No custom workflow configured in .sharkconfig.json, showing default workflow actions")
-		}
-	}
-
-	// Validate filters
+	// Validate action type filter
 	if showActionsActionType != "" {
 		validTypes := map[string]bool{
 			"spawn_agent":     true,
@@ -124,13 +143,43 @@ func runWorkflowShowActions(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Build display data
-	display := buildActionsDisplay(workflow, showActionsStatus, showActionsActionType)
+	// Load multi-level workflow config
+	multiWorkflow := config.LoadMultiLevelWorkflowOrDefault(configPath)
 
-	// Check if status was requested but not found
-	if showActionsStatus != "" && len(display.WorkflowActions) == 0 {
-		cli.Error(fmt.Sprintf("Status '%s' not found in workflow configuration", showActionsStatus))
-		os.Exit(1)
+	// Build multi-level display
+	display := &MultiLevelActionsDisplay{}
+
+	if showActionsLevel == "" || showActionsLevel == "epic" {
+		epicWf := multiWorkflow.GetWorkflowForLevel("epic")
+		display.EpicActions = buildActionsDisplay(epicWf, showActionsStatus, showActionsActionType)
+	}
+	if showActionsLevel == "" || showActionsLevel == "feature" {
+		featureWf := multiWorkflow.GetWorkflowForLevel("feature")
+		display.FeatureActions = buildActionsDisplay(featureWf, showActionsStatus, showActionsActionType)
+	}
+	if showActionsLevel == "" || showActionsLevel == "task" {
+		taskWf := multiWorkflow.GetWorkflowForLevel("task")
+		display.TaskActions = buildActionsDisplay(taskWf, showActionsStatus, showActionsActionType)
+	}
+
+	display.Summary = buildMultiLevelSummary(display)
+
+	// Check if status was requested but not found across all visible levels
+	if showActionsStatus != "" {
+		totalActions := 0
+		if display.EpicActions != nil {
+			totalActions += len(display.EpicActions.WorkflowActions)
+		}
+		if display.FeatureActions != nil {
+			totalActions += len(display.FeatureActions.WorkflowActions)
+		}
+		if display.TaskActions != nil {
+			totalActions += len(display.TaskActions.WorkflowActions)
+		}
+		if totalActions == 0 {
+			cli.Error(fmt.Sprintf("Status '%s' not found in workflow configuration", showActionsStatus))
+			os.Exit(1)
+		}
 	}
 
 	// Output as JSON if requested
@@ -139,7 +188,7 @@ func runWorkflowShowActions(cmd *cobra.Command, args []string) error {
 	}
 
 	// Human-readable output
-	displayActionsHumanReadable(display, workflow)
+	displayMultiLevelActionsHumanReadable(display, multiWorkflow)
 
 	return nil
 }
@@ -191,21 +240,95 @@ func buildActionsDisplay(workflow *config.WorkflowConfig, statusFilter string, a
 	return display
 }
 
-// displayActionsHumanReadable displays actions in human-readable grouped format
-func displayActionsHumanReadable(display *WorkflowActionsDisplay, workflow *config.WorkflowConfig) {
-	if len(display.WorkflowActions) == 0 {
-		cli.Warning("No orchestrator actions defined in workflow configuration")
-		return
+// buildMultiLevelSummary extracts per-level totals from the display
+func buildMultiLevelSummary(display *MultiLevelActionsDisplay) MultiLevelActionsSummary {
+	summary := MultiLevelActionsSummary{}
+	if display.EpicActions != nil {
+		summary.EpicTotal = display.EpicActions.Summary.TotalStatuses
+		summary.EpicWithActions = display.EpicActions.Summary.StatusesWithActions
 	}
+	if display.FeatureActions != nil {
+		summary.FeatureTotal = display.FeatureActions.Summary.TotalStatuses
+		summary.FeatureWithActions = display.FeatureActions.Summary.StatusesWithActions
+	}
+	if display.TaskActions != nil {
+		summary.TaskTotal = display.TaskActions.Summary.TotalStatuses
+		summary.TaskWithActions = display.TaskActions.Summary.StatusesWithActions
+	}
+	return summary
+}
 
+// displayMultiLevelActionsHumanReadable displays all levels with section headers
+func displayMultiLevelActionsHumanReadable(display *MultiLevelActionsDisplay, multi *config.MultiLevelWorkflow) {
 	fmt.Println("Workflow Orchestrator Actions")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("================================================================")
 	fmt.Println()
 
-	// Group by phase
+	// Display epic section
+	if display.EpicActions != nil {
+		fmt.Println("--- Epic Workflow Actions ---")
+		if multi.Epic == nil && len(display.EpicActions.WorkflowActions) == 0 {
+			fmt.Println("(using defaults, no actions configured)")
+		} else if len(display.EpicActions.WorkflowActions) == 0 {
+			fmt.Println("No orchestrator actions defined for epic workflow")
+		} else {
+			displayActionsForLevel(display.EpicActions)
+		}
+		fmt.Println()
+	}
+
+	// Display feature section
+	if display.FeatureActions != nil {
+		fmt.Println("--- Feature Workflow Actions ---")
+		if multi.Feature == nil && len(display.FeatureActions.WorkflowActions) == 0 {
+			fmt.Println("(using defaults, no actions configured)")
+		} else if len(display.FeatureActions.WorkflowActions) == 0 {
+			fmt.Println("No orchestrator actions defined for feature workflow")
+		} else {
+			displayActionsForLevel(display.FeatureActions)
+		}
+		fmt.Println()
+	}
+
+	// Display task section
+	if display.TaskActions != nil {
+		fmt.Println("--- Task Workflow Actions ---")
+		if len(display.TaskActions.WorkflowActions) == 0 {
+			fmt.Println("No orchestrator actions defined for task workflow")
+		} else {
+			displayActionsForLevel(display.TaskActions)
+		}
+		fmt.Println()
+	}
+
+	// Display cross-level summary
+	fmt.Println("Summary:")
+	if display.EpicActions != nil {
+		label := ""
+		if multi.Epic == nil {
+			label = " (defaults)"
+		}
+		fmt.Printf("  Epic:    %d of %d statuses have actions%s\n",
+			display.Summary.EpicWithActions, display.Summary.EpicTotal, label)
+	}
+	if display.FeatureActions != nil {
+		label := ""
+		if multi.Feature == nil {
+			label = " (defaults)"
+		}
+		fmt.Printf("  Feature: %d of %d statuses have actions%s\n",
+			display.Summary.FeatureWithActions, display.Summary.FeatureTotal, label)
+	}
+	if display.TaskActions != nil {
+		fmt.Printf("  Task:    %d of %d statuses have actions\n",
+			display.Summary.TaskWithActions, display.Summary.TaskTotal)
+	}
+}
+
+// displayActionsForLevel renders a single level's actions grouped by phase
+func displayActionsForLevel(display *WorkflowActionsDisplay) {
 	grouped := groupByPhase(display.WorkflowActions)
 
-	// Display in phase order
 	phaseOrder := []string{"planning", "development", "review", "qa", "approval", "done", "any"}
 	for _, phase := range phaseOrder {
 		actions, exists := grouped[phase]
@@ -213,7 +336,6 @@ func displayActionsHumanReadable(display *WorkflowActionsDisplay, workflow *conf
 			continue
 		}
 
-		// Display phase header
 		var phaseLabel string
 		switch phase {
 		case "any":
@@ -221,19 +343,16 @@ func displayActionsHumanReadable(display *WorkflowActionsDisplay, workflow *conf
 		default:
 			phaseLabel = cases.Title(language.English).String(phase) + " Phase"
 		}
-		fmt.Printf("%s:\n", phaseLabel)
+		fmt.Printf("  %s:\n", phaseLabel)
 
-		// Prepare table data
 		headers := []string{"Status", "Action", "Agent Type", "Skills"}
 		rows := make([][]string, len(actions))
-
 		for i, statusAction := range actions {
 			action := statusAction.OrchestratorAction
 			agentType := "-"
 			if action.AgentType != "" {
 				agentType = action.AgentType
 			}
-
 			skillsList := "-"
 			if len(action.Skills) > 0 {
 				skillsList = strings.Join(action.Skills, ", ")
@@ -241,7 +360,6 @@ func displayActionsHumanReadable(display *WorkflowActionsDisplay, workflow *conf
 					skillsList = skillsList[:47] + "…"
 				}
 			}
-
 			rows[i] = []string{
 				statusAction.Status,
 				action.Action,
@@ -249,22 +367,8 @@ func displayActionsHumanReadable(display *WorkflowActionsDisplay, workflow *conf
 				skillsList,
 			}
 		}
-
-		// Output table
 		cli.OutputTable(headers, rows)
 		fmt.Println()
-	}
-
-	// Display summary
-	fmt.Println("Summary:")
-	fmt.Printf("  Total Statuses: %d\n", display.Summary.TotalStatuses)
-	fmt.Printf("  With Actions: %d\n", display.Summary.StatusesWithActions)
-
-	// Display action counts
-	actionTypes := []string{"spawn_agent", "pause", "wait_for_triage", "archive"}
-	for _, actionType := range actionTypes {
-		count := display.Summary.ActionCounts[actionType]
-		fmt.Printf("  %s: %d\n", actionType, count)
 	}
 }
 

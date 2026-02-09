@@ -35,9 +35,21 @@ func TestBuildNextStatusResult_Epic(t *testing.T) {
 		EntityKey:     "E16",
 		CurrentStatus: "draft",
 		CurrentPhase:  "planning",
-		AvailableTransitions: []workflow.TransitionInfo{
-			{TargetStatus: "active", Description: "Activate epic", Phase: "execution"},
-			{TargetStatus: "archived", Description: "Archive epic", Phase: "done"},
+		AvailableTransitions: []services.TransitionInfoWithAction{
+			{
+				TransitionInfo: workflow.TransitionInfo{
+					TargetStatus: "active",
+					Description:  "Activate epic",
+					Phase:        "execution",
+				},
+			},
+			{
+				TransitionInfo: workflow.TransitionInfo{
+					TargetStatus: "archived",
+					Description:  "Archive epic",
+					Phase:        "done",
+				},
+			},
 		},
 		IsTerminal: false,
 	}
@@ -76,7 +88,7 @@ func TestBuildNextStatusResult_Terminal(t *testing.T) {
 		EntityKey:            "E16",
 		CurrentStatus:        "archived",
 		CurrentPhase:         "done",
-		AvailableTransitions: []workflow.TransitionInfo{},
+		AvailableTransitions: []services.TransitionInfoWithAction{},
 		IsTerminal:           true,
 	}
 
@@ -93,8 +105,14 @@ func TestBuildNextStatusResult_Feature(t *testing.T) {
 		EntityKey:     "E16-F01",
 		CurrentStatus: "draft",
 		CurrentPhase:  "planning",
-		AvailableTransitions: []workflow.TransitionInfo{
-			{TargetStatus: "active", Description: "Activate feature", Phase: "execution"},
+		AvailableTransitions: []services.TransitionInfoWithAction{
+			{
+				TransitionInfo: workflow.TransitionInfo{
+					TargetStatus: "active",
+					Description:  "Activate feature",
+					Phase:        "execution",
+				},
+			},
 		},
 		IsTerminal: false,
 	}

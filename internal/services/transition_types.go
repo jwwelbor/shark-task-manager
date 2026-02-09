@@ -16,13 +16,19 @@ type TransitionResult struct {
 	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
 }
 
+// TransitionInfoWithAction wraps a TransitionInfo with an optional orchestrator action.
+// The embedded TransitionInfo fields are flattened in JSON serialization.
+type TransitionInfoWithAction struct {
+	workflow.TransitionInfo
+	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
+}
+
 // NextStatusInfo contains the available transitions for an entity.
 type NextStatusInfo struct {
-	EntityType           string                    `json:"entity_type"`
-	EntityKey            string                    `json:"entity_key"`
-	CurrentStatus        string                    `json:"current_status"`
-	CurrentPhase         string                    `json:"current_phase,omitempty"`
-	AvailableTransitions []workflow.TransitionInfo `json:"available_transitions"`
-	IsTerminal           bool                      `json:"is_terminal"`
-	OrchestratorAction   *config.PopulatedAction   `json:"orchestrator_action,omitempty"`
+	EntityType           string                     `json:"entity_type"`
+	EntityKey            string                     `json:"entity_key"`
+	CurrentStatus        string                     `json:"current_status"`
+	CurrentPhase         string                     `json:"current_phase,omitempty"`
+	AvailableTransitions []TransitionInfoWithAction `json:"available_transitions"`
+	IsTerminal           bool                       `json:"is_terminal"`
 }
