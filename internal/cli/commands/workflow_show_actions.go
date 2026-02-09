@@ -258,48 +258,31 @@ func buildMultiLevelSummary(display *MultiLevelActionsDisplay) MultiLevelActions
 	return summary
 }
 
+// displayLevelSection renders a single level's action section with header and content
+func displayLevelSection(levelName string, actions *WorkflowActionsDisplay, isDefault bool) {
+	if actions == nil {
+		return
+	}
+	fmt.Printf("--- %s Workflow Actions ---\n", cases.Title(language.English).String(levelName))
+	if isDefault && len(actions.WorkflowActions) == 0 {
+		fmt.Println("(using defaults, no actions configured)")
+	} else if len(actions.WorkflowActions) == 0 {
+		fmt.Printf("No orchestrator actions defined for %s workflow\n", levelName)
+	} else {
+		displayActionsForLevel(actions)
+	}
+	fmt.Println()
+}
+
 // displayMultiLevelActionsHumanReadable displays all levels with section headers
 func displayMultiLevelActionsHumanReadable(display *MultiLevelActionsDisplay, multi *config.MultiLevelWorkflow) {
 	fmt.Println("Workflow Orchestrator Actions")
 	fmt.Println("================================================================")
 	fmt.Println()
 
-	// Display epic section
-	if display.EpicActions != nil {
-		fmt.Println("--- Epic Workflow Actions ---")
-		if multi.Epic == nil && len(display.EpicActions.WorkflowActions) == 0 {
-			fmt.Println("(using defaults, no actions configured)")
-		} else if len(display.EpicActions.WorkflowActions) == 0 {
-			fmt.Println("No orchestrator actions defined for epic workflow")
-		} else {
-			displayActionsForLevel(display.EpicActions)
-		}
-		fmt.Println()
-	}
-
-	// Display feature section
-	if display.FeatureActions != nil {
-		fmt.Println("--- Feature Workflow Actions ---")
-		if multi.Feature == nil && len(display.FeatureActions.WorkflowActions) == 0 {
-			fmt.Println("(using defaults, no actions configured)")
-		} else if len(display.FeatureActions.WorkflowActions) == 0 {
-			fmt.Println("No orchestrator actions defined for feature workflow")
-		} else {
-			displayActionsForLevel(display.FeatureActions)
-		}
-		fmt.Println()
-	}
-
-	// Display task section
-	if display.TaskActions != nil {
-		fmt.Println("--- Task Workflow Actions ---")
-		if len(display.TaskActions.WorkflowActions) == 0 {
-			fmt.Println("No orchestrator actions defined for task workflow")
-		} else {
-			displayActionsForLevel(display.TaskActions)
-		}
-		fmt.Println()
-	}
+	displayLevelSection("epic", display.EpicActions, multi.Epic == nil)
+	displayLevelSection("feature", display.FeatureActions, multi.Feature == nil)
+	displayLevelSection("task", display.TaskActions, false)
 
 	// Display cross-level summary
 	fmt.Println("Summary:")

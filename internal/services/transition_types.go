@@ -13,14 +13,14 @@ type TransitionResult struct {
 	ToStatus           string                  `json:"to_status"`
 	Transitioned       bool                    `json:"transitioned"`
 	Message            string                  `json:"message,omitempty"`
-	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
+	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action"`
 }
 
 // TransitionInfoWithAction wraps a TransitionInfo with an optional orchestrator action.
 // The embedded TransitionInfo fields are flattened in JSON serialization.
 type TransitionInfoWithAction struct {
 	workflow.TransitionInfo
-	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
+	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action"`
 }
 
 // NextStatusInfo contains the available transitions for an entity.

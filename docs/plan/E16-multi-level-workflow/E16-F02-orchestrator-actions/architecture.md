@@ -404,12 +404,12 @@ type MultiLevelActionsDisplay struct {
 }
 
 type MultiLevelActionsSummary struct {
-    EpicTotal       int `json:"epic_total"`
-    EpicWithActions int `json:"epic_with_actions"`
+    EpicTotal          int `json:"epic_total"`
+    EpicWithActions    int `json:"epic_with_actions"`
     FeatureTotal       int `json:"feature_total"`
     FeatureWithActions int `json:"feature_with_actions"`
-    TaskTotal       int `json:"task_total"`
-    TaskWithActions int `json:"task_with_actions"`
+    TaskTotal          int `json:"task_total"`
+    TaskWithActions    int `json:"task_with_actions"`
 }
 ```
 

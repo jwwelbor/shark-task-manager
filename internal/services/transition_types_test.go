@@ -9,7 +9,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
-func TestTransitionResult_NilAction_OmittedFromJSON(t *testing.T) {
+func TestTransitionResult_NilAction_ExplicitNullInJSON(t *testing.T) {
 	result := TransitionResult{
 		EntityType:   "epic",
 		EntityKey:    "E16",
@@ -24,8 +24,9 @@ func TestTransitionResult_NilAction_OmittedFromJSON(t *testing.T) {
 	}
 
 	jsonStr := string(data)
-	if strings.Contains(jsonStr, "orchestrator_action") {
-		t.Errorf("expected JSON to omit orchestrator_action when nil, got: %s", jsonStr)
+	// Per BA requirement: orchestrator_action must be explicit null, not omitted
+	if !strings.Contains(jsonStr, `"orchestrator_action":null`) {
+		t.Errorf("expected JSON to contain explicit null orchestrator_action, got: %s", jsonStr)
 	}
 }
 
