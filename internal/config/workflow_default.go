@@ -73,3 +73,53 @@ func DefaultWorkflow() *WorkflowConfig {
 		RequireRejectionReason: true,
 	}
 }
+
+// DefaultEpicWorkflow returns the backward-compatible default epic workflow.
+// Matches the current hardcoded epic status set: draft, active, completed, archived.
+func DefaultEpicWorkflow() *WorkflowConfig {
+	return &WorkflowConfig{
+		Version: DefaultWorkflowVersion,
+		StatusFlow: map[string][]string{
+			"draft":     {"active", "archived"},
+			"active":    {"completed", "archived"},
+			"completed": {"archived"},
+			"archived":  {},
+		},
+		StatusMetadata: map[string]StatusMetadata{
+			"draft":     {Color: "gray", Description: "Epic created, not yet started", Phase: "planning", IsPlanning: true},
+			"active":    {Color: "blue", Description: "Epic in progress, aggregating features", Phase: "execution", AggregatesFrom: "features"},
+			"completed": {Color: "green", Description: "All features complete", Phase: "done"},
+			"archived":  {Color: "gray", Description: "Epic archived", Phase: "done"},
+		},
+		SpecialStatuses: map[string][]string{
+			StartStatusKey:       {"draft"},
+			CompleteStatusKey:    {"completed", "archived"},
+			AggregationStatusKey: {"active"},
+		},
+	}
+}
+
+// DefaultFeatureWorkflow returns the backward-compatible default feature workflow.
+// Matches the current hardcoded feature status set: draft, active, completed, archived.
+func DefaultFeatureWorkflow() *WorkflowConfig {
+	return &WorkflowConfig{
+		Version: DefaultWorkflowVersion,
+		StatusFlow: map[string][]string{
+			"draft":     {"active", "archived"},
+			"active":    {"completed", "archived"},
+			"completed": {"archived"},
+			"archived":  {},
+		},
+		StatusMetadata: map[string]StatusMetadata{
+			"draft":     {Color: "gray", Description: "Feature created, not yet started", Phase: "planning", IsPlanning: true},
+			"active":    {Color: "blue", Description: "Feature in progress, aggregating tasks", Phase: "execution", AggregatesFrom: "tasks"},
+			"completed": {Color: "green", Description: "All tasks complete", Phase: "done"},
+			"archived":  {Color: "gray", Description: "Feature archived", Phase: "done"},
+		},
+		SpecialStatuses: map[string][]string{
+			StartStatusKey:       {"draft"},
+			CompleteStatusKey:    {"completed", "archived"},
+			AggregationStatusKey: {"active"},
+		},
+	}
+}
