@@ -109,19 +109,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 // enrichEpicSummaries populates DisplayMode, IsPlanning, and Phase fields
 // on each EpicSummary using the DisplayService to determine planning vs aggregation mode.
-func enrichEpicSummaries(ctx context.Context, epics []*status.EpicSummary, displaySvc *services.DisplayService) {
+// Uses in-memory workflow config lookup (no additional DB queries).
+func enrichEpicSummaries(_ context.Context, epics []*status.EpicSummary, displaySvc *services.DisplayService) {
 	for _, epic := range epics {
-		info, err := displaySvc.GetEpicDisplayInfo(ctx, epic.Key)
-		if err != nil {
-			// If we can't get display info, default to aggregation mode
-			epic.DisplayMode = string(services.DisplayModeAggregation)
-			continue
-		}
-
-		epic.DisplayMode = string(info.Mode)
-		if info.Mode == services.DisplayModePlanning {
+		mode := displaySvc.DetermineEpicDisplayModeByStatus(epic.Status)
+		epic.DisplayMode = string(mode)
+		if mode == services.DisplayModePlanning {
 			epic.IsPlanning = true
-			epic.Phase = info.Phase
+			epic.Phase = displaySvc.GetEpicPhase(epic.Status)
 		}
 	}
 }

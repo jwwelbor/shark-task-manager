@@ -499,9 +499,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		isPlanning := featureMode == services.DisplayModePlanning
 		featurePhase := ""
 		if isPlanning {
-			if wfPos := displaySvc.BuildWorkflowPosition(string(feature.Status), nil); wfPos != nil {
-				featurePhase = string(feature.Status)
-			}
+			featurePhase = displaySvc.GetFeaturePhase(string(feature.Status))
 		}
 
 		featuresWithDetails = append(featuresWithDetails, FeatureWithDetails{

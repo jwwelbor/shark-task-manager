@@ -66,6 +66,7 @@ type StatusBreakdown struct {
 type EpicSummary struct {
 	Key             string  `json:"key"`
 	Title           string  `json:"title"`
+	Status          string  `json:"status"`
 	ProgressPercent float64 `json:"progress_percent"`
 	Health          string  `json:"health"` // "healthy", "warning", "critical"
 	TasksTotal      int     `json:"tasks_total"`

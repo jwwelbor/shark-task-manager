@@ -152,21 +152,15 @@ type PhaseInfo struct {
 
 ```go
 type DisplayService struct {
-    epicRepo       *repository.EpicRepository
-    featureRepo    *repository.FeatureRepository
-    taskRepo       *repository.TaskRepository
-    documentRepo   *repository.DocumentRepository
-    workflowSvc    *workflow.Service
-    epicWorkflow   *config.WorkflowConfig    // Level-specific, may be nil
-    featureWorkflow *config.WorkflowConfig   // Level-specific, may be nil
-    taskWorkflow   *config.WorkflowConfig    // Existing task workflow
-    configPath     string
+    deps            DisplayServiceDeps
+    epicWorkflow    *config.WorkflowConfig    // Level-specific, may be nil
+    featureWorkflow *config.WorkflowConfig    // Level-specific, may be nil
+    workflowSvc     *workflow.Service
 }
 
 func NewDisplayService(
     db *repository.DB,
-    configPath string,
-    projectRoot string,
+    workflowSvc *workflow.Service,
 ) *DisplayService
 ```
 

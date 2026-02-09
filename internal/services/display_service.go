@@ -127,10 +127,38 @@ func (s *DisplayService) DetermineEpicDisplayMode(epic *models.Epic) DisplayMode
 	return s.determineDisplayMode(string(epic.Status), s.epicWorkflow)
 }
 
+// DetermineEpicDisplayModeByStatus checks an epic status string against workflow config
+// to decide planning vs aggregation mode. No database access required.
+func (s *DisplayService) DetermineEpicDisplayModeByStatus(status string) DisplayMode {
+	return s.determineDisplayMode(status, s.epicWorkflow)
+}
+
+// GetEpicPhase returns the workflow phase for an epic status, or empty string if unavailable.
+func (s *DisplayService) GetEpicPhase(status string) string {
+	if s.epicWorkflow == nil {
+		return ""
+	}
+	if meta, found := s.epicWorkflow.GetStatusMetadata(status); found {
+		return meta.Phase
+	}
+	return ""
+}
+
 // DetermineFeatureDisplayMode checks the feature's current status against workflow config
 // to decide if it should show planning or aggregation mode.
 func (s *DisplayService) DetermineFeatureDisplayMode(feature *models.Feature) DisplayMode {
 	return s.determineDisplayMode(string(feature.Status), s.featureWorkflow)
+}
+
+// GetFeaturePhase returns the workflow phase for a feature status, or empty string if unavailable.
+func (s *DisplayService) GetFeaturePhase(status string) string {
+	if s.featureWorkflow == nil {
+		return ""
+	}
+	if meta, found := s.featureWorkflow.GetStatusMetadata(status); found {
+		return meta.Phase
+	}
+	return ""
 }
 
 // determineDisplayMode is the core algorithm for deciding planning vs aggregation.
@@ -214,10 +242,11 @@ func buildOrderedStatuses(wfCfg *config.WorkflowConfig) []string {
 			break
 		}
 
-		// Follow first transition (happy path), skip blocked/on_hold
+		// Follow first transition (happy path), skip special statuses
+		specialStatuses := map[string]bool{"blocked": true, "on_hold": true, "cancelled": true}
 		next := ""
 		for _, t := range transitions {
-			if !strings.Contains(t, "blocked") && !strings.Contains(t, "on_hold") && !strings.Contains(t, "cancelled") {
+			if !specialStatuses[t] {
 				next = t
 				break
 			}
@@ -319,13 +348,6 @@ func (s *DisplayService) populateEpicAggregationInfo(ctx context.Context, info *
 	// Build feature display items with per-feature mode determination
 	info.Features = make([]FeatureDisplayItem, 0, len(features))
 	for _, feature := range features {
-		// Update progress
-		if err := s.deps.FeatureRepo.UpdateProgress(ctx, feature.ID); err == nil {
-			if updated, err := s.deps.FeatureRepo.GetByID(ctx, feature.ID); err == nil {
-				feature = updated
-			}
-		}
-
 		taskCount, err := s.deps.TaskRepo.GetTaskCountForFeature(ctx, feature.ID)
 		if err != nil {
 			taskCount = 0
@@ -411,13 +433,6 @@ func (s *DisplayService) populateFeatureAggregationInfo(ctx context.Context, inf
 	featureID := info.Feature.ID
 
 	info.StatusSource = "calculated"
-
-	// Update progress
-	if err := s.deps.FeatureRepo.UpdateProgress(ctx, featureID); err == nil {
-		if updated, err := s.deps.FeatureRepo.GetByID(ctx, featureID); err == nil {
-			info.Feature = updated
-		}
-	}
 
 	// Get tasks
 	tasks, err := s.deps.TaskRepo.ListByFeature(ctx, featureID)

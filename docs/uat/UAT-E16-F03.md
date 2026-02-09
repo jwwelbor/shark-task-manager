@@ -207,8 +207,9 @@
 
 | Field | Value |
 |-------|-------|
-| Last Session | (none yet) |
-| Result | - |
-| Results File | - |
+| Last Session | 2026-02-09 |
+| Result | PASS (8/8 scenarios) |
+| Results File | docs/uat/results/UAT-E16-F03-20260209-session1.md |
 
-**Previous Sessions:** None
+**Previous Sessions:**
+- 2026-02-09: PASS (8/8) - All scenarios passed, full feature acceptance validated
