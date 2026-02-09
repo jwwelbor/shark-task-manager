@@ -6,7 +6,7 @@ help:
 	@echo "  make install    - Install project dependencies"
 	@echo "  make build      - Build the application"
 	@echo "  make shark         - Build the Shark CLI tool"
-	@echo "  make install-shark - Install Shark CLI to ~/go/bin"
+	@echo "  make install-shark - Install Shark CLI (detects existing location or ~/go/bin)"
 	@echo "  make run        - Run the application"
 	@echo "  make dev        - Run in development mode with auto-reload"
 	@echo "  make demo       - Run interactive demo (creates sample data)"
@@ -23,26 +23,46 @@ install:
 	@export PATH=$$PATH:$$HOME/go/bin && go mod download
 	@export PATH=$$PATH:$$HOME/go/bin && go mod tidy
 
+# Build-time variables
+BUILD_DATE := $(shell date -u '+%Y-%m-%d')
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+LDFLAGS := -X main.BuildDate=$(BUILD_DATE) -X main.GitCommit=$(GIT_COMMIT)
+
 # Build the application
 build:
 	@echo "Building application..."
 	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -o bin/shark-task-manager cmd/server/main.go
 	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -o bin/demo cmd/demo/main.go
 	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -o bin/test-db cmd/test-db/main.go
-	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -o bin/shark cmd/shark/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -ldflags "$(LDFLAGS)" -o bin/shark cmd/shark/main.go
 
 # Build Shark CLI tool
 shark:
 	@echo "Building Shark CLI..."
-	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -o bin/shark cmd/shark/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -ldflags "$(LDFLAGS)" -o bin/shark cmd/shark/main.go
 	@echo "Shark CLI built: ./bin/shark"
 
-# Install Shark CLI to ~/go/bin
+# Install Shark CLI (finds and updates all installed copies, or defaults to ~/go/bin)
 install-shark: shark
-	@echo "Installing Shark CLI to ~/go/bin..."
-	@mkdir -p ~/go/bin
-	@cp bin/shark ~/go/bin/shark
-	@echo "Shark CLI installed! Run 'shark --help' to get started."
+	@FOUND=0; \
+	for LOC in $$(which -a shark 2>/dev/null | sort -u); do \
+		INSTALL_DIR=$$(dirname "$$LOC"); \
+		FOUND=1; \
+		echo "Updating $$LOC..."; \
+		if [ -w "$$INSTALL_DIR" ]; then \
+			cp bin/shark "$$LOC"; \
+		else \
+			echo "Error: Insufficient permissions to write to $$INSTALL_DIR. Please run 'sudo make install-shark' to update '$$LOC'."; \
+			exit 1; \
+		fi; \
+		echo "  Updated."; \
+	done; \
+	if [ "$$FOUND" = "0" ]; then \
+		echo "No existing shark found, installing to ~/go/bin..."; \
+		mkdir -p ~/go/bin; \
+		cp bin/shark ~/go/bin/shark; \
+		echo "Shark CLI installed to ~/go/bin/shark"; \
+	fi
 
 # Run the application
 run: build

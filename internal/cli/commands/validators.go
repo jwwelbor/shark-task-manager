@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -78,31 +80,26 @@ func ValidateNoSpaces(key string, entityType string) error {
 	return nil
 }
 
-// ValidateStatus ensures status is one of: draft, active, completed, archived
+// ValidateStatus validates a status against the workflow configuration for the given entity type.
+// Uses the workflow service with level awareness for config-driven validation.
 func ValidateStatus(status string, entityType string) error {
 	if status == "" {
 		return fmt.Errorf("%s status cannot be empty", entityType)
 	}
 
-	// Use the existing model validation functions
-	if entityType == "epic" {
-		return models.ValidateEpicStatus(status)
-	}
-	if entityType == "feature" {
-		return models.ValidateFeatureStatus(status)
+	// Map entity type to workflow level
+	var level string
+	switch entityType {
+	case "epic":
+		level = workflow.LevelEpic
+	case "feature":
+		level = workflow.LevelFeature
+	default:
+		level = workflow.LevelTask
 	}
 
-	// Generic validation for other entity types
-	validStatuses := map[string]bool{
-		"draft":     true,
-		"active":    true,
-		"completed": true,
-		"archived":  true,
-	}
-	if !validStatuses[status] {
-		return fmt.Errorf("invalid %s status %q: must be one of draft, active, completed, archived", entityType, status)
-	}
-	return nil
+	svc := cli.GetWorkflowService().ForLevel(level)
+	return svc.ValidateStatus(status)
 }
 
 // ValidatePriority ensures priority is one of: low, medium, high
