@@ -9,10 +9,15 @@ import (
 )
 
 var (
-	// Global workflow config cache
+	// Global workflow config cache (single-level, legacy)
 	workflowCache     *WorkflowConfig
 	workflowCacheLock sync.RWMutex
 	workflowCachePath string
+
+	// Multi-level workflow cache
+	multiLevelCache     *MultiLevelWorkflow
+	multiLevelCacheLock sync.RWMutex
+	multiLevelCachePath string
 )
 
 // LoadWorkflowConfig loads workflow configuration from .sharkconfig.json
@@ -138,19 +143,209 @@ func ClearWorkflowCache() {
 // GetWorkflowOrDefault loads workflow config or returns default if not configured
 // This is the primary API for getting workflow config throughout Shark
 func GetWorkflowOrDefault(configPath string) *WorkflowConfig {
-	workflow, err := LoadWorkflowConfig(configPath)
+	// Delegate to multi-level loader for consistency
+	multi := LoadMultiLevelWorkflowOrDefault(configPath)
+	return multi.GetWorkflowForLevel("task")
+}
+
+// LoadMultiLevelWorkflow loads all three workflow configs (epic, feature, task)
+// from .sharkconfig.json.
+//
+// Returns:
+// - *MultiLevelWorkflow with any/all of Epic, Feature, Task set (nil means use default)
+// - error if file exists but contains invalid JSON
+//
+// Missing config file returns (&MultiLevelWorkflow{}, nil).
+// Missing sections within the file result in nil for that level (will use default).
+// Empty sections (e.g., "epic_workflow": {}) are treated as unconfigured (nil).
+func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
+	// Check cache first (fast path)
+	multiLevelCacheLock.RLock()
+	if multiLevelCache != nil && multiLevelCachePath == configPath {
+		defer multiLevelCacheLock.RUnlock()
+		return multiLevelCache, nil
+	}
+	multiLevelCacheLock.RUnlock()
+
+	// Slow path: load from file
+	multiLevelCacheLock.Lock()
+	defer multiLevelCacheLock.Unlock()
+
+	// Double-check cache
+	if multiLevelCache != nil && multiLevelCachePath == configPath {
+		return multiLevelCache, nil
+	}
+
+	// Read config file
+	data, err := os.ReadFile(configPath)
 	if err != nil {
-		// Log warning and fall back to default
+		if os.IsNotExist(err) {
+			result := &MultiLevelWorkflow{}
+			multiLevelCache = result
+			multiLevelCachePath = configPath
+			return result, nil
+		}
+		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
+	}
+
+	// Parse full config as raw JSON
+	var rawConfig map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawConfig); err != nil {
+		if syntaxErr, ok := err.(*json.SyntaxError); ok {
+			return nil, fmt.Errorf("invalid JSON in %s at byte offset %d: %w", configPath, syntaxErr.Offset, err)
+		}
+		return nil, fmt.Errorf("failed to parse JSON in %s: %w", configPath, err)
+	}
+
+	result := &MultiLevelWorkflow{}
+
+	// Parse epic_workflow section
+	if epicRaw, ok := rawConfig["epic_workflow"]; ok {
+		epicWf, err := parseWorkflowSection(epicRaw, "epic_workflow")
+		if err != nil {
+			return nil, fmt.Errorf("invalid epic_workflow: %w", err)
+		}
+		result.Epic = epicWf
+	}
+
+	// Parse feature_workflow section
+	if featureRaw, ok := rawConfig["feature_workflow"]; ok {
+		featureWf, err := parseWorkflowSection(featureRaw, "feature_workflow")
+		if err != nil {
+			return nil, fmt.Errorf("invalid feature_workflow: %w", err)
+		}
+		result.Feature = featureWf
+	}
+
+	// Parse task workflow from top-level fields (backward compatible)
+	taskWf, err := parseTopLevelTaskWorkflow(rawConfig)
+	if err != nil {
+		return nil, fmt.Errorf("invalid task workflow: %w", err)
+	}
+	result.Task = taskWf
+
+	// Also update the legacy single-level cache for backward compatibility
+	workflowCacheLock.Lock()
+	if result.Task != nil {
+		workflowCache = result.Task
+	}
+	workflowCachePath = configPath
+	workflowCacheLock.Unlock()
+
+	// Cache the multi-level result
+	multiLevelCache = result
+	multiLevelCachePath = configPath
+
+	return result, nil
+}
+
+// LoadMultiLevelWorkflowOrDefault loads configs or returns defaults for missing sections.
+// Never returns nil, never returns an error (falls back to defaults on any failure).
+func LoadMultiLevelWorkflowOrDefault(configPath string) *MultiLevelWorkflow {
+	multi, err := LoadMultiLevelWorkflow(configPath)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load workflow config: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Using default workflow. Define status_flow in %s to customize.\n", configPath)
-		return DefaultWorkflow()
+		return &MultiLevelWorkflow{}
+	}
+	if multi == nil {
+		return &MultiLevelWorkflow{}
+	}
+	return multi
+}
+
+// ClearMultiLevelWorkflowCache clears the multi-level workflow cache.
+// Also clears the legacy single-level cache.
+func ClearMultiLevelWorkflowCache() {
+	multiLevelCacheLock.Lock()
+	defer multiLevelCacheLock.Unlock()
+	multiLevelCache = nil
+	multiLevelCachePath = ""
+
+	workflowCacheLock.Lock()
+	defer workflowCacheLock.Unlock()
+	workflowCache = nil
+	workflowCachePath = ""
+}
+
+// parseWorkflowSection parses a workflow config from a raw JSON section.
+// Returns nil if the section is empty ({}).
+func parseWorkflowSection(raw json.RawMessage, sectionName string) (*WorkflowConfig, error) {
+	// Check for empty object
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "{}" || trimmed == "null" {
+		return nil, nil
 	}
 
-	if workflow == nil {
-		// No workflow config defined, use default
-		// Don't log warning here - missing config is expected for existing projects
-		return DefaultWorkflow()
+	var wf WorkflowConfig
+	if err := json.Unmarshal(raw, &wf); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", sectionName, err)
 	}
 
-	return workflow
+	// Check if it has any meaningful content
+	if wf.StatusFlow == nil || len(wf.StatusFlow) == 0 {
+		return nil, nil
+	}
+
+	// Set default version
+	if wf.Version == "" {
+		wf.Version = DefaultWorkflowVersion
+	}
+
+	// Initialize nil maps
+	if wf.StatusMetadata == nil {
+		wf.StatusMetadata = make(map[string]StatusMetadata)
+	}
+	if wf.SpecialStatuses == nil {
+		wf.SpecialStatuses = make(map[string][]string)
+	}
+
+	return &wf, nil
+}
+
+// parseTopLevelTaskWorkflow extracts the task workflow from top-level config fields.
+// Returns nil if no top-level status_flow is defined.
+func parseTopLevelTaskWorkflow(rawConfig map[string]json.RawMessage) (*WorkflowConfig, error) {
+	// Check if status_flow section exists at the top level
+	if _, ok := rawConfig["status_flow"]; !ok {
+		return nil, nil
+	}
+
+	// Build a workflow-only JSON object from top-level fields
+	workflowData := make(map[string]json.RawMessage)
+	for _, key := range []string{"status_flow_version", "status_flow", "status_metadata", "special_statuses", "require_rejection_reason"} {
+		if val, ok := rawConfig[key]; ok {
+			workflowData[key] = val
+		}
+	}
+
+	workflowJSON, err := json.Marshal(workflowData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal task workflow data: %w", err)
+	}
+
+	var wf WorkflowConfig
+	if err := json.Unmarshal(workflowJSON, &wf); err != nil {
+		return nil, fmt.Errorf("failed to parse task workflow config: %w", err)
+	}
+
+	// Set defaults
+	if wf.Version == "" {
+		wf.Version = DefaultWorkflowVersion
+	}
+	if wf.StatusFlow == nil {
+		wf.StatusFlow = make(map[string][]string)
+	}
+	if wf.StatusMetadata == nil {
+		wf.StatusMetadata = make(map[string]StatusMetadata)
+	}
+	if wf.SpecialStatuses == nil {
+		wf.SpecialStatuses = make(map[string][]string)
+	}
+
+	// Validate version
+	if !strings.HasPrefix(wf.Version, "1.") {
+		return nil, fmt.Errorf("unsupported workflow config version %s (supported: 1.x)", wf.Version)
+	}
+
+	return &wf, nil
 }

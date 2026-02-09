@@ -172,7 +172,18 @@ func displayWorkflowHumanReadable(workflow *config.WorkflowConfig) error {
 	return nil
 }
 
-// runWorkflowValidate implements the workflow validate command
+// levelValidationResult holds validation results for a single workflow level.
+type levelValidationResult struct {
+	Level      string `json:"level"`
+	Valid      bool   `json:"valid"`
+	Source     string `json:"source"` // "custom" or "default"
+	Statuses   int    `json:"statuses"`
+	Transitions int   `json:"transitions"`
+	Error      string `json:"error,omitempty"`
+}
+
+// runWorkflowValidate implements the workflow validate command.
+// Validates all three workflow levels (epic, feature, task).
 func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	_ = ctx // Context available for future use
@@ -183,75 +194,91 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get config path: %w", err)
 	}
 
-	// Load workflow config
-	workflow, err := config.LoadWorkflowConfig(configPath)
+	// Load multi-level workflow (nil fields = using default)
+	multi, err := config.LoadMultiLevelWorkflow(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load workflow config: %w", err)
 	}
+	if multi == nil {
+		multi = &config.MultiLevelWorkflow{}
+	}
 
-	// If no custom workflow, validate default
-	if workflow == nil {
-		workflow = config.DefaultWorkflow()
-		if !cli.GlobalConfig.JSON {
-			cli.Warning("No custom workflow configured in .sharkconfig.json, validating default workflow")
+	// Validate each level
+	levels := []struct {
+		name     string
+		raw      *config.WorkflowConfig // nil means default
+		resolved *config.WorkflowConfig // always non-nil (with default fallback)
+	}{
+		{"epic", multi.Epic, multi.GetWorkflowForLevel("epic")},
+		{"feature", multi.Feature, multi.GetWorkflowForLevel("feature")},
+		{"task", multi.Task, multi.GetWorkflowForLevel("task")},
+	}
+
+	allValid := true
+	var results []levelValidationResult
+
+	for _, lvl := range levels {
+		source := "default"
+		if lvl.raw != nil {
+			source = "custom"
 		}
-	}
 
-	// Validate workflow
-	validationErr := config.ValidateWorkflow(workflow)
+		validationErr := config.ValidateWorkflow(lvl.resolved)
 
-	// Prepare validation result
-	result := map[string]interface{}{
-		"valid":       validationErr == nil,
-		"config_path": configPath,
-	}
-
-	if validationErr == nil {
-		// Count statistics
-		statusCount := len(workflow.StatusFlow)
-		startCount := len(workflow.SpecialStatuses[config.StartStatusKey])
-		completeCount := len(workflow.SpecialStatuses[config.CompleteStatusKey])
-
-		// Count total transitions
 		transitionCount := 0
-		for _, transitions := range workflow.StatusFlow {
+		for _, transitions := range lvl.resolved.StatusFlow {
 			transitionCount += len(transitions)
 		}
 
-		result["statistics"] = map[string]interface{}{
-			"statuses":          statusCount,
-			"transitions":       transitionCount,
-			"start_statuses":    startCount,
-			"complete_statuses": completeCount,
+		lr := levelValidationResult{
+			Level:       lvl.name,
+			Valid:       validationErr == nil,
+			Source:      source,
+			Statuses:    len(lvl.resolved.StatusFlow),
+			Transitions: transitionCount,
 		}
 
-		// JSON output
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(result)
+		if validationErr != nil {
+			lr.Error = validationErr.Error()
+			allValid = false
 		}
 
-		// Human-readable output
-		cli.Success("✓ Workflow configuration is valid")
-		fmt.Printf("\nStatistics:\n")
-		fmt.Printf("  - %d statuses defined\n", statusCount)
-		fmt.Printf("  - %d transitions configured\n", transitionCount)
-		fmt.Printf("  - %d start statuses (_start_)\n", startCount)
-		fmt.Printf("  - %d terminal statuses (_complete_)\n", completeCount)
-		fmt.Printf("  - All statuses are reachable\n")
-
-		return nil
+		results = append(results, lr)
 	}
 
-	// Validation failed
-	result["error"] = validationErr.Error()
+	// Prepare combined result
+	result := map[string]interface{}{
+		"valid":       allValid,
+		"config_path": configPath,
+		"levels":      results,
+	}
 
 	// JSON output
 	if cli.GlobalConfig.JSON {
-		_ = cli.OutputJSON(result)
-		return fmt.Errorf("validation failed")
+		if !allValid {
+			_ = cli.OutputJSON(result)
+			return fmt.Errorf("validation failed")
+		}
+		return cli.OutputJSON(result)
 	}
 
 	// Human-readable output
-	cli.Error(fmt.Sprintf("✗ Workflow validation failed\n\n%s", validationErr.Error()))
+	fmt.Println()
+	for _, lr := range results {
+		if lr.Valid {
+			fmt.Printf("  %s workflow: valid (%d statuses, %s)\n", strings.Title(lr.Level), lr.Statuses, lr.Source)
+		} else {
+			fmt.Printf("  %s workflow: INVALID (%s)\n", strings.Title(lr.Level), lr.Source)
+			fmt.Printf("    Error: %s\n", lr.Error)
+		}
+	}
+	fmt.Println()
+
+	if allValid {
+		cli.Success("All workflow levels are valid")
+		return nil
+	}
+
+	cli.Error("One or more workflow levels have validation errors")
 	return fmt.Errorf("workflow configuration is invalid")
 }
