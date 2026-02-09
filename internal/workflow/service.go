@@ -16,26 +16,34 @@ import (
 // Service provides centralized access to workflow configuration.
 // It loads and caches the workflow config from .sharkconfig.json,
 // providing a single source of truth for status ordering, metadata, and transitions.
+//
+// A Service wraps a single WorkflowConfig for one entity level (epic, feature, or task).
+// Use ForLevel() to obtain a Service for a different level.
 type Service struct {
 	workflow    *config.WorkflowConfig
 	projectRoot string
+	level       string                     // "epic", "feature", or "task"
+	multiLevel  *config.MultiLevelWorkflow // holds all three level configs
 }
 
 // NewService creates a new WorkflowService that loads configuration from the project root.
 // If the config file is missing or invalid, it falls back to the default workflow.
+// The returned service is configured for the task level (backward compatible).
 //
 // Parameters:
 //   - projectRoot: path to project root directory (where .sharkconfig.json lives)
 //
 // Returns:
-//   - *Service: initialized service with loaded or default workflow config
+//   - *Service: initialized service with loaded or default workflow config (task level)
 func NewService(projectRoot string) *Service {
 	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
-	workflow := config.GetWorkflowOrDefault(configPath)
+	multi := config.LoadMultiLevelWorkflowOrDefault(configPath)
 
 	return &Service{
-		workflow:    workflow,
+		workflow:    multi.GetWorkflowForLevel(LevelTask),
 		projectRoot: projectRoot,
+		level:       LevelTask,
+		multiLevel:  multi,
 	}
 }
 
@@ -43,6 +51,53 @@ func NewService(projectRoot string) *Service {
 // Never returns nil - falls back to default workflow if not configured.
 func (s *Service) GetWorkflow() *config.WorkflowConfig {
 	return s.workflow
+}
+
+// ForLevel returns a Service instance configured for the specified entity level.
+// The returned service shares the same parsed config but operates on the
+// level-specific workflow. All existing methods (IsValidTransition, GetValidTransitions,
+// GetStatusMetadata, etc.) work on the level-specific workflow automatically.
+//
+// Parameters:
+//   - level: LevelEpic, LevelFeature, or LevelTask
+//
+// Returns:
+//   - *Service: configured for the specified level
+func (s *Service) ForLevel(level string) *Service {
+	return &Service{
+		workflow:    s.multiLevel.GetWorkflowForLevel(level),
+		projectRoot: s.projectRoot,
+		level:       level,
+		multiLevel:  s.multiLevel,
+	}
+}
+
+// GetLevel returns the entity level this service is configured for.
+func (s *Service) GetLevel() string {
+	return s.level
+}
+
+// GetInitialStatusString returns the first entry status as a plain string.
+// Level-agnostic: works for epic, feature, and task levels.
+// Unlike GetInitialStatus() which returns models.TaskStatus, this method
+// returns a plain string suitable for any entity type.
+func (s *Service) GetInitialStatusString() string {
+	startStatuses, exists := s.workflow.SpecialStatuses[config.StartStatusKey]
+	if !exists || len(startStatuses) == 0 {
+		switch s.level {
+		case LevelEpic, LevelFeature:
+			return "draft"
+		default:
+			return "todo"
+		}
+	}
+	return startStatuses[0]
+}
+
+// ValidateTransition checks if a transition is valid and returns a descriptive error if not.
+// Delegates to config.ValidateTransition for the actual check.
+func (s *Service) ValidateTransition(fromStatus, toStatus string) error {
+	return config.ValidateTransition(s.workflow, fromStatus, toStatus)
 }
 
 // GetInitialStatus returns the first entry status for new tasks.

@@ -6,8 +6,13 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 )
 
-// TestParseEpicStatus tests parsing and validation of epic status values
+// TestParseEpicStatus tests parsing and validation of epic status values.
+// Validation is now config-driven via workflow.Service.ForLevel("epic").ValidateStatus().
 func TestParseEpicStatus(t *testing.T) {
+	// Reset workflow service to ensure clean state for this test
+	cli.ResetWorkflowService()
+	defer cli.ResetWorkflowService()
+
 	tests := []struct {
 		name      string
 		input     string
@@ -99,8 +104,13 @@ func TestParseEpicStatus(t *testing.T) {
 	}
 }
 
-// TestParseFeatureStatus tests parsing and validation of feature status values
+// TestParseFeatureStatus tests parsing and validation of feature status values.
+// Validation is now config-driven via workflow.Service.ForLevel("feature").ValidateStatus().
 func TestParseFeatureStatus(t *testing.T) {
+	// Reset workflow service to ensure clean state for this test
+	cli.ResetWorkflowService()
+	defer cli.ResetWorkflowService()
+
 	tests := []struct {
 		name      string
 		input     string

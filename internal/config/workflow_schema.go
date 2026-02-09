@@ -123,6 +123,17 @@ type StatusMetadata struct {
 	// OrchestratorAction specifies the action for orchestrators when task enters this status
 	// Optional field for workflow-driven agent spawning (Phase 1 feature)
 	OrchestratorAction *OrchestratorAction `json:"orchestrator_action,omitempty" yaml:"orchestrator_action,omitempty"`
+
+	// IsPlanning indicates this status is a planning phase status.
+	// When true, the entity has its own workflow status (not aggregating children).
+	// When false (or omitted), the entity may aggregate progress from children.
+	// Used by E16-F03 to control display behavior.
+	IsPlanning bool `json:"is_planning,omitempty"`
+
+	// AggregatesFrom indicates this status derives progress from children.
+	// Values: "features" (epic aggregates features), "tasks" (feature aggregates tasks), "" (none).
+	// Used by E16-F03 to switch between workflow display and progress display.
+	AggregatesFrom string `json:"aggregates_from,omitempty"`
 }
 
 // Special status keys used in SpecialStatuses map
@@ -132,6 +143,11 @@ const (
 
 	// CompleteStatusKey defines terminal statuses where tasks end
 	CompleteStatusKey = "_complete_"
+
+	// AggregationStatusKey identifies statuses where an entity switches from
+	// its own workflow tracking to aggregating progress from children.
+	// Used by epic/feature workflows to distinguish planning from execution phases.
+	AggregationStatusKey = "_aggregation_"
 )
 
 // Default version for workflow configs
