@@ -185,6 +185,7 @@ func performEntityTransition(ctx context.Context, svc entityTransitioner, _ inte
 	}
 
 	cli.Success(fmt.Sprintf("Transitioned: %s -> %s", transResult.FromStatus, transResult.ToStatus))
+	displayOrchestratorAction(transResult.OrchestratorAction)
 	return nil
 }
 

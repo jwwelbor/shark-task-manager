@@ -35,9 +35,21 @@ func TestBuildNextStatusResult_FeatureWithMultipleTransitions(t *testing.T) {
 		EntityKey:     "E16-F01",
 		CurrentStatus: "draft",
 		CurrentPhase:  "planning",
-		AvailableTransitions: []workflow.TransitionInfo{
-			{TargetStatus: "active", Description: "Activate feature", Phase: "execution"},
-			{TargetStatus: "archived", Description: "Archive feature", Phase: "done"},
+		AvailableTransitions: []services.TransitionInfoWithAction{
+			{
+				TransitionInfo: workflow.TransitionInfo{
+					TargetStatus: "active",
+					Description:  "Activate feature",
+					Phase:        "execution",
+				},
+			},
+			{
+				TransitionInfo: workflow.TransitionInfo{
+					TargetStatus: "archived",
+					Description:  "Archive feature",
+					Phase:        "done",
+				},
+			},
 		},
 		IsTerminal: false,
 	}
@@ -64,7 +76,7 @@ func TestBuildNextStatusResult_FeatureTerminal(t *testing.T) {
 		EntityKey:            "E16-F01",
 		CurrentStatus:        "archived",
 		CurrentPhase:         "done",
-		AvailableTransitions: []workflow.TransitionInfo{},
+		AvailableTransitions: []services.TransitionInfoWithAction{},
 		IsTerminal:           true,
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -70,12 +71,15 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 		return nil, fmt.Errorf("failed to update epic status: %w", err)
 	}
 
+	action := s.resolveAction(epicKey, targetStatus)
+
 	return &TransitionResult{
-		EntityType:   "epic",
-		EntityKey:    epicKey,
-		FromStatus:   currentStatus,
-		ToStatus:     targetStatus,
-		Transitioned: true,
+		EntityType:         "epic",
+		EntityKey:          epicKey,
+		FromStatus:         currentStatus,
+		ToStatus:           targetStatus,
+		Transitioned:       true,
+		OrchestratorAction: action,
 	}, nil
 }
 
@@ -93,12 +97,21 @@ func (s *EpicService) GetNextStatus(ctx context.Context, epicKey string) (*NextS
 	transitions := s.workflowSvc.GetTransitionInfo(currentStatus)
 	currentMeta := s.workflowSvc.GetStatusMetadata(currentStatus)
 
+	// Wrap transitions with action support
+	wrapped := make([]TransitionInfoWithAction, 0, len(transitions))
+	for _, t := range transitions {
+		wrapped = append(wrapped, TransitionInfoWithAction{
+			TransitionInfo:     t,
+			OrchestratorAction: s.resolveAction(epicKey, t.TargetStatus),
+		})
+	}
+
 	return &NextStatusInfo{
 		EntityType:           "epic",
 		EntityKey:            epicKey,
 		CurrentStatus:        currentStatus,
 		CurrentPhase:         currentMeta.Phase,
-		AvailableTransitions: transitions,
+		AvailableTransitions: wrapped,
 		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
 	}, nil
 }
@@ -106,4 +119,23 @@ func (s *EpicService) GetNextStatus(ctx context.Context, epicKey string) (*NextS
 // ValidateStatus checks if a status is valid in the epic workflow.
 func (s *EpicService) ValidateStatus(status string) error {
 	return s.workflowSvc.ValidateStatus(status)
+}
+
+// resolveAction looks up the orchestrator action for a given status in the workflow config.
+// Returns nil if no action is defined for the status, or if the workflow config is nil.
+func (s *EpicService) resolveAction(entityKey string, status string) *config.PopulatedAction {
+	wf := s.workflowSvc.GetWorkflow()
+	if wf == nil || wf.StatusMetadata == nil {
+		return nil
+	}
+	meta, exists := wf.StatusMetadata[status]
+	if !exists || meta.OrchestratorAction == nil {
+		return nil
+	}
+	return &config.PopulatedAction{
+		Action:      meta.OrchestratorAction.Action,
+		AgentType:   meta.OrchestratorAction.AgentType,
+		Skills:      meta.OrchestratorAction.Skills,
+		Instruction: meta.OrchestratorAction.PopulateTemplate(entityKey),
+	}
 }

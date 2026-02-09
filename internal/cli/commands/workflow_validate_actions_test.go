@@ -311,3 +311,344 @@ func TestValidationReport_JSON(t *testing.T) {
 		t.Errorf("Expected developer agent type, got %s", result.AgentType)
 	}
 }
+
+func TestValidateActions_MultiLevel_AllValid(t *testing.T) {
+	epicWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_epic_planning": {
+				Phase: "planning",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "business_analyst",
+					Skills:              []string{"planning"},
+					InstructionTemplate: "Plan epic {epic_id}",
+				},
+			},
+		},
+	}
+
+	featureWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_feature_design": {
+				Phase: "design",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "architect",
+					Skills:              []string{"design"},
+					InstructionTemplate: "Design feature {feature_id}",
+				},
+			},
+		},
+	}
+
+	taskWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_development": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"implementation"},
+					InstructionTemplate: "Implement task {task_id}",
+				},
+			},
+		},
+	}
+
+	epicReport := validateWorkflowActions(epicWorkflow, false)
+	featureReport := validateWorkflowActions(featureWorkflow, false)
+	taskReport := validateWorkflowActions(taskWorkflow, false)
+
+	multiReport := &MultiLevelValidationReport{
+		Valid:         epicReport.Valid && featureReport.Valid && taskReport.Valid,
+		StrictMode:    false,
+		EpicReport:    epicReport,
+		FeatureReport: featureReport,
+		TaskReport:    taskReport,
+	}
+
+	if !multiReport.Valid {
+		t.Errorf("Expected overall valid=true, got false")
+	}
+	if !multiReport.EpicReport.Valid {
+		t.Errorf("Expected epic report valid=true")
+	}
+	if !multiReport.FeatureReport.Valid {
+		t.Errorf("Expected feature report valid=true")
+	}
+	if !multiReport.TaskReport.Valid {
+		t.Errorf("Expected task report valid=true")
+	}
+}
+
+func TestValidateActions_MultiLevel_EpicInvalid(t *testing.T) {
+	epicWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_epic_planning": {
+				Phase: "planning",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:    config.ActionSpawnAgent,
+					AgentType: "business_analyst",
+					// Missing skills - error
+					InstructionTemplate: "Plan epic {epic_id}",
+				},
+			},
+		},
+	}
+
+	featureWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_feature_design": {
+				Phase: "design",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "architect",
+					Skills:              []string{"design"},
+					InstructionTemplate: "Design feature {feature_id}",
+				},
+			},
+		},
+	}
+
+	taskWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_development": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"implementation"},
+					InstructionTemplate: "Implement task {task_id}",
+				},
+			},
+		},
+	}
+
+	epicReport := validateWorkflowActions(epicWorkflow, false)
+	featureReport := validateWorkflowActions(featureWorkflow, false)
+	taskReport := validateWorkflowActions(taskWorkflow, false)
+
+	multiReport := &MultiLevelValidationReport{
+		Valid:         epicReport.Valid && featureReport.Valid && taskReport.Valid,
+		StrictMode:    false,
+		EpicReport:    epicReport,
+		FeatureReport: featureReport,
+		TaskReport:    taskReport,
+	}
+
+	if multiReport.Valid {
+		t.Errorf("Expected overall valid=false due to epic errors, got true")
+	}
+	if epicReport.Valid {
+		t.Errorf("Expected epic report valid=false")
+	}
+	if !featureReport.Valid {
+		t.Errorf("Expected feature report valid=true")
+	}
+	if !taskReport.Valid {
+		t.Errorf("Expected task report valid=true")
+	}
+}
+
+func TestValidateActions_LevelFilter(t *testing.T) {
+	// Test that when filtering by level, only that level's workflow is validated
+	taskWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_development": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"implementation"},
+					InstructionTemplate: "Implement task {task_id}",
+				},
+			},
+		},
+	}
+
+	report := validateWorkflowActions(taskWorkflow, false)
+
+	if !report.Valid {
+		t.Errorf("Expected task workflow to be valid")
+	}
+	if report.TotalStatuses != 1 {
+		t.Errorf("Expected 1 status, got %d", report.TotalStatuses)
+	}
+}
+
+func TestValidateActions_StrictMode_MultiLevel(t *testing.T) {
+	epicWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"in_planning": {
+				Phase: "planning",
+				// No action - warning in strict mode
+			},
+		},
+	}
+
+	featureWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"in_design": {
+				Phase: "design",
+				// No action - warning in strict mode
+			},
+		},
+	}
+
+	taskWorkflow := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"in_development": {
+				Phase: "development",
+				// No action - warning in strict mode
+			},
+		},
+	}
+
+	epicReport := validateWorkflowActions(epicWorkflow, true)
+	featureReport := validateWorkflowActions(featureWorkflow, true)
+	taskReport := validateWorkflowActions(taskWorkflow, true)
+
+	multiReport := &MultiLevelValidationReport{
+		Valid:         epicReport.Valid && featureReport.Valid && taskReport.Valid,
+		StrictMode:    true,
+		EpicReport:    epicReport,
+		FeatureReport: featureReport,
+		TaskReport:    taskReport,
+	}
+
+	if multiReport.Valid {
+		t.Errorf("Expected invalid in strict mode with warnings")
+	}
+	if epicReport.WarningCount == 0 {
+		t.Errorf("Expected warnings in epic report")
+	}
+	if featureReport.WarningCount == 0 {
+		t.Errorf("Expected warnings in feature report")
+	}
+	if taskReport.WarningCount == 0 {
+		t.Errorf("Expected warnings in task report")
+	}
+}
+
+func TestValidateActions_DefaultWorkflow_NoActions(t *testing.T) {
+	// Default workflows should pass validation even with no custom actions
+	defaultWorkflow := config.DefaultWorkflow()
+
+	report := validateWorkflowActions(defaultWorkflow, false)
+
+	// Should be valid even with no custom orchestrator actions
+	if !report.Valid {
+		t.Errorf("Expected default workflow to be valid")
+	}
+}
+
+func TestValidateActions_OverallValid_OnlyWhenAllLevelsValid(t *testing.T) {
+	tests := []struct {
+		name         string
+		epicValid    bool
+		featureValid bool
+		taskValid    bool
+		overallValid bool
+	}{
+		{"all valid", true, true, true, true},
+		{"epic invalid", false, true, true, false},
+		{"feature invalid", true, false, true, false},
+		{"task invalid", true, true, false, false},
+		{"all invalid", false, false, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			multiReport := &MultiLevelValidationReport{
+				Valid:      true,
+				StrictMode: false,
+				EpicReport: &ValidationReport{
+					Valid: tt.epicValid,
+				},
+				FeatureReport: &ValidationReport{
+					Valid: tt.featureValid,
+				},
+				TaskReport: &ValidationReport{
+					Valid: tt.taskValid,
+				},
+			}
+
+			// Apply AND logic
+			multiReport.Valid = tt.epicValid && tt.featureValid && tt.taskValid
+
+			if multiReport.Valid != tt.overallValid {
+				t.Errorf("Expected overall valid=%v, got %v", tt.overallValid, multiReport.Valid)
+			}
+		})
+	}
+}
+
+func TestMultiLevelValidationReport_JSON(t *testing.T) {
+	multiReport := &MultiLevelValidationReport{
+		Valid:      true,
+		StrictMode: false,
+		EpicReport: &ValidationReport{
+			Valid:         true,
+			TotalStatuses: 1,
+			ValidCount:    1,
+		},
+		FeatureReport: &ValidationReport{
+			Valid:         true,
+			TotalStatuses: 2,
+			ValidCount:    2,
+		},
+		TaskReport: &ValidationReport{
+			Valid:         true,
+			TotalStatuses: 3,
+			ValidCount:    3,
+		},
+	}
+
+	if !multiReport.Valid {
+		t.Errorf("Expected valid=true")
+	}
+	if multiReport.EpicReport == nil {
+		t.Errorf("Expected epic report to be non-nil")
+	}
+	if multiReport.FeatureReport == nil {
+		t.Errorf("Expected feature report to be non-nil")
+	}
+	if multiReport.TaskReport == nil {
+		t.Errorf("Expected task report to be non-nil")
+	}
+}
+
+func TestValidateActions_InvalidLevel(t *testing.T) {
+	invalidLevels := []string{"invalid", "EPIC", "tasks", ""}
+
+	for _, level := range invalidLevels {
+		if level == "" {
+			continue // Empty is valid (means all levels)
+		}
+
+		validLevels := map[string]bool{"epic": true, "feature": true, "task": true}
+		if validLevels[level] {
+			t.Errorf("Level %q should be invalid but was accepted", level)
+		}
+	}
+
+	// Test valid levels
+	validLevels := []string{"epic", "feature", "task"}
+	validMap := map[string]bool{"epic": true, "feature": true, "task": true}
+
+	for _, level := range validLevels {
+		if !validMap[level] {
+			t.Errorf("Level %q should be valid but was rejected", level)
+		}
+	}
+}

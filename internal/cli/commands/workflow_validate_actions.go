@@ -24,27 +24,33 @@ This command checks:
 - instruction_templates are non-empty and syntactically valid
 
 Use --strict to fail on warnings (any missing actions).
+Use --level to validate only a specific entity level (epic, feature, task).
 
 Exit codes:
   0 - Validation passed (or passed with warnings in non-strict mode)
   1 - Validation failed (errors found or warnings in --strict mode)
 
 Examples:
-  shark workflow validate-actions         Validate with warnings
-  shark workflow validate-actions --strict Fail on any warnings
-  shark workflow validate-actions --json  JSON output`,
+  shark workflow validate-actions                  Validate all levels
+  shark workflow validate-actions --level=task     Validate only task workflow
+  shark workflow validate-actions --level=epic     Validate only epic workflow
+  shark workflow validate-actions --strict         Fail on any warnings
+  shark workflow validate-actions --json           JSON output`,
 	RunE: runWorkflowValidateActions,
 }
 
 // Flags
 var (
 	validateActionsStrict bool
+	validateActionsLevel  string
 )
 
 func init() {
 	workflowCmd.AddCommand(workflowValidateActionsCmd)
 	workflowValidateActionsCmd.Flags().BoolVar(&validateActionsStrict, "strict", false,
 		"Fail with exit code 1 if any status lacks an orchestrator action")
+	workflowValidateActionsCmd.Flags().StringVar(&validateActionsLevel, "level", "",
+		"Filter by entity level (epic, feature, task)")
 }
 
 // ValidationReport contains the validation results
@@ -70,10 +76,27 @@ type StatusValidationResult struct {
 	Skills         []string `json:"skills,omitempty"`
 }
 
+// MultiLevelValidationReport contains validation results for all entity levels
+type MultiLevelValidationReport struct {
+	Valid         bool              `json:"valid"`
+	StrictMode    bool              `json:"strict_mode"`
+	EpicReport    *ValidationReport `json:"epic_report,omitempty"`
+	FeatureReport *ValidationReport `json:"feature_report,omitempty"`
+	TaskReport    *ValidationReport `json:"task_report,omitempty"`
+}
+
 // runWorkflowValidateActions implements the validate-actions command
 func runWorkflowValidateActions(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	_ = ctx // Context available for future use
+
+	// Validate --level flag
+	if validateActionsLevel != "" {
+		validLevels := map[string]bool{"epic": true, "feature": true, "task": true}
+		if !validLevels[validateActionsLevel] {
+			return fmt.Errorf("invalid level %q: must be one of: epic, feature, task", validateActionsLevel)
+		}
+	}
 
 	// Get config path using centralized helper
 	configPath, err := cli.GetConfigPath()
@@ -81,33 +104,67 @@ func runWorkflowValidateActions(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get config path: %w", err)
 	}
 
-	// Load workflow config
-	workflow, err := config.LoadWorkflowConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load workflow config: %w", err)
-	}
+	// Load multi-level workflow config
+	multiWorkflow := config.LoadMultiLevelWorkflowOrDefault(configPath)
 
-	// If no custom workflow, validate default
-	if workflow == nil {
-		workflow = config.DefaultWorkflow()
-		if !cli.GlobalConfig.JSON {
-			cli.Warning("No custom workflow configured in .sharkconfig.json, validating default workflow")
+	// If --level is specified, validate only that level (backward compat)
+	if validateActionsLevel != "" {
+		workflow := multiWorkflow.GetWorkflowForLevel(validateActionsLevel)
+		report := validateWorkflowActions(workflow, validateActionsStrict)
+
+		// Output as JSON if requested
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(report)
 		}
+
+		// Human-readable output
+		displayValidationReport(report)
+
+		// Determine exit code
+		if !report.Valid {
+			os.Exit(1)
+		}
+
+		return nil
 	}
 
-	// Perform validation
-	report := validateWorkflowActions(workflow, validateActionsStrict)
+	// No --level specified: validate all levels
+	multiReport := &MultiLevelValidationReport{
+		Valid:      true,
+		StrictMode: validateActionsStrict,
+	}
+
+	// Validate epic workflow
+	epicWorkflow := multiWorkflow.GetWorkflowForLevel("epic")
+	multiReport.EpicReport = validateWorkflowActions(epicWorkflow, validateActionsStrict)
+	if !multiReport.EpicReport.Valid {
+		multiReport.Valid = false
+	}
+
+	// Validate feature workflow
+	featureWorkflow := multiWorkflow.GetWorkflowForLevel("feature")
+	multiReport.FeatureReport = validateWorkflowActions(featureWorkflow, validateActionsStrict)
+	if !multiReport.FeatureReport.Valid {
+		multiReport.Valid = false
+	}
+
+	// Validate task workflow
+	taskWorkflow := multiWorkflow.GetWorkflowForLevel("task")
+	multiReport.TaskReport = validateWorkflowActions(taskWorkflow, validateActionsStrict)
+	if !multiReport.TaskReport.Valid {
+		multiReport.Valid = false
+	}
 
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(report)
+		return cli.OutputJSON(multiReport)
 	}
 
 	// Human-readable output
-	displayValidationReport(report)
+	displayMultiLevelValidationReport(multiReport)
 
 	// Determine exit code
-	if !report.Valid {
+	if !multiReport.Valid {
 		os.Exit(1)
 	}
 
@@ -257,4 +314,125 @@ func displayValidationReport(report *ValidationReport) {
 			}
 		}
 	}
+}
+
+// displayMultiLevelValidationReport displays the multi-level validation report in human-readable format
+func displayMultiLevelValidationReport(report *MultiLevelValidationReport) {
+	fmt.Println("Validating workflow orchestrator actions...")
+	fmt.Println()
+
+	// Display epic workflow results
+	if report.EpicReport != nil {
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("--- Epic Workflow ---")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		displaySingleLevelResults(report.EpicReport)
+		fmt.Println()
+	}
+
+	// Display feature workflow results
+	if report.FeatureReport != nil {
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("--- Feature Workflow ---")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		displaySingleLevelResults(report.FeatureReport)
+		fmt.Println()
+	}
+
+	// Display task workflow results
+	if report.TaskReport != nil {
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("--- Task Workflow ---")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		displaySingleLevelResults(report.TaskReport)
+		fmt.Println()
+	}
+
+	// Display overall summary
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("Overall Summary")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	if report.EpicReport != nil {
+		epicStatus := "VALID"
+		if !report.EpicReport.Valid {
+			epicStatus = "INVALID"
+		}
+		fmt.Printf("Epic:    %s (%d actions validated)\n", epicStatus, report.EpicReport.TotalStatuses)
+	}
+
+	if report.FeatureReport != nil {
+		featureStatus := "VALID"
+		if !report.FeatureReport.Valid {
+			featureStatus = "INVALID"
+		}
+		fmt.Printf("Feature: %s (%d actions validated)\n", featureStatus, report.FeatureReport.TotalStatuses)
+	}
+
+	if report.TaskReport != nil {
+		taskStatus := "VALID"
+		if !report.TaskReport.Valid {
+			taskStatus = "INVALID"
+		}
+		fmt.Printf("Task:    %s (%d actions validated)\n", taskStatus, report.TaskReport.TotalStatuses)
+	}
+
+	fmt.Println()
+
+	if report.Valid {
+		cli.Success("Overall: VALID")
+	} else {
+		cli.Error("Overall: INVALID")
+		if report.StrictMode {
+			fmt.Println("(Failed with --strict mode)")
+		}
+	}
+}
+
+// displaySingleLevelResults displays validation results for a single level (without header/summary)
+func displaySingleLevelResults(report *ValidationReport) {
+	// Show note if no actions configured
+	if report.TotalStatuses == 0 {
+		fmt.Println("  (Using default workflow with no custom orchestrator actions)")
+		return
+	}
+
+	// Display results
+	for _, result := range report.Results {
+		if result.Valid && result.Severity == "" {
+			// Valid status
+			fmt.Printf("  ✅ Status \"%s\": Valid\n", result.Status)
+			if result.ActionType != "" {
+				fmt.Printf("     - Action: %s\n", result.ActionType)
+				if result.AgentType != "" {
+					fmt.Printf("     - Agent: %s\n", result.AgentType)
+				}
+				if len(result.Skills) > 0 {
+					skillsList := strings.Join(result.Skills, ", ")
+					if len(skillsList) > 50 {
+						skillsList = skillsList[:50] + "..."
+					}
+					fmt.Printf("     - Skills: %s\n", skillsList)
+				}
+			} else {
+				// No action but valid (non-actionable status)
+				fmt.Printf("     - No orchestrator action (not actionable)\n")
+			}
+		} else if result.Severity == "warning" {
+			// Warning
+			fmt.Printf("  ⚠️  Status \"%s\": Missing orchestrator_action\n", result.Status)
+			fmt.Printf("     - %s\n", result.Message)
+			if result.Recommendation != "" {
+				fmt.Printf("     - Recommendation: %s\n", result.Recommendation)
+			}
+		} else if result.Severity == "error" {
+			// Error
+			fmt.Printf("  ❌ Status \"%s\": Invalid orchestrator_action\n", result.Status)
+			fmt.Printf("     - %s\n", result.Message)
+		}
+	}
+
+	// Brief summary line for this level
+	fmt.Printf("\n  Summary: %d valid, %d warnings, %d errors\n",
+		report.ValidCount, report.WarningCount, report.ErrorCount)
 }

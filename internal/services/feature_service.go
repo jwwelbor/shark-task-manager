@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -70,12 +71,15 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		return nil, fmt.Errorf("failed to update feature status: %w", err)
 	}
 
+	action := s.resolveAction(featureKey, targetStatus)
+
 	return &TransitionResult{
-		EntityType:   "feature",
-		EntityKey:    featureKey,
-		FromStatus:   currentStatus,
-		ToStatus:     targetStatus,
-		Transitioned: true,
+		EntityType:         "feature",
+		EntityKey:          featureKey,
+		FromStatus:         currentStatus,
+		ToStatus:           targetStatus,
+		Transitioned:       true,
+		OrchestratorAction: action,
 	}, nil
 }
 
@@ -93,12 +97,21 @@ func (s *FeatureService) GetNextStatus(ctx context.Context, featureKey string) (
 	transitions := s.workflowSvc.GetTransitionInfo(currentStatus)
 	currentMeta := s.workflowSvc.GetStatusMetadata(currentStatus)
 
+	// Wrap transitions with action support
+	wrapped := make([]TransitionInfoWithAction, 0, len(transitions))
+	for _, t := range transitions {
+		wrapped = append(wrapped, TransitionInfoWithAction{
+			TransitionInfo:     t,
+			OrchestratorAction: s.resolveAction(featureKey, t.TargetStatus),
+		})
+	}
+
 	return &NextStatusInfo{
 		EntityType:           "feature",
 		EntityKey:            featureKey,
 		CurrentStatus:        currentStatus,
 		CurrentPhase:         currentMeta.Phase,
-		AvailableTransitions: transitions,
+		AvailableTransitions: wrapped,
 		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
 	}, nil
 }
@@ -106,4 +119,23 @@ func (s *FeatureService) GetNextStatus(ctx context.Context, featureKey string) (
 // ValidateStatus checks if a status is valid in the feature workflow.
 func (s *FeatureService) ValidateStatus(status string) error {
 	return s.workflowSvc.ValidateStatus(status)
+}
+
+// resolveAction returns a populated orchestrator action for the given status,
+// or nil if no action is defined for that status.
+func (s *FeatureService) resolveAction(entityKey string, status string) *config.PopulatedAction {
+	wf := s.workflowSvc.GetWorkflow()
+	if wf == nil || wf.StatusMetadata == nil {
+		return nil
+	}
+	meta, exists := wf.StatusMetadata[status]
+	if !exists || meta.OrchestratorAction == nil {
+		return nil
+	}
+	return &config.PopulatedAction{
+		Action:      meta.OrchestratorAction.Action,
+		AgentType:   meta.OrchestratorAction.AgentType,
+		Skills:      meta.OrchestratorAction.Skills,
+		Instruction: meta.OrchestratorAction.PopulateTemplate(entityKey),
+	}
 }
