@@ -410,6 +410,259 @@ func TestWorkflowValidateDefaultWorkflow(t *testing.T) {
 	}
 }
 
+// TestWorkflowValidateMultiLevel tests validation of all three workflow levels
+func TestWorkflowValidateMultiLevel(t *testing.T) {
+	originalConfig := cli.GlobalConfig
+	defer func() { cli.GlobalConfig = originalConfig }()
+
+	tests := []struct {
+		name           string
+		configContent  string
+		jsonOutput     bool
+		expectValid    bool
+		expectedLevels int
+	}{
+		{
+			name: "all_defaults",
+			configContent: `{
+				"task_folder_base": "docs/plan"
+			}`,
+			jsonOutput:     false,
+			expectValid:    true,
+			expectedLevels: 3,
+		},
+		{
+			name: "custom_epic_workflow",
+			configContent: `{
+				"task_folder_base": "docs/plan",
+				"epic_workflow": {
+					"status_flow": {
+						"planning": ["active"],
+						"active": ["completed"],
+						"completed": []
+					},
+					"special_statuses": {
+						"_start_": ["planning"],
+						"_complete_": ["completed"]
+					}
+				}
+			}`,
+			jsonOutput:     false,
+			expectValid:    true,
+			expectedLevels: 3,
+		},
+		{
+			name: "custom_feature_workflow",
+			configContent: `{
+				"task_folder_base": "docs/plan",
+				"feature_workflow": {
+					"status_flow": {
+						"draft": ["in_progress"],
+						"in_progress": ["done"],
+						"done": []
+					},
+					"special_statuses": {
+						"_start_": ["draft"],
+						"_complete_": ["done"]
+					}
+				}
+			}`,
+			jsonOutput:     false,
+			expectValid:    true,
+			expectedLevels: 3,
+		},
+		{
+			name: "invalid_epic_workflow_valid_others",
+			configContent: `{
+				"task_folder_base": "docs/plan",
+				"epic_workflow": {
+					"status_flow": {
+						"planning": ["active"],
+						"active": ["completed"],
+						"completed": []
+					},
+					"special_statuses": {
+						"_complete_": ["completed"]
+					}
+				}
+			}`,
+			jsonOutput:  false,
+			expectValid: false,
+		},
+		{
+			name: "all_custom_json",
+			configContent: `{
+				"task_folder_base": "docs/plan",
+				"epic_workflow": {
+					"status_flow": {
+						"draft": ["active"],
+						"active": ["done"],
+						"done": []
+					},
+					"special_statuses": {
+						"_start_": ["draft"],
+						"_complete_": ["done"]
+					}
+				},
+				"feature_workflow": {
+					"status_flow": {
+						"open": ["closed"],
+						"closed": []
+					},
+					"special_statuses": {
+						"_start_": ["open"],
+						"_complete_": ["closed"]
+					}
+				},
+				"status_flow_version": "1.0",
+				"status_flow": {
+					"todo": ["done"],
+					"done": []
+				},
+				"special_statuses": {
+					"_start_": ["todo"],
+					"_complete_": ["done"]
+				}
+			}`,
+			jsonOutput:     true,
+			expectValid:    true,
+			expectedLevels: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config.ClearWorkflowCache()
+
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+			if err := os.WriteFile(configPath, []byte(tt.configContent), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			cli.GlobalConfig = &cli.Config{
+				JSON:       tt.jsonOutput,
+				ConfigFile: configPath,
+			}
+
+			var buf bytes.Buffer
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			cmd := &cobra.Command{RunE: runWorkflowValidate}
+			cmd.SetContext(context.Background())
+			err := runWorkflowValidate(cmd, []string{})
+
+			w.Close()
+			os.Stdout = oldStdout
+			_, _ = buf.ReadFrom(r)
+			output := buf.String()
+
+			if tt.expectValid && err != nil {
+				t.Errorf("Expected valid but got error: %v\nOutput: %s", err, output)
+			}
+			if !tt.expectValid && err == nil {
+				t.Errorf("Expected error but got none\nOutput: %s", output)
+			}
+
+			if tt.jsonOutput && tt.expectValid {
+				var result map[string]interface{}
+				if err := json.Unmarshal([]byte(output), &result); err != nil {
+					t.Fatalf("Failed to parse JSON: %v\nOutput: %s", err, output)
+				}
+				if _, ok := result["levels"]; !ok {
+					t.Error("Expected 'levels' field in JSON output")
+				}
+				levels, ok := result["levels"].([]interface{})
+				if !ok {
+					t.Fatal("Expected 'levels' to be an array")
+				}
+				if len(levels) != tt.expectedLevels {
+					t.Errorf("Expected %d levels, got %d", tt.expectedLevels, len(levels))
+				}
+			}
+		})
+	}
+}
+
+// TestWorkflowValidateMultiLevel_SourceField verifies custom vs default source detection
+func TestWorkflowValidateMultiLevel_SourceField(t *testing.T) {
+	originalConfig := cli.GlobalConfig
+	defer func() { cli.GlobalConfig = originalConfig }()
+	config.ClearWorkflowCache()
+
+	configContent := `{
+		"task_folder_base": "docs/plan",
+		"epic_workflow": {
+			"status_flow": {
+				"draft": ["active"],
+				"active": ["done"],
+				"done": []
+			},
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["done"]
+			}
+		}
+	}`
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cli.GlobalConfig = &cli.Config{
+		JSON:       true,
+		ConfigFile: configPath,
+	}
+
+	var buf bytes.Buffer
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	cmd := &cobra.Command{RunE: runWorkflowValidate}
+	cmd.SetContext(context.Background())
+	err := runWorkflowValidate(cmd, []string{})
+
+	w.Close()
+	os.Stdout = oldStdout
+	_, _ = buf.ReadFrom(r)
+	output := buf.String()
+
+	if err != nil {
+		t.Fatalf("Expected valid but got error: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("Failed to parse JSON: %v\nOutput: %s", err, output)
+	}
+
+	levels := result["levels"].([]interface{})
+
+	// Epic should be "custom", feature and task should be "default"
+	for _, lvl := range levels {
+		l := lvl.(map[string]interface{})
+		switch l["level"].(string) {
+		case "epic":
+			if l["source"] != "custom" {
+				t.Errorf("Expected epic source 'custom', got %q", l["source"])
+			}
+		case "feature":
+			if l["source"] != "default" {
+				t.Errorf("Expected feature source 'default', got %q", l["source"])
+			}
+		case "task":
+			if l["source"] != "default" {
+				t.Errorf("Expected task source 'default', got %q", l["source"])
+			}
+		}
+	}
+}
+
 // TestTaskSetStatusCommand tests the task set-status command with workflow validation
 func TestTaskSetStatusCommand(t *testing.T) {
 	// Save original GlobalConfig

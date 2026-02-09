@@ -3,6 +3,7 @@ package commands
 import (
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -279,12 +280,17 @@ func TestValidateNoSpaces_Invalid(t *testing.T) {
 	}
 }
 
-// TestValidateStatus_AllValidValues tests all valid status values
+// TestValidateStatus_AllValidValues tests all valid status values.
+// Validation is now config-driven via workflow.Service.ForLevel().ValidateStatus().
 func TestValidateStatus_AllValidValues(t *testing.T) {
-	validStatuses := []string{"draft", "active", "completed", "archived"}
+	// Reset workflow service to ensure clean state for this test
+	cli.ResetWorkflowService()
+	defer cli.ResetWorkflowService()
+
+	epicFeatureStatuses := []string{"draft", "active", "completed", "archived"}
 
 	// Test for epic entity type
-	for _, status := range validStatuses {
+	for _, status := range epicFeatureStatuses {
 		t.Run("epic_"+status, func(t *testing.T) {
 			err := ValidateStatus(status, "epic")
 
@@ -295,7 +301,7 @@ func TestValidateStatus_AllValidValues(t *testing.T) {
 	}
 
 	// Test for feature entity type
-	for _, status := range validStatuses {
+	for _, status := range epicFeatureStatuses {
 		t.Run("feature_"+status, func(t *testing.T) {
 			err := ValidateStatus(status, "feature")
 
@@ -305,9 +311,11 @@ func TestValidateStatus_AllValidValues(t *testing.T) {
 		})
 	}
 
-	// Test for generic entity type
-	for _, status := range validStatuses {
-		t.Run("generic_"+status, func(t *testing.T) {
+	// Test for task entity type (uses workflow-defined statuses, may vary by config)
+	// These statuses are valid in both basic and advanced workflows
+	taskStatuses := []string{"todo", "completed", "blocked"}
+	for _, status := range taskStatuses {
+		t.Run("task_"+status, func(t *testing.T) {
 			err := ValidateStatus(status, "task")
 
 			if err != nil {
@@ -319,6 +327,10 @@ func TestValidateStatus_AllValidValues(t *testing.T) {
 
 // TestValidateStatus_InvalidValue tests invalid status value
 func TestValidateStatus_InvalidValue(t *testing.T) {
+	// Reset workflow service to ensure clean state for this test
+	cli.ResetWorkflowService()
+	defer cli.ResetWorkflowService()
+
 	tests := []struct {
 		name   string
 		status string
@@ -332,8 +344,8 @@ func TestValidateStatus_InvalidValue(t *testing.T) {
 			status: "",
 		},
 		{
-			name:   "status with wrong case",
-			status: "Draft",
+			name:   "completely unknown status",
+			status: "nonexistent_status",
 		},
 	}
 

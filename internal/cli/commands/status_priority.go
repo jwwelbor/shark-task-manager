@@ -15,22 +15,25 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // ParseEpicStatus parses and validates an epic status value.
 // Input is case-insensitive and normalized to lowercase.
+// Validates against the workflow configuration from .sharkconfig.json via workflow.Service.
 // Returns the normalized status value or an error if invalid.
 func ParseEpicStatus(status string) (string, error) {
 	// Trim whitespace and normalize to lowercase
 	normalized := strings.TrimSpace(strings.ToLower(status))
 
-	// Check for empty string
+	// Check for empty string (structural validation)
 	if normalized == "" {
 		return "", fmt.Errorf("epic status cannot be empty")
 	}
 
-	// Validate using the model validation function
-	if err := models.ValidateEpicStatus(normalized); err != nil {
+	// Validate using the workflow service (config-driven, level-aware)
+	svc := cli.GetWorkflowService().ForLevel(workflow.LevelEpic)
+	if err := svc.ValidateStatus(normalized); err != nil {
 		return "", err
 	}
 
@@ -39,18 +42,20 @@ func ParseEpicStatus(status string) (string, error) {
 
 // ParseFeatureStatus parses and validates a feature status value.
 // Input is case-insensitive and normalized to lowercase.
+// Validates against the workflow configuration from .sharkconfig.json via workflow.Service.
 // Returns the normalized status value or an error if invalid.
 func ParseFeatureStatus(status string) (string, error) {
 	// Trim whitespace and normalize to lowercase
 	normalized := strings.TrimSpace(strings.ToLower(status))
 
-	// Check for empty string
+	// Check for empty string (structural validation)
 	if normalized == "" {
 		return "", fmt.Errorf("feature status cannot be empty")
 	}
 
-	// Validate using the model validation function
-	if err := models.ValidateFeatureStatus(normalized); err != nil {
+	// Validate using the workflow service (config-driven, level-aware)
+	svc := cli.GetWorkflowService().ForLevel(workflow.LevelFeature)
+	if err := svc.ValidateStatus(normalized); err != nil {
 		return "", err
 	}
 
