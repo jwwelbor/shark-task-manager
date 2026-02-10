@@ -31,8 +31,8 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 	epic.Slug = &generatedSlug
 
 	query := `
-		INSERT INTO epics (key, title, description, status, priority, business_value, slug, file_path)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO epics (key, title, description, status, priority, business_value, slug, file_path, context_data)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -44,6 +44,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 		epic.BusinessValue,
 		epic.Slug,
 		epic.FilePath,
+		epic.ContextData,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create epic: %w", err)
@@ -62,7 +63,7 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       slug, file_path, created_at, updated_at
+		       slug, file_path, context_data, created_at, updated_at
 		FROM epics
 		WHERE id = ?
 	`
@@ -78,6 +79,7 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 		&epic.BusinessValue,
 		&epic.Slug,
 		&epic.FilePath,
+		&epic.ContextData,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -98,7 +100,7 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 	// Try direct numeric key lookup first (e.g., "E04")
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       slug, file_path, created_at, updated_at
+		       slug, file_path, context_data, created_at, updated_at
 		FROM epics
 		WHERE key = ?
 	`
@@ -114,6 +116,7 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 		&epic.BusinessValue,
 		&epic.Slug,
 		&epic.FilePath,
+		&epic.ContextData,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -148,7 +151,7 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 	// Query by numeric key and slug
 	slugQuery := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       slug, file_path, created_at, updated_at
+		       slug, file_path, context_data, created_at, updated_at
 		FROM epics
 		WHERE key = ? AND slug = ?
 	`
@@ -163,6 +166,7 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 		&epic.BusinessValue,
 		&epic.Slug,
 		&epic.FilePath,
+		&epic.ContextData,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -212,7 +216,7 @@ func splitSluggedKey(key string) []string {
 // GetByFilePath retrieves an epic by its file path for collision detection
 func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error) {
 	query := `
-		SELECT id, key, title, description, status, priority, business_value, slug, file_path, created_at, updated_at
+		SELECT id, key, title, description, status, priority, business_value, slug, file_path, context_data, created_at, updated_at
 		FROM epics
 		WHERE file_path = ?
 	`
@@ -228,6 +232,7 @@ func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 		&epic.BusinessValue,
 		&epic.Slug,
 		&epic.FilePath,
+		&epic.ContextData,
 		&epic.CreatedAt,
 		&epic.UpdatedAt,
 	)
@@ -246,7 +251,7 @@ func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
-		       slug, file_path, created_at, updated_at
+		       slug, file_path, context_data, created_at, updated_at
 		FROM epics
 	`
 	args := []interface{}{}
@@ -277,6 +282,7 @@ func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([
 			&epic.BusinessValue,
 			&epic.Slug,
 			&epic.FilePath,
+			&epic.ContextData,
 			&epic.CreatedAt,
 			&epic.UpdatedAt,
 		)
@@ -622,6 +628,37 @@ func (r *EpicRepository) CascadeStatusToFeaturesAndTasksByKey(ctx context.Contex
 // ============================================================================
 // Status Rollup Methods (E07-F23)
 // ============================================================================
+
+// GetContextData retrieves the context data JSON string for an epic by its ID
+func (r *EpicRepository) GetContextData(ctx context.Context, epicID int64) (*string, error) {
+	query := `SELECT context_data FROM epics WHERE id = ?`
+	var contextData *string
+	err := r.db.QueryRowContext(ctx, query, epicID).Scan(&contextData)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("epic not found with id %d", epicID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic context data: %w", err)
+	}
+	return contextData, nil
+}
+
+// UpdateContextData updates the context data JSON string for an epic
+func (r *EpicRepository) UpdateContextData(ctx context.Context, epicID int64, contextData *string) error {
+	query := `UPDATE epics SET context_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	result, err := r.db.ExecContext(ctx, query, contextData, epicID)
+	if err != nil {
+		return fmt.Errorf("failed to update epic context data: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("epic not found with id %d", epicID)
+	}
+	return nil
+}
 
 // GetFeatureStatusRollup returns feature status counts for an epic
 // Uses efficient GROUP BY query to aggregate feature statuses

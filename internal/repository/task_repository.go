@@ -956,14 +956,14 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 		}
 
 		if isBackward {
-			noteRepo := NewTaskNoteRepository(r.db)
+			noteRepo := NewEntityNoteRepository(r.db)
 			rejectedBy := "system"
 			if agent != nil && *agent != "" {
 				rejectedBy = *agent
 			}
 
 			_, err := noteRepo.CreateRejectionNoteWithTx(
-				ctx, tx, taskID, historyID,
+				ctx, tx, models.EntityTypeTask, taskID, historyID,
 				currentStatus, string(newStatus),
 				*rejectionReason, rejectedBy, documentPath,
 			)
@@ -1971,7 +1971,7 @@ func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64
 			COALESCE(COUNT(tn.id), 0) as rejection_count,
 			datetime(MAX(tn.created_at)) as last_rejection_at
 		FROM tasks t
-		LEFT JOIN task_notes tn ON t.id = tn.task_id AND tn.note_type = 'rejection'
+		LEFT JOIN entity_notes tn ON t.id = tn.entity_id AND tn.entity_type = 'task' AND tn.note_type = 'rejection'
 		WHERE t.id IN (` + strings.Join(placeholders, ",") + `)
 		GROUP BY t.id
 	`

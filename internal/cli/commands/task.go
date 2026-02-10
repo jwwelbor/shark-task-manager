@@ -686,9 +686,9 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get rejection history from task_notes table (includes document paths)
-	noteRepo := repository.NewTaskNoteRepository(repoDb)
-	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	// Get rejection history from entity_notes table (includes document paths)
+	noteRepo := repository.NewEntityNoteRepository(repoDb)
+	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, models.EntityTypeTask, task.ID)
 	if err != nil && cli.GlobalConfig.Verbose {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch rejection history: %v\n", err)
 	}

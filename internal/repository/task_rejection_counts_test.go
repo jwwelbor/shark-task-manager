@@ -15,7 +15,7 @@ func TestGetRejectionCounts(t *testing.T) {
 	database := test.GetTestDB()
 
 	// Cleanup before test
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E99-F99'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
@@ -97,15 +97,15 @@ func TestGetRejectionCounts(t *testing.T) {
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear any existing rejections
-			_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ? AND note_type = 'rejection'", task.ID)
+			_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = ? AND note_type = 'rejection'", task.ID)
 
 			// Create rejection notes
 			now := time.Now()
 			for j := 0; j < tt.rejectionCount; j++ {
 				noteTime := now.Add(time.Duration(j) * time.Hour)
 				_, err := database.ExecContext(ctx, `
-					INSERT INTO task_notes (task_id, note_type, content, created_at, created_by)
-					VALUES (?, 'rejection', ?, ?, 'test-rejector')
+					INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_at, created_by)
+					VALUES ('task', ?, 'rejection', ?, ?, 'test-rejector')
 				`, task.ID, "Rejection reason "+string(rune('0'+j)), noteTime)
 				if err != nil {
 					t.Fatalf("Failed to create rejection note: %v", err)
@@ -145,7 +145,7 @@ func TestGetRejectionCountsMultipleTasks(t *testing.T) {
 	database := test.GetTestDB()
 
 	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E88-F88-%'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E88-F88'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E88'")
@@ -203,8 +203,8 @@ func TestGetRejectionCountsMultipleTasks(t *testing.T) {
 	for i, taskID := range taskIDs {
 		for j := 0; j < i; j++ {
 			_, _ = database.ExecContext(ctx, `
-				INSERT INTO task_notes (task_id, note_type, content, created_at, created_by)
-				VALUES (?, 'rejection', ?, ?, 'test-rejector')
+				INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_at, created_by)
+				VALUES ('task', ?, 'rejection', ?, ?, 'test-rejector')
 			`, taskID, "Rejection", time.Now())
 		}
 	}

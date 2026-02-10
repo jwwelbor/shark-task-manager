@@ -19,17 +19,19 @@ var notesCmd = &cobra.Command{
 	Long:    `Search for notes across all tasks with optional filtering.`,
 }
 
-// notesSearchCmd searches notes across all tasks
+// notesSearchCmd searches notes across all entities
 var notesSearchCmd = &cobra.Command{
 	Use:   "search <query>",
-	Short: "Search note content across all tasks",
-	Long: `Search for notes containing the specified query across all tasks.
+	Short: "Search note content across all entities (epics, features, tasks)",
+	Long: `Search for notes containing the specified query across all entities.
 
-The search is case-insensitive and supports filtering by epic, feature, note type, and time period.
+The search is case-insensitive and supports filtering by entity type, epic, feature, note type, and time period.
 
 Examples:
   shark notes search "singleton pattern"
-  shark notes search "dark mode" --epic E10
+  shark notes search "dark mode" --entity-type epic
+  shark notes search "API" --entity-type feature
+  shark notes search "database" --entity-type task --epic E10
   shark notes search "API" --feature E10-F01
   shark notes search "singleton" --type decision
   shark notes search "bug" --type decision,solution --epic E10
@@ -39,11 +41,15 @@ Examples:
 	RunE: runNotesSearch,
 }
 
-// NoteSearchResult represents a search result with task context
+// NoteSearchResult represents a search result with entity context
 type NoteSearchResult struct {
-	TaskKey   string           `json:"task_key"`
-	TaskTitle string           `json:"task_title"`
-	Note      *models.TaskNote `json:"note"`
+	EntityType string             `json:"entity_type"`
+	EntityKey  string             `json:"entity_key"`
+	EntityName string             `json:"entity_name"`
+	Note       *models.EntityNote `json:"note"`
+	// Legacy fields for backward compatibility (task-specific)
+	TaskKey   string `json:"task_key,omitempty"`
+	TaskTitle string `json:"task_title,omitempty"`
 }
 
 // runNotesSearch handles the notes search command
@@ -55,6 +61,7 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 	noteTypesStr, _ := cmd.Flags().GetString("type")
 	since, _ := cmd.Flags().GetString("since")
 	until, _ := cmd.Flags().GetString("until")
+	entityTypeStr, _ := cmd.Flags().GetString("entity-type")
 
 	// Get database connection
 	repoDb, err := cli.GetDB(cmd.Context())
@@ -65,8 +72,10 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 	dbWrapper := repoDb
-	noteRepo := repository.NewTaskNoteRepository(dbWrapper)
+	noteRepo := repository.NewEntityNoteRepository(dbWrapper)
 	taskRepo := repository.NewTaskRepository(dbWrapper)
+	epicRepo := repository.NewEpicRepository(dbWrapper)
+	featureRepo := repository.NewFeatureRepository(dbWrapper)
 
 	// Parse note types filter
 	var noteTypes []string
@@ -81,12 +90,23 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Parse entity type filter
+	var entityType *models.EntityType
+	if entityTypeStr != "" {
+		entityTypeStr = strings.ToLower(strings.TrimSpace(entityTypeStr))
+		et := models.EntityType(entityTypeStr)
+		if !models.ValidEntityTypes[et] {
+			return fmt.Errorf("invalid entity-type: %s (must be one of: epic, feature, task)", entityTypeStr)
+		}
+		entityType = &et
+	}
+
 	// Search notes with time period filtering
-	var notes []*models.TaskNote
+	var notes []*models.EntityNote
 	if since != "" || until != "" {
 		notes, err = noteRepo.SearchWithTimePeriod(ctx, query, noteTypes, epicKey, featureKey, since, until)
 	} else {
-		notes, err = noteRepo.Search(ctx, query, noteTypes, epicKey, featureKey)
+		notes, err = noteRepo.Search(ctx, query, noteTypes, entityType, epicKey, featureKey)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to search notes: %w", err)
@@ -100,27 +120,66 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get task details for each note
+	// Get entity details for each note
 	results := make([]NoteSearchResult, 0, len(notes))
 	taskCache := make(map[int64]*models.Task)
+	epicCache := make(map[int64]*models.Epic)
+	featureCache := make(map[int64]*models.Feature)
 
 	for _, note := range notes {
-		// Check cache first
-		task, ok := taskCache[note.TaskID]
-		if !ok {
-			task, err = taskRepo.GetByID(ctx, note.TaskID)
-			if err != nil {
-				// Skip this note if we can't get the task
-				continue
-			}
-			taskCache[note.TaskID] = task
+		result := NoteSearchResult{
+			EntityType: string(note.EntityType),
+			Note:       note,
 		}
 
-		results = append(results, NoteSearchResult{
-			TaskKey:   task.Key,
-			TaskTitle: task.Title,
-			Note:      note,
-		})
+		switch note.EntityType {
+		case models.EntityTypeTask:
+			// Check cache first
+			task, ok := taskCache[note.EntityID]
+			if !ok {
+				task, err = taskRepo.GetByID(ctx, note.EntityID)
+				if err != nil {
+					// Skip this note if we can't get the task
+					continue
+				}
+				taskCache[note.EntityID] = task
+			}
+			result.EntityKey = task.Key
+			result.EntityName = task.Title
+			// Set legacy fields for backward compatibility
+			result.TaskKey = task.Key
+			result.TaskTitle = task.Title
+
+		case models.EntityTypeEpic:
+			// Check cache first
+			epic, ok := epicCache[note.EntityID]
+			if !ok {
+				epic, err = epicRepo.GetByID(ctx, note.EntityID)
+				if err != nil {
+					// Skip this note if we can't get the epic
+					continue
+				}
+				epicCache[note.EntityID] = epic
+			}
+			result.EntityKey = epic.Key
+			result.EntityName = epic.Title
+
+		case models.EntityTypeFeature:
+			// Check cache first
+			feature, ok := featureCache[note.EntityID]
+			if !ok {
+				feature, err = featureRepo.GetByID(ctx, note.EntityID)
+				if err != nil {
+					// Skip this note if we can't get the feature
+					continue
+				}
+				featureCache[note.EntityID] = feature
+			}
+			result.EntityKey = feature.Key
+			result.EntityName = feature.Title
+		}
+
+		results = append(results, result)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -140,7 +199,7 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 			creator = *result.Note.CreatedBy
 		}
 
-		fmt.Printf("%s: %s\n", result.TaskKey, result.TaskTitle)
+		fmt.Printf("[%s] %s: %s\n", strings.ToUpper(result.EntityType), result.EntityKey, result.EntityName)
 		fmt.Printf("  [%s] %s (%s)\n", strings.ToUpper(string(result.Note.NoteType)), result.Note.CreatedAt.Format("2006-01-02 15:04"), creator)
 
 		// Indent the content
@@ -165,6 +224,7 @@ func init() {
 	notesSearchCmd.Flags().StringP("epic", "e", "", "Filter by epic key (e.g., E10)")
 	notesSearchCmd.Flags().StringP("feature", "f", "", "Filter by feature key (e.g., E10-F01)")
 	notesSearchCmd.Flags().StringP("type", "t", "", "Filter by note type (comma-separated for multiple)")
+	notesSearchCmd.Flags().String("entity-type", "", "Filter by entity type (epic, feature, or task)")
 	notesSearchCmd.Flags().String("since", "", "Filter notes created after date (YYYY-MM-DD format)")
 	notesSearchCmd.Flags().String("until", "", "Filter notes created before date (YYYY-MM-DD format)")
 }

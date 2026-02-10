@@ -12,11 +12,11 @@ import (
 
 // MockNoteRepo for testing search functionality
 type MockNoteRepo struct {
-	notes []*models.TaskNote
+	notes []*models.EntityNote
 }
 
-func (m *MockNoteRepo) Search(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string) ([]*models.TaskNote, error) {
-	var results []*models.TaskNote
+func (m *MockNoteRepo) Search(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string) ([]*models.EntityNote, error) {
+	var results []*models.EntityNote
 
 	for _, note := range m.notes {
 		// Filter by note type
@@ -48,26 +48,28 @@ func (m *MockNoteRepo) Search(ctx context.Context, query string, noteTypes []str
 func TestRejectionTypeFiltering(t *testing.T) {
 	now := time.Now()
 
-	rejectionNote := &models.TaskNote{
-		ID:        1,
-		TaskID:    100,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Missing error handling on line 42",
-		CreatedBy: stringPtr("reviewer"),
-		CreatedAt: now,
+	rejectionNote := &models.EntityNote{
+		ID:         1,
+		EntityType: models.EntityTypeTask,
+		EntityID:   100,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Missing error handling on line 42",
+		CreatedBy:  stringPtr("reviewer"),
+		CreatedAt:  now,
 	}
 
-	decisionNote := &models.TaskNote{
-		ID:        2,
-		TaskID:    100,
-		NoteType:  models.NoteTypeDecision,
-		Content:   "Used rejection notes for feedback",
-		CreatedBy: stringPtr("developer"),
-		CreatedAt: now,
+	decisionNote := &models.EntityNote{
+		ID:         2,
+		EntityType: models.EntityTypeTask,
+		EntityID:   100,
+		NoteType:   models.NoteTypeDecision,
+		Content:    "Used rejection notes for feedback",
+		CreatedBy:  stringPtr("developer"),
+		CreatedAt:  now,
 	}
 
 	repo := &MockNoteRepo{
-		notes: []*models.TaskNote{rejectionNote, decisionNote},
+		notes: []*models.EntityNote{rejectionNote, decisionNote},
 	}
 
 	ctx := context.Background()
@@ -94,30 +96,32 @@ func TestTimePeriodFiltering(t *testing.T) {
 	yesterday := now.AddDate(0, 0, -1)
 	lastWeek := now.AddDate(0, 0, -7)
 
-	oldNote := &models.TaskNote{
-		ID:        1,
-		TaskID:    100,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Old rejection",
-		CreatedBy: stringPtr("reviewer1"),
-		CreatedAt: lastWeek,
+	oldNote := &models.EntityNote{
+		ID:         1,
+		EntityType: models.EntityTypeTask,
+		EntityID:   100,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Old rejection",
+		CreatedBy:  stringPtr("reviewer1"),
+		CreatedAt:  lastWeek,
 	}
 
-	recentNote := &models.TaskNote{
-		ID:        2,
-		TaskID:    101,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Recent rejection",
-		CreatedBy: stringPtr("reviewer2"),
-		CreatedAt: yesterday,
+	recentNote := &models.EntityNote{
+		ID:         2,
+		EntityType: models.EntityTypeTask,
+		EntityID:   101,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Recent rejection",
+		CreatedBy:  stringPtr("reviewer2"),
+		CreatedAt:  yesterday,
 	}
 
-	allNotes := []*models.TaskNote{oldNote, recentNote}
+	allNotes := []*models.EntityNote{oldNote, recentNote}
 
 	// Filter notes created in last 3 days
 	since := now.AddDate(0, 0, -3)
 
-	var filteredNotes []*models.TaskNote
+	var filteredNotes []*models.EntityNote
 	for _, note := range allNotes {
 		if note.CreatedAt.After(since) {
 			filteredNotes = append(filteredNotes, note)
@@ -138,22 +142,24 @@ func TestTimePeriodFiltering(t *testing.T) {
 func TestSearchWithTextQuery(t *testing.T) {
 	now := time.Now()
 
-	notes := []*models.TaskNote{
+	notes := []*models.EntityNote{
 		{
-			ID:        1,
-			TaskID:    100,
-			NoteType:  models.NoteTypeRejection,
-			Content:   "Missing error handling on line 42",
-			CreatedBy: stringPtr("reviewer"),
-			CreatedAt: now,
+			ID:         1,
+			EntityType: models.EntityTypeTask,
+			EntityID:   100,
+			NoteType:   models.NoteTypeRejection,
+			Content:    "Missing error handling on line 42",
+			CreatedBy:  stringPtr("reviewer"),
+			CreatedAt:  now,
 		},
 		{
-			ID:        2,
-			TaskID:    101,
-			NoteType:  models.NoteTypeRejection,
-			Content:   "Wrong validation approach",
-			CreatedBy: stringPtr("reviewer"),
-			CreatedAt: now,
+			ID:         2,
+			EntityType: models.EntityTypeTask,
+			EntityID:   101,
+			NoteType:   models.NoteTypeRejection,
+			Content:    "Wrong validation approach",
+			CreatedBy:  stringPtr("reviewer"),
+			CreatedAt:  now,
 		},
 	}
 
@@ -184,13 +190,14 @@ func TestJSONOutput(t *testing.T) {
 		{
 			TaskKey:   "E07-F22-001",
 			TaskTitle: "Implement rejection notes",
-			Note: &models.TaskNote{
-				ID:        1,
-				TaskID:    100,
-				NoteType:  models.NoteTypeRejection,
-				Content:   "Missing error handling",
-				CreatedBy: stringPtr("reviewer@example.com"),
-				CreatedAt: now,
+			Note: &models.EntityNote{
+				ID:         1,
+				EntityType: models.EntityTypeTask,
+				EntityID:   100,
+				NoteType:   models.NoteTypeRejection,
+				Content:    "Missing error handling",
+				CreatedBy:  stringPtr("reviewer@example.com"),
+				CreatedAt:  now,
 			},
 		},
 	}
@@ -221,22 +228,24 @@ func TestJSONOutput(t *testing.T) {
 func TestCombinedFilters(t *testing.T) {
 	now := time.Now()
 
-	notes := []*models.TaskNote{
+	notes := []*models.EntityNote{
 		{
-			ID:        1,
-			TaskID:    100,
-			NoteType:  models.NoteTypeRejection,
-			Content:   "Missing validation",
-			CreatedBy: stringPtr("reviewer"),
-			CreatedAt: now,
+			ID:         1,
+			EntityType: models.EntityTypeTask,
+			EntityID:   100,
+			NoteType:   models.NoteTypeRejection,
+			Content:    "Missing validation",
+			CreatedBy:  stringPtr("reviewer"),
+			CreatedAt:  now,
 		},
 		{
-			ID:        2,
-			TaskID:    101,
-			NoteType:  models.NoteTypeRejection,
-			Content:   "Wrong approach",
-			CreatedBy: stringPtr("reviewer"),
-			CreatedAt: now,
+			ID:         2,
+			EntityType: models.EntityTypeTask,
+			EntityID:   101,
+			NoteType:   models.NoteTypeRejection,
+			Content:    "Wrong approach",
+			CreatedBy:  stringPtr("reviewer"),
+			CreatedAt:  now,
 		},
 	}
 
@@ -268,7 +277,7 @@ func TestCombinedFilters(t *testing.T) {
 
 // TestEmptyResults verifies empty result handling
 func TestEmptyResults(t *testing.T) {
-	repo := &MockNoteRepo{notes: []*models.TaskNote{}}
+	repo := &MockNoteRepo{notes: []*models.EntityNote{}}
 	ctx := context.Background()
 
 	results, err := repo.Search(ctx, "nonexistent", []string{string(models.NoteTypeRejection)}, "", "")
@@ -285,15 +294,16 @@ func TestEmptyResults(t *testing.T) {
 // TestLargeDatasetPerformance verifies performance with 1000+ notes
 func TestLargeDatasetPerformance(t *testing.T) {
 	// Create 1000 mock rejection notes
-	var notes []*models.TaskNote
+	var notes []*models.EntityNote
 	for i := 0; i < 1000; i++ {
-		notes = append(notes, &models.TaskNote{
-			ID:        int64(i + 1),
-			TaskID:    int64((i % 100) + 1),
-			NoteType:  models.NoteTypeRejection,
-			Content:   "Some rejection reason at position " + string(rune(i)),
-			CreatedBy: stringPtr("reviewer"),
-			CreatedAt: time.Now(),
+		notes = append(notes, &models.EntityNote{
+			ID:         int64(i + 1),
+			EntityType: models.EntityTypeTask,
+			EntityID:   int64((i % 100) + 1),
+			NoteType:   models.NoteTypeRejection,
+			Content:    "Some rejection reason at position " + string(rune(i)),
+			CreatedBy:  stringPtr("reviewer"),
+			CreatedAt:  time.Now(),
 		})
 	}
 
