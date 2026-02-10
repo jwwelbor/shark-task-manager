@@ -338,3 +338,87 @@ func TestOrchestratorAction_PopulateTemplate_EmptyTaskID(t *testing.T) {
 		t.Errorf("PopulateTemplate() with empty ID = %q, want %q", result, expected)
 	}
 }
+
+// TestPopulateTemplate_GenericId validates {id} placeholder is replaced with entity key
+func TestPopulateTemplate_GenericId(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Process entity {id}",
+	}
+
+	result := oa.PopulateTemplate("E16")
+	expected := "Process entity E16"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_EpicId validates {epic_id} placeholder is replaced with entity key
+func TestPopulateTemplate_EpicId(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Research epic {epic_id}",
+	}
+
+	result := oa.PopulateTemplate("E16")
+	expected := "Research epic E16"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_FeatureId validates {feature_id} placeholder is replaced with entity key
+func TestPopulateTemplate_FeatureId(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Refine feature {feature_id}",
+	}
+
+	result := oa.PopulateTemplate("E16-F01")
+	expected := "Refine feature E16-F01"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_TaskId_BackwardCompat validates {task_id} still works exactly as before
+func TestPopulateTemplate_TaskId_BackwardCompat(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Implement task {task_id}",
+	}
+
+	result := oa.PopulateTemplate("T-E07-F21-001")
+	expected := "Implement task T-E07-F21-001"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_MixedPlaceholders validates template with both {id} and {task_id}
+func TestPopulateTemplate_MixedPlaceholders(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Work on {id}, see {task_id} file",
+	}
+
+	result := oa.PopulateTemplate("T-E07-F01-001")
+	expected := "Work on T-E07-F01-001, see T-E07-F01-001 file"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_NoPlaceholders_Unchanged validates template without any placeholder returned as-is
+func TestPopulateTemplate_NoPlaceholders_Unchanged(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "No placeholders here",
+	}
+
+	result := oa.PopulateTemplate("E16")
+	expected := "No placeholders here"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}

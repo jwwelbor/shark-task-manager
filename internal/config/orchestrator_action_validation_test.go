@@ -358,18 +358,18 @@ func TestValidateTemplate_MalformedPlaceholder(t *testing.T) {
 
 // TestValidateTemplate_UnknownPlaceholder tests warning for unknown placeholders
 func TestValidateTemplate_UnknownPlaceholder(t *testing.T) {
-	warnings := validateTemplateSyntax("Work on task {task_id} in epic {epic_id}")
+	warnings := validateTemplateSyntax("Work on task {task_id} with {custom_field}")
 
 	found := false
 	for _, w := range warnings {
-		if strings.Contains(w, "Unknown") && strings.Contains(w, "{epic_id}") {
+		if strings.Contains(w, "Unknown") && strings.Contains(w, "{custom_field}") {
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		t.Errorf("Expected warning about unknown placeholder {epic_id}, got: %v", warnings)
+		t.Errorf("Expected warning about unknown placeholder {custom_field}, got: %v", warnings)
 	}
 }
 
@@ -625,5 +625,70 @@ func TestValidateWithContext_MultipleErrors(t *testing.T) {
 	// Should report first error (action invalid before template check)
 	if valErr.FieldName != "action" {
 		t.Errorf("Should report first error (action), got field: %q", valErr.FieldName)
+	}
+}
+
+// TestValidateTemplate_GenericId_NoWarning tests template with {id} produces zero warnings
+func TestValidateTemplate_GenericId_NoWarning(t *testing.T) {
+	warnings := validateTemplateSyntax("Process entity {id}")
+
+	if len(warnings) > 0 {
+		t.Errorf("Expected no warnings for template with {id}, got: %v", warnings)
+	}
+}
+
+// TestValidateTemplate_EpicId_NoWarning tests template with {epic_id} produces zero warnings
+func TestValidateTemplate_EpicId_NoWarning(t *testing.T) {
+	warnings := validateTemplateSyntax("Research epic {epic_id}")
+
+	if len(warnings) > 0 {
+		t.Errorf("Expected no warnings for template with {epic_id}, got: %v", warnings)
+	}
+}
+
+// TestValidateTemplate_FeatureId_NoWarning tests template with {feature_id} produces zero warnings
+func TestValidateTemplate_FeatureId_NoWarning(t *testing.T) {
+	warnings := validateTemplateSyntax("Refine feature {feature_id}")
+
+	if len(warnings) > 0 {
+		t.Errorf("Expected no warnings for template with {feature_id}, got: %v", warnings)
+	}
+}
+
+// TestValidateTemplate_NoKnownPlaceholder_Warning tests template without any known placeholder warns
+func TestValidateTemplate_NoKnownPlaceholder_Warning(t *testing.T) {
+	warnings := validateTemplateSyntax("Do some work on this entity")
+
+	if len(warnings) == 0 {
+		t.Fatal("Expected warning for template without any known placeholder, got none")
+	}
+
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "placeholder") {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("Expected warning about missing placeholder, got: %v", warnings)
+	}
+}
+
+// TestValidateTemplate_UnknownPlaceholder_Warning tests {unknown} produces warning alongside known placeholders
+func TestValidateTemplate_UnknownPlaceholder_Warning(t *testing.T) {
+	warnings := validateTemplateSyntax("Work on {id} with {unknown} data")
+
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "Unknown") && strings.Contains(w, "{unknown}") {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("Expected warning about unknown placeholder {unknown}, got: %v", warnings)
 	}
 }

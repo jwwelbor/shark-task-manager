@@ -86,7 +86,7 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 			StatusName:   statusName,
 			FieldName:    "instruction_template",
 			Problem:      "Missing required field",
-			SuggestedFix: "Add instruction_template with {task_id} placeholder",
+			SuggestedFix: "Add instruction_template with {id} placeholder (also supports {task_id}, {epic_id}, {feature_id})",
 		}
 	}
 
@@ -131,9 +131,16 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 	return nil
 }
 
-// PopulateTemplate replaces template variables with actual values
-func (oa *OrchestratorAction) PopulateTemplate(taskID string) string {
-	return strings.Replace(oa.InstructionTemplate, "{task_id}", taskID, -1)
+// PopulateTemplate replaces template variables with actual values.
+// All four placeholder names ({id}, {task_id}, {epic_id}, {feature_id}) are replaced
+// with the same entityID value. Multiple names exist for template readability.
+func (oa *OrchestratorAction) PopulateTemplate(entityID string) string {
+	result := oa.InstructionTemplate
+	result = strings.Replace(result, "{id}", entityID, -1)
+	result = strings.Replace(result, "{task_id}", entityID, -1)
+	result = strings.Replace(result, "{epic_id}", entityID, -1)
+	result = strings.Replace(result, "{feature_id}", entityID, -1)
+	return result
 }
 
 // sliceContains checks if a string slice contains a target string (deprecated, use contains)
@@ -161,9 +168,23 @@ func stringSliceContains(slice []string, target string) bool {
 func validateTemplateSyntax(template string) []string {
 	warnings := []string{}
 
-	// Check for {task_id} placeholder
-	if !strings.Contains(template, "{task_id}") {
-		warnings = append(warnings, "Template does not contain {task_id} placeholder")
+	knownPlaceholders := map[string]bool{
+		"{id}":         true,
+		"{task_id}":    true,
+		"{epic_id}":    true,
+		"{feature_id}": true,
+	}
+
+	// Check if template contains at least one known placeholder
+	hasKnownPlaceholder := false
+	for placeholder := range knownPlaceholders {
+		if strings.Contains(template, placeholder) {
+			hasKnownPlaceholder = true
+			break
+		}
+	}
+	if !hasKnownPlaceholder {
+		warnings = append(warnings, "Template does not contain a known placeholder ({id}, {task_id}, {epic_id}, {feature_id})")
 	}
 
 	// Check for malformed placeholders (unclosed brace)
@@ -173,13 +194,10 @@ func validateTemplateSyntax(template string) []string {
 
 	// Extract and validate placeholders
 	placeholders := extractPlaceholders(template)
-	knownPlaceholders := map[string]bool{
-		"{task_id}": true,
-	}
 
 	for _, placeholder := range placeholders {
 		if !knownPlaceholders[placeholder] {
-			warnings = append(warnings, fmt.Sprintf("Unknown placeholder %s (currently only {task_id} supported)", placeholder))
+			warnings = append(warnings, fmt.Sprintf("Unknown placeholder %s (known placeholders: {id}, {task_id}, {epic_id}, {feature_id})", placeholder))
 		}
 	}
 
