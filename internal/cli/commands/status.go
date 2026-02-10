@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/spf13/cobra"
 )
@@ -93,6 +94,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get dashboard: %w", err)
 	}
 
+	// Enrich epic summaries with planning mode information
+	displaySvc := cli.GetDisplayService()
+	enrichEpicSummaries(ctx, dashboard.Epics, displaySvc)
+
 	// Output
 	if cli.GlobalConfig.JSON {
 		return outputStatusJSON(dashboard)
@@ -100,6 +105,20 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	// Rich terminal output
 	return outputStatusTerminal(dashboard)
+}
+
+// enrichEpicSummaries populates DisplayMode, IsPlanning, and Phase fields
+// on each EpicSummary using the DisplayService to determine planning vs aggregation mode.
+// Uses in-memory workflow config lookup (no additional DB queries).
+func enrichEpicSummaries(_ context.Context, epics []*status.EpicSummary, displaySvc *services.DisplayService) {
+	for _, epic := range epics {
+		mode := displaySvc.DetermineEpicDisplayModeByStatus(epic.Status)
+		epic.DisplayMode = string(mode)
+		if mode == services.DisplayModePlanning {
+			epic.IsPlanning = true
+			epic.Phase = displaySvc.GetEpicPhase(epic.Status)
+		}
+	}
 }
 
 // outputStatusJSON outputs the dashboard as JSON

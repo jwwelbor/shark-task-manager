@@ -176,7 +176,7 @@ func (s *StatusService) getEpics(ctx context.Context, epicKey string) ([]*EpicSu
 
 	query := `
 		SELECT
-			e.id, e.key, e.title,
+			e.id, e.key, e.title, e.status,
 			COUNT(DISTINCT f.id) as total_features,
 			SUM(CASE WHEN f.status = 'active' THEN 1 ELSE 0 END) as active_features,
 			COUNT(DISTINCT t.id) as total_tasks,
@@ -186,7 +186,7 @@ func (s *StatusService) getEpics(ctx context.Context, epicKey string) ([]*EpicSu
 		LEFT JOIN features f ON e.id = f.epic_id
 		LEFT JOIN tasks t ON f.id = t.feature_id
 		` + epicFilter + `
-		GROUP BY e.id, e.key, e.title
+		GROUP BY e.id, e.key, e.title, e.status
 		ORDER BY e.key ASC
 	`
 
@@ -199,10 +199,10 @@ func (s *StatusService) getEpics(ctx context.Context, epicKey string) ([]*EpicSu
 	var epics []*EpicSummary
 	for rows.Next() {
 		var id int64
-		var key, title string
+		var key, title, epicStatus string
 		var totalFeatures, activeFeatures, totalTasks, completedTasks, blockedTasks int
 
-		if err := rows.Scan(&id, &key, &title, &totalFeatures, &activeFeatures, &totalTasks, &completedTasks, &blockedTasks); err != nil {
+		if err := rows.Scan(&id, &key, &title, &epicStatus, &totalFeatures, &activeFeatures, &totalTasks, &completedTasks, &blockedTasks); err != nil {
 			return nil, fmt.Errorf("scan epic row: %w", err)
 		}
 
@@ -218,6 +218,7 @@ func (s *StatusService) getEpics(ctx context.Context, epicKey string) ([]*EpicSu
 		epics = append(epics, &EpicSummary{
 			Key:             key,
 			Title:           title,
+			Status:          epicStatus,
 			ProgressPercent: progress,
 			Health:          health,
 			TasksTotal:      totalTasks,
