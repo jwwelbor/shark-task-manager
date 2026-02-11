@@ -71,7 +71,7 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		return nil, fmt.Errorf("failed to update feature status: %w", err)
 	}
 
-	action := s.resolveAction(featureKey, targetStatus)
+	action := s.resolveAction(feature, targetStatus)
 
 	return &TransitionResult{
 		EntityType:         "feature",
@@ -102,7 +102,7 @@ func (s *FeatureService) GetNextStatus(ctx context.Context, featureKey string) (
 	for _, t := range transitions {
 		wrapped = append(wrapped, TransitionInfoWithAction{
 			TransitionInfo:     t,
-			OrchestratorAction: s.resolveAction(featureKey, t.TargetStatus),
+			OrchestratorAction: s.resolveAction(feature, t.TargetStatus),
 		})
 	}
 
@@ -123,7 +123,7 @@ func (s *FeatureService) ValidateStatus(status string) error {
 
 // resolveAction returns a populated orchestrator action for the given status,
 // or nil if no action is defined for that status.
-func (s *FeatureService) resolveAction(entityKey string, status string) *config.PopulatedAction {
+func (s *FeatureService) resolveAction(feature *models.Feature, status string) *config.PopulatedAction {
 	wf := s.workflowSvc.GetWorkflow()
 	if wf == nil || wf.StatusMetadata == nil {
 		return nil
@@ -136,6 +136,6 @@ func (s *FeatureService) resolveAction(entityKey string, status string) *config.
 		Action:      meta.OrchestratorAction.Action,
 		AgentType:   meta.OrchestratorAction.AgentType,
 		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(entityKey),
+		Instruction: meta.OrchestratorAction.PopulateTemplate(config.FeaturePlaceholders(feature)),
 	}
 }
