@@ -291,3 +291,344 @@ func TestGroupByPhase_UnspecifiedPhase(t *testing.T) {
 		t.Errorf("Expected status_no_phase, got %s", grouped["any"][0].Status)
 	}
 }
+
+func TestBuildMultiLevelSummary(t *testing.T) {
+	display := &MultiLevelActionsDisplay{
+		EpicActions: &WorkflowActionsDisplay{
+			Summary: ActionsSummary{
+				TotalStatuses:       4,
+				StatusesWithActions: 2,
+				ActionCounts:        map[string]int{"spawn_agent": 2},
+			},
+		},
+		FeatureActions: &WorkflowActionsDisplay{
+			Summary: ActionsSummary{
+				TotalStatuses:       5,
+				StatusesWithActions: 3,
+				ActionCounts:        map[string]int{"spawn_agent": 2, "archive": 1},
+			},
+		},
+		TaskActions: &WorkflowActionsDisplay{
+			Summary: ActionsSummary{
+				TotalStatuses:       19,
+				StatusesWithActions: 8,
+				ActionCounts:        map[string]int{"spawn_agent": 6, "archive": 1, "pause": 1},
+			},
+		},
+	}
+
+	summary := buildMultiLevelSummary(display)
+
+	if summary.EpicTotal != 4 {
+		t.Errorf("Expected EpicTotal=4, got %d", summary.EpicTotal)
+	}
+	if summary.EpicWithActions != 2 {
+		t.Errorf("Expected EpicWithActions=2, got %d", summary.EpicWithActions)
+	}
+	if summary.FeatureTotal != 5 {
+		t.Errorf("Expected FeatureTotal=5, got %d", summary.FeatureTotal)
+	}
+	if summary.FeatureWithActions != 3 {
+		t.Errorf("Expected FeatureWithActions=3, got %d", summary.FeatureWithActions)
+	}
+	if summary.TaskTotal != 19 {
+		t.Errorf("Expected TaskTotal=19, got %d", summary.TaskTotal)
+	}
+	if summary.TaskWithActions != 8 {
+		t.Errorf("Expected TaskWithActions=8, got %d", summary.TaskWithActions)
+	}
+}
+
+func TestBuildMultiLevelSummary_NilLevels(t *testing.T) {
+	display := &MultiLevelActionsDisplay{
+		EpicActions: &WorkflowActionsDisplay{
+			Summary: ActionsSummary{
+				TotalStatuses:       4,
+				StatusesWithActions: 1,
+				ActionCounts:        map[string]int{"spawn_agent": 1},
+			},
+		},
+		// FeatureActions is nil
+		// TaskActions is nil
+	}
+
+	summary := buildMultiLevelSummary(display)
+
+	if summary.EpicTotal != 4 {
+		t.Errorf("Expected EpicTotal=4, got %d", summary.EpicTotal)
+	}
+	if summary.FeatureTotal != 0 {
+		t.Errorf("Expected FeatureTotal=0, got %d", summary.FeatureTotal)
+	}
+	if summary.TaskTotal != 0 {
+		t.Errorf("Expected TaskTotal=0, got %d", summary.TaskTotal)
+	}
+}
+
+func TestShowActions_MultiLevel_AllLevels(t *testing.T) {
+	epicWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"draft": {Phase: "planning"},
+			"active": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "researcher",
+					Skills:              []string{"research"},
+					InstructionTemplate: "Research {id}",
+				},
+			},
+		},
+	}
+
+	featureWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"draft":  {Phase: "planning"},
+			"active": {Phase: "development"},
+		},
+	}
+
+	taskWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"todo": {Phase: "planning"},
+			"ready_for_development": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"implementation"},
+					InstructionTemplate: "Implement {task_id}",
+				},
+			},
+			"completed": {Phase: "done"},
+		},
+	}
+
+	display := &MultiLevelActionsDisplay{}
+	display.EpicActions = buildActionsDisplay(epicWf, "", "")
+	display.FeatureActions = buildActionsDisplay(featureWf, "", "")
+	display.TaskActions = buildActionsDisplay(taskWf, "", "")
+	display.Summary = buildMultiLevelSummary(display)
+
+	// Epic: 1 of 2 statuses have actions
+	if display.Summary.EpicTotal != 2 {
+		t.Errorf("Expected EpicTotal=2, got %d", display.Summary.EpicTotal)
+	}
+	if display.Summary.EpicWithActions != 1 {
+		t.Errorf("Expected EpicWithActions=1, got %d", display.Summary.EpicWithActions)
+	}
+
+	// Feature: 0 of 2 statuses have actions
+	if display.Summary.FeatureTotal != 2 {
+		t.Errorf("Expected FeatureTotal=2, got %d", display.Summary.FeatureTotal)
+	}
+	if display.Summary.FeatureWithActions != 0 {
+		t.Errorf("Expected FeatureWithActions=0, got %d", display.Summary.FeatureWithActions)
+	}
+
+	// Task: 1 of 3 statuses have actions
+	if display.Summary.TaskTotal != 3 {
+		t.Errorf("Expected TaskTotal=3, got %d", display.Summary.TaskTotal)
+	}
+	if display.Summary.TaskWithActions != 1 {
+		t.Errorf("Expected TaskWithActions=1, got %d", display.Summary.TaskWithActions)
+	}
+}
+
+func TestShowActions_LevelFilter_Epic(t *testing.T) {
+	epicWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"active": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "researcher",
+					Skills:              []string{"research"},
+					InstructionTemplate: "Research {id}",
+				},
+			},
+		},
+	}
+
+	// Simulate --level=epic: only epic actions populated
+	display := &MultiLevelActionsDisplay{}
+	display.EpicActions = buildActionsDisplay(epicWf, "", "")
+	display.Summary = buildMultiLevelSummary(display)
+
+	if display.EpicActions == nil {
+		t.Fatal("Expected EpicActions to be non-nil")
+	}
+	if display.FeatureActions != nil {
+		t.Error("Expected FeatureActions to be nil")
+	}
+	if display.TaskActions != nil {
+		t.Error("Expected TaskActions to be nil")
+	}
+	if display.Summary.EpicWithActions != 1 {
+		t.Errorf("Expected EpicWithActions=1, got %d", display.Summary.EpicWithActions)
+	}
+}
+
+func TestShowActions_LevelFilter_Feature(t *testing.T) {
+	featureWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"active": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "architect",
+					Skills:              []string{"architecture"},
+					InstructionTemplate: "Review {id}",
+				},
+			},
+			"draft": {Phase: "planning"},
+		},
+	}
+
+	// Simulate --level=feature
+	display := &MultiLevelActionsDisplay{}
+	display.FeatureActions = buildActionsDisplay(featureWf, "", "")
+	display.Summary = buildMultiLevelSummary(display)
+
+	if display.EpicActions != nil {
+		t.Error("Expected EpicActions to be nil")
+	}
+	if display.FeatureActions == nil {
+		t.Fatal("Expected FeatureActions to be non-nil")
+	}
+	if display.TaskActions != nil {
+		t.Error("Expected TaskActions to be nil")
+	}
+	if display.Summary.FeatureWithActions != 1 {
+		t.Errorf("Expected FeatureWithActions=1, got %d", display.Summary.FeatureWithActions)
+	}
+}
+
+func TestShowActions_LevelFilter_Task(t *testing.T) {
+	taskWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_development": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"implementation"},
+					InstructionTemplate: "Implement {task_id}",
+				},
+			},
+			"ready_for_qa": {
+				Phase: "qa",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "qa",
+					Skills:              []string{"testing"},
+					InstructionTemplate: "Test {task_id}",
+				},
+			},
+			"todo": {Phase: "planning"},
+		},
+	}
+
+	// Simulate --level=task
+	display := &MultiLevelActionsDisplay{}
+	display.TaskActions = buildActionsDisplay(taskWf, "", "")
+	display.Summary = buildMultiLevelSummary(display)
+
+	if display.EpicActions != nil {
+		t.Error("Expected EpicActions to be nil")
+	}
+	if display.FeatureActions != nil {
+		t.Error("Expected FeatureActions to be nil")
+	}
+	if display.TaskActions == nil {
+		t.Fatal("Expected TaskActions to be non-nil")
+	}
+	if display.Summary.TaskWithActions != 2 {
+		t.Errorf("Expected TaskWithActions=2, got %d", display.Summary.TaskWithActions)
+	}
+	if display.Summary.TaskTotal != 3 {
+		t.Errorf("Expected TaskTotal=3, got %d", display.Summary.TaskTotal)
+	}
+}
+
+func TestShowActions_StatusFilter_MultiLevel(t *testing.T) {
+	epicWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_development": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "researcher",
+					InstructionTemplate: "Research {id}",
+				},
+			},
+			"active": {Phase: "development"},
+		},
+	}
+
+	taskWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_development": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					InstructionTemplate: "Implement {task_id}",
+				},
+			},
+			"todo": {Phase: "planning"},
+		},
+	}
+
+	// Filter by status "ready_for_development" - should match in both levels
+	epicDisplay := buildActionsDisplay(epicWf, "ready_for_development", "")
+	taskDisplay := buildActionsDisplay(taskWf, "ready_for_development", "")
+
+	if len(epicDisplay.WorkflowActions) != 1 {
+		t.Errorf("Expected 1 epic action for ready_for_development, got %d", len(epicDisplay.WorkflowActions))
+	}
+	if len(taskDisplay.WorkflowActions) != 1 {
+		t.Errorf("Expected 1 task action for ready_for_development, got %d", len(taskDisplay.WorkflowActions))
+	}
+}
+
+func TestShowActions_ActionTypeFilter_MultiLevel(t *testing.T) {
+	epicWf := &config.WorkflowConfig{
+		Version: "1.0",
+		StatusMetadata: map[string]config.StatusMetadata{
+			"completed": {
+				Phase: "done",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionArchive,
+					InstructionTemplate: "Archive {id}",
+				},
+			},
+			"active": {
+				Phase: "development",
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "researcher",
+					InstructionTemplate: "Research {id}",
+				},
+			},
+		},
+	}
+
+	// Filter for spawn_agent only
+	display := buildActionsDisplay(epicWf, "", config.ActionSpawnAgent)
+
+	if len(display.WorkflowActions) != 1 {
+		t.Errorf("Expected 1 spawn_agent action, got %d", len(display.WorkflowActions))
+	}
+	if display.WorkflowActions[0].Status != "active" {
+		t.Errorf("Expected active status, got %s", display.WorkflowActions[0].Status)
+	}
+}

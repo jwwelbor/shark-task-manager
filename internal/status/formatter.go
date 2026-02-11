@@ -137,6 +137,33 @@ func formatEpicTable(epics []*EpicSummary, noColor bool, termWidth int) string {
 	}
 
 	for _, epic := range epics {
+		// Check if epic is in planning mode
+		if epic.IsPlanning {
+			// Planning mode: show phase and status instead of progress
+			phaseStr := epic.Phase
+			if phaseStr == "" {
+				phaseStr = "planning"
+			}
+
+			var modeStr string
+			if noColor {
+				modeStr = "(planning)"
+			} else {
+				modeStr = pterm.Cyan("(planning)")
+			}
+
+			tableData = append(tableData, []string{
+				epic.Key,
+				epic.Title,
+				modeStr,
+				phaseStr,
+				"-",
+				"-",
+			})
+			continue
+		}
+
+		// Aggregation mode: show progress and task counts
 		// Format health indicator
 		var healthStr string
 		if noColor {

@@ -66,6 +66,7 @@ type StatusBreakdown struct {
 type EpicSummary struct {
 	Key             string  `json:"key"`
 	Title           string  `json:"title"`
+	Status          string  `json:"status"`
 	ProgressPercent float64 `json:"progress_percent"`
 	Health          string  `json:"health"` // "healthy", "warning", "critical"
 	TasksTotal      int     `json:"tasks_total"`
@@ -73,6 +74,9 @@ type EpicSummary struct {
 	TasksBlocked    int     `json:"tasks_blocked"`
 	FeaturesTotal   int     `json:"features_total"`
 	FeaturesActive  int     `json:"features_active"`
+	DisplayMode     string  `json:"display_mode,omitempty"` // "planning" or "aggregation"
+	IsPlanning      bool    `json:"is_planning,omitempty"`
+	Phase           string  `json:"phase,omitempty"`
 }
 
 // TaskInfo represents an active task in the dashboard

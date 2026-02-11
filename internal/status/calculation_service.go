@@ -12,10 +12,12 @@ import (
 // CalculationService handles cascading status calculations
 // for features and epics based on their child entities
 type CalculationService struct {
-	featureRepo *repository.FeatureRepository
-	epicRepo    *repository.EpicRepository
-	taskRepo    *repository.TaskRepository
-	cfg         *config.WorkflowConfig
+	featureRepo     *repository.FeatureRepository
+	epicRepo        *repository.EpicRepository
+	taskRepo        *repository.TaskRepository
+	cfg             *config.WorkflowConfig
+	epicWorkflow    *config.WorkflowConfig
+	featureWorkflow *config.WorkflowConfig
 }
 
 // NewCalculationService creates a new StatusCalculationService
@@ -28,6 +30,40 @@ func NewCalculationService(db *repository.DB, cfg *config.WorkflowConfig) *Calcu
 	}
 }
 
+// SetEpicWorkflow sets the epic workflow config for planning mode detection
+func (s *CalculationService) SetEpicWorkflow(wf *config.WorkflowConfig) {
+	s.epicWorkflow = wf
+}
+
+// SetFeatureWorkflow sets the feature workflow config for planning mode detection
+func (s *CalculationService) SetFeatureWorkflow(wf *config.WorkflowConfig) {
+	s.featureWorkflow = wf
+}
+
+// isFeatureInPlanningMode checks if a feature's current status is a planning status
+func (s *CalculationService) isFeatureInPlanningMode(featureStatus string) bool {
+	if s.featureWorkflow == nil {
+		return false
+	}
+	meta, found := s.featureWorkflow.GetStatusMetadata(featureStatus)
+	if !found {
+		return false
+	}
+	return meta.IsPlanning
+}
+
+// isEpicInPlanningMode checks if an epic's current status is a planning status
+func (s *CalculationService) isEpicInPlanningMode(epicStatus string) bool {
+	if s.epicWorkflow == nil {
+		return false
+	}
+	meta, found := s.epicWorkflow.GetStatusMetadata(epicStatus)
+	if !found {
+		return false
+	}
+	return meta.IsPlanning
+}
+
 // RecalculateFeatureStatus calculates and updates feature status from task statuses
 // Returns the result of the calculation including whether status was changed
 func (s *CalculationService) RecalculateFeatureStatus(ctx context.Context, featureID int64) (*StatusChangeResult, error) {
@@ -35,6 +71,20 @@ func (s *CalculationService) RecalculateFeatureStatus(ctx context.Context, featu
 	feature, err := s.featureRepo.GetByID(ctx, featureID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get feature: %w", err)
+	}
+
+	// Check if feature is in planning mode - skip derivation if so
+	if s.isFeatureInPlanningMode(string(feature.Status)) {
+		return &StatusChangeResult{
+			EntityType:     "feature",
+			EntityKey:      feature.Key,
+			EntityID:       feature.ID,
+			PreviousStatus: string(feature.Status),
+			NewStatus:      string(feature.Status),
+			WasSkipped:     true,
+			SkipReason:     "feature in planning mode (is_planning=true)",
+			CalculatedAt:   time.Now(),
+		}, nil
 	}
 
 	// Get task status breakdown
@@ -106,6 +156,20 @@ func (s *CalculationService) RecalculateEpicStatus(ctx context.Context, epicID i
 	epic, err := s.epicRepo.GetByID(ctx, epicID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get epic: %w", err)
+	}
+
+	// Check if epic is in planning mode - skip derivation if so
+	if s.isEpicInPlanningMode(string(epic.Status)) {
+		return &StatusChangeResult{
+			EntityType:     "epic",
+			EntityKey:      epic.Key,
+			EntityID:       epic.ID,
+			PreviousStatus: string(epic.Status),
+			NewStatus:      string(epic.Status),
+			WasSkipped:     true,
+			SkipReason:     "epic in planning mode (is_planning=true)",
+			CalculatedAt:   time.Now(),
+		}, nil
 	}
 
 	// Get feature status breakdown

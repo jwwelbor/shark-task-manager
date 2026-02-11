@@ -46,6 +46,16 @@ make test-coverage     # Run tests with HTML coverage report
 
 ---
 
+## ⚠️ Mandatory Quality Gate
+
+**After ANY Go code changes, ALWAYS run before declaring work complete:**
+```bash
+make fmt && make lint && make test
+```
+Fix all failures. No exceptions. See @.claude/rules/development-workflows.md for details.
+
+---
+
 ## ⚠️ Critical Warnings
 
 See @.claude/rules/database-critical.md for full details.

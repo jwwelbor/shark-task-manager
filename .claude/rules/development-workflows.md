@@ -1,5 +1,22 @@
 # Development Workflows
 
+## Quality Gate — MANDATORY
+
+**Before considering any development work complete, you MUST run all three checks in order:**
+
+```bash
+make fmt    # Format all Go code
+make lint   # Run golangci-lint static analysis
+make test   # Run full test suite
+```
+
+**Rules:**
+- Run these after ANY series of Go code changes (new features, bug fixes, refactoring, test updates)
+- Fix any failures before declaring work done — do not skip or defer
+- If `make fmt` changes files, re-run `make lint` and `make test` after
+- If tests fail, fix the issue and re-run the full sequence
+- This applies even for "small" changes — no exceptions
+
 ## Task & Feature Creation Standards
 
 ### Creating Tasks for Development Work

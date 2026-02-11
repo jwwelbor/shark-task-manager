@@ -13,8 +13,8 @@ var (
 	ErrInvalidEpicKey       = errors.New("invalid epic key format: must match ^E\\d{2}$")
 	ErrInvalidFeatureKey    = errors.New("invalid feature key format: must match ^E\\d{2}-F\\d{2}$")
 	ErrInvalidTaskKey       = errors.New("invalid task key format: must match ^T-E\\d{2}-F\\d{2}-\\d{3}$")
-	ErrInvalidEpicStatus    = errors.New("invalid epic status: must be draft, active, completed, or archived")
-	ErrInvalidFeatureStatus = errors.New("invalid feature status: must be draft, active, completed, or archived")
+	ErrInvalidEpicStatus    = errors.New("invalid epic status")
+	ErrInvalidFeatureStatus = errors.New("invalid feature status")
 	// ErrInvalidTaskStatus is deprecated - error messages are now generated dynamically based on workflow config
 	ErrInvalidTaskStatus       = errors.New("invalid task status")
 	ErrInvalidAgentType        = errors.New("invalid agent type: cannot be empty or whitespace-only")
@@ -68,30 +68,32 @@ func ValidateTaskKey(key string) error {
 	return nil
 }
 
-// ValidateEpicStatus validates the epic status enum
+// ValidateEpicStatus performs basic validation on an epic status string.
+// It only checks that the status is non-empty after trimming whitespace.
+//
+// This function does NOT validate against workflow-defined statuses because
+// the models package cannot import the workflow package (circular dependency).
+// For workflow-aware validation, callers at the CLI/command layer should use:
+//
+//	cli.GetWorkflowService().ForLevel("epic").ValidateStatus(status)
 func ValidateEpicStatus(status string) error {
-	validStatuses := map[string]bool{
-		"draft":     true,
-		"active":    true,
-		"completed": true,
-		"archived":  true,
-	}
-	if !validStatuses[status] {
-		return fmt.Errorf("%w: got %q", ErrInvalidEpicStatus, status)
+	if strings.TrimSpace(status) == "" {
+		return fmt.Errorf("%w: status cannot be empty", ErrInvalidEpicStatus)
 	}
 	return nil
 }
 
-// ValidateFeatureStatus validates the feature status enum
+// ValidateFeatureStatus performs basic validation on a feature status string.
+// It only checks that the status is non-empty after trimming whitespace.
+//
+// This function does NOT validate against workflow-defined statuses because
+// the models package cannot import the workflow package (circular dependency).
+// For workflow-aware validation, callers at the CLI/command layer should use:
+//
+//	cli.GetWorkflowService().ForLevel("feature").ValidateStatus(status)
 func ValidateFeatureStatus(status string) error {
-	validStatuses := map[string]bool{
-		"draft":     true,
-		"active":    true,
-		"completed": true,
-		"archived":  true,
-	}
-	if !validStatuses[status] {
-		return fmt.Errorf("%w: got %q", ErrInvalidFeatureStatus, status)
+	if strings.TrimSpace(status) == "" {
+		return fmt.Errorf("%w: status cannot be empty", ErrInvalidFeatureStatus)
 	}
 	return nil
 }

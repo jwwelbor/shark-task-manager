@@ -2648,24 +2648,6 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// displayOrchestratorAction displays the orchestrator action summary in human-readable format
-func displayOrchestratorAction(action *config.PopulatedAction) {
-	if action == nil {
-		fmt.Println("Next Action: None configured")
-		return
-	}
-
-	fmt.Println("\nNext Action:")
-	fmt.Printf("  Type: %s\n", action.Action)
-	if action.AgentType != "" {
-		fmt.Printf("  Agent: %s\n", action.AgentType)
-	}
-	if len(action.Skills) > 0 {
-		fmt.Printf("  Skills: %s\n", strings.Join(action.Skills, ", "))
-	}
-	fmt.Printf("\nInstruction: %s\n", action.Instruction)
-}
-
 // Note: Custom string functions removed - now using standard library:
 // - strings.Contains() replaces containsString()
 // - strings.Split() and strings.TrimSpace() replace splitDependencies()
