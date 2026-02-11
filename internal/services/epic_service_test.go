@@ -70,7 +70,7 @@ func newTestEpicWorkflowServiceWithActions(t *testing.T) *workflow.Service {
 						"action": "spawn_agent",
 						"agent_type": "developer",
 						"skills": ["implementation", "testing"],
-						"instruction_template": "Work on epic {task_id} features"
+						"instruction_template": "Work on epic {id} features"
 					}
 				},
 				"completed": {
@@ -555,7 +555,8 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, newTestEpicWorkflowService())
 
-	action := svc.resolveAction("E16", "draft")
+	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
+	action := svc.resolveAction(epic, "draft")
 	if action != nil {
 		t.Errorf("expected nil action for default workflow (no actions defined), got %+v", action)
 	}
@@ -566,7 +567,8 @@ func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
 
-	action := svc.resolveAction("E16", "nonexistent_status")
+	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "nonexistent_status"}
+	action := svc.resolveAction(epic, "nonexistent_status")
 	if action != nil {
 		t.Errorf("expected nil action for nonexistent status, got %+v", action)
 	}
@@ -577,7 +579,8 @@ func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
 
-	action := svc.resolveAction("E16", "draft")
+	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
+	action := svc.resolveAction(epic, "draft")
 	if action != nil {
 		t.Errorf("expected nil action for 'draft' status (no action defined), got %+v", action)
 	}
@@ -587,7 +590,8 @@ func TestEpicService_resolveAction_StatusWithAction(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
 
-	action := svc.resolveAction("E16", "active")
+	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "active"}
+	action := svc.resolveAction(epic, "active")
 	if action == nil {
 		t.Fatal("expected non-nil action for 'active' status")
 	}

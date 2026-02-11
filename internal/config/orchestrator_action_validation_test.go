@@ -313,24 +313,24 @@ func TestValidateWithContext_ErrorMessageFormat(t *testing.T) {
 	}
 }
 
-// TestValidateTemplate_NoTaskIdPlaceholder tests warning when template lacks {task_id}
-func TestValidateTemplate_NoTaskIdPlaceholder(t *testing.T) {
+// TestValidateTemplate_NoPlaceholder tests warning when template has no placeholders at all
+func TestValidateTemplate_NoPlaceholder(t *testing.T) {
 	warnings := validateTemplateSyntax("This template has no placeholder")
 
 	if len(warnings) == 0 {
-		t.Fatal("Expected warning for missing {task_id}, got none")
+		t.Fatal("Expected warning for missing placeholder, got none")
 	}
 
 	found := false
 	for _, w := range warnings {
-		if strings.Contains(w, "{task_id}") {
+		if strings.Contains(w, "placeholder") {
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		t.Errorf("Expected warning about {task_id}, got: %v", warnings)
+		t.Errorf("Expected warning about missing placeholder, got: %v", warnings)
 	}
 }
 
@@ -356,20 +356,14 @@ func TestValidateTemplate_MalformedPlaceholder(t *testing.T) {
 	}
 }
 
-// TestValidateTemplate_UnknownPlaceholder tests warning for unknown placeholders
-func TestValidateTemplate_UnknownPlaceholder(t *testing.T) {
+// TestValidateTemplate_WithCustomPlaceholder tests that custom placeholders don't produce warnings
+func TestValidateTemplate_WithCustomPlaceholder(t *testing.T) {
 	warnings := validateTemplateSyntax("Work on task {task_id} with {custom_field}")
 
-	found := false
-	for _, w := range warnings {
-		if strings.Contains(w, "Unknown") && strings.Contains(w, "{custom_field}") {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		t.Errorf("Expected warning about unknown placeholder {custom_field}, got: %v", warnings)
+	// With map-based replacement, any placeholder is valid
+	// Only warn about NO placeholders or malformed syntax
+	if len(warnings) > 0 {
+		t.Errorf("Expected no warnings for template with valid placeholders, got: %v", warnings)
 	}
 }
 
@@ -676,19 +670,12 @@ func TestValidateTemplate_NoKnownPlaceholder_Warning(t *testing.T) {
 	}
 }
 
-// TestValidateTemplate_UnknownPlaceholder_Warning tests {unknown} produces warning alongside known placeholders
-func TestValidateTemplate_UnknownPlaceholder_Warning(t *testing.T) {
+// TestValidateTemplate_MixedPlaceholders_NoWarning tests mixed placeholders produce no warnings
+func TestValidateTemplate_MixedPlaceholders_NoWarning(t *testing.T) {
 	warnings := validateTemplateSyntax("Work on {id} with {unknown} data")
 
-	found := false
-	for _, w := range warnings {
-		if strings.Contains(w, "Unknown") && strings.Contains(w, "{unknown}") {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		t.Errorf("Expected warning about unknown placeholder {unknown}, got: %v", warnings)
+	// With map-based replacement, any placeholder is valid
+	if len(warnings) > 0 {
+		t.Errorf("Expected no warnings for template with mixed placeholders, got: %v", warnings)
 	}
 }

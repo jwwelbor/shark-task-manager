@@ -71,7 +71,7 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 		return nil, fmt.Errorf("failed to update epic status: %w", err)
 	}
 
-	action := s.resolveAction(epicKey, targetStatus)
+	action := s.resolveAction(epic, targetStatus)
 
 	return &TransitionResult{
 		EntityType:         "epic",
@@ -102,7 +102,7 @@ func (s *EpicService) GetNextStatus(ctx context.Context, epicKey string) (*NextS
 	for _, t := range transitions {
 		wrapped = append(wrapped, TransitionInfoWithAction{
 			TransitionInfo:     t,
-			OrchestratorAction: s.resolveAction(epicKey, t.TargetStatus),
+			OrchestratorAction: s.resolveAction(epic, t.TargetStatus),
 		})
 	}
 
@@ -123,7 +123,7 @@ func (s *EpicService) ValidateStatus(status string) error {
 
 // resolveAction looks up the orchestrator action for a given status in the workflow config.
 // Returns nil if no action is defined for the status, or if the workflow config is nil.
-func (s *EpicService) resolveAction(entityKey string, status string) *config.PopulatedAction {
+func (s *EpicService) resolveAction(epic *models.Epic, status string) *config.PopulatedAction {
 	wf := s.workflowSvc.GetWorkflow()
 	if wf == nil || wf.StatusMetadata == nil {
 		return nil
@@ -136,6 +136,6 @@ func (s *EpicService) resolveAction(entityKey string, status string) *config.Pop
 		Action:      meta.OrchestratorAction.Action,
 		AgentType:   meta.OrchestratorAction.AgentType,
 		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(entityKey),
+		Instruction: meta.OrchestratorAction.PopulateTemplate(config.EpicPlaceholders(epic)),
 	}
 }

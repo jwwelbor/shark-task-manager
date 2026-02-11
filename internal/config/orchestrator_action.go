@@ -86,7 +86,7 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 			StatusName:   statusName,
 			FieldName:    "instruction_template",
 			Problem:      "Missing required field",
-			SuggestedFix: "Add instruction_template with {id} placeholder (also supports {task_id}, {epic_id}, {feature_id})",
+			SuggestedFix: "Add instruction_template with placeholders (e.g., {id}, {title}, {status}, {file_path})",
 		}
 	}
 
@@ -131,15 +131,16 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 	return nil
 }
 
-// PopulateTemplate replaces template variables with actual values.
-// All four placeholder names ({id}, {task_id}, {epic_id}, {feature_id}) are replaced
-// with the same entityID value. Multiple names exist for template readability.
-func (oa *OrchestratorAction) PopulateTemplate(entityID string) string {
+// PopulateTemplate replaces template placeholders with actual values from the vars map.
+// Each key in vars corresponds to a placeholder name (without braces).
+// For example, vars["title"] replaces all occurrences of {title} in the template.
+// Unknown placeholders are left unchanged in the template.
+func (oa *OrchestratorAction) PopulateTemplate(vars map[string]string) string {
 	result := oa.InstructionTemplate
-	result = strings.Replace(result, "{id}", entityID, -1)
-	result = strings.Replace(result, "{task_id}", entityID, -1)
-	result = strings.Replace(result, "{epic_id}", entityID, -1)
-	result = strings.Replace(result, "{feature_id}", entityID, -1)
+	for key, value := range vars {
+		placeholder := "{" + key + "}"
+		result = strings.Replace(result, placeholder, value, -1)
+	}
 	return result
 }
 
@@ -168,37 +169,15 @@ func stringSliceContains(slice []string, target string) bool {
 func validateTemplateSyntax(template string) []string {
 	warnings := []string{}
 
-	knownPlaceholders := map[string]bool{
-		"{id}":         true,
-		"{task_id}":    true,
-		"{epic_id}":    true,
-		"{feature_id}": true,
-	}
-
-	// Check if template contains at least one known placeholder
-	hasKnownPlaceholder := false
-	for placeholder := range knownPlaceholders {
-		if strings.Contains(template, placeholder) {
-			hasKnownPlaceholder = true
-			break
-		}
-	}
-	if !hasKnownPlaceholder {
-		warnings = append(warnings, "Template does not contain a known placeholder ({id}, {task_id}, {epic_id}, {feature_id})")
+	// Check if template contains at least one placeholder (any {word} pattern)
+	placeholders := extractPlaceholders(template)
+	if len(placeholders) == 0 {
+		warnings = append(warnings, "Template does not contain any placeholder (e.g., {id}, {title}, {status})")
 	}
 
 	// Check for malformed placeholders (unclosed brace)
 	if strings.Contains(template, "{") && !strings.Contains(template, "}") {
 		warnings = append(warnings, "Malformed placeholder: unclosed brace {")
-	}
-
-	// Extract and validate placeholders
-	placeholders := extractPlaceholders(template)
-
-	for _, placeholder := range placeholders {
-		if !knownPlaceholders[placeholder] {
-			warnings = append(warnings, fmt.Sprintf("Unknown placeholder %s (known placeholders: {id}, {task_id}, {epic_id}, {feature_id})", placeholder))
-		}
 	}
 
 	// Check maximum length

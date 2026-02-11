@@ -150,7 +150,7 @@ func TestOrchestratorAction_PopulateTemplate(t *testing.T) {
 		InstructionTemplate: "Implement task {task_id} following TDD",
 	}
 
-	result := oa.PopulateTemplate("T-E07-F21-001")
+	result := oa.PopulateTemplate(map[string]string{"task_id": "T-E07-F21-001"})
 	expected := "Implement task T-E07-F21-001 following TDD"
 
 	if result != expected {
@@ -167,7 +167,7 @@ func TestOrchestratorAction_PopulateTemplate_MultipleOccurrences(t *testing.T) {
 		InstructionTemplate: "Work on {task_id}. Document completion in {task_id} file.",
 	}
 
-	result := oa.PopulateTemplate("T-E07-F21-001")
+	result := oa.PopulateTemplate(map[string]string{"task_id": "T-E07-F21-001"})
 	expected := "Work on T-E07-F21-001. Document completion in T-E07-F21-001 file."
 
 	if result != expected {
@@ -182,7 +182,7 @@ func TestOrchestratorAction_PopulateTemplate_NoPlaceholder(t *testing.T) {
 		InstructionTemplate: "Task completed. No further action needed.",
 	}
 
-	result := oa.PopulateTemplate("T-E07-F21-001")
+	result := oa.PopulateTemplate(map[string]string{"task_id": "T-E07-F21-001"})
 	expected := "Task completed. No further action needed."
 
 	if result != expected {
@@ -199,7 +199,7 @@ func TestOrchestratorAction_PopulateTemplate_CaseSensitive(t *testing.T) {
 		InstructionTemplate: "Work on {TASK_ID} and {task_id}",
 	}
 
-	result := oa.PopulateTemplate("T-E07-F21-001")
+	result := oa.PopulateTemplate(map[string]string{"task_id": "T-E07-F21-001"})
 	expected := "Work on {TASK_ID} and T-E07-F21-001"
 
 	if result != expected {
@@ -331,7 +331,7 @@ func TestOrchestratorAction_PopulateTemplate_EmptyTaskID(t *testing.T) {
 		InstructionTemplate: "Implement task {task_id}",
 	}
 
-	result := oa.PopulateTemplate("")
+	result := oa.PopulateTemplate(map[string]string{"task_id": ""})
 	expected := "Implement task "
 
 	if result != expected {
@@ -345,7 +345,7 @@ func TestPopulateTemplate_GenericId(t *testing.T) {
 		InstructionTemplate: "Process entity {id}",
 	}
 
-	result := oa.PopulateTemplate("E16")
+	result := oa.PopulateTemplate(map[string]string{"id": "E16"})
 	expected := "Process entity E16"
 
 	if result != expected {
@@ -359,7 +359,7 @@ func TestPopulateTemplate_EpicId(t *testing.T) {
 		InstructionTemplate: "Research epic {epic_id}",
 	}
 
-	result := oa.PopulateTemplate("E16")
+	result := oa.PopulateTemplate(map[string]string{"epic_id": "E16"})
 	expected := "Research epic E16"
 
 	if result != expected {
@@ -373,7 +373,7 @@ func TestPopulateTemplate_FeatureId(t *testing.T) {
 		InstructionTemplate: "Refine feature {feature_id}",
 	}
 
-	result := oa.PopulateTemplate("E16-F01")
+	result := oa.PopulateTemplate(map[string]string{"feature_id": "E16-F01"})
 	expected := "Refine feature E16-F01"
 
 	if result != expected {
@@ -387,7 +387,7 @@ func TestPopulateTemplate_TaskId_BackwardCompat(t *testing.T) {
 		InstructionTemplate: "Implement task {task_id}",
 	}
 
-	result := oa.PopulateTemplate("T-E07-F21-001")
+	result := oa.PopulateTemplate(map[string]string{"task_id": "T-E07-F21-001"})
 	expected := "Implement task T-E07-F21-001"
 
 	if result != expected {
@@ -401,7 +401,10 @@ func TestPopulateTemplate_MixedPlaceholders(t *testing.T) {
 		InstructionTemplate: "Work on {id}, see {task_id} file",
 	}
 
-	result := oa.PopulateTemplate("T-E07-F01-001")
+	result := oa.PopulateTemplate(map[string]string{
+		"id":      "T-E07-F01-001",
+		"task_id": "T-E07-F01-001",
+	})
 	expected := "Work on T-E07-F01-001, see T-E07-F01-001 file"
 
 	if result != expected {
@@ -415,8 +418,86 @@ func TestPopulateTemplate_NoPlaceholders_Unchanged(t *testing.T) {
 		InstructionTemplate: "No placeholders here",
 	}
 
-	result := oa.PopulateTemplate("E16")
+	result := oa.PopulateTemplate(map[string]string{"id": "E16"})
 	expected := "No placeholders here"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_MapBased_SingleField validates {title} replaced from map
+func TestPopulateTemplate_MapBased_SingleField(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Work on {title}",
+	}
+
+	result := oa.PopulateTemplate(map[string]string{"title": "User Authentication"})
+	expected := "Work on User Authentication"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_MapBased_MultipleFields validates multiple placeholders replaced
+func TestPopulateTemplate_MapBased_MultipleFields(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Implement {id} - {title} at {file_path}",
+	}
+
+	result := oa.PopulateTemplate(map[string]string{
+		"id":        "T-E07-F01-001",
+		"title":     "JWT Validation",
+		"file_path": "docs/plan/task.md",
+	})
+	expected := "Implement T-E07-F01-001 - JWT Validation at docs/plan/task.md"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_MapBased_UnknownKey validates {unknown} left as-is
+func TestPopulateTemplate_MapBased_UnknownKey(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Work on {id} with {unknown_field}",
+	}
+
+	result := oa.PopulateTemplate(map[string]string{
+		"id": "T-E07-F01-001",
+	})
+	expected := "Work on T-E07-F01-001 with {unknown_field}"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_MapBased_EmptyMap validates template returned unchanged
+func TestPopulateTemplate_MapBased_EmptyMap(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Work on {id} and {title}",
+	}
+
+	result := oa.PopulateTemplate(map[string]string{})
+	expected := "Work on {id} and {title}"
+
+	if result != expected {
+		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
+	}
+}
+
+// TestPopulateTemplate_MapBased_BackwardCompat validates {task_id} still works via map key
+func TestPopulateTemplate_MapBased_BackwardCompat(t *testing.T) {
+	oa := &OrchestratorAction{
+		InstructionTemplate: "Implement task {task_id}",
+	}
+
+	result := oa.PopulateTemplate(map[string]string{
+		"task_id": "T-E07-F21-001",
+	})
+	expected := "Implement task T-E07-F21-001"
 
 	if result != expected {
 		t.Errorf("PopulateTemplate() = %q, want %q", result, expected)
