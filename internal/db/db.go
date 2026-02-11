@@ -1430,7 +1430,6 @@ func migrateEntityNotes(db *sql.DB) error {
 
 	// Create indexes
 	indexes := []string{
-		`CREATE INDEX IF NOT EXISTS idx_entity_notes_entity ON entity_notes(entity_type, entity_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type ON entity_notes(note_type);`,
 		`CREATE INDEX IF NOT EXISTS idx_entity_notes_created_at ON entity_notes(created_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_entity_notes_entity_type ON entity_notes(entity_type, entity_id, note_type);`,

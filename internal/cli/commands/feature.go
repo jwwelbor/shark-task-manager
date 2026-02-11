@@ -1200,7 +1200,7 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 		if displayCount > maxDisplay {
 			displayCount = maxDisplay
 		}
-		for i := 0; i < displayCount; i++ {
+		for i := totalNotes - displayCount; i < totalNotes; i++ {
 			note := notes[i]
 			dateStr := note.CreatedAt.Format("2006-01-02")
 			content := note.Content

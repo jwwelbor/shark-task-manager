@@ -869,7 +869,7 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 		if displayCount > maxDisplay {
 			displayCount = maxDisplay
 		}
-		for i := 0; i < displayCount; i++ {
+		for i := totalNotes - displayCount; i < totalNotes; i++ {
 			note := notes[i]
 			dateStr := note.CreatedAt.Format("2006-01-02")
 			content := note.Content
