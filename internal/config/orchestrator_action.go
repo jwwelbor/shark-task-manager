@@ -136,12 +136,16 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 // For example, vars["title"] replaces all occurrences of {title} in the template.
 // Unknown placeholders are left unchanged in the template.
 func (oa *OrchestratorAction) PopulateTemplate(vars map[string]string) string {
-	result := oa.InstructionTemplate
-	for key, value := range vars {
-		placeholder := "{" + key + "}"
-		result = strings.Replace(result, placeholder, value, -1)
+	if len(vars) == 0 {
+		return oa.InstructionTemplate
 	}
-	return result
+
+	replacements := make([]string, 0, 2*len(vars))
+	for key, value := range vars {
+		replacements = append(replacements, "{"+key+"}", value)
+	}
+
+	return strings.NewReplacer(replacements...).Replace(oa.InstructionTemplate)
 }
 
 // sliceContains checks if a string slice contains a target string (deprecated, use contains)

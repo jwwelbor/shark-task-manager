@@ -9,7 +9,11 @@ import (
 
 // TaskPlaceholders creates a map of template placeholders from a Task.
 // Returns a map suitable for use with PopulateTemplate.
+// Returns an empty map if task is nil.
 func TaskPlaceholders(task *models.Task) map[string]string {
+	if task == nil {
+		return make(map[string]string)
+	}
 	m := map[string]string{
 		"id":         task.Key,
 		"task_id":    task.Key,
@@ -56,7 +60,11 @@ func TaskPlaceholders(task *models.Task) map[string]string {
 
 // FeaturePlaceholders creates a map of template placeholders from a Feature.
 // Returns a map suitable for use with PopulateTemplate.
+// Returns an empty map if feature is nil.
 func FeaturePlaceholders(feature *models.Feature) map[string]string {
+	if feature == nil {
+		return make(map[string]string)
+	}
 	m := map[string]string{
 		"id":         feature.Key,
 		"feature_id": feature.Key,
@@ -85,7 +93,11 @@ func FeaturePlaceholders(feature *models.Feature) map[string]string {
 
 // EpicPlaceholders creates a map of template placeholders from an Epic.
 // Returns a map suitable for use with PopulateTemplate.
+// Returns an empty map if epic is nil.
 func EpicPlaceholders(epic *models.Epic) map[string]string {
+	if epic == nil {
+		return make(map[string]string)
+	}
 	m := map[string]string{
 		"id":         epic.Key,
 		"epic_id":    epic.Key,
