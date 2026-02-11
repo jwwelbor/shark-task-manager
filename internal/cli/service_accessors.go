@@ -18,9 +18,10 @@ func GetEpicService() *services.EpicService {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
 	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
 	projectRoot, _ := FindProjectRoot()
 	workflowSvc := workflow.NewService(projectRoot)
-	return services.NewEpicService(epicRepo, workflowSvc)
+	return services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo)
 }
 
 // GetFeatureService returns a FeatureService instance.
@@ -32,9 +33,10 @@ func GetFeatureService() *services.FeatureService {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
 	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 	projectRoot, _ := FindProjectRoot()
 	workflowSvc := workflow.NewService(projectRoot)
-	return services.NewFeatureService(featureRepo, workflowSvc)
+	return services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
 }
 
 // GetDisplayService returns a DisplayService instance.

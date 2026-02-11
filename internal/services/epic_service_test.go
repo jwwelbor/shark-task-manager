@@ -119,10 +119,10 @@ func TestEpicService_TransitionStatus_Valid(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	result, err := svc.TransitionStatus(ctx, "E16", "active", false)
+	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -160,11 +160,11 @@ func TestEpicService_TransitionStatus_Invalid(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	// "draft" -> "completed" is not a valid direct transition in default epic workflow
-	_, err := svc.TransitionStatus(ctx, "E16", "completed", false)
+	_, err := svc.TransitionStatus(ctx, "E16", "completed", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error for invalid transition, got nil")
 	}
@@ -185,11 +185,11 @@ func TestEpicService_TransitionStatus_Force(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	// Force should bypass validation - even arbitrary strings should work
-	result, err := svc.TransitionStatus(ctx, "E16", "custom_status", true)
+	result, err := svc.TransitionStatus(ctx, "E16", "custom_status", TransitionOptions{Force: true, Reason: "test force override"})
 	if err != nil {
 		t.Fatalf("expected no error with force, got: %v", err)
 	}
@@ -211,10 +211,10 @@ func TestEpicService_TransitionStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	_, err := svc.TransitionStatus(ctx, "E99", "active", false)
+	_, err := svc.TransitionStatus(ctx, "E99", "active", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error for not-found epic")
 	}
@@ -230,10 +230,10 @@ func TestEpicService_TransitionStatus_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	_, err := svc.TransitionStatus(ctx, "E16", "active", false)
+	_, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error from repo failure")
 	}
@@ -252,10 +252,10 @@ func TestEpicService_TransitionStatus_UpdateError(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	_, err := svc.TransitionStatus(ctx, "E16", "active", false)
+	_, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error from update failure")
 	}
@@ -271,7 +271,7 @@ func TestEpicService_GetNextStatus(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -303,7 +303,7 @@ func TestEpicService_GetNextStatus_Terminal(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -326,7 +326,7 @@ func TestEpicService_GetNextStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetNextStatus(ctx, "E99")
@@ -337,7 +337,7 @@ func TestEpicService_GetNextStatus_NotFound(t *testing.T) {
 
 func TestEpicService_ValidateStatus(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 
 	// Valid epic statuses
 	for _, status := range []string{"draft", "active", "completed", "archived"} {
@@ -435,11 +435,11 @@ func TestEpicService_TransitionStatus_WithAction(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 	ctx := context.Background()
 
 	// Transition to "active" which has an orchestrator_action defined
-	result, err := svc.TransitionStatus(ctx, "E16", "active", false)
+	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -477,11 +477,11 @@ func TestEpicService_TransitionStatus_WithoutAction(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 	ctx := context.Background()
 
 	// Transition to "completed" which has no orchestrator_action
-	result, err := svc.TransitionStatus(ctx, "E16", "completed", false)
+	result, err := svc.TransitionStatus(ctx, "E16", "completed", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestEpicService_GetNextStatus_WithActions(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -553,7 +553,7 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 	// Create an EpicService with a default workflow (no actions defined)
 	// resolveAction should return nil gracefully
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowService())
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
 	action := svc.resolveAction(epic, "draft")
@@ -565,7 +565,7 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 	// resolveAction with a status not in metadata should return nil
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "nonexistent_status"}
 	action := svc.resolveAction(epic, "nonexistent_status")
@@ -577,7 +577,7 @@ func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 	// resolveAction for a status that exists but has no orchestrator_action
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
 	action := svc.resolveAction(epic, "draft")
@@ -588,7 +588,7 @@ func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 
 func TestEpicService_resolveAction_StatusWithAction(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "active"}
 	action := svc.resolveAction(epic, "active")
@@ -624,10 +624,10 @@ func TestEpicService_TransitionStatus_ActionJSON(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t))
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 	ctx := context.Background()
 
-	result, err := svc.TransitionStatus(ctx, "E16", "active", false)
+	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

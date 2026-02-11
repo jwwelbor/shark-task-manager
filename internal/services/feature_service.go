@@ -16,18 +16,36 @@ type FeatureRepository interface {
 	Update(ctx context.Context, feature *models.Feature) error
 }
 
+// FeatureNoteRepository defines the note repo interface needed by FeatureService
+// for creating rejection notes on backward transitions.
+type FeatureNoteRepository interface {
+	CreateRejectionNote(ctx context.Context, entityType string, entityID int64,
+		historyID int64, fromStatus, toStatus, reason, rejectedBy, documentPath string) error
+}
+
+// FeatureTaskCounter defines the task counting interface needed by FeatureService
+// to count child tasks for backward transition warnings.
+type FeatureTaskCounter interface {
+	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
+}
+
 // FeatureService provides business logic for feature operations.
 type FeatureService struct {
 	repo        FeatureRepository
 	workflowSvc *workflow.Service
+	noteRepo    FeatureNoteRepository
+	taskRepo    FeatureTaskCounter
 }
 
 // NewFeatureService creates a new FeatureService.
 // The workflow service is automatically scoped to the feature level.
-func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service) *FeatureService {
+// noteRepo and taskRepo can be nil for graceful degradation.
+func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service, noteRepo FeatureNoteRepository, taskRepo FeatureTaskCounter) *FeatureService {
 	return &FeatureService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelFeature),
+		noteRepo:    noteRepo,
+		taskRepo:    taskRepo,
 	}
 }
 
@@ -37,12 +55,12 @@ func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service) *F
 //   - ctx: context
 //   - featureKey: the feature key (e.g., "E16-F01")
 //   - targetStatus: the desired new status
-//   - force: if true, bypass workflow validation
+//   - opts: transition options (force, reason, etc.)
 //
 // Returns:
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
-func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string, targetStatus string, force bool) (*TransitionResult, error) {
+func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
 	feature, err := s.repo.GetByKey(ctx, featureKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get feature: %w", err)
@@ -54,21 +72,52 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 	currentStatus := string(feature.Status)
 
 	// Validate transition (unless forced)
-	if !force {
+	if !opts.Force {
 		if err := s.workflowSvc.ValidateTransition(currentStatus, targetStatus); err != nil {
 			return nil, err
 		}
 	}
 
 	// Normalize target status (unless forcing, where we accept any string)
-	if !force {
+	if !opts.Force {
 		targetStatus = s.workflowSvc.NormalizeStatus(targetStatus)
+	}
+
+	// Enforce reason requirement for forced transitions
+	if opts.Force && opts.Reason == "" {
+		return nil, fmt.Errorf("--force requires --reason to document why validation was bypassed")
+	}
+
+	// Detect backward transition
+	isBackward, _ := s.workflowSvc.IsBackwardTransition(currentStatus, targetStatus)
+	if isBackward && !opts.Force {
+		wf := s.workflowSvc.GetWorkflow()
+		requireReason := wf == nil || wf.RequireRejectionReason
+		if requireReason && opts.Reason == "" {
+			return nil, fmt.Errorf("backward transition from '%s' to '%s' requires --reason flag", currentStatus, targetStatus)
+		}
 	}
 
 	// Perform update
 	feature.Status = models.FeatureStatus(targetStatus)
 	if err := s.repo.Update(ctx, feature); err != nil {
 		return nil, fmt.Errorf("failed to update feature status: %w", err)
+	}
+
+	// Log rejection note for backward transitions with reason
+	if (isBackward || opts.Force) && opts.Reason != "" && s.noteRepo != nil {
+		_ = s.noteRepo.CreateRejectionNote(ctx, "feature", feature.ID,
+			0, currentStatus, targetStatus,
+			opts.Reason, opts.Agent, opts.DocumentPath)
+	}
+
+	// Count child tasks for warning
+	var childCount int
+	if s.taskRepo != nil {
+		tasks, listErr := s.taskRepo.ListByFeature(ctx, feature.ID)
+		if listErr == nil {
+			childCount = len(tasks)
+		}
 	}
 
 	action := s.resolveAction(feature, targetStatus)
@@ -80,6 +129,10 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		ToStatus:           targetStatus,
 		Transitioned:       true,
 		OrchestratorAction: action,
+		IsBackward:         isBackward,
+		IsForced:           opts.Force,
+		Reason:             opts.Reason,
+		ChildCount:         childCount,
 	}, nil
 }
 

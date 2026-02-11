@@ -175,6 +175,92 @@ Impediments
 }
 ```
 
+## `shark epic next-status`
+
+Progress an epic to its next workflow status.
+
+**Usage:**
+```bash
+shark epic next-status <epic-key> [flags]
+```
+
+**Flags:**
+- `--status <name>`: Transition directly to this status (non-interactive)
+- `--preview`: Show available transitions without making changes
+- `--force`: Bypass workflow validation (administrative override, requires `--reason`)
+- `--reason <text>`: Reason for backward or forced transitions
+- `--agent <name>`: Agent or user performing the transition
+- `--json`: Output in JSON format
+
+**Examples:**
+
+```bash
+# Auto-advance to next status
+shark epic next-status E16
+
+# Show available transitions
+shark epic next-status E16 --preview
+
+# Direct transition
+shark epic next-status E16 --status=active
+
+# Backward transition with reason
+shark epic next-status E16 --status=draft --reason="Requirements changed"
+```
+
+---
+
+## `shark epic set-status`
+
+Set an epic to a specific workflow status with validation and backward transition guards.
+
+**Usage:**
+```bash
+shark epic set-status <epic-key> <status> [flags]
+```
+
+**Flags:**
+- `--reason <text>`: Reason for backward or forced transitions (required for backward transitions)
+- `--force`: Bypass workflow validation (administrative override, requires `--reason`)
+- `--agent <name>`: Agent or user performing the transition
+- `--json`: Output in JSON format
+
+**Backward Transition Rules:**
+- Moving to an earlier workflow phase (e.g., active -> draft) requires `--reason`
+- Using `--force` always requires `--reason` to document the override
+- Forward transitions do not require `--reason`
+
+**Examples:**
+
+```bash
+# Forward transition
+shark epic set-status E16 active
+
+# Backward transition (requires --reason)
+shark epic set-status E16 draft --reason="Requirements changed"
+
+# Force transition (bypasses validation, requires --reason)
+shark epic set-status E16 custom --force --reason="Administrative override"
+
+# JSON output
+shark epic set-status E16 active --json
+```
+
+**JSON Output:**
+```json
+{
+  "entity_type": "epic",
+  "entity_key": "E16",
+  "from_status": "draft",
+  "to_status": "active",
+  "transitioned": true,
+  "is_backward": false,
+  "child_count": 3
+}
+```
+
+---
+
 ## Related Documentation
 
 - [Feature Commands](feature-commands.md)

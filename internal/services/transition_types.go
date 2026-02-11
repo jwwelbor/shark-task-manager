@@ -5,6 +5,15 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
+// TransitionOptions controls behavior of status transitions.
+// Used by EpicService.TransitionStatus() and FeatureService.TransitionStatus().
+type TransitionOptions struct {
+	Force        bool   `json:"force,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	DocumentPath string `json:"document_path,omitempty"`
+	Agent        string `json:"agent,omitempty"`
+}
+
 // TransitionResult represents the outcome of a status transition.
 type TransitionResult struct {
 	EntityType         string                  `json:"entity_type"` // "epic", "feature", "task"
@@ -14,6 +23,10 @@ type TransitionResult struct {
 	Transitioned       bool                    `json:"transitioned"`
 	Message            string                  `json:"message,omitempty"`
 	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action"`
+	IsBackward         bool                    `json:"is_backward,omitempty"`
+	IsForced           bool                    `json:"is_forced,omitempty"`
+	Reason             string                  `json:"reason,omitempty"`
+	ChildCount         int                     `json:"child_count,omitempty"`
 }
 
 // TransitionInfoWithAction wraps a TransitionInfo with an optional orchestrator action.

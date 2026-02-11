@@ -16,18 +16,36 @@ type EpicRepository interface {
 	Update(ctx context.Context, epic *models.Epic) error
 }
 
+// EpicNoteRepository defines the note repo interface needed by EpicService
+// for creating rejection notes on backward transitions.
+type EpicNoteRepository interface {
+	CreateRejectionNote(ctx context.Context, entityType string, entityID int64,
+		historyID int64, fromStatus, toStatus, reason, rejectedBy, documentPath string) error
+}
+
+// EpicFeatureCounter defines the feature counting interface needed by EpicService
+// to count child features for backward transition warnings.
+type EpicFeatureCounter interface {
+	ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error)
+}
+
 // EpicService provides business logic for epic operations.
 type EpicService struct {
 	repo        EpicRepository
 	workflowSvc *workflow.Service
+	noteRepo    EpicNoteRepository
+	featureRepo EpicFeatureCounter
 }
 
 // NewEpicService creates a new EpicService.
 // The workflow service is automatically scoped to the epic level.
-func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service) *EpicService {
+// noteRepo and featureRepo can be nil for graceful degradation.
+func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter) *EpicService {
 	return &EpicService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),
+		noteRepo:    noteRepo,
+		featureRepo: featureRepo,
 	}
 }
 
@@ -37,12 +55,12 @@ func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service) *EpicSer
 //   - ctx: context
 //   - epicKey: the epic key (e.g., "E16")
 //   - targetStatus: the desired new status
-//   - force: if true, bypass workflow validation
+//   - opts: transition options (force, reason, etc.)
 //
 // Returns:
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
-func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targetStatus string, force bool) (*TransitionResult, error) {
+func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
 	epic, err := s.repo.GetByKey(ctx, epicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get epic: %w", err)
@@ -54,21 +72,52 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 	currentStatus := string(epic.Status)
 
 	// Validate transition (unless forced)
-	if !force {
+	if !opts.Force {
 		if err := s.workflowSvc.ValidateTransition(currentStatus, targetStatus); err != nil {
 			return nil, err
 		}
 	}
 
 	// Normalize target status (unless forcing, where we accept any string)
-	if !force {
+	if !opts.Force {
 		targetStatus = s.workflowSvc.NormalizeStatus(targetStatus)
+	}
+
+	// Enforce reason requirement for forced transitions
+	if opts.Force && opts.Reason == "" {
+		return nil, fmt.Errorf("--force requires --reason to document why validation was bypassed")
+	}
+
+	// Detect backward transition
+	isBackward, _ := s.workflowSvc.IsBackwardTransition(currentStatus, targetStatus)
+	if isBackward && !opts.Force {
+		wf := s.workflowSvc.GetWorkflow()
+		requireReason := wf == nil || wf.RequireRejectionReason
+		if requireReason && opts.Reason == "" {
+			return nil, fmt.Errorf("backward transition from '%s' to '%s' requires --reason flag", currentStatus, targetStatus)
+		}
 	}
 
 	// Perform update
 	epic.Status = models.EpicStatus(targetStatus)
 	if err := s.repo.Update(ctx, epic); err != nil {
 		return nil, fmt.Errorf("failed to update epic status: %w", err)
+	}
+
+	// Log rejection note for backward transitions with reason
+	if (isBackward || opts.Force) && opts.Reason != "" && s.noteRepo != nil {
+		_ = s.noteRepo.CreateRejectionNote(ctx, "epic", epic.ID,
+			0, currentStatus, targetStatus,
+			opts.Reason, opts.Agent, opts.DocumentPath)
+	}
+
+	// Count child features for warning
+	var childCount int
+	if s.featureRepo != nil {
+		features, listErr := s.featureRepo.ListByEpic(ctx, epic.ID)
+		if listErr == nil {
+			childCount = len(features)
+		}
 	}
 
 	action := s.resolveAction(epic, targetStatus)
@@ -80,6 +129,10 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 		ToStatus:           targetStatus,
 		Transitioned:       true,
 		OrchestratorAction: action,
+		IsBackward:         isBackward,
+		IsForced:           opts.Force,
+		Reason:             opts.Reason,
+		ChildCount:         childCount,
 	}, nil
 }
 
