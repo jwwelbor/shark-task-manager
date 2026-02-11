@@ -330,7 +330,7 @@ Examples:
 
 func init() {
     epicSetStatusCmd.Flags().String("reason", "", "Reason for backward transition (required for backward moves)")
-    epicSetStatusCmd.Flags().Bool("force", false, "Bypass workflow validation and reason requirement")
+    epicSetStatusCmd.Flags().Bool("force", false, "Bypass workflow validation (requires --reason)")
     epicSetStatusCmd.Flags().String("agent", "", "Agent or user performing the transition")
     epicCmd.AddCommand(epicSetStatusCmd)
 }

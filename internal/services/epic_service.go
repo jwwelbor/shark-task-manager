@@ -85,16 +85,24 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 
 	// Enforce reason requirement for forced transitions
 	if opts.Force && opts.Reason == "" {
-		return nil, fmt.Errorf("--force requires --reason to document why validation was bypassed")
+		return nil, ErrForceReasonRequired
 	}
 
 	// Detect backward transition
-	isBackward, _ := s.workflowSvc.IsBackwardTransition(currentStatus, targetStatus)
+	isBackward, err := s.workflowSvc.IsBackwardTransition(currentStatus, targetStatus)
+	if err != nil {
+		// If forcing, we might be transitioning to a status not in the workflow.
+		// In this case, we can't determine if it's backward, so we assume it's not.
+		if !opts.Force {
+			return nil, fmt.Errorf("could not determine transition direction: %w", err)
+		}
+		isBackward = false
+	}
 	if isBackward && !opts.Force {
 		wf := s.workflowSvc.GetWorkflow()
 		requireReason := wf == nil || wf.RequireRejectionReason
 		if requireReason && opts.Reason == "" {
-			return nil, fmt.Errorf("backward transition from '%s' to '%s' requires --reason flag", currentStatus, targetStatus)
+			return nil, &BackwardReasonError{FromStatus: currentStatus, ToStatus: targetStatus}
 		}
 	}
 

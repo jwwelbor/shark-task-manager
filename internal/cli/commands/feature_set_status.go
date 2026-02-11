@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -67,14 +68,13 @@ func runFeatureSetStatus(cmd *cobra.Command, args []string) error {
 	// Perform transition
 	result, err := featureSvc.TransitionStatus(ctx, featureKey, targetStatus, opts)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "not found") {
+		if errors.Is(err, services.ErrReasonRequired) || errors.Is(err, services.ErrForceReasonRequired) {
+			cli.Error(err.Error())
+			os.Exit(3)
+		}
+		if strings.Contains(err.Error(), "not found") {
 			cli.Error(fmt.Sprintf("Feature %s not found", featureKey))
 			os.Exit(1)
-		}
-		if strings.Contains(errMsg, "requires --reason") {
-			cli.Error(errMsg)
-			os.Exit(3)
 		}
 		return fmt.Errorf("failed to set feature status: %w", err)
 	}

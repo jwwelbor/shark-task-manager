@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -67,14 +68,13 @@ func runEpicSetStatus(cmd *cobra.Command, args []string) error {
 	// Perform transition
 	result, err := epicSvc.TransitionStatus(ctx, epicKey, targetStatus, opts)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "not found") {
+		if errors.Is(err, services.ErrReasonRequired) || errors.Is(err, services.ErrForceReasonRequired) {
+			cli.Error(err.Error())
+			os.Exit(3)
+		}
+		if strings.Contains(err.Error(), "not found") {
 			cli.Error(fmt.Sprintf("Epic %s not found", epicKey))
 			os.Exit(1)
-		}
-		if strings.Contains(errMsg, "requires --reason") {
-			cli.Error(errMsg)
-			os.Exit(3)
 		}
 		return fmt.Errorf("failed to set epic status: %w", err)
 	}

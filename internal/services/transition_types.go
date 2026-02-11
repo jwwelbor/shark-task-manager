@@ -1,9 +1,35 @@
 package services
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// Sentinel errors for status transitions.
+var (
+	// ErrReasonRequired indicates a reason is required for the transition.
+	ErrReasonRequired = errors.New("reason is required for this transition")
+
+	// ErrForceReasonRequired indicates --force requires --reason.
+	ErrForceReasonRequired = errors.New("--force requires --reason to document why validation was bypassed")
+)
+
+// BackwardReasonError is returned when a backward transition is missing a reason.
+type BackwardReasonError struct {
+	FromStatus string
+	ToStatus   string
+}
+
+func (e *BackwardReasonError) Error() string {
+	return fmt.Sprintf("backward transition from '%s' to '%s' requires --reason flag", e.FromStatus, e.ToStatus)
+}
+
+func (e *BackwardReasonError) Is(target error) bool {
+	return target == ErrReasonRequired
+}
 
 // TransitionOptions controls behavior of status transitions.
 // Used by EpicService.TransitionStatus() and FeatureService.TransitionStatus().

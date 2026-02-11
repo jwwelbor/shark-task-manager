@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -91,8 +92,12 @@ func TestEpicService_BackwardTransition_RequiresReason(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for backward transition without reason")
 	}
-	if !strings.Contains(err.Error(), "requires --reason") {
-		t.Errorf("expected 'requires --reason' in error, got: %v", err)
+	if !errors.Is(err, ErrReasonRequired) {
+		t.Errorf("expected ErrReasonRequired, got: %v", err)
+	}
+	var backwardErr *BackwardReasonError
+	if !errors.As(err, &backwardErr) {
+		t.Errorf("expected BackwardReasonError, got %T: %v", err, err)
 	}
 }
 
@@ -151,8 +156,8 @@ func TestEpicService_ForceTransition_RequiresReason(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for force without reason")
 	}
-	if !strings.Contains(err.Error(), "--force requires --reason") {
-		t.Errorf("expected '--force requires --reason' in error, got: %v", err)
+	if !errors.Is(err, ErrForceReasonRequired) {
+		t.Errorf("expected ErrForceReasonRequired, got: %v", err)
 	}
 }
 
@@ -297,8 +302,12 @@ func TestFeatureService_BackwardTransition_RequiresReason(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for backward transition without reason")
 	}
-	if !strings.Contains(err.Error(), "requires --reason") {
-		t.Errorf("expected 'requires --reason' in error, got: %v", err)
+	if !errors.Is(err, ErrReasonRequired) {
+		t.Errorf("expected ErrReasonRequired, got: %v", err)
+	}
+	var backwardErr *BackwardReasonError
+	if !errors.As(err, &backwardErr) {
+		t.Errorf("expected BackwardReasonError, got %T: %v", err, err)
 	}
 }
 
@@ -320,8 +329,8 @@ func TestFeatureService_ForceTransition_RequiresReason(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for force without reason")
 	}
-	if !strings.Contains(err.Error(), "--force requires --reason") {
-		t.Errorf("expected '--force requires --reason' in error, got: %v", err)
+	if !errors.Is(err, ErrForceReasonRequired) {
+		t.Errorf("expected ErrForceReasonRequired, got: %v", err)
 	}
 }
 
