@@ -15,10 +15,10 @@ func TestCreateRejectionNoteBasic(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data to get task and history IDs
 	_, _ = test.SeedTestData()
@@ -39,6 +39,7 @@ func TestCreateRejectionNoteBasic(t *testing.T) {
 
 	note, err := noteRepo.CreateRejectionNote(
 		ctx,
+		models.EntityTypeTask,
 		taskID,
 		historyID,
 		fromStatus,
@@ -111,7 +112,7 @@ func TestCreateRejectionNoteBasic(t *testing.T) {
 	}
 
 	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 }
 
 // TestCreateRejectionNoteWithDocumentPath tests creating a rejection note with document path
@@ -119,10 +120,10 @@ func TestCreateRejectionNoteWithDocumentPath(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -144,6 +145,7 @@ func TestCreateRejectionNoteWithDocumentPath(t *testing.T) {
 
 	note, err := noteRepo.CreateRejectionNote(
 		ctx,
+		models.EntityTypeTask,
 		taskID,
 		historyID,
 		fromStatus,
@@ -173,7 +175,7 @@ func TestCreateRejectionNoteWithDocumentPath(t *testing.T) {
 	}
 
 	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 }
 
 // TestCreateRejectionNoteWithoutDocumentPath tests that document_path is omitted when nil
@@ -181,10 +183,10 @@ func TestCreateRejectionNoteWithoutDocumentPath(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -205,6 +207,7 @@ func TestCreateRejectionNoteWithoutDocumentPath(t *testing.T) {
 
 	note, err := noteRepo.CreateRejectionNote(
 		ctx,
+		models.EntityTypeTask,
 		taskID,
 		historyID,
 		fromStatus,
@@ -235,7 +238,7 @@ func TestCreateRejectionNoteWithoutDocumentPath(t *testing.T) {
 	}
 
 	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 }
 
 // TestCreateRejectionNoteMetadataStructure tests the complete metadata JSON structure
@@ -243,10 +246,10 @@ func TestCreateRejectionNoteMetadataStructure(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -266,6 +269,7 @@ func TestCreateRejectionNoteMetadataStructure(t *testing.T) {
 
 	note, err := noteRepo.CreateRejectionNote(
 		ctx,
+		models.EntityTypeTask,
 		taskID,
 		historyID,
 		fromStatus,
@@ -317,7 +321,7 @@ func TestCreateRejectionNoteMetadataStructure(t *testing.T) {
 	}
 
 	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 }
 
 // TestCreateRejectionNoteInTransaction tests creating rejection note within a transaction
@@ -325,10 +329,10 @@ func TestCreateRejectionNoteInTransaction(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -353,6 +357,7 @@ func TestCreateRejectionNoteInTransaction(t *testing.T) {
 	note, err := noteRepo.CreateRejectionNoteWithTx(
 		ctx,
 		tx,
+		models.EntityTypeTask,
 		taskID,
 		int64(111),
 		"ready_for_approval",
@@ -372,7 +377,7 @@ func TestCreateRejectionNoteInTransaction(t *testing.T) {
 
 	// Verify note can be queried within transaction
 	var count int
-	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM task_notes WHERE id = ?", note.ID).Scan(&count)
+	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_notes WHERE id = ?", note.ID).Scan(&count)
 	if err != nil {
 		t.Fatalf("Failed to query note in transaction: %v", err)
 	}
@@ -398,7 +403,7 @@ func TestCreateRejectionNoteInTransaction(t *testing.T) {
 	}
 
 	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 }
 
 // TestCreateRejectionNoteTransactionRollback tests that rollback prevents persistence
@@ -406,10 +411,10 @@ func TestCreateRejectionNoteTransactionRollback(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -431,6 +436,7 @@ func TestCreateRejectionNoteTransactionRollback(t *testing.T) {
 	note, err := noteRepo.CreateRejectionNoteWithTx(
 		ctx,
 		tx,
+		models.EntityTypeTask,
 		taskID,
 		int64(222),
 		"ready_for_qa",
@@ -464,7 +470,7 @@ func TestCreateRejectionNoteValidation(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -512,6 +518,7 @@ func TestCreateRejectionNoteValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := noteRepo.CreateRejectionNote(
 				ctx,
+				models.EntityTypeTask,
 				tt.taskID,
 				tt.historyID,
 				tt.fromStatus,
@@ -536,10 +543,10 @@ func TestGetRejectionNotesForTask(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up rejection notes
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -555,6 +562,7 @@ func TestGetRejectionNotesForTask(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		_, err := noteRepo.CreateRejectionNote(
 			ctx,
+			models.EntityTypeTask,
 			taskID,
 			int64(100+i),
 			"draft",
@@ -569,7 +577,7 @@ func TestGetRejectionNotesForTask(t *testing.T) {
 	}
 
 	// Retrieve rejection notes for the task
-	notes, err := noteRepo.GetByTaskIDAndType(ctx, taskID, []string{"rejection"})
+	notes, err := noteRepo.GetByEntityAndType(ctx, models.EntityTypeTask, taskID, []string{"rejection"})
 	if err != nil {
 		t.Fatalf("Failed to retrieve rejection notes: %v", err)
 	}
@@ -589,7 +597,7 @@ func TestGetRejectionNotesForTask(t *testing.T) {
 	}
 
 	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection' AND task_id = ?", taskID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection' AND entity_type = 'task' AND entity_id = ?", taskID)
 }
 
 // TestCreateRejectionNoteReasonEdgeCases tests rejection reason validation edge cases
@@ -597,10 +605,10 @@ func TestCreateRejectionNoteReasonEdgeCases(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -660,6 +668,7 @@ func TestCreateRejectionNoteReasonEdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			note, err := noteRepo.CreateRejectionNote(
 				ctx,
+				models.EntityTypeTask,
 				taskID,
 				int64(9000),
 				"draft",
@@ -679,7 +688,7 @@ func TestCreateRejectionNoteReasonEdgeCases(t *testing.T) {
 				}
 				if note != nil {
 					// Cleanup
-					_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+					_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 				}
 			}
 		})
@@ -691,10 +700,10 @@ func TestCreateRejectionNoteDocumentPathValidation(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -754,6 +763,7 @@ func TestCreateRejectionNoteDocumentPathValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			note, err := noteRepo.CreateRejectionNote(
 				ctx,
+				models.EntityTypeTask,
 				taskID,
 				int64(9100+len(tt.name)),
 				"draft",
@@ -794,7 +804,7 @@ func TestCreateRejectionNoteDocumentPathValidation(t *testing.T) {
 			}
 
 			// Cleanup
-			_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+			_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 		})
 	}
 }
@@ -804,10 +814,10 @@ func TestRejectionNotesOrderedByTimestamp(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -820,10 +830,11 @@ func TestRejectionNotesOrderedByTimestamp(t *testing.T) {
 	}
 
 	// Create multiple rejection notes
-	var createdNotes []*models.TaskNote
+	var createdNotes []*models.EntityNote
 	for i := 0; i < 5; i++ {
 		note, err := noteRepo.CreateRejectionNote(
 			ctx,
+			models.EntityTypeTask,
 			taskID,
 			int64(9200+i),
 			"draft",
@@ -839,7 +850,7 @@ func TestRejectionNotesOrderedByTimestamp(t *testing.T) {
 	}
 
 	// Retrieve rejection notes
-	notes, err := noteRepo.GetByTaskIDAndType(ctx, taskID, []string{"rejection"})
+	notes, err := noteRepo.GetByEntityAndType(ctx, models.EntityTypeTask, taskID, []string{"rejection"})
 	if err != nil {
 		t.Fatalf("Failed to retrieve rejection notes: %v", err)
 	}
@@ -858,7 +869,7 @@ func TestRejectionNotesOrderedByTimestamp(t *testing.T) {
 
 	// Cleanup
 	for _, note := range createdNotes {
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 	}
 }
 
@@ -867,10 +878,10 @@ func TestRejectionNoteMetadataIntegrity(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -921,6 +932,7 @@ func TestRejectionNoteMetadataIntegrity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			note, err := noteRepo.CreateRejectionNote(
 				ctx,
+				models.EntityTypeTask,
 				taskID,
 				tt.historyID,
 				tt.fromStatus,
@@ -968,7 +980,7 @@ func TestRejectionNoteMetadataIntegrity(t *testing.T) {
 			}
 
 			// Cleanup
-			_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note.ID)
+			_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note.ID)
 		})
 	}
 }
@@ -978,10 +990,10 @@ func TestRejectionNoteCountPerTask(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection'")
 
 	// Seed test data
 	_, _ = test.SeedTestData()
@@ -998,6 +1010,7 @@ func TestRejectionNoteCountPerTask(t *testing.T) {
 	for i := 0; i < expectedCount; i++ {
 		_, err := noteRepo.CreateRejectionNote(
 			ctx,
+			models.EntityTypeTask,
 			taskID,
 			int64(10100+i),
 			"draft",
@@ -1012,7 +1025,7 @@ func TestRejectionNoteCountPerTask(t *testing.T) {
 	}
 
 	// Count rejection notes
-	notes, err := noteRepo.GetByTaskIDAndType(ctx, taskID, []string{"rejection"})
+	notes, err := noteRepo.GetByEntityAndType(ctx, models.EntityTypeTask, taskID, []string{"rejection"})
 	if err != nil {
 		t.Fatalf("Failed to retrieve rejection notes: %v", err)
 	}
@@ -1020,7 +1033,7 @@ func TestRejectionNoteCountPerTask(t *testing.T) {
 	// Filter to only rejection notes for this task created in this test
 	rejectionCount := 0
 	for _, note := range notes {
-		if note.NoteType == models.NoteTypeRejection && note.TaskID == taskID {
+		if note.NoteType == models.NoteTypeRejection && note.EntityID == taskID {
 			rejectionCount++
 		}
 	}
@@ -1030,7 +1043,7 @@ func TestRejectionNoteCountPerTask(t *testing.T) {
 	}
 
 	// Cleanup
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = 'rejection' AND task_id = ?", taskID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = 'rejection' AND entity_type = 'task' AND entity_id = ?", taskID)
 }
 
 // Helper function to create a string pointer

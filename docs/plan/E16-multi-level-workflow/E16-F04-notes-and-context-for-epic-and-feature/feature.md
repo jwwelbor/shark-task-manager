@@ -60,6 +60,11 @@ Extend the existing note and context commands to support epic and feature entiti
 - [ ] Shows notes, context, history, current status, and workflow position
 - [ ] Same format as existing `shark task resume`
 
+**Story 4**: As an agent, I want to see notes, context, etc, all details related to an item when I call `shark get`
+**Acceptance Criteria**:
+- [ ] `shark get epic <key>` shows notes and context in output (JSON and plain text)
+- [ ] `shark get feature <key>` shows notes and context in output (JSON and plain text)
+
 ---
 
 ## Requirements
@@ -112,6 +117,15 @@ Extend the existing note and context commands to support epic and feature entiti
     - **Description**: `shark feature resume <key>` -- full context dump
     - **Priority**: Must-Have
 
+**Category: Get Command**
+
+11. **REQ-F-011**: Epic get command
+   - **Description**: `shark epic get <key>` --includes notes in output
+    - **Priority**: Must-Have
+
+12. **REQ-F-012**: Feature get command
+   - **Description**: `shark feature get <key>` --includes notes in output
+    - **Priority**: Must-Have
 ---
 
 ### Non-Functional Requirements

@@ -39,7 +39,7 @@ func (r *SearchRepository) RebuildIndex(ctx context.Context) error {
 			t.key as task_key,
 			t.title,
 			COALESCE(t.description, ''),
-			COALESCE((SELECT GROUP_CONCAT(content, ' ') FROM task_notes WHERE task_id = t.id), ''),
+			COALESCE((SELECT GROUP_CONCAT(content, ' ') FROM entity_notes WHERE entity_type = 'task' AND entity_id = t.id), ''),
 			COALESCE((SELECT GROUP_CONCAT(criterion, ' ') FROM task_criteria WHERE task_id = t.id), ''),
 			COALESCE(t.agent_type || ' ' || t.status, '')
 		FROM tasks t
@@ -73,7 +73,7 @@ func (r *SearchRepository) IndexTask(ctx context.Context, taskID int64) error {
 			t.key,
 			t.title,
 			COALESCE(t.description, ''),
-			COALESCE((SELECT GROUP_CONCAT(content, ' ') FROM task_notes WHERE task_id = t.id), ''),
+			COALESCE((SELECT GROUP_CONCAT(content, ' ') FROM entity_notes WHERE entity_type = 'task' AND entity_id = t.id), ''),
 			COALESCE((SELECT GROUP_CONCAT(criterion, ' ') FROM task_criteria WHERE task_id = t.id), ''),
 			COALESCE(t.agent_type || ' ' || t.status, '')
 		FROM tasks t

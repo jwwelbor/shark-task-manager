@@ -561,6 +561,26 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		approvalBacklogCount = approvalCount
 	}
 
+	// Fetch notes via NoteService (graceful - don't fail the whole command)
+	var epicNotes []*models.EntityNote
+	noteSvc, noteErr := cli.GetNoteService(ctx)
+	if noteErr == nil {
+		epicNotes, noteErr = noteSvc.ListNotes(ctx, models.EntityTypeEpic, epicKey, nil)
+		if noteErr != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to fetch epic notes: %v\n", noteErr)
+		}
+	}
+
+	// Fetch context via ContextService (graceful)
+	var epicContext *models.ContextData
+	ctxSvc, ctxErr := cli.GetContextService(ctx)
+	if ctxErr == nil {
+		epicContext, ctxErr = ctxSvc.GetContext(ctx, models.EntityTypeEpic, epicKey)
+		if ctxErr != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to fetch epic context: %v\n", ctxErr)
+		}
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		// Build feature status summary
@@ -616,12 +636,14 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"task_status_rollup":     taskSummary,
 			"impediments":            impediments,
 			"approval_backlog_count": approvalBacklogCount,
+			"notes":                  epicNotes,
+			"context_data":           epicContext,
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
-	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs, featureRollup, taskRollup, blockedTasks, approvalBacklogCount)
+	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs, featureRollup, taskRollup, blockedTasks, approvalBacklogCount, epicNotes, epicContext)
 	return nil
 }
 
@@ -722,7 +744,7 @@ func renderEpicListTable(epics []EpicWithProgress) {
 }
 
 // renderEpicDetails renders epic details with features table and rollup information
-func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path, filename string, relatedDocs []*models.Document, featureRollup map[string]int, taskRollup map[string]int, blockedTasks []*models.Task, approvalBacklogCount int) {
+func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path, filename string, relatedDocs []*models.Document, featureRollup map[string]int, taskRollup map[string]int, blockedTasks []*models.Task, approvalBacklogCount int, notes []*models.EntityNote, contextData *models.ContextData) {
 	// Print epic metadata
 	pterm.DefaultSection.Printf("Epic: %s", epic.Key)
 	fmt.Println()
@@ -830,6 +852,48 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 			fmt.Printf("Approval Backlog: %d task(s) waiting for review\n", approvalBacklogCount)
 		}
 		fmt.Println()
+	}
+
+	// Notes section (only if notes exist)
+	if len(notes) > 0 {
+		maxDisplay := 10
+		totalNotes := len(notes)
+		if totalNotes > maxDisplay {
+			pterm.DefaultSection.Printf("Notes (showing %d of %d)", maxDisplay, totalNotes)
+		} else {
+			pterm.DefaultSection.Printf("Notes (%d)", totalNotes)
+		}
+		fmt.Println()
+
+		displayCount := totalNotes
+		if displayCount > maxDisplay {
+			displayCount = maxDisplay
+		}
+		for i := totalNotes - displayCount; i < totalNotes; i++ {
+			note := notes[i]
+			dateStr := note.CreatedAt.Format("2006-01-02")
+			content := note.Content
+			if len(content) > 80 {
+				content = content[:77] + "..."
+			}
+			fmt.Printf("  [%s] %s  %s\n", note.NoteType, dateStr, content)
+		}
+		fmt.Println()
+	}
+
+	// Context section (only if context data exists and has content)
+	if contextData != nil {
+		hasContextContent := contextData.Progress != nil ||
+			len(contextData.ImplementationDecisions) > 0 ||
+			len(contextData.OpenQuestions) > 0 ||
+			len(contextData.Blockers) > 0 ||
+			len(contextData.AcceptanceCriteriaStatus) > 0 ||
+			len(contextData.RelatedTasks) > 0
+		if hasContextContent {
+			pterm.DefaultSection.Println("Context")
+			fmt.Println()
+			printContextData(contextData)
+		}
 	}
 
 	// Features section

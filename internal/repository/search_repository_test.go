@@ -104,14 +104,15 @@ func TestSearchRepository_RebuildIndex(t *testing.T) {
 	task1ID, task2ID := createTestDataForSearch(t, db)
 
 	// Add some notes and criteria
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 	criteriaRepo := NewTaskCriteriaRepository(db)
 	ctx := context.Background()
 
-	note1 := &models.TaskNote{
-		TaskID:   task1ID,
-		NoteType: models.NoteTypeComment,
-		Content:  "Need to support PostgreSQL and MySQL",
+	note1 := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   task1ID,
+		NoteType:   models.NoteTypeComment,
+		Content:    "Need to support PostgreSQL and MySQL",
 	}
 	require.NoError(t, noteRepo.Create(ctx, note1))
 

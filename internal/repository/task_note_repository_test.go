@@ -9,12 +9,12 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
 
-// TestCreateTaskNote tests creating a task note
+// TestCreateTaskNote tests creating a task note via EntityNoteRepository
 func TestCreateTaskNote(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -25,18 +25,19 @@ func TestCreateTaskNote(t *testing.T) {
 		t.Fatalf("Failed to get test task: %v", err)
 	}
 
-	// Create a task note
+	// Create an entity note for the task
 	createdBy := "test-agent"
-	note := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeDecision,
-		Content:   "Decided to use SQLite for persistence",
-		CreatedBy: &createdBy,
+	note := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeDecision,
+		Content:    "Decided to use SQLite for persistence",
+		CreatedBy:  &createdBy,
 	}
 
 	err = noteRepo.Create(ctx, note)
 	if err != nil {
-		t.Fatalf("Failed to create task note: %v", err)
+		t.Fatalf("Failed to create entity note: %v", err)
 	}
 
 	if note.ID == 0 {
@@ -45,9 +46,9 @@ func TestCreateTaskNote(t *testing.T) {
 
 	// Verify note was created in database
 	var count int
-	err = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM task_notes WHERE id = ?", note.ID).Scan(&count)
+	err = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM entity_notes WHERE id = ?", note.ID).Scan(&count)
 	if err != nil {
-		t.Fatalf("Failed to query task notes: %v", err)
+		t.Fatalf("Failed to query entity notes: %v", err)
 	}
 	if count != 1 {
 		t.Errorf("Expected 1 note in database, got %d", count)
@@ -59,37 +60,40 @@ func TestCreateTaskNoteValidation(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	tests := []struct {
 		name        string
-		note        *models.TaskNote
+		note        *models.EntityNote
 		expectError bool
 	}{
 		{
-			name: "invalid task ID",
-			note: &models.TaskNote{
-				TaskID:   0,
-				NoteType: models.NoteTypeComment,
-				Content:  "Test",
+			name: "invalid entity ID",
+			note: &models.EntityNote{
+				EntityType: models.EntityTypeTask,
+				EntityID:   0,
+				NoteType:   models.NoteTypeComment,
+				Content:    "Test",
 			},
 			expectError: true,
 		},
 		{
 			name: "invalid note type",
-			note: &models.TaskNote{
-				TaskID:   1,
-				NoteType: "invalid_type",
-				Content:  "Test",
+			note: &models.EntityNote{
+				EntityType: models.EntityTypeTask,
+				EntityID:   1,
+				NoteType:   "invalid_type",
+				Content:    "Test",
 			},
 			expectError: true,
 		},
 		{
 			name: "empty content",
-			note: &models.TaskNote{
-				TaskID:   1,
-				NoteType: models.NoteTypeComment,
-				Content:  "",
+			note: &models.EntityNote{
+				EntityType: models.EntityTypeTask,
+				EntityID:   1,
+				NoteType:   models.NoteTypeComment,
+				Content:    "",
 			},
 			expectError: true,
 		},
@@ -113,7 +117,7 @@ func TestGetTaskNoteByID(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -126,11 +130,12 @@ func TestGetTaskNoteByID(t *testing.T) {
 
 	// Create a note
 	createdBy := "test-agent"
-	note := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeSolution,
-		Content:   "Fixed bug by adding null check",
-		CreatedBy: &createdBy,
+	note := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeSolution,
+		Content:    "Fixed bug by adding null check",
+		CreatedBy:  &createdBy,
 	}
 	err = noteRepo.Create(ctx, note)
 	if err != nil {
@@ -147,8 +152,11 @@ func TestGetTaskNoteByID(t *testing.T) {
 	if retrieved.ID != note.ID {
 		t.Errorf("Expected ID %d, got %d", note.ID, retrieved.ID)
 	}
-	if retrieved.TaskID != taskID {
-		t.Errorf("Expected TaskID %d, got %d", taskID, retrieved.TaskID)
+	if retrieved.EntityID != taskID {
+		t.Errorf("Expected EntityID %d, got %d", taskID, retrieved.EntityID)
+	}
+	if retrieved.EntityType != models.EntityTypeTask {
+		t.Errorf("Expected EntityType %s, got %s", models.EntityTypeTask, retrieved.EntityType)
 	}
 	if retrieved.NoteType != models.NoteTypeSolution {
 		t.Errorf("Expected NoteType %s, got %s", models.NoteTypeSolution, retrieved.NoteType)
@@ -166,7 +174,7 @@ func TestGetTaskNoteByTaskID(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -179,24 +187,27 @@ func TestGetTaskNoteByTaskID(t *testing.T) {
 
 	// Create multiple notes
 	createdBy := "test-agent"
-	notes := []*models.TaskNote{
+	notes := []*models.EntityNote{
 		{
-			TaskID:    taskID,
-			NoteType:  models.NoteTypeDecision,
-			Content:   "Decision 1",
-			CreatedBy: &createdBy,
+			EntityType: models.EntityTypeTask,
+			EntityID:   taskID,
+			NoteType:   models.NoteTypeDecision,
+			Content:    "Decision 1",
+			CreatedBy:  &createdBy,
 		},
 		{
-			TaskID:    taskID,
-			NoteType:  models.NoteTypeImplementation,
-			Content:   "Implementation note",
-			CreatedBy: &createdBy,
+			EntityType: models.EntityTypeTask,
+			EntityID:   taskID,
+			NoteType:   models.NoteTypeImplementation,
+			Content:    "Implementation note",
+			CreatedBy:  &createdBy,
 		},
 		{
-			TaskID:    taskID,
-			NoteType:  models.NoteTypeTesting,
-			Content:   "Testing note",
-			CreatedBy: &createdBy,
+			EntityType: models.EntityTypeTask,
+			EntityID:   taskID,
+			NoteType:   models.NoteTypeTesting,
+			Content:    "Testing note",
+			CreatedBy:  &createdBy,
 		},
 	}
 
@@ -208,9 +219,9 @@ func TestGetTaskNoteByTaskID(t *testing.T) {
 	}
 
 	// Retrieve all notes for the task
-	retrieved, err := noteRepo.GetByTaskID(ctx, taskID)
+	retrieved, err := noteRepo.GetByEntity(ctx, models.EntityTypeTask, taskID)
 	if err != nil {
-		t.Fatalf("Failed to get notes by task ID: %v", err)
+		t.Fatalf("Failed to get notes by entity: %v", err)
 	}
 
 	// Verify at least 3 notes returned (there might be more from other tests)
@@ -231,7 +242,7 @@ func TestGetTaskNoteByTaskIDAndType(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -244,11 +255,11 @@ func TestGetTaskNoteByTaskIDAndType(t *testing.T) {
 
 	// Create notes with different types
 	createdBy := "test-agent"
-	notes := []*models.TaskNote{
-		{TaskID: taskID, NoteType: models.NoteTypeDecision, Content: "Decision 1", CreatedBy: &createdBy},
-		{TaskID: taskID, NoteType: models.NoteTypeDecision, Content: "Decision 2", CreatedBy: &createdBy},
-		{TaskID: taskID, NoteType: models.NoteTypeBlocker, Content: "Blocker 1", CreatedBy: &createdBy},
-		{TaskID: taskID, NoteType: models.NoteTypeSolution, Content: "Solution 1", CreatedBy: &createdBy},
+	notes := []*models.EntityNote{
+		{EntityType: models.EntityTypeTask, EntityID: taskID, NoteType: models.NoteTypeDecision, Content: "Decision 1", CreatedBy: &createdBy},
+		{EntityType: models.EntityTypeTask, EntityID: taskID, NoteType: models.NoteTypeDecision, Content: "Decision 2", CreatedBy: &createdBy},
+		{EntityType: models.EntityTypeTask, EntityID: taskID, NoteType: models.NoteTypeBlocker, Content: "Blocker 1", CreatedBy: &createdBy},
+		{EntityType: models.EntityTypeTask, EntityID: taskID, NoteType: models.NoteTypeSolution, Content: "Solution 1", CreatedBy: &createdBy},
 	}
 
 	for _, note := range notes {
@@ -259,7 +270,7 @@ func TestGetTaskNoteByTaskIDAndType(t *testing.T) {
 	}
 
 	// Test filtering by single type
-	decisions, err := noteRepo.GetByTaskIDAndType(ctx, taskID, []string{"decision"})
+	decisions, err := noteRepo.GetByEntityAndType(ctx, models.EntityTypeTask, taskID, []string{"decision"})
 	if err != nil {
 		t.Fatalf("Failed to get decision notes: %v", err)
 	}
@@ -275,7 +286,7 @@ func TestGetTaskNoteByTaskIDAndType(t *testing.T) {
 	}
 
 	// Test filtering by multiple types
-	filtered, err := noteRepo.GetByTaskIDAndType(ctx, taskID, []string{"decision", "solution"})
+	filtered, err := noteRepo.GetByEntityAndType(ctx, models.EntityTypeTask, taskID, []string{"decision", "solution"})
 	if err != nil {
 		t.Fatalf("Failed to get filtered notes: %v", err)
 	}
@@ -291,7 +302,7 @@ func TestGetTaskNoteByTaskIDAndType(t *testing.T) {
 	}
 
 	// Test empty type filter (should return all notes)
-	all, err := noteRepo.GetByTaskIDAndType(ctx, taskID, []string{})
+	all, err := noteRepo.GetByEntityAndType(ctx, models.EntityTypeTask, taskID, []string{})
 	if err != nil {
 		t.Fatalf("Failed to get all notes: %v", err)
 	}
@@ -306,7 +317,7 @@ func TestSearchTaskNotes(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -323,10 +334,10 @@ func TestSearchTaskNotes(t *testing.T) {
 
 	// Create notes with searchable content
 	createdBy := "test-agent"
-	notes := []*models.TaskNote{
-		{TaskID: task1ID, NoteType: models.NoteTypeDecision, Content: "Used singleton pattern for state management", CreatedBy: &createdBy},
-		{TaskID: task2ID, NoteType: models.NoteTypeDecision, Content: "Considered singleton pattern but chose factory pattern", CreatedBy: &createdBy},
-		{TaskID: task1ID, NoteType: models.NoteTypeSolution, Content: "Fixed Safari flash issue by moving script", CreatedBy: &createdBy},
+	notes := []*models.EntityNote{
+		{EntityType: models.EntityTypeTask, EntityID: task1ID, NoteType: models.NoteTypeDecision, Content: "Used singleton pattern for state management", CreatedBy: &createdBy},
+		{EntityType: models.EntityTypeTask, EntityID: task2ID, NoteType: models.NoteTypeDecision, Content: "Considered singleton pattern but chose factory pattern", CreatedBy: &createdBy},
+		{EntityType: models.EntityTypeTask, EntityID: task1ID, NoteType: models.NoteTypeSolution, Content: "Fixed Safari flash issue by moving script", CreatedBy: &createdBy},
 	}
 
 	for _, note := range notes {
@@ -337,7 +348,7 @@ func TestSearchTaskNotes(t *testing.T) {
 	}
 
 	// Test search across all notes
-	results, err := noteRepo.Search(ctx, "singleton pattern", []string{}, "", "")
+	results, err := noteRepo.Search(ctx, "singleton pattern", []string{}, nil, "", "")
 	if err != nil {
 		t.Fatalf("Failed to search notes: %v", err)
 	}
@@ -347,7 +358,7 @@ func TestSearchTaskNotes(t *testing.T) {
 	}
 
 	// Test search with type filter
-	decisionResults, err := noteRepo.Search(ctx, "singleton", []string{"decision"}, "", "")
+	decisionResults, err := noteRepo.Search(ctx, "singleton", []string{"decision"}, nil, "", "")
 	if err != nil {
 		t.Fatalf("Failed to search decision notes: %v", err)
 	}
@@ -363,7 +374,7 @@ func TestSearchTaskNotes(t *testing.T) {
 	}
 
 	// Test case-insensitive search
-	caseResults, err := noteRepo.Search(ctx, "SAFARI", []string{}, "", "")
+	caseResults, err := noteRepo.Search(ctx, "SAFARI", []string{}, nil, "", "")
 	if err != nil {
 		t.Fatalf("Failed to search with uppercase: %v", err)
 	}
@@ -378,7 +389,7 @@ func TestSearchTaskNotesWithFilters(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -391,11 +402,12 @@ func TestSearchTaskNotesWithFilters(t *testing.T) {
 
 	// Create note
 	createdBy := "test-agent"
-	note := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeReference,
-		Content:   "Referenced external API documentation",
-		CreatedBy: &createdBy,
+	note := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeReference,
+		Content:    "Referenced external API documentation",
+		CreatedBy:  &createdBy,
 	}
 	err = noteRepo.Create(ctx, note)
 	if err != nil {
@@ -403,7 +415,7 @@ func TestSearchTaskNotesWithFilters(t *testing.T) {
 	}
 
 	// Search with epic filter
-	results, err := noteRepo.Search(ctx, "API", []string{}, "E99", "")
+	results, err := noteRepo.Search(ctx, "API", []string{}, nil, "E99", "")
 	if err != nil {
 		t.Fatalf("Failed to search with epic filter: %v", err)
 	}
@@ -413,7 +425,7 @@ func TestSearchTaskNotesWithFilters(t *testing.T) {
 	}
 
 	// Search with feature filter
-	results, err = noteRepo.Search(ctx, "API", []string{}, "", "E99-F99")
+	results, err = noteRepo.Search(ctx, "API", []string{}, nil, "", "E99-F99")
 	if err != nil {
 		t.Fatalf("Failed to search with feature filter: %v", err)
 	}
@@ -428,7 +440,7 @@ func TestDeleteTaskNote(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -441,11 +453,12 @@ func TestDeleteTaskNote(t *testing.T) {
 
 	// Create a note
 	createdBy := "test-agent"
-	note := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeComment,
-		Content:   "Temporary note to be deleted",
-		CreatedBy: &createdBy,
+	note := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeComment,
+		Content:    "Temporary note to be deleted",
+		CreatedBy:  &createdBy,
 	}
 	err = noteRepo.Create(ctx, note)
 	if err != nil {
@@ -476,7 +489,7 @@ func TestTaskNoteCascadeDelete(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 	taskRepo := NewTaskRepository(db)
 
 	test.SeedTestData()
@@ -491,11 +504,12 @@ func TestTaskNoteCascadeDelete(t *testing.T) {
 	// Create notes for the task
 	createdBy := "test-agent"
 	for i := 0; i < 3; i++ {
-		note := &models.TaskNote{
-			TaskID:    taskIDToDelete,
-			NoteType:  models.NoteTypeComment,
-			Content:   "Test note",
-			CreatedBy: &createdBy,
+		note := &models.EntityNote{
+			EntityType: models.EntityTypeTask,
+			EntityID:   taskIDToDelete,
+			NoteType:   models.NoteTypeComment,
+			Content:    "Test note",
+			CreatedBy:  &createdBy,
 		}
 		err = noteRepo.Create(ctx, note)
 		if err != nil {
@@ -504,7 +518,7 @@ func TestTaskNoteCascadeDelete(t *testing.T) {
 	}
 
 	// Verify notes exist
-	notes, err := noteRepo.GetByTaskID(ctx, taskIDToDelete)
+	notes, err := noteRepo.GetByEntity(ctx, models.EntityTypeTask, taskIDToDelete)
 	if err != nil {
 		t.Fatalf("Failed to get notes: %v", err)
 	}
@@ -519,7 +533,7 @@ func TestTaskNoteCascadeDelete(t *testing.T) {
 	}
 
 	// Verify notes are cascade deleted
-	notes, err = noteRepo.GetByTaskID(ctx, taskIDToDelete)
+	notes, err = noteRepo.GetByEntity(ctx, models.EntityTypeTask, taskIDToDelete)
 	if err != nil {
 		t.Fatalf("Failed to get notes after task deletion: %v", err)
 	}
@@ -533,7 +547,7 @@ func TestCreateTaskNoteWithMetadata(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -547,17 +561,18 @@ func TestCreateTaskNoteWithMetadata(t *testing.T) {
 	// Create a task note with metadata
 	createdBy := "test-agent"
 	metadata := `{"history_id": 123, "from_status": "draft", "to_status": "in_progress"}`
-	note := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeDecision,
-		Content:   "Rejection reason",
-		CreatedBy: &createdBy,
-		Metadata:  &metadata,
+	note := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeDecision,
+		Content:    "Rejection reason",
+		CreatedBy:  &createdBy,
+		Metadata:   &metadata,
 	}
 
 	err = noteRepo.Create(ctx, note)
 	if err != nil {
-		t.Fatalf("Failed to create task note with metadata: %v", err)
+		t.Fatalf("Failed to create entity note with metadata: %v", err)
 	}
 
 	if note.ID == 0 {
@@ -582,7 +597,7 @@ func TestCreateTaskNoteWithoutMetadata(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	_, _ = test.SeedTestData()
 
@@ -595,17 +610,18 @@ func TestCreateTaskNoteWithoutMetadata(t *testing.T) {
 
 	// Create a note without metadata (should be NULL)
 	createdBy := "test-agent"
-	note := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeComment,
-		Content:   "Simple comment",
-		CreatedBy: &createdBy,
-		Metadata:  nil,
+	note := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeComment,
+		Content:    "Simple comment",
+		CreatedBy:  &createdBy,
+		Metadata:   nil,
 	}
 
 	err = noteRepo.Create(ctx, note)
 	if err != nil {
-		t.Fatalf("Failed to create task note: %v", err)
+		t.Fatalf("Failed to create entity note: %v", err)
 	}
 
 	// Verify note was created with NULL metadata
@@ -619,45 +635,54 @@ func TestCreateTaskNoteWithoutMetadata(t *testing.T) {
 	}
 }
 
-// TestIndexOnNoteTypeAndTaskID tests that the index exists for performance
+// TestIndexOnNoteTypeAndTaskID tests that the entity_notes index exists for performance
 func TestIndexOnNoteTypeAndTaskID(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 
-	// Check that the index exists
+	// Check that entity_notes indexes exist
 	query := `
 		SELECT name FROM sqlite_master
 		WHERE type = 'index'
-		AND name = 'idx_task_notes_type_task'
+		AND name LIKE 'idx_entity_notes%'
 	`
 
-	var indexName string
-	err := database.QueryRowContext(ctx, query).Scan(&indexName)
+	rows, err := database.QueryContext(ctx, query)
 	if err != nil {
-		t.Fatalf("Index idx_task_notes_type_task not found: %v", err)
+		t.Fatalf("Failed to query indexes: %v", err)
+	}
+	defer rows.Close()
+
+	var indexNames []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("Failed to scan index name: %v", err)
+		}
+		indexNames = append(indexNames, name)
 	}
 
-	if indexName != "idx_task_notes_type_task" {
-		t.Errorf("Expected index name 'idx_task_notes_type_task', got %q", indexName)
+	if len(indexNames) == 0 {
+		t.Error("Expected at least one entity_notes index to exist")
 	}
 }
 
-// TestMetadataColumnExists tests that metadata column exists in task_notes table
+// TestMetadataColumnExists tests that metadata column exists in entity_notes table
 func TestMetadataColumnExists(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 
-	// Check that metadata column exists
+	// Check that metadata column exists in entity_notes
 	var columnCount int
 	err := database.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM pragma_table_info('task_notes') WHERE name = 'metadata'
+		SELECT COUNT(*) FROM pragma_table_info('entity_notes') WHERE name = 'metadata'
 	`).Scan(&columnCount)
 	if err != nil {
 		t.Fatalf("Failed to check metadata column: %v", err)
 	}
 
 	if columnCount != 1 {
-		t.Errorf("Expected metadata column to exist, got count %d", columnCount)
+		t.Errorf("Expected metadata column to exist in entity_notes, got count %d", columnCount)
 	}
 }
 
@@ -666,10 +691,10 @@ func TestGetRejectionHistory(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up existing test rejection notes
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = ? AND task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-F99-%')", "rejection")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = ? AND entity_type = 'task' AND entity_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-F99-%')", "rejection")
 	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-F99-%')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
 
@@ -699,6 +724,7 @@ func TestGetRejectionHistory(t *testing.T) {
 	docPath := "docs/bugs/BUG-2026-046.md"
 	note1, err := noteRepo.CreateRejectionNote(
 		ctx,
+		models.EntityTypeTask,
 		task.ID,
 		1001, // historyID
 		"ready_for_code_review",
@@ -711,13 +737,14 @@ func TestGetRejectionHistory(t *testing.T) {
 		t.Fatalf("Failed to create first rejection note: %v", err)
 	}
 	defer func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note1.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note1.ID)
 	}()
 
 	// Create second rejection note without document
 	rejectedBy2 := "qa-agent-003"
 	note2, err := noteRepo.CreateRejectionNote(
 		ctx,
+		models.EntityTypeTask,
 		task.ID,
 		1002, // historyID
 		"ready_for_qa",
@@ -730,11 +757,11 @@ func TestGetRejectionHistory(t *testing.T) {
 		t.Fatalf("Failed to create second rejection note: %v", err)
 	}
 	defer func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id = ?", note2.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id = ?", note2.ID)
 	}()
 
 	// Get rejection history
-	history, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	history, err := noteRepo.GetRejectionHistory(ctx, models.EntityTypeTask, task.ID)
 	if err != nil {
 		t.Fatalf("GetRejectionHistory() error = %v", err)
 	}
@@ -779,7 +806,7 @@ func TestGetRejectionHistory_EmptyList(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
@@ -806,7 +833,7 @@ func TestGetRejectionHistory_EmptyList(t *testing.T) {
 	}()
 
 	// Get rejection history - should be empty
-	history, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	history, err := noteRepo.GetRejectionHistory(ctx, models.EntityTypeTask, task.ID)
 	if err != nil {
 		t.Fatalf("GetRejectionHistory() error = %v", err)
 	}
@@ -821,10 +848,10 @@ func TestGetRejectionHistory_MultipleRejections(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE note_type = ? AND task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-F99-%')", "rejection")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE note_type = ? AND entity_type = 'task' AND entity_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99-F99-%')", "rejection")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
 
 	// Seed test data
@@ -853,6 +880,7 @@ func TestGetRejectionHistory_MultipleRejections(t *testing.T) {
 		rejectedBy := fmt.Sprintf("reviewer-%d", i)
 		_, err := noteRepo.CreateRejectionNote(
 			ctx,
+			models.EntityTypeTask,
 			task.ID,
 			int64(2000+i), // historyID
 			"ready_for_code_review",
@@ -867,7 +895,7 @@ func TestGetRejectionHistory_MultipleRejections(t *testing.T) {
 	}
 
 	// Get rejection history
-	history, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	history, err := noteRepo.GetRejectionHistory(ctx, models.EntityTypeTask, task.ID)
 	if err != nil {
 		t.Fatalf("GetRejectionHistory() error = %v", err)
 	}
@@ -887,5 +915,5 @@ func TestGetRejectionHistory_MultipleRejections(t *testing.T) {
 	}
 
 	// Cleanup rejection notes
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", task.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = ?", task.ID)
 }

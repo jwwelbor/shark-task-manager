@@ -21,7 +21,7 @@ func TestTaskUpdateWithReasonDoc(t *testing.T) {
 
 	// Clean up test data
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99%'")
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99%')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E99%')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E99%'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E99'")
 
@@ -102,8 +102,8 @@ func TestTaskUpdateWithReasonDoc(t *testing.T) {
 	}
 
 	// Verify rejection note was created
-	noteRepo := repository.NewTaskNoteRepository(db)
-	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	noteRepo := repository.NewEntityNoteRepository(db)
+	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, models.EntityTypeTask, task.ID)
 	if err != nil {
 		t.Fatalf("Failed to get rejection history: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestTaskNextStatusWithReasonDoc(t *testing.T) {
 
 	// Clean up test data
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98%'")
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E98%')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id IN (SELECT id FROM tasks WHERE key LIKE 'T-E98%')")
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E98%'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
 
@@ -230,8 +230,8 @@ func TestTaskNextStatusWithReasonDoc(t *testing.T) {
 	}
 
 	// Verify rejection note was created with document path
-	noteRepo := repository.NewTaskNoteRepository(db)
-	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, task.ID)
+	noteRepo := repository.NewEntityNoteRepository(db)
+	rejectionHistory, err := noteRepo.GetRejectionHistory(ctx, models.EntityTypeTask, task.ID)
 	if err != nil {
 		t.Fatalf("Failed to get rejection history: %v", err)
 	}

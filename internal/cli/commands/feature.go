@@ -746,6 +746,26 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Fetch notes via NoteService (graceful - don't fail the whole command)
+	var featureNotes []*models.EntityNote
+	noteSvc, noteErr := cli.GetNoteService(ctx)
+	if noteErr == nil {
+		featureNotes, noteErr = noteSvc.ListNotes(ctx, models.EntityTypeFeature, featureKey, nil)
+		if noteErr != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to fetch feature notes: %v\n", noteErr)
+		}
+	}
+
+	// Fetch context via ContextService (graceful)
+	var featureContext *models.ContextData
+	ctxSvc, ctxErr := cli.GetContextService(ctx)
+	if ctxErr == nil {
+		featureContext, ctxErr = ctxSvc.GetContext(ctx, models.EntityTypeFeature, featureKey)
+		if ctxErr != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to fetch feature context: %v\n", ctxErr)
+		}
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
@@ -768,12 +788,14 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"progress":          progressInfo,
 			"work_summary":      workSummary,
 			"action_items":      actionItems,
+			"notes":             featureNotes,
+			"context_data":      featureContext,
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
-	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs, workflowService, progressInfo, workSummary, actionItems)
+	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs, workflowService, progressInfo, workSummary, actionItems, featureNotes, featureContext)
 	return nil
 }
 
@@ -1010,7 +1032,7 @@ func generateNotesColumn(statusCounts map[string]int, cfg *config.WorkflowConfig
 // statusBreakdown is workflow-ordered with metadata
 // workflowService is used for color formatting (can be nil for no colors)
 // progressInfo, workSummary, and actionItems provide enhanced status information
-func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown []workflow.StatusCount, path, filename string, relatedDocs []*models.Document, workflowService *workflow.Service, progressInfo *status.ProgressInfo, workSummary *status.WorkSummary, actionItems *status.ActionItems) {
+func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown []workflow.StatusCount, path, filename string, relatedDocs []*models.Document, workflowService *workflow.Service, progressInfo *status.ProgressInfo, workSummary *status.WorkSummary, actionItems *status.ActionItems, notes []*models.EntityNote, contextData *models.ContextData) {
 	// Determine if colors should be enabled
 	colorEnabled := !cli.GlobalConfig.NoColor && workflowService != nil
 
@@ -1160,6 +1182,48 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 				fmt.Println()
 				pterm.DefaultBox.WithTitle("🔄 In Progress").Println(fmt.Sprintf("%d tasks", len(actionItems.InProgress)))
 			}
+		}
+	}
+
+	// Notes section (only if notes exist)
+	if len(notes) > 0 {
+		maxDisplay := 10
+		totalNotes := len(notes)
+		if totalNotes > maxDisplay {
+			pterm.DefaultSection.Printf("Notes (showing %d of %d)", maxDisplay, totalNotes)
+		} else {
+			pterm.DefaultSection.Printf("Notes (%d)", totalNotes)
+		}
+		fmt.Println()
+
+		displayCount := totalNotes
+		if displayCount > maxDisplay {
+			displayCount = maxDisplay
+		}
+		for i := totalNotes - displayCount; i < totalNotes; i++ {
+			note := notes[i]
+			dateStr := note.CreatedAt.Format("2006-01-02")
+			content := note.Content
+			if len(content) > 80 {
+				content = content[:77] + "..."
+			}
+			fmt.Printf("  [%s] %s  %s\n", note.NoteType, dateStr, content)
+		}
+		fmt.Println()
+	}
+
+	// Context section (only if context data exists and has content)
+	if contextData != nil {
+		hasContextContent := contextData.Progress != nil ||
+			len(contextData.ImplementationDecisions) > 0 ||
+			len(contextData.OpenQuestions) > 0 ||
+			len(contextData.Blockers) > 0 ||
+			len(contextData.AcceptanceCriteriaStatus) > 0 ||
+			len(contextData.RelatedTasks) > 0
+		if hasContextContent {
+			pterm.DefaultSection.Println("Context")
+			fmt.Println()
+			printContextData(contextData)
 		}
 	}
 

@@ -1,0 +1,427 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+)
+
+// Mock implementations for ContextService dependencies
+
+type mockContextEpicRepo struct {
+	getByKeyFunc       func(ctx context.Context, key string) (*models.Epic, error)
+	getContextDataFunc func(ctx context.Context, epicID int64) (*string, error)
+	updateContextFunc  func(ctx context.Context, epicID int64, contextData *string) error
+}
+
+func (m *mockContextEpicRepo) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+	if m.getByKeyFunc != nil {
+		return m.getByKeyFunc(ctx, key)
+	}
+	return &models.Epic{ID: 1, Key: key}, nil
+}
+
+func (m *mockContextEpicRepo) GetContextData(ctx context.Context, epicID int64) (*string, error) {
+	if m.getContextDataFunc != nil {
+		return m.getContextDataFunc(ctx, epicID)
+	}
+	return nil, nil
+}
+
+func (m *mockContextEpicRepo) UpdateContextData(ctx context.Context, epicID int64, contextData *string) error {
+	if m.updateContextFunc != nil {
+		return m.updateContextFunc(ctx, epicID, contextData)
+	}
+	return nil
+}
+
+type mockContextFeatureRepo struct {
+	getByKeyFunc       func(ctx context.Context, key string) (*models.Feature, error)
+	getContextDataFunc func(ctx context.Context, featureID int64) (*string, error)
+	updateContextFunc  func(ctx context.Context, featureID int64, contextData *string) error
+}
+
+func (m *mockContextFeatureRepo) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
+	if m.getByKeyFunc != nil {
+		return m.getByKeyFunc(ctx, key)
+	}
+	return &models.Feature{ID: 2, Key: key}, nil
+}
+
+func (m *mockContextFeatureRepo) GetContextData(ctx context.Context, featureID int64) (*string, error) {
+	if m.getContextDataFunc != nil {
+		return m.getContextDataFunc(ctx, featureID)
+	}
+	return nil, nil
+}
+
+func (m *mockContextFeatureRepo) UpdateContextData(ctx context.Context, featureID int64, contextData *string) error {
+	if m.updateContextFunc != nil {
+		return m.updateContextFunc(ctx, featureID, contextData)
+	}
+	return nil
+}
+
+type mockContextTaskRepo struct {
+	getByKeyFunc func(ctx context.Context, key string) (*models.Task, error)
+	updateFunc   func(ctx context.Context, task *models.Task) error
+	storedTask   *models.Task // For tracking updates
+}
+
+func (m *mockContextTaskRepo) GetByKey(ctx context.Context, key string) (*models.Task, error) {
+	if m.getByKeyFunc != nil {
+		return m.getByKeyFunc(ctx, key)
+	}
+	if m.storedTask != nil {
+		return m.storedTask, nil
+	}
+	return &models.Task{ID: 3, Key: key}, nil
+}
+
+func (m *mockContextTaskRepo) Update(ctx context.Context, task *models.Task) error {
+	if m.updateFunc != nil {
+		return m.updateFunc(ctx, task)
+	}
+	m.storedTask = task
+	return nil
+}
+
+func strPtr(s string) *string {
+	return &s
+}
+
+func TestContextService_GetContext_Epic_NoContext(t *testing.T) {
+	epicRepo := &mockContextEpicRepo{
+		getContextDataFunc: func(ctx context.Context, epicID int64) (*string, error) {
+			return nil, nil
+		},
+	}
+	svc := NewContextService(epicRepo, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	cd, err := svc.GetContext(context.Background(), models.EntityTypeEpic, "E16")
+	if err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+	if cd != nil {
+		t.Error("expected nil context data for entity with no context")
+	}
+}
+
+func TestContextService_GetContext_Epic_WithContext(t *testing.T) {
+	contextJSON := `{"progress":{"current_step":"Implementing API"},"open_questions":["What about auth?"]}`
+	epicRepo := &mockContextEpicRepo{
+		getContextDataFunc: func(ctx context.Context, epicID int64) (*string, error) {
+			return &contextJSON, nil
+		},
+	}
+	svc := NewContextService(epicRepo, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	cd, err := svc.GetContext(context.Background(), models.EntityTypeEpic, "E16")
+	if err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+	if cd == nil {
+		t.Fatal("expected non-nil context data")
+	}
+	if cd.Progress == nil || cd.Progress.CurrentStep == nil || *cd.Progress.CurrentStep != "Implementing API" {
+		t.Error("expected current_step to be 'Implementing API'")
+	}
+	if len(cd.OpenQuestions) != 1 || cd.OpenQuestions[0] != "What about auth?" {
+		t.Error("expected open_questions to contain 'What about auth?'")
+	}
+}
+
+func TestContextService_GetContext_Feature(t *testing.T) {
+	contextJSON := `{"related_tasks":["E16-F01-001"]}`
+	featureRepo := &mockContextFeatureRepo{
+		getContextDataFunc: func(ctx context.Context, featureID int64) (*string, error) {
+			return &contextJSON, nil
+		},
+	}
+	svc := NewContextService(&mockContextEpicRepo{}, featureRepo, &mockContextTaskRepo{})
+
+	cd, err := svc.GetContext(context.Background(), models.EntityTypeFeature, "E16-F01")
+	if err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+	if cd == nil {
+		t.Fatal("expected non-nil context data")
+	}
+	if len(cd.RelatedTasks) != 1 || cd.RelatedTasks[0] != "E16-F01-001" {
+		t.Error("expected related_tasks to contain 'E16-F01-001'")
+	}
+}
+
+func TestContextService_GetContext_Task(t *testing.T) {
+	contextJSON := `{"implementation_decisions":{"db":"sqlite"}}`
+	taskRepo := &mockContextTaskRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{ID: 3, Key: key, ContextData: &contextJSON}, nil
+		},
+	}
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, taskRepo)
+
+	cd, err := svc.GetContext(context.Background(), models.EntityTypeTask, "E16-F01-001")
+	if err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+	if cd == nil {
+		t.Fatal("expected non-nil context data")
+	}
+	if cd.ImplementationDecisions["db"] != "sqlite" {
+		t.Error("expected implementation_decisions.db to be 'sqlite'")
+	}
+}
+
+func TestContextService_GetContext_InvalidKey(t *testing.T) {
+	epicRepo := &mockContextEpicRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	svc := NewContextService(epicRepo, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	_, err := svc.GetContext(context.Background(), models.EntityTypeEpic, "E999")
+	if err == nil {
+		t.Fatal("expected error for invalid key")
+	}
+}
+
+func TestContextService_SetContextField_Epic(t *testing.T) {
+	var savedData *string
+	epicRepo := &mockContextEpicRepo{
+		getContextDataFunc: func(ctx context.Context, epicID int64) (*string, error) {
+			return nil, nil // No existing context
+		},
+		updateContextFunc: func(ctx context.Context, epicID int64, contextData *string) error {
+			savedData = contextData
+			return nil
+		},
+	}
+	svc := NewContextService(epicRepo, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	err := svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "current_step", "Design phase")
+	if err != nil {
+		t.Fatalf("SetContextField() error = %v", err)
+	}
+	if savedData == nil {
+		t.Fatal("expected context data to be saved")
+	}
+
+	// Parse back and verify
+	cd, err := models.FromJSON(*savedData)
+	if err != nil {
+		t.Fatalf("failed to parse saved context: %v", err)
+	}
+	if cd.Progress == nil || cd.Progress.CurrentStep == nil || *cd.Progress.CurrentStep != "Design phase" {
+		t.Error("expected current_step to be 'Design phase'")
+	}
+}
+
+func TestContextService_SetContextField_MergeSemantics(t *testing.T) {
+	existingJSON := `{"progress":{"current_step":"Step 1"},"open_questions":["Q1"]}`
+	var savedData *string
+
+	epicRepo := &mockContextEpicRepo{
+		getContextDataFunc: func(ctx context.Context, epicID int64) (*string, error) {
+			return &existingJSON, nil
+		},
+		updateContextFunc: func(ctx context.Context, epicID int64, contextData *string) error {
+			savedData = contextData
+			return nil
+		},
+	}
+	svc := NewContextService(epicRepo, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	// Update current_step - should preserve open_questions
+	err := svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "current_step", "Step 2")
+	if err != nil {
+		t.Fatalf("SetContextField() error = %v", err)
+	}
+
+	cd, err := models.FromJSON(*savedData)
+	if err != nil {
+		t.Fatalf("failed to parse saved context: %v", err)
+	}
+	if cd.Progress == nil || cd.Progress.CurrentStep == nil || *cd.Progress.CurrentStep != "Step 2" {
+		t.Error("expected current_step to be updated to 'Step 2'")
+	}
+	if len(cd.OpenQuestions) != 1 || cd.OpenQuestions[0] != "Q1" {
+		t.Error("expected open_questions to be preserved")
+	}
+}
+
+func TestContextService_SetContextField_InvalidField(t *testing.T) {
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	err := svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "invalid_field", "value")
+	if err == nil {
+		t.Fatal("expected error for invalid field")
+	}
+}
+
+func TestContextService_SetContextField_Feature(t *testing.T) {
+	var savedData *string
+	featureRepo := &mockContextFeatureRepo{
+		getContextDataFunc: func(ctx context.Context, featureID int64) (*string, error) {
+			return nil, nil
+		},
+		updateContextFunc: func(ctx context.Context, featureID int64, contextData *string) error {
+			savedData = contextData
+			return nil
+		},
+	}
+	svc := NewContextService(&mockContextEpicRepo{}, featureRepo, &mockContextTaskRepo{})
+
+	err := svc.SetContextField(context.Background(), models.EntityTypeFeature, "E16-F01", "open_questions", `["How to handle auth?"]`)
+	if err != nil {
+		t.Fatalf("SetContextField() error = %v", err)
+	}
+
+	cd, err := models.FromJSON(*savedData)
+	if err != nil {
+		t.Fatalf("failed to parse saved context: %v", err)
+	}
+	if len(cd.OpenQuestions) != 1 || cd.OpenQuestions[0] != "How to handle auth?" {
+		t.Error("expected open_questions to contain 'How to handle auth?'")
+	}
+}
+
+func TestContextService_SetContextField_Task(t *testing.T) {
+	taskRepo := &mockContextTaskRepo{
+		storedTask: &models.Task{ID: 3, Key: "E16-F01-001"},
+	}
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, taskRepo)
+
+	err := svc.SetContextField(context.Background(), models.EntityTypeTask, "E16-F01-001", "related_tasks", `["E16-F01-002"]`)
+	if err != nil {
+		t.Fatalf("SetContextField() error = %v", err)
+	}
+
+	if taskRepo.storedTask.ContextData == nil {
+		t.Fatal("expected context data to be set on task")
+	}
+}
+
+func TestContextService_ClearContext_Epic(t *testing.T) {
+	clearCalled := false
+	epicRepo := &mockContextEpicRepo{
+		updateContextFunc: func(ctx context.Context, epicID int64, contextData *string) error {
+			clearCalled = true
+			if contextData != nil {
+				t.Error("expected nil context data for clear")
+			}
+			return nil
+		},
+	}
+	svc := NewContextService(epicRepo, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	err := svc.ClearContext(context.Background(), models.EntityTypeEpic, "E16")
+	if err != nil {
+		t.Fatalf("ClearContext() error = %v", err)
+	}
+	if !clearCalled {
+		t.Error("expected UpdateContextData to be called")
+	}
+}
+
+func TestContextService_ClearContext_Task(t *testing.T) {
+	taskRepo := &mockContextTaskRepo{
+		storedTask: &models.Task{ID: 3, Key: "E16-F01-001", ContextData: strPtr(`{"progress":{"current_step":"test"}}`)},
+	}
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, taskRepo)
+
+	err := svc.ClearContext(context.Background(), models.EntityTypeTask, "E16-F01-001")
+	if err != nil {
+		t.Fatalf("ClearContext() error = %v", err)
+	}
+	if taskRepo.storedTask.ContextData != nil {
+		t.Error("expected context data to be nil after clear")
+	}
+}
+
+func TestContextService_GetContext_EmptyJSON(t *testing.T) {
+	emptyJSON := "{}"
+	epicRepo := &mockContextEpicRepo{
+		getContextDataFunc: func(ctx context.Context, epicID int64) (*string, error) {
+			return &emptyJSON, nil
+		},
+	}
+	svc := NewContextService(epicRepo, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	cd, err := svc.GetContext(context.Background(), models.EntityTypeEpic, "E16")
+	if err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+	if cd != nil {
+		t.Error("expected nil for empty JSON context")
+	}
+}
+
+func TestContextService_UnsupportedEntityType(t *testing.T) {
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+
+	_, err := svc.GetContext(context.Background(), models.EntityType("unknown"), "key")
+	if err == nil {
+		t.Fatal("expected error for unsupported entity type")
+	}
+}
+
+func TestIsValidContextField(t *testing.T) {
+	validFields := []string{
+		"current_step", "completed_steps", "remaining_steps",
+		"implementation_decisions", "open_questions", "blockers",
+		"acceptance_criteria_status", "related_tasks",
+	}
+
+	for _, f := range validFields {
+		if !isValidContextField(f) {
+			t.Errorf("expected %s to be valid", f)
+		}
+	}
+
+	invalidFields := []string{"invalid", "status", "title", "key"}
+	for _, f := range invalidFields {
+		if isValidContextField(f) {
+			t.Errorf("expected %s to be invalid", f)
+		}
+	}
+}
+
+func TestUpdateContextField_AllFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		field   string
+		value   string
+		wantErr bool
+	}{
+		{"current_step", "current_step", "Design phase", false},
+		{"completed_steps", "completed_steps", `["Step 1","Step 2"]`, false},
+		{"remaining_steps", "remaining_steps", `["Step 3"]`, false},
+		{"implementation_decisions", "implementation_decisions", `{"db":"sqlite"}`, false},
+		{"open_questions", "open_questions", `["Q1?"]`, false},
+		{"blockers", "blockers", `[]`, false},
+		{"acceptance_criteria_status", "acceptance_criteria_status", `[]`, false},
+		{"related_tasks", "related_tasks", `["E16-F01-001"]`, false},
+		{"invalid_field", "invalid_field", "value", true},
+		{"bad_json_completed_steps", "completed_steps", "not json", true},
+		{"bad_json_remaining_steps", "remaining_steps", "not json", true},
+		{"bad_json_decisions", "implementation_decisions", "not json", true},
+		{"bad_json_questions", "open_questions", "not json", true},
+		{"bad_json_blockers", "blockers", "not json", true},
+		{"bad_json_criteria", "acceptance_criteria_status", "not json", true},
+		{"bad_json_related", "related_tasks", "not json", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cd := &models.ContextData{}
+			err := updateContextField(cd, tt.field, tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("updateContextField() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

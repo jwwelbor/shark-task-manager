@@ -42,7 +42,7 @@ func init() {
 type ResumeContext struct {
 	Task           *models.Task               `json:"task"`
 	ContextData    *models.ContextData        `json:"context_data,omitempty"`
-	Notes          []*models.TaskNote         `json:"notes,omitempty"`
+	Notes          []*models.EntityNote       `json:"notes,omitempty"`
 	WorkSessions   []*models.WorkSession      `json:"work_sessions,omitempty"`
 	SessionStats   *repository.SessionStats   `json:"session_stats,omitempty"`
 	ActiveSession  *models.WorkSession        `json:"active_session,omitempty"`
@@ -67,7 +67,7 @@ func runTaskResume(cmd *cobra.Command, args []string) error {
 	// Create repositories
 	dbConn := repoDb
 	taskRepo := repository.NewTaskRepository(dbConn)
-	noteRepo := repository.NewTaskNoteRepository(dbConn)
+	noteRepo := repository.NewEntityNoteRepository(dbConn)
 	sessionRepo := repository.NewWorkSessionRepository(dbConn)
 
 	// Get task by key
@@ -91,7 +91,7 @@ func runTaskResume(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get notes
-	notes, err := noteRepo.GetByTaskID(ctx, task.ID)
+	notes, err := noteRepo.GetByEntity(ctx, models.EntityTypeTask, task.ID)
 	if err == nil {
 		resumeCtx.Notes = notes
 	}
