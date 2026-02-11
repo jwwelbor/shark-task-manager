@@ -1045,8 +1045,8 @@ func (r *TaskRepository) getOrchestratorAction(ctx context.Context, task *models
 		return nil, nil // No action for this status - OK
 	}
 
-	// Populate template with task ID
-	instruction := metadata.OrchestratorAction.PopulateTemplate(task.Key)
+	// Populate template with task placeholders
+	instruction := metadata.OrchestratorAction.PopulateTemplate(config.TaskPlaceholders(task))
 
 	// Return populated action
 	populatedAction := &config.PopulatedAction{

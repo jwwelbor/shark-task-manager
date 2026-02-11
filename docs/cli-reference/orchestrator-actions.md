@@ -1,14 +1,16 @@
-# Task Update API Response Format
+# Orchestrator Actions API Response Format
 
-Enhanced task update API response format that includes `orchestrator_action` metadata for AI Agent Orchestrators.
+Enhanced API response format that includes `orchestrator_action` metadata for AI Agent Orchestrators. Supports tasks, features, and epics.
 
 ## Overview
 
-When tasks transition status (via `shark task start`, `shark task complete`, `shark task approve`, etc.), the API response includes optional `orchestrator_action` metadata. This metadata tells orchestrators what action to take next and which agent should be spawned (if applicable).
+When entities transition status (via `shark task start`, `shark task complete`, `shark task approve`, etc.), the API response includes optional `orchestrator_action` metadata. This metadata tells orchestrators what action to take next and which agent should be spawned (if applicable).
 
 **Key Features:**
-- Atomic response: Task state + action metadata in single API call
-- Backward compatible: Missing actions don't break existing code
+- Atomic response: Entity state + action metadata in single API call
+- Multi-level: Actions can be configured for tasks, features, and epics
+- Rich templates: Instruction templates support entity field placeholders (`{id}`, `{title}`, `{file_path}`, etc.)
+- Backward compatible: Missing actions don't break existing code; `{task_id}` still works
 - Flexible: Actions are defined per-status in configuration
 - Optional: Clients can safely ignore missing actions
 
@@ -64,7 +66,7 @@ The `orchestrator_action` object contains metadata to guide orchestrator behavio
 | `action` | String | Yes | Action type: `spawn_agent`, `pause`, `wait_for_triage`, or `archive` |
 | `agent_type` | String | Conditional | Required if `action=spawn_agent`. Type of agent to spawn (e.g., `developer`, `architect`, `reviewer`) |
 | `skills` | String Array | Conditional | Required if `action=spawn_agent`. Array of skills the agent should have (e.g., `["test-driven-development", "implementation"]`) |
-| `instruction` | String | Conditional | Required if `action=spawn_agent` or `pause`. Human-readable instruction template with template variables populated (e.g., `{task_id}` replaced with actual task key) |
+| `instruction` | String | Conditional | Required if `action=spawn_agent` or `pause`. Human-readable instruction with template variables populated (e.g., `{id}`, `{title}`, `{file_path}` replaced with entity field values) |
 
 ## Action Types
 
@@ -154,21 +156,59 @@ Task is complete and should be archived/ignored.
 
 ## Template Variables
 
-The `instruction` field may contain template variables that are automatically populated at runtime:
+The `instruction` field is generated from `instruction_template` by replacing placeholders with entity field values. Templates use `{placeholder_name}` syntax and support any entity field.
+
+### Common Placeholders (All Entity Levels)
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `{task_id}` | Task key (normalized) | `T-E01-F03-002` or `E01-F03-002` |
+| `{id}` | Entity key | `T-E01-F03-002`, `E07-F01`, `E07` |
+| `{title}` | Entity title | `Implement feature X` |
+| `{status}` | Current status | `ready_for_development` |
+| `{file_path}` | Spec file path | `docs/plan/E07/E07-F01/tasks/T-E07-F01-001.md` |
+| `{slug}` | URL-friendly name | `implement-feature-x` |
+| `{created_at}` | Creation timestamp | `2026-01-15T10:00:00Z` |
+| `{updated_at}` | Last update timestamp | `2026-01-15T12:30:00Z` |
 
-**Example Template:**
-```
-"instruction": "Launch a developer agent to implement task {task_id}. Follow test-driven development practices."
+### Task-Specific Placeholders
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{task_id}` | Task key (backward compat) | `T-E01-F03-002` |
+| `{priority}` | Task priority (1-10) | `5` |
+| `{agent_type}` | Assigned agent type | `developer` |
+| `{blocked_reason}` | Block reason (if blocked) | `Waiting on API spec` |
+| `{execution_order}` | Execution sequence | `3` |
+| `{completion_notes}` | Completion notes | `All tests passing` |
+
+### Epic-Specific Placeholders
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{epic_id}` | Epic key (backward compat) | `E07` |
+| `{priority}` | Epic priority | `high` |
+| `{business_value}` | Business value | `high` |
+
+### Feature-Specific Placeholders
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{feature_id}` | Feature key (backward compat) | `E07-F01` |
+| `{execution_order}` | Feature execution order | `2` |
+
+### Example
+
+**Template (in config):**
+```json
+"instruction_template": "Implement task {id}: {title}. Read spec at {file_path}. Follow TDD."
 ```
 
 **After Substitution:**
 ```
-"instruction": "Launch a developer agent to implement task T-E01-F03-002. Follow test-driven development practices."
+"instruction": "Implement task T-E01-F03-002: Implement feature X. Read spec at docs/plan/E01/E01-F03/tasks/T-E01-F03-002.md. Follow TDD."
 ```
+
+**Backward Compatibility:** Templates using `{task_id}` continue to work unchanged. See the [Template System Guide](docs/guides/template-system.md) for complete placeholder reference and multi-level configuration.
 
 ## Response Examples by Command
 
@@ -473,19 +513,21 @@ shark task list E01 F03 --with-actions --json
 
 ## Configuration
 
-Orchestrator actions are defined in the `.sharkconfig.json` workflow configuration:
+Orchestrator actions are defined in `.sharkconfig.json`. Actions can be configured at three levels:
+
+### Task-Level Actions (Top-Level `status_metadata`)
 
 ```json
 {
   "status_metadata": {
     "ready_for_development": {
-      "color": "yellow",
+      "color": "blue",
       "phase": "development",
       "orchestrator_action": {
         "action": "spawn_agent",
         "agent_type": "developer",
-        "skills": ["test-driven-development", "implementation", "shark-task-management"],
-        "instruction_template": "Launch a developer agent to implement task {task_id}. Write tests first, then implement to pass tests following the technical specifications."
+        "skills": ["test-driven-development", "implementation"],
+        "instruction_template": "Implement task {id}: {title}. Spec at {file_path}. Follow TDD."
       }
     },
     "ready_for_code_review": {
@@ -493,18 +535,59 @@ Orchestrator actions are defined in the `.sharkconfig.json` workflow configurati
       "phase": "review",
       "orchestrator_action": {
         "action": "spawn_agent",
-        "agent_type": "reviewer",
-        "skills": ["code-review", "quality-assurance"],
-        "instruction_template": "Launch a reviewer agent to review task {task_id}. Check code quality, tests, and compliance with specifications."
+        "agent_type": "tech-lead",
+        "skills": ["quality", "code-review"],
+        "instruction_template": "Review code for task {id}: {title}."
       }
     }
   }
 }
 ```
 
+### Epic-Level Actions (`epic_workflow.status_metadata`)
+
+```json
+{
+  "epic_workflow": {
+    "status_metadata": {
+      "ready_for_research": {
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "skills": ["discovery", "research"],
+          "instruction_template": "Research epic {id}: {title}. Priority: {priority}."
+        }
+      }
+    }
+  }
+}
+```
+
+### Feature-Level Actions (`feature_workflow.status_metadata`)
+
+```json
+{
+  "feature_workflow": {
+    "status_metadata": {
+      "ready_for_refinement_tech": {
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "architect",
+          "skills": ["architecture"],
+          "instruction_template": "Design architecture for feature {id}: {title}."
+        }
+      }
+    }
+  }
+}
+```
+
+For complete multi-level configuration examples and template writing guidance, see the [Template System Guide](docs/guides/template-system.md).
+
 ## Related Documentation
 
-- [Task Commands](task-commands-full.md) - Task status transition commands
-- [JSON API Fields](json-api-fields.md) - Other enhanced API fields
-- [Workflow Configuration](workflow-config.md) - Configure actions per status
-- [Best Practices](best-practices.md) - AI agent best practices
+- [Template System Guide](docs/guides/template-system.md) - Complete template and multi-level workflow reference
+- [Task Commands](docs/cli-reference/task-commands-full.md) - Task status transition commands
+- [JSON API Fields](docs/cli-reference/json-api-fields.md) - Other enhanced API fields
+- [Workflow Configuration](docs/cli-reference/workflow-config.md) - Configure actions per status
+- [Best Practices](docs/cli-reference/best-practices.md) - AI agent best practices
