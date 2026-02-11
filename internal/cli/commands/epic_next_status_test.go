@@ -12,7 +12,7 @@ import (
 // mockEpicServiceForTest wraps a mock EpicService for testing the next-status command.
 type mockEpicServiceForTest struct {
 	getNextStatusFn    func(ctx context.Context, epicKey string) (*services.NextStatusInfo, error)
-	transitionStatusFn func(ctx context.Context, epicKey string, targetStatus string, force bool) (*services.TransitionResult, error)
+	transitionStatusFn func(ctx context.Context, epicKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
 }
 
 func (m *mockEpicServiceForTest) GetNextStatus(ctx context.Context, epicKey string) (*services.NextStatusInfo, error) {
@@ -22,9 +22,9 @@ func (m *mockEpicServiceForTest) GetNextStatus(ctx context.Context, epicKey stri
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (m *mockEpicServiceForTest) TransitionStatus(ctx context.Context, epicKey string, targetStatus string, force bool) (*services.TransitionResult, error) {
+func (m *mockEpicServiceForTest) TransitionStatus(ctx context.Context, epicKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 	if m.transitionStatusFn != nil {
-		return m.transitionStatusFn(ctx, epicKey, targetStatus, force)
+		return m.transitionStatusFn(ctx, epicKey, targetStatus, opts)
 	}
 	return nil, fmt.Errorf("not implemented")
 }
@@ -132,7 +132,7 @@ func TestBuildNextStatusResult_Feature(t *testing.T) {
 
 func TestPerformEntityTransition_Success(t *testing.T) {
 	mock := &mockEpicServiceForTest{
-		transitionStatusFn: func(ctx context.Context, epicKey string, targetStatus string, force bool) (*services.TransitionResult, error) {
+		transitionStatusFn: func(ctx context.Context, epicKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 			return &services.TransitionResult{
 				EntityType:   "epic",
 				EntityKey:    epicKey,
@@ -150,7 +150,7 @@ func TestPerformEntityTransition_Success(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := performEntityTransition(ctx, mock, nil, "E16", "active", false, result)
+	err := performEntityTransition(ctx, mock, "E16", "active", services.TransitionOptions{}, result)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestPerformEntityTransition_Success(t *testing.T) {
 
 func TestPerformEntityTransition_Error(t *testing.T) {
 	mock := &mockEpicServiceForTest{
-		transitionStatusFn: func(ctx context.Context, epicKey string, targetStatus string, force bool) (*services.TransitionResult, error) {
+		transitionStatusFn: func(ctx context.Context, epicKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 			return nil, fmt.Errorf("invalid transition: draft -> completed")
 		},
 	}
@@ -177,7 +177,7 @@ func TestPerformEntityTransition_Error(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := performEntityTransition(ctx, mock, nil, "E16", "completed", false, result)
+	err := performEntityTransition(ctx, mock, "E16", "completed", services.TransitionOptions{}, result)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -190,8 +190,8 @@ func TestPerformEntityTransition_Error(t *testing.T) {
 func TestPerformEntityTransition_Force(t *testing.T) {
 	var forcePassed bool
 	mock := &mockEpicServiceForTest{
-		transitionStatusFn: func(ctx context.Context, epicKey string, targetStatus string, force bool) (*services.TransitionResult, error) {
-			forcePassed = force
+		transitionStatusFn: func(ctx context.Context, epicKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			forcePassed = opts.Force
 			return &services.TransitionResult{
 				EntityType:   "epic",
 				EntityKey:    epicKey,
@@ -209,7 +209,7 @@ func TestPerformEntityTransition_Force(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := performEntityTransition(ctx, mock, nil, "E16", "custom_status", true, result)
+	err := performEntityTransition(ctx, mock, "E16", "custom_status", services.TransitionOptions{Force: true}, result)
 	if err != nil {
 		t.Fatalf("expected no error with force, got: %v", err)
 	}
