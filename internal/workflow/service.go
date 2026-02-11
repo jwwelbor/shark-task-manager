@@ -471,6 +471,17 @@ func (s *Service) IsCompletedStatus(status string) bool {
 	return s.IsTerminalStatus(status)
 }
 
+// IsBackwardTransition checks if transitioning from one status to another
+// moves backward in the workflow phase ordering.
+// Delegates to the underlying WorkflowConfig.IsBackwardTransition().
+// Returns (false, nil) when workflow config is nil (graceful degradation).
+func (s *Service) IsBackwardTransition(fromStatus, toStatus string) (bool, error) {
+	if s.workflow == nil {
+		return false, nil
+	}
+	return s.workflow.IsBackwardTransition(fromStatus, toStatus)
+}
+
 // GetDefaultStatus returns the initial status for new tasks as a string.
 // This is a convenience wrapper around GetInitialStatus that returns a string
 // instead of models.TaskStatus.

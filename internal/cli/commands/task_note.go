@@ -113,7 +113,7 @@ func runTaskNoteAdd(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	dbWrapper := repoDb
 	taskRepo := repository.NewTaskRepository(dbWrapper)
-	noteRepo := repository.NewTaskNoteRepository(dbWrapper)
+	noteRepo := repository.NewEntityNoteRepository(dbWrapper)
 
 	// Get task by key
 	task, err := taskRepo.GetByKey(ctx, taskKey)
@@ -127,11 +127,12 @@ func runTaskNoteAdd(cmd *cobra.Command, args []string) error {
 		createdByPtr = &createdBy
 	}
 
-	note := &models.TaskNote{
-		TaskID:    task.ID,
-		NoteType:  models.NoteType(noteTypeStr),
-		Content:   content,
-		CreatedBy: createdByPtr,
+	note := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   task.ID,
+		NoteType:   models.NoteType(noteTypeStr),
+		Content:    content,
+		CreatedBy:  createdByPtr,
 	}
 
 	err = noteRepo.Create(ctx, note)
@@ -177,7 +178,7 @@ func runTaskNotes(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	dbWrapper := repoDb
 	taskRepo := repository.NewTaskRepository(dbWrapper)
-	noteRepo := repository.NewTaskNoteRepository(dbWrapper)
+	noteRepo := repository.NewEntityNoteRepository(dbWrapper)
 
 	// Get task by key
 	task, err := taskRepo.GetByKey(ctx, taskKey)
@@ -198,11 +199,11 @@ func runTaskNotes(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get notes
-	var notes []*models.TaskNote
+	var notes []*models.EntityNote
 	if len(noteTypes) > 0 {
-		notes, err = noteRepo.GetByTaskIDAndType(ctx, task.ID, noteTypes)
+		notes, err = noteRepo.GetByEntityAndType(ctx, models.EntityTypeTask, task.ID, noteTypes)
 	} else {
-		notes, err = noteRepo.GetByTaskID(ctx, task.ID)
+		notes, err = noteRepo.GetByEntity(ctx, models.EntityTypeTask, task.ID)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to get notes: %w", err)
@@ -247,7 +248,7 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 	taskRepo := repository.NewTaskRepository(repoDb)
-	noteRepo := repository.NewTaskNoteRepository(repoDb)
+	noteRepo := repository.NewEntityNoteRepository(repoDb)
 	historyRepo := repository.NewTaskHistoryRepository(repoDb)
 
 	// Get task by key
@@ -300,7 +301,7 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get notes
-	notes, err := noteRepo.GetByTaskID(ctx, task.ID)
+	notes, err := noteRepo.GetByEntity(ctx, models.EntityTypeTask, task.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get notes: %w", err)
 	}

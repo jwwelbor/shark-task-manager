@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -38,6 +39,8 @@ func init() {
 	featureNextStatusCmd.Flags().String("status", "", "Target status for direct transition (non-interactive)")
 	featureNextStatusCmd.Flags().Bool("preview", false, "Show available transitions without making changes")
 	featureNextStatusCmd.Flags().Bool("force", false, "Bypass workflow validation")
+	featureNextStatusCmd.Flags().String("reason", "", "Reason for backward or forced transitions")
+	featureNextStatusCmd.Flags().String("agent", "", "Agent or user performing the transition")
 	featureCmd.AddCommand(featureNextStatusCmd)
 }
 
@@ -51,6 +54,8 @@ func runFeatureNextStatus(cmd *cobra.Command, args []string) error {
 	targetStatus, _ := cmd.Flags().GetString("status")
 	preview, _ := cmd.Flags().GetBool("preview")
 	force, _ := cmd.Flags().GetBool("force")
+	reason, _ := cmd.Flags().GetString("reason")
+	agent, _ := cmd.Flags().GetString("agent")
 
 	// Get service
 	featureSvc := cli.GetFeatureService()
@@ -142,7 +147,8 @@ func runFeatureNextStatus(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		return performEntityTransition(ctx, featureSvc, nil, info.EntityKey, targetStatus, force, result)
+		opts := services.TransitionOptions{Force: force, Reason: reason, Agent: agent}
+		return performEntityTransition(ctx, featureSvc, info.EntityKey, targetStatus, opts, result)
 	}
 
 	// Auto-select first transition
@@ -155,5 +161,6 @@ func runFeatureNextStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Info(fmt.Sprintf("Auto-selected next status: %s (from %d options)", targetStatus, len(info.AvailableTransitions)))
-	return performEntityTransition(ctx, featureSvc, nil, info.EntityKey, targetStatus, force, result)
+	opts := services.TransitionOptions{Force: force, Reason: reason, Agent: agent}
+	return performEntityTransition(ctx, featureSvc, info.EntityKey, targetStatus, opts, result)
 }

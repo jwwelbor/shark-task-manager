@@ -51,10 +51,10 @@ func TestFeatureService_TransitionStatus_Valid(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", false)
+	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -92,11 +92,11 @@ func TestFeatureService_TransitionStatus_Invalid(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	// "draft" -> "completed" is not valid in default feature workflow
-	_, err := svc.TransitionStatus(ctx, "E16-F01", "completed", false)
+	_, err := svc.TransitionStatus(ctx, "E16-F01", "completed", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error for invalid transition")
 	}
@@ -117,10 +117,10 @@ func TestFeatureService_TransitionStatus_Force(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	result, err := svc.TransitionStatus(ctx, "E16-F01", "custom_status", true)
+	result, err := svc.TransitionStatus(ctx, "E16-F01", "custom_status", TransitionOptions{Force: true, Reason: "test force override"})
 	if err != nil {
 		t.Fatalf("expected no error with force, got: %v", err)
 	}
@@ -139,10 +139,10 @@ func TestFeatureService_TransitionStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	_, err := svc.TransitionStatus(ctx, "E99-F01", "active", false)
+	_, err := svc.TransitionStatus(ctx, "E99-F01", "active", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error for not-found feature")
 	}
@@ -158,10 +158,10 @@ func TestFeatureService_TransitionStatus_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	_, err := svc.TransitionStatus(ctx, "E16-F01", "active", false)
+	_, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error from repo failure")
 	}
@@ -180,10 +180,10 @@ func TestFeatureService_TransitionStatus_UpdateError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
-	_, err := svc.TransitionStatus(ctx, "E16-F01", "active", false)
+	_, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error from update failure")
 	}
@@ -199,7 +199,7 @@ func TestFeatureService_GetNextStatus(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16-F01")
@@ -231,7 +231,7 @@ func TestFeatureService_GetNextStatus_Terminal(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16-F01")
@@ -254,7 +254,7 @@ func TestFeatureService_GetNextStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetNextStatus(ctx, "E99-F01")
@@ -265,7 +265,7 @@ func TestFeatureService_GetNextStatus_NotFound(t *testing.T) {
 
 func TestFeatureService_ValidateStatus(t *testing.T) {
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 
 	// Valid feature statuses
 	for _, status := range []string{"draft", "active", "completed", "archived"} {
@@ -364,11 +364,11 @@ func TestFeatureService_TransitionStatus_WithAction(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t))
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
 	ctx := context.Background()
 
 	// Transition from draft -> active; "active" has an orchestrator_action defined
-	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", false)
+	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -409,11 +409,11 @@ func TestFeatureService_TransitionStatus_WithoutAction(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t))
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
 	ctx := context.Background()
 
 	// Transition from active -> completed; "completed" has NO orchestrator_action
-	result, err := svc.TransitionStatus(ctx, "E16-F01", "completed", false)
+	result, err := svc.TransitionStatus(ctx, "E16-F01", "completed", TransitionOptions{})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -433,7 +433,7 @@ func TestFeatureService_GetNextStatus_WithActions(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t))
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16-F01")
@@ -486,7 +486,7 @@ func TestFeatureService_resolveAction_NilWorkflow(t *testing.T) {
 	// Use empty string project root - this gives a default workflow (not nil).
 	// To truly test nil, we test through the default workflow which has no actions.
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService())
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
 
 	// The default feature workflow has no orchestrator_action on any status.
 	// resolveAction should return nil without panicking.
@@ -499,7 +499,7 @@ func TestFeatureService_resolveAction_NilWorkflow(t *testing.T) {
 
 func TestFeatureService_resolveAction_UnknownStatus(t *testing.T) {
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t))
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
 
 	// Unknown status should return nil without panicking
 	feature := &models.Feature{Key: "E16-F01", Title: "Test Feature", Status: "nonexistent_status"}
@@ -511,7 +511,7 @@ func TestFeatureService_resolveAction_UnknownStatus(t *testing.T) {
 
 func TestFeatureService_resolveAction_StatusWithAction(t *testing.T) {
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t))
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
 
 	feature := &models.Feature{Key: "E16-F02", Title: "Test Feature", Status: "active"}
 	action := svc.resolveAction(feature, "active")
@@ -533,7 +533,7 @@ func TestFeatureService_resolveAction_StatusWithAction(t *testing.T) {
 
 func TestFeatureService_resolveAction_StatusWithoutAction(t *testing.T) {
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t))
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
 
 	feature := &models.Feature{Key: "E16-F01", Title: "Test Feature", Status: "completed"}
 	action := svc.resolveAction(feature, "completed")

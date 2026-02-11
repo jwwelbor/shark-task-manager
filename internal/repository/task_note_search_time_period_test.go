@@ -13,10 +13,10 @@ func TestSearchWithTimePeriodSince(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id > 0")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id > 0")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-%'")
 
 	// Seed test data
@@ -31,16 +31,17 @@ func TestSearchWithTimePeriodSince(t *testing.T) {
 
 	taskID, _ := result.LastInsertId()
 	defer func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = ?", taskID)
 		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
 	}()
 
 	// Create notes with different timestamps
-	oldNote := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Old rejection from 2025-12-01",
-		CreatedBy: createStr("reviewer"),
+	oldNote := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Old rejection from 2025-12-01",
+		CreatedBy:  createStr("reviewer"),
 	}
 	err = noteRepo.Create(ctx, oldNote)
 	if err != nil {
@@ -48,13 +49,14 @@ func TestSearchWithTimePeriodSince(t *testing.T) {
 	}
 
 	// Update the created_at timestamp manually
-	_, _ = database.ExecContext(ctx, "UPDATE task_notes SET created_at = '2025-12-01 10:00:00' WHERE id = ?", oldNote.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE entity_notes SET created_at = '2025-12-01 10:00:00' WHERE id = ?", oldNote.ID)
 
-	recentNote := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Recent rejection from 2026-01-15",
-		CreatedBy: createStr("reviewer"),
+	recentNote := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Recent rejection from 2026-01-15",
+		CreatedBy:  createStr("reviewer"),
 	}
 	err = noteRepo.Create(ctx, recentNote)
 	if err != nil {
@@ -84,10 +86,10 @@ func TestSearchWithTimePeriodUntil(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id > 0")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id > 0")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-%'")
 
 	// Seed test data
@@ -102,28 +104,30 @@ func TestSearchWithTimePeriodUntil(t *testing.T) {
 
 	taskID, _ := result.LastInsertId()
 	defer func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = ?", taskID)
 		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
 	}()
 
 	// Create notes with different timestamps
-	oldNote := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Old rejection",
-		CreatedBy: createStr("reviewer"),
+	oldNote := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Old rejection",
+		CreatedBy:  createStr("reviewer"),
 	}
 	err = noteRepo.Create(ctx, oldNote)
 	if err != nil {
 		t.Fatalf("Failed to create old note: %v", err)
 	}
-	_, _ = database.ExecContext(ctx, "UPDATE task_notes SET created_at = '2025-12-01 10:00:00' WHERE id = ?", oldNote.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE entity_notes SET created_at = '2025-12-01 10:00:00' WHERE id = ?", oldNote.ID)
 
-	recentNote := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Recent rejection",
-		CreatedBy: createStr("reviewer"),
+	recentNote := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Recent rejection",
+		CreatedBy:  createStr("reviewer"),
 	}
 	err = noteRepo.Create(ctx, recentNote)
 	if err != nil {
@@ -153,10 +157,10 @@ func TestSearchWithTimePeriodBothDates(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
-	noteRepo := NewTaskNoteRepository(db)
+	noteRepo := NewEntityNoteRepository(db)
 
 	// Clean up
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE id > 0")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE id > 0")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-%'")
 
 	// Seed test data
@@ -171,43 +175,46 @@ func TestSearchWithTimePeriodBothDates(t *testing.T) {
 
 	taskID, _ := result.LastInsertId()
 	defer func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_notes WHERE task_id = ?", taskID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = ?", taskID)
 		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", taskID)
 	}()
 
 	// Create notes with different timestamps
-	veryOldNote := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Very old",
-		CreatedBy: createStr("reviewer"),
+	veryOldNote := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Very old",
+		CreatedBy:  createStr("reviewer"),
 	}
 	if err := noteRepo.Create(ctx, veryOldNote); err != nil {
 		t.Fatalf("Failed to create note: %v", err)
 	}
-	_, _ = database.ExecContext(ctx, "UPDATE task_notes SET created_at = '2025-11-01 10:00:00' WHERE id = ?", veryOldNote.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE entity_notes SET created_at = '2025-11-01 10:00:00' WHERE id = ?", veryOldNote.ID)
 
-	middleNote := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Middle",
-		CreatedBy: createStr("reviewer"),
+	middleNote := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Middle",
+		CreatedBy:  createStr("reviewer"),
 	}
 	if err := noteRepo.Create(ctx, middleNote); err != nil {
 		t.Fatalf("Failed to create note: %v", err)
 	}
-	_, _ = database.ExecContext(ctx, "UPDATE task_notes SET created_at = '2025-12-15 10:00:00' WHERE id = ?", middleNote.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE entity_notes SET created_at = '2025-12-15 10:00:00' WHERE id = ?", middleNote.ID)
 
-	veryRecentNote := &models.TaskNote{
-		TaskID:    taskID,
-		NoteType:  models.NoteTypeRejection,
-		Content:   "Very recent",
-		CreatedBy: createStr("reviewer"),
+	veryRecentNote := &models.EntityNote{
+		EntityType: models.EntityTypeTask,
+		EntityID:   taskID,
+		NoteType:   models.NoteTypeRejection,
+		Content:    "Very recent",
+		CreatedBy:  createStr("reviewer"),
 	}
 	if err := noteRepo.Create(ctx, veryRecentNote); err != nil {
 		t.Fatalf("Failed to create note: %v", err)
 	}
-	_, _ = database.ExecContext(ctx, "UPDATE task_notes SET created_at = '2026-01-15 10:00:00' WHERE id = ?", veryRecentNote.ID)
+	_, _ = database.ExecContext(ctx, "UPDATE entity_notes SET created_at = '2026-01-15 10:00:00' WHERE id = ?", veryRecentNote.ID)
 
 	// Search notes between 2025-12-01 and 2025-12-31
 	notes, err := noteRepo.SearchWithTimePeriod(ctx, "", []string{string(models.NoteTypeRejection)}, "", "", "2025-12-01", "2025-12-31")

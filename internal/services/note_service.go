@@ -1,0 +1,124 @@
+package services
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+)
+
+// NoteEntityNoteRepository defines the repository interface for entity notes.
+type NoteEntityNoteRepository interface {
+	Create(ctx context.Context, note *models.EntityNote) error
+	GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
+	GetByEntityAndType(ctx context.Context, entityType models.EntityType, entityID int64, noteTypes []string) ([]*models.EntityNote, error)
+	Search(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error)
+}
+
+// NoteEpicRepository defines the epic repository interface needed by NoteService.
+type NoteEpicRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Epic, error)
+}
+
+// NoteFeatureRepository defines the feature repository interface needed by NoteService.
+type NoteFeatureRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Feature, error)
+}
+
+// NoteTaskRepository defines the task repository interface needed by NoteService.
+type NoteTaskRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Task, error)
+}
+
+// NoteService provides business logic for note operations across all entity types.
+type NoteService struct {
+	noteRepo    NoteEntityNoteRepository
+	epicRepo    NoteEpicRepository
+	featureRepo NoteFeatureRepository
+	taskRepo    NoteTaskRepository
+}
+
+// NewNoteService creates a new NoteService with injected dependencies.
+func NewNoteService(noteRepo NoteEntityNoteRepository, epicRepo NoteEpicRepository, featureRepo NoteFeatureRepository, taskRepo NoteTaskRepository) *NoteService {
+	return &NoteService{
+		noteRepo:    noteRepo,
+		epicRepo:    epicRepo,
+		featureRepo: featureRepo,
+		taskRepo:    taskRepo,
+	}
+}
+
+// AddNote resolves the entity key to an ID and creates a note on the entity.
+func (s *NoteService) AddNote(ctx context.Context, entityType models.EntityType, entityKey string, noteType string, content string, createdBy string) (*models.EntityNote, error) {
+	if err := models.ValidateNoteType(noteType); err != nil {
+		return nil, fmt.Errorf("invalid note type: %w", err)
+	}
+
+	entityID, err := s.resolveEntityID(ctx, entityType, entityKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var createdByPtr *string
+	if createdBy != "" {
+		createdByPtr = &createdBy
+	}
+
+	note := &models.EntityNote{
+		EntityType: entityType,
+		EntityID:   entityID,
+		NoteType:   models.NoteType(noteType),
+		Content:    content,
+		CreatedBy:  createdByPtr,
+	}
+
+	if err := s.noteRepo.Create(ctx, note); err != nil {
+		return nil, fmt.Errorf("failed to create note: %w", err)
+	}
+
+	return note, nil
+}
+
+// ListNotes returns notes for the specified entity, optionally filtered by note types.
+func (s *NoteService) ListNotes(ctx context.Context, entityType models.EntityType, entityKey string, noteTypes []string) ([]*models.EntityNote, error) {
+	entityID, err := s.resolveEntityID(ctx, entityType, entityKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(noteTypes) > 0 {
+		return s.noteRepo.GetByEntityAndType(ctx, entityType, entityID, noteTypes)
+	}
+	return s.noteRepo.GetByEntity(ctx, entityType, entityID)
+}
+
+// SearchNotes searches across notes with optional filters.
+func (s *NoteService) SearchNotes(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error) {
+	return s.noteRepo.Search(ctx, query, noteTypes, entityType, epicKey, featureKey)
+}
+
+// resolveEntityID resolves an entity key to its database ID using the appropriate repository.
+func (s *NoteService) resolveEntityID(ctx context.Context, entityType models.EntityType, key string) (int64, error) {
+	switch entityType {
+	case models.EntityTypeEpic:
+		epic, err := s.epicRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("epic not found: %s: %w", key, err)
+		}
+		return epic.ID, nil
+	case models.EntityTypeFeature:
+		feature, err := s.featureRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("feature not found: %s: %w", key, err)
+		}
+		return feature.ID, nil
+	case models.EntityTypeTask:
+		task, err := s.taskRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("task not found: %s: %w", key, err)
+		}
+		return task.ID, nil
+	default:
+		return 0, fmt.Errorf("unsupported entity type: %s", entityType)
+	}
+}

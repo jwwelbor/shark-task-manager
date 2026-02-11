@@ -12,7 +12,7 @@ import (
 // mockFeatureServiceForTest wraps a mock FeatureService for testing the next-status command.
 type mockFeatureServiceForTest struct {
 	getNextStatusFn    func(ctx context.Context, featureKey string) (*services.NextStatusInfo, error)
-	transitionStatusFn func(ctx context.Context, featureKey string, targetStatus string, force bool) (*services.TransitionResult, error)
+	transitionStatusFn func(ctx context.Context, featureKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
 }
 
 func (m *mockFeatureServiceForTest) GetNextStatus(ctx context.Context, featureKey string) (*services.NextStatusInfo, error) {
@@ -22,9 +22,9 @@ func (m *mockFeatureServiceForTest) GetNextStatus(ctx context.Context, featureKe
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (m *mockFeatureServiceForTest) TransitionStatus(ctx context.Context, featureKey string, targetStatus string, force bool) (*services.TransitionResult, error) {
+func (m *mockFeatureServiceForTest) TransitionStatus(ctx context.Context, featureKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 	if m.transitionStatusFn != nil {
-		return m.transitionStatusFn(ctx, featureKey, targetStatus, force)
+		return m.transitionStatusFn(ctx, featureKey, targetStatus, opts)
 	}
 	return nil, fmt.Errorf("not implemented")
 }
@@ -92,7 +92,7 @@ func TestBuildNextStatusResult_FeatureTerminal(t *testing.T) {
 
 func TestPerformEntityTransition_FeatureSuccess(t *testing.T) {
 	mock := &mockFeatureServiceForTest{
-		transitionStatusFn: func(ctx context.Context, featureKey string, targetStatus string, force bool) (*services.TransitionResult, error) {
+		transitionStatusFn: func(ctx context.Context, featureKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 			return &services.TransitionResult{
 				EntityType:   "feature",
 				EntityKey:    featureKey,
@@ -110,7 +110,7 @@ func TestPerformEntityTransition_FeatureSuccess(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := performEntityTransition(ctx, mock, nil, "E16-F01", "active", false, result)
+	err := performEntityTransition(ctx, mock, "E16-F01", "active", services.TransitionOptions{}, result)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestPerformEntityTransition_FeatureSuccess(t *testing.T) {
 
 func TestPerformEntityTransition_FeatureError(t *testing.T) {
 	mock := &mockFeatureServiceForTest{
-		transitionStatusFn: func(ctx context.Context, featureKey string, targetStatus string, force bool) (*services.TransitionResult, error) {
+		transitionStatusFn: func(ctx context.Context, featureKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 			return nil, fmt.Errorf("feature not found: E99-F01")
 		},
 	}
@@ -137,7 +137,7 @@ func TestPerformEntityTransition_FeatureError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := performEntityTransition(ctx, mock, nil, "E99-F01", "active", false, result)
+	err := performEntityTransition(ctx, mock, "E99-F01", "active", services.TransitionOptions{}, result)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -149,8 +149,8 @@ func TestPerformEntityTransition_FeatureError(t *testing.T) {
 func TestPerformEntityTransition_FeatureForce(t *testing.T) {
 	var forcePassed bool
 	mock := &mockFeatureServiceForTest{
-		transitionStatusFn: func(ctx context.Context, featureKey string, targetStatus string, force bool) (*services.TransitionResult, error) {
-			forcePassed = force
+		transitionStatusFn: func(ctx context.Context, featureKey string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			forcePassed = opts.Force
 			return &services.TransitionResult{
 				EntityType:   "feature",
 				EntityKey:    featureKey,
@@ -168,7 +168,7 @@ func TestPerformEntityTransition_FeatureForce(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := performEntityTransition(ctx, mock, nil, "E16-F01", "custom_status", true, result)
+	err := performEntityTransition(ctx, mock, "E16-F01", "custom_status", services.TransitionOptions{Force: true}, result)
 	if err != nil {
 		t.Fatalf("expected no error with force, got: %v", err)
 	}

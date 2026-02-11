@@ -233,6 +233,92 @@ Action Items
 }
 ```
 
+## `shark feature next-status`
+
+Progress a feature to its next workflow status.
+
+**Usage:**
+```bash
+shark feature next-status <feature-key> [flags]
+```
+
+**Flags:**
+- `--status <name>`: Transition directly to this status (non-interactive)
+- `--preview`: Show available transitions without making changes
+- `--force`: Bypass workflow validation (administrative override, requires `--reason`)
+- `--reason <text>`: Reason for backward or forced transitions
+- `--agent <name>`: Agent or user performing the transition
+- `--json`: Output in JSON format
+
+**Examples:**
+
+```bash
+# Auto-advance to next status
+shark feature next-status E16-F01
+
+# Show available transitions
+shark feature next-status E16-F01 --preview
+
+# Direct transition
+shark feature next-status E16-F01 --status=active
+
+# Backward transition with reason
+shark feature next-status E16-F01 --status=draft --reason="Scope change"
+```
+
+---
+
+## `shark feature set-status`
+
+Set a feature to a specific workflow status with validation and backward transition guards.
+
+**Usage:**
+```bash
+shark feature set-status <feature-key> <status> [flags]
+```
+
+**Flags:**
+- `--reason <text>`: Reason for backward or forced transitions (required for backward transitions)
+- `--force`: Bypass workflow validation (administrative override, requires `--reason`)
+- `--agent <name>`: Agent or user performing the transition
+- `--json`: Output in JSON format
+
+**Backward Transition Rules:**
+- Moving to an earlier workflow phase (e.g., active -> draft) requires `--reason`
+- Using `--force` always requires `--reason` to document the override
+- Forward transitions do not require `--reason`
+
+**Examples:**
+
+```bash
+# Forward transition
+shark feature set-status E16-F01 active
+
+# Backward transition (requires --reason)
+shark feature set-status E16-F01 draft --reason="Requirements changed"
+
+# Force transition (bypasses validation, requires --reason)
+shark feature set-status E16-F01 custom --force --reason="Administrative override"
+
+# JSON output
+shark feature set-status E16-F01 active --json
+```
+
+**JSON Output:**
+```json
+{
+  "entity_type": "feature",
+  "entity_key": "E16-F01",
+  "from_status": "draft",
+  "to_status": "active",
+  "transitioned": true,
+  "is_backward": false,
+  "child_count": 15
+}
+```
+
+---
+
 ## Related Documentation
 
 - [Epic Commands](epic-commands.md)

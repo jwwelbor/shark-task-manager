@@ -49,14 +49,15 @@ func TestMigration_RejectionReason(t *testing.T) {
 	require.NoError(t, err, "failed to query index")
 	assert.Equal(t, 1, indexCount, "idx_task_history_rejection_reason index not found")
 
-	// Verify task_notes table has 'rejection' in note_type constraint
+	// Verify entity_notes table has 'rejection' in note_type constraint
+	// (task_notes is renamed to task_notes_backup after entity_notes migration)
 	var noteTypesCheckSQL string
 	err = db.QueryRow(`
 		SELECT sql FROM sqlite_master
-		WHERE type='table' AND name='task_notes'
+		WHERE type='table' AND name='entity_notes'
 	`).Scan(&noteTypesCheckSQL)
-	require.NoError(t, err, "failed to query task_notes table schema")
-	assert.Contains(t, noteTypesCheckSQL, "'rejection'", "task_notes table should allow 'rejection' note type")
+	require.NoError(t, err, "failed to query entity_notes table schema")
+	assert.Contains(t, noteTypesCheckSQL, "'rejection'", "entity_notes table should allow 'rejection' note type")
 }
 
 // TestMigration_RejectionReason_Idempotent verifies that the migration can be run
@@ -99,9 +100,9 @@ func TestMigration_RejectionReason_Idempotent(t *testing.T) {
 	assert.Equal(t, 1, finalCount, "rejection_reason column should still exist exactly once after second migration")
 }
 
-// TestMigration_TaskNotesNoteTypeConstraint verifies that task_notes table
-// has been updated to include 'rejection' in the note_type CHECK constraint
-func TestMigration_TaskNotesNoteTypeConstraint(t *testing.T) {
+// TestMigration_EntityNotesNoteTypeConstraint verifies that entity_notes table
+// includes 'rejection' in the note_type CHECK constraint (E16-F04 migration from task_notes)
+func TestMigration_EntityNotesNoteTypeConstraint(t *testing.T) {
 	// Create temporary database file
 	tmpDir := t.TempDir()
 	dbPath := tmpDir + "/test.db"
@@ -111,13 +112,13 @@ func TestMigration_TaskNotesNoteTypeConstraint(t *testing.T) {
 	require.NoError(t, err, "migration failed")
 	defer db.Close()
 
-	// Get table schema
+	// Get entity_notes table schema (task_notes is renamed to task_notes_backup after migration)
 	var tableSchema string
 	err = db.QueryRow(`
 		SELECT sql FROM sqlite_master
-		WHERE type='table' AND name='task_notes'
+		WHERE type='table' AND name='entity_notes'
 	`).Scan(&tableSchema)
-	require.NoError(t, err, "failed to query task_notes schema")
+	require.NoError(t, err, "failed to query entity_notes schema")
 
 	// Verify all expected note types are in the constraint
 	expectedTypes := []string{
@@ -134,9 +135,9 @@ func TestMigration_TaskNotesNoteTypeConstraint(t *testing.T) {
 	}
 
 	for _, noteType := range expectedTypes {
-		assert.Contains(t, tableSchema, noteType, "task_notes CHECK constraint should include note type: %s", noteType)
+		assert.Contains(t, tableSchema, noteType, "entity_notes CHECK constraint should include note type: %s", noteType)
 	}
 
 	// Verify CHECK constraint syntax
-	assert.Contains(t, tableSchema, "CHECK (note_type IN", "task_notes should have CHECK constraint on note_type")
+	assert.Contains(t, tableSchema, "CHECK (note_type IN", "entity_notes should have CHECK constraint on note_type")
 }

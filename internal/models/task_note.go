@@ -20,7 +20,9 @@ const (
 	NoteTypeRejection      NoteType = "rejection"      // Rejection reason for backward transitions
 )
 
-// TaskNote represents a typed note attached to a task
+// Deprecated: TaskNote is deprecated in favor of EntityNote.
+// TaskNote represents a typed note attached to a task.
+// Use EntityNote with EntityType=EntityTypeTask instead.
 type TaskNote struct {
 	ID        int64     `json:"id" db:"id"`
 	TaskID    int64     `json:"task_id" db:"task_id"`
@@ -31,7 +33,7 @@ type TaskNote struct {
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
-// Validate validates the TaskNote fields
+// Deprecated: Validate is deprecated. Use EntityNote.Validate() instead.
 func (tn *TaskNote) Validate() error {
 	if tn.TaskID == 0 {
 		return ErrInvalidTaskID

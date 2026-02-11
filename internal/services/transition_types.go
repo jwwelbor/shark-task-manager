@@ -1,9 +1,44 @@
 package services
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// Sentinel errors for status transitions.
+var (
+	// ErrReasonRequired indicates a reason is required for the transition.
+	ErrReasonRequired = errors.New("reason is required for this transition")
+
+	// ErrForceReasonRequired indicates --force requires --reason.
+	ErrForceReasonRequired = errors.New("--force requires --reason to document why validation was bypassed")
+)
+
+// BackwardReasonError is returned when a backward transition is missing a reason.
+type BackwardReasonError struct {
+	FromStatus string
+	ToStatus   string
+}
+
+func (e *BackwardReasonError) Error() string {
+	return fmt.Sprintf("backward transition from '%s' to '%s' requires --reason flag", e.FromStatus, e.ToStatus)
+}
+
+func (e *BackwardReasonError) Is(target error) bool {
+	return target == ErrReasonRequired
+}
+
+// TransitionOptions controls behavior of status transitions.
+// Used by EpicService.TransitionStatus() and FeatureService.TransitionStatus().
+type TransitionOptions struct {
+	Force        bool   `json:"force,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	DocumentPath string `json:"document_path,omitempty"`
+	Agent        string `json:"agent,omitempty"`
+}
 
 // TransitionResult represents the outcome of a status transition.
 type TransitionResult struct {
@@ -14,6 +49,10 @@ type TransitionResult struct {
 	Transitioned       bool                    `json:"transitioned"`
 	Message            string                  `json:"message,omitempty"`
 	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action"`
+	IsBackward         bool                    `json:"is_backward,omitempty"`
+	IsForced           bool                    `json:"is_forced,omitempty"`
+	Reason             string                  `json:"reason,omitempty"`
+	ChildCount         int                     `json:"child_count,omitempty"`
 }
 
 // TransitionInfoWithAction wraps a TransitionInfo with an optional orchestrator action.

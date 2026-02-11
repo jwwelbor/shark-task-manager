@@ -620,6 +620,16 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate task_notes note_type constraint: %w", err)
 	}
 
+	// Run entity_notes migration (E16-F04) - polymorphic notes table
+	if err := migrateEntityNotes(db); err != nil {
+		return fmt.Errorf("failed to migrate entity_notes: %w", err)
+	}
+
+	// Run context_data columns migration for epics and features (E16-F04)
+	if err := migrateEpicFeatureContextData(db); err != nil {
+		return fmt.Errorf("failed to migrate epic/feature context_data: %w", err)
+	}
+
 	return nil
 }
 
@@ -1377,6 +1387,155 @@ func migrateTaskNotesNoteTypeConstraint(db *sql.DB) error {
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit migration transaction: %w", err)
+	}
+
+	return nil
+}
+
+// migrateEntityNotes creates the polymorphic entity_notes table and migrates data from task_notes (E16-F04)
+func migrateEntityNotes(db *sql.DB) error {
+	// Check if entity_notes table already exists
+	var tableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_notes'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check entity_notes table: %w", err)
+	}
+
+	if tableExists > 0 {
+		// Already migrated
+		return nil
+	}
+
+	// Create entity_notes table
+	_, err = db.Exec(`
+		CREATE TABLE entity_notes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL CHECK (entity_type IN ('epic', 'feature', 'task')),
+			entity_id INTEGER NOT NULL,
+			note_type TEXT CHECK (note_type IN (
+				'comment', 'decision', 'blocker', 'solution', 'reference',
+				'implementation', 'testing', 'future', 'question', 'rejection'
+			)) NOT NULL,
+			content TEXT NOT NULL,
+			created_by TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			metadata TEXT
+		);
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create entity_notes table: %w", err)
+	}
+
+	// Create indexes
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type ON entity_notes(note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_created_at ON entity_notes(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_entity_type ON entity_notes(entity_type, entity_id, note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type_entity ON entity_notes(note_type, entity_type, entity_id);`,
+	}
+	for _, idx := range indexes {
+		if _, err := db.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create entity_notes index: %w", err)
+		}
+	}
+
+	// Create cascade delete triggers for entity_notes
+	// Since entity_notes is polymorphic, we can't use FK constraints directly.
+	// Instead, use triggers to cascade deletes when tasks, features, or epics are deleted.
+	cascadeTriggers := []string{
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_task
+			AFTER DELETE ON tasks
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_feature
+			AFTER DELETE ON features
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'feature' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_epic
+			AFTER DELETE ON epics
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'epic' AND entity_id = OLD.id;
+			END;`,
+	}
+	for _, trigger := range cascadeTriggers {
+		if _, err := db.Exec(trigger); err != nil {
+			return fmt.Errorf("failed to create entity_notes cascade trigger: %w", err)
+		}
+	}
+
+	// Check if task_notes table exists and has data to migrate
+	var taskNotesExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_notes'
+	`).Scan(&taskNotesExists)
+	if err != nil {
+		return fmt.Errorf("failed to check task_notes table: %w", err)
+	}
+
+	if taskNotesExists > 0 {
+		// Migrate data from task_notes to entity_notes
+		_, err = db.Exec(`
+			INSERT INTO entity_notes (id, entity_type, entity_id, note_type, content, created_by, created_at, metadata)
+			SELECT id, 'task', task_id, note_type, content, created_by, created_at, metadata
+			FROM task_notes
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to migrate task_notes data to entity_notes: %w", err)
+		}
+
+		// Rename old table to backup
+		_, err = db.Exec(`ALTER TABLE task_notes RENAME TO task_notes_backup`)
+		if err != nil {
+			// If backup already exists (from a previous partial migration), just drop task_notes
+			var backupExists int
+			_ = db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_notes_backup'`).Scan(&backupExists)
+			if backupExists > 0 {
+				_, _ = db.Exec(`DROP TABLE IF EXISTS task_notes`)
+			} else {
+				return fmt.Errorf("failed to rename task_notes to task_notes_backup: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// migrateEpicFeatureContextData adds context_data TEXT column to epics and features tables (E16-F04)
+func migrateEpicFeatureContextData(db *sql.DB) error {
+	// Check if epics table has context_data column
+	var columnExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('epics') WHERE name = 'context_data'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check epics schema for context_data: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE epics ADD COLUMN context_data TEXT;`); err != nil {
+			return fmt.Errorf("failed to add context_data to epics: %w", err)
+		}
+	}
+
+	// Check if features table has context_data column
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('features') WHERE name = 'context_data'
+	`).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check features schema for context_data: %w", err)
+	}
+
+	if columnExists == 0 {
+		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN context_data TEXT;`); err != nil {
+			return fmt.Errorf("failed to add context_data to features: %w", err)
+		}
 	}
 
 	return nil
