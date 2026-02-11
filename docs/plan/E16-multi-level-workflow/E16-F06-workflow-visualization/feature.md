@@ -4,6 +4,8 @@ epic_key: E16
 title: Workflow Visualization
 description: Update workflow list to show all three levels, planning vs aggregation distinction
 priority: P3
+related-docs:
+  - docs/plan/E16-multi-level-workflow/E16-F06-workflow-visualization/architecture.md
 ---
 
 # Workflow Visualization
@@ -16,6 +18,10 @@ priority: P3
 ## Epic
 
 - **Epic PRD**: [Epic](../../epic.md)
+
+## Architecture
+
+- **Architecture**: [Architecture](./architecture.md)
 
 ---
 
@@ -63,16 +69,6 @@ Extend `shark workflow list` to display all configured workflows (epic, feature,
 
 ---
 
-### Should-Have Stories
-
-**Story 4**: As a user, I want to see which workflow level I'm viewing when running `shark workflow list --level epic`.
-
-**Acceptance Criteria**:
-- [ ] `--level` flag filters to a specific workflow level
-- [ ] Default shows all levels
-
----
-
 ## Requirements
 
 ### Functional Requirements
@@ -88,7 +84,7 @@ Extend `shark workflow list` to display all configured workflows (epic, feature,
    - **Priority**: Must-Have
 
 3. **REQ-F-003**: Distinguish planning vs aggregation statuses
-   - **Description**: Aggregation statuses marked with `[brackets]`, planning statuses unmarked
+   - **Description**: Aggregation statuses marked with `[brackets]`, planning statuses with `[planning]` marker
    - **Priority**: Must-Have
 
 4. **REQ-F-004**: Default vs custom label
@@ -99,11 +95,7 @@ Extend `shark workflow list` to display all configured workflows (epic, feature,
    - **Description**: Include legend: `[active] = aggregation threshold (progress derived from children)`
    - **Priority**: Must-Have
 
-6. **REQ-F-006**: `--level` filter
-   - **Description**: Optional `--level` flag to show only one workflow level
-   - **Priority**: Should-Have
-
-7. **REQ-F-007**: JSON output
+6. **REQ-F-006**: JSON output
    - **Description**: `--json` returns structured workflow data for all three levels
    - **Priority**: Must-Have
 
@@ -124,10 +116,10 @@ Extend `shark workflow list` to display all configured workflows (epic, feature,
 - **Then** epic and feature show "(default)" with hardcoded statuses
 - **And** task shows current workflow
 
-**Scenario 3: Level Filter**
+**Scenario 3: JSON Output**
 - **Given** all workflows configured
-- **When** `shark workflow list --level feature`
-- **Then** only feature workflow is displayed
+- **When** `shark workflow list --json`
+- **Then** output includes `epic_workflow`, `feature_workflow`, `task_workflow` keys with status details
 
 ---
 
@@ -135,6 +127,7 @@ Extend `shark workflow list` to display all configured workflows (epic, feature,
 
 1. **Interactive workflow editor** - Future enhancement
 2. **Graphical workflow visualization** - Text-based only
+3. **`--level` filter flag** - Removed; always shows all three levels
 
 ---
 
@@ -147,4 +140,4 @@ Extend `shark workflow list` to display all configured workflows (epic, feature,
 
 ---
 
-*Last Updated*: 2026-02-08
+*Last Updated*: 2026-02-11

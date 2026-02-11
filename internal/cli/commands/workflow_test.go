@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestWorkflowListCommand tests the workflow list command
+// TestWorkflowListCommand tests the workflow list command with multi-level output
 func TestWorkflowListCommand(t *testing.T) {
 	// Save original GlobalConfig
 	originalConfig := cli.GlobalConfig
@@ -30,7 +30,7 @@ func TestWorkflowListCommand(t *testing.T) {
 		expectedOutput []string
 	}{
 		{
-			name: "default_workflow",
+			name: "all_defaults_shows_three_levels",
 			configContent: `{
 				"task_folder_base": "docs/plan"
 			}`,
@@ -38,15 +38,19 @@ func TestWorkflowListCommand(t *testing.T) {
 			expectError: false,
 			expectedOutput: []string{
 				"Workflow Configuration",
+				"Epic Workflow (default)",
+				"Feature Workflow (default)",
+				"Task Workflow (default)",
 				"todo",
 				"in_progress",
 				"ready_for_review",
 				"completed",
 				"blocked",
+				"Legend:",
 			},
 		},
 		{
-			name: "custom_workflow",
+			name: "custom_task_workflow_shows_custom_label",
 			configContent: `{
 				"task_folder_base": "docs/plan",
 				"status_flow_version": "1.0",
@@ -64,29 +68,28 @@ func TestWorkflowListCommand(t *testing.T) {
 			expectError: false,
 			expectedOutput: []string{
 				"Workflow Configuration",
+				"Epic Workflow (default)",
+				"Feature Workflow (default)",
+				"Task Workflow (custom)",
 				"todo",
 				"in_progress",
 				"done",
 			},
 		},
 		{
-			name: "json_output",
+			name: "planning_and_aggregation_markers",
 			configContent: `{
-				"task_folder_base": "docs/plan",
-				"status_flow_version": "1.0",
-				"status_flow": {
-					"todo": ["in_progress"],
-					"in_progress": ["done"],
-					"done": []
-				},
-				"special_statuses": {
-					"_start_": ["todo"],
-					"_complete_": ["done"]
-				}
+				"task_folder_base": "docs/plan"
 			}`,
-			jsonOutput:     true,
-			expectError:    false,
-			expectedOutput: []string{}, // We'll validate JSON separately
+			jsonOutput:  false,
+			expectError: false,
+			expectedOutput: []string{
+				"[planning]",
+				"[active]",
+				"[aggregates: features]",
+				"[aggregates: tasks]",
+				"_aggregation_",
+			},
 		},
 		{
 			name: "workflow_with_metadata",
@@ -123,6 +126,8 @@ func TestWorkflowListCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			config.ClearWorkflowCache()
+
 			// Create temp config file
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
@@ -165,17 +170,6 @@ func TestWorkflowListCommand(t *testing.T) {
 				t.Errorf("Unexpected error: %v", err)
 			}
 
-			// Validate JSON output
-			if tt.jsonOutput && !tt.expectError {
-				var workflow config.WorkflowConfig
-				if err := json.Unmarshal([]byte(output), &workflow); err != nil {
-					t.Errorf("Failed to parse JSON output: %v\nOutput: %s", err, output)
-				}
-				if workflow.StatusFlow == nil {
-					t.Errorf("Expected status_flow in JSON output")
-				}
-			}
-
 			// Validate text output
 			if !tt.jsonOutput && !tt.expectError {
 				for _, expected := range tt.expectedOutput {
@@ -184,6 +178,155 @@ func TestWorkflowListCommand(t *testing.T) {
 					}
 				}
 			}
+		})
+	}
+}
+
+// TestWorkflowListCommandJSON tests the JSON output of workflow list command
+func TestWorkflowListCommandJSON(t *testing.T) {
+	originalConfig := cli.GlobalConfig
+	defer func() { cli.GlobalConfig = originalConfig }()
+
+	tests := []struct {
+		name          string
+		configContent string
+		checkFunc     func(t *testing.T, display MultiLevelWorkflowDisplay)
+	}{
+		{
+			name: "all_defaults_json",
+			configContent: `{
+				"task_folder_base": "docs/plan"
+			}`,
+			checkFunc: func(t *testing.T, display MultiLevelWorkflowDisplay) {
+				if display.EpicWorkflow == nil {
+					t.Fatal("Expected epic_workflow in JSON output")
+				}
+				if display.FeatureWorkflow == nil {
+					t.Fatal("Expected feature_workflow in JSON output")
+				}
+				if display.TaskWorkflow == nil {
+					t.Fatal("Expected task_workflow in JSON output")
+				}
+				if display.EpicWorkflow.Source != "default" {
+					t.Errorf("Expected epic source 'default', got %q", display.EpicWorkflow.Source)
+				}
+				if display.FeatureWorkflow.Source != "default" {
+					t.Errorf("Expected feature source 'default', got %q", display.FeatureWorkflow.Source)
+				}
+				if display.TaskWorkflow.Source != "default" {
+					t.Errorf("Expected task source 'default', got %q", display.TaskWorkflow.Source)
+				}
+				if display.EpicWorkflow.Level != "epic" {
+					t.Errorf("Expected epic level 'epic', got %q", display.EpicWorkflow.Level)
+				}
+			},
+		},
+		{
+			name: "custom_task_json",
+			configContent: `{
+				"task_folder_base": "docs/plan",
+				"status_flow_version": "1.0",
+				"status_flow": {
+					"todo": ["done"],
+					"done": []
+				},
+				"special_statuses": {
+					"_start_": ["todo"],
+					"_complete_": ["done"]
+				}
+			}`,
+			checkFunc: func(t *testing.T, display MultiLevelWorkflowDisplay) {
+				if display.TaskWorkflow.Source != "custom" {
+					t.Errorf("Expected task source 'custom', got %q", display.TaskWorkflow.Source)
+				}
+				if display.EpicWorkflow.Source != "default" {
+					t.Errorf("Expected epic source 'default', got %q", display.EpicWorkflow.Source)
+				}
+				if display.TaskWorkflow.StatusCount != 2 {
+					t.Errorf("Expected 2 task statuses, got %d", display.TaskWorkflow.StatusCount)
+				}
+			},
+		},
+		{
+			name: "planning_aggregation_in_json",
+			configContent: `{
+				"task_folder_base": "docs/plan"
+			}`,
+			checkFunc: func(t *testing.T, display MultiLevelWorkflowDisplay) {
+				// Check epic workflow has planning and aggregation markers
+				foundPlanning := false
+				foundAggregation := false
+				for _, s := range display.EpicWorkflow.Statuses {
+					if s.IsPlanning {
+						foundPlanning = true
+					}
+					if s.AggregatesFrom != "" {
+						foundAggregation = true
+						if s.AggregatesFrom != "features" {
+							t.Errorf("Expected epic aggregates_from 'features', got %q", s.AggregatesFrom)
+						}
+					}
+				}
+				if !foundPlanning {
+					t.Error("Expected at least one planning status in epic workflow")
+				}
+				if !foundAggregation {
+					t.Error("Expected at least one aggregation status in epic workflow")
+				}
+
+				// Check feature workflow aggregates tasks
+				foundTaskAgg := false
+				for _, s := range display.FeatureWorkflow.Statuses {
+					if s.AggregatesFrom == "tasks" {
+						foundTaskAgg = true
+					}
+				}
+				if !foundTaskAgg {
+					t.Error("Expected feature workflow to have a status aggregating tasks")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config.ClearWorkflowCache()
+
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+			if err := os.WriteFile(configPath, []byte(tt.configContent), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			cli.GlobalConfig = &cli.Config{
+				JSON:       true,
+				ConfigFile: configPath,
+			}
+
+			var buf bytes.Buffer
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			cmd := &cobra.Command{RunE: runWorkflowList}
+			cmd.SetContext(context.Background())
+			err := runWorkflowList(cmd, []string{})
+
+			w.Close()
+			os.Stdout = oldStdout
+			_, _ = buf.ReadFrom(r)
+			output := buf.String()
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v\nOutput: %s", err, output)
+			}
+
+			var display MultiLevelWorkflowDisplay
+			if err := json.Unmarshal([]byte(output), &display); err != nil {
+				t.Fatalf("Failed to parse JSON output: %v\nOutput: %s", err, output)
+			}
+
+			tt.checkFunc(t, display)
 		})
 	}
 }
