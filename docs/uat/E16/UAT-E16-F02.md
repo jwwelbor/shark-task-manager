@@ -17,6 +17,8 @@
 - E16-F01: Core Workflow Engine (completed) - Provides workflow parsing, transition validation, and `next-status` commands for epics/features
 - E16-F03: Display and Aggregation Threshold (completed) - Planning vs aggregation mode display
 - E16-F04: Notes and Context for Epic and Feature (active) - Note/context system for epics/features
+- E16-F05 Backward Transition and Escalation (draft) - Will add backward transition guards
+- E16-F06 Workflow Visualization (draft) - Will add workflow list visualization
 
 **Integration Points:**
 - E16-F01 provides the workflow engine, transition types, and service layer that F02 extends with action resolution

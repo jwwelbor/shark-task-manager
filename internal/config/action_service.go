@@ -109,8 +109,14 @@ func (s *DefaultActionService) GetStatusActionPopulated(ctx context.Context, sta
 		return nil, nil // No action defined
 	}
 
-	// Populate template
-	instruction := action.PopulateTemplate(taskID)
+	// Populate template with basic ID placeholders
+	vars := map[string]string{
+		"id":         taskID,
+		"task_id":    taskID,
+		"epic_id":    taskID,
+		"feature_id": taskID,
+	}
+	instruction := action.PopulateTemplate(vars)
 
 	return &PopulatedAction{
 		Action:      action.Action,
