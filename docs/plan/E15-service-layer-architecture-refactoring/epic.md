@@ -113,4 +113,21 @@ Incremental, feature-by-feature extraction. Each feature can be developed and me
 
 ---
 
+## Future Considerations
+
+### Configurable File Naming (Epic/Feature/Task files)
+
+Currently hardcoded:
+- Epic files: `epic.md` (in `discovery/folder_scanner.go`, creation commands)
+- Feature files: `feature.md` (in `feature.go:1576`, discovery)
+- Task key format: `T-E{XX}-F{XX}-{NNN}.md` (in `taskcreation/keygen.go`, regex parsing)
+
+**Epic/Feature filenames** are trivially configurable — only 2-3 references each. Could add `"epic_filename"` and `"feature_filename"` to `.sharkconfig.json` and read at creation + discovery time.
+
+**Task key format** is deeply embedded — key generation, parsing, regex matching, and the entire CLI key normalization layer. Changing this would be a significant refactor. Recommend leaving hardcoded unless there's strong demand.
+
+Consider implementing configurable epic/feature filenames during F06 (Slim Down CLI Commands) when the init/config layer is being reworked. The `internal/patterns` package already has `GenerationFormat` templates that could be wired up for this purpose.
+
+---
+
 *Last Updated*: 2026-02-08
