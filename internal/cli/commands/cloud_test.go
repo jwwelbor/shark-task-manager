@@ -219,6 +219,35 @@ func TestCloudStatus(t *testing.T) {
 			expectConfigured: false, // Not cloud
 		},
 		{
+			name: "turso configured via env vars",
+			setupConfig: func(t *testing.T) string {
+				tempDir := t.TempDir()
+				configPath := filepath.Join(tempDir, ".sharkconfig.json")
+
+				t.Setenv("TEST_SHARK_BACKEND", "turso")
+				t.Setenv("TEST_SHARK_URL", "libsql://env-test.turso.io")
+				t.Setenv("TEST_SHARK_AUTH_FILE", "/tmp/env-token")
+
+				cfgData := map[string]interface{}{
+					"database": map[string]interface{}{
+						"backend":         "$TEST_SHARK_BACKEND",
+						"url":             "$TEST_SHARK_URL",
+						"auth_token_file": "$TEST_SHARK_AUTH_FILE",
+					},
+				}
+
+				data, err := json.MarshalIndent(cfgData, "", "  ")
+				require.NoError(t, err)
+				err = os.WriteFile(configPath, data, 0644)
+				require.NoError(t, err)
+
+				return configPath
+			},
+			expectBackend:    "turso",
+			expectURL:        "libsql://env-test.turso.io",
+			expectConfigured: true,
+		},
+		{
 			name: "no config file",
 			setupConfig: func(t *testing.T) string {
 				tempDir := t.TempDir()

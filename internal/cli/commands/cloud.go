@@ -408,20 +408,20 @@ func getCloudStatus(configPath string) (*CloudStatus, error) {
 		return status, nil
 	}
 
-	// Extract backend
+	// Extract backend (expand env vars so $SHARK_DB_BACKEND etc. resolve)
 	if backend, ok := dbConfig["backend"].(string); ok {
-		status.Backend = backend
-		status.IsCloudConfigured = (backend == "turso")
+		status.Backend = os.ExpandEnv(backend)
+		status.IsCloudConfigured = (status.Backend == "turso")
 	}
 
 	// Extract URL
 	if url, ok := dbConfig["url"].(string); ok {
-		status.URL = url
+		status.URL = os.ExpandEnv(url)
 	}
 
 	// Extract auth token file
 	if authFile, ok := dbConfig["auth_token_file"].(string); ok {
-		status.AuthTokenFile = authFile
+		status.AuthTokenFile = os.ExpandEnv(authFile)
 	}
 
 	return status, nil
