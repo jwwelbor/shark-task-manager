@@ -338,9 +338,6 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load workflow config: %w", err)
 	}
-	if multi == nil {
-		multi = &config.MultiLevelWorkflow{}
-	}
 
 	// Validate each level
 	levels := []struct {
