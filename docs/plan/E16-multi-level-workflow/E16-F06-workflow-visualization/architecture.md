@@ -111,6 +111,7 @@ Workflow Configuration
 Legend:
   [status] = aggregation threshold (progress derived from children)
   [planning] = entity has its own workflow status (not aggregating)
+  [aggregates: X] = status aggregates progress from children of type X
 ```
 
 ### Visual Markers (REQ-F-003)

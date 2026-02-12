@@ -116,9 +116,6 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load workflow config: %w", err)
 	}
-	if multi == nil {
-		multi = &config.MultiLevelWorkflow{}
-	}
 
 	// Build display structs
 	display := buildMultiLevelWorkflowDisplay(multi, configPath)
@@ -214,6 +211,7 @@ func displayMultiLevelWorkflowHumanReadable(display *MultiLevelWorkflowDisplay) 
 	fmt.Println("Legend:")
 	fmt.Println("  [status] = aggregation threshold (progress derived from children)")
 	fmt.Println("  [planning] = entity has its own workflow status (not aggregating)")
+	fmt.Println("  [aggregates: X] = status aggregates progress from children of type X")
 	fmt.Println()
 
 	return nil
