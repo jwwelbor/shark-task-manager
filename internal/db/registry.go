@@ -96,7 +96,9 @@ func InitDatabase(ctx context.Context, config config.DatabaseConfig) (Database, 
 
 	// Verify connection
 	if err := db.Ping(ctx); err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to ping database: %w (also failed to close: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 

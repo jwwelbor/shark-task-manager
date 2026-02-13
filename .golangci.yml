@@ -1,2 +1,33 @@
+version: "2"
 run:
   timeout: 5m
+linters:
+  default: standard
+  settings:
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+      disable-default-exclusions: false
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - os.Remove
+        - os.RemoveAll
+        - os.Setenv
+        - os.Unsetenv
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    staticcheck:
+      checks:
+        - "all"
+        - "-QF*"
+        - "-ST*"
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
