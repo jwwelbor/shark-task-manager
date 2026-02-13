@@ -255,7 +255,10 @@ func TestGetProfile_CaseInsensitive(t *testing.T) {
 
 // TestListProfiles tests listing available profiles
 func TestListProfiles(t *testing.T) {
-	profiles := ListProfiles()
+	profiles, err := ListProfiles()
+	if err != nil {
+		t.Fatalf("ListProfiles() error = %v", err)
+	}
 
 	if len(profiles) != 2 {
 		t.Errorf("ListProfiles() returned %d profiles, want 2", len(profiles))
@@ -420,7 +423,10 @@ func TestAdvancedProfile_SpecialStatuses(t *testing.T) {
 
 // TestProfileNames tests that profile names match registry keys
 func TestProfileNames(t *testing.T) {
-	profiles := ListProfiles()
+	profiles, err := ListProfiles()
+	if err != nil {
+		t.Fatalf("ListProfiles() error = %v", err)
+	}
 
 	for _, name := range profiles {
 		profile, err := GetProfile(name)

@@ -78,7 +78,7 @@ var embeddedProfiles embed.FS
 - No epic_workflow or feature_workflow (uses system defaults)
 - For: solo developers, simple projects, prototyping
 
-**advanced.json** (17 task statuses + epic + feature workflows):
+**advanced.json** (18 task statuses + epic + feature workflows):
 - Derived from current `.sharkconfig.json` (the actually-in-use workflow)
 - Task statuses: draft, todo, ready_for_refinement_ba/tech, in_refinement_ba/tech, ready_for_development, in_development, ready_for_code_review, in_code_review, ready_for_qa, in_qa, ready_for_approval, in_approval, completed, cancelled, blocked, on_hold
 - Full `orchestrator_action` on all actionable statuses (spawn_agent, pause, wait_for_triage, archive)
@@ -92,7 +92,7 @@ var embeddedProfiles embed.FS
 ```bash
 # Preview what would change (default, safe)
 shark init merge --workflow=advanced
-# Output: "Would replace 17 statuses, 18 flow rules, 3 special groups. Database config preserved."
+# Output: "Would replace 18 statuses, 18 flow rules, 3 special groups. Database config preserved."
 
 # Actually apply
 shark init merge --workflow=advanced --force

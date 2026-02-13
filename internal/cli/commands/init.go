@@ -262,18 +262,28 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 	}
 }
 
+// configPathFromCmd returns the config file path from the --config flag, or the
+// default ".sharkconfig.json" if the flag is not set.
+func configPathFromCmd(cmd *cobra.Command) string {
+	if configFlag := cmd.Flag("config"); configFlag != nil && configFlag.Value.String() != "" {
+		return configFlag.Value.String()
+	}
+	return ".sharkconfig.json"
+}
+
 func runInitMerge(cmd *cobra.Command, args []string) error {
 	// Require --workflow flag
 	if mergeWorkflow == "" {
+		available, err := init_pkg.ListProfiles()
+		if err != nil {
+			return fmt.Errorf("--workflow flag is required (failed to list profiles: %w)", err)
+		}
 		return fmt.Errorf("--workflow flag is required (available: %s)",
-			strings.Join(init_pkg.ListProfiles(), ", "))
+			strings.Join(available, ", "))
 	}
 
 	// Determine config path
-	configPath := ".sharkconfig.json"
-	if configFlag := cmd.Flag("config"); configFlag != nil && configFlag.Value.String() != "" {
-		configPath = configFlag.Value.String()
-	}
+	configPath := configPathFromCmd(cmd)
 
 	// Create profile service
 	service := init_pkg.NewProfileService(configPath)
@@ -309,10 +319,7 @@ func runInitMerge(cmd *cobra.Command, args []string) error {
 
 func runInitUpdate(cmd *cobra.Command, args []string) error {
 	// Determine config path
-	configPath := ".sharkconfig.json"
-	if configFlag := cmd.Flag("config"); configFlag != nil && configFlag.Value.String() != "" {
-		configPath = configFlag.Value.String()
-	}
+	configPath := configPathFromCmd(cmd)
 
 	// Create profile service
 	service := init_pkg.NewProfileService(configPath)

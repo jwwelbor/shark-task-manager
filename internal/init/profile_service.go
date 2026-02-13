@@ -25,6 +25,14 @@ func NewProfileService(configPath string) *ProfileService {
 	}
 }
 
+// resolveProfileName returns the given name, or "basic" if empty.
+func (s *ProfileService) resolveProfileName(name string) string {
+	if name == "" {
+		return "basic"
+	}
+	return name
+}
+
 // ApplyProfile applies a workflow profile to existing config
 // Returns UpdateResult with success status, backup path, and change details
 func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error) {
@@ -42,10 +50,7 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 	}
 
 	// 2. Get profile map (or use basic for missing fields)
-	profileName := opts.WorkflowName
-	if profileName == "" {
-		profileName = "basic"
-	}
+	profileName := s.resolveProfileName(opts.WorkflowName)
 
 	profileMap, err := GetProfileMap(profileName)
 	if err != nil {
@@ -132,10 +137,7 @@ func (s *ProfileService) GetChangePreview(opts UpdateOptions) (*ChangeReport, er
 	}
 
 	// Get profile map
-	profileName := opts.WorkflowName
-	if profileName == "" {
-		profileName = "basic"
-	}
+	profileName := s.resolveProfileName(opts.WorkflowName)
 
 	profileMap, err := GetProfileMap(profileName)
 	if err != nil {

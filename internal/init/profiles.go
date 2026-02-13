@@ -31,11 +31,13 @@ func GetProfile(name string) (*WorkflowProfile, error) {
 	return &profile, nil
 }
 
-// ListProfiles returns a list of available profile names
-func ListProfiles() []string {
+// ListProfiles returns a list of available profile names.
+// An error indicates the embedded filesystem is corrupted or the binary was
+// built incorrectly.
+func ListProfiles() ([]string, error) {
 	entries, err := embeddedProfiles.ReadDir("profiles")
 	if err != nil {
-		return []string{"basic", "advanced"}
+		return nil, fmt.Errorf("failed to read embedded profiles: %w", err)
 	}
 
 	var names []string
@@ -48,5 +50,5 @@ func ListProfiles() []string {
 			names = append(names, strings.TrimSuffix(name, ".json"))
 		}
 	}
-	return names
+	return names, nil
 }

@@ -22,7 +22,10 @@ func GetProfileMap(name string) (map[string]interface{}, error) {
 	filename := fmt.Sprintf("profiles/%s.json", name)
 	data, err := embeddedProfiles.ReadFile(filename)
 	if err != nil {
-		available := ListProfiles()
+		available, listErr := ListProfiles()
+		if listErr != nil {
+			return nil, fmt.Errorf("profile not found: %s (and failed to list available profiles: %w)", name, listErr)
+		}
 		return nil, fmt.Errorf("profile not found: %s (available: %s)", name, strings.Join(available, ", "))
 	}
 
