@@ -3,7 +3,6 @@ package commands
 import (
 	"testing"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -282,10 +281,9 @@ func TestValidateNoSpaces_Invalid(t *testing.T) {
 
 // TestValidateStatus_AllValidValues tests all valid status values.
 // Validation is now config-driven via workflow.Service.ForLevel().ValidateStatus().
+// Uses a test-specific workflow config so tests don't depend on the project's .sharkconfig.json.
 func TestValidateStatus_AllValidValues(t *testing.T) {
-	// Reset workflow service to ensure clean state for this test
-	cli.ResetWorkflowService()
-	defer cli.ResetWorkflowService()
+	setupTestWorkflowConfig(t)
 
 	epicFeatureStatuses := []string{"draft", "active", "completed", "archived"}
 
@@ -311,9 +309,8 @@ func TestValidateStatus_AllValidValues(t *testing.T) {
 		})
 	}
 
-	// Test for task entity type (uses workflow-defined statuses, may vary by config)
-	// These statuses are valid in both basic and advanced workflows
-	taskStatuses := []string{"todo", "completed", "blocked"}
+	// Test for task entity type (from test config: todo, in_progress, ready_for_review, completed, blocked)
+	taskStatuses := []string{"todo", "in_progress", "ready_for_review", "completed", "blocked"}
 	for _, status := range taskStatuses {
 		t.Run("task_"+status, func(t *testing.T) {
 			err := ValidateStatus(status, "task")
@@ -325,11 +322,10 @@ func TestValidateStatus_AllValidValues(t *testing.T) {
 	}
 }
 
-// TestValidateStatus_InvalidValue tests invalid status value
+// TestValidateStatus_InvalidValue tests invalid status value.
+// Uses a test-specific workflow config so tests don't depend on the project's .sharkconfig.json.
 func TestValidateStatus_InvalidValue(t *testing.T) {
-	// Reset workflow service to ensure clean state for this test
-	cli.ResetWorkflowService()
-	defer cli.ResetWorkflowService()
+	setupTestWorkflowConfig(t)
 
 	tests := []struct {
 		name   string
