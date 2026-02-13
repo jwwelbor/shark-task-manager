@@ -16,9 +16,12 @@ import (
 var (
 	initNonInteractive bool
 	initForce          bool
+	initWorkflow       string
 	workflowName       string
 	updateForce        bool
 	updateDryRun       bool
+	mergeWorkflow      string
+	mergeForce         bool
 )
 
 var initCmd = &cobra.Command{
@@ -68,15 +71,43 @@ Use --dry-run to preview changes before applying.`,
 	RunE: runInitUpdate,
 }
 
+var initMergeCmd = &cobra.Command{
+	Use:   "merge --workflow=<profile> [--force]",
+	Short: "Merge a workflow profile into configuration",
+	Long: `Merge a workflow profile into the current configuration.
+
+By default, previews changes without applying them (dry-run).
+Use --force to actually apply the changes.
+
+Available profiles: basic, advanced
+
+Preserved fields (never touched): database, project_root, last_sync_time,
+  interactive_mode, require_rejection_reason
+Replaced fields (overwritten from profile): status_metadata, status_flow,
+  special_statuses, status_flow_version, epic_workflow, feature_workflow`,
+	Example: `  # Preview what advanced profile would change
+  shark init merge --workflow=advanced
+
+  # Apply advanced profile
+  shark init merge --workflow=advanced --force
+
+  # Switch to basic profile
+  shark init merge --workflow=basic --force`,
+	RunE: runInitMerge,
+}
+
 func init() {
 	cli.RootCmd.AddCommand(initCmd)
 	initCmd.AddCommand(initUpdateCmd)
+	initCmd.AddCommand(initMergeCmd)
 
-	// Existing init flags
+	// Init flags
 	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false,
 		"Skip all prompts (use defaults)")
 	initCmd.Flags().BoolVar(&initForce, "force", false,
 		"Overwrite existing config and templates")
+	initCmd.Flags().StringVar(&initWorkflow, "workflow", "",
+		"Apply workflow profile on init (basic, advanced)")
 
 	// Update subcommand flags
 	initUpdateCmd.Flags().StringVar(&workflowName, "workflow", "",
@@ -85,6 +116,12 @@ func init() {
 		"Overwrite existing status configurations")
 	initUpdateCmd.Flags().BoolVar(&updateDryRun, "dry-run", false,
 		"Preview changes without applying")
+
+	// Merge subcommand flags
+	initMergeCmd.Flags().StringVar(&mergeWorkflow, "workflow", "",
+		"Workflow profile to merge (basic, advanced)")
+	initMergeCmd.Flags().BoolVar(&mergeForce, "force", false,
+		"Apply changes (default is dry-run preview)")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -135,12 +172,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If config was created, apply basic profile by default
+	// If config was created, apply workflow profile
 	if result.ConfigCreated {
+		chosenWorkflow := initWorkflow
+		if chosenWorkflow == "" {
+			chosenWorkflow = "basic" // Default to basic
+		}
+
 		profileService := init_pkg.NewProfileService(result.ConfigPath)
 		profileOpts := init_pkg.UpdateOptions{
 			ConfigPath:     result.ConfigPath,
-			WorkflowName:   "basic", // Apply basic profile by default
+			WorkflowName:   chosenWorkflow,
 			DryRun:         false,
 			Force:          false,
 			NonInteractive: initNonInteractive || cli.GlobalConfig.JSON,
@@ -152,10 +194,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 			if cli.GlobalConfig.JSON {
 				return cli.OutputJSON(map[string]interface{}{
 					"status": "error",
-					"error":  fmt.Sprintf("failed to apply default workflow profile: %v", err),
+					"error":  fmt.Sprintf("failed to apply workflow profile: %v", err),
 				})
 			}
-			return fmt.Errorf("failed to apply default workflow profile: %w", err)
+			return fmt.Errorf("failed to apply workflow profile: %w", err)
 		}
 	}
 
@@ -215,17 +257,69 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 	// Only show profile message if config was created
 	if result.ConfigCreated {
 		fmt.Println()
-		fmt.Println("Workflow profile applied: basic (5 statuses: todo, in_progress, ready_for_review, completed, blocked)")
-		fmt.Println("To upgrade to advanced profile: shark init update --workflow=advanced")
+		fmt.Println("Workflow profile applied: basic (4 statuses: todo, in_progress, completed, blocked)")
+		fmt.Println("To upgrade to advanced profile: shark init merge --workflow=advanced --force")
 	}
+}
+
+// configPathFromCmd returns the config file path from the --config flag, or the
+// default ".sharkconfig.json" if the flag is not set.
+func configPathFromCmd(cmd *cobra.Command) string {
+	if configFlag := cmd.Flag("config"); configFlag != nil && configFlag.Value.String() != "" {
+		return configFlag.Value.String()
+	}
+	return ".sharkconfig.json"
+}
+
+func runInitMerge(cmd *cobra.Command, args []string) error {
+	// Require --workflow flag
+	if mergeWorkflow == "" {
+		available, err := init_pkg.ListProfiles()
+		if err != nil {
+			return fmt.Errorf("--workflow flag is required (failed to list profiles: %w)", err)
+		}
+		return fmt.Errorf("--workflow flag is required (available: %s)",
+			strings.Join(available, ", "))
+	}
+
+	// Determine config path
+	configPath := configPathFromCmd(cmd)
+
+	// Create profile service
+	service := init_pkg.NewProfileService(configPath)
+
+	// Build options: dry-run by default, --force to apply
+	opts := init_pkg.UpdateOptions{
+		ConfigPath:     configPath,
+		WorkflowName:   mergeWorkflow,
+		Force:          true, // Always overwrite workflow fields when merging
+		DryRun:         !mergeForce,
+		NonInteractive: true,
+		Verbose:        cli.GlobalConfig.Verbose,
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+		}
+		return fmt.Errorf("failed to merge profile: %w", err)
+	}
+
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(result)
+	}
+
+	displayUpdateResult(result)
+	return nil
 }
 
 func runInitUpdate(cmd *cobra.Command, args []string) error {
 	// Determine config path
-	configPath := ".sharkconfig.json"
-	if configFlag := cmd.Flag("config"); configFlag != nil && configFlag.Value.String() != "" {
-		configPath = configFlag.Value.String()
-	}
+	configPath := configPathFromCmd(cmd)
 
 	// Create profile service
 	service := init_pkg.NewProfileService(configPath)

@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-
-	"github.com/jwwelbor/shark-task-manager/internal/patterns"
 )
 
 // createConfig creates configuration file
@@ -35,25 +33,12 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 		}
 	}
 
-	// Get default patterns
-	defaultPatterns := patterns.GetDefaultPatterns()
-
-	// Marshal patterns to JSON without HTML escaping
-	var patternsBuf bytes.Buffer
-	patternsEncoder := json.NewEncoder(&patternsBuf)
-	patternsEncoder.SetEscapeHTML(false)
-	if err := patternsEncoder.Encode(defaultPatterns); err != nil {
-		return false, fmt.Errorf("failed to marshal patterns: %w", err)
-	}
-	patternsData := patternsBuf.Bytes()
-
-	// Create default config with patterns
+	// Create default config (workflow profile will be applied after init)
 	config := ConfigDefaults{
 		DefaultEpic:  nil,
 		DefaultAgent: nil,
 		ColorEnabled: true,
 		JSONOutput:   false,
-		PatternsRaw:  patternsData,
 	}
 
 	// Marshal to JSON without HTML escaping for readability

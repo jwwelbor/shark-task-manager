@@ -238,21 +238,9 @@ func TestCreateConfigValidJSON(t *testing.T) {
 		}
 	}
 
-	// Verify patterns field exists (new in E06-F01-001)
-	if _, exists := actual["patterns"]; !exists {
-		t.Error("Config missing patterns field")
-	}
-
-	// Verify patterns is a valid structure
-	patterns, ok := actual["patterns"].(map[string]interface{})
-	if !ok {
-		t.Error("Patterns field should be an object")
-	} else {
-		// Check for epic, feature, task sections
-		for _, section := range []string{"epic", "feature", "task"} {
-			if _, exists := patterns[section]; !exists {
-				t.Errorf("Patterns missing %s section", section)
-			}
-		}
+	// Patterns are no longer included in initial config creation
+	// (workflow profiles are applied separately after init)
+	if _, exists := actual["patterns"]; exists {
+		t.Error("Config should not contain patterns field (removed in E07-F27)")
 	}
 }

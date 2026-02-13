@@ -25,6 +25,14 @@ func NewProfileService(configPath string) *ProfileService {
 	}
 }
 
+// resolveProfileName returns the given name, or "basic" if empty.
+func (s *ProfileService) resolveProfileName(name string) string {
+	if name == "" {
+		return "basic"
+	}
+	return name
+}
+
 // ApplyProfile applies a workflow profile to existing config
 // Returns UpdateResult with success status, backup path, and change details
 func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error) {
@@ -41,35 +49,31 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 		}
 	}
 
-	// 2. Get profile (or use basic for missing fields)
-	var profile *WorkflowProfile
-	if opts.WorkflowName != "" {
-		var err error
-		profile, err = GetProfile(opts.WorkflowName)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// No workflow specified - use basic for adding missing fields
-		profile = basicProfile
+	// 2. Get profile map (or use basic for missing fields)
+	profileName := s.resolveProfileName(opts.WorkflowName)
+
+	profileMap, err := GetProfileMap(profileName)
+	if err != nil {
+		return nil, err
 	}
 
-	// 3. Convert profile to map
-	profileMap := profileToMap(profile)
-
-	// 4. Merge configs
+	// 3. Merge configs
 	mergeOpts := ConfigMergeOptions{
 		PreserveFields: []string{
 			"database",
 			"project_root",
 			"viewer",
 			"last_sync_time",
+			"interactive_mode",
+			"require_rejection_reason",
 		},
 		OverwriteFields: []string{
 			"status_metadata",
 			"status_flow",
 			"special_statuses",
 			"status_flow_version",
+			"epic_workflow",
+			"feature_workflow",
 		},
 		Force: opts.Force,
 	}
@@ -83,18 +87,18 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 		return nil, fmt.Errorf("failed to merge config: %w", err)
 	}
 
-	// 5. If dry run, return preview without writing
+	// 4. If dry run, return preview without writing
 	if opts.DryRun {
 		return &UpdateResult{
 			Success:     true,
-			ProfileName: profile.Name,
+			ProfileName: profileName,
 			Changes:     changeReport,
 			ConfigPath:  opts.ConfigPath,
 			DryRun:      true,
 		}, nil
 	}
 
-	// 6. Create backup before writing
+	// 5. Create backup before writing
 	backupPath, err := s.createConfigBackup(opts.ConfigPath)
 	if err != nil {
 		// Log warning but don't fail - backup is nice-to-have
@@ -103,14 +107,14 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 		}
 	}
 
-	// 7. Write merged config (atomic)
+	// 6. Write merged config (atomic)
 	if err := s.writeConfig(opts.ConfigPath, mergedConfig); err != nil {
 		return nil, fmt.Errorf("failed to write config: %w", err)
 	}
 
 	return &UpdateResult{
 		Success:     true,
-		ProfileName: profile.Name,
+		ProfileName: profileName,
 		BackupPath:  backupPath,
 		Changes:     changeReport,
 		ConfigPath:  opts.ConfigPath,
@@ -132,16 +136,12 @@ func (s *ProfileService) GetChangePreview(opts UpdateOptions) (*ChangeReport, er
 		}
 	}
 
-	// Get profile
-	var profile *WorkflowProfile
-	if opts.WorkflowName != "" {
-		var err error
-		profile, err = GetProfile(opts.WorkflowName)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		profile = basicProfile
+	// Get profile map
+	profileName := s.resolveProfileName(opts.WorkflowName)
+
+	profileMap, err := GetProfileMap(profileName)
+	if err != nil {
+		return nil, err
 	}
 
 	// Merge configs
@@ -151,19 +151,23 @@ func (s *ProfileService) GetChangePreview(opts UpdateOptions) (*ChangeReport, er
 			"project_root",
 			"viewer",
 			"last_sync_time",
+			"interactive_mode",
+			"require_rejection_reason",
 		},
 		OverwriteFields: []string{
 			"status_metadata",
 			"status_flow",
 			"special_statuses",
 			"status_flow_version",
+			"epic_workflow",
+			"feature_workflow",
 		},
 		Force: opts.Force,
 	}
 
 	_, changeReport, err := s.merger.Merge(
 		currentConfig.RawData,
-		profileToMap(profile),
+		profileMap,
 		mergeOpts,
 	)
 	if err != nil {
@@ -256,51 +260,4 @@ func (s *ProfileService) writeConfig(configPath string, data map[string]interfac
 	}
 
 	return nil
-}
-
-// profileToMap converts a WorkflowProfile to map[string]interface{}
-func profileToMap(profile *WorkflowProfile) map[string]interface{} {
-	result := make(map[string]interface{})
-
-	// Add status_metadata
-	if profile.StatusMetadata != nil {
-		statusMap := make(map[string]interface{})
-		for key, meta := range profile.StatusMetadata {
-			metaMap := map[string]interface{}{
-				"color":           meta.Color,
-				"phase":           meta.Phase,
-				"progress_weight": meta.ProgressWeight,
-				"responsibility":  meta.Responsibility,
-				"blocks_feature":  meta.BlocksFeature,
-			}
-			if meta.Description != "" {
-				metaMap["description"] = meta.Description
-			}
-			if len(meta.AgentTypes) > 0 {
-				metaMap["agent_types"] = meta.AgentTypes
-			}
-			statusMap[key] = metaMap
-		}
-		result["status_metadata"] = statusMap
-	}
-
-	// Add status_flow if present
-	if len(profile.StatusFlow) > 0 {
-		result["status_flow"] = profile.StatusFlow
-	}
-
-	// Add special_statuses if present
-	if len(profile.SpecialStatuses) > 0 {
-		result["special_statuses"] = profile.SpecialStatuses
-	}
-
-	// Add status_flow_version if present
-	if profile.StatusFlowVersion != "" {
-		result["status_flow_version"] = profile.StatusFlowVersion
-	}
-
-	// Add default fields
-	result["color_enabled"] = true
-
-	return result
 }

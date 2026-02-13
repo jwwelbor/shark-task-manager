@@ -495,11 +495,12 @@ func TestApplyProfile_ForceMode(t *testing.T) {
 	}
 }
 
-// Test 12: Profile to map conversion
-func TestProfileToMap_BasicProfile(t *testing.T) {
-	profile, _ := GetProfile("basic")
-
-	m := profileToMap(profile)
+// Test 12: GetProfileMap for basic profile
+func TestGetProfileMap_BasicHasStatusMetadata(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
 
 	if m == nil {
 		t.Fatal("expected non-nil map")
@@ -514,11 +515,12 @@ func TestProfileToMap_BasicProfile(t *testing.T) {
 	}
 }
 
-// Test 13: Profile to map with advanced profile
-func TestProfileToMap_AdvancedProfile(t *testing.T) {
-	profile, _ := GetProfile("advanced")
-
-	m := profileToMap(profile)
+// Test 13: GetProfileMap for advanced profile
+func TestGetProfileMap_AdvancedHasWorkflowFields(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
 
 	if m == nil {
 		t.Fatal("expected non-nil map")
@@ -534,6 +536,149 @@ func TestProfileToMap_AdvancedProfile(t *testing.T) {
 
 	if m["status_flow_version"] != "1.0" {
 		t.Errorf("expected status_flow_version = '1.0', got %v", m["status_flow_version"])
+	}
+}
+
+// Test: Advanced profile includes epic_workflow in merged config
+func TestApplyProfile_AdvancedIncludesEpicWorkflow(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+	defer os.Remove(configPath)
+
+	service := NewProfileService(configPath)
+
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "advanced",
+		Force:        true,
+		DryRun:       false,
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	if !result.Success {
+		t.Error("expected Success to be true")
+	}
+
+	content := readConfigFile(t, configPath)
+
+	if _, ok := content["epic_workflow"]; !ok {
+		t.Error("expected epic_workflow to be present in advanced profile merge")
+	}
+
+	if result.BackupPath != "" {
+		defer os.Remove(result.BackupPath)
+	}
+}
+
+// Test: Advanced profile includes feature_workflow in merged config
+func TestApplyProfile_AdvancedIncludesFeatureWorkflow(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+	defer os.Remove(configPath)
+
+	service := NewProfileService(configPath)
+
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "advanced",
+		Force:        true,
+		DryRun:       false,
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	content := readConfigFile(t, configPath)
+
+	if _, ok := content["feature_workflow"]; !ok {
+		t.Error("expected feature_workflow to be present in advanced profile merge")
+	}
+
+	if result.BackupPath != "" {
+		defer os.Remove(result.BackupPath)
+	}
+}
+
+// Test: Basic profile doesn't add epic_workflow
+func TestApplyProfile_BasicNoEpicWorkflow(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+	defer os.Remove(configPath)
+
+	service := NewProfileService(configPath)
+
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "basic",
+		Force:        true,
+		DryRun:       false,
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	content := readConfigFile(t, configPath)
+
+	if _, ok := content["epic_workflow"]; ok {
+		t.Error("basic profile should not include epic_workflow")
+	}
+	if _, ok := content["feature_workflow"]; ok {
+		t.Error("basic profile should not include feature_workflow")
+	}
+
+	if result.BackupPath != "" {
+		defer os.Remove(result.BackupPath)
+	}
+}
+
+// Test: interactive_mode and require_rejection_reason are preserved
+func TestApplyProfile_PreservesProjectFields(t *testing.T) {
+	existingConfig := map[string]interface{}{
+		"database": map[string]interface{}{
+			"backend": "local",
+		},
+		"interactive_mode":         false,
+		"require_rejection_reason": true,
+		"last_sync_time":           "2026-01-01T00:00:00Z",
+	}
+
+	configPath := createTempConfigFile(t, existingConfig)
+	defer os.Remove(configPath)
+
+	service := NewProfileService(configPath)
+
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "advanced",
+		Force:        false,
+		DryRun:       false,
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	content := readConfigFile(t, configPath)
+
+	// All project fields should be preserved
+	if content["interactive_mode"] != false {
+		t.Errorf("expected interactive_mode to be preserved as false, got %v", content["interactive_mode"])
+	}
+	if content["require_rejection_reason"] != true {
+		t.Errorf("expected require_rejection_reason to be preserved as true, got %v", content["require_rejection_reason"])
+	}
+	if content["last_sync_time"] != "2026-01-01T00:00:00Z" {
+		t.Errorf("expected last_sync_time to be preserved, got %v", content["last_sync_time"])
+	}
+
+	if result.BackupPath != "" {
+		defer os.Remove(result.BackupPath)
 	}
 }
 
