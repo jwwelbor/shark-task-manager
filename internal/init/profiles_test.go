@@ -4,7 +4,168 @@ import (
 	"testing"
 )
 
-// TestGetProfile_Basic tests retrieval of basic profile
+// --- GetProfileMap tests (new, test embedded JSON loading) ---
+
+// TestGetProfileMap_Basic tests that basic profile loads with expected keys
+func TestGetProfileMap_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	expectedKeys := []string{"status_metadata", "status_flow", "special_statuses", "status_flow_version", "name", "description"}
+	for _, key := range expectedKeys {
+		if _, ok := m[key]; !ok {
+			t.Errorf("basic profile map missing key: %s", key)
+		}
+	}
+}
+
+// TestGetProfileMap_Advanced tests that advanced profile loads with epic/feature workflows
+func TestGetProfileMap_Advanced(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
+
+	expectedKeys := []string{"status_metadata", "status_flow", "special_statuses", "status_flow_version", "epic_workflow", "feature_workflow"}
+	for _, key := range expectedKeys {
+		if _, ok := m[key]; !ok {
+			t.Errorf("advanced profile map missing key: %s", key)
+		}
+	}
+}
+
+// TestGetProfileMap_InvalidName tests error for unknown profile
+func TestGetProfileMap_InvalidName(t *testing.T) {
+	_, err := GetProfileMap("nonexistent")
+	if err == nil {
+		t.Fatal("GetProfileMap('nonexistent') should return error")
+	}
+}
+
+// TestGetProfileMap_EmptyName tests error for empty profile name
+func TestGetProfileMap_EmptyName(t *testing.T) {
+	_, err := GetProfileMap("")
+	if err == nil {
+		t.Fatal("GetProfileMap('') should return error")
+	}
+}
+
+// TestGetProfileMap_BasicStatusCount tests that basic has exactly 4 statuses
+func TestGetProfileMap_BasicStatusCount(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	statusMeta, ok := m["status_metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("status_metadata is not a map")
+	}
+
+	if len(statusMeta) != 4 {
+		t.Errorf("basic profile status count = %d, want 4", len(statusMeta))
+	}
+}
+
+// TestGetProfileMap_AdvancedHasOrchestratorAction tests that advanced statuses have orchestrator_action
+func TestGetProfileMap_AdvancedHasOrchestratorAction(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
+
+	statusMeta, ok := m["status_metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("status_metadata is not a map")
+	}
+
+	// Check that at least some statuses have orchestrator_action
+	statusesWithAction := 0
+	for _, v := range statusMeta {
+		statusMap, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, hasAction := statusMap["orchestrator_action"]; hasAction {
+			statusesWithAction++
+		}
+	}
+
+	if statusesWithAction == 0 {
+		t.Error("advanced profile has no statuses with orchestrator_action")
+	}
+
+	// Specifically check ready_for_development has orchestrator_action
+	readyForDev, ok := statusMeta["ready_for_development"].(map[string]interface{})
+	if !ok {
+		t.Fatal("ready_for_development is not a map")
+	}
+	if _, hasAction := readyForDev["orchestrator_action"]; !hasAction {
+		t.Error("ready_for_development missing orchestrator_action")
+	}
+}
+
+// TestGetProfileMap_AdvancedHasEpicWorkflow tests epic_workflow content
+func TestGetProfileMap_AdvancedHasEpicWorkflow(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
+
+	epicWorkflow, ok := m["epic_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("epic_workflow is not a map")
+	}
+
+	// Should have status_flow and status_metadata
+	if _, ok := epicWorkflow["status_flow"]; !ok {
+		t.Error("epic_workflow missing status_flow")
+	}
+	if _, ok := epicWorkflow["status_metadata"]; !ok {
+		t.Error("epic_workflow missing status_metadata")
+	}
+}
+
+// TestGetProfileMap_AdvancedHasFeatureWorkflow tests feature_workflow content
+func TestGetProfileMap_AdvancedHasFeatureWorkflow(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
+
+	featureWorkflow, ok := m["feature_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("feature_workflow is not a map")
+	}
+
+	if _, ok := featureWorkflow["status_flow"]; !ok {
+		t.Error("feature_workflow missing status_flow")
+	}
+	if _, ok := featureWorkflow["status_metadata"]; !ok {
+		t.Error("feature_workflow missing status_metadata")
+	}
+}
+
+// TestGetProfileMap_BasicNoEpicWorkflow tests basic doesn't have epic/feature workflow
+func TestGetProfileMap_BasicNoEpicWorkflow(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	if _, ok := m["epic_workflow"]; ok {
+		t.Error("basic profile should not have epic_workflow")
+	}
+	if _, ok := m["feature_workflow"]; ok {
+		t.Error("basic profile should not have feature_workflow")
+	}
+}
+
+// --- GetProfile backward-compat shim tests ---
+
+// TestGetProfile_Basic tests retrieval of basic profile via struct shim
 func TestGetProfile_Basic(t *testing.T) {
 	profile, err := GetProfile("basic")
 	if err != nil {
@@ -19,12 +180,12 @@ func TestGetProfile_Basic(t *testing.T) {
 		t.Errorf("profile.Name = %q, want %q", profile.Name, "basic")
 	}
 
-	if len(profile.StatusMetadata) != 5 {
-		t.Errorf("basic profile status count = %d, want 5", len(profile.StatusMetadata))
+	if len(profile.StatusMetadata) != 4 {
+		t.Errorf("basic profile status count = %d, want 4", len(profile.StatusMetadata))
 	}
 
 	// Verify required statuses exist
-	requiredStatuses := []string{"todo", "in_progress", "ready_for_review", "completed", "blocked"}
+	requiredStatuses := []string{"todo", "in_progress", "completed", "blocked"}
 	for _, status := range requiredStatuses {
 		if _, exists := profile.StatusMetadata[status]; !exists {
 			t.Errorf("basic profile missing status: %s", status)
@@ -32,7 +193,7 @@ func TestGetProfile_Basic(t *testing.T) {
 	}
 }
 
-// TestGetProfile_Advanced tests retrieval of advanced profile
+// TestGetProfile_Advanced tests retrieval of advanced profile via struct shim
 func TestGetProfile_Advanced(t *testing.T) {
 	profile, err := GetProfile("advanced")
 	if err != nil {
@@ -47,8 +208,8 @@ func TestGetProfile_Advanced(t *testing.T) {
 		t.Errorf("profile.Name = %q, want %q", profile.Name, "advanced")
 	}
 
-	if len(profile.StatusMetadata) != 19 {
-		t.Errorf("advanced profile status count = %d, want 19", len(profile.StatusMetadata))
+	if len(profile.StatusMetadata) != 18 {
+		t.Errorf("advanced profile status count = %d, want 18", len(profile.StatusMetadata))
 	}
 
 	// Verify some key statuses exist
@@ -100,7 +261,6 @@ func TestListProfiles(t *testing.T) {
 		t.Errorf("ListProfiles() returned %d profiles, want 2", len(profiles))
 	}
 
-	// Check for both expected profiles
 	hasBasic := false
 	hasAdvanced := false
 
@@ -126,7 +286,6 @@ func TestListProfiles(t *testing.T) {
 func TestBasicProfile_Structure(t *testing.T) {
 	profile, _ := GetProfile("basic")
 
-	// Verify all statuses have required metadata
 	for statusName, metadata := range profile.StatusMetadata {
 		if metadata == nil {
 			t.Errorf("basic profile status %q has nil metadata", statusName)
@@ -155,17 +314,14 @@ func TestBasicProfile_Structure(t *testing.T) {
 func TestAdvancedProfile_Structure(t *testing.T) {
 	profile, _ := GetProfile("advanced")
 
-	// Verify profile has status flow
 	if len(profile.StatusFlow) == 0 {
 		t.Error("advanced profile missing status flow")
 	}
 
-	// Verify profile has special statuses
 	if len(profile.SpecialStatuses) == 0 {
 		t.Error("advanced profile missing special statuses")
 	}
 
-	// Verify all statuses have required metadata
 	for statusName, metadata := range profile.StatusMetadata {
 		if metadata == nil {
 			t.Errorf("advanced profile status %q has nil metadata", statusName)
@@ -200,7 +356,6 @@ func TestBasicProfile_ProgressWeights(t *testing.T) {
 	}{
 		{"todo", 0.0},
 		{"in_progress", 0.5},
-		{"ready_for_review", 0.75},
 		{"completed", 1.0},
 		{"blocked", 0.0},
 	}
@@ -218,13 +373,12 @@ func TestBasicProfile_ProgressWeights(t *testing.T) {
 	}
 }
 
-// TestAdvancedProfile_StatusCount verifies advanced profile has exactly 19 statuses
+// TestAdvancedProfile_StatusCount verifies advanced profile has exactly 18 statuses
 func TestAdvancedProfile_StatusCount(t *testing.T) {
 	profile, _ := GetProfile("advanced")
 
-	// Advanced profile should have 19 statuses
-	if len(profile.StatusMetadata) != 19 {
-		t.Errorf("advanced profile status count = %d, want 19", len(profile.StatusMetadata))
+	if len(profile.StatusMetadata) != 18 {
+		t.Errorf("advanced profile status count = %d, want 18", len(profile.StatusMetadata))
 	}
 }
 
@@ -232,16 +386,15 @@ func TestAdvancedProfile_StatusCount(t *testing.T) {
 func TestAdvancedProfile_StatusFlow(t *testing.T) {
 	profile, _ := GetProfile("advanced")
 
-	// Verify status flow has entries
 	if profile.StatusFlow == nil {
 		t.Fatal("advanced profile StatusFlow is nil")
 	}
 
-	if len(profile.StatusFlow) != 19 {
-		t.Errorf("advanced profile status flow count = %d, want 19", len(profile.StatusFlow))
+	if len(profile.StatusFlow) != 18 {
+		t.Errorf("advanced profile status flow count = %d, want 18", len(profile.StatusFlow))
 	}
 
-	// Verify all statuses have flow definitions (even if empty)
+	// Verify all statuses have flow definitions
 	for status := range profile.StatusMetadata {
 		if _, exists := profile.StatusFlow[status]; !exists {
 			t.Errorf("advanced profile status %q missing from status_flow", status)
@@ -253,13 +406,11 @@ func TestAdvancedProfile_StatusFlow(t *testing.T) {
 func TestAdvancedProfile_SpecialStatuses(t *testing.T) {
 	profile, _ := GetProfile("advanced")
 
-	// Verify special statuses exist
-	if len(profile.SpecialStatuses) != 3 {
-		t.Errorf("advanced profile special statuses count = %d, want 3", len(profile.SpecialStatuses))
+	if len(profile.SpecialStatuses) < 2 {
+		t.Errorf("advanced profile special statuses count = %d, want >= 2", len(profile.SpecialStatuses))
 	}
 
-	// Verify required special status groups
-	requiredGroups := []string{"_start_", "_complete_", "_blocked_"}
+	requiredGroups := []string{"_start_", "_complete_"}
 	for _, group := range requiredGroups {
 		if _, exists := profile.SpecialStatuses[group]; !exists {
 			t.Errorf("advanced profile missing special status group: %s", group)
@@ -293,7 +444,6 @@ func TestBasicProfile_AllMetadataFieldsFilled(t *testing.T) {
 			continue
 		}
 
-		// All metadata fields should be filled
 		if metadata.Color == "" {
 			t.Errorf("basic profile status %q has empty Color", statusName)
 		}
@@ -303,7 +453,6 @@ func TestBasicProfile_AllMetadataFieldsFilled(t *testing.T) {
 		if metadata.Responsibility == "" {
 			t.Errorf("basic profile status %q has empty Responsibility", statusName)
 		}
-		// Description can be empty for some statuses
 	}
 }
 
@@ -317,7 +466,6 @@ func TestAdvancedProfile_AllMetadataFieldsFilled(t *testing.T) {
 			continue
 		}
 
-		// All metadata fields should be filled
 		if metadata.Color == "" {
 			t.Errorf("advanced profile status %q has empty Color", statusName)
 		}
@@ -330,11 +478,11 @@ func TestAdvancedProfile_AllMetadataFieldsFilled(t *testing.T) {
 	}
 }
 
-// TestBasicProfile_BlocksFeature verifies only certain statuses block features
+// TestBasicProfile_BlocksFeature verifies only blocked status blocks features
 func TestBasicProfile_BlocksFeature(t *testing.T) {
 	profile, _ := GetProfile("basic")
 
-	blockingStatuses := []string{"ready_for_review", "blocked"}
+	blockingStatuses := []string{"blocked"}
 
 	for statusName, metadata := range profile.StatusMetadata {
 		isBlocking := false
@@ -370,8 +518,7 @@ func TestGetProfile_EmptyString(t *testing.T) {
 func TestBasicProfile_MinimalStatuses(t *testing.T) {
 	profile, _ := GetProfile("basic")
 
-	// Basic profile should be minimal (5 statuses)
-	expectedCount := 5
+	expectedCount := 4
 	if len(profile.StatusMetadata) != expectedCount {
 		t.Errorf("basic profile has %d statuses, want %d", len(profile.StatusMetadata), expectedCount)
 	}

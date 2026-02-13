@@ -1,0 +1,50 @@
+{
+  "name": "basic",
+  "description": "Simple workflow for solo developers",
+  "status_metadata": {
+    "todo": {
+      "color": "gray",
+      "phase": "planning",
+      "progress_weight": 0,
+      "responsibility": "none",
+      "blocks_feature": false,
+      "description": "Task not started"
+    },
+    "in_progress": {
+      "color": "yellow",
+      "phase": "development",
+      "progress_weight": 0.5,
+      "responsibility": "agent",
+      "blocks_feature": false,
+      "description": "Work in progress"
+    },
+    "completed": {
+      "color": "green",
+      "phase": "done",
+      "progress_weight": 1.0,
+      "responsibility": "none",
+      "blocks_feature": false,
+      "description": "Task finished"
+    },
+    "blocked": {
+      "color": "red",
+      "phase": "any",
+      "progress_weight": 0,
+      "responsibility": "none",
+      "blocks_feature": true,
+      "description": "Blocked by external dependency"
+    }
+  },
+  "status_flow": {
+    "todo": ["in_progress", "blocked"],
+    "in_progress": ["completed", "blocked"],
+    "completed": [],
+    "blocked": ["todo", "in_progress"]
+  },
+  "special_statuses": {
+    "_start_": ["todo"],
+    "_complete_": ["completed"]
+  },
+  "status_flow_version": "1.0",
+  "color_enabled": true
+}
