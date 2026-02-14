@@ -214,6 +214,7 @@ func TestValidActionTypes(t *testing.T) {
 		ActionPause:         true,
 		ActionWaitForTriage: true,
 		ActionArchive:       true,
+		ActionAdvanceStatus: true,
 	}
 
 	for _, actionType := range ValidActionTypes {
@@ -237,6 +238,7 @@ func TestOrchestratorAction_Validate_AllActionTypes(t *testing.T) {
 		{"pause", ActionPause},
 		{"wait_for_triage", ActionWaitForTriage},
 		{"archive", ActionArchive},
+		{"advance_status", ActionAdvanceStatus},
 	}
 
 	for _, tt := range tests {
