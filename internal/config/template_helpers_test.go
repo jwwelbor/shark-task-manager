@@ -760,3 +760,404 @@ func (m *mockEpicRelationshipRepository) ListRelatedEpics(ctx context.Context, e
 	}
 	return m.epics, nil
 }
+
+// TestTaskPlaceholdersWithRelated_DocRepoError tests task placeholders when doc repo fails (TC-PH-06)
+func TestTaskPlaceholdersWithRelated_DocRepoError(t *testing.T) {
+	task := &models.Task{
+		Key:         "T-E07-F29-001",
+		Title:       "Test Task",
+		Status:      "todo",
+		ContextData: ptrString(`{"related_tasks":["E07-F05-001"]}`),
+	}
+
+	mockRepo := &mockDocumentRepository{
+		err: fmt.Errorf("database connection lost"),
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+
+	// Should return empty string for docs when repo fails (graceful degradation)
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs on error = %q, want empty string", relDocs)
+	}
+
+	// Related tasks should still work from context data
+	if relTasks := result["related_tasks"]; relTasks != "E07-F05-001" {
+		t.Errorf("related_tasks = %q, want %q", relTasks, "E07-F05-001")
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_PartialData tests task with docs but no context data (TC-PH-03)
+func TestTaskPlaceholdersWithRelated_PartialData(t *testing.T) {
+	task := &models.Task{
+		Key:    "T-E07-F29-001",
+		Title:  "Test Task",
+		Status: "todo",
+		// No context data
+	}
+
+	mockRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/spec.md"},
+		},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+
+	if relDocs := result["related_docs"]; relDocs != "docs/spec.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/spec.md")
+	}
+
+	if relTasks := result["related_tasks"]; relTasks != "" {
+		t.Errorf("related_tasks = %q, want empty string", relTasks)
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_MalformedContext tests task with malformed JSON context (TC-PH-04)
+func TestTaskPlaceholdersWithRelated_MalformedContext(t *testing.T) {
+	task := &models.Task{
+		Key:         "T-E07-F29-001",
+		Title:       "Test Task",
+		Status:      "todo",
+		ContextData: ptrString(`{invalid json}`),
+	}
+
+	mockRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/spec.md"},
+		},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+
+	// Should still return docs even with malformed context
+	if relDocs := result["related_docs"]; relDocs != "docs/spec.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/spec.md")
+	}
+
+	// Related tasks should be empty due to malformed JSON
+	if relTasks := result["related_tasks"]; relTasks != "" {
+		t.Errorf("related_tasks = %q, want empty string", relTasks)
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_DocRepoError tests feature placeholders when doc repo fails (TC-FPH-04)
+func TestFeaturePlaceholdersWithRelated_DocRepoError(t *testing.T) {
+	feature := &models.Feature{
+		Key:    "E07-F29",
+		Title:  "Test Feature",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		err: fmt.Errorf("database connection lost"),
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{"E07-F05", "E07-F21"},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	// Should return empty string for docs when repo fails
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs on error = %q, want empty string", relDocs)
+	}
+
+	// Related features should still work
+	if relFeatures := result["related_features"]; relFeatures != "E07-F05,E07-F21" {
+		t.Errorf("related_features = %q, want %q", relFeatures, "E07-F05,E07-F21")
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_FeatureRelRepoError tests feature placeholders when feature rel repo fails (TC-FPH-04)
+func TestFeaturePlaceholdersWithRelated_FeatureRelRepoError(t *testing.T) {
+	feature := &models.Feature{
+		Key:    "E07-F29",
+		Title:  "Test Feature",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/a.md"},
+		},
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		err: fmt.Errorf("relationship table query failed"),
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	// Related docs should still work
+	if relDocs := result["related_docs"]; relDocs != "docs/a.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md")
+	}
+
+	// Related features should be empty on error
+	if relFeatures := result["related_features"]; relFeatures != "" {
+		t.Errorf("related_features on error = %q, want empty string", relFeatures)
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_CrossEpic tests feature placeholders with cross-epic relationships (TC-FPH-05)
+func TestFeaturePlaceholdersWithRelated_CrossEpic(t *testing.T) {
+	feature := &models.Feature{
+		Key:    "E07-F29",
+		Title:  "Test Feature",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/a.md"},
+		},
+	}
+
+	// Cross-epic relationships
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{"E01-F01", "E07-F05", "E10-F20"},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	// Should include cross-epic feature keys
+	if relFeatures := result["related_features"]; relFeatures != "E01-F01,E07-F05,E10-F20" {
+		t.Errorf("related_features with cross-epic = %q, want %q", relFeatures, "E01-F01,E07-F05,E10-F20")
+	}
+}
+
+// TestEpicPlaceholdersWithRelated_DocRepoError tests epic placeholders when doc repo fails (TC-EPH-04)
+func TestEpicPlaceholdersWithRelated_DocRepoError(t *testing.T) {
+	epic := &models.Epic{
+		Key:    "E07",
+		Title:  "Test Epic",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		err: fmt.Errorf("database connection lost"),
+	}
+
+	mockRelRepo := &mockEpicRelationshipRepository{
+		epics: []string{"E01", "E05"},
+	}
+
+	ctx := context.Background()
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+
+	// Should return empty string for docs when repo fails
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs on error = %q, want empty string", relDocs)
+	}
+
+	// Related epics should still work
+	if relEpics := result["related_epics"]; relEpics != "E01,E05" {
+		t.Errorf("related_epics = %q, want %q", relEpics, "E01,E05")
+	}
+}
+
+// TestEpicPlaceholdersWithRelated_EpicRelRepoError tests epic placeholders when epic rel repo fails (TC-EPH-04)
+func TestEpicPlaceholdersWithRelated_EpicRelRepoError(t *testing.T) {
+	epic := &models.Epic{
+		Key:    "E07",
+		Title:  "Test Epic",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/a.md"},
+		},
+	}
+
+	mockRelRepo := &mockEpicRelationshipRepository{
+		err: fmt.Errorf("epic relationship table query failed"),
+	}
+
+	ctx := context.Background()
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+
+	// Related docs should still work
+	if relDocs := result["related_docs"]; relDocs != "docs/a.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md")
+	}
+
+	// Related epics should be empty on error
+	if relEpics := result["related_epics"]; relEpics != "" {
+		t.Errorf("related_epics on error = %q, want empty string", relEpics)
+	}
+}
+
+// TestFormatDocPathsAsCSV_AllNilDocuments tests formatting documents with nil pointers
+func TestFormatDocPathsAsCSV_AllNilDocuments(t *testing.T) {
+	docs := []*models.Document{nil, nil, nil}
+	result := formatDocPathsAsCSV(docs)
+	if result != "" {
+		t.Errorf("formatDocPathsAsCSV(all nil) = %q, want empty string", result)
+	}
+}
+
+// TestFormatDocPathsAsCSV_MixedValidAndEmpty tests formatting documents with empty file paths
+func TestFormatDocPathsAsCSV_MixedValidAndEmpty(t *testing.T) {
+	docs := []*models.Document{
+		{FilePath: "docs/a.md"},
+		{FilePath: ""},
+		{FilePath: "docs/b.md"},
+	}
+	result := formatDocPathsAsCSV(docs)
+	// Should skip empty paths
+	expected := "docs/a.md,docs/b.md"
+	if result != expected {
+		t.Errorf("formatDocPathsAsCSV(mixed) = %q, want %q", result, expected)
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_BasicPlaceholders tests that basic placeholders are still present
+func TestTaskPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
+	slug := "test-task"
+	task := &models.Task{
+		Key:         "T-E07-F29-001",
+		Title:       "Test Task",
+		Status:      "in_progress",
+		Priority:    7,
+		Slug:        &slug,
+		ContextData: ptrString(`{"related_tasks":["E01-F01"]}`),
+		CreatedAt:   time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+	}
+
+	mockRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/spec.md"},
+		},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+
+	// Verify basic placeholders are still there
+	if result["id"] != "T-E07-F29-001" {
+		t.Errorf("id placeholder missing or incorrect")
+	}
+	if result["title"] != "Test Task" {
+		t.Errorf("title placeholder missing or incorrect")
+	}
+	if result["status"] != "in_progress" {
+		t.Errorf("status placeholder missing or incorrect")
+	}
+	if result["priority"] != "7" {
+		t.Errorf("priority placeholder missing or incorrect")
+	}
+	if result["slug"] != "test-task" {
+		t.Errorf("slug placeholder missing or incorrect")
+	}
+
+	// Verify new placeholders are added
+	if result["related_docs"] != "docs/spec.md" {
+		t.Errorf("related_docs placeholder missing or incorrect")
+	}
+	if result["related_tasks"] != "E01-F01" {
+		t.Errorf("related_tasks placeholder missing or incorrect")
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_BasicPlaceholders tests that basic placeholders are still present
+func TestFeaturePlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
+	slug := "test-feature"
+	feature := &models.Feature{
+		Key:    "E07-F29",
+		Title:  "Test Feature",
+		Status: "active",
+		Slug:   &slug,
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/a.md"},
+		},
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{"E07-F05"},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	// Verify basic placeholders
+	if result["id"] != "E07-F29" {
+		t.Errorf("id placeholder missing or incorrect")
+	}
+	if result["feature_id"] != "E07-F29" {
+		t.Errorf("feature_id placeholder missing or incorrect")
+	}
+	if result["title"] != "Test Feature" {
+		t.Errorf("title placeholder missing or incorrect")
+	}
+	if result["slug"] != "test-feature" {
+		t.Errorf("slug placeholder missing or incorrect")
+	}
+
+	// Verify new placeholders
+	if result["related_docs"] != "docs/a.md" {
+		t.Errorf("related_docs placeholder missing or incorrect")
+	}
+	if result["related_features"] != "E07-F05" {
+		t.Errorf("related_features placeholder missing or incorrect")
+	}
+}
+
+// TestEpicPlaceholdersWithRelated_BasicPlaceholders tests that basic placeholders are still present
+func TestEpicPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
+	slug := "test-epic"
+	epic := &models.Epic{
+		Key:      "E07",
+		Title:    "Test Epic",
+		Status:   "active",
+		Priority: models.PriorityHigh,
+		Slug:     &slug,
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/a.md"},
+		},
+	}
+
+	mockRelRepo := &mockEpicRelationshipRepository{
+		epics: []string{"E01"},
+	}
+
+	ctx := context.Background()
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+
+	// Verify basic placeholders
+	if result["id"] != "E07" {
+		t.Errorf("id placeholder missing or incorrect")
+	}
+	if result["epic_id"] != "E07" {
+		t.Errorf("epic_id placeholder missing or incorrect")
+	}
+	if result["title"] != "Test Epic" {
+		t.Errorf("title placeholder missing or incorrect")
+	}
+	if result["slug"] != "test-epic" {
+		t.Errorf("slug placeholder missing or incorrect")
+	}
+
+	// Verify new placeholders
+	if result["related_docs"] != "docs/a.md" {
+		t.Errorf("related_docs placeholder missing or incorrect")
+	}
+	if result["related_epics"] != "E01" {
+		t.Errorf("related_epics placeholder missing or incorrect")
+	}
+}
