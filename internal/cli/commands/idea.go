@@ -131,9 +131,9 @@ var ideaConvertCmd = &cobra.Command{
 Once converted, the idea status changes to 'converted' and a new entity is created.
 
 Examples:
-  shark idea convert I-2026-01-01-01 epic
-  shark idea convert I-2026-01-01-01 feature --epic=E10
-  shark idea convert I-2026-01-01-01 task --epic=E10 --feature=E10-F02`,
+  shark idea convert epic I-2026-01-01-01
+  shark idea convert feature I-2026-01-01-01 --epic=E10
+  shark idea convert task I-2026-01-01-01 --epic=E10 --feature=E10-F02`,
 }
 
 // ideaConvertEpicCmd converts an idea to an epic
@@ -146,8 +146,8 @@ The idea's title and description are copied to the epic.
 A new epic key is auto-generated (E##).
 
 Examples:
-  shark idea convert I-2026-01-01-01 epic
-  shark idea convert I-2026-01-01-01 epic --json`,
+  shark idea convert epic I-2026-01-01-01
+  shark idea convert epic I-2026-01-01-01 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runIdeaConvertEpic,
 }
@@ -162,8 +162,8 @@ The idea's title and description are copied to the feature.
 Requires --epic flag to specify the target epic.
 
 Examples:
-  shark idea convert I-2026-01-01-01 feature --epic=E10
-  shark idea convert I-2026-01-01-01 feature --epic=E10 --json`,
+  shark idea convert feature I-2026-01-01-01 --epic=E10
+  shark idea convert feature I-2026-01-01-01 --epic=E10 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runIdeaConvertFeature,
 }
@@ -178,8 +178,8 @@ The idea's title, description, and priority are copied to the task.
 Requires --epic and --feature flags to specify the target location.
 
 Examples:
-  shark idea convert I-2026-01-01-01 task --epic=E10 --feature=E10-F02
-  shark idea convert I-2026-01-01-01 task --epic=E10 --feature=E10-F02 --json`,
+  shark idea convert task I-2026-01-01-01 --epic=E10 --feature=E10-F02
+  shark idea convert task I-2026-01-01-01 --epic=E10 --feature=E10-F02 --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runIdeaConvertTask,
 }

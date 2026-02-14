@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,4 +247,177 @@ func TestEpicPlaceholders_AllFields(t *testing.T) {
 	if m["business_value"] != "high" {
 		t.Errorf("business_value = %q, want %q", m["business_value"], "high")
 	}
+}
+
+// TestFormatDocPathsAsCSV_NilSlice tests formatting nil document slice (TC-FMT-01)
+func TestFormatDocPathsAsCSV_NilSlice(t *testing.T) {
+	result := formatDocPathsAsCSV(nil)
+	if result != "" {
+		t.Errorf("formatDocPathsAsCSV(nil) = %q, want empty string", result)
+	}
+}
+
+// TestFormatDocPathsAsCSV_EmptySlice tests formatting empty document slice (TC-FMT-02)
+func TestFormatDocPathsAsCSV_EmptySlice(t *testing.T) {
+	result := formatDocPathsAsCSV([]*models.Document{})
+	if result != "" {
+		t.Errorf("formatDocPathsAsCSV([]) = %q, want empty string", result)
+	}
+}
+
+// TestFormatDocPathsAsCSV_SingleDoc tests formatting single document (TC-FMT-03)
+func TestFormatDocPathsAsCSV_SingleDoc(t *testing.T) {
+	docs := []*models.Document{
+		{FilePath: "docs/a.md"},
+	}
+	result := formatDocPathsAsCSV(docs)
+	if result != "docs/a.md" {
+		t.Errorf("formatDocPathsAsCSV(single) = %q, want %q", result, "docs/a.md")
+	}
+}
+
+// TestFormatDocPathsAsCSV_MultipleDocs tests formatting multiple documents (TC-FMT-04)
+func TestFormatDocPathsAsCSV_MultipleDocs(t *testing.T) {
+	docs := []*models.Document{
+		{FilePath: "docs/a.md"},
+		{FilePath: "docs/b.md"},
+		{FilePath: "docs/c.md"},
+	}
+	result := formatDocPathsAsCSV(docs)
+	expected := "docs/a.md,docs/b.md,docs/c.md"
+	if result != expected {
+		t.Errorf("formatDocPathsAsCSV(three) = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatDocPathsAsCSV_DocsWithSpaces tests formatting documents with spaces in path (TC-FMT-05)
+func TestFormatDocPathsAsCSV_DocsWithSpaces(t *testing.T) {
+	docs := []*models.Document{
+		{FilePath: "docs/My Doc.md"},
+		{FilePath: "docs/Other File.md"},
+	}
+	result := formatDocPathsAsCSV(docs)
+	expected := "docs/My Doc.md,docs/Other File.md"
+	if result != expected {
+		t.Errorf("formatDocPathsAsCSV(spaces) = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatDocPathsAsCSV_LargeList tests formatting 50 documents (TC-FMT-06)
+func TestFormatDocPathsAsCSV_LargeList(t *testing.T) {
+	docs := make([]*models.Document, 50)
+	for i := 0; i < 50; i++ {
+		path := fmt.Sprintf("docs/doc%d.md", i)
+		docs[i] = &models.Document{FilePath: path}
+	}
+	result := formatDocPathsAsCSV(docs)
+
+	// Verify all 50 paths are present
+	for i := 0; i < 50; i++ {
+		path := fmt.Sprintf("docs/doc%d.md", i)
+		if !strings.Contains(result, path) {
+			t.Errorf("formatDocPathsAsCSV(50) missing path %q", path)
+		}
+	}
+
+	// Count commas (should be 49)
+	commaCount := strings.Count(result, ",")
+	if commaCount != 49 {
+		t.Errorf("formatDocPathsAsCSV(50) has %d commas, want 49", commaCount)
+	}
+}
+
+// TestExtractRelatedTasksFromContext tests the extractRelatedTasksFromContext function
+func TestExtractRelatedTasksFromContext(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *string
+		expected string
+		desc     string
+	}{
+		// TC-CTX-01: Nil context
+		{
+			name:     "nil_context",
+			input:    nil,
+			expected: "",
+			desc:     "Nil context should return empty string",
+		},
+		// TC-CTX-02: Empty string
+		{
+			name:     "empty_string",
+			input:    ptrString(""),
+			expected: "",
+			desc:     "Empty string should return empty string",
+		},
+		// TC-CTX-03: Valid JSON with 2 tasks (happy path)
+		{
+			name:     "valid_json_two_tasks",
+			input:    ptrString(`{"related_tasks":["E01-F01","E02-F01"]}`),
+			expected: "E01-F01,E02-F01",
+			desc:     "Valid JSON with 2 tasks should extract both in CSV format",
+		},
+		// TC-CTX-04: Valid JSON with empty array
+		{
+			name:     "valid_json_empty_array",
+			input:    ptrString(`{"related_tasks":[]}`),
+			expected: "",
+			desc:     "Valid JSON with empty array should return empty string",
+		},
+		// TC-CTX-05: Valid JSON without related_tasks field
+		{
+			name:     "valid_json_missing_field",
+			input:    ptrString(`{"other_field":"value"}`),
+			expected: "",
+			desc:     "Valid JSON without related_tasks field should return empty string",
+		},
+		// TC-CTX-06: Malformed JSON
+		{
+			name:     "malformed_json",
+			input:    ptrString(`"{invalid}"`),
+			expected: "",
+			desc:     "Malformed JSON should return empty string (no error, warning logged)",
+		},
+		// TC-CTX-07: Valid JSON with null related_tasks
+		{
+			name:     "valid_json_null_field",
+			input:    ptrString(`{"related_tasks":null}`),
+			expected: "",
+			desc:     "Valid JSON with null related_tasks should return empty string",
+		},
+		// Additional: Single task
+		{
+			name:     "valid_json_single_task",
+			input:    ptrString(`{"related_tasks":["E07-F05-001"]}`),
+			expected: "E07-F05-001",
+			desc:     "Valid JSON with single task should extract it",
+		},
+		// Additional: Multiple tasks with more complex format
+		{
+			name:     "valid_json_multiple_tasks",
+			input:    ptrString(`{"related_tasks":["E01-F01-001","E07-F05-002","E10-F20-003"]}`),
+			expected: "E01-F01-001,E07-F05-002,E10-F20-003",
+			desc:     "Valid JSON with multiple tasks should extract all in order",
+		},
+		// Additional: JSON with extra fields
+		{
+			name:     "valid_json_with_extra_fields",
+			input:    ptrString(`{"description":"test","related_tasks":["E01-F01"],"other":"data"}`),
+			expected: "E01-F01",
+			desc:     "Valid JSON with extra fields should extract only related_tasks",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractRelatedTasksFromContext(tt.input)
+			if result != tt.expected {
+				t.Errorf("%s: got %q, want %q", tt.desc, result, tt.expected)
+			}
+		})
+	}
+}
+
+// ptrString is a helper to create string pointers for tests
+func ptrString(s string) *string {
+	return &s
 }

@@ -679,7 +679,7 @@
           "shark-task-management",
           "uat"
         ],
-        "instruction_template": "Launch UAT agent to include {task-id} in the UAT documentation."
+        "instruction_template": "Launch UAT agent to include {task_id} in the UAT documentation."
       }
     },
     "ready_for_code_review": {

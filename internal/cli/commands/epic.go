@@ -428,6 +428,9 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Resolve orchestrator action for current status
+		info.OrchestratorAction = resolveEpicAction(epic)
+
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(info)
 		}
@@ -638,12 +641,14 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"approval_backlog_count": approvalBacklogCount,
 			"notes":                  epicNotes,
 			"context_data":           epicContext,
+			"orchestrator_action":    resolveEpicAction(epic),
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
 	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs, featureRollup, taskRollup, blockedTasks, approvalBacklogCount, epicNotes, epicContext)
+	displayOrchestratorAction(resolveEpicAction(epic))
 	return nil
 }
 
@@ -706,6 +711,9 @@ func renderEpicPlanning(info *services.EpicDisplayInfo) {
 		}
 		fmt.Println()
 	}
+
+	// Display orchestrator action
+	displayOrchestratorAction(info.OrchestratorAction)
 
 	// Planning mode message about features
 	if len(info.Features) == 0 {

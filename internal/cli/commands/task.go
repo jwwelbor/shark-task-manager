@@ -700,14 +700,15 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	if cli.GlobalConfig.JSON {
 		// Create enhanced output with dependency status, related docs, and blocking relationships
 		output := map[string]interface{}{
-			"task":              task,
-			"path":              dirPath,
-			"filename":          filename,
-			"dependency_status": dependencyStatus,
-			"related_documents": relatedDocs,
-			"blocked_by":        blockedByKeys,
-			"blocks":            blocksKeys,
-			"rejection_history": rejectionHistory,
+			"task":                task,
+			"path":                dirPath,
+			"filename":            filename,
+			"dependency_status":   dependencyStatus,
+			"related_documents":   relatedDocs,
+			"blocked_by":          blockedByKeys,
+			"blocks":              blocksKeys,
+			"rejection_history":   rejectionHistory,
+			"orchestrator_action": resolveTaskAction(task),
 		}
 		return cli.OutputJSON(output)
 	}
@@ -853,6 +854,9 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		}
 	}
+
+	// Display orchestrator action if configured for current status
+	displayOrchestratorAction(resolveTaskAction(task))
 
 	return nil
 }

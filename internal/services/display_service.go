@@ -56,9 +56,10 @@ type EpicDisplayInfo struct {
 	RelatedDocs     []*models.Document   `json:"related_documents,omitempty"`
 
 	// Common fields
-	ResolvedPath string `json:"path,omitempty"`
-	Filename     string `json:"filename,omitempty"`
-	StatusSource string `json:"status_source"`
+	ResolvedPath       string                  `json:"path,omitempty"`
+	Filename           string                  `json:"filename,omitempty"`
+	StatusSource       string                  `json:"status_source"`
+	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
 }
 
 // FeatureDisplayInfo contains all data needed to render a feature's details
@@ -77,8 +78,9 @@ type FeatureDisplayInfo struct {
 	RelatedDocs     []*models.Document `json:"related_documents,omitempty"`
 
 	// Common fields
-	ResolvedPath string `json:"path,omitempty"`
-	StatusSource string `json:"status_source"`
+	ResolvedPath       string                  `json:"path,omitempty"`
+	StatusSource       string                  `json:"status_source"`
+	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
 }
 
 // StatusCountItem is a simplified status count for JSON output
