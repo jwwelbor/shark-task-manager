@@ -13,9 +13,6 @@ type ContextData struct {
 	OpenQuestions            []string                     `json:"open_questions,omitempty"`
 	Blockers                 []BlockerContext             `json:"blockers,omitempty"`
 	AcceptanceCriteriaStatus []AcceptanceCriterionContext `json:"acceptance_criteria_status,omitempty"`
-	RelatedTasks             []string                     `json:"related_tasks,omitempty"`
-	RelatedFeatures          []string                     `json:"related_features,omitempty"`
-	RelatedEpics             []string                     `json:"related_epics,omitempty"`
 }
 
 // ProgressContext tracks what's done, what's current, and what remains
@@ -140,17 +137,5 @@ func (cd *ContextData) Merge(other *ContextData) {
 
 	if other.AcceptanceCriteriaStatus != nil {
 		cd.AcceptanceCriteriaStatus = other.AcceptanceCriteriaStatus
-	}
-
-	if other.RelatedTasks != nil {
-		cd.RelatedTasks = other.RelatedTasks
-	}
-
-	if other.RelatedFeatures != nil {
-		cd.RelatedFeatures = other.RelatedFeatures
-	}
-
-	if other.RelatedEpics != nil {
-		cd.RelatedEpics = other.RelatedEpics
 	}
 }
