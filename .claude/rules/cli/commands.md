@@ -103,9 +103,6 @@ shark feature create --epic=E07 --title="Authentication"  # Flag syntax (legacy)
 - `shark task block <task-key> --reason="..." [--json]`
 - `shark task unblock <task-key> [--json]`
 
-### Synchronization
-- `shark sync [--dry-run] [--strategy=<strategy>] [--create-missing] [--cleanup] [--pattern=<type>] [--json]`
-
 ### Configuration
 - `shark config set <key> <value>`
 - `shark config get <key>`
