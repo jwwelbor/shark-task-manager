@@ -1,9 +1,9 @@
 package config
 
 import (
-	"fmt"
-	"strings"
 	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 )
 
 // Config represents the .sharkconfig.json structure
@@ -13,7 +13,7 @@ type Config struct {
 	LastSyncTime *time.Time `json:"last_sync_time,omitempty"`
 
 	// Database configuration for backend selection (local SQLite or cloud Turso)
-	Database *DatabaseConfig `json:"database,omitempty"`
+	Database *db.DatabaseConfig `json:"database,omitempty"`
 
 	// Other config fields (can be extended as needed)
 	ColorEnabled           *bool                  `json:"color_enabled,omitempty"`
@@ -28,75 +28,6 @@ type Config struct {
 	// statusMetadata holds status metadata for work breakdown calculations
 	// Internal field for testing and programmatic access
 	statusMetadata map[string]*StatusMetadata `json:"-"`
-}
-
-// DatabaseConfig holds configuration for database backend selection
-type DatabaseConfig struct {
-	// Backend specifies the database type: "local" (SQLite) or "turso" (cloud)
-	Backend string `json:"backend,omitempty"`
-
-	// URL is the database connection string or file path
-	// For local: "./shark-tasks.db" or absolute path
-	// For turso: "libsql://your-db.turso.io" or "https://your-db.turso.io"
-	URL string `json:"url,omitempty"`
-
-	// AuthTokenFile is the path to a file containing the Turso auth token
-	// Should be outside project directory with permissions 600
-	AuthTokenFile string `json:"auth_token_file,omitempty"`
-
-	// EmbeddedReplica enables offline mode with local replica that syncs to cloud
-	// Only valid for turso backend
-	EmbeddedReplica bool `json:"embedded_replica,omitempty"`
-}
-
-// Validate checks if the DatabaseConfig is valid
-func (dc *DatabaseConfig) Validate() error {
-	if dc == nil {
-		return nil // nil config is valid (uses defaults)
-	}
-
-	// Validate URL is provided
-	if dc.URL == "" {
-		return fmt.Errorf("database URL cannot be empty")
-	}
-
-	// If backend is empty, auto-detection will be used (valid)
-	if dc.Backend == "" {
-		return nil
-	}
-
-	// Validate backend if provided
-	validBackends := map[string]bool{
-		"local":  true,
-		"sqlite": true, // alias for local
-		"turso":  true,
-	}
-
-	if !validBackends[dc.Backend] {
-		return fmt.Errorf("invalid database backend %q; must be 'local', 'sqlite', or 'turso'", dc.Backend)
-	}
-
-	// Validate URL format matches backend
-	if dc.Backend == "turso" {
-		if !strings.HasPrefix(dc.URL, "libsql://") && !strings.HasPrefix(dc.URL, "https://") {
-			return fmt.Errorf("turso backend requires URL starting with 'libsql://' or 'https://', got: %s", dc.URL)
-		}
-	} else { // local or sqlite
-		if strings.HasPrefix(dc.URL, "libsql://") || strings.HasPrefix(dc.URL, "https://") {
-			return fmt.Errorf("local/sqlite backend requires file path, not URL: %s", dc.URL)
-		}
-	}
-
-	return nil
-}
-
-// DetectBackend automatically detects the backend type from a database URL
-// Returns "turso" for libsql:// or https:// URLs, "local" for file paths
-func DetectBackend(url string) string {
-	if strings.HasPrefix(url, "libsql://") || strings.HasPrefix(url, "https://") {
-		return "turso"
-	}
-	return "local"
 }
 
 // GetStatusMetadata returns metadata for a given status

@@ -3,8 +3,6 @@ package db
 import (
 	"context"
 	"testing"
-
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 )
 
 // TestRegisterDriver tests driver registration
@@ -58,12 +56,12 @@ func TestNewDatabase(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		config    config.DatabaseConfig
+		config    DatabaseConfig
 		shouldErr bool
 	}{
 		{
 			name: "SQLite with file path",
-			config: config.DatabaseConfig{
+			config: DatabaseConfig{
 				Backend: "sqlite",
 				URL:     "./test.db",
 			},
@@ -71,14 +69,14 @@ func TestNewDatabase(t *testing.T) {
 		},
 		{
 			name: "Auto-detect SQLite from file path",
-			config: config.DatabaseConfig{
+			config: DatabaseConfig{
 				URL: "./test.db",
 			},
 			shouldErr: false,
 		},
 		{
 			name: "Unknown backend",
-			config: config.DatabaseConfig{
+			config: DatabaseConfig{
 				Backend: "postgres",
 				URL:     "postgres://localhost",
 			},
@@ -109,7 +107,7 @@ func TestNewDatabase(t *testing.T) {
 func TestNewDatabase_UnregisteredBackend(t *testing.T) {
 	ResetRegistry()
 
-	config := config.DatabaseConfig{
+	config := DatabaseConfig{
 		Backend: "sqlite",
 		URL:     "./test.db",
 	}
@@ -133,7 +131,7 @@ func TestInitDatabase(t *testing.T) {
 	// Create temporary database
 	tmpDB := t.TempDir() + "/test.db"
 
-	config := config.DatabaseConfig{
+	config := DatabaseConfig{
 		Backend: "sqlite",
 		URL:     tmpDB,
 	}

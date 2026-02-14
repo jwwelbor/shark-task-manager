@@ -606,8 +606,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Resolve orchestrator action for current status
-		info.OrchestratorAction = resolveFeatureAction(feature)
+		// Note: OrchestratorAction is already populated by GetFeatureDisplayInfo using FeaturePlaceholdersWithRelated
 
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(info)
@@ -793,14 +792,14 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"action_items":        actionItems,
 			"notes":               featureNotes,
 			"context_data":        featureContext,
-			"orchestrator_action": resolveFeatureAction(feature),
+			"orchestrator_action": displaySvc.ResolveFeatureAction(ctx, feature),
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
 	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs, workflowService, progressInfo, workSummary, actionItems, featureNotes, featureContext)
-	displayOrchestratorAction(resolveFeatureAction(feature))
+	displayOrchestratorAction(displaySvc.ResolveFeatureAction(ctx, feature))
 	return nil
 }
 

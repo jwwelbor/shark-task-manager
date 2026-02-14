@@ -3,9 +3,11 @@ package config
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 )
 
-// TestDatabaseConfig_Marshaling tests that DatabaseConfig can be marshaled and unmarshaled
+// TestDatabaseConfig_Marshaling tests that db.DatabaseConfig can be marshaled and unmarshaled
 func TestDatabaseConfig_Marshaling(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -15,7 +17,7 @@ func TestDatabaseConfig_Marshaling(t *testing.T) {
 		{
 			name: "config with turso backend",
 			config: Config{
-				Database: &DatabaseConfig{
+				Database: &db.DatabaseConfig{
 					Backend:         "turso",
 					URL:             "libsql://shark-tasks.turso.io",
 					AuthTokenFile:   "~/.shark/turso-token",
@@ -27,7 +29,7 @@ func TestDatabaseConfig_Marshaling(t *testing.T) {
 		{
 			name: "config with local backend",
 			config: Config{
-				Database: &DatabaseConfig{
+				Database: &db.DatabaseConfig{
 					Backend: "local",
 					URL:     "./shark-tasks.db",
 				},
@@ -113,7 +115,7 @@ func TestDatabaseConfig_ValidationBackend(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := DatabaseConfig{
+			config := db.DatabaseConfig{
 				Backend: tt.backend,
 				URL:     tt.url,
 			}
@@ -129,8 +131,8 @@ func TestDatabaseConfig_ValidationBackend(t *testing.T) {
 	}
 }
 
-// TestDatabaseConfig_ValidationURL tests URL validation
-func TestDatabaseConfig_ValidationURL(t *testing.T) {
+// TestDatabaseConfigValidationURL tests URL validation
+func TestDatabaseConfigValidationURL(t *testing.T) {
 	tests := []struct {
 		name    string
 		backend string
@@ -149,7 +151,7 @@ func TestDatabaseConfig_ValidationURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := DatabaseConfig{
+			config := db.DatabaseConfig{
 				Backend: tt.backend,
 				URL:     tt.url,
 			}
@@ -165,8 +167,8 @@ func TestDatabaseConfig_ValidationURL(t *testing.T) {
 	}
 }
 
-// TestDetectBackend tests automatic backend detection from URL
-func TestDetectBackend(t *testing.T) {
+// TestDetectBackendFromURL tests automatic backend detection from URL
+func TestDetectBackendFromURL(t *testing.T) {
 	tests := []struct {
 		name     string
 		url      string
@@ -182,9 +184,9 @@ func TestDetectBackend(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			backend := DetectBackend(tt.url)
+			backend := db.DetectBackendFromURL(tt.url)
 			if backend != tt.expected {
-				t.Errorf("DetectBackend(%q) = %q; want %q", tt.url, backend, tt.expected)
+				t.Errorf("db.DetectBackendFromURL(%q) = %q; want %q", tt.url, backend, tt.expected)
 			}
 		})
 	}

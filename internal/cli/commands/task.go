@@ -698,6 +698,10 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 
 	// Output results
 	if cli.GlobalConfig.JSON {
+		// Use DisplayService to resolve orchestrator action with related docs/tasks
+		displaySvc := cli.GetDisplayService()
+		orchestratorAction := displaySvc.ResolveTaskAction(cmd.Context(), task)
+
 		// Create enhanced output with dependency status, related docs, and blocking relationships
 		output := map[string]interface{}{
 			"task":                task,
@@ -708,7 +712,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 			"blocked_by":          blockedByKeys,
 			"blocks":              blocksKeys,
 			"rejection_history":   rejectionHistory,
-			"orchestrator_action": resolveTaskAction(task),
+			"orchestrator_action": orchestratorAction,
 		}
 		return cli.OutputJSON(output)
 	}
@@ -856,7 +860,10 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Display orchestrator action if configured for current status
-	displayOrchestratorAction(resolveTaskAction(task))
+	// Use DisplayService to resolve orchestrator action with related docs/tasks
+	displaySvc := cli.GetDisplayService()
+	orchestratorAction := displaySvc.ResolveTaskAction(cmd.Context(), task)
+	displayOrchestratorAction(orchestratorAction)
 
 	return nil
 }

@@ -428,8 +428,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Resolve orchestrator action for current status
-		info.OrchestratorAction = resolveEpicAction(epic)
+		// Note: OrchestratorAction is already populated by GetEpicDisplayInfo using EpicPlaceholdersWithRelated
 
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(info)
@@ -641,14 +640,14 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"approval_backlog_count": approvalBacklogCount,
 			"notes":                  epicNotes,
 			"context_data":           epicContext,
-			"orchestrator_action":    resolveEpicAction(epic),
+			"orchestrator_action":    displaySvc.ResolveEpicAction(ctx, epic),
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
 	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs, featureRollup, taskRollup, blockedTasks, approvalBacklogCount, epicNotes, epicContext)
-	displayOrchestratorAction(resolveEpicAction(epic))
+	displayOrchestratorAction(displaySvc.ResolveEpicAction(ctx, epic))
 	return nil
 }
 
