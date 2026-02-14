@@ -207,7 +207,9 @@ func extractRelatedTasksFromContext(contextData *string) string {
 func FeaturePlaceholdersWithRelated(
 	ctx context.Context,
 	feature *models.Feature,
-	docRepo DocumentRepository,
+	docRepoForFeature interface {
+		ListForFeature(ctx context.Context, featureID int64) ([]*models.Document, error)
+	},
 	featureRelRepo FeatureRelationshipRepository,
 ) map[string]string {
 	// Start with basic placeholders
@@ -219,21 +221,29 @@ func FeaturePlaceholdersWithRelated(
 	}
 
 	// Add related_docs
-	docs, err := docRepo.ListForFeature(ctx, feature.ID)
-	if err != nil {
-		log.Printf("WARNING: Failed to fetch related docs for feature %s: %v", feature.Key, err)
-		placeholders["related_docs"] = ""
+	if docRepoForFeature != nil {
+		docs, err := docRepoForFeature.ListForFeature(ctx, feature.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch related docs for feature %s: %v", feature.Key, err)
+			placeholders["related_docs"] = ""
+		} else {
+			placeholders["related_docs"] = formatDocPathsAsCSV(docs)
+		}
 	} else {
-		placeholders["related_docs"] = formatDocPathsAsCSV(docs)
+		placeholders["related_docs"] = ""
 	}
 
 	// Add related_features from relationship table
-	relatedKeys, err := featureRelRepo.ListRelatedFeatures(ctx, feature.ID)
-	if err != nil {
-		log.Printf("WARNING: Failed to fetch related features for %s: %v", feature.Key, err)
-		placeholders["related_features"] = ""
+	if featureRelRepo != nil {
+		relatedKeys, err := featureRelRepo.ListRelatedFeatures(ctx, feature.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch related features for %s: %v", feature.Key, err)
+			placeholders["related_features"] = ""
+		} else {
+			placeholders["related_features"] = strings.Join(relatedKeys, ",")
+		}
 	} else {
-		placeholders["related_features"] = strings.Join(relatedKeys, ",")
+		placeholders["related_features"] = ""
 	}
 
 	return placeholders
@@ -323,7 +333,9 @@ func TaskPlaceholdersWithRelated(
 // - Epic repo query failure (graceful degradation)
 func EpicPlaceholdersWithRelated(
 	epic *models.Epic,
-	docRepo DocumentRepository,
+	docRepoForEpic interface {
+		ListForEpic(ctx context.Context, epicID int64) ([]*models.Document, error)
+	},
 	epicRelRepo EpicRelationshipRepository,
 	ctx context.Context,
 ) map[string]string {
@@ -336,21 +348,29 @@ func EpicPlaceholdersWithRelated(
 	}
 
 	// Add related_docs
-	docs, err := docRepo.ListForEpic(ctx, epic.ID)
-	if err != nil {
-		log.Printf("WARNING: Failed to fetch related docs for epic %s: %v", epic.Key, err)
-		placeholders["related_docs"] = ""
+	if docRepoForEpic != nil {
+		docs, err := docRepoForEpic.ListForEpic(ctx, epic.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch related docs for epic %s: %v", epic.Key, err)
+			placeholders["related_docs"] = ""
+		} else {
+			placeholders["related_docs"] = formatDocPathsAsCSV(docs)
+		}
 	} else {
-		placeholders["related_docs"] = formatDocPathsAsCSV(docs)
+		placeholders["related_docs"] = ""
 	}
 
 	// Add related_epics from relationship table
-	relatedKeys, err := epicRelRepo.ListRelatedEpics(ctx, epic.ID)
-	if err != nil {
-		log.Printf("WARNING: Failed to fetch related epics for %s: %v", epic.Key, err)
-		placeholders["related_epics"] = ""
+	if epicRelRepo != nil {
+		relatedKeys, err := epicRelRepo.ListRelatedEpics(ctx, epic.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch related epics for %s: %v", epic.Key, err)
+			placeholders["related_epics"] = ""
+		} else {
+			placeholders["related_epics"] = formatEpicKeysAsCSV(relatedKeys)
+		}
 	} else {
-		placeholders["related_epics"] = formatEpicKeysAsCSV(relatedKeys)
+		placeholders["related_epics"] = ""
 	}
 
 	return placeholders

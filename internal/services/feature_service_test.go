@@ -491,7 +491,8 @@ func TestFeatureService_resolveAction_NilWorkflow(t *testing.T) {
 	// The default feature workflow has no orchestrator_action on any status.
 	// resolveAction should return nil without panicking.
 	feature := &models.Feature{Key: "E16-F01", Title: "Test Feature", Status: "draft"}
-	action := svc.resolveAction(feature, "draft")
+	ctx := context.Background()
+	action := svc.resolveAction(ctx, feature, "draft")
 	if action != nil {
 		t.Errorf("expected nil action for default workflow, got: %+v", action)
 	}
@@ -503,7 +504,8 @@ func TestFeatureService_resolveAction_UnknownStatus(t *testing.T) {
 
 	// Unknown status should return nil without panicking
 	feature := &models.Feature{Key: "E16-F01", Title: "Test Feature", Status: "nonexistent_status"}
-	action := svc.resolveAction(feature, "nonexistent_status")
+	ctx := context.Background()
+	action := svc.resolveAction(ctx, feature, "nonexistent_status")
 	if action != nil {
 		t.Errorf("expected nil action for unknown status, got: %+v", action)
 	}
@@ -514,7 +516,8 @@ func TestFeatureService_resolveAction_StatusWithAction(t *testing.T) {
 	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
 
 	feature := &models.Feature{Key: "E16-F02", Title: "Test Feature", Status: "active"}
-	action := svc.resolveAction(feature, "active")
+	ctx := context.Background()
+	action := svc.resolveAction(ctx, feature, "active")
 	if action == nil {
 		t.Fatal("expected non-nil action for 'active' status")
 	}
@@ -536,7 +539,8 @@ func TestFeatureService_resolveAction_StatusWithoutAction(t *testing.T) {
 	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
 
 	feature := &models.Feature{Key: "E16-F01", Title: "Test Feature", Status: "completed"}
-	action := svc.resolveAction(feature, "completed")
+	ctx := context.Background()
+	action := svc.resolveAction(ctx, feature, "completed")
 	if action != nil {
 		t.Errorf("expected nil action for 'completed' status, got: %+v", action)
 	}

@@ -244,3 +244,72 @@ func TestResolveAction_PauseAction(t *testing.T) {
 		t.Errorf("expected instruction=%s, got %s", expectedInstruction, action.Instruction)
 	}
 }
+
+// TestResolveAction_WithRelatedPlaceholders tests that resolveAction works with related_docs and related_tasks placeholders
+func TestResolveAction_WithRelatedPlaceholders(t *testing.T) {
+	wf := &config.WorkflowConfig{
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_development": {
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"implementation", "test-driven-development"},
+					InstructionTemplate: "Implement {id}: {title}. Read: {related_docs}. Dependencies: {related_tasks}",
+				},
+			},
+		},
+	}
+
+	placeholders := map[string]string{
+		"id":            "E07-F29-001",
+		"title":         "Add template variables feature",
+		"related_docs":  "docs/spec.md,docs/design.md",
+		"related_tasks": "E07-F05-001,E10-F05-002",
+	}
+
+	action := resolveAction(wf, "ready_for_development", placeholders)
+
+	if action == nil {
+		t.Fatal("expected PopulatedAction, got nil")
+	}
+
+	// Verify that placeholders with related docs and tasks are populated correctly
+	expectedInstruction := "Implement E07-F29-001: Add template variables feature. Read: docs/spec.md,docs/design.md. Dependencies: E07-F05-001,E10-F05-002"
+	if action.Instruction != expectedInstruction {
+		t.Errorf("expected instruction=%s, got %s", expectedInstruction, action.Instruction)
+	}
+}
+
+// TestResolveAction_WithEmptyRelatedPlaceholders tests graceful handling of empty related placeholders
+func TestResolveAction_WithEmptyRelatedPlaceholders(t *testing.T) {
+	wf := &config.WorkflowConfig{
+		StatusMetadata: map[string]config.StatusMetadata{
+			"ready_for_development": {
+				OrchestratorAction: &config.OrchestratorAction{
+					Action:              config.ActionSpawnAgent,
+					AgentType:           "developer",
+					Skills:              []string{"implementation"},
+					InstructionTemplate: "Implement {id}. Docs: {related_docs}. Tasks: {related_tasks}",
+				},
+			},
+		},
+	}
+
+	placeholders := map[string]string{
+		"id":            "E07-F29-002",
+		"related_docs":  "",
+		"related_tasks": "",
+	}
+
+	action := resolveAction(wf, "ready_for_development", placeholders)
+
+	if action == nil {
+		t.Fatal("expected PopulatedAction, got nil")
+	}
+
+	// Empty placeholders should be replaced with empty strings, resulting in valid but sparse instruction
+	expectedInstruction := "Implement E07-F29-002. Docs: . Tasks: "
+	if action.Instruction != expectedInstruction {
+		t.Errorf("expected instruction=%s, got %s", expectedInstruction, action.Instruction)
+	}
+}
