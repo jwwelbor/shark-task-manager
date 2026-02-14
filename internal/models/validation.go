@@ -31,6 +31,8 @@ var (
 	ErrInvalidRelationshipType = errors.New("invalid relationship type: must be depends_on, blocks, related_to, follows, spawned_from, duplicates, or references")
 	ErrSelfRelationship        = errors.New("task cannot have a relationship with itself")
 	ErrCircularDependency      = errors.New("circular dependency detected")
+	ErrInvalidFeatureID        = errors.New("feature_id must be greater than 0")
+	ErrInvalidEpicID           = errors.New("epic_id must be greater than 0")
 	ErrInvalidSessionOutcome   = errors.New("invalid session outcome: must be completed, paused, or blocked")
 	ErrInvalidTimestamp        = errors.New("invalid timestamp: cannot be zero value")
 	ErrEmptyKey                = errors.New("key cannot be empty")
