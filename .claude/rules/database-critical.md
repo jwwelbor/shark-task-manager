@@ -30,22 +30,15 @@ If you need to reset the database:
    ./bin/shark init --non-interactive
    ```
 
-4. **Resync filesystem to database:**
-   ```bash
-   ./bin/shark sync --dry-run              # Preview changes
-   ./bin/shark sync --strategy=file-wins   # Apply changes
-   ```
+4. **Database is now empty** - create new epics/features/tasks as needed
 
-## If Sync Fails with "UNIQUE constraint failed: tasks.key"
+## Database Recovery
 
-This means you're trying to create tasks that already exist. Options:
+If you accidentally deleted the database, there is no automatic sync from files.
 
-1. **Check if database exists:**
-   ```bash
-   ls -lh shark-tasks.db
-   ```
+Options:
 
-2. **If database was deleted, restore from backup:**
+1. **Restore from backup:**
    ```bash
    cp /path/to/backup/shark-tasks.db .
    ```
