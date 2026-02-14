@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -420,4 +421,342 @@ func TestExtractRelatedTasksFromContext(t *testing.T) {
 // ptrString is a helper to create string pointers for tests
 func ptrString(s string) *string {
 	return &s
+}
+
+// TestFormatFeatureKeysAsCSV_NilSlice tests nil feature keys slice
+func TestFormatFeatureKeysAsCSV_NilSlice(t *testing.T) {
+	result := formatFeatureKeysAsCSV(nil)
+	if result != "" {
+		t.Errorf("formatFeatureKeysAsCSV(nil) = %q, want empty string", result)
+	}
+}
+
+// TestFormatFeatureKeysAsCSV_EmptySlice tests empty feature keys slice
+func TestFormatFeatureKeysAsCSV_EmptySlice(t *testing.T) {
+	result := formatFeatureKeysAsCSV([]string{})
+	if result != "" {
+		t.Errorf("formatFeatureKeysAsCSV([]) = %q, want empty string", result)
+	}
+}
+
+// TestFormatFeatureKeysAsCSV_SingleKey tests single feature key formatting
+func TestFormatFeatureKeysAsCSV_SingleKey(t *testing.T) {
+	result := formatFeatureKeysAsCSV([]string{"E07-F05"})
+	expected := "E07-F05"
+	if result != expected {
+		t.Errorf("formatFeatureKeysAsCSV() = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatFeatureKeysAsCSV_MultipleKeys tests multiple feature keys formatting
+func TestFormatFeatureKeysAsCSV_MultipleKeys(t *testing.T) {
+	result := formatFeatureKeysAsCSV([]string{"E07-F05", "E07-F21", "E10-F05"})
+	expected := "E07-F05,E07-F21,E10-F05"
+	if result != expected {
+		t.Errorf("formatFeatureKeysAsCSV() = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatEpicKeysAsCSV_NilSlice tests nil epic keys slice
+func TestFormatEpicKeysAsCSV_NilSlice(t *testing.T) {
+	result := formatEpicKeysAsCSV(nil)
+	if result != "" {
+		t.Errorf("formatEpicKeysAsCSV(nil) = %q, want empty string", result)
+	}
+}
+
+// TestFormatEpicKeysAsCSV_EmptySlice tests empty epic keys slice
+func TestFormatEpicKeysAsCSV_EmptySlice(t *testing.T) {
+	result := formatEpicKeysAsCSV([]string{})
+	if result != "" {
+		t.Errorf("formatEpicKeysAsCSV([]) = %q, want empty string", result)
+	}
+}
+
+// TestFormatEpicKeysAsCSV_SingleKey tests single epic key formatting
+func TestFormatEpicKeysAsCSV_SingleKey(t *testing.T) {
+	result := formatEpicKeysAsCSV([]string{"E01"})
+	expected := "E01"
+	if result != expected {
+		t.Errorf("formatEpicKeysAsCSV() = %q, want %q", result, expected)
+	}
+}
+
+// TestFormatEpicKeysAsCSV_MultipleKeys tests multiple epic keys formatting
+func TestFormatEpicKeysAsCSV_MultipleKeys(t *testing.T) {
+	result := formatEpicKeysAsCSV([]string{"E01", "E05", "E07"})
+	expected := "E01,E05,E07"
+	if result != expected {
+		t.Errorf("formatEpicKeysAsCSV() = %q, want %q", result, expected)
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_HappyPath tests task placeholders with docs and tasks
+func TestTaskPlaceholdersWithRelated_HappyPath(t *testing.T) {
+	task := &models.Task{
+		Key:         "T-E07-F29-001",
+		Title:       "Test Task",
+		Status:      "todo",
+		ContextData: ptrString(`{"related_tasks":["E07-F05-001","E10-F05-002"]}`),
+	}
+
+	mockRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/a.md"},
+			{FilePath: "docs/b.md"},
+		},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+
+	if relDocs := result["related_docs"]; relDocs != "docs/a.md,docs/b.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md,docs/b.md")
+	}
+
+	if relTasks := result["related_tasks"]; relTasks != "E07-F05-001,E10-F05-002" {
+		t.Errorf("related_tasks = %q, want %q", relTasks, "E07-F05-001,E10-F05-002")
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_NoData tests task placeholders with no data
+func TestTaskPlaceholdersWithRelated_NoData(t *testing.T) {
+	task := &models.Task{
+		Key:    "T-E07-F29-002",
+		Title:  "Empty Task",
+		Status: "todo",
+	}
+
+	mockRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs = %q, want empty string", relDocs)
+	}
+
+	if relTasks := result["related_tasks"]; relTasks != "" {
+		t.Errorf("related_tasks = %q, want empty string", relTasks)
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_NilTask tests task placeholders with nil task
+func TestTaskPlaceholdersWithRelated_NilTask(t *testing.T) {
+	mockRepo := &mockDocumentRepository{}
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(nil, mockRepo, ctx)
+
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs = %q, want empty string", relDocs)
+	}
+
+	if relTasks := result["related_tasks"]; relTasks != "" {
+		t.Errorf("related_tasks = %q, want empty string", relTasks)
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_HappyPath tests feature placeholders with docs and features
+func TestFeaturePlaceholdersWithRelated_HappyPath(t *testing.T) {
+	feature := &models.Feature{
+		Key:    "E07-F29",
+		Title:  "Test Feature",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/a.md"},
+			{FilePath: "docs/b.md"},
+		},
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{"E07-F05", "E07-F21", "E10-F05"},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	if relDocs := result["related_docs"]; relDocs != "docs/a.md,docs/b.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md,docs/b.md")
+	}
+
+	if relFeatures := result["related_features"]; relFeatures != "E07-F05,E07-F21,E10-F05" {
+		t.Errorf("related_features = %q, want %q", relFeatures, "E07-F05,E07-F21,E10-F05")
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_NoData tests feature placeholders with no data
+func TestFeaturePlaceholdersWithRelated_NoData(t *testing.T) {
+	feature := &models.Feature{
+		Key:    "E07-F30",
+		Title:  "Empty Feature",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs = %q, want empty string", relDocs)
+	}
+
+	if relFeatures := result["related_features"]; relFeatures != "" {
+		t.Errorf("related_features = %q, want empty string", relFeatures)
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_NilFeature tests feature placeholders with nil feature
+func TestFeaturePlaceholdersWithRelated_NilFeature(t *testing.T) {
+	mockDocRepo := &mockDocumentRepository{}
+	mockRelRepo := &mockFeatureRelationshipRepository{}
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, nil, mockDocRepo, mockRelRepo)
+
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs = %q, want empty string", relDocs)
+	}
+
+	if relFeatures := result["related_features"]; relFeatures != "" {
+		t.Errorf("related_features = %q, want empty string", relFeatures)
+	}
+}
+
+// TestEpicPlaceholdersWithRelated_HappyPath tests epic placeholders with docs and epics
+func TestEpicPlaceholdersWithRelated_HappyPath(t *testing.T) {
+	epic := &models.Epic{
+		Key:    "E07",
+		Title:  "Test Epic",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/a.md"},
+			{FilePath: "docs/b.md"},
+		},
+	}
+
+	mockRelRepo := &mockEpicRelationshipRepository{
+		epics: []string{"E01", "E05"},
+	}
+
+	ctx := context.Background()
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+
+	if relDocs := result["related_docs"]; relDocs != "docs/a.md,docs/b.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md,docs/b.md")
+	}
+
+	if relEpics := result["related_epics"]; relEpics != "E01,E05" {
+		t.Errorf("related_epics = %q, want %q", relEpics, "E01,E05")
+	}
+}
+
+// TestEpicPlaceholdersWithRelated_NoData tests epic placeholders with no data
+func TestEpicPlaceholdersWithRelated_NoData(t *testing.T) {
+	epic := &models.Epic{
+		Key:    "E08",
+		Title:  "Empty Epic",
+		Status: "active",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockRelRepo := &mockEpicRelationshipRepository{
+		epics: []string{},
+	}
+
+	ctx := context.Background()
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs = %q, want empty string", relDocs)
+	}
+
+	if relEpics := result["related_epics"]; relEpics != "" {
+		t.Errorf("related_epics = %q, want empty string", relEpics)
+	}
+}
+
+// TestEpicPlaceholdersWithRelated_NilEpic tests epic placeholders with nil epic
+func TestEpicPlaceholdersWithRelated_NilEpic(t *testing.T) {
+	mockDocRepo := &mockDocumentRepository{}
+	mockRelRepo := &mockEpicRelationshipRepository{}
+	ctx := context.Background()
+	result := EpicPlaceholdersWithRelated(nil, mockDocRepo, mockRelRepo, ctx)
+
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs = %q, want empty string", relDocs)
+	}
+
+	if relEpics := result["related_epics"]; relEpics != "" {
+		t.Errorf("related_epics = %q, want empty string", relEpics)
+	}
+}
+
+// Mock DocumentRepository for testing
+type mockDocumentRepository struct {
+	docs []*models.Document
+	err  error
+}
+
+func (m *mockDocumentRepository) ListForTask(ctx context.Context, taskID int64) ([]*models.Document, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.docs, nil
+}
+
+func (m *mockDocumentRepository) ListForFeature(ctx context.Context, featureID int64) ([]*models.Document, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.docs, nil
+}
+
+func (m *mockDocumentRepository) ListForEpic(ctx context.Context, epicID int64) ([]*models.Document, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.docs, nil
+}
+
+// Mock FeatureRelationshipRepository for testing
+type mockFeatureRelationshipRepository struct {
+	features []string
+	err      error
+}
+
+func (m *mockFeatureRelationshipRepository) ListRelatedFeatures(ctx context.Context, featureID int64) ([]string, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.features, nil
+}
+
+// Mock EpicRelationshipRepository for testing
+type mockEpicRelationshipRepository struct {
+	epics []string
+	err   error
+}
+
+func (m *mockEpicRelationshipRepository) ListRelatedEpics(ctx context.Context, epicID int64) ([]string, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.epics, nil
 }

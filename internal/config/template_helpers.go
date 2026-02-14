@@ -386,4 +386,3 @@ func formatEpicKeysAsCSV(keys []string) string {
 	}
 	return strings.Join(keys, ",")
 }
-
