@@ -1161,3 +1161,175 @@ func TestEpicPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 		t.Errorf("related_epics placeholder missing or incorrect")
 	}
 }
+
+// ============================================================================
+// Tests for extractRelatedFeaturesFromContext (new helper function)
+// ============================================================================
+
+// TestExtractRelatedFeaturesFromContext_Nil tests extracting features from nil context
+func TestExtractRelatedFeaturesFromContext_Nil(t *testing.T) {
+	result := extractRelatedFeaturesFromContext(nil)
+	if result != "" {
+		t.Errorf("extractRelatedFeaturesFromContext(nil) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedFeaturesFromContext_Empty tests extracting features from empty context
+func TestExtractRelatedFeaturesFromContext_Empty(t *testing.T) {
+	result := extractRelatedFeaturesFromContext(ptrString(""))
+	if result != "" {
+		t.Errorf("extractRelatedFeaturesFromContext(empty) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedFeaturesFromContext_HappyPath tests extracting features from valid JSON
+func TestExtractRelatedFeaturesFromContext_HappyPath(t *testing.T) {
+	contextJSON := `{"related_features":["E07-F05","E07-F21","E10-F05"]}`
+	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
+	expected := "E07-F05,E07-F21,E10-F05"
+	if result != expected {
+		t.Errorf("extractRelatedFeaturesFromContext(valid JSON) = %q, want %q", result, expected)
+	}
+}
+
+// TestExtractRelatedFeaturesFromContext_SingleFeature tests extracting single feature
+func TestExtractRelatedFeaturesFromContext_SingleFeature(t *testing.T) {
+	contextJSON := `{"related_features":["E01-F05"]}`
+	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
+	expected := "E01-F05"
+	if result != expected {
+		t.Errorf("extractRelatedFeaturesFromContext(single) = %q, want %q", result, expected)
+	}
+}
+
+// TestExtractRelatedFeaturesFromContext_EmptyArray tests extracting features from empty array
+func TestExtractRelatedFeaturesFromContext_EmptyArray(t *testing.T) {
+	contextJSON := `{"related_features":[]}`
+	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
+	if result != "" {
+		t.Errorf("extractRelatedFeaturesFromContext(empty array) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedFeaturesFromContext_MissingField tests extracting features when field is missing
+func TestExtractRelatedFeaturesFromContext_MissingField(t *testing.T) {
+	contextJSON := `{"other_field":"value"}`
+	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
+	if result != "" {
+		t.Errorf("extractRelatedFeaturesFromContext(missing field) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedFeaturesFromContext_NullField tests extracting features when field is null
+func TestExtractRelatedFeaturesFromContext_NullField(t *testing.T) {
+	contextJSON := `{"related_features":null}`
+	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
+	if result != "" {
+		t.Errorf("extractRelatedFeaturesFromContext(null field) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedFeaturesFromContext_MalformedJSON tests extracting features from malformed JSON
+func TestExtractRelatedFeaturesFromContext_MalformedJSON(t *testing.T) {
+	contextJSON := `{invalid json}`
+	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
+	if result != "" {
+		t.Errorf("extractRelatedFeaturesFromContext(malformed) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedFeaturesFromContext_CrossEpicFeatures tests extracting cross-epic feature keys
+func TestExtractRelatedFeaturesFromContext_CrossEpicFeatures(t *testing.T) {
+	contextJSON := `{"related_features":["E01-F01","E07-F05","E10-F20"]}`
+	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
+	expected := "E01-F01,E07-F05,E10-F20"
+	if result != expected {
+		t.Errorf("extractRelatedFeaturesFromContext(cross-epic) = %q, want %q", result, expected)
+	}
+}
+
+// ============================================================================
+// Tests for extractRelatedEpicsFromContext (new helper function)
+// ============================================================================
+
+// TestExtractRelatedEpicsFromContext_Nil tests extracting epics from nil context
+func TestExtractRelatedEpicsFromContext_Nil(t *testing.T) {
+	result := extractRelatedEpicsFromContext(nil)
+	if result != "" {
+		t.Errorf("extractRelatedEpicsFromContext(nil) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedEpicsFromContext_Empty tests extracting epics from empty context
+func TestExtractRelatedEpicsFromContext_Empty(t *testing.T) {
+	result := extractRelatedEpicsFromContext(ptrString(""))
+	if result != "" {
+		t.Errorf("extractRelatedEpicsFromContext(empty) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedEpicsFromContext_HappyPath tests extracting epics from valid JSON
+func TestExtractRelatedEpicsFromContext_HappyPath(t *testing.T) {
+	contextJSON := `{"related_epics":["E01","E05","E07"]}`
+	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
+	expected := "E01,E05,E07"
+	if result != expected {
+		t.Errorf("extractRelatedEpicsFromContext(valid JSON) = %q, want %q", result, expected)
+	}
+}
+
+// TestExtractRelatedEpicsFromContext_SingleEpic tests extracting single epic
+func TestExtractRelatedEpicsFromContext_SingleEpic(t *testing.T) {
+	contextJSON := `{"related_epics":["E01"]}`
+	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
+	expected := "E01"
+	if result != expected {
+		t.Errorf("extractRelatedEpicsFromContext(single) = %q, want %q", result, expected)
+	}
+}
+
+// TestExtractRelatedEpicsFromContext_EmptyArray tests extracting epics from empty array
+func TestExtractRelatedEpicsFromContext_EmptyArray(t *testing.T) {
+	contextJSON := `{"related_epics":[]}`
+	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
+	if result != "" {
+		t.Errorf("extractRelatedEpicsFromContext(empty array) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedEpicsFromContext_MissingField tests extracting epics when field is missing
+func TestExtractRelatedEpicsFromContext_MissingField(t *testing.T) {
+	contextJSON := `{"other_field":"value"}`
+	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
+	if result != "" {
+		t.Errorf("extractRelatedEpicsFromContext(missing field) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedEpicsFromContext_NullField tests extracting epics when field is null
+func TestExtractRelatedEpicsFromContext_NullField(t *testing.T) {
+	contextJSON := `{"related_epics":null}`
+	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
+	if result != "" {
+		t.Errorf("extractRelatedEpicsFromContext(null field) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedEpicsFromContext_MalformedJSON tests extracting epics from malformed JSON
+func TestExtractRelatedEpicsFromContext_MalformedJSON(t *testing.T) {
+	contextJSON := `{invalid json}`
+	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
+	if result != "" {
+		t.Errorf("extractRelatedEpicsFromContext(malformed) = %q, want empty string", result)
+	}
+}
+
+// TestExtractRelatedEpicsFromContext_MultipleEpics tests extracting multiple epic keys
+func TestExtractRelatedEpicsFromContext_MultipleEpics(t *testing.T) {
+	contextJSON := `{"related_epics":["E01","E02","E03","E04","E05"]}`
+	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
+	expected := "E01,E02,E03,E04,E05"
+	if result != expected {
+		t.Errorf("extractRelatedEpicsFromContext(multiple) = %q, want %q", result, expected)
+	}
+}

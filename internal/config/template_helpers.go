@@ -406,3 +406,67 @@ func formatEpicKeysAsCSV(keys []string) string {
 	}
 	return strings.Join(keys, ",")
 }
+
+// extractRelatedFeaturesFromContext parses RelatedFeatures from context_data JSON.
+// Returns a comma-separated CSV string of feature keys.
+// Returns empty string if contextData is nil, empty, or contains no related_features.
+// Gracefully handles malformed JSON by logging a warning and returning empty string.
+//
+// Test cases (from test plan):
+// - nil context: returns ""
+// - empty string: returns ""
+// - valid JSON with 2 features: returns "E01-F01,E07-F05"
+// - valid JSON with empty array: returns ""
+// - valid JSON without related_features field: returns ""
+// - malformed JSON: returns "" (warning logged)
+// - valid JSON with null related_features: returns ""
+func extractRelatedFeaturesFromContext(contextData *string) string {
+	if contextData == nil || *contextData == "" {
+		return ""
+	}
+
+	// Parse JSON without validation for graceful degradation
+	var contextObj models.ContextData
+	if err := json.Unmarshal([]byte(*contextData), &contextObj); err != nil {
+		log.Printf("WARNING: Failed to parse context_data JSON (returning empty): %v", err)
+		return ""
+	}
+
+	if len(contextObj.RelatedFeatures) == 0 {
+		return ""
+	}
+
+	return strings.Join(contextObj.RelatedFeatures, ",")
+}
+
+// extractRelatedEpicsFromContext parses RelatedEpics from context_data JSON.
+// Returns a comma-separated CSV string of epic keys.
+// Returns empty string if contextData is nil, empty, or contains no related_epics.
+// Gracefully handles malformed JSON by logging a warning and returning empty string.
+//
+// Test cases (from test plan):
+// - nil context: returns ""
+// - empty string: returns ""
+// - valid JSON with 2 epics: returns "E01,E05"
+// - valid JSON with empty array: returns ""
+// - valid JSON without related_epics field: returns ""
+// - malformed JSON: returns "" (warning logged)
+// - valid JSON with null related_epics: returns ""
+func extractRelatedEpicsFromContext(contextData *string) string {
+	if contextData == nil || *contextData == "" {
+		return ""
+	}
+
+	// Parse JSON without validation for graceful degradation
+	var contextObj models.ContextData
+	if err := json.Unmarshal([]byte(*contextData), &contextObj); err != nil {
+		log.Printf("WARNING: Failed to parse context_data JSON (returning empty): %v", err)
+		return ""
+	}
+
+	if len(contextObj.RelatedEpics) == 0 {
+		return ""
+	}
+
+	return strings.Join(contextObj.RelatedEpics, ",")
+}
