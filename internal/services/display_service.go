@@ -56,9 +56,10 @@ type EpicDisplayInfo struct {
 	RelatedDocs     []*models.Document   `json:"related_documents,omitempty"`
 
 	// Common fields
-	ResolvedPath string `json:"path,omitempty"`
-	Filename     string `json:"filename,omitempty"`
-	StatusSource string `json:"status_source"`
+	ResolvedPath       string                  `json:"path,omitempty"`
+	Filename           string                  `json:"filename,omitempty"`
+	StatusSource       string                  `json:"status_source"`
+	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
 }
 
 // FeatureDisplayInfo contains all data needed to render a feature's details
@@ -77,8 +78,9 @@ type FeatureDisplayInfo struct {
 	RelatedDocs     []*models.Document `json:"related_documents,omitempty"`
 
 	// Common fields
-	ResolvedPath string `json:"path,omitempty"`
-	StatusSource string `json:"status_source"`
+	ResolvedPath       string                  `json:"path,omitempty"`
+	StatusSource       string                  `json:"status_source"`
+	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
 }
 
 // StatusCountItem is a simplified status count for JSON output
@@ -89,10 +91,13 @@ type StatusCountItem struct {
 
 // DisplayServiceDeps holds the repository dependencies for DisplayService
 type DisplayServiceDeps struct {
-	EpicRepo     *repository.EpicRepository
-	FeatureRepo  *repository.FeatureRepository
-	TaskRepo     *repository.TaskRepository
-	DocumentRepo *repository.DocumentRepository
+	EpicRepo       *repository.EpicRepository
+	FeatureRepo    *repository.FeatureRepository
+	TaskRepo       *repository.TaskRepository
+	DocumentRepo   *repository.DocumentRepository
+	TaskRelRepo    *repository.TaskRelationshipRepository
+	FeatureRelRepo *repository.FeatureRelationshipRepository
+	EpicRelRepo    *repository.EpicRelationshipRepository
 }
 
 // DisplayService encapsulates the planning-vs-aggregation display logic.
@@ -110,10 +115,13 @@ type DisplayService struct {
 func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *DisplayService {
 	return &DisplayService{
 		deps: DisplayServiceDeps{
-			EpicRepo:     repository.NewEpicRepository(db),
-			FeatureRepo:  repository.NewFeatureRepository(db),
-			TaskRepo:     repository.NewTaskRepository(db),
-			DocumentRepo: repository.NewDocumentRepository(db),
+			EpicRepo:       repository.NewEpicRepository(db),
+			FeatureRepo:    repository.NewFeatureRepository(db),
+			TaskRepo:       repository.NewTaskRepository(db),
+			DocumentRepo:   repository.NewDocumentRepository(db),
+			TaskRelRepo:    repository.NewTaskRelationshipRepository(db),
+			FeatureRelRepo: repository.NewFeatureRelationshipRepository(db),
+			EpicRelRepo:    repository.NewEpicRelationshipRepository(db),
 		},
 		epicWorkflow:    workflowSvc.ForLevel(workflow.LevelEpic).GetWorkflow(),
 		featureWorkflow: workflowSvc.ForLevel(workflow.LevelFeature).GetWorkflow(),
@@ -282,6 +290,9 @@ func (s *DisplayService) GetEpicDisplayInfo(ctx context.Context, epicKey string)
 		}
 	}
 
+	// Populate orchestrator action for both modes
+	info.OrchestratorAction = s.ResolveEpicAction(ctx, epic)
+
 	return info, nil
 }
 
@@ -307,6 +318,9 @@ func (s *DisplayService) GetFeatureDisplayInfo(ctx context.Context, featureKey s
 		}
 	}
 
+	// Populate orchestrator action for both modes
+	info.OrchestratorAction = s.ResolveFeatureAction(ctx, feature)
+
 	return info, nil
 }
 
@@ -323,6 +337,33 @@ func (s *DisplayService) populateEpicPlanningInfo(info *EpicDisplayInfo) {
 	}
 
 	info.WorkflowPosition = s.BuildWorkflowPosition(status, s.epicWorkflow)
+}
+
+// ResolveEpicAction looks up the orchestrator action for an epic's current status.
+// Returns nil if no action is defined for the status.
+// Uses EpicPlaceholdersWithRelated to include related documents.
+// This is a public method for use by CLI commands.
+func (s *DisplayService) ResolveEpicAction(ctx context.Context, epic *models.Epic) *config.PopulatedAction {
+	if s.epicWorkflow == nil || s.epicWorkflow.StatusMetadata == nil {
+		return nil
+	}
+
+	status := string(epic.Status)
+	meta, exists := s.epicWorkflow.StatusMetadata[status]
+	if !exists || meta.OrchestratorAction == nil {
+		return nil
+	}
+
+	// Use EpicPlaceholdersWithRelated to populate placeholders with related docs
+	// Note: We don't have an epic relationship repository yet, so pass nil
+	placeholders := config.EpicPlaceholdersWithRelated(epic, s.deps.DocumentRepo, nil, ctx)
+
+	return &config.PopulatedAction{
+		Action:      meta.OrchestratorAction.Action,
+		AgentType:   meta.OrchestratorAction.AgentType,
+		Skills:      meta.OrchestratorAction.Skills,
+		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+	}
 }
 
 // populateEpicAggregationInfo fills in aggregation-mode fields for an epic.
@@ -426,6 +467,60 @@ func (s *DisplayService) populateFeaturePlanningInfo(info *FeatureDisplayInfo) {
 	}
 
 	info.WorkflowPosition = s.BuildWorkflowPosition(status, s.featureWorkflow)
+}
+
+// ResolveFeatureAction looks up the orchestrator action for a feature's current status.
+// Returns nil if no action is defined for the status.
+// Uses FeaturePlaceholdersWithRelated to include related documents.
+// This is a public method for use by CLI commands.
+func (s *DisplayService) ResolveFeatureAction(ctx context.Context, feature *models.Feature) *config.PopulatedAction {
+	if s.featureWorkflow == nil || s.featureWorkflow.StatusMetadata == nil {
+		return nil
+	}
+
+	status := string(feature.Status)
+	meta, exists := s.featureWorkflow.StatusMetadata[status]
+	if !exists || meta.OrchestratorAction == nil {
+		return nil
+	}
+
+	// Use FeaturePlaceholdersWithRelated to populate placeholders with related docs
+	// Note: We don't have a feature relationship repository yet, so pass nil
+	placeholders := config.FeaturePlaceholdersWithRelated(ctx, feature, s.deps.DocumentRepo, nil)
+
+	return &config.PopulatedAction{
+		Action:      meta.OrchestratorAction.Action,
+		AgentType:   meta.OrchestratorAction.AgentType,
+		Skills:      meta.OrchestratorAction.Skills,
+		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+	}
+}
+
+// ResolveTaskAction looks up the orchestrator action for a task's current status.
+// Returns nil if no action is defined for the status.
+// Uses TaskPlaceholdersWithRelated to include related documents and tasks.
+// This is a public method for use by CLI commands.
+func (s *DisplayService) ResolveTaskAction(ctx context.Context, task *models.Task) *config.PopulatedAction {
+	taskWorkflow := s.workflowSvc.ForLevel(workflow.LevelTask).GetWorkflow()
+	if taskWorkflow == nil || taskWorkflow.StatusMetadata == nil {
+		return nil
+	}
+
+	status := string(task.Status)
+	meta, exists := taskWorkflow.StatusMetadata[status]
+	if !exists || meta.OrchestratorAction == nil {
+		return nil
+	}
+
+	// Use TaskPlaceholdersWithRelated to populate placeholders with related docs and tasks
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, s.deps.DocumentRepo, s.deps.TaskRelRepo)
+
+	return &config.PopulatedAction{
+		Action:      meta.OrchestratorAction.Action,
+		AgentType:   meta.OrchestratorAction.AgentType,
+		Skills:      meta.OrchestratorAction.Skills,
+		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+	}
 }
 
 // populateFeatureAggregationInfo fills in aggregation-mode fields for a feature.

@@ -233,13 +233,6 @@ func updateContextField(cd *models.ContextData, field, value string) error {
 			return fmt.Errorf("invalid JSON for acceptance_criteria_status: %w", err)
 		}
 		cd.AcceptanceCriteriaStatus = criteria
-
-	case "related_tasks":
-		var tasks []string
-		if err := json.Unmarshal([]byte(value), &tasks); err != nil {
-			return fmt.Errorf("invalid JSON for related_tasks: %w", err)
-		}
-		cd.RelatedTasks = tasks
 	}
 
 	return nil
@@ -348,18 +341,9 @@ func runTaskContextGet(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	// Related Tasks
-	if len(contextData.RelatedTasks) > 0 {
-		fmt.Println("Related Tasks:")
-		for _, t := range contextData.RelatedTasks {
-			fmt.Printf("  - %s\n", t)
-		}
-		fmt.Println()
-	}
-
 	if contextData.Progress == nil && len(contextData.ImplementationDecisions) == 0 &&
 		len(contextData.OpenQuestions) == 0 && len(contextData.Blockers) == 0 &&
-		len(contextData.AcceptanceCriteriaStatus) == 0 && len(contextData.RelatedTasks) == 0 {
+		len(contextData.AcceptanceCriteriaStatus) == 0 {
 		fmt.Println("No context data available for this task.")
 	}
 

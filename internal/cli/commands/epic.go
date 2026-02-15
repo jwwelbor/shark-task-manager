@@ -428,6 +428,8 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Note: OrchestratorAction is already populated by GetEpicDisplayInfo using EpicPlaceholdersWithRelated
+
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(info)
 		}
@@ -638,12 +640,14 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"approval_backlog_count": approvalBacklogCount,
 			"notes":                  epicNotes,
 			"context_data":           epicContext,
+			"orchestrator_action":    displaySvc.ResolveEpicAction(ctx, epic),
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
 	renderEpicDetails(epic, epicProgress, featuresWithDetails, dirPath, filename, relatedDocs, featureRollup, taskRollup, blockedTasks, approvalBacklogCount, epicNotes, epicContext)
+	displayOrchestratorAction(displaySvc.ResolveEpicAction(ctx, epic))
 	return nil
 }
 
@@ -706,6 +710,9 @@ func renderEpicPlanning(info *services.EpicDisplayInfo) {
 		}
 		fmt.Println()
 	}
+
+	// Display orchestrator action
+	displayOrchestratorAction(info.OrchestratorAction)
 
 	// Planning mode message about features
 	if len(info.Features) == 0 {
@@ -887,8 +894,7 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 			len(contextData.ImplementationDecisions) > 0 ||
 			len(contextData.OpenQuestions) > 0 ||
 			len(contextData.Blockers) > 0 ||
-			len(contextData.AcceptanceCriteriaStatus) > 0 ||
-			len(contextData.RelatedTasks) > 0
+			len(contextData.AcceptanceCriteriaStatus) > 0
 		if hasContextContent {
 			pterm.DefaultSection.Println("Context")
 			fmt.Println()

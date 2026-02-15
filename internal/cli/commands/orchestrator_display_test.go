@@ -40,3 +40,7 @@ func TestDisplayOrchestratorAction_PartialAction(t *testing.T) {
 	// Should not panic with partial fields
 	displayOrchestratorAction(action)
 }
+
+// NOTE: Tests for resolveTaskAction, resolveEpicAction, resolveFeatureAction have been
+// removed as these functions were moved to DisplayService in internal/services/display_service.go.
+// The orchestrator action resolution logic is now tested in display_service_test.go.

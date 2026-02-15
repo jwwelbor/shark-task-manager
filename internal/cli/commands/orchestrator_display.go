@@ -24,3 +24,12 @@ func displayOrchestratorAction(action *config.PopulatedAction) {
 	}
 	fmt.Printf("\nInstruction: %s\n", action.Instruction)
 }
+
+// NOTE: The orchestrator action resolution functions (resolveTaskAction, resolveEpicAction,
+// resolveFeatureAction) have been moved to DisplayService in internal/services/display_service.go.
+// This change enables the use of TaskPlaceholdersWithRelated, FeaturePlaceholdersWithRelated,
+// and EpicPlaceholdersWithRelated which require repository access to populate {related_docs}
+// and {related_tasks} template variables.
+//
+// Use DisplayService.ResolveTaskAction(), .ResolveFeatureAction(), or .ResolveEpicAction()
+// instead of these removed CLI-layer functions.

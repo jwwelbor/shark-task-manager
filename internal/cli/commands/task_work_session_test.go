@@ -520,7 +520,6 @@ func TestContextDataJSONRoundTrip(t *testing.T) {
 			"framework": "cobra",
 		},
 		OpenQuestions: []string{"Performance requirements?"},
-		RelatedTasks:  []string{"T-E99-F01-001"},
 	}
 
 	// Serialize
@@ -538,7 +537,6 @@ func TestContextDataJSONRoundTrip(t *testing.T) {
 	assert.Len(t, parsed.ImplementationDecisions, 2)
 	assert.Equal(t, "sqlite", parsed.ImplementationDecisions["database"])
 	assert.Len(t, parsed.OpenQuestions, 1)
-	assert.Len(t, parsed.RelatedTasks, 1)
 }
 
 // TestResumeContextStructure tests the ResumeContext structure used by resume command

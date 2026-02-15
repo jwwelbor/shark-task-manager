@@ -29,23 +29,48 @@ type FeatureTaskCounter interface {
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 }
 
+// DocumentRepository defines the interface for accessing documents linked to entities.
+// This is satisfied by implementations from the config or repository packages.
+type DocumentRepository = config.DocumentRepository
+
+// FeatureRelationshipRepository defines the interface for accessing feature relationships.
+// This is satisfied by implementations from the config or repository packages.
+type FeatureRelationshipRepository = config.FeatureRelationshipRepository
+
 // FeatureService provides business logic for feature operations.
 type FeatureService struct {
 	repo        FeatureRepository
 	workflowSvc *workflow.Service
 	noteRepo    FeatureNoteRepository
 	taskRepo    FeatureTaskCounter
+	docRepo     DocumentRepository
+	relRepo     FeatureRelationshipRepository
 }
 
 // NewFeatureService creates a new FeatureService.
 // The workflow service is automatically scoped to the feature level.
-// noteRepo and taskRepo can be nil for graceful degradation.
+// noteRepo, taskRepo, docRepo, and relRepo can be nil for graceful degradation.
 func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service, noteRepo FeatureNoteRepository, taskRepo FeatureTaskCounter) *FeatureService {
 	return &FeatureService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelFeature),
 		noteRepo:    noteRepo,
 		taskRepo:    taskRepo,
+		docRepo:     nil,
+		relRepo:     nil,
+	}
+}
+
+// NewFeatureServiceWithRelationships creates a new FeatureService with document and relationship repositories.
+// Use this constructor when orchestrator actions need to populate related documents and features.
+func NewFeatureServiceWithRelationships(repo FeatureRepository, workflowSvc *workflow.Service, noteRepo FeatureNoteRepository, taskRepo FeatureTaskCounter, docRepo DocumentRepository, relRepo FeatureRelationshipRepository) *FeatureService {
+	return &FeatureService{
+		repo:        repo,
+		workflowSvc: workflowSvc.ForLevel(workflow.LevelFeature),
+		noteRepo:    noteRepo,
+		taskRepo:    taskRepo,
+		docRepo:     docRepo,
+		relRepo:     relRepo,
 	}
 }
 
@@ -128,7 +153,7 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		}
 	}
 
-	action := s.resolveAction(feature, targetStatus)
+	action := s.resolveAction(ctx, feature, targetStatus)
 
 	return &TransitionResult{
 		EntityType:         "feature",
@@ -163,7 +188,7 @@ func (s *FeatureService) GetNextStatus(ctx context.Context, featureKey string) (
 	for _, t := range transitions {
 		wrapped = append(wrapped, TransitionInfoWithAction{
 			TransitionInfo:     t,
-			OrchestratorAction: s.resolveAction(feature, t.TargetStatus),
+			OrchestratorAction: s.resolveAction(ctx, feature, t.TargetStatus),
 		})
 	}
 
@@ -184,7 +209,8 @@ func (s *FeatureService) ValidateStatus(status string) error {
 
 // resolveAction returns a populated orchestrator action for the given status,
 // or nil if no action is defined for that status.
-func (s *FeatureService) resolveAction(feature *models.Feature, status string) *config.PopulatedAction {
+// Uses FeaturePlaceholdersWithRelated to populate related documents and features if repositories are available.
+func (s *FeatureService) resolveAction(ctx context.Context, feature *models.Feature, status string) *config.PopulatedAction {
 	wf := s.workflowSvc.GetWorkflow()
 	if wf == nil || wf.StatusMetadata == nil {
 		return nil
@@ -193,10 +219,21 @@ func (s *FeatureService) resolveAction(feature *models.Feature, status string) *
 	if !exists || meta.OrchestratorAction == nil {
 		return nil
 	}
+
+	// Determine which placeholder function to use based on available repositories
+	var placeholders map[string]string
+	if s.docRepo != nil && s.relRepo != nil {
+		// Use the new function that includes related documents and features
+		placeholders = config.FeaturePlaceholdersWithRelated(ctx, feature, s.docRepo, s.relRepo)
+	} else {
+		// Fall back to basic placeholders (backward compatible)
+		placeholders = config.FeaturePlaceholders(feature)
+	}
+
 	return &config.PopulatedAction{
 		Action:      meta.OrchestratorAction.Action,
 		AgentType:   meta.OrchestratorAction.AgentType,
 		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(config.FeaturePlaceholders(feature)),
+		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
 	}
 }

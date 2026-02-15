@@ -139,19 +139,6 @@ For backwards compatibility, noun-first commands also work:
 ./bin/shark task create --epic=E07 --feature=F01 --title="Task Title"
 ```
 
-## Synchronization
-
-```bash
-# Preview sync changes
-./bin/shark sync --dry-run
-
-# Sync filesystem to database (file wins)
-./bin/shark sync --strategy=file-wins
-
-# Sync database to filesystem (database wins)
-./bin/shark sync --strategy=database-wins
-```
-
 ## Configuration & Initialization
 
 ```bash

@@ -212,6 +212,80 @@ func (r *TaskRelationshipRepository) GetIncoming(ctx context.Context, taskID int
 	return r.scanRelationships(rows)
 }
 
+// ListRelatedTaskKeys retrieves all task keys related to a given task (bidirectional).
+//
+// Returns task keys (not IDs) for all relationship types, querying both directions
+// of the task_relationships table. If task A relates to task B, then B appears in
+// A's related list and A appears in B's related list, regardless of relationship
+// direction semantics.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//   - taskID: Internal database ID of the task (int64, NOT task key string)
+//
+// Returns:
+//   - []string: Array of task keys (e.g., ["T-E07-F05-001", "E10-F05-002"])
+//   - error: Wrapped database errors, or nil on success
+//
+// Behavior:
+//   - Empty array (not nil) if no relationships exist
+//   - Excludes the input task's own key from results
+//   - DISTINCT on keys (no duplicates)
+//   - Ordered by task key (ASC) for deterministic results
+//   - Single SQL query (no N+1 pattern)
+//   - Leverages existing indexes: idx_task_relationships_from, idx_task_relationships_to
+//
+// Error Handling:
+//   - Returns wrapped error with context: "failed to list related task keys: %w"
+//   - sql.ErrNoRows treated as success with empty array (not error)
+//   - Respects context cancellation (returns ctx.Err())
+//
+// Example:
+//
+//	keys, err := repo.ListRelatedTaskKeys(ctx, 100)
+//	// Returns: ["E07-F05-001", "E10-F05-002"], nil
+func (r *TaskRelationshipRepository) ListRelatedTaskKeys(ctx context.Context, taskID int64) ([]string, error) {
+	query := `
+		SELECT DISTINCT t.key
+		FROM task_relationships tr
+		INNER JOIN tasks t ON (
+			(tr.from_task_id = ? AND tr.to_task_id = t.id) OR
+			(tr.to_task_id = ? AND tr.from_task_id = t.id)
+		)
+		WHERE t.id != ?
+		ORDER BY t.key ASC
+	`
+
+	// Execute query with three taskID parameters
+	rows, err := r.db.QueryContext(ctx, query, taskID, taskID, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list related task keys: %w", err)
+	}
+	defer rows.Close()
+
+	// Scan results into string array
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("failed to scan task key: %w", err)
+		}
+		keys = append(keys, key)
+	}
+
+	// Check for iteration errors
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating related task keys: %w", err)
+	}
+
+	// Return empty array (not nil) if no relationships
+	if keys == nil {
+		keys = []string{}
+	}
+
+	return keys, nil
+}
+
 // Delete deletes a task relationship by ID
 func (r *TaskRelationshipRepository) Delete(ctx context.Context, id int64) error {
 	query := `DELETE FROM task_relationships WHERE id = ?`

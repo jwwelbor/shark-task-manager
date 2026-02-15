@@ -169,7 +169,6 @@ func isValidContextField(field string) bool {
 		"open_questions":             true,
 		"blockers":                   true,
 		"acceptance_criteria_status": true,
-		"related_tasks":              true,
 	}
 	return validFields[field]
 }
@@ -236,13 +235,6 @@ func updateContextField(cd *models.ContextData, field, value string) error {
 			return fmt.Errorf("invalid JSON for acceptance_criteria_status: %w", err)
 		}
 		cd.AcceptanceCriteriaStatus = criteria
-
-	case "related_tasks":
-		var tasks []string
-		if err := json.Unmarshal([]byte(value), &tasks); err != nil {
-			return fmt.Errorf("invalid JSON for related_tasks: %w", err)
-		}
-		cd.RelatedTasks = tasks
 
 	default:
 		return fmt.Errorf("unsupported context field: %s", field)

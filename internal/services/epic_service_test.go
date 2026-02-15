@@ -556,7 +556,7 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
-	action := svc.resolveAction(epic, "draft")
+	action := svc.resolveAction(context.Background(), epic, "draft")
 	if action != nil {
 		t.Errorf("expected nil action for default workflow (no actions defined), got %+v", action)
 	}
@@ -568,7 +568,7 @@ func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "nonexistent_status"}
-	action := svc.resolveAction(epic, "nonexistent_status")
+	action := svc.resolveAction(context.Background(), epic, "nonexistent_status")
 	if action != nil {
 		t.Errorf("expected nil action for nonexistent status, got %+v", action)
 	}
@@ -580,7 +580,7 @@ func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
-	action := svc.resolveAction(epic, "draft")
+	action := svc.resolveAction(context.Background(), epic, "draft")
 	if action != nil {
 		t.Errorf("expected nil action for 'draft' status (no action defined), got %+v", action)
 	}
@@ -591,7 +591,7 @@ func TestEpicService_resolveAction_StatusWithAction(t *testing.T) {
 	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "active"}
-	action := svc.resolveAction(epic, "active")
+	action := svc.resolveAction(context.Background(), epic, "active")
 	if action == nil {
 		t.Fatal("expected non-nil action for 'active' status")
 	}

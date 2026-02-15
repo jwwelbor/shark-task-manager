@@ -13,7 +13,6 @@ type ContextData struct {
 	OpenQuestions            []string                     `json:"open_questions,omitempty"`
 	Blockers                 []BlockerContext             `json:"blockers,omitempty"`
 	AcceptanceCriteriaStatus []AcceptanceCriterionContext `json:"acceptance_criteria_status,omitempty"`
-	RelatedTasks             []string                     `json:"related_tasks,omitempty"`
 }
 
 // ProgressContext tracks what's done, what's current, and what remains
@@ -138,9 +137,5 @@ func (cd *ContextData) Merge(other *ContextData) {
 
 	if other.AcceptanceCriteriaStatus != nil {
 		cd.AcceptanceCriteriaStatus = other.AcceptanceCriteriaStatus
-	}
-
-	if other.RelatedTasks != nil {
-		cd.RelatedTasks = other.RelatedTasks
 	}
 }

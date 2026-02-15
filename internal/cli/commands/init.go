@@ -252,7 +252,7 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 	fmt.Println("Next steps:")
 	fmt.Println("1. Edit .sharkconfig.json to set default epic and agent")
 	fmt.Println("2. Create tasks with: shark task create \"Task title\" --epic=E01 --feature=F01 --agent=backend")
-	fmt.Println("3. Import existing tasks with: shark sync")
+	fmt.Println("3. Create tasks with: shark task create")
 
 	// Only show profile message if config was created
 	if result.ConfigCreated {

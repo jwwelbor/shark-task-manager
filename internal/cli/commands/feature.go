@@ -606,6 +606,8 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Note: OrchestratorAction is already populated by GetFeatureDisplayInfo using FeaturePlaceholdersWithRelated
+
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(info)
 		}
@@ -769,33 +771,35 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		result := map[string]interface{}{
-			"id":                feature.ID,
-			"epic_id":           feature.EpicID,
-			"key":               feature.Key,
-			"title":             feature.Title,
-			"description":       feature.Description,
-			"status":            feature.Status,
-			"status_source":     statusSource,
-			"status_override":   feature.StatusOverride,
-			"progress_pct":      feature.ProgressPct,
-			"path":              dirPath,
-			"filename":          filename,
-			"created_at":        feature.CreatedAt,
-			"updated_at":        feature.UpdatedAt,
-			"tasks":             tasks,
-			"status_breakdown":  statusBreakdown,
-			"related_documents": relatedDocs,
-			"progress":          progressInfo,
-			"work_summary":      workSummary,
-			"action_items":      actionItems,
-			"notes":             featureNotes,
-			"context_data":      featureContext,
+			"id":                  feature.ID,
+			"epic_id":             feature.EpicID,
+			"key":                 feature.Key,
+			"title":               feature.Title,
+			"description":         feature.Description,
+			"status":              feature.Status,
+			"status_source":       statusSource,
+			"status_override":     feature.StatusOverride,
+			"progress_pct":        feature.ProgressPct,
+			"path":                dirPath,
+			"filename":            filename,
+			"created_at":          feature.CreatedAt,
+			"updated_at":          feature.UpdatedAt,
+			"tasks":               tasks,
+			"status_breakdown":    statusBreakdown,
+			"related_documents":   relatedDocs,
+			"progress":            progressInfo,
+			"work_summary":        workSummary,
+			"action_items":        actionItems,
+			"notes":               featureNotes,
+			"context_data":        featureContext,
+			"orchestrator_action": displaySvc.ResolveFeatureAction(ctx, feature),
 		}
 		return cli.OutputJSON(result)
 	}
 
 	// Output as formatted text
 	renderFeatureDetails(feature, tasks, statusBreakdown, dirPath, filename, relatedDocs, workflowService, progressInfo, workSummary, actionItems, featureNotes, featureContext)
+	displayOrchestratorAction(displaySvc.ResolveFeatureAction(ctx, feature))
 	return nil
 }
 
@@ -856,6 +860,9 @@ func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
 	if len(info.Tasks) == 0 {
 		pterm.Info.Println("No tasks yet (feature is still being refined)")
 	}
+
+	// Display orchestrator action
+	displayOrchestratorAction(info.OrchestratorAction)
 }
 
 // renderFeatureListTable renders features as a table
@@ -1218,8 +1225,7 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 			len(contextData.ImplementationDecisions) > 0 ||
 			len(contextData.OpenQuestions) > 0 ||
 			len(contextData.Blockers) > 0 ||
-			len(contextData.AcceptanceCriteriaStatus) > 0 ||
-			len(contextData.RelatedTasks) > 0
+			len(contextData.AcceptanceCriteriaStatus) > 0
 		if hasContextContent {
 			pterm.DefaultSection.Println("Context")
 			fmt.Println()

@@ -630,6 +630,11 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate epic/feature context_data: %w", err)
 	}
 
+	// Run feature_relationships and epic_relationships table migrations (E07-F29)
+	if err := migrateRelationshipTables(db); err != nil {
+		return fmt.Errorf("failed to migrate relationship tables: %w", err)
+	}
+
 	return nil
 }
 
@@ -1535,6 +1540,99 @@ func migrateEpicFeatureContextData(db *sql.DB) error {
 	if columnExists == 0 {
 		if _, err := db.Exec(`ALTER TABLE features ADD COLUMN context_data TEXT;`); err != nil {
 			return fmt.Errorf("failed to add context_data to features: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateRelationshipTables creates feature_relationships and epic_relationships tables (E07-F29)
+func migrateRelationshipTables(db *sql.DB) error {
+	// Check if feature_relationships table exists
+	var featureTableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='feature_relationships'
+	`).Scan(&featureTableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check for feature_relationships table: %w", err)
+	}
+
+	if featureTableExists == 0 {
+		// Create feature_relationships table
+		_, err = db.Exec(`
+			CREATE TABLE feature_relationships (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				from_feature_id INTEGER NOT NULL,
+				to_feature_id INTEGER NOT NULL,
+				relationship_type TEXT CHECK (relationship_type IN (
+					'depends_on', 'blocks', 'related_to', 'follows',
+					'spawned_from', 'duplicates', 'references'
+				)) NOT NULL,
+				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (from_feature_id) REFERENCES features(id) ON DELETE CASCADE,
+				FOREIGN KEY (to_feature_id) REFERENCES features(id) ON DELETE CASCADE,
+				UNIQUE(from_feature_id, to_feature_id, relationship_type)
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create feature_relationships table: %w", err)
+		}
+
+		// Create indexes for feature_relationships
+		indexes := []string{
+			`CREATE INDEX IF NOT EXISTS idx_feature_relationships_from ON feature_relationships(from_feature_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_feature_relationships_to ON feature_relationships(to_feature_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_feature_relationships_type ON feature_relationships(relationship_type)`,
+		}
+
+		for _, idx := range indexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create feature_relationships index: %w", err)
+			}
+		}
+	}
+
+	// Check if epic_relationships table exists
+	var epicTableExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='epic_relationships'
+	`).Scan(&epicTableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check for epic_relationships table: %w", err)
+	}
+
+	if epicTableExists == 0 {
+		// Create epic_relationships table
+		_, err = db.Exec(`
+			CREATE TABLE epic_relationships (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				from_epic_id INTEGER NOT NULL,
+				to_epic_id INTEGER NOT NULL,
+				relationship_type TEXT CHECK (relationship_type IN (
+					'depends_on', 'blocks', 'related_to', 'follows',
+					'spawned_from', 'duplicates', 'references'
+				)) NOT NULL,
+				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (from_epic_id) REFERENCES epics(id) ON DELETE CASCADE,
+				FOREIGN KEY (to_epic_id) REFERENCES epics(id) ON DELETE CASCADE,
+				UNIQUE(from_epic_id, to_epic_id, relationship_type)
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create epic_relationships table: %w", err)
+		}
+
+		// Create indexes for epic_relationships
+		indexes := []string{
+			`CREATE INDEX IF NOT EXISTS idx_epic_relationships_from ON epic_relationships(from_epic_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_epic_relationships_to ON epic_relationships(to_epic_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_epic_relationships_type ON epic_relationships(relationship_type)`,
+		}
+
+		for _, idx := range indexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create epic_relationships index: %w", err)
+			}
 		}
 	}
 

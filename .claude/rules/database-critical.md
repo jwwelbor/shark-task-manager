@@ -30,32 +30,20 @@ If you need to reset the database:
    ./bin/shark init --non-interactive
    ```
 
-4. **Resync filesystem to database:**
-   ```bash
-   ./bin/shark sync --dry-run              # Preview changes
-   ./bin/shark sync --strategy=file-wins   # Apply changes
-   ```
+4. **Database is now empty** - create new epics/features/tasks as needed
 
-## If Sync Fails with "UNIQUE constraint failed: tasks.key"
+## Database Recovery
 
-This means you're trying to create tasks that already exist. Options:
+If you accidentally deleted the database, there is no automatic sync from files.
 
-1. **Check if database exists:**
-   ```bash
-   ls -lh shark-tasks.db
-   ```
+Options:
 
-2. **If database was deleted, restore from backup:**
+1. **Restore from backup:**
    ```bash
    cp /path/to/backup/shark-tasks.db .
    ```
 
-3. **If files are out of sync with database:**
-   ```bash
-   ./bin/shark sync --dry-run --strategy=database-wins  # Use DB as source of truth
-   ```
-
-4. **If specific tasks are duplicated**, manually remove duplicate file or reset task in database
+2. **If specific tasks are duplicated**, manually remove duplicate file or reset task in database
 
 ## Database Files
 
@@ -76,16 +64,16 @@ If you accidentally deleted the database:
    ls -la *.db.backup *.db.bak
    ```
 
-2. **If no backup exists**, you can rebuild from filesystem:
+2. **If no backup exists**, you must recreate tasks manually:
    ```bash
    # Reinitialize database
    ./bin/shark init --non-interactive
 
-   # Sync from filesystem
-   ./bin/shark sync --strategy=file-wins --create-missing
+   # Recreate epics, features, and tasks from task files
+   # (Database is source of truth - task files are output only)
    ```
 
-   **Note**: This recovers task structure but loses task history and status transitions.
+   **Note**: There is no automatic filesystem-to-database sync. You must recreate entities manually.
 
 3. **Verify recovery:**
    ```bash

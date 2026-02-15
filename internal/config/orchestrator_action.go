@@ -10,7 +10,7 @@ import (
 // OrchestratorAction defines the action to take when a task enters a status
 type OrchestratorAction struct {
 	// Action specifies the type of orchestrator action to perform
-	// Valid values: spawn_agent, pause, wait_for_triage, archive
+	// Valid values: spawn_agent, pause, wait_for_triage, archive, advance_status
 	Action string `json:"action" yaml:"action"`
 
 	// AgentType specifies the type of agent to spawn (required for spawn_agent action)
@@ -30,6 +30,7 @@ const (
 	ActionPause         = "pause"
 	ActionWaitForTriage = "wait_for_triage"
 	ActionArchive       = "archive"
+	ActionAdvanceStatus = "advance_status"
 )
 
 // ValidActionTypes defines the allowed action types
@@ -38,6 +39,7 @@ var ValidActionTypes = []string{
 	ActionPause,
 	ActionWaitForTriage,
 	ActionArchive,
+	ActionAdvanceStatus,
 }
 
 // Validate validates the OrchestratorAction configuration

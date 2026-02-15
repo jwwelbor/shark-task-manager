@@ -133,26 +133,8 @@ func TestContextService_GetContext_Epic_WithContext(t *testing.T) {
 	}
 }
 
-func TestContextService_GetContext_Feature(t *testing.T) {
-	contextJSON := `{"related_tasks":["E16-F01-001"]}`
-	featureRepo := &mockContextFeatureRepo{
-		getContextDataFunc: func(ctx context.Context, featureID int64) (*string, error) {
-			return &contextJSON, nil
-		},
-	}
-	svc := NewContextService(&mockContextEpicRepo{}, featureRepo, &mockContextTaskRepo{})
-
-	cd, err := svc.GetContext(context.Background(), models.EntityTypeFeature, "E16-F01")
-	if err != nil {
-		t.Fatalf("GetContext() error = %v", err)
-	}
-	if cd == nil {
-		t.Fatal("expected non-nil context data")
-	}
-	if len(cd.RelatedTasks) != 1 || cd.RelatedTasks[0] != "E16-F01-001" {
-		t.Error("expected related_tasks to contain 'E16-F01-001'")
-	}
-}
+// TestContextService_GetContext_Feature removed - related_tasks field removed from ContextData
+// per commit f3235a8. Related tasks should use task_relationships table, not context_data JSON.
 
 func TestContextService_GetContext_Task(t *testing.T) {
 	contextJSON := `{"implementation_decisions":{"db":"sqlite"}}`
@@ -295,7 +277,7 @@ func TestContextService_SetContextField_Task(t *testing.T) {
 	}
 	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, taskRepo)
 
-	err := svc.SetContextField(context.Background(), models.EntityTypeTask, "E16-F01-001", "related_tasks", `["E16-F01-002"]`)
+	err := svc.SetContextField(context.Background(), models.EntityTypeTask, "E16-F01-001", "implementation_decisions", `{"framework":"react"}`)
 	if err != nil {
 		t.Fatalf("SetContextField() error = %v", err)
 	}
@@ -373,7 +355,7 @@ func TestIsValidContextField(t *testing.T) {
 	validFields := []string{
 		"current_step", "completed_steps", "remaining_steps",
 		"implementation_decisions", "open_questions", "blockers",
-		"acceptance_criteria_status", "related_tasks",
+		"acceptance_criteria_status",
 	}
 
 	for _, f := range validFields {
@@ -382,7 +364,7 @@ func TestIsValidContextField(t *testing.T) {
 		}
 	}
 
-	invalidFields := []string{"invalid", "status", "title", "key"}
+	invalidFields := []string{"invalid", "status", "title", "key", "related_tasks"}
 	for _, f := range invalidFields {
 		if isValidContextField(f) {
 			t.Errorf("expected %s to be invalid", f)
@@ -404,7 +386,6 @@ func TestUpdateContextField_AllFields(t *testing.T) {
 		{"open_questions", "open_questions", `["Q1?"]`, false},
 		{"blockers", "blockers", `[]`, false},
 		{"acceptance_criteria_status", "acceptance_criteria_status", `[]`, false},
-		{"related_tasks", "related_tasks", `["E16-F01-001"]`, false},
 		{"invalid_field", "invalid_field", "value", true},
 		{"bad_json_completed_steps", "completed_steps", "not json", true},
 		{"bad_json_remaining_steps", "remaining_steps", "not json", true},
@@ -412,7 +393,6 @@ func TestUpdateContextField_AllFields(t *testing.T) {
 		{"bad_json_questions", "open_questions", "not json", true},
 		{"bad_json_blockers", "blockers", "not json", true},
 		{"bad_json_criteria", "acceptance_criteria_status", "not json", true},
-		{"bad_json_related", "related_tasks", "not json", true},
 	}
 
 	for _, tt := range tests {

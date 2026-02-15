@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 )
 
 var (
@@ -29,11 +27,11 @@ func RegisterDriver(name string, factory DriverFactory) {
 
 // NewDatabase creates a new database instance based on the provided configuration
 // It automatically detects the backend from the URL if backend is not specified
-func NewDatabase(config config.DatabaseConfig) (Database, error) {
-	backend := config.Backend
+func NewDatabase(cfg DatabaseConfig) (Database, error) {
+	backend := cfg.Backend
 	if backend == "" {
 		// Auto-detect from URL
-		backend = DetectBackend(config.URL)
+		backend = DetectBackend(cfg.URL)
 	}
 
 	mu.RLock()
@@ -77,20 +75,20 @@ func ResetRegistry() {
 
 // InitDatabase is a high-level function to initialize a database connection
 // It creates a database instance, connects to it, and verifies the connection
-func InitDatabase(ctx context.Context, config config.DatabaseConfig) (Database, error) {
+func InitDatabase(ctx context.Context, cfg DatabaseConfig) (Database, error) {
 	// Validate configuration
-	if err := config.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid database config: %w", err)
 	}
 
 	// Create database instance
-	db, err := NewDatabase(config)
+	db, err := NewDatabase(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
 	// Connect to database
-	if err := db.Connect(ctx, config.URL); err != nil {
+	if err := db.Connect(ctx, cfg.URL); err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 

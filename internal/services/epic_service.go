@@ -35,6 +35,8 @@ type EpicService struct {
 	workflowSvc *workflow.Service
 	noteRepo    EpicNoteRepository
 	featureRepo EpicFeatureCounter
+	docRepo     config.DocumentRepository
+	relRepo     config.EpicRelationshipRepository
 }
 
 // NewEpicService creates a new EpicService.
@@ -46,6 +48,21 @@ func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),
 		noteRepo:    noteRepo,
 		featureRepo: featureRepo,
+		docRepo:     nil,
+		relRepo:     nil,
+	}
+}
+
+// NewEpicServiceWithRelationships creates a new EpicService with document and relationship repositories.
+// Use this constructor when orchestrator actions need to populate related documents and epics.
+func NewEpicServiceWithRelationships(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter, docRepo config.DocumentRepository, relRepo config.EpicRelationshipRepository) *EpicService {
+	return &EpicService{
+		repo:        repo,
+		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),
+		noteRepo:    noteRepo,
+		featureRepo: featureRepo,
+		docRepo:     docRepo,
+		relRepo:     relRepo,
 	}
 }
 
@@ -128,7 +145,7 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 		}
 	}
 
-	action := s.resolveAction(epic, targetStatus)
+	action := s.resolveAction(ctx, epic, targetStatus)
 
 	return &TransitionResult{
 		EntityType:         "epic",
@@ -163,7 +180,7 @@ func (s *EpicService) GetNextStatus(ctx context.Context, epicKey string) (*NextS
 	for _, t := range transitions {
 		wrapped = append(wrapped, TransitionInfoWithAction{
 			TransitionInfo:     t,
-			OrchestratorAction: s.resolveAction(epic, t.TargetStatus),
+			OrchestratorAction: s.resolveAction(ctx, epic, t.TargetStatus),
 		})
 	}
 
@@ -184,7 +201,9 @@ func (s *EpicService) ValidateStatus(status string) error {
 
 // resolveAction looks up the orchestrator action for a given status in the workflow config.
 // Returns nil if no action is defined for the status, or if the workflow config is nil.
-func (s *EpicService) resolveAction(epic *models.Epic, status string) *config.PopulatedAction {
+// Uses EpicPlaceholdersWithRelated if document and relationship repositories are available,
+// otherwise falls back to basic EpicPlaceholders.
+func (s *EpicService) resolveAction(ctx context.Context, epic *models.Epic, status string) *config.PopulatedAction {
 	wf := s.workflowSvc.GetWorkflow()
 	if wf == nil || wf.StatusMetadata == nil {
 		return nil
@@ -193,10 +212,21 @@ func (s *EpicService) resolveAction(epic *models.Epic, status string) *config.Po
 	if !exists || meta.OrchestratorAction == nil {
 		return nil
 	}
+
+	// Determine which placeholder function to use based on available repositories
+	var placeholders map[string]string
+	if s.docRepo != nil && s.relRepo != nil {
+		// Use the new function that includes related documents and epics
+		placeholders = config.EpicPlaceholdersWithRelated(epic, s.docRepo, s.relRepo, ctx)
+	} else {
+		// Fall back to basic placeholders (backward compatible)
+		placeholders = config.EpicPlaceholders(epic)
+	}
+
 	return &config.PopulatedAction{
 		Action:      meta.OrchestratorAction.Action,
 		AgentType:   meta.OrchestratorAction.AgentType,
 		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(config.EpicPlaceholders(epic)),
+		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
 	}
 }

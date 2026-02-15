@@ -12,7 +12,7 @@ import (
 
 // GetDatabaseConfig reads database configuration from .sharkconfig.json
 // Returns config with fallback to local SQLite if no database section exists
-func GetDatabaseConfig(configPath string) (config.DatabaseConfig, error) {
+func GetDatabaseConfig(configPath string) (db.DatabaseConfig, error) {
 	// Get directory containing config
 	configDir := filepath.Dir(configPath)
 
@@ -20,13 +20,13 @@ func GetDatabaseConfig(configPath string) (config.DatabaseConfig, error) {
 	mgr := config.NewManager(configPath)
 	cfg, err := mgr.Load()
 	if err != nil {
-		return config.DatabaseConfig{}, fmt.Errorf("failed to load config: %w", err)
+		return db.DatabaseConfig{}, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Check if database config exists in raw data
 	if cfg.RawData == nil {
 		// No config data - fall back to local database
-		return config.DatabaseConfig{
+		return db.DatabaseConfig{
 			Backend: "sqlite",
 			URL:     filepath.Join(configDir, "shark-tasks.db"),
 		}, nil
@@ -35,7 +35,7 @@ func GetDatabaseConfig(configPath string) (config.DatabaseConfig, error) {
 	dbConfigRaw, ok := cfg.RawData["database"]
 	if !ok {
 		// No database section - fall back to local database
-		return config.DatabaseConfig{
+		return db.DatabaseConfig{
 			Backend: "sqlite",
 			URL:     filepath.Join(configDir, "shark-tasks.db"),
 		}, nil
@@ -44,12 +44,12 @@ func GetDatabaseConfig(configPath string) (config.DatabaseConfig, error) {
 	// Parse database config
 	dbConfigMap, ok := dbConfigRaw.(map[string]interface{})
 	if !ok {
-		return config.DatabaseConfig{}, fmt.Errorf("invalid database config format")
+		return db.DatabaseConfig{}, fmt.Errorf("invalid database config format")
 	}
 
 	// Extract fields, expanding environment variables in string values
 	// so .sharkconfig.json can use $VAR or ${VAR} references for local overrides
-	dbConfig := config.DatabaseConfig{}
+	dbConfig := db.DatabaseConfig{}
 
 	if backend, ok := dbConfigMap["backend"].(string); ok {
 		dbConfig.Backend = os.ExpandEnv(backend)

@@ -217,16 +217,6 @@ func printContextData(contextData *models.ContextData) {
 		fmt.Println()
 	}
 
-	// Related Tasks
-	if len(contextData.RelatedTasks) > 0 {
-		hasContent = true
-		fmt.Println("Related Tasks:")
-		for _, t := range contextData.RelatedTasks {
-			fmt.Printf("  - %s\n", t)
-		}
-		fmt.Println()
-	}
-
 	if !hasContent {
 		fmt.Println("No context data available.")
 	}

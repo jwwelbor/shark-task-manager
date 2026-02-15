@@ -711,3 +711,436 @@ func TestDetectCycleNonBlockingRelationships(t *testing.T) {
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr))
 }
+
+// TestListRelatedTaskKeys_BidirectionalRelationships tests AC-1: method returns bidirectional related task keys
+func TestListRelatedTaskKeys_BidirectionalRelationships(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRelationshipRepository(db)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E07-F29-%'")
+
+	// Seed test data (gets epic and feature IDs)
+	_, featureID := test.SeedTestData()
+
+	// Create 3 tasks
+	task1 := &models.Task{
+		Key:       "T-E07-F29-001",
+		Title:     "Task 1",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	task2 := &models.Task{
+		Key:       "T-E07-F29-002",
+		Title:     "Task 2",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	task3 := &models.Task{
+		Key:       "T-E07-F29-003",
+		Title:     "Task 3",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+
+	err := taskRepo.Create(ctx, task1)
+	if err != nil {
+		t.Fatalf("Failed to create task1: %v", err)
+	}
+	err = taskRepo.Create(ctx, task2)
+	if err != nil {
+		t.Fatalf("Failed to create task2: %v", err)
+	}
+	err = taskRepo.Create(ctx, task3)
+	if err != nil {
+		t.Fatalf("Failed to create task3: %v", err)
+	}
+
+	// Create relationships:
+	// task1 depends_on task2 (outgoing from task1)
+	rel1 := &models.TaskRelationship{
+		FromTaskID:       task1.ID,
+		ToTaskID:         task2.ID,
+		RelationshipType: models.RelationshipDependsOn,
+	}
+	err = repo.Create(ctx, rel1)
+	if err != nil {
+		t.Fatalf("Failed to create relationship 1: %v", err)
+	}
+
+	// task3 blocks task1 (incoming to task1)
+	rel2 := &models.TaskRelationship{
+		FromTaskID:       task3.ID,
+		ToTaskID:         task1.ID,
+		RelationshipType: models.RelationshipBlocks,
+	}
+	err = repo.Create(ctx, rel2)
+	if err != nil {
+		t.Fatalf("Failed to create relationship 2: %v", err)
+	}
+
+	// Execute method
+	keys, err := repo.ListRelatedTaskKeys(ctx, task1.ID)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("ListRelatedTaskKeys() error = %v", err)
+	}
+	if keys == nil {
+		t.Fatal("ListRelatedTaskKeys() returned nil, expected array")
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 related task keys, got %d: %v", len(keys), keys)
+	}
+
+	// Verify both keys are present
+	foundTask2 := false
+	foundTask3 := false
+	for _, key := range keys {
+		if key == task2.Key {
+			foundTask2 = true
+		}
+		if key == task3.Key {
+			foundTask3 = true
+		}
+		if key == task1.Key {
+			t.Errorf("self-reference found in results: %s", key)
+		}
+	}
+
+	if !foundTask2 {
+		t.Errorf("expected to find task2 key %s in results, got: %v", task2.Key, keys)
+	}
+	if !foundTask3 {
+		t.Errorf("expected to find task3 key %s in results, got: %v", task3.Key, keys)
+	}
+
+	// Cleanup
+	defer database.ExecContext(ctx, "DELETE FROM task_relationships WHERE id IN (?, ?)", rel1.ID, rel2.ID)
+	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id IN (?, ?, ?)", task1.ID, task2.ID, task3.ID)
+}
+
+// TestListRelatedTaskKeys_EmptyArray tests AC-2: method returns empty array when no relationships
+func TestListRelatedTaskKeys_EmptyArray(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRelationshipRepository(db)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E07-F29-004'")
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create task with zero relationships
+	task := &models.Task{
+		Key:       "T-E07-F29-004",
+		Title:     "Standalone Task",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	err := taskRepo.Create(ctx, task)
+	if err != nil {
+		t.Fatalf("Failed to create task: %v", err)
+	}
+
+	// Execute method
+	keys, err := repo.ListRelatedTaskKeys(ctx, task.ID)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("ListRelatedTaskKeys() error = %v", err)
+	}
+	if keys == nil {
+		t.Error("expected empty array, got nil")
+	}
+	if len(keys) != 0 {
+		t.Errorf("expected empty array (length 0), got length %d: %v", len(keys), keys)
+	}
+
+	// Verify it's actually an empty slice, not nil
+	if keys == nil {
+		t.Error("keys should be empty slice []string{}, not nil")
+	}
+
+	// Cleanup
+	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID)
+}
+
+// TestListRelatedTaskKeys_AllRelationshipTypes tests AC-5: method handles all relationship types
+func TestListRelatedTaskKeys_AllRelationshipTypes(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRelationshipRepository(db)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E07-F29-%'")
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create main task
+	mainTask := &models.Task{
+		Key:       "T-E07-F29-007",
+		Title:     "Main Task",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	err := taskRepo.Create(ctx, mainTask)
+	if err != nil {
+		t.Fatalf("Failed to create main task: %v", err)
+	}
+
+	// Create related tasks for each relationship type
+	relatedTaskKeys := []string{
+		"T-E07-F29-101", "T-E07-F29-102", "T-E07-F29-103", "T-E07-F29-104", "T-E07-F29-105", "T-E07-F29-106", "T-E07-F29-107",
+	}
+	relationshipTypes := []models.RelationshipType{
+		models.RelationshipDependsOn, models.RelationshipBlocks, models.RelationshipRelatedTo, models.RelationshipFollows,
+		models.RelationshipSpawnedFrom, models.RelationshipDuplicates, models.RelationshipReferences,
+	}
+
+	taskIDs := []int64{mainTask.ID}
+	for i, key := range relatedTaskKeys {
+		task := &models.Task{
+			Key:       key,
+			Title:     "Related Task",
+			Status:    "todo",
+			Priority:  5,
+			FeatureID: featureID,
+		}
+		err = taskRepo.Create(ctx, task)
+		if err != nil {
+			t.Fatalf("Failed to create task %s: %v", key, err)
+		}
+		taskIDs = append(taskIDs, task.ID)
+
+		// Create relationship of each type
+		rel := &models.TaskRelationship{
+			FromTaskID:       mainTask.ID,
+			ToTaskID:         task.ID,
+			RelationshipType: relationshipTypes[i],
+		}
+		err = repo.Create(ctx, rel)
+		if err != nil {
+			t.Fatalf("Failed to create %s relationship: %v", relationshipTypes[i], err)
+		}
+	}
+
+	// Execute method
+	keys, err := repo.ListRelatedTaskKeys(ctx, mainTask.ID)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("ListRelatedTaskKeys() error = %v", err)
+	}
+	if len(keys) != 7 {
+		t.Errorf("expected 7 related task keys (all relationship types), got %d: %v", len(keys), keys)
+	}
+
+	// Verify all expected keys are present
+	for _, expectedKey := range relatedTaskKeys {
+		found := false
+		for _, key := range keys {
+			if key == expectedKey {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected to find key %s in results, got: %v", expectedKey, keys)
+		}
+	}
+
+	// Cleanup
+	defer database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id = ?", mainTask.ID)
+	defer func() {
+		for _, id := range taskIDs {
+			database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+		}
+	}()
+}
+
+// TestListRelatedTaskKeys_ExcludeSelfReferences tests AC-3: method excludes self-references
+func TestListRelatedTaskKeys_ExcludeSelfReferences(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRelationshipRepository(db)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E07-F29-00[56]'")
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create task
+	task := &models.Task{
+		Key:       "T-E07-F29-005",
+		Title:     "Task 5",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	err := taskRepo.Create(ctx, task)
+	if err != nil {
+		t.Fatalf("Failed to create task: %v", err)
+	}
+
+	// Create a related task
+	relatedTask := &models.Task{
+		Key:       "T-E07-F29-006",
+		Title:     "Related Task",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	err = taskRepo.Create(ctx, relatedTask)
+	if err != nil {
+		t.Fatalf("Failed to create related task: %v", err)
+	}
+
+	// Create relationship
+	rel := &models.TaskRelationship{
+		FromTaskID:       task.ID,
+		ToTaskID:         relatedTask.ID,
+		RelationshipType: models.RelationshipDependsOn,
+	}
+	err = repo.Create(ctx, rel)
+	if err != nil {
+		t.Fatalf("Failed to create relationship: %v", err)
+	}
+
+	// Execute method
+	keys, err := repo.ListRelatedTaskKeys(ctx, task.ID)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("ListRelatedTaskKeys() error = %v", err)
+	}
+
+	// Verify task's own key is NOT in results
+	for _, key := range keys {
+		if key == task.Key {
+			t.Errorf("self-reference found in results: %s should not be present", task.Key)
+		}
+	}
+
+	// Verify related task is in results
+	found := false
+	for _, key := range keys {
+		if key == relatedTask.Key {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected to find related task key %s in results, got: %v", relatedTask.Key, keys)
+	}
+
+	// Cleanup
+	defer database.ExecContext(ctx, "DELETE FROM task_relationships WHERE id = ?", rel.ID)
+	defer database.ExecContext(ctx, "DELETE FROM tasks WHERE id IN (?, ?)", task.ID, relatedTask.ID)
+}
+
+// TestListRelatedTaskKeys_AlphabeticallySorted tests that keys are returned in alphabetical order
+func TestListRelatedTaskKeys_AlphabeticallySorted(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRelationshipRepository(db)
+	taskRepo := NewTaskRepository(db)
+
+	// Clean before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E07-F29-[234][0-9][0-9]'")
+
+	// Seed test data
+	_, featureID := test.SeedTestData()
+
+	// Create main task
+	mainTask := &models.Task{
+		Key:       "T-E07-F29-200",
+		Title:     "Main Task",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
+	}
+	err := taskRepo.Create(ctx, mainTask)
+	if err != nil {
+		t.Fatalf("Failed to create main task: %v", err)
+	}
+
+	// Create related tasks with keys that will sort alphabetically
+	relatedKeys := []string{"T-E07-F29-203", "T-E07-F29-201", "T-E07-F29-202"}
+	taskIDs := []int64{mainTask.ID}
+
+	for _, key := range relatedKeys {
+		task := &models.Task{
+			Key:       key,
+			Title:     "Related Task",
+			Status:    "todo",
+			Priority:  5,
+			FeatureID: featureID,
+		}
+		err = taskRepo.Create(ctx, task)
+		if err != nil {
+			t.Fatalf("Failed to create task %s: %v", key, err)
+		}
+		taskIDs = append(taskIDs, task.ID)
+
+		// Create relationship
+		rel := &models.TaskRelationship{
+			FromTaskID:       mainTask.ID,
+			ToTaskID:         task.ID,
+			RelationshipType: models.RelationshipRelatedTo,
+		}
+		err = repo.Create(ctx, rel)
+		if err != nil {
+			t.Fatalf("Failed to create relationship: %v", err)
+		}
+	}
+
+	// Execute method
+	keys, err := repo.ListRelatedTaskKeys(ctx, mainTask.ID)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("ListRelatedTaskKeys() error = %v", err)
+	}
+	if len(keys) != 3 {
+		t.Errorf("expected 3 keys, got %d: %v", len(keys), keys)
+	}
+
+	// Verify alphabetical order
+	expectedOrder := []string{"T-E07-F29-201", "T-E07-F29-202", "T-E07-F29-203"}
+	for i, expectedKey := range expectedOrder {
+		if i < len(keys) && keys[i] != expectedKey {
+			t.Errorf("keys not in alphabetical order: position %d expected %s, got %s", i, expectedKey, keys[i])
+		}
+	}
+
+	// Cleanup
+	defer database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id = ?", mainTask.ID)
+	defer func() {
+		for _, id := range taskIDs {
+			database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+		}
+	}()
+}

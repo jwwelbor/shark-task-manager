@@ -698,16 +698,21 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 
 	// Output results
 	if cli.GlobalConfig.JSON {
+		// Use DisplayService to resolve orchestrator action with related docs/tasks
+		displaySvc := cli.GetDisplayService()
+		orchestratorAction := displaySvc.ResolveTaskAction(cmd.Context(), task)
+
 		// Create enhanced output with dependency status, related docs, and blocking relationships
 		output := map[string]interface{}{
-			"task":              task,
-			"path":              dirPath,
-			"filename":          filename,
-			"dependency_status": dependencyStatus,
-			"related_documents": relatedDocs,
-			"blocked_by":        blockedByKeys,
-			"blocks":            blocksKeys,
-			"rejection_history": rejectionHistory,
+			"task":                task,
+			"path":                dirPath,
+			"filename":            filename,
+			"dependency_status":   dependencyStatus,
+			"related_documents":   relatedDocs,
+			"blocked_by":          blockedByKeys,
+			"blocks":              blocksKeys,
+			"rejection_history":   rejectionHistory,
+			"orchestrator_action": orchestratorAction,
 		}
 		return cli.OutputJSON(output)
 	}
@@ -853,6 +858,12 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		}
 	}
+
+	// Display orchestrator action if configured for current status
+	// Use DisplayService to resolve orchestrator action with related docs/tasks
+	displaySvc := cli.GetDisplayService()
+	orchestratorAction := displaySvc.ResolveTaskAction(cmd.Context(), task)
+	displayOrchestratorAction(orchestratorAction)
 
 	return nil
 }

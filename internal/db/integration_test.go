@@ -4,8 +4,6 @@ import (
 	"context"
 	"os"
 	"testing"
-
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 )
 
 // TestAbstractionLayer_EndToEnd tests the complete abstraction layer
@@ -24,7 +22,7 @@ func TestAbstractionLayer_EndToEnd(t *testing.T) {
 	defer os.Remove(tmpDB)
 
 	// Step 1: Initialize database using registry
-	cfg := config.DatabaseConfig{
+	cfg := DatabaseConfig{
 		Backend: "sqlite",
 		URL:     tmpDB,
 	}
@@ -147,7 +145,7 @@ func TestAbstractionLayer_AutoDetection(t *testing.T) {
 	defer os.Remove(tmpDB)
 
 	// Config without explicit backend (should auto-detect)
-	cfg := config.DatabaseConfig{
+	cfg := DatabaseConfig{
 		URL: tmpDB,
 	}
 
@@ -189,7 +187,7 @@ func TestAbstractionLayer_MultipleDrivers(t *testing.T) {
 	}
 
 	// Test creating SQLite instance
-	sqliteCfg := config.DatabaseConfig{
+	sqliteCfg := DatabaseConfig{
 		Backend: "sqlite",
 		URL:     "./test.db",
 	}
@@ -202,7 +200,7 @@ func TestAbstractionLayer_MultipleDrivers(t *testing.T) {
 	}
 
 	// Test creating Turso instance
-	tursoCfg := config.DatabaseConfig{
+	tursoCfg := DatabaseConfig{
 		Backend: "turso",
 		URL:     "libsql://test.turso.io",
 	}
@@ -228,7 +226,7 @@ func TestAbstractionLayer_ConcurrentAccess(t *testing.T) {
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func() {
-			cfg := config.DatabaseConfig{
+			cfg := DatabaseConfig{
 				Backend: "sqlite",
 				URL:     ":memory:",
 			}
@@ -257,18 +255,18 @@ func TestAbstractionLayer_InvalidConfig(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		config config.DatabaseConfig
+		config DatabaseConfig
 	}{
 		{
 			name: "Empty backend",
-			config: config.DatabaseConfig{
+			config: DatabaseConfig{
 				Backend: "",
 				URL:     "",
 			},
 		},
 		{
 			name: "Invalid backend and URL mismatch",
-			config: config.DatabaseConfig{
+			config: DatabaseConfig{
 				Backend: "turso",
 				URL:     "./local.db", // File path for turso backend
 			},
@@ -297,7 +295,7 @@ func TestAbstractionLayer_SchemaCreation(t *testing.T) {
 	tmpDB := t.TempDir() + "/test.db"
 	defer os.Remove(tmpDB)
 
-	cfg := config.DatabaseConfig{
+	cfg := DatabaseConfig{
 		Backend: "sqlite",
 		URL:     tmpDB,
 	}
