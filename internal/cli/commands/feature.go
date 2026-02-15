@@ -1225,8 +1225,7 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 			len(contextData.ImplementationDecisions) > 0 ||
 			len(contextData.OpenQuestions) > 0 ||
 			len(contextData.Blockers) > 0 ||
-			len(contextData.AcceptanceCriteriaStatus) > 0 ||
-			len(contextData.RelatedTasks) > 0
+			len(contextData.AcceptanceCriteriaStatus) > 0
 		if hasContextContent {
 			pterm.DefaultSection.Println("Context")
 			fmt.Println()

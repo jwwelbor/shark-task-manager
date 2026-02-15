@@ -44,6 +44,36 @@ type testDocumentRepository struct {
 	db *sql.DB
 }
 
+// testTaskRelationshipRepository implements config.TaskRelationshipRepository for integration testing
+type testTaskRelationshipRepository struct {
+	db *sql.DB
+}
+
+func (r *testTaskRelationshipRepository) ListRelatedTaskKeys(ctx context.Context, taskID int64) ([]string, error) {
+	query := `
+		SELECT DISTINCT t.key
+		FROM tasks t
+		JOIN task_relationships tr ON (t.id = tr.to_task_id OR t.id = tr.from_task_id)
+		WHERE (tr.from_task_id = ? OR tr.to_task_id = ?) AND t.id != ?
+		ORDER BY t.key
+	`
+	rows, err := r.db.QueryContext(ctx, query, taskID, taskID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
 func (r *testDocumentRepository) ListForTask(ctx context.Context, taskID int64) ([]*models.Document, error) {
 	query := `
 		SELECT DISTINCT d.id, d.title, d.file_path
@@ -133,6 +163,7 @@ func TestIntegrationTemplateTaskWithRelatedDocs(t *testing.T) {
 	templateLinkDocumentToTask(t, database, taskID, doc2ID)
 
 	docRepo := &testDocumentRepository{db: database}
+	taskRelRepo := &testTaskRelationshipRepository{db: database}
 	task := &models.Task{
 		ID:        taskID,
 		Key:       "TMPL-E01-F01-001",
@@ -143,7 +174,7 @@ func TestIntegrationTemplateTaskWithRelatedDocs(t *testing.T) {
 	}
 
 	// Execute
-	placeholders := config.TaskPlaceholdersWithRelated(task, docRepo, ctx)
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
 
 	// Verify
 	relatedDocs := placeholders["related_docs"]
@@ -152,38 +183,54 @@ func TestIntegrationTemplateTaskWithRelatedDocs(t *testing.T) {
 	}
 }
 
-// Integration Test: Task with Related Tasks from Context
+// Integration Test: Task with Related Tasks from Database Relationships
 func TestIntegrationTemplateTaskWithRelatedTasks(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	defer templateIntegrationCleanup(database)
 
-	// Setup
-	_, featureID, taskID := templateSetupEpicFeatureTask(t, database, "TMPL-E02", "TMPL-E02-F01", "TMPL-E02-F01-001")
-	contextData := `{"related_tasks":["E07-F05-001","E10-F05-002"]}`
-	_, err := database.Exec(`UPDATE tasks SET context_data = ? WHERE id = ?`, contextData, taskID)
+	// Setup: Create main task
+	epicID, featureID, taskID := templateSetupEpicFeatureTask(t, database, "TMPL-E02", "TMPL-E02-F01", "TMPL-E02-F01-001")
+
+	// Create related tasks
+	relatedTask1ID := templateCreateTask(t, database, featureID, epicID, "TMPL-E02-F01-002", "Related Task 1")
+	relatedTask2ID := templateCreateTask(t, database, featureID, epicID, "TMPL-E02-F01-003", "Related Task 2")
+
+	// Create relationships from main task to related tasks
+	_, err := database.Exec(
+		`INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, ?)`,
+		taskID, relatedTask1ID, "depends_on",
+	)
 	if err != nil {
-		t.Fatalf("Failed to update context_data: %v", err)
+		t.Fatalf("Failed to create relationship 1: %v", err)
+	}
+
+	_, err = database.Exec(
+		`INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, ?)`,
+		taskID, relatedTask2ID, "blocks",
+	)
+	if err != nil {
+		t.Fatalf("Failed to create relationship 2: %v", err)
 	}
 
 	docRepo := &testDocumentRepository{db: database}
+	taskRelRepo := &testTaskRelationshipRepository{db: database}
 	task := &models.Task{
-		ID:          taskID,
-		Key:         "TMPL-E02-F01-001",
-		Title:       "Test Task",
-		Status:      "todo",
-		Priority:    5,
-		FeatureID:   featureID,
-		ContextData: &contextData,
+		ID:        taskID,
+		Key:       "TMPL-E02-F01-001",
+		Title:     "Test Task",
+		Status:    "todo",
+		Priority:  5,
+		FeatureID: featureID,
 	}
 
 	// Execute
-	placeholders := config.TaskPlaceholdersWithRelated(task, docRepo, ctx)
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
 
-	// Verify
+	// Verify - should have both related task keys
 	relatedTasks := placeholders["related_tasks"]
-	if relatedTasks != "E07-F05-001,E10-F05-002" {
-		t.Errorf("related_tasks incorrect: got %q", relatedTasks)
+	if !strings.Contains(relatedTasks, "TMPL-E02-F01-002") || !strings.Contains(relatedTasks, "TMPL-E02-F01-003") {
+		t.Errorf("related_tasks incorrect: got %q, expected both TMPL-E02-F01-002 and TMPL-E02-F01-003", relatedTasks)
 	}
 }
 
@@ -201,6 +248,7 @@ func TestIntegrationTemplateLargeDocumentList(t *testing.T) {
 	}
 
 	docRepo := &testDocumentRepository{db: database}
+	taskRelRepo := &testTaskRelationshipRepository{db: database}
 	task := &models.Task{
 		ID:        taskID,
 		Key:       "TMPL-E03-F01-001",
@@ -211,7 +259,7 @@ func TestIntegrationTemplateLargeDocumentList(t *testing.T) {
 	}
 
 	// Execute
-	placeholders := config.TaskPlaceholdersWithRelated(task, docRepo, ctx)
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
 
 	// Verify
 	relatedDocs := placeholders["related_docs"]
@@ -241,6 +289,7 @@ func TestIntegrationTemplateDynamicDocumentLookup(t *testing.T) {
 	templateLinkDocumentToTask(t, database, taskID, doc2ID)
 
 	docRepo := &testDocumentRepository{db: database}
+	taskRelRepo := &testTaskRelationshipRepository{db: database}
 	task := &models.Task{
 		ID:        taskID,
 		Key:       "TMPL-E04-F01-001",
@@ -251,7 +300,7 @@ func TestIntegrationTemplateDynamicDocumentLookup(t *testing.T) {
 	}
 
 	// Initial lookup
-	placeholders1 := config.TaskPlaceholdersWithRelated(task, docRepo, ctx)
+	placeholders1 := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
 	if !strings.Contains(placeholders1["related_docs"], "docs/doc1.md") {
 		t.Errorf("Initial lookup missing doc1.md")
 	}
@@ -263,7 +312,7 @@ func TestIntegrationTemplateDynamicDocumentLookup(t *testing.T) {
 	}
 
 	// Second lookup (dynamic)
-	placeholders2 := config.TaskPlaceholdersWithRelated(task, docRepo, ctx)
+	placeholders2 := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
 	if strings.Contains(placeholders2["related_docs"], "docs/doc1.md") {
 		t.Errorf("Dynamic lookup should not include unlinked document")
 	}

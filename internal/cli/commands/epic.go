@@ -894,8 +894,7 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 			len(contextData.ImplementationDecisions) > 0 ||
 			len(contextData.OpenQuestions) > 0 ||
 			len(contextData.Blockers) > 0 ||
-			len(contextData.AcceptanceCriteriaStatus) > 0 ||
-			len(contextData.RelatedTasks) > 0
+			len(contextData.AcceptanceCriteriaStatus) > 0
 		if hasContextContent {
 			pterm.DefaultSection.Println("Context")
 			fmt.Println()

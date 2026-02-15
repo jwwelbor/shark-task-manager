@@ -91,10 +91,13 @@ type StatusCountItem struct {
 
 // DisplayServiceDeps holds the repository dependencies for DisplayService
 type DisplayServiceDeps struct {
-	EpicRepo     *repository.EpicRepository
-	FeatureRepo  *repository.FeatureRepository
-	TaskRepo     *repository.TaskRepository
-	DocumentRepo *repository.DocumentRepository
+	EpicRepo       *repository.EpicRepository
+	FeatureRepo    *repository.FeatureRepository
+	TaskRepo       *repository.TaskRepository
+	DocumentRepo   *repository.DocumentRepository
+	TaskRelRepo    *repository.TaskRelationshipRepository
+	FeatureRelRepo *repository.FeatureRelationshipRepository
+	EpicRelRepo    *repository.EpicRelationshipRepository
 }
 
 // DisplayService encapsulates the planning-vs-aggregation display logic.
@@ -112,10 +115,13 @@ type DisplayService struct {
 func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *DisplayService {
 	return &DisplayService{
 		deps: DisplayServiceDeps{
-			EpicRepo:     repository.NewEpicRepository(db),
-			FeatureRepo:  repository.NewFeatureRepository(db),
-			TaskRepo:     repository.NewTaskRepository(db),
-			DocumentRepo: repository.NewDocumentRepository(db),
+			EpicRepo:       repository.NewEpicRepository(db),
+			FeatureRepo:    repository.NewFeatureRepository(db),
+			TaskRepo:       repository.NewTaskRepository(db),
+			DocumentRepo:   repository.NewDocumentRepository(db),
+			TaskRelRepo:    repository.NewTaskRelationshipRepository(db),
+			FeatureRelRepo: repository.NewFeatureRelationshipRepository(db),
+			EpicRelRepo:    repository.NewEpicRelationshipRepository(db),
 		},
 		epicWorkflow:    workflowSvc.ForLevel(workflow.LevelEpic).GetWorkflow(),
 		featureWorkflow: workflowSvc.ForLevel(workflow.LevelFeature).GetWorkflow(),
@@ -507,7 +513,7 @@ func (s *DisplayService) ResolveTaskAction(ctx context.Context, task *models.Tas
 	}
 
 	// Use TaskPlaceholdersWithRelated to populate placeholders with related docs and tasks
-	placeholders := config.TaskPlaceholdersWithRelated(task, s.deps.DocumentRepo, ctx)
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, s.deps.DocumentRepo, s.deps.TaskRelRepo)
 
 	return &config.PopulatedAction{
 		Action:      meta.OrchestratorAction.Action,

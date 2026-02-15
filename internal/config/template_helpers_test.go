@@ -327,137 +327,6 @@ func TestFormatDocPathsAsCSV_LargeList(t *testing.T) {
 		t.Errorf("formatDocPathsAsCSV(50) has %d commas, want 49", commaCount)
 	}
 }
-
-// TestExtractRelatedTasksFromContext tests the extractRelatedTasksFromContext function
-func TestExtractRelatedTasksFromContext(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    *string
-		expected string
-		desc     string
-	}{
-		// TC-CTX-01: Nil context
-		{
-			name:     "nil_context",
-			input:    nil,
-			expected: "",
-			desc:     "Nil context should return empty string",
-		},
-		// TC-CTX-02: Empty string
-		{
-			name:     "empty_string",
-			input:    ptrString(""),
-			expected: "",
-			desc:     "Empty string should return empty string",
-		},
-		// TC-CTX-03: Valid JSON with 2 tasks (happy path)
-		{
-			name:     "valid_json_two_tasks",
-			input:    ptrString(`{"related_tasks":["E01-F01","E02-F01"]}`),
-			expected: "E01-F01,E02-F01",
-			desc:     "Valid JSON with 2 tasks should extract both in CSV format",
-		},
-		// TC-CTX-04: Valid JSON with empty array
-		{
-			name:     "valid_json_empty_array",
-			input:    ptrString(`{"related_tasks":[]}`),
-			expected: "",
-			desc:     "Valid JSON with empty array should return empty string",
-		},
-		// TC-CTX-05: Valid JSON without related_tasks field
-		{
-			name:     "valid_json_missing_field",
-			input:    ptrString(`{"other_field":"value"}`),
-			expected: "",
-			desc:     "Valid JSON without related_tasks field should return empty string",
-		},
-		// TC-CTX-06: Malformed JSON
-		{
-			name:     "malformed_json",
-			input:    ptrString(`"{invalid}"`),
-			expected: "",
-			desc:     "Malformed JSON should return empty string (no error, warning logged)",
-		},
-		// TC-CTX-07: Valid JSON with null related_tasks
-		{
-			name:     "valid_json_null_field",
-			input:    ptrString(`{"related_tasks":null}`),
-			expected: "",
-			desc:     "Valid JSON with null related_tasks should return empty string",
-		},
-		// Additional: Single task
-		{
-			name:     "valid_json_single_task",
-			input:    ptrString(`{"related_tasks":["E07-F05-001"]}`),
-			expected: "E07-F05-001",
-			desc:     "Valid JSON with single task should extract it",
-		},
-		// Additional: Multiple tasks with more complex format
-		{
-			name:     "valid_json_multiple_tasks",
-			input:    ptrString(`{"related_tasks":["E01-F01-001","E07-F05-002","E10-F20-003"]}`),
-			expected: "E01-F01-001,E07-F05-002,E10-F20-003",
-			desc:     "Valid JSON with multiple tasks should extract all in order",
-		},
-		// Additional: JSON with extra fields
-		{
-			name:     "valid_json_with_extra_fields",
-			input:    ptrString(`{"description":"test","related_tasks":["E01-F01"],"other":"data"}`),
-			expected: "E01-F01",
-			desc:     "Valid JSON with extra fields should extract only related_tasks",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractRelatedTasksFromContext(tt.input)
-			if result != tt.expected {
-				t.Errorf("%s: got %q, want %q", tt.desc, result, tt.expected)
-			}
-		})
-	}
-}
-
-// ptrString is a helper to create string pointers for tests
-func ptrString(s string) *string {
-	return &s
-}
-
-// TestFormatFeatureKeysAsCSV_NilSlice tests nil feature keys slice
-func TestFormatFeatureKeysAsCSV_NilSlice(t *testing.T) {
-	result := formatFeatureKeysAsCSV(nil)
-	if result != "" {
-		t.Errorf("formatFeatureKeysAsCSV(nil) = %q, want empty string", result)
-	}
-}
-
-// TestFormatFeatureKeysAsCSV_EmptySlice tests empty feature keys slice
-func TestFormatFeatureKeysAsCSV_EmptySlice(t *testing.T) {
-	result := formatFeatureKeysAsCSV([]string{})
-	if result != "" {
-		t.Errorf("formatFeatureKeysAsCSV([]) = %q, want empty string", result)
-	}
-}
-
-// TestFormatFeatureKeysAsCSV_SingleKey tests single feature key formatting
-func TestFormatFeatureKeysAsCSV_SingleKey(t *testing.T) {
-	result := formatFeatureKeysAsCSV([]string{"E07-F05"})
-	expected := "E07-F05"
-	if result != expected {
-		t.Errorf("formatFeatureKeysAsCSV() = %q, want %q", result, expected)
-	}
-}
-
-// TestFormatFeatureKeysAsCSV_MultipleKeys tests multiple feature keys formatting
-func TestFormatFeatureKeysAsCSV_MultipleKeys(t *testing.T) {
-	result := formatFeatureKeysAsCSV([]string{"E07-F05", "E07-F21", "E10-F05"})
-	expected := "E07-F05,E07-F21,E10-F05"
-	if result != expected {
-		t.Errorf("formatFeatureKeysAsCSV() = %q, want %q", result, expected)
-	}
-}
-
-// TestFormatEpicKeysAsCSV_NilSlice tests nil epic keys slice
 func TestFormatEpicKeysAsCSV_NilSlice(t *testing.T) {
 	result := formatEpicKeysAsCSV(nil)
 	if result != "" {
@@ -491,8 +360,12 @@ func TestFormatEpicKeysAsCSV_MultipleKeys(t *testing.T) {
 	}
 }
 
-// TestTaskPlaceholdersWithRelated_HappyPath tests task placeholders with docs and tasks
+// TestTaskPlaceholdersWithRelated_HappyPath tests task placeholders with docs and tasks (LEGACY - uses context data)
+// NOTE: This test is deprecated and should be replaced with the refactored version
+// that uses TaskRelationshipRepository. Keeping for backward compatibility during transition.
 func TestTaskPlaceholdersWithRelated_HappyPath(t *testing.T) {
+	t.Skip("DEPRECATED: This test uses the old context_data approach. Use TestTaskPlaceholdersWithRelated_Refactored_* instead.")
+
 	task := &models.Task{
 		Key:         "T-E07-F29-001",
 		Title:       "Test Task",
@@ -507,8 +380,12 @@ func TestTaskPlaceholdersWithRelated_HappyPath(t *testing.T) {
 		},
 	}
 
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{"E07-F05-001", "E10-F05-002"},
+	}
+
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
 
 	if relDocs := result["related_docs"]; relDocs != "docs/a.md,docs/b.md" {
 		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md,docs/b.md")
@@ -531,8 +408,12 @@ func TestTaskPlaceholdersWithRelated_NoData(t *testing.T) {
 		docs: []*models.Document{},
 	}
 
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{},
+	}
+
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -546,8 +427,9 @@ func TestTaskPlaceholdersWithRelated_NoData(t *testing.T) {
 // TestTaskPlaceholdersWithRelated_NilTask tests task placeholders with nil task
 func TestTaskPlaceholdersWithRelated_NilTask(t *testing.T) {
 	mockRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(nil, mockRepo, ctx)
+	result := TaskPlaceholdersWithRelated(ctx, nil, mockRepo, mockTaskRelRepo)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -761,40 +643,55 @@ func (m *mockEpicRelationshipRepository) ListRelatedEpics(ctx context.Context, e
 	return m.epics, nil
 }
 
+// Mock TaskRelationshipRepository for testing
+type mockTaskRelationshipRepository struct {
+	tasks []string
+	err   error
+}
+
+func (m *mockTaskRelationshipRepository) ListRelatedTaskKeys(ctx context.Context, taskID int64) ([]string, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.tasks, nil
+}
+
 // TestTaskPlaceholdersWithRelated_DocRepoError tests task placeholders when doc repo fails (TC-PH-06)
 func TestTaskPlaceholdersWithRelated_DocRepoError(t *testing.T) {
 	task := &models.Task{
-		Key:         "T-E07-F29-001",
-		Title:       "Test Task",
-		Status:      "todo",
-		ContextData: ptrString(`{"related_tasks":["E07-F05-001"]}`),
+		Key:    "T-E07-F29-001",
+		Title:  "Test Task",
+		Status: "todo",
 	}
 
 	mockRepo := &mockDocumentRepository{
 		err: fmt.Errorf("database connection lost"),
 	}
 
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{"E07-F05-001"},
+	}
+
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
 
 	// Should return empty string for docs when repo fails (graceful degradation)
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs on error = %q, want empty string", relDocs)
 	}
 
-	// Related tasks should still work from context data
+	// Related tasks should still work from repository
 	if relTasks := result["related_tasks"]; relTasks != "E07-F05-001" {
 		t.Errorf("related_tasks = %q, want %q", relTasks, "E07-F05-001")
 	}
 }
 
-// TestTaskPlaceholdersWithRelated_PartialData tests task with docs but no context data (TC-PH-03)
+// TestTaskPlaceholdersWithRelated_PartialData tests task with docs but no relationships (TC-PH-03)
 func TestTaskPlaceholdersWithRelated_PartialData(t *testing.T) {
 	task := &models.Task{
 		Key:    "T-E07-F29-001",
 		Title:  "Test Task",
 		Status: "todo",
-		// No context data
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -803,8 +700,12 @@ func TestTaskPlaceholdersWithRelated_PartialData(t *testing.T) {
 		},
 	}
 
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{},
+	}
+
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
 
 	if relDocs := result["related_docs"]; relDocs != "docs/spec.md" {
 		t.Errorf("related_docs = %q, want %q", relDocs, "docs/spec.md")
@@ -815,13 +716,13 @@ func TestTaskPlaceholdersWithRelated_PartialData(t *testing.T) {
 	}
 }
 
-// TestTaskPlaceholdersWithRelated_MalformedContext tests task with malformed JSON context (TC-PH-04)
+// TestTaskPlaceholdersWithRelated_MalformedContext tests task when repo query fails (TC-PH-04)
+// NOTE: This test was originally for malformed JSON context, but now tests repository error handling
 func TestTaskPlaceholdersWithRelated_MalformedContext(t *testing.T) {
 	task := &models.Task{
-		Key:         "T-E07-F29-001",
-		Title:       "Test Task",
-		Status:      "todo",
-		ContextData: ptrString(`{invalid json}`),
+		Key:    "T-E07-F29-001",
+		Title:  "Test Task",
+		Status: "todo",
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -830,15 +731,19 @@ func TestTaskPlaceholdersWithRelated_MalformedContext(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		err: fmt.Errorf("query failed"),
+	}
 
-	// Should still return docs even with malformed context
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
+
+	// Should still return docs
 	if relDocs := result["related_docs"]; relDocs != "docs/spec.md" {
 		t.Errorf("related_docs = %q, want %q", relDocs, "docs/spec.md")
 	}
 
-	// Related tasks should be empty due to malformed JSON
+	// Related tasks should be empty due to query error
 	if relTasks := result["related_tasks"]; relTasks != "" {
 		t.Errorf("related_tasks = %q, want empty string", relTasks)
 	}
@@ -1024,14 +929,13 @@ func TestFormatDocPathsAsCSV_MixedValidAndEmpty(t *testing.T) {
 func TestTaskPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	slug := "test-task"
 	task := &models.Task{
-		Key:         "T-E07-F29-001",
-		Title:       "Test Task",
-		Status:      "in_progress",
-		Priority:    7,
-		Slug:        &slug,
-		ContextData: ptrString(`{"related_tasks":["E01-F01"]}`),
-		CreatedAt:   time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
-		UpdatedAt:   time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+		Key:       "T-E07-F29-001",
+		Title:     "Test Task",
+		Status:    "in_progress",
+		Priority:  7,
+		Slug:      &slug,
+		CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -1040,8 +944,12 @@ func TestTaskPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 		},
 	}
 
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{"E01-F01"},
+	}
+
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(task, mockRepo, ctx)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
 
 	// Verify basic placeholders are still there
 	if result["id"] != "T-E07-F29-001" {
@@ -1163,173 +1071,104 @@ func TestEpicPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 }
 
 // ============================================================================
-// Tests for extractRelatedFeaturesFromContext (new helper function)
+// Tests for refactored TaskPlaceholdersWithRelated using TaskRelationshipRepository
 // ============================================================================
 
-// TestExtractRelatedFeaturesFromContext_Nil tests extracting features from nil context
-func TestExtractRelatedFeaturesFromContext_Nil(t *testing.T) {
-	result := extractRelatedFeaturesFromContext(nil)
-	if result != "" {
-		t.Errorf("extractRelatedFeaturesFromContext(nil) = %q, want empty string", result)
+// TestTaskPlaceholdersWithRelated_Refactored_WithRelatedTasks tests task placeholder with repository-fetched tasks
+func TestTaskPlaceholdersWithRelated_Refactored_WithRelatedTasks(t *testing.T) {
+	task := &models.Task{
+		ID:     100,
+		Key:    "E07-F29-001",
+		Title:  "Test Task",
+		Status: "todo",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/spec.md"},
+			{FilePath: "docs/design.md"},
+		},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{"E07-F05-001", "E10-F05-002"},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	if relDocs := result["related_docs"]; relDocs != "docs/spec.md,docs/design.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/spec.md,docs/design.md")
+	}
+
+	if relTasks := result["related_tasks"]; relTasks != "E07-F05-001,E10-F05-002" {
+		t.Errorf("related_tasks = %q, want %q", relTasks, "E07-F05-001,E10-F05-002")
 	}
 }
 
-// TestExtractRelatedFeaturesFromContext_Empty tests extracting features from empty context
-func TestExtractRelatedFeaturesFromContext_Empty(t *testing.T) {
-	result := extractRelatedFeaturesFromContext(ptrString(""))
-	if result != "" {
-		t.Errorf("extractRelatedFeaturesFromContext(empty) = %q, want empty string", result)
+// TestTaskPlaceholdersWithRelated_Refactored_NoRelatedTasks tests empty array handling
+func TestTaskPlaceholdersWithRelated_Refactored_NoRelatedTasks(t *testing.T) {
+	task := &models.Task{
+		ID:     200,
+		Key:    "E07-F29-002",
+		Title:  "Test Task",
+		Status: "todo",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{}, // Empty array
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	if relDocs := result["related_docs"]; relDocs != "" {
+		t.Errorf("related_docs = %q, want empty string", relDocs)
+	}
+
+	if relTasks := result["related_tasks"]; relTasks != "" {
+		t.Errorf("related_tasks = %q, want empty string", relTasks)
 	}
 }
 
-// TestExtractRelatedFeaturesFromContext_HappyPath tests extracting features from valid JSON
-func TestExtractRelatedFeaturesFromContext_HappyPath(t *testing.T) {
-	contextJSON := `{"related_features":["E07-F05","E07-F21","E10-F05"]}`
-	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
-	expected := "E07-F05,E07-F21,E10-F05"
-	if result != expected {
-		t.Errorf("extractRelatedFeaturesFromContext(valid JSON) = %q, want %q", result, expected)
+// TestTaskPlaceholdersWithRelated_Refactored_QueryError tests graceful degradation on repo error
+func TestTaskPlaceholdersWithRelated_Refactored_QueryError(t *testing.T) {
+	task := &models.Task{
+		ID:     300,
+		Key:    "E07-F29-003",
+		Title:  "Test Task",
+		Status: "todo",
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{
+			{FilePath: "docs/spec.md"},
+		},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		err: fmt.Errorf("database connection failed"),
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	// Docs should still work
+	if relDocs := result["related_docs"]; relDocs != "docs/spec.md" {
+		t.Errorf("related_docs = %q, want %q", relDocs, "docs/spec.md")
+	}
+
+	// Should return empty string on error (graceful degradation)
+	if relTasks := result["related_tasks"]; relTasks != "" {
+		t.Errorf("related_tasks on error = %q, want empty string", relTasks)
 	}
 }
 
-// TestExtractRelatedFeaturesFromContext_SingleFeature tests extracting single feature
-func TestExtractRelatedFeaturesFromContext_SingleFeature(t *testing.T) {
-	contextJSON := `{"related_features":["E01-F05"]}`
-	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
-	expected := "E01-F05"
-	if result != expected {
-		t.Errorf("extractRelatedFeaturesFromContext(single) = %q, want %q", result, expected)
-	}
-}
-
-// TestExtractRelatedFeaturesFromContext_EmptyArray tests extracting features from empty array
-func TestExtractRelatedFeaturesFromContext_EmptyArray(t *testing.T) {
-	contextJSON := `{"related_features":[]}`
-	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
-	if result != "" {
-		t.Errorf("extractRelatedFeaturesFromContext(empty array) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedFeaturesFromContext_MissingField tests extracting features when field is missing
-func TestExtractRelatedFeaturesFromContext_MissingField(t *testing.T) {
-	contextJSON := `{"other_field":"value"}`
-	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
-	if result != "" {
-		t.Errorf("extractRelatedFeaturesFromContext(missing field) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedFeaturesFromContext_NullField tests extracting features when field is null
-func TestExtractRelatedFeaturesFromContext_NullField(t *testing.T) {
-	contextJSON := `{"related_features":null}`
-	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
-	if result != "" {
-		t.Errorf("extractRelatedFeaturesFromContext(null field) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedFeaturesFromContext_MalformedJSON tests extracting features from malformed JSON
-func TestExtractRelatedFeaturesFromContext_MalformedJSON(t *testing.T) {
-	contextJSON := `{invalid json}`
-	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
-	if result != "" {
-		t.Errorf("extractRelatedFeaturesFromContext(malformed) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedFeaturesFromContext_CrossEpicFeatures tests extracting cross-epic feature keys
-func TestExtractRelatedFeaturesFromContext_CrossEpicFeatures(t *testing.T) {
-	contextJSON := `{"related_features":["E01-F01","E07-F05","E10-F20"]}`
-	result := extractRelatedFeaturesFromContext(ptrString(contextJSON))
-	expected := "E01-F01,E07-F05,E10-F20"
-	if result != expected {
-		t.Errorf("extractRelatedFeaturesFromContext(cross-epic) = %q, want %q", result, expected)
-	}
-}
-
-// ============================================================================
-// Tests for extractRelatedEpicsFromContext (new helper function)
-// ============================================================================
-
-// TestExtractRelatedEpicsFromContext_Nil tests extracting epics from nil context
-func TestExtractRelatedEpicsFromContext_Nil(t *testing.T) {
-	result := extractRelatedEpicsFromContext(nil)
-	if result != "" {
-		t.Errorf("extractRelatedEpicsFromContext(nil) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedEpicsFromContext_Empty tests extracting epics from empty context
-func TestExtractRelatedEpicsFromContext_Empty(t *testing.T) {
-	result := extractRelatedEpicsFromContext(ptrString(""))
-	if result != "" {
-		t.Errorf("extractRelatedEpicsFromContext(empty) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedEpicsFromContext_HappyPath tests extracting epics from valid JSON
-func TestExtractRelatedEpicsFromContext_HappyPath(t *testing.T) {
-	contextJSON := `{"related_epics":["E01","E05","E07"]}`
-	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
-	expected := "E01,E05,E07"
-	if result != expected {
-		t.Errorf("extractRelatedEpicsFromContext(valid JSON) = %q, want %q", result, expected)
-	}
-}
-
-// TestExtractRelatedEpicsFromContext_SingleEpic tests extracting single epic
-func TestExtractRelatedEpicsFromContext_SingleEpic(t *testing.T) {
-	contextJSON := `{"related_epics":["E01"]}`
-	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
-	expected := "E01"
-	if result != expected {
-		t.Errorf("extractRelatedEpicsFromContext(single) = %q, want %q", result, expected)
-	}
-}
-
-// TestExtractRelatedEpicsFromContext_EmptyArray tests extracting epics from empty array
-func TestExtractRelatedEpicsFromContext_EmptyArray(t *testing.T) {
-	contextJSON := `{"related_epics":[]}`
-	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
-	if result != "" {
-		t.Errorf("extractRelatedEpicsFromContext(empty array) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedEpicsFromContext_MissingField tests extracting epics when field is missing
-func TestExtractRelatedEpicsFromContext_MissingField(t *testing.T) {
-	contextJSON := `{"other_field":"value"}`
-	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
-	if result != "" {
-		t.Errorf("extractRelatedEpicsFromContext(missing field) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedEpicsFromContext_NullField tests extracting epics when field is null
-func TestExtractRelatedEpicsFromContext_NullField(t *testing.T) {
-	contextJSON := `{"related_epics":null}`
-	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
-	if result != "" {
-		t.Errorf("extractRelatedEpicsFromContext(null field) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedEpicsFromContext_MalformedJSON tests extracting epics from malformed JSON
-func TestExtractRelatedEpicsFromContext_MalformedJSON(t *testing.T) {
-	contextJSON := `{invalid json}`
-	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
-	if result != "" {
-		t.Errorf("extractRelatedEpicsFromContext(malformed) = %q, want empty string", result)
-	}
-}
-
-// TestExtractRelatedEpicsFromContext_MultipleEpics tests extracting multiple epic keys
-func TestExtractRelatedEpicsFromContext_MultipleEpics(t *testing.T) {
-	contextJSON := `{"related_epics":["E01","E02","E03","E04","E05"]}`
-	result := extractRelatedEpicsFromContext(ptrString(contextJSON))
-	expected := "E01,E02,E03,E04,E05"
-	if result != expected {
-		t.Errorf("extractRelatedEpicsFromContext(multiple) = %q, want %q", result, expected)
-	}
+// ptrString returns a pointer to a string (helper for tests)
+func ptrString(s string) *string {
+	return &s
 }

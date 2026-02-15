@@ -327,15 +327,6 @@ func printResumeContext(ctx *ResumeContext) {
 		fmt.Printf("└─────────────────────────────────────────────────────────────\n\n")
 	}
 
-	// Related Tasks
-	if ctx.ContextData != nil && len(ctx.ContextData.RelatedTasks) > 0 {
-		fmt.Printf("┌─ RELATED TASKS ─────────────────────────────────────────────\n")
-		for _, taskKey := range ctx.ContextData.RelatedTasks {
-			fmt.Printf("│ • %s\n", taskKey)
-		}
-		fmt.Printf("└─────────────────────────────────────────────────────────────\n\n")
-	}
-
 	// Completion Metadata (if completed)
 	if ctx.CompletionMeta != nil {
 		fmt.Printf("┌─ COMPLETION DETAILS ────────────────────────────────────────\n")

@@ -1,0 +1,66 @@
+{
+  "color_enabled": true,
+  "default_agent": null,
+  "default_epic": null,
+  "description": "Simple workflow for solo developers",
+  "json_output": false,
+  "name": "basic",
+  "special_statuses": {
+    "_complete_": [
+      "completed"
+    ],
+    "_start_": [
+      "todo"
+    ]
+  },
+  "status_flow": {
+    "blocked": [
+      "todo",
+      "in_progress"
+    ],
+    "completed": [],
+    "in_progress": [
+      "completed",
+      "blocked"
+    ],
+    "todo": [
+      "in_progress",
+      "blocked"
+    ]
+  },
+  "status_flow_version": "1.0",
+  "status_metadata": {
+    "blocked": {
+      "blocks_feature": true,
+      "color": "red",
+      "description": "Blocked by external dependency",
+      "phase": "any",
+      "progress_weight": 0,
+      "responsibility": "none"
+    },
+    "completed": {
+      "blocks_feature": false,
+      "color": "green",
+      "description": "Task finished",
+      "phase": "done",
+      "progress_weight": 1,
+      "responsibility": "none"
+    },
+    "in_progress": {
+      "blocks_feature": false,
+      "color": "yellow",
+      "description": "Work in progress",
+      "phase": "development",
+      "progress_weight": 0.5,
+      "responsibility": "agent"
+    },
+    "todo": {
+      "blocks_feature": false,
+      "color": "gray",
+      "description": "Task not started",
+      "phase": "planning",
+      "progress_weight": 0,
+      "responsibility": "none"
+    }
+  }
+}
