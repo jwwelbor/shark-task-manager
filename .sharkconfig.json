@@ -11,29 +11,110 @@
   "json_output": false,
   "last_sync_time": "2026-01-16T23:22:45-06:00",
   "require_rejection_reason": true,
-
   "epic_workflow": {
     "version": "1.0",
     "status_flow": {
-      "draft":                    ["ready_for_refinement", "active", "cancelled"],
-      "ready_for_refinement":     ["in_refinement", "blocked", "on_hold"],
-      "in_refinement":            ["ready_for_research", "blocked", "on_hold"],
-      "ready_for_research":       ["in_research", "cancelled", "on_hold"],
-      "in_research":              ["ready_for_feasibility_review_ba", "blocked", "on_hold"],
-      "ready_for_feasibility_review_ba":  ["in_feasibility_review_ba", "blocked", "on_hold"],
-      "in_feasibility_review_ba":         ["ready_for_feasibility_review_tech", "intervention_required", "blocked", "on_hold"],
-      "ready_for_feasibility_review_tech": ["in_feasibility_review_tech", "blocked", "on_hold"],
-      "in_feasibility_review_tech":       ["ready_for_test_planning", "intervention_required", "blocked", "on_hold"],
-      "intervention_required":            ["ready_for_refinement", "ready_for_research", "ready_for_feasibility_review_ba", "ready_for_feasibility_review_tech", "ready_for_test_planning", "cancelled", "on_hold"],
-      "ready_for_test_planning":  ["in_test_planning", "blocked", "on_hold"],
-      "in_test_planning":         ["ready_for_decomposition", "ready_for_refinement", "blocked", "on_hold"],
-      "ready_for_decomposition":  ["in_decomposition", "blocked", "on_hold"],
-      "in_decomposition":         ["active", "blocked", "on_hold"],
-      "active":                   ["completed", "on_hold"],
-      "completed":                [],
-      "cancelled":                [],
-      "on_hold":                  ["ready_for_research", "ready_for_refinement", "ready_for_feasibility_review_ba", "ready_for_feasibility_review_tech", "ready_for_test_planning", "ready_for_decomposition", "active", "cancelled"],
-      "blocked":                  ["ready_for_research", "ready_for_refinement", "ready_for_feasibility_review_ba", "ready_for_feasibility_review_tech", "ready_for_test_planning", "ready_for_decomposition"]
+      "draft": [
+        "ready_for_refinement",
+        "active",
+        "cancelled"
+      ],
+      "ready_for_refinement": [
+        "in_refinement",
+        "blocked",
+        "on_hold"
+      ],
+      "in_refinement": [
+        "ready_for_research",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_research": [
+        "in_research",
+        "cancelled",
+        "on_hold"
+      ],
+      "in_research": [
+        "ready_for_feasibility_review_ba",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_feasibility_review_ba": [
+        "in_feasibility_review_ba",
+        "blocked",
+        "on_hold"
+      ],
+      "in_feasibility_review_ba": [
+        "ready_for_feasibility_review_tech",
+        "intervention_required",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_feasibility_review_tech": [
+        "in_feasibility_review_tech",
+        "blocked",
+        "on_hold"
+      ],
+      "in_feasibility_review_tech": [
+        "ready_for_test_planning",
+        "intervention_required",
+        "blocked",
+        "on_hold"
+      ],
+      "intervention_required": [
+        "ready_for_refinement",
+        "ready_for_research",
+        "ready_for_feasibility_review_ba",
+        "ready_for_feasibility_review_tech",
+        "ready_for_test_planning",
+        "cancelled",
+        "on_hold"
+      ],
+      "ready_for_test_planning": [
+        "in_test_planning",
+        "blocked",
+        "on_hold"
+      ],
+      "in_test_planning": [
+        "ready_for_decomposition",
+        "ready_for_refinement",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_decomposition": [
+        "in_decomposition",
+        "blocked",
+        "on_hold"
+      ],
+      "in_decomposition": [
+        "active",
+        "blocked",
+        "on_hold"
+      ],
+      "active": [
+        "completed",
+        "on_hold"
+      ],
+      "completed": [],
+      "cancelled": [],
+      "on_hold": [
+        "ready_for_research",
+        "ready_for_refinement",
+        "ready_for_feasibility_review_ba",
+        "ready_for_feasibility_review_tech",
+        "ready_for_test_planning",
+        "ready_for_decomposition",
+        "active",
+        "cancelled"
+      ],
+      "blocked": [
+        "ready_for_research",
+        "ready_for_refinement",
+        "ready_for_feasibility_review_ba",
+        "ready_for_feasibility_review_tech",
+        "ready_for_test_planning",
+        "ready_for_decomposition"
+      ]
     },
     "status_metadata": {
       "draft": {
@@ -52,22 +133,27 @@
         "description": "Epic PRD complete, ready for targeted research against defined scope",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.20,
+        "progress_weight": 0.2,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["researcher"],
+        "agent_types": [
+          "researcher"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "researcher",
-          "skills": ["discovery", "research"],
-          "instruction_template": "Research epic {id}: \"{title}\". STRATEGIC RESEARCH -- assess system-wide impact and feasibility against the defined epic PRD. LOAD: discovery skill (market-research, feasibility-analysis) + research skill (analyze-codebase, find-patterns). READ: All 6 epic PRD files at {file_path} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md) -- research must be scoped to these defined requirements and boundaries. Read all sibling epic docs under docs/plan/ to identify overlap and interactions. Check existing system capabilities in codebase. PRODUCE: Research report containing: (1) Market/competitive landscape relevant to defined requirements, (2) Feasibility assessment against each requirement area, (3) System-wide impact -- how this epic interacts with other epics, (4) Existing capability overlap with defined scope, (5) Risk assessment with mitigations mapped to specific requirements, (6) Recommendations. EXIT GATE: All 6 sections complete. Research scoped to PRD boundaries. No unresolved feasibility blockers. Overlap explicitly addressed. Advance: shark epic next-status {id}."
+          "skills": [
+            "discovery",
+            "research"
+          ],
+          "instruction_template": "epic/ready_for_research.tmpl"
         }
       },
       "in_research": {
         "description": "Research in progress",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.30,
+        "progress_weight": 0.3,
         "is_planning": true,
         "responsibility": "agent"
       },
@@ -78,12 +164,17 @@
         "progress_weight": 0.35,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["business-analyst"],
+        "agent_types": [
+          "business-analyst"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "business-analyst",
-          "skills": ["specification-writing", "discovery"],
-          "instruction_template": "BA feasibility review for epic {id}: \"{title}\". Compare research findings against the epic PRD from a business perspective. READ: (1) All 6 epic PRD files at {file_path} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md), (2) Research report from the research phase, (3) Other epic PRDs under docs/plan/ for cross-epic awareness. EVALUATE: (1) Cross-epic conflicts -- does research reveal overlap or contradiction with other epics?, (2) Market viability -- do research findings support or undermine the business case?, (3) Scope coherence -- do requirements still make sense given what research uncovered?, (4) Business risk -- are there showstopper business concerns? PRODUCE: BA feasibility review report with findings for each area, overall assessment (APPROVED or CONCERNS_FOUND), and recommended actions. IF APPROVED: Advance via shark epic next-status {id}. IF CONCERNS FOUND: Set intervention_required via shark epic update {id} --status=intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action."
+          "skills": [
+            "specification-writing",
+            "discovery"
+          ],
+          "instruction_template": "epic/ready_for_feasibility_review_ba.tmpl"
         }
       },
       "in_feasibility_review_ba": {
@@ -98,15 +189,20 @@
         "description": "BA feasibility approved, ready for technical feasibility review",
         "phase": "feasibility",
         "color": "teal",
-        "progress_weight": 0.40,
+        "progress_weight": 0.4,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["architect"],
+        "agent_types": [
+          "architect"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "architect",
-          "skills": ["architecture", "research"],
-          "instruction_template": "Technical feasibility review for epic {id}: \"{title}\". Compare research findings against the epic PRD from a technical perspective. READ: (1) All 6 epic PRD files at {file_path} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md), (2) Research report from the research phase, (3) BA feasibility review report, (4) Other epic architectures and PRDs under docs/plan/ for system-wide awareness. EVALUATE: (1) Technical feasibility -- can each requirement area be implemented with available technology and team capabilities?, (2) Architectural concerns -- does research reveal integration complexity, performance risks, or scaling issues?, (3) Dependency and integration risks -- are there external system dependencies or cross-epic technical conflicts?, (4) Technical debt implications -- will this epic create or exacerbate technical debt? PRODUCE: Technical feasibility review report with findings for each area, overall assessment (APPROVED or CONCERNS_FOUND), and recommended actions. IF APPROVED: Advance via shark epic next-status {id}. IF CONCERNS FOUND: Set intervention_required via shark epic update {id} --status=intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action."
+          "skills": [
+            "architecture",
+            "research"
+          ],
+          "instruction_template": "epic/ready_for_feasibility_review_tech.tmpl"
         }
       },
       "in_feasibility_review_tech": {
@@ -133,14 +229,18 @@
         "description": "Draft captured, ready for BA to write epic PRD",
         "phase": "refinement",
         "color": "orange",
-        "progress_weight": 0.10,
+        "progress_weight": 0.1,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["business-analyst"],
+        "agent_types": [
+          "business-analyst"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "business-analyst",
-          "skills": ["specification-writing"],
+          "skills": [
+            "specification-writing"
+          ],
           "instruction_template": "Write epic PRD for {id}: \"{title}\". LOAD: specification-writing workflow write-epic.md -- follow multi-file architecture. READ: (1) Draft epic document at {file_path} and any vision notes, (2) Other epic PRDs under docs/plan/ for consistency and overlap awareness. PRODUCE: 6 PRD files per write-epic.md (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md). Define clear scope boundaries to guide research. Success metrics must be measurable. EXIT GATE: All 6 files created and cross-referenced. Write-epic.md checklist passes. No vague language or TBDs. Advance: shark epic next-status {id}."
         }
       },
@@ -156,14 +256,19 @@
         "description": "Feasibility approved, ready for UAT acceptance plan",
         "phase": "test_planning",
         "color": "lime",
-        "progress_weight": 0.50,
+        "progress_weight": 0.5,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["qa"],
+        "agent_types": [
+          "qa"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "qa",
-          "skills": ["quality", "shark"],
+          "skills": [
+            "quality",
+            "shark"
+          ],
           "instruction_template": "Create UAT acceptance plan for epic {id}: \"{title}\". STRATEGIC TEST PLANNING -- define how we know this epic delivers what it promises. READ: (1) Epic PRD at {file_path} -- all 6 files (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md), (2) Research report for feasibility constraints and risk areas, (3) BA feasibility review report for business viability assessment and cross-epic conflict analysis, (4) Technical feasibility review report for architectural concerns and dependency risks, (5) Other epic UAT plans under docs/plan/ for cross-epic test coverage. PRODUCE: Epic UAT plan containing: (1) Acceptance scenarios derived from each user journey -- concrete end-to-end scenarios with preconditions, steps, expected outcomes that prove the journey works, (2) Success metrics validation plan -- how each metric from success-metrics.md will be measured and what constitutes pass/fail, (3) Cross-epic integration test scenarios -- where this epic's capabilities interact with other epics, (4) Risk-based test priorities -- which scenarios must pass first based on research risk assessment and feasibility review findings, (5) Persona-based acceptance matrix -- for each persona, which scenarios validate their needs are met. EXIT GATE: Every user journey has at least one acceptance scenario. Every success metric has a validation method. Risk areas from research and feasibility reviews have targeted scenarios. Plan is actionable for feature-level decomposition into test strategies. Advance: shark epic next-status {id}."
         }
       },
@@ -179,14 +284,18 @@
         "description": "Epic PRD, feasibility reviews, and UAT plan complete, ready to decompose into features",
         "phase": "decomposition",
         "color": "yellow",
-        "progress_weight": 0.60,
+        "progress_weight": 0.6,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["product-manager"],
+        "agent_types": [
+          "product-manager"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "product-manager",
-          "skills": ["specification-writing"],
+          "skills": [
+            "specification-writing"
+          ],
           "instruction_template": "Decompose epic {id}: \"{title}\" into features. LOAD: specification-writing workflow decompose-epic.md. READ: (1) Full epic PRD at {file_path} (all 6 files), (2) Research report for system interactions and technical landscape, (3) BA feasibility review report for business viability and cross-epic conflicts, (4) Technical feasibility review report for architectural concerns and dependency risks, (5) Success metrics to ensure features trace to outcomes, (6) Existing features (shark feature list --epic={id}). PRODUCE: For each feature: create in shark (shark feature create --epic={id} --title=\"Name\"), write scope description, define execution order and dependencies, map to epic requirements. Output decomposition summary with feature tree and dependency graph. EXIT GATE: Every epic requirement traces to a feature. No scope overlap. Acyclic dependencies. Each feature sized for 1-3 sprints. Reviewed with user. Advance: shark epic next-status {id}."
         }
       },
@@ -194,7 +303,7 @@
         "description": "Features being generated from epic",
         "phase": "decomposition",
         "color": "yellow",
-        "progress_weight": 0.70,
+        "progress_weight": 0.7,
         "is_planning": true,
         "responsibility": "agent"
       },
@@ -257,36 +366,138 @@
       }
     },
     "special_statuses": {
-      "_start_": ["draft"],
-      "_complete_": ["completed", "cancelled"],
-      "_aggregation_": ["active"]
+      "_start_": [
+        "draft"
+      ],
+      "_complete_": [
+        "completed",
+        "cancelled"
+      ],
+      "_aggregation_": [
+        "active"
+      ]
     }
   },
-
   "feature_workflow": {
     "version": "1.1",
     "status_flow": {
-      "draft":                        ["ready_for_scope_validation", "ready_for_research", "ready_for_refinement_ba", "active", "cancelled"],
-      "ready_for_scope_validation":   ["in_scope_validation", "cancelled", "on_hold"],
-      "in_scope_validation":          ["ready_for_triage", "cancelled"],
-      "ready_for_triage":             ["in_triage", "blocked", "on_hold"],
-      "in_triage":                    ["ready_for_research", "ready_for_refinement_ba", "ready_for_task_generation", "blocked", "on_hold"],
-      "ready_for_research":           ["in_research", "cancelled", "on_hold"],
-      "in_research":                  ["ready_for_refinement_ba", "draft", "blocked", "on_hold"],
-      "ready_for_refinement_ba":      ["in_refinement_ba", "cancelled", "on_hold"],
-      "in_refinement_ba":             ["ready_for_refinement_tech", "draft", "blocked", "on_hold"],
-      "ready_for_refinement_tech":    ["in_refinement_tech", "blocked", "on_hold"],
-      "in_refinement_tech":           ["ready_for_test_planning", "ready_for_refinement_ba", "blocked", "on_hold"],
-      "ready_for_test_planning":      ["in_test_planning", "blocked", "on_hold"],
-      "in_test_planning":             ["ready_for_task_generation", "ready_for_refinement_ba", "ready_for_refinement_tech", "blocked", "on_hold"],
-      "ready_for_task_generation":    ["in_task_generation", "blocked", "on_hold"],
-      "in_task_generation":           ["ready_to_build", "blocked", "on_hold"],
-      "ready_to_build":               ["active", "blocked", "on_hold"],
-      "active":                       ["completed", "on_hold"],
-      "completed":                    [],
-      "cancelled":                    [],
-      "on_hold":                      ["ready_for_scope_validation", "ready_for_triage", "ready_for_research", "ready_for_refinement_ba", "ready_for_refinement_tech", "ready_for_test_planning", "ready_for_task_generation", "ready_to_build", "active", "cancelled"],
-      "blocked":                      ["ready_for_scope_validation", "ready_for_triage", "ready_for_research", "ready_for_refinement_ba", "ready_for_refinement_tech", "ready_for_test_planning", "ready_for_task_generation", "ready_to_build", "draft"]
+      "draft": [
+        "ready_for_scope_validation",
+        "ready_for_research",
+        "ready_for_refinement_ba",
+        "active",
+        "cancelled"
+      ],
+      "ready_for_scope_validation": [
+        "in_scope_validation",
+        "cancelled",
+        "on_hold"
+      ],
+      "in_scope_validation": [
+        "ready_for_triage",
+        "cancelled"
+      ],
+      "ready_for_triage": [
+        "in_triage",
+        "blocked",
+        "on_hold"
+      ],
+      "in_triage": [
+        "ready_for_research",
+        "ready_for_refinement_ba",
+        "ready_for_task_generation",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_research": [
+        "in_research",
+        "cancelled",
+        "on_hold"
+      ],
+      "in_research": [
+        "ready_for_refinement_ba",
+        "draft",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_refinement_ba": [
+        "in_refinement_ba",
+        "cancelled",
+        "on_hold"
+      ],
+      "in_refinement_ba": [
+        "ready_for_refinement_tech",
+        "draft",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_refinement_tech": [
+        "in_refinement_tech",
+        "blocked",
+        "on_hold"
+      ],
+      "in_refinement_tech": [
+        "ready_for_test_planning",
+        "ready_for_refinement_ba",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_test_planning": [
+        "in_test_planning",
+        "blocked",
+        "on_hold"
+      ],
+      "in_test_planning": [
+        "ready_for_task_generation",
+        "ready_for_refinement_ba",
+        "ready_for_refinement_tech",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_task_generation": [
+        "in_task_generation",
+        "blocked",
+        "on_hold"
+      ],
+      "in_task_generation": [
+        "ready_to_build",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_to_build": [
+        "active",
+        "blocked",
+        "on_hold"
+      ],
+      "active": [
+        "completed",
+        "on_hold"
+      ],
+      "completed": [],
+      "cancelled": [],
+      "on_hold": [
+        "ready_for_scope_validation",
+        "ready_for_triage",
+        "ready_for_research",
+        "ready_for_refinement_ba",
+        "ready_for_refinement_tech",
+        "ready_for_test_planning",
+        "ready_for_task_generation",
+        "ready_to_build",
+        "active",
+        "cancelled"
+      ],
+      "blocked": [
+        "ready_for_scope_validation",
+        "ready_for_triage",
+        "ready_for_research",
+        "ready_for_refinement_ba",
+        "ready_for_refinement_tech",
+        "ready_for_test_planning",
+        "ready_for_task_generation",
+        "ready_to_build",
+        "draft"
+      ]
     },
     "status_metadata": {
       "draft": {
@@ -308,11 +519,16 @@
         "progress_weight": 0.01,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["business-analyst"],
+        "agent_types": [
+          "business-analyst"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "business-analyst",
-          "skills": ["specification-writing", "shark"],
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
           "instruction_template": "Validate scope for feature {id}: \"{title}\". ASSESS: Is this properly scoped as a feature or misclassified task? READ: (1) Feature description at {file_path}, (2) Parent epic PRD for context. CRITERIA: FEATURE = multi-capability (4+ user-facing capabilities), user journey focus (maps to persona needs), 4+ files typically, multi-sprint scope, requires architecture decisions. TASK = single atomic change (e.g., 'update button', 'fix typo', 'change color'), implementation detail, 1-3 files, days of work, applies existing patterns. IF MISCLASSIFIED: (1) Find or create enhancement feature: shark feature list --title='Enhancements' --epic={epic_id} OR shark feature create --epic={epic_id} --title='Enhancements and Maintenance', (2) Convert to task under enhancement feature: shark task create --feature={enhancement_feature_id} --title='{title}' --description='{description}', (3) Cancel this feature: shark feature update {id} --status=cancelled --note='Converted to task {task_id} under feature {enhancement_feature_id}', (4) Report to user with task ID and feature ID. IF PROPERLY SCOPED: (1) Add validation note: shark feature note {id} 'Scope validated as feature: {reasoning}', (2) Advance: shark feature next-status {id}. See docs/complexity-adaptive-workflow-proposal.md for full criteria."
         }
       },
@@ -331,12 +547,17 @@
         "progress_weight": 0.03,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["researcher"],
+        "agent_types": [
+          "researcher"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "researcher",
-          "skills": ["research", "shark"],
-          "instruction_template": "Assess complexity for feature {id}: \"{title}\". SCORE across 6 dimensions (0-3 each, max 18 points): READ: (1) Feature description at {file_path}, (2) Parent epic PRD and research for context, (3) Codebase via research skill to estimate file impact and pattern usage. DIMENSIONS: (1) File Impact: 1-3 files=0, 4-10 files=2, 10+ files=3. (2) Pattern Novelty: existing patterns only=0, adapt existing=1, minor new pattern=2, major new architecture=3. (3) Data Model: no schema change=0, modify existing tables=2, new tables/schemas=3. (4) API Surface: no API change=0, modify existing endpoints=2, new endpoints/contracts=3. (5) Cross-Feature Dependencies: isolated=0, 1-2 feature deps=1, 3+ deps=2, circular deps=3. (6) UI Complexity: modify existing components=0, new simple component=1, new complex component=2, complex interactive UI=3. SUM total score across all 6 dimensions. TIER assignment: 0-3 points=SIMPLE, 4-7 points=STANDARD, 8+ points=COMPLEX. PRODUCE: Triage report with dimension scores (show math), total score, assigned tier, file impact estimate, pattern analysis, integration points identified. Store complexity metadata: shark feature note {id} 'COMPLEXITY_TIER: {tier} (score: {score}/18) - {one_sentence_rationale}' --metadata complexity_tier={tier} complexity_score={score}. ROUTE based on tier: SIMPLE → shark feature update {id} --status=ready_for_task_generation, STANDARD → shark feature update {id} --status=ready_for_refinement_ba, COMPLEX → shark feature update {id} --status=ready_for_research. Execute the routing command. See docs/complexity-adaptive-workflow-proposal.md for scoring matrix details."
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "Assess complexity for feature {id}: \"{title}\". SCORE across 6 dimensions (0-3 each, max 18 points): READ: (1) Feature description at {file_path}, (2) Parent epic PRD and research for context, (3) Codebase via research skill to estimate file impact and pattern usage. DIMENSIONS: (1) File Impact: 1-3 files=0, 4-10 files=2, 10+ files=3. (2) Pattern Novelty: existing patterns only=0, adapt existing=1, minor new pattern=2, major new architecture=3. (3) Data Model: no schema change=0, modify existing tables=2, new tables/schemas=3. (4) API Surface: no API change=0, modify existing endpoints=2, new endpoints/contracts=3. (5) Cross-Feature Dependencies: isolated=0, 1-2 feature deps=1, 3+ deps=2, circular deps=3. (6) UI Complexity: modify existing components=0, new simple component=1, new complex component=2, complex interactive UI=3. SUM total score across all 6 dimensions. TIER assignment: 0-3 points=SIMPLE, 4-7 points=STANDARD, 8+ points=COMPLEX. PRODUCE: Triage report with dimension scores (show math), total score, assigned tier, file impact estimate, pattern analysis, integration points identified. Store complexity metadata: shark feature note {id} 'COMPLEXITY_TIER: {tier} (score: {score}/18) - {one_sentence_rationale}' --metadata complexity_tier={tier} complexity_score={score}. ROUTE based on tier: SIMPLE \u2192 shark feature update {id} --status=ready_for_task_generation, STANDARD \u2192 shark feature update {id} --status=ready_for_refinement_ba, COMPLEX \u2192 shark feature update {id} --status=ready_for_research. Execute the routing command. See docs/complexity-adaptive-workflow-proposal.md for scoring matrix details."
         }
       },
       "in_triage": {
@@ -354,12 +575,17 @@
         "progress_weight": 0.03,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["researcher"],
+        "agent_types": [
+          "researcher"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "researcher",
-          "skills": ["research", "shark"],
-          "instruction_template": "Research feature {id}: \"{title}\". TACTICAL RESEARCH -- analyze codebase and integration points informed by parent epic research. LOAD: research skill (analyze-codebase, trace-dependencies, find-patterns, understand-feature). READ: (1) Parent epic research report and PRD for strategic context, (2) Feature description at {file_path}, (3) Sibling features (shark feature list) for inter-feature interactions, (4) Codebase: CLAUDE.md, architecture docs for conventions. PRODUCE: Feature research report: (1) Codebase patterns relevant to this feature, (2) Existing implementations with file paths, (3) Integration points (services, APIs, tables), (4) Extension vs new code analysis, (5) Inter-feature technical dependency map, (6) Implementation approach recommendations. EXIT GATE: All sections populated with codebase evidence. File paths cited. Integration points identified. Actionable for BA and architect. Advance: shark feature next-status {id}."
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_research.tmpl"
         }
       },
       "in_research": {
@@ -377,12 +603,17 @@
         "progress_weight": 0.12,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["business-analyst"],
+        "agent_types": [
+          "business-analyst"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "business-analyst",
-          "skills": ["specification-writing", "shark"],
-          "instruction_template": "Write feature PRD for {id}: \"{title}\". CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {id} --json | jq -r '.metadata.complexity_tier' (values: SIMPLE, STANDARD, COMPLEX). LOAD: specification-writing workflow write-feature-prd.md. READ: (1) Triage report or research report for file estimates and integration points, (2) Parent epic PRD for scope boundaries and requirements traceability, (3) Feature description at {file_path}, (4) Other feature PRDs in this epic for consistency. SCALE OUTPUT BY TIER: SIMPLE (should not normally reach BA, but if so: 1-page summary with goal, key user story, core acceptance criteria only), STANDARD (focused PRD: goal, key personas, MoSCoW user stories, core functional requirements, testable acceptance criteria, out of scope -- 2-3 pages max, omit less critical sections), COMPLEX (full 6-file PRD per write-feature-prd.md: epic.md style goal, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md). Requirements must trace to epic requirements. EXIT GATE varies by tier: SIMPLE (core AC testable), STANDARD (MoSCoW complete, AC testable, no ambiguity), COMPLEX (all 6 files, write-feature-prd.md checklist passes). Advance: shark feature next-status {id}."
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_refinement_ba.tmpl"
         }
       },
       "in_refinement_ba": {
@@ -400,19 +631,25 @@
         "progress_weight": 0.25,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["architect"],
+        "agent_types": [
+          "architect"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "architect",
-          "skills": ["architecture", "specification-writing", "shark"],
-          "instruction_template": "Design technical architecture for feature {id}: \"{title}\". CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {id} --json | jq -r '.metadata.complexity_tier'. LOAD: architecture skill workflows (design-system, design-backend, design-frontend, design-database, design-security) as applicable. READ: (1) Feature PRD at {file_path}/prd.md, (2) Triage report or research report for codebase patterns and existing implementations, (3) Parent epic architecture docs for system constraints, (4) Other feature architectures in this epic for cross-feature consistency. SCALE OUTPUT BY TIER: SIMPLE (should not reach architect, but if so: brief decision notes in 02-architecture.md only -- which existing patterns used, integration points, security considerations), STANDARD (focused architecture: 02-architecture.md with key decisions and rationale, API contracts if new endpoints, data model if schema changes, security considerations -- typically 2-4 docs, omit docs for unchanged areas), COMPLEX (full 7-doc suite: 02-architecture.md, 03-data-design.md, 04-backend-design.md, 05-frontend-design.md, 06-security-design.md, 07-performance-design.md, 08-implementation-phases.md per architecture skill workflows). Follow patterns from triage/research. API contracts must include request/response schemas where applicable. EXIT GATE varies by tier: SIMPLE (decision rationale clear), STANDARD (key decisions documented, contracts complete where applicable, no ambiguity), COMPLEX (all 7 docs created, full schemas, architecture skill checklist passes). Advance: shark feature next-status {id}."
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_refinement_tech.tmpl"
         }
       },
       "in_refinement_tech": {
         "description": "Architect designing technical solution",
         "phase": "refinement",
         "color": "blue",
-        "progress_weight": 0.40,
+        "progress_weight": 0.4,
         "is_planning": true,
         "responsibility": "agent"
       },
@@ -423,19 +660,24 @@
         "progress_weight": 0.45,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["qa"],
+        "agent_types": [
+          "qa"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "qa",
-          "skills": ["quality", "shark"],
-          "instruction_template": "Create feature test plan for {id}: \"{title}\". CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {id} --json | jq -r '.metadata.complexity_tier'. READ: (1) Parent epic UAT acceptance plan for acceptance scenarios this feature must satisfy, (2) Feature PRD at {file_path}/prd.md for requirements and acceptance criteria, (3) Feature architecture docs (02-08 series) for API contracts, data models, and integration points, (4) Triage or research report for codebase patterns and existing test infrastructure, (5) Sibling feature test plans for cross-feature test coordination. SCALE OUTPUT BY TIER: SIMPLE (lightweight test plan: AC test matrix only -- concrete test cases for each acceptance criterion with inputs/expected outputs/edge cases, reference existing test patterns, 1-2 pages), STANDARD (focused test plan: AC test matrix, API contract test cases if applicable, component test strategy for key components, integration scenarios for cross-feature touchpoints, 3-5 pages), COMPLEX (comprehensive test plan per quality skill: all 6 sections -- epic UAT scenario decomposition, component test strategy, API contract test cases, integration scenarios, AC test matrix, performance/security approach). Tests must trace to USER GOALS and persona needs. EXIT GATE varies by tier: SIMPLE (every AC has test case, actionable for TDD), STANDARD (AC coverage, API contracts tested, integration points identified), COMPLEX (full 6-section plan, epic UAT traceability, quality skill checklist passes). Write to 09-test-plan.md. Advance: shark feature next-status {id}."
+          "skills": [
+            "quality",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_test_planning.tmpl"
         }
       },
       "in_test_planning": {
         "description": "QA creating feature test strategy from epic UAT plan",
         "phase": "test_planning",
         "color": "lime",
-        "progress_weight": 0.50,
+        "progress_weight": 0.5,
         "is_planning": true,
         "responsibility": "agent"
       },
@@ -446,11 +688,16 @@
         "progress_weight": 0.55,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["product-manager"],
+        "agent_types": [
+          "product-manager"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "product-manager",
-          "skills": ["specification-writing", "shark"],
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
           "instruction_template": "Generate tasks for feature {id}: \"{title}\". CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {id} --json | jq -r '.metadata.complexity_tier'. LOAD: specification-writing workflow write-task.md. READ AVAILABLE DOCS: (1) Feature description and triage report at {file_path}, (2) Feature PRD if exists (prd.md), (3) Architecture docs if exist (02-08 series), (4) Test plan if exists (09-test-plan.md), (5) Parent epic context. Run write-task.md Step 0 (documentation detection). ADAPT TO TIER: SIMPLE (typically no PRD/arch/test docs -- create 1-3 focused tasks directly from triage report and feature description, include acceptance criteria in task spec, reference existing patterns from triage), STANDARD (PRD + focused arch + test plan available -- create tasks per normal write-task.md process, typically 3-8 tasks), COMPLEX (full doc suite -- create comprehensive task breakdown per write-task.md, typically 8+ tasks with detailed dependency graph). PRODUCE: Tasks via shark task create. Each task: goal, success criteria, design doc references if available, test cases if test plan exists, validation gates, agent assignment, dependencies. For SIMPLE tier, embed test cases directly in task spec. EXIT GATE varies by tier: SIMPLE (feature requirements covered by 1-3 tasks, AC clear), STANDARD (PRD requirements map to tasks, test cases mapped), COMPLEX (full write-task.md checklist, contract validation task if applicable). Verify: shark task list --feature={id}. Advance: shark feature next-status {id}."
         }
       },
@@ -458,7 +705,7 @@
         "description": "Tasks being generated from design documents",
         "phase": "decomposition",
         "color": "yellow",
-        "progress_weight": 0.70,
+        "progress_weight": 0.7,
         "is_planning": true,
         "responsibility": "agent"
       },
@@ -469,11 +716,16 @@
         "progress_weight": 0.85,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["tech-director"],
+        "agent_types": [
+          "tech-director"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "tech-director",
-          "skills": ["build", "shark"],
+          "skills": [
+            "build",
+            "shark"
+          ],
           "instruction_template": "Execute autonomous build for feature {id}: \"{title}\". LOAD: build skill. READ: (1) Feature PRD and architecture docs, (2) All tasks via shark task list --feature={id}, (3) Task dependency graph, (4) Feature research report for codebase conventions. Drive all tasks through: development -> code review -> QA -> approval. Spawn appropriate agents per task status. Code review must check implementation against feature PRD intent, not just task spec. EXIT GATE: All tasks completed or in approval. No blocked tasks. Integration tests pass. Advance: shark feature next-status {id}."
         }
       },
@@ -536,12 +788,18 @@
       }
     },
     "special_statuses": {
-      "_start_": ["draft"],
-      "_complete_": ["completed", "cancelled"],
-      "_aggregation_": ["active"]
+      "_start_": [
+        "draft"
+      ],
+      "_complete_": [
+        "completed",
+        "cancelled"
+      ],
+      "_aggregation_": [
+        "active"
+      ]
     }
   },
-
   "special_statuses": {
     "_complete_": [
       "completed",
@@ -565,9 +823,7 @@
     "cancelled": [
       "draft"
     ],
-    "completed": [
-
-    ],
+    "completed": [],
     "draft": [
       "ready_for_refinement_ba",
       "ready_for_refinement_tech",
