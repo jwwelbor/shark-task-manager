@@ -3,6 +3,7 @@ package templates
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -46,10 +47,26 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 		}, nil
 	}
 
-	// Parse all templates matching the pattern
-	tmpl, err = tmpl.ParseGlob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse templates: %w", err)
+	// Parse all templates manually to preserve subdirectory paths in template names
+	// This allows us to distinguish between epic/ready_for_research.tmpl and feature/ready_for_research.tmpl
+	for _, filePath := range matches {
+		// Read the file content
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read template file %s: %w", filePath, err)
+		}
+
+		// Calculate the relative path from templateDir for the template name
+		relPath, err := filepath.Rel(templateDir, filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate relative path for %s: %w", filePath, err)
+		}
+
+		// Parse the template with the relative path as its name (e.g., "epic/ready_for_research.tmpl")
+		_, err = tmpl.New(relPath).Parse(string(content))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse template %s: %w", relPath, err)
+		}
 	}
 
 	return &OrchestratorRenderer{
@@ -81,9 +98,19 @@ func GetOrchestratorEngine() *OrchestratorRenderer {
 
 // Render executes a template with the given variables
 // Returns the rendered string or an error if the template is not found or execution fails
+// Template lookup strategy:
+// 1. First try exact match (for "epic/ready_for_research.tmpl" style references)
+// 2. Fall back to basename only (for backward compatibility)
 func (r *OrchestratorRenderer) Render(templateName string, vars map[string]string) (string, error) {
-	// Lookup template by name
+	// First try to find template by full path (handles "epic/ready_for_research.tmpl")
 	tmpl := r.templates.Lookup(templateName)
+
+	// If not found, try base name only (backward compatibility)
+	if tmpl == nil {
+		baseName := filepath.Base(templateName)
+		tmpl = r.templates.Lookup(baseName)
+	}
+
 	if tmpl == nil {
 		return "", fmt.Errorf("template not found: %s", templateName)
 	}
