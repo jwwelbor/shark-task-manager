@@ -33,6 +33,7 @@ type Epic struct {
 	Slug          *string    `json:"slug,omitempty" db:"slug"`
 	FilePath      *string    `json:"file_path,omitempty" db:"file_path"`
 	ContextData   *string    `json:"context_data,omitempty" db:"context_data"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty" db:"-"` // Not persisted to DB, derived from related data
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 }

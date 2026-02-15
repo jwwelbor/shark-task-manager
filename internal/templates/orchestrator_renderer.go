@@ -1,0 +1,121 @@
+package templates
+
+import (
+	"bytes"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"sync"
+	"text/template"
+)
+
+// OrchestratorRenderer handles template rendering for orchestrator instructions
+type OrchestratorRenderer struct {
+	templates   *template.Template // Precompiled template set
+	templateDir string              // Base directory for templates
+}
+
+// Singleton pattern for global template engine
+var (
+	engineOnce     sync.Once
+	engineInstance *OrchestratorRenderer
+	engineError    error
+	testTemplateDir string // For testing only
+)
+
+// NewOrchestratorRenderer creates a new orchestrator template renderer
+// It precompiles all .tmpl files in the templateDir and its subdirectories
+func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) {
+	// Parse all .tmpl files in templateDir/**/*.tmpl
+	pattern := filepath.Join(templateDir, "*", "*.tmpl")
+
+	// Create a new template with custom functions
+	tmpl := template.New("orchestrator").Funcs(orchestratorFuncs())
+
+	// Parse all templates matching the pattern
+	tmpl, err := tmpl.ParseGlob(pattern)
+	if err != nil {
+		// Check if error is due to no matching files (which is ok for empty dir)
+		if strings.Contains(err.Error(), "pattern matches no files") {
+			// Create empty template set - this is valid
+			return &OrchestratorRenderer{
+				templates:   template.New("orchestrator").Funcs(orchestratorFuncs()),
+				templateDir: templateDir,
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to parse templates: %w", err)
+	}
+
+	return &OrchestratorRenderer{
+		templates:   tmpl,
+		templateDir: templateDir,
+	}, nil
+}
+
+// GetOrchestratorEngine returns the singleton orchestrator template engine
+// It initializes the engine on first call using the default or test template directory
+func GetOrchestratorEngine() *OrchestratorRenderer {
+	engineOnce.Do(func() {
+		// Use test directory if set, otherwise default to "templates"
+		templateDir := "templates"
+		if testTemplateDir != "" {
+			templateDir = testTemplateDir
+		}
+
+		engineInstance, engineError = NewOrchestratorRenderer(templateDir)
+		if engineError != nil {
+			// In production, this would log.Fatalf
+			// For tests, we let the error propagate
+			panic(fmt.Sprintf("Failed to initialize template engine: %v", engineError))
+		}
+	})
+
+	return engineInstance
+}
+
+// Render executes a template with the given variables
+// Returns the rendered string or an error if the template is not found or execution fails
+func (r *OrchestratorRenderer) Render(templateName string, vars map[string]string) (string, error) {
+	// Lookup template by name
+	tmpl := r.templates.Lookup(templateName)
+	if tmpl == nil {
+		return "", fmt.Errorf("template not found: %s", templateName)
+	}
+
+	// Execute template with variables
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, vars); err != nil {
+		return "", fmt.Errorf("failed to execute template: %w", err)
+	}
+
+	return buf.String(), nil
+}
+
+// orchestratorFuncs returns custom template functions for orchestrator templates
+func orchestratorFuncs() template.FuncMap {
+	return template.FuncMap{
+		// Comparison functions
+		"eq": func(a, b interface{}) bool {
+			return a == b
+		},
+		"ne": func(a, b interface{}) bool {
+			return a != b
+		},
+
+		// String helper functions
+		"isEmpty": func(s string) bool {
+			return strings.TrimSpace(s) == ""
+		},
+
+		// Complexity tier helper functions (convenience wrappers)
+		"isSimple": func(tier string) bool {
+			return tier == "SIMPLE"
+		},
+		"isStandard": func(tier string) bool {
+			return tier == "STANDARD"
+		},
+		"isComplex": func(tier string) bool {
+			return tier == "COMPLEX"
+		},
+	}
+}

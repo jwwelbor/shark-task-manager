@@ -213,6 +213,17 @@ func FeaturePlaceholdersWithRelated(
 		placeholders["related_features"] = ""
 	}
 
+	// Add complexity_tier from metadata
+	if feature.Metadata != nil {
+		if tier, ok := feature.Metadata["complexity_tier"].(string); ok {
+			placeholders["complexity_tier"] = tier
+		} else {
+			placeholders["complexity_tier"] = ""
+		}
+	} else {
+		placeholders["complexity_tier"] = ""
+	}
+
 	return placeholders
 }
 
@@ -296,6 +307,17 @@ func TaskPlaceholdersWithRelated(
 		placeholders["related_tasks"] = strings.Join(relatedKeys, ",")
 	}
 
+	// Add complexity_tier from metadata
+	if task.Metadata != nil {
+		if tier, ok := task.Metadata["complexity_tier"].(string); ok {
+			placeholders["complexity_tier"] = tier
+		} else {
+			placeholders["complexity_tier"] = ""
+		}
+	} else {
+		placeholders["complexity_tier"] = ""
+	}
+
 	return placeholders
 }
 
@@ -355,6 +377,17 @@ func EpicPlaceholdersWithRelated(
 		}
 	} else {
 		placeholders["related_epics"] = ""
+	}
+
+	// Add complexity_tier from metadata
+	if epic.Metadata != nil {
+		if tier, ok := epic.Metadata["complexity_tier"].(string); ok {
+			placeholders["complexity_tier"] = tier
+		} else {
+			placeholders["complexity_tier"] = ""
+		}
+	} else {
+		placeholders["complexity_tier"] = ""
 	}
 
 	return placeholders
