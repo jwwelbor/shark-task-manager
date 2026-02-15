@@ -12,14 +12,14 @@ import (
 // OrchestratorRenderer handles template rendering for orchestrator instructions
 type OrchestratorRenderer struct {
 	templates   *template.Template // Precompiled template set
-	templateDir string              // Base directory for templates
+	templateDir string             // Base directory for templates
 }
 
 // Singleton pattern for global template engine
 var (
-	engineOnce     sync.Once
-	engineInstance *OrchestratorRenderer
-	engineError    error
+	engineOnce      sync.Once
+	engineInstance  *OrchestratorRenderer
+	engineError     error
 	testTemplateDir string // For testing only
 )
 
@@ -32,17 +32,23 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 	// Create a new template with custom functions
 	tmpl := template.New("orchestrator").Funcs(orchestratorFuncs())
 
-	// Parse all templates matching the pattern
-	tmpl, err := tmpl.ParseGlob(pattern)
+	// Try to parse templates - empty dir is ok
+	matches, err := filepath.Glob(pattern)
 	if err != nil {
-		// Check if error is due to no matching files (which is ok for empty dir)
-		if strings.Contains(err.Error(), "pattern matches no files") {
-			// Create empty template set - this is valid
-			return &OrchestratorRenderer{
-				templates:   template.New("orchestrator").Funcs(orchestratorFuncs()),
-				templateDir: templateDir,
-			}, nil
-		}
+		return nil, fmt.Errorf("failed to glob templates: %w", err)
+	}
+
+	// If no templates found, return empty renderer (valid for empty directory)
+	if len(matches) == 0 {
+		return &OrchestratorRenderer{
+			templates:   tmpl,
+			templateDir: templateDir,
+		}, nil
+	}
+
+	// Parse all templates matching the pattern
+	tmpl, err = tmpl.ParseGlob(pattern)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse templates: %w", err)
 	}
 

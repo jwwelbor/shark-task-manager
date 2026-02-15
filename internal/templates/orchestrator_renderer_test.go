@@ -1,12 +1,10 @@
 package templates
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
-	"text/template"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,9 +44,8 @@ Status: {{.status}}`
 End of template.`
 	require.NoError(t, os.WriteFile(filepath.Join(fixturesDir, "valid", "with_partial.tmpl"), []byte(withPartial), 0644))
 
-	// Create malformed template (missing end tag)
-	malformed := `{{if .condition}}No closing end tag!`
-	require.NoError(t, os.WriteFile(filepath.Join(fixturesDir, "invalid", "malformed.tmpl"), []byte(malformed), 0644))
+	// Don't create malformed templates in the main fixtures directory
+	// They will be created separately in tests that need them
 
 	return fixturesDir
 }
@@ -286,7 +283,7 @@ func TestTemplateFuncs_Ne(t *testing.T) {
 	}
 }
 
-func TestTemplateFuncs_IsEmpty(t *testing.T) {
+func TestOrchestratorFuncs_IsEmpty(t *testing.T) {
 	// API-21, API-22, API-23: isEmpty function
 	funcs := orchestratorFuncs()
 	isEmptyFunc := funcs["isEmpty"].(func(s string) bool)

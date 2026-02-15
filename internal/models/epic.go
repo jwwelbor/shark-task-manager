@@ -23,19 +23,19 @@ const (
 
 // Epic represents a top-level project organization unit
 type Epic struct {
-	ID            int64      `json:"id" db:"id"`
-	Key           string     `json:"key" db:"key"`
-	Title         string     `json:"title" db:"title"`
-	Description   *string    `json:"description,omitempty" db:"description"`
-	Status        EpicStatus `json:"status" db:"status"`
-	Priority      Priority   `json:"priority" db:"priority"`
-	BusinessValue *Priority  `json:"business_value,omitempty" db:"business_value"`
-	Slug          *string    `json:"slug,omitempty" db:"slug"`
-	FilePath      *string    `json:"file_path,omitempty" db:"file_path"`
-	ContextData   *string    `json:"context_data,omitempty" db:"context_data"`
+	ID            int64                  `json:"id" db:"id"`
+	Key           string                 `json:"key" db:"key"`
+	Title         string                 `json:"title" db:"title"`
+	Description   *string                `json:"description,omitempty" db:"description"`
+	Status        EpicStatus             `json:"status" db:"status"`
+	Priority      Priority               `json:"priority" db:"priority"`
+	BusinessValue *Priority              `json:"business_value,omitempty" db:"business_value"`
+	Slug          *string                `json:"slug,omitempty" db:"slug"`
+	FilePath      *string                `json:"file_path,omitempty" db:"file_path"`
+	ContextData   *string                `json:"context_data,omitempty" db:"context_data"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty" db:"-"` // Not persisted to DB, derived from related data
-	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+	CreatedAt     time.Time              `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at" db:"updated_at"`
 }
 
 // Validate validates the Epic fields
