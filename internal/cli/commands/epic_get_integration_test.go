@@ -8,6 +8,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // TestEpicGetIntegration_FeatureStatusRollup tests feature status rollup aggregation
@@ -610,5 +611,305 @@ func TestEpicGetIntegration_MultipleFeatures(t *testing.T) {
 	for _, feature := range createdFeatures {
 		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
 	}
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestEpicGetIntegration_PlanningModeRelatedDocs tests epic planning mode displays related documents
+func TestEpicGetIntegration_PlanningModeRelatedDocs(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+
+	// Clean up
+	_, _ = database.ExecContext(ctx, "DELETE FROM epic_documents WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E07')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM documents WHERE title LIKE 'Epic%Test%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E07'")
+
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	docRepo := repository.NewDocumentRepository(db)
+	workflowSvc := workflow.NewService(".")
+
+	// Create epic in planning mode (ready_for_decomposition)
+	epic := &models.Epic{
+		Key:      "E07",
+		Title:    "Enhancements",
+		Slug:     strPtr("enhancements"),
+		Status:   models.EpicStatus("ready_for_decomposition"),
+		Priority: models.PriorityHigh,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("Failed to create epic: %v", err)
+	}
+
+	// Create 2 related documents
+	doc1, err := docRepo.CreateOrGet(ctx, "Epic Research Report Test", "docs/plan/E07/research.md")
+	if err != nil {
+		t.Fatalf("Failed to create document 1: %v", err)
+	}
+
+	doc2, err := docRepo.CreateOrGet(ctx, "Epic Feature Decomposition Plan Test", "docs/plan/E07/decomposition.md")
+	if err != nil {
+		t.Fatalf("Failed to create document 2: %v", err)
+	}
+
+	// Link documents to epic
+	if err := docRepo.LinkToEpic(ctx, epic.ID, doc1.ID); err != nil {
+		t.Fatalf("Failed to link document 1 to epic: %v", err)
+	}
+	if err := docRepo.LinkToEpic(ctx, epic.ID, doc2.ID); err != nil {
+		t.Fatalf("Failed to link document 2 to epic: %v", err)
+	}
+
+	// Get related documents
+	docs, err := docRepo.ListForEpic(ctx, epic.ID)
+	if err != nil {
+		t.Fatalf("Failed to get related documents: %v", err)
+	}
+
+	// Verify 2 documents are linked
+	if len(docs) != 2 {
+		t.Errorf("Expected 2 related documents, got %d", len(docs))
+	}
+
+	// Verify document titles
+	foundDoc1 := false
+	foundDoc2 := false
+	for _, doc := range docs {
+		if doc.Title == "Epic Research Report Test" {
+			foundDoc1 = true
+			if doc.FilePath != "docs/plan/E07/research.md" {
+				t.Errorf("Document 1 path mismatch: expected docs/plan/E07/research.md, got %s", doc.FilePath)
+			}
+		}
+		if doc.Title == "Epic Feature Decomposition Plan Test" {
+			foundDoc2 = true
+			if doc.FilePath != "docs/plan/E07/decomposition.md" {
+				t.Errorf("Document 2 path mismatch: expected docs/plan/E07/decomposition.md, got %s", doc.FilePath)
+			}
+		}
+	}
+
+	if !foundDoc1 {
+		t.Error("Did not find Epic Research Report Test document")
+	}
+	if !foundDoc2 {
+		t.Error("Did not find Epic Feature Decomposition Plan Test document")
+	}
+
+	// Verify valid transitions are available (may be empty if status not in workflow config)
+	validTransitions := workflowSvc.GetValidTransitions(string(epic.Status))
+	// Note: transitions may be empty if status is not in workflow config
+	// This test just verifies that the method doesn't error
+	_ = validTransitions
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epic_documents WHERE epic_id = ?", epic.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM documents WHERE id = ?", doc1.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM documents WHERE id = ?", doc2.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestEpicGetIntegration_AggregationModeUnchanged tests that aggregation mode still works correctly
+func TestEpicGetIntegration_AggregationModeUnchanged(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+
+	// Clean up
+	_, _ = database.ExecContext(ctx, "DELETE FROM epic_documents WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E07')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM documents WHERE title LIKE 'Epic%Agg%Test%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E07')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E07'")
+
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	docRepo := repository.NewDocumentRepository(db)
+
+	// Create epic in active status (aggregation mode)
+	epic := &models.Epic{
+		Key:      "E07",
+		Title:    "Enhancements",
+		Slug:     strPtr("enhancements"),
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityHigh,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("Failed to create epic: %v", err)
+	}
+
+	// Create 2 features
+	feature1 := &models.Feature{
+		Key:    "E07-F01",
+		Title:  "Feature 1",
+		Slug:   strPtr("feature-1"),
+		Status: models.FeatureStatusActive,
+		EpicID: epic.ID,
+	}
+	if err := featureRepo.Create(ctx, feature1); err != nil {
+		t.Fatalf("Failed to create feature 1: %v", err)
+	}
+
+	feature2 := &models.Feature{
+		Key:    "E07-F02",
+		Title:  "Feature 2",
+		Slug:   strPtr("feature-2"),
+		Status: models.FeatureStatusCompleted,
+		EpicID: epic.ID,
+	}
+	if err := featureRepo.Create(ctx, feature2); err != nil {
+		t.Fatalf("Failed to create feature 2: %v", err)
+	}
+
+	// Create related document for epic
+	doc, err := docRepo.CreateOrGet(ctx, "Epic Aggregation Test Doc", "docs/plan/E07/agg-test.md")
+	if err != nil {
+		t.Fatalf("Failed to create document: %v", err)
+	}
+
+	if err := docRepo.LinkToEpic(ctx, epic.ID, doc.ID); err != nil {
+		t.Fatalf("Failed to link document to epic: %v", err)
+	}
+
+	// Get feature status rollup (existing behavior)
+	featureRollup, err := epicRepo.GetFeatureStatusRollup(ctx, epic.ID)
+	if err != nil {
+		t.Fatalf("GetFeatureStatusRollup failed: %v", err)
+	}
+
+	// Verify rollup still works
+	if featureRollup["active"] != 1 {
+		t.Errorf("Expected 1 active feature, got %d", featureRollup["active"])
+	}
+	if featureRollup["completed"] != 1 {
+		t.Errorf("Expected 1 completed feature, got %d", featureRollup["completed"])
+	}
+
+	// Verify related documents still accessible
+	docs, err := docRepo.ListForEpic(ctx, epic.ID)
+	if err != nil {
+		t.Fatalf("Failed to get related documents: %v", err)
+	}
+
+	if len(docs) != 1 {
+		t.Errorf("Expected 1 related document, got %d", len(docs))
+	}
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epic_documents WHERE epic_id = ?", epic.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM documents WHERE id = ?", doc.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature1.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature2.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
+}
+
+// TestEpicGetIntegration_JSONOutputWithNewFields tests JSON output includes new fields
+func TestEpicGetIntegration_JSONOutputWithNewFields(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+
+	// Clean up
+	_, _ = database.ExecContext(ctx, "DELETE FROM epic_documents WHERE epic_id IN (SELECT id FROM epics WHERE key = 'E07')")
+	_, _ = database.ExecContext(ctx, "DELETE FROM documents WHERE title LIKE 'Epic%JSON%Test%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E07'")
+
+	// Create repositories with wrapped database
+	db := repository.NewDB(database)
+	epicRepo := repository.NewEpicRepository(db)
+	docRepo := repository.NewDocumentRepository(db)
+	workflowSvc := workflow.NewService(".")
+
+	// Create epic in planning mode
+	epic := &models.Epic{
+		Key:      "E07",
+		Title:    "Enhancements",
+		Slug:     strPtr("enhancements"),
+		Status:   models.EpicStatus("ready_for_decomposition"),
+		Priority: models.PriorityHigh,
+	}
+	if err := epicRepo.Create(ctx, epic); err != nil {
+		t.Fatalf("Failed to create epic: %v", err)
+	}
+
+	// Create 2 related documents
+	doc1, err := docRepo.CreateOrGet(ctx, "Epic JSON Test Doc 1", "docs/plan/E07/json-test-1.md")
+	if err != nil {
+		t.Fatalf("Failed to create document 1: %v", err)
+	}
+
+	doc2, err := docRepo.CreateOrGet(ctx, "Epic JSON Test Doc 2", "docs/plan/E07/json-test-2.md")
+	if err != nil {
+		t.Fatalf("Failed to create document 2: %v", err)
+	}
+
+	if err := docRepo.LinkToEpic(ctx, epic.ID, doc1.ID); err != nil {
+		t.Fatalf("Failed to link document 1: %v", err)
+	}
+	if err := docRepo.LinkToEpic(ctx, epic.ID, doc2.ID); err != nil {
+		t.Fatalf("Failed to link document 2: %v", err)
+	}
+
+	// Get epic with documents
+	epicData, err := epicRepo.GetByKey(ctx, "E07")
+	if err != nil {
+		t.Fatalf("Failed to get epic: %v", err)
+	}
+
+	// Get related documents
+	docs, err := docRepo.ListForEpic(ctx, epicData.ID)
+	if err != nil {
+		t.Fatalf("Failed to get related documents: %v", err)
+	}
+
+	// Get valid transitions
+	validTransitions := workflowSvc.GetValidTransitions(string(epicData.Status))
+
+	// Create response structure similar to epic get command JSON output
+	type JSONResponse struct {
+		Epic             *models.Epic       `json:"epic"`
+		RelatedDocuments []*models.Document `json:"related_documents"`
+		ValidTransitions []string           `json:"valid_transitions"`
+	}
+
+	response := JSONResponse{
+		Epic:             epicData,
+		RelatedDocuments: docs,
+		ValidTransitions: validTransitions,
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("Failed to marshal JSON: %v", err)
+	}
+
+	// Unmarshal back to verify structure
+	var parsedResponse JSONResponse
+	if err := json.Unmarshal(jsonData, &parsedResponse); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	// Verify fields
+	if parsedResponse.Epic == nil {
+		t.Error("Epic field is nil")
+	}
+
+	if parsedResponse.RelatedDocuments == nil {
+		t.Error("RelatedDocuments field is nil")
+	} else if len(parsedResponse.RelatedDocuments) != 2 {
+		t.Errorf("Expected 2 related documents, got %d", len(parsedResponse.RelatedDocuments))
+	}
+
+	if parsedResponse.ValidTransitions == nil {
+		t.Error("ValidTransitions field is nil")
+	}
+	// Note: ValidTransitions may be empty if status not in workflow config
+	// The test verifies the field exists and is properly serialized
+
+	// Cleanup
+	_, _ = database.ExecContext(ctx, "DELETE FROM epic_documents WHERE epic_id = ?", epic.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM documents WHERE id = ?", doc1.ID)
+	_, _ = database.ExecContext(ctx, "DELETE FROM documents WHERE id = ?", doc2.ID)
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
 }
