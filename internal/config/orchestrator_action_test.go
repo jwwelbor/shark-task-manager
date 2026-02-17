@@ -12,7 +12,7 @@ import (
 // getProjectRoot finds the project root by walking up from this file
 func getProjectRoot() string {
 	// Start from the directory of this test file
-	_, filename, _, _ := runtime.Caller(1)
+	_, filename, _, _ := runtime.Caller(0)
 	dir := filepath.Dir(filename)
 
 	// Walk up until we find .sharkconfig.json or .git

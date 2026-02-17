@@ -379,17 +379,6 @@ func EpicPlaceholdersWithRelated(
 		placeholders["related_epics"] = ""
 	}
 
-	// Add complexity_tier from metadata
-	if epic.Metadata != nil {
-		if tier, ok := epic.Metadata["complexity_tier"].(string); ok {
-			placeholders["complexity_tier"] = tier
-		} else {
-			placeholders["complexity_tier"] = ""
-		}
-	} else {
-		placeholders["complexity_tier"] = ""
-	}
-
 	return placeholders
 }
 

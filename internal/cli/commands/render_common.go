@@ -2,7 +2,7 @@ package commands
 
 import (
 	"fmt"
-	"strings"
+	"unicode"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -102,10 +102,12 @@ func renderHeader(entityType, key string) {
 
 // capitalize capitalizes the first letter of a string
 func capitalize(s string) string {
-	if len(s) == 0 {
+	runes := []rune(s)
+	if len(runes) == 0 {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
 }
 
 // renderBasicInfo renders key-value info table.
@@ -223,9 +225,10 @@ func renderNotes(notes []*models.EntityNote) {
 	for i := totalNotes - displayCount; i < totalNotes; i++ {
 		note := notes[i]
 		dateStr := note.CreatedAt.Format("2006-01-02")
-		content := note.Content
-		if len(content) > 80 {
-			content = content[:77] + "..."
+		runes := []rune(note.Content)
+		content := string(runes)
+		if len(runes) > 80 {
+			content = string(runes[:77]) + "..."
 		}
 		fmt.Printf("  [%s] %s  %s\n", note.NoteType, dateStr, content)
 	}
