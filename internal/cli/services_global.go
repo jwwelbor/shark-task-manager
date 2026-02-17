@@ -94,6 +94,17 @@ func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
 // GetTaskService returns a TaskService instance.
 // Creates a new instance each call with the global DB connection and workflow service.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Pattern:
+//   - Creates new service instance per call (lightweight, no shared state)
+//   - Reuses global DB and workflow service (expensive to recreate)
+//   - Panics on DB failure (fail-fast for CLI entry points)
+//   - Optional dependencies (creatorSvc, noteRepo) passed as nil for now
+//
+// Usage:
+//
+//	svc := cli.GetTaskService()
+//	task, err := svc.StartTask(ctx, "E07-F01-001", "agent123")
 func GetTaskService() *services.TaskService {
 	db, err := GetDB(context.Background())
 	if err != nil {
@@ -101,8 +112,9 @@ func GetTaskService() *services.TaskService {
 	}
 	taskRepo := repository.NewTaskRepository(db)
 	workflowSvc := GetWorkflowService()
-	// TODO: Add taskcreation.Creator and note repository when needed
-	return services.NewTaskService(taskRepo, workflowSvc, nil, nil)
+	noteRepo := repository.NewEntityNoteRepository(db)
+	// TODO: Add taskcreation.Creator when task creation is implemented
+	return services.NewTaskService(taskRepo, workflowSvc, nil, noteRepo)
 }
 
 // ResetServices clears global service state. For testing only.

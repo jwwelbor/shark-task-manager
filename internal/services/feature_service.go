@@ -50,7 +50,17 @@ type FeatureService struct {
 // NewFeatureService creates a new FeatureService.
 // The workflow service is automatically scoped to the feature level.
 // noteRepo, taskRepo, docRepo, and relRepo can be nil for graceful degradation.
+//
+// Panics:
+//   - If repo is nil (required dependency)
+//   - If workflowSvc is nil (required dependency)
 func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service, noteRepo FeatureNoteRepository, taskRepo FeatureTaskCounter) *FeatureService {
+	if repo == nil {
+		panic("FeatureService requires a non-nil FeatureRepository")
+	}
+	if workflowSvc == nil {
+		panic("FeatureService requires a non-nil workflow.Service")
+	}
 	return &FeatureService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelFeature),
@@ -63,7 +73,17 @@ func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service, no
 
 // NewFeatureServiceWithRelationships creates a new FeatureService with document and relationship repositories.
 // Use this constructor when orchestrator actions need to populate related documents and features.
+//
+// Panics:
+//   - If repo is nil (required dependency)
+//   - If workflowSvc is nil (required dependency)
 func NewFeatureServiceWithRelationships(repo FeatureRepository, workflowSvc *workflow.Service, noteRepo FeatureNoteRepository, taskRepo FeatureTaskCounter, docRepo DocumentRepository, relRepo FeatureRelationshipRepository) *FeatureService {
+	if repo == nil {
+		panic("FeatureService requires a non-nil FeatureRepository")
+	}
+	if workflowSvc == nil {
+		panic("FeatureService requires a non-nil workflow.Service")
+	}
 	return &FeatureService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelFeature),

@@ -1,63 +1,13 @@
 ---
-feature_key: E15-F03-taskservice-lifecycle-operations
+feature_key: E15-F08-taskservice-implementation
 epic_key: E15
-title: TaskService Lifecycle Operations
-description:
-status: cancelled
-cancellation_date: 2026-02-17
-cancellation_reason: Misclassified as feature - should be tasks under E15-F08
+title: TaskService Implementation
+description: 
 ---
 
-# TaskService Lifecycle Operations
+# TaskService Implementation
 
-**Feature Key**: E15-F03-taskservice-lifecycle-operations
-**Status**: ❌ CANCELLED (2026-02-17)
-
----
-
-## Cancellation Notice
-
-**Date**: 2026-02-17
-**Status**: Cancelled during scope validation
-**Moved To**: E15-F08 "TaskService Implementation"
-
-### Scope Validation Analysis
-
-This was **MISCLASSIFIED AS A FEATURE** during initial planning. It should be implemented as individual tasks under E15-F08.
-
-**Evidence for misclassification:**
-
-1. **Empty template with no content** - Feature was created prematurely without proper scoping or user stories
-2. **Title describes implementation detail** - "TaskService Lifecycle Operations" describes HOW (implementing methods in TaskService) not WHAT (user-facing capabilities)
-3. **Artificial fragmentation** - Splitting TaskService into F02 (CRUD), F03 (Lifecycle), F04 (Querying) creates unnecessary coordination overhead
-4. **No user journey** - This is pure technical refactoring with no persona or user story
-5. **Overlaps with E15-F08** - "TaskService Implementation" is already active and naturally encompasses all TaskService methods
-6. **Fails scope criteria**:
-   - ❌ Not multi-capability from user perspective
-   - ❌ No user journey map
-   - ❌ 1-3 files (just adding methods to TaskService)
-   - ❌ Days of work, not multi-sprint
-   - ❌ Applies existing patterns from E15-F01
-
-**What was intended:**
-Implementing lifecycle operation methods in TaskService:
-- `StartTask(ctx, key, agentID)` - Transition task to in_progress
-- `CompleteTask(ctx, key, notes)` - Transition to ready_for_review
-- `ApproveTask(ctx, key, notes)` - Transition to completed
-- `ReopenTask(ctx, key, notes)` - Transition back to in_progress
-- `BlockTask(ctx, key, reason)` - Transition to blocked
-- `UnblockTask(ctx, key)` - Resume from blocked
-
-**Correct approach:**
-Each of these operations should be an individual task under E15-F08 "TaskService Implementation".
-
-### Recommendation for Epic
-
-Consider consolidating all TaskService work under E15-F08 and converting F02/F03/F04 into implementation tasks. This:
-- Reduces coordination overhead
-- Aligns with epic goal of unified service layer
-- Simplifies progress tracking
-- Eliminates artificial boundaries in implementation
+**Feature Key**: E15-F08-taskservice-implementation
 
 ---
 
@@ -71,9 +21,7 @@ Consider consolidating all TaskService work under E15-F08 and converting F02/F03
 ## Goal
 
 ### Problem
-~~[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]~~
-
-**NOTE**: This section was never filled because this was misclassified as a feature.
+[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]
 
 ### Solution
 [Explain how this feature solves the problem. Focus on the "what" not the "how."]
@@ -267,4 +215,4 @@ Consider consolidating all TaskService work under E15-F08 and converting F02/F03
 
 ---
 
-*Last Updated*: 2026-02-16
+*Last Updated*: 2026-02-17

@@ -42,7 +42,17 @@ type EpicService struct {
 // NewEpicService creates a new EpicService.
 // The workflow service is automatically scoped to the epic level.
 // noteRepo and featureRepo can be nil for graceful degradation.
+//
+// Panics:
+//   - If repo is nil (required dependency)
+//   - If workflowSvc is nil (required dependency)
 func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter) *EpicService {
+	if repo == nil {
+		panic("EpicService requires a non-nil EpicRepository")
+	}
+	if workflowSvc == nil {
+		panic("EpicService requires a non-nil workflow.Service")
+	}
 	return &EpicService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),
@@ -55,7 +65,17 @@ func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo
 
 // NewEpicServiceWithRelationships creates a new EpicService with document and relationship repositories.
 // Use this constructor when orchestrator actions need to populate related documents and epics.
+//
+// Panics:
+//   - If repo is nil (required dependency)
+//   - If workflowSvc is nil (required dependency)
 func NewEpicServiceWithRelationships(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter, docRepo config.DocumentRepository, relRepo config.EpicRelationshipRepository) *EpicService {
+	if repo == nil {
+		panic("EpicService requires a non-nil EpicRepository")
+	}
+	if workflowSvc == nil {
+		panic("EpicService requires a non-nil workflow.Service")
+	}
 	return &EpicService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),

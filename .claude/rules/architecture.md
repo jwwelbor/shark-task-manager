@@ -134,19 +134,41 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 }
 ```
 
-**HTTP API Service Wiring (Future):**
-For HTTP API handlers, services are explicitly constructed and injected:
+**HTTP API Service Wiring:**
+For HTTP API handlers, services are explicitly constructed at server startup and injected into handlers. See `cmd/server/services.go` for complete implementation.
 
 ```go
 // In cmd/server/main.go
-db, _ := repository.InitDB()
-taskRepo := repository.NewTaskRepository(db)
-workflowSvc := workflow.NewService(projectRoot)
-taskService := services.NewTaskService(taskRepo, workflowSvc, nil, nil)
+func main() {
+    // 1. Initialize database
+    db, err := repository.InitDB("shark-tasks.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer db.Close()
 
-// Pass to handler
-handler := api.NewTaskHandler(taskService)
+    // 2. Wire up services (see WireServices in cmd/server/services.go)
+    services := WireServices(db, ".")
+
+    // 3. Create handlers with service dependencies
+    taskHandler := api.NewTaskHandler(services.TaskService)
+    featureHandler := api.NewFeatureHandler(services.FeatureService)
+
+    // 4. Set up routes and start server
+    http.HandleFunc("/api/tasks", taskHandler.List)
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
 ```
+
+**Key Differences Between CLI and HTTP Wiring:**
+- **CLI**: Uses global accessors (`cli.GetTaskService()`) with lazy initialization per command
+- **HTTP**: Explicit construction in `WireServices()` at server startup, services reused across requests
+- **CLI**: Service instance created per command invocation (short-lived)
+- **HTTP**: Service instance created once, shared across all requests (long-lived)
+- **CLI**: Panics on DB failure (fail-fast for command execution)
+- **HTTP**: Returns errors to client, server remains running
+
+See `cmd/server/services.go` for the complete `WireServices()` implementation and handler examples.
 
 **Repository Interface Pattern:**
 Services depend on repository interfaces, not concrete types:
@@ -199,6 +221,9 @@ func NewTaskRepository(db *DB) *TaskRepository {
 ```
 
 **Dependency Graph:**
+
+Complete dependency tree for the service layer showing all service→repository and service→service relationships:
+
 ```
 TaskService
 ├── TaskRepository (interface)
@@ -211,7 +236,83 @@ TaskService
 └── TaskNoteRepository (interface, optional)
     └── *repository.EntityNoteRepository
         └── *repository.DB
+
+FeatureService
+├── FeatureRepository (interface)
+│   └── *repository.FeatureRepository (implementation)
+│       └── *repository.DB
+├── *workflow.Service
+│   └── .sharkconfig.json (config file)
+├── FeatureNoteRepository (interface, optional)
+│   └── *repository.EntityNoteRepository
+│       └── *repository.DB
+└── FeatureTaskCounter (interface, optional)
+    └── *repository.TaskRepository
+        └── *repository.DB
+
+EpicService
+├── EpicRepository (interface)
+│   └── *repository.EpicRepository (implementation)
+│       └── *repository.DB
+├── *workflow.Service
+│   └── .sharkconfig.json (config file)
+├── EpicNoteRepository (interface, optional)
+│   └── *repository.EntityNoteRepository
+│       └── *repository.DB
+└── EpicFeatureCounter (interface, optional)
+    └── *repository.FeatureRepository
+        └── *repository.DB
+
+NoteService
+├── EntityNoteRepository (interface)
+│   └── *repository.EntityNoteRepository
+│       └── *repository.DB
+├── EpicRepository (interface)
+│   └── *repository.EpicRepository
+│       └── *repository.DB
+├── FeatureRepository (interface)
+│   └── *repository.FeatureRepository
+│       └── *repository.DB
+└── TaskRepository (interface)
+    └── *repository.TaskRepository
+        └── *repository.DB
+
+ContextService
+├── EpicRepository (interface)
+│   └── *repository.EpicRepository
+│       └── *repository.DB
+├── FeatureRepository (interface)
+│   └── *repository.FeatureRepository
+│       └── *repository.DB
+└── TaskRepository (interface)
+    └── *repository.TaskRepository
+        └── *repository.DB
+
+ResumeService
+├── EpicRepository (interface)
+│   └── *repository.EpicRepository
+│       └── *repository.DB
+├── FeatureRepository (interface)
+│   └── *repository.FeatureRepository
+│       └── *repository.DB
+├── TaskRepository (interface)
+│   └── *repository.TaskRepository
+│       └── *repository.DB
+└── EntityNoteRepository (interface)
+    └── *repository.EntityNoteRepository
+        └── *repository.DB
+
+Shared Dependencies:
+├── *repository.DB - Global database connection (singleton per CLI invocation)
+└── *workflow.Service - Global workflow service (singleton per CLI invocation)
 ```
+
+**Dependency Injection Rules:**
+1. **Required vs Optional**: Services validate required dependencies (panic on nil in constructors)
+2. **Interface-Based**: Services depend on repository interfaces, not concrete *Repository types
+3. **Compile-Time Safe**: Constructor signatures enforce dependency contracts
+4. **No Circular Dependencies**: Services never depend on other services of same level (Epic/Feature/Task)
+5. **Single DB Instance**: All repositories share the same *repository.DB connection
 
 **CLI Wiring (Global Accessors):**
 Services initialized lazily via global accessor functions:
