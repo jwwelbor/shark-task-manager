@@ -1,0 +1,21 @@
+Technical feasibility review for epic {{.id}}: "{{.title}}".
+
+Compare research findings against the epic PRD from a technical perspective.
+
+READ:
+(1) All 6 epic PRD files at {{.file_path}} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md)
+(2) Research report from the research phase
+(3) BA feasibility review report
+(4) Other epic architectures and PRDs under docs/plan/ for system-wide awareness
+
+EVALUATE:
+(1) Technical feasibility -- can each requirement area be implemented with available technology and team capabilities?
+(2) Architectural concerns -- does research reveal integration complexity, performance risks, or scaling issues?
+(3) Dependency and integration risks -- are there external system dependencies or cross-epic technical conflicts?
+(4) Technical debt implications -- will this epic create or exacerbate technical debt?
+
+PRODUCE: Technical feasibility review report with findings for each area, overall assessment (APPROVED or CONCERNS_FOUND), and recommended actions.
+
+IF APPROVED: Advance via shark epic next-status {{.id}}.
+
+IF CONCERNS FOUND: Set intervention_required via shark epic update {{.id}} --status=intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action.
