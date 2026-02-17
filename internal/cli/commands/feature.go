@@ -863,6 +863,9 @@ func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
 
 	// Display orchestrator action
 	displayOrchestratorAction(info.OrchestratorAction)
+
+	// Display related documents
+	renderRelatedDocuments(info.RelatedDocs)
 }
 
 // renderFeatureListTable renders features as a table

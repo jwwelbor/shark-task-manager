@@ -3,8 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 )
 
 // OrchestratorAction defines the action to take when a task enters a status
@@ -137,7 +140,27 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 // Each key in vars corresponds to a placeholder name (without braces).
 // For example, vars["title"] replaces all occurrences of {title} in the template.
 // Unknown placeholders are left unchanged in the template.
+//
+// Detection Logic:
+// - If InstructionTemplate ends with ".tmpl", uses OrchestratorRenderer.Render() (template engine)
+// - Otherwise uses legacy string replacement (inline templates)
+// - Template rendering errors log a warning and return empty string (graceful degradation)
 func (oa *OrchestratorAction) PopulateTemplate(vars map[string]string) string {
+	// NEW: Detect if instruction_template is a .tmpl file reference
+	if strings.HasSuffix(oa.InstructionTemplate, ".tmpl") {
+		// Route to template engine
+		engine := templates.GetOrchestratorEngine()
+		rendered, err := engine.Render(oa.InstructionTemplate, vars)
+		if err != nil {
+			// Log error but gracefully degrade - return empty string
+			// This allows workflows to continue even if template rendering fails
+			log.Printf("template rendering failed for %s: %v", oa.InstructionTemplate, err)
+			return ""
+		}
+		return rendered
+	}
+
+	// UNCHANGED: Legacy string replacement for inline templates
 	if len(vars) == 0 {
 		return oa.InstructionTemplate
 	}

@@ -1,0 +1,29 @@
+Launch tech-lead with quality skill to review task {{.task_id}}: "{{.title}}".
+
+LOAD: quality skill.
+
+READ:
+(1) Task spec at {{.file_path}}
+(2) Feature test plan (09-test-plan.md) for expected test coverage and acceptance criteria
+(3) Feature PRD for feature-level intent
+(4) Implementation code changes
+{{- if .related_docs}}
+(5) Related docs: {{.related_docs}}
+{{- end}}
+{{- if .related_tasks}}
+({{if .related_docs}}6{{else}}5{{end}}) Related tasks: {{.related_tasks}}
+{{- end}}
+
+REVIEW:
+- Check code quality, security, and adherence to codebase standards
+- Compare implementation behavior against the task spec, feature test plan, and feature PRD
+- Verify acceptance criteria are met as specified in feature requirements
+- Verify TDD compliance -- tests from feature test plan are implemented and passing
+- Flag any deviation between feature intent, spec, and actual behavior
+
+EXIT GATE:
+- Code quality passes
+- Tests from feature plan implemented and passing
+- No spec drift from feature PRD
+
+Advance: shark task next-status {{.task_id}}.
