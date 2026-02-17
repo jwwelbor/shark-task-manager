@@ -59,6 +59,7 @@ type EpicDisplayInfo struct {
 	ResolvedPath       string                  `json:"path,omitempty"`
 	Filename           string                  `json:"filename,omitempty"`
 	StatusSource       string                  `json:"status_source"`
+	ValidTransitions   []string                `json:"valid_transitions,omitempty"`
 	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
 }
 
@@ -80,6 +81,7 @@ type FeatureDisplayInfo struct {
 	// Common fields
 	ResolvedPath       string                  `json:"path,omitempty"`
 	StatusSource       string                  `json:"status_source"`
+	ValidTransitions   []string                `json:"valid_transitions,omitempty"`
 	OrchestratorAction *config.PopulatedAction `json:"orchestrator_action,omitempty"`
 }
 
@@ -290,6 +292,12 @@ func (s *DisplayService) GetEpicDisplayInfo(ctx context.Context, epicKey string)
 		}
 	}
 
+	// Populate valid transitions
+	info.ValidTransitions = s.workflowSvc.ForLevel(workflow.LevelEpic).GetValidTransitions(string(epic.Status))
+	if info.ValidTransitions == nil {
+		info.ValidTransitions = []string{}
+	}
+
 	// Populate orchestrator action for both modes
 	info.OrchestratorAction = s.ResolveEpicAction(ctx, epic)
 
@@ -316,6 +324,12 @@ func (s *DisplayService) GetFeatureDisplayInfo(ctx context.Context, featureKey s
 		if err := s.populateFeatureAggregationInfo(ctx, info); err != nil {
 			return nil, err
 		}
+	}
+
+	// Populate valid transitions
+	info.ValidTransitions = s.workflowSvc.ForLevel(workflow.LevelFeature).GetValidTransitions(string(feature.Status))
+	if info.ValidTransitions == nil {
+		info.ValidTransitions = []string{}
 	}
 
 	// Populate orchestrator action for both modes

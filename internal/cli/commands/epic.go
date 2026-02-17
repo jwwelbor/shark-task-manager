@@ -583,6 +583,19 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Load workflow config for valid transitions
+	configPath, err := cli.GetConfigPath()
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", err)
+	}
+	var workflowCfg *config.WorkflowConfig
+	if configPath != "" {
+		workflowCfg, err = config.LoadWorkflowConfig(configPath)
+		if err != nil && cli.GlobalConfig.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load workflow config: %v\n", err)
+		}
+	}
+
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
 		// Build feature status summary
@@ -616,6 +629,9 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			})
 		}
 
+		// Get valid transitions for epic status
+		validTransitions := GetValidTransitions(string(epic.Status), workflowCfg)
+
 		result := map[string]interface{}{
 			"id":                     epic.ID,
 			"key":                    epic.Key,
@@ -641,6 +657,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			"notes":                  epicNotes,
 			"context_data":           epicContext,
 			"orchestrator_action":    displaySvc.ResolveEpicAction(ctx, epic),
+			"valid_transitions":      validTransitions,
 		}
 		return cli.OutputJSON(result)
 	}

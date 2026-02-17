@@ -770,6 +770,9 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 
 	// Output as JSON if requested
 	if cli.GlobalConfig.JSON {
+		// Get valid transitions for feature status
+		validTransitions := GetValidTransitions(string(feature.Status), workflowCfg)
+
 		result := map[string]interface{}{
 			"id":                  feature.ID,
 			"epic_id":             feature.EpicID,
@@ -793,6 +796,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"notes":               featureNotes,
 			"context_data":        featureContext,
 			"orchestrator_action": displaySvc.ResolveFeatureAction(ctx, feature),
+			"valid_transitions":   validTransitions,
 		}
 		return cli.OutputJSON(result)
 	}
