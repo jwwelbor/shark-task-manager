@@ -1,0 +1,77 @@
+package services
+
+import (
+	"time"
+)
+
+// CreateTaskInput contains the parameters for creating a new task.
+type CreateTaskInput struct {
+	// Required fields
+	EpicKey    string `json:"epic_key"`    // Epic key (E##)
+	FeatureKey string `json:"feature_key"` // Feature key (F## or E##-F##)
+	Title      string `json:"title"`       // Task title
+
+	// Optional fields
+	AgentType      string   `json:"agent_type,omitempty"`      // Agent type (frontend, backend, qa, etc.)
+	Priority       int      `json:"priority,omitempty"`        // Priority 1-10 (default: 5)
+	ExecutionOrder int      `json:"execution_order,omitempty"` // Execution order for sequencing
+	DependsOn      []string `json:"depends_on,omitempty"`      // Task keys this task depends on
+	FilePath       string   `json:"file_path,omitempty"`       // Custom file path (relative to project root)
+	TemplatePath   string   `json:"template_path,omitempty"`   // Custom template file path
+	CreateFile     bool     `json:"create_file,omitempty"`     // Create file if it doesn't exist
+	Force          bool     `json:"force,omitempty"`           // Force file reassignment if already claimed
+	Description    string   `json:"description,omitempty"`     // Task description
+}
+
+// TaskUpdates contains fields that can be updated on an existing task.
+// Only non-nil pointer fields will be updated.
+type TaskUpdates struct {
+	Title          *string `json:"title,omitempty"`
+	Description    *string `json:"description,omitempty"`
+	Priority       *int    `json:"priority,omitempty"`
+	AgentType      *string `json:"agent_type,omitempty"`
+	ExecutionOrder *int    `json:"execution_order,omitempty"`
+	FilePath       *string `json:"file_path,omitempty"`
+}
+
+// TaskFilters contains criteria for filtering task lists.
+type TaskFilters struct {
+	EpicKey    string   `json:"epic_key,omitempty"`    // Filter by epic
+	FeatureKey string   `json:"feature_key,omitempty"` // Filter by feature
+	Status     string   `json:"status,omitempty"`      // Filter by status
+	AgentType  string   `json:"agent_type,omitempty"`  // Filter by agent type
+	Statuses   []string `json:"statuses,omitempty"`    // Filter by multiple statuses
+	ShowAll    bool     `json:"show_all,omitempty"`    // Include completed tasks
+	Blocked    bool     `json:"blocked,omitempty"`     // Only blocked tasks
+}
+
+// NextTaskFilters contains criteria for selecting the next task to work on.
+type NextTaskFilters struct {
+	AgentType  string   `json:"agent_type,omitempty"`  // Prefer tasks for this agent type
+	EpicKey    string   `json:"epic_key,omitempty"`    // Limit to specific epic
+	FeatureKey string   `json:"feature_key,omitempty"` // Limit to specific feature
+	Statuses   []string `json:"statuses,omitempty"`    // Limit to these statuses (default: todo, in_progress)
+}
+
+// DependencyTree represents the hierarchical dependency structure for a task.
+type DependencyTree struct {
+	Task         *TaskNode   `json:"task"`                   // The root task
+	Dependencies []*TaskNode `json:"dependencies,omitempty"` // Tasks this task depends on
+	Dependents   []*TaskNode `json:"dependents,omitempty"`   // Tasks that depend on this task
+	Blocked      bool        `json:"blocked"`                // Whether any dependencies are unmet
+	BlockedBy    []string    `json:"blocked_by,omitempty"`   // Keys of blocking tasks
+	CanStart     bool        `json:"can_start"`              // Whether task can be started
+	Depth        int         `json:"depth"`                  // Depth in dependency graph
+}
+
+// TaskNode represents a single task in a dependency tree.
+type TaskNode struct {
+	Key         string    `json:"key"`
+	Title       string    `json:"title"`
+	Status      string    `json:"status"`
+	Priority    int       `json:"priority"`
+	AgentType   string    `json:"agent_type,omitempty"`
+	IsCompleted bool      `json:"is_completed"`
+	IsBlocked   bool      `json:"is_blocked"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}

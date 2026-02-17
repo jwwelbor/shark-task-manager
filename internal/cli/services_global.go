@@ -91,6 +91,20 @@ func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
 	return globalResumeService, nil
 }
 
+// GetTaskService returns a TaskService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+func GetTaskService() *services.TaskService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	taskRepo := repository.NewTaskRepository(db)
+	workflowSvc := GetWorkflowService()
+	// TODO: Add taskcreation.Creator and note repository when needed
+	return services.NewTaskService(taskRepo, workflowSvc, nil, nil)
+}
+
 // ResetServices clears global service state. For testing only.
 func ResetServices() {
 	globalNoteService = nil
