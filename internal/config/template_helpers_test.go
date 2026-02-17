@@ -1172,3 +1172,277 @@ func TestTaskPlaceholdersWithRelated_Refactored_QueryError(t *testing.T) {
 func ptrString(s string) *string {
 	return &s
 }
+
+// ========================
+// Complexity Tier Tests (Task API-28 and API-29)
+// ========================
+
+// TestTaskPlaceholdersWithRelated_ComplexityTierWithValue tests task with complexity_tier in metadata (API-28)
+func TestTaskPlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
+	task := &models.Task{
+		Key:      "E07-F30-001",
+		Title:    "Test Task",
+		Status:   "todo",
+		Metadata: map[string]interface{}{"complexity_tier": "STANDARD"},
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	if tier := result["complexity_tier"]; tier != "STANDARD" {
+		t.Errorf("complexity_tier = %q, want %q", tier, "STANDARD")
+	}
+
+	// Verify existing placeholders still present
+	if id := result["task_id"]; id != "E07-F30-001" {
+		t.Errorf("task_id = %q, want %q", id, "E07-F30-001")
+	}
+	if title := result["title"]; title != "Test Task" {
+		t.Errorf("title = %q, want %q", title, "Test Task")
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_ComplexityTierMissing tests task without complexity_tier (API-29)
+func TestTaskPlaceholdersWithRelated_ComplexityTierMissing(t *testing.T) {
+	task := &models.Task{
+		Key:      "E07-F30-002",
+		Title:    "Task without tier",
+		Status:   "todo",
+		Metadata: map[string]interface{}{}, // Empty metadata
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	// Should have empty string for complexity_tier when not set
+	if tier := result["complexity_tier"]; tier != "" {
+		t.Errorf("complexity_tier = %q, want empty string", tier)
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_ComplexityTierNilMetadata tests task with nil metadata
+func TestTaskPlaceholdersWithRelated_ComplexityTierNilMetadata(t *testing.T) {
+	task := &models.Task{
+		Key:      "E07-F30-003",
+		Title:    "Task with nil metadata",
+		Status:   "todo",
+		Metadata: nil,
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	// Should have empty string for complexity_tier when metadata is nil
+	if tier := result["complexity_tier"]; tier != "" {
+		t.Errorf("complexity_tier = %q, want empty string", tier)
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_ComplexityTierSimple tests task with SIMPLE tier
+func TestTaskPlaceholdersWithRelated_ComplexityTierSimple(t *testing.T) {
+	task := &models.Task{
+		Key:      "E07-F30-004",
+		Title:    "Simple task",
+		Status:   "todo",
+		Metadata: map[string]interface{}{"complexity_tier": "SIMPLE"},
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	if tier := result["complexity_tier"]; tier != "SIMPLE" {
+		t.Errorf("complexity_tier = %q, want %q", tier, "SIMPLE")
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_ComplexityTierComplex tests task with COMPLEX tier
+func TestTaskPlaceholdersWithRelated_ComplexityTierComplex(t *testing.T) {
+	task := &models.Task{
+		Key:      "E07-F30-005",
+		Title:    "Complex task",
+		Status:   "todo",
+		Metadata: map[string]interface{}{"complexity_tier": "COMPLEX"},
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	if tier := result["complexity_tier"]; tier != "COMPLEX" {
+		t.Errorf("complexity_tier = %q, want %q", tier, "COMPLEX")
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_ComplexityTierInvalidType tests task with non-string complexity_tier
+func TestTaskPlaceholdersWithRelated_ComplexityTierInvalidType(t *testing.T) {
+	task := &models.Task{
+		Key:      "E07-F30-006",
+		Title:    "Task with invalid tier type",
+		Status:   "todo",
+		Metadata: map[string]interface{}{"complexity_tier": 123}, // Integer instead of string
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockTaskRelRepo := &mockTaskRelationshipRepository{
+		tasks: []string{},
+	}
+
+	ctx := context.Background()
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	// Should return empty string when tier is not a string (type assertion fails)
+	if tier := result["complexity_tier"]; tier != "" {
+		t.Errorf("complexity_tier = %q, want empty string when non-string", tier)
+	}
+}
+
+// ========================
+// Feature Complexity Tier Tests (API-30)
+// ========================
+
+// TestFeaturePlaceholdersWithRelated_ComplexityTierWithValue tests feature with complexity_tier (API-30)
+func TestFeaturePlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
+	feature := &models.Feature{
+		Key:      "E07-F30",
+		Title:    "Template engine",
+		Status:   "active",
+		Metadata: map[string]interface{}{"complexity_tier": "STANDARD"},
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	if tier := result["complexity_tier"]; tier != "STANDARD" {
+		t.Errorf("complexity_tier = %q, want %q", tier, "STANDARD")
+	}
+
+	// Verify existing placeholders still present
+	if id := result["feature_id"]; id != "E07-F30" {
+		t.Errorf("feature_id = %q, want %q", id, "E07-F30")
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_ComplexityTierMissing tests feature without complexity_tier
+func TestFeaturePlaceholdersWithRelated_ComplexityTierMissing(t *testing.T) {
+	feature := &models.Feature{
+		Key:      "E07-F31",
+		Title:    "Feature without tier",
+		Status:   "active",
+		Metadata: map[string]interface{}{},
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	if tier := result["complexity_tier"]; tier != "" {
+		t.Errorf("complexity_tier = %q, want empty string", tier)
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_ComplexityTierNilMetadata tests feature with nil metadata
+func TestFeaturePlaceholdersWithRelated_ComplexityTierNilMetadata(t *testing.T) {
+	feature := &models.Feature{
+		Key:      "E07-F32",
+		Title:    "Feature with nil metadata",
+		Status:   "active",
+		Metadata: nil,
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	if tier := result["complexity_tier"]; tier != "" {
+		t.Errorf("complexity_tier = %q, want empty string", tier)
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_ComplexityTierComplex tests feature with COMPLEX tier
+func TestFeaturePlaceholdersWithRelated_ComplexityTierComplex(t *testing.T) {
+	feature := &models.Feature{
+		Key:      "E07-F33",
+		Title:    "Complex feature",
+		Status:   "active",
+		Metadata: map[string]interface{}{"complexity_tier": "COMPLEX"},
+	}
+
+	mockDocRepo := &mockDocumentRepository{
+		docs: []*models.Document{},
+	}
+
+	mockRelRepo := &mockFeatureRelationshipRepository{
+		features: []string{},
+	}
+
+	ctx := context.Background()
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	if tier := result["complexity_tier"]; tier != "COMPLEX" {
+		t.Errorf("complexity_tier = %q, want %q", tier, "COMPLEX")
+	}
+}

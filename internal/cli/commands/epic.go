@@ -714,6 +714,9 @@ func renderEpicPlanning(info *services.EpicDisplayInfo) {
 	// Display orchestrator action
 	displayOrchestratorAction(info.OrchestratorAction)
 
+	// Display related documents
+	renderRelatedDocuments(info.RelatedDocs)
+
 	// Planning mode message about features
 	if len(info.Features) == 0 {
 		pterm.Info.Println("No features yet (epic is still being refined)")
