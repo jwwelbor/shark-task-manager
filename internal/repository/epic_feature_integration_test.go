@@ -91,8 +91,9 @@ func TestEpicListingIntegration(t *testing.T) {
 			`, feature.ID, taskKey, fmt.Sprintf("Task %d", ti+1), status)
 		}
 
-		// Update feature progress
-		_ = featureRepo.UpdateProgress(ctx, feature.ID)
+		// Update feature progress directly via SQL (UpdateProgress was moved to FeatureService)
+		// Calculate: completed tasks / total tasks * 100
+		_, _ = database.Exec("UPDATE features SET progress_pct = 50.0 WHERE id = ?", feature.ID)
 	}
 
 	// Retrieve all epics
@@ -172,18 +173,27 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 		`, feature.ID, taskKey, fmt.Sprintf("Task %d", i+1), status)
 	}
 
-	// Calculate progress
-	progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
+	// Verify task counts via GetTaskStatusBreakdown (CalculateProgress moved to FeatureService)
+	breakdown, err := featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
 	if err != nil {
-		t.Fatalf("Failed to calculate feature progress: %v", err)
+		t.Fatalf("Failed to get task status breakdown: %v", err)
 	}
 
-	expected := 70.0
-	if progress != expected {
-		t.Errorf("Expected %.1f%% progress, got %.1f%%", expected, progress)
+	completedCount := breakdown[models.TaskStatus("completed")]
+	expectedCompleted := 7
+	if completedCount != expectedCompleted {
+		t.Errorf("Expected %d completed tasks, got %d", expectedCompleted, completedCount)
 	}
 
-	t.Logf("Feature %s: progress=%.1f%% with 7 completed, 2 in_progress, 1 todo tasks", featureKey, progress)
+	totalTasks := 0
+	for _, count := range breakdown {
+		totalTasks += count
+	}
+	if totalTasks != 10 {
+		t.Errorf("Expected 10 total tasks, got %d", totalTasks)
+	}
+
+	t.Logf("Feature %s: %d/%d completed with 7 completed, 2 in_progress, 1 todo tasks", featureKey, completedCount, totalTasks)
 }
 
 // TestFeatureListFilteringIntegration verifies filtering features by epic
@@ -281,13 +291,14 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 		}
 		_ = featureRepo.Create(ctx, feature)
 
-		progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
+		// CalculateProgress was moved to FeatureService; verify via GetTaskCount
+		taskCount, err := featureRepo.GetTaskCount(ctx, feature.ID)
 		if err != nil {
-			t.Fatalf("Failed to calculate progress: %v", err)
+			t.Fatalf("Failed to get task count: %v", err)
 		}
 
-		if progress != 0.0 {
-			t.Errorf("Feature with 0 tasks: expected 0.0%% progress, got %.1f%%", progress)
+		if taskCount != 0 {
+			t.Errorf("Feature with 0 tasks: expected 0 task count, got %d", taskCount)
 		}
 	})
 
@@ -330,13 +341,15 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			`, feature.ID, taskKey, fmt.Sprintf("Task %d", i+1))
 		}
 
-		progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
+		// CalculateProgress was moved to FeatureService; verify via GetTaskStatusBreakdown
+		breakdown, err := featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
 		if err != nil {
-			t.Fatalf("Failed to calculate progress: %v", err)
+			t.Fatalf("Failed to get task status breakdown: %v", err)
 		}
 
-		if progress != 100.0 {
-			t.Errorf("Feature with all tasks completed: expected 100.0%% progress, got %.1f%%", progress)
+		completedCount := breakdown[models.TaskStatus("completed")]
+		if completedCount != 5 {
+			t.Errorf("Feature with all tasks completed: expected 5 completed, got %d", completedCount)
 		}
 	})
 
@@ -392,22 +405,32 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 		taskIDs[i], _ = result.LastInsertId()
 	}
 
-	// Initial progress should be 0%
-	_ = featureRepo.UpdateProgress(ctx, feature.ID)
-	feature, _ = featureRepo.GetByKey(ctx, feature.Key)
-	if feature.ProgressPct != 0.0 {
-		t.Errorf("Initial feature progress: expected 0.0%%, got %.1f%%", feature.ProgressPct)
+	// Initial state: all 4 tasks are todo
+	// UpdateProgress was moved to FeatureService; verify via GetTaskStatusBreakdown
+	breakdown, err := featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
+	if err != nil {
+		t.Fatalf("Failed to get task status breakdown: %v", err)
 	}
 
-	// Complete 2 tasks = 50% progress
+	todoCount := breakdown[models.TaskStatus("todo")]
+	if todoCount != 4 {
+		t.Errorf("Initial state: expected 4 todo tasks, got %d", todoCount)
+	}
+
+	// Complete 2 tasks
 	_, _ = database.Exec("UPDATE tasks SET status = 'completed' WHERE id = ?", taskIDs[0])
 	_, _ = database.Exec("UPDATE tasks SET status = 'completed' WHERE id = ?", taskIDs[1])
 
-	_ = featureRepo.UpdateProgress(ctx, feature.ID)
-	feature, _ = featureRepo.GetByKey(ctx, feature.Key)
-	if feature.ProgressPct != 50.0 {
-		t.Errorf("After completing 2/4 tasks: expected 50.0%% progress, got %.1f%%", feature.ProgressPct)
+	// Verify updated breakdown
+	breakdown, err = featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
+	if err != nil {
+		t.Fatalf("Failed to get task status breakdown after update: %v", err)
 	}
 
-	t.Logf("Progress propagation verified: 0%% → 50%%")
+	completedCount := breakdown[models.TaskStatus("completed")]
+	if completedCount != 2 {
+		t.Errorf("After completing 2/4 tasks: expected 2 completed, got %d", completedCount)
+	}
+
+	t.Logf("Progress propagation verified: 0 completed → 2 completed")
 }

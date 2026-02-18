@@ -99,6 +99,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		workflowSvc, // Workflow validation
 		nil,         // TODO: Note repository (EpicNoteRepository interface differs)
 		featureRepo, // Child feature counting for warnings
+		nil,         // TODO: Task repository for impediment tracking
 	)
 
 	// Step 4: Construct supporting services

@@ -7,16 +7,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // mockEpicRepo implements EpicRepository for testing.
 type mockEpicRepo struct {
-	getByKeyFn func(ctx context.Context, key string) (*models.Epic, error)
-	updateFn   func(ctx context.Context, epic *models.Epic) error
+	getByKeyFn                     func(ctx context.Context, key string) (*models.Epic, error)
+	updateFn                       func(ctx context.Context, epic *models.Epic) error
+	listFn                         func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
+	getFeatureProgressDataByEpicFn func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error)
+	getFeatureStatusBreakdownFn    func(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error)
+	getFeatureStatusRollupFn       func(ctx context.Context, epicID int64) (map[string]int, error)
+	getTaskStatusRollupFn          func(ctx context.Context, epicID int64) (map[string]int, error)
 }
 
 func (m *mockEpicRepo) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
@@ -31,6 +38,41 @@ func (m *mockEpicRepo) Update(ctx context.Context, epic *models.Epic) error {
 		return m.updateFn(ctx, epic)
 	}
 	return nil
+}
+
+func (m *mockEpicRepo) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+	if m.listFn != nil {
+		return m.listFn(ctx, status)
+	}
+	return nil, nil
+}
+
+func (m *mockEpicRepo) GetFeatureProgressDataByEpic(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+	if m.getFeatureProgressDataByEpicFn != nil {
+		return m.getFeatureProgressDataByEpicFn(ctx, epicID)
+	}
+	return nil, nil
+}
+
+func (m *mockEpicRepo) GetFeatureStatusBreakdownByKey(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error) {
+	if m.getFeatureStatusBreakdownFn != nil {
+		return m.getFeatureStatusBreakdownFn(ctx, epicKey)
+	}
+	return nil, nil
+}
+
+func (m *mockEpicRepo) GetFeatureStatusRollup(ctx context.Context, epicID int64) (map[string]int, error) {
+	if m.getFeatureStatusRollupFn != nil {
+		return m.getFeatureStatusRollupFn(ctx, epicID)
+	}
+	return nil, nil
+}
+
+func (m *mockEpicRepo) GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error) {
+	if m.getTaskStatusRollupFn != nil {
+		return m.getTaskStatusRollupFn(ctx, epicID)
+	}
+	return nil, nil
 }
 
 // newTestEpicWorkflowService creates a workflow.Service with default config for testing.
@@ -119,7 +161,7 @@ func TestEpicService_TransitionStatus_Valid(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
@@ -160,7 +202,7 @@ func TestEpicService_TransitionStatus_Invalid(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	// "draft" -> "completed" is not a valid direct transition in default epic workflow
@@ -185,7 +227,7 @@ func TestEpicService_TransitionStatus_Force(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	// Force should bypass validation - even arbitrary strings should work
@@ -211,7 +253,7 @@ func TestEpicService_TransitionStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E99", "active", TransitionOptions{})
@@ -230,7 +272,7 @@ func TestEpicService_TransitionStatus_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
@@ -252,7 +294,7 @@ func TestEpicService_TransitionStatus_UpdateError(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
@@ -271,7 +313,7 @@ func TestEpicService_GetNextStatus(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -303,7 +345,7 @@ func TestEpicService_GetNextStatus_Terminal(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -326,7 +368,7 @@ func TestEpicService_GetNextStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetNextStatus(ctx, "E99")
@@ -337,7 +379,7 @@ func TestEpicService_GetNextStatus_NotFound(t *testing.T) {
 
 func TestEpicService_ValidateStatus(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 
 	// Valid epic statuses
 	for _, status := range []string{"draft", "active", "completed", "archived"} {
@@ -420,6 +462,568 @@ func TestNextStatusInfo_JSONSerialization(t *testing.T) {
 	}
 }
 
+// --- mockEpicTaskLister implements EpicTaskLister for testing ---
+
+type mockEpicTaskLister struct {
+	listBlockedTasksByEpicFn func(ctx context.Context, epicKey string) ([]*models.Task, error)
+}
+
+func (m *mockEpicTaskLister) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
+	if m.listBlockedTasksByEpicFn != nil {
+		return m.listBlockedTasksByEpicFn(ctx, epicKey)
+	}
+	return nil, nil
+}
+
+// --- Tests for GetEpic ---
+
+func TestEpicService_GetEpic(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			if key != "E01" {
+				t.Errorf("expected key 'E01', got %q", key)
+			}
+			return &models.Epic{ID: 1, Key: "E01", Title: "Test Epic", Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	epic, err := svc.GetEpic(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if epic.Key != "E01" {
+		t.Errorf("expected key 'E01', got %q", epic.Key)
+	}
+}
+
+func TestEpicService_GetEpic_NotFound(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetEpic(context.Background(), "E99")
+	if err == nil {
+		t.Fatal("expected error for not-found epic")
+	}
+}
+
+func TestEpicService_GetEpic_RepoError(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetEpic(context.Background(), "E01")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// --- Tests for ListEpics ---
+
+func TestEpicService_ListEpics(t *testing.T) {
+	repo := &mockEpicRepo{
+		listFn: func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+			if status != nil {
+				t.Errorf("expected nil status filter, got %v", *status)
+			}
+			return []*models.Epic{
+				{Key: "E01", Title: "Epic 1"},
+				{Key: "E02", Title: "Epic 2"},
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	epics, err := svc.ListEpics(context.Background(), EpicFilters{})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(epics) != 2 {
+		t.Fatalf("expected 2 epics, got %d", len(epics))
+	}
+}
+
+func TestEpicService_ListEpics_WithStatusFilter(t *testing.T) {
+	repo := &mockEpicRepo{
+		listFn: func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+			if status == nil || *status != models.EpicStatusActive {
+				t.Errorf("expected active status filter")
+			}
+			return []*models.Epic{{Key: "E01"}}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	epics, err := svc.ListEpics(context.Background(), EpicFilters{Status: "active"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(epics) != 1 {
+		t.Fatalf("expected 1 epic, got %d", len(epics))
+	}
+}
+
+func TestEpicService_ListEpics_RepoError(t *testing.T) {
+	repo := &mockEpicRepo{
+		listFn: func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.ListEpics(context.Background(), EpicFilters{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// --- Tests for GetProgress ---
+
+func TestEpicService_GetProgress(t *testing.T) {
+	// 3 features: 2 active (at 26.665% each), 1 completed (treated as 100%)
+	// Progress = (26.665 + 26.665 + 100) / 3 = 51.11
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+			return []repository.FeatureProgressData{
+				{Status: "active", ProgressPct: 26.665},
+				{Status: "active", ProgressPct: 26.665},
+				{Status: "completed", ProgressPct: 50.0}, // stored value ignored; treated as 100%
+			}, nil
+		},
+		getFeatureStatusRollupFn: func(ctx context.Context, epicID int64) (map[string]int, error) {
+			return map[string]int{"active": 2, "completed": 1}, nil
+		},
+		getTaskStatusRollupFn: func(ctx context.Context, epicID int64) (map[string]int, error) {
+			return map[string]int{"todo": 3, "in_development": 2, "completed": 5}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	progress, err := svc.GetProgress(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if progress.EpicKey != "E01" {
+		t.Errorf("expected epic_key 'E01', got %q", progress.EpicKey)
+	}
+	if progress.TotalFeatures != 3 {
+		t.Errorf("expected 3 total features, got %d", progress.TotalFeatures)
+	}
+	// (26.665 + 26.665 + 100) / 3 = 51.11
+	if progress.ProgressPct != 51.11 {
+		t.Errorf("expected progress_pct 51.11, got %v", progress.ProgressPct)
+	}
+	if progress.TaskRollup["completed"] != 5 {
+		t.Errorf("expected 5 completed tasks, got %d", progress.TaskRollup["completed"])
+	}
+}
+
+func TestEpicService_GetProgress_NotFound(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetProgress(context.Background(), "E99")
+	if err == nil {
+		t.Fatal("expected error for not-found epic")
+	}
+}
+
+func TestEpicService_GetProgress_CalculateError(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+			return nil, fmt.Errorf("calculation failed")
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetProgress(context.Background(), "E01")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// --- Tests for CalculateProgress ---
+
+func TestEpicService_CalculateProgress_NoFeatures(t *testing.T) {
+	repo := &mockEpicRepo{
+		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+			return []repository.FeatureProgressData{}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	progress, err := svc.CalculateProgress(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if progress != 0 {
+		t.Errorf("expected 0 progress for no features, got %v", progress)
+	}
+}
+
+func TestEpicService_CalculateProgress_NilFeatures(t *testing.T) {
+	repo := &mockEpicRepo{
+		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+			return nil, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	progress, err := svc.CalculateProgress(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if progress != 0 {
+		t.Errorf("expected 0 progress for nil features, got %v", progress)
+	}
+}
+
+func TestEpicService_CalculateProgress_AllCompleted(t *testing.T) {
+	repo := &mockEpicRepo{
+		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+			return []repository.FeatureProgressData{
+				{Status: "completed", ProgressPct: 80.0},
+				{Status: "completed", ProgressPct: 0.0},
+				{Status: "archived", ProgressPct: 50.0},
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	progress, err := svc.CalculateProgress(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if progress != 100.0 {
+		t.Errorf("expected 100.0 progress for all completed/archived, got %v", progress)
+	}
+}
+
+func TestEpicService_CalculateProgress_MixedStatuses(t *testing.T) {
+	repo := &mockEpicRepo{
+		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+			return []repository.FeatureProgressData{
+				{Status: "active", ProgressPct: 50.0},
+				{Status: "completed", ProgressPct: 75.0}, // treated as 100%
+				{Status: "draft", ProgressPct: 0.0},
+				{Status: "archived", ProgressPct: 10.0}, // treated as 100%
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	progress, err := svc.CalculateProgress(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	// (50 + 100 + 0 + 100) / 4 = 62.5
+	if progress != 62.5 {
+		t.Errorf("expected 62.5 progress, got %v", progress)
+	}
+}
+
+func TestEpicService_CalculateProgress_RepoError(t *testing.T) {
+	repo := &mockEpicRepo{
+		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+			return nil, fmt.Errorf("db connection failed")
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.CalculateProgress(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// --- Tests for GetFeatureRollup ---
+
+func TestEpicService_GetFeatureRollup(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+		getFeatureStatusRollupFn: func(ctx context.Context, epicID int64) (map[string]int, error) {
+			if epicID != 1 {
+				t.Errorf("expected epicID 1, got %d", epicID)
+			}
+			return map[string]int{"active": 3, "completed": 2}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	rollup, err := svc.GetFeatureRollup(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if rollup.TotalFeatures != 5 {
+		t.Errorf("expected 5 total features, got %d", rollup.TotalFeatures)
+	}
+	if rollup.StatusCounts["active"] != 3 {
+		t.Errorf("expected 3 active, got %d", rollup.StatusCounts["active"])
+	}
+}
+
+func TestEpicService_GetFeatureRollup_NotFound(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetFeatureRollup(context.Background(), "E99")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// --- Tests for GetTaskStatusRollup ---
+
+func TestEpicService_GetTaskStatusRollup(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+		getTaskStatusRollupFn: func(ctx context.Context, epicID int64) (map[string]int, error) {
+			return map[string]int{"todo": 5, "completed": 10}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	rollup, err := svc.GetTaskStatusRollup(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if rollup["todo"] != 5 {
+		t.Errorf("expected 5 todo tasks, got %d", rollup["todo"])
+	}
+	if rollup["completed"] != 10 {
+		t.Errorf("expected 10 completed tasks, got %d", rollup["completed"])
+	}
+}
+
+func TestEpicService_GetTaskStatusRollup_NotFound(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetTaskStatusRollup(context.Background(), "E99")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// --- Tests for GetImpediments ---
+
+func TestEpicService_GetImpediments(t *testing.T) {
+	taskLister := &mockEpicTaskLister{
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+			if epicKey != "E01" {
+				t.Errorf("expected epicKey 'E01', got %q", epicKey)
+			}
+			return []*models.Task{
+				{Key: "T-E01-F01-001", Title: "Blocked task", Status: "blocked", Priority: 5, UpdatedAt: time.Now().Add(-48 * time.Hour)},
+			}, nil
+		},
+	}
+	repo := &mockEpicRepo{}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, taskLister)
+
+	impediments, err := svc.GetImpediments(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(impediments) != 1 {
+		t.Fatalf("expected 1 impediment, got %d", len(impediments))
+	}
+	if impediments[0].TaskKey != "T-E01-F01-001" {
+		t.Errorf("expected task key 'T-E01-F01-001', got %q", impediments[0].TaskKey)
+	}
+	if impediments[0].AgeDays < 1 {
+		t.Errorf("expected age_days >= 1, got %d", impediments[0].AgeDays)
+	}
+}
+
+func TestEpicService_GetImpediments_NilTaskRepo(t *testing.T) {
+	repo := &mockEpicRepo{}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	impediments, err := svc.GetImpediments(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(impediments) != 0 {
+		t.Errorf("expected empty impediments when taskRepo is nil, got %d", len(impediments))
+	}
+}
+
+func TestEpicService_GetImpediments_RepoError(t *testing.T) {
+	taskLister := &mockEpicTaskLister{
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	repo := &mockEpicRepo{}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, taskLister)
+
+	_, err := svc.GetImpediments(context.Background(), "E01")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// --- Tests for GetHealth ---
+
+func TestEpicService_GetHealth_Healthy(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+	}
+	taskLister := &mockEpicTaskLister{
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, taskLister)
+
+	health, err := svc.GetHealth(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if health.Status != "healthy" {
+		t.Errorf("expected 'healthy', got %q", health.Status)
+	}
+	if len(health.Reasons) != 0 {
+		t.Errorf("expected no reasons, got %v", health.Reasons)
+	}
+}
+
+func TestEpicService_GetHealth_Warning(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+	}
+	taskLister := &mockEpicTaskLister{
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "T-E01-F01-001", Title: "Blocked", Status: "blocked", Priority: 5, UpdatedAt: time.Now()},
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, taskLister)
+
+	health, err := svc.GetHealth(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if health.Status != "warning" {
+		t.Errorf("expected 'warning', got %q", health.Status)
+	}
+}
+
+func TestEpicService_GetHealth_Critical_MultipleBlocked(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+	}
+	taskLister := &mockEpicTaskLister{
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "T-E01-F01-001", Title: "Blocked 1", Status: "blocked", Priority: 5, UpdatedAt: time.Now()},
+				{Key: "T-E01-F01-002", Title: "Blocked 2", Status: "blocked", Priority: 5, UpdatedAt: time.Now()},
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, taskLister)
+
+	health, err := svc.GetHealth(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if health.Status != "critical" {
+		t.Errorf("expected 'critical', got %q", health.Status)
+	}
+}
+
+func TestEpicService_GetHealth_Critical_HighPriority(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+	}
+	taskLister := &mockEpicTaskLister{
+		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "T-E01-F01-001", Title: "High-pri blocked", Status: "blocked", Priority: 2, UpdatedAt: time.Now()},
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, taskLister)
+
+	health, err := svc.GetHealth(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if health.Status != "critical" {
+		t.Errorf("expected 'critical' for high-priority blocked task, got %q", health.Status)
+	}
+}
+
+func TestEpicService_GetHealth_NotFound(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetHealth(context.Background(), "E99")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestEpicService_GetHealth_NilTaskRepo(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01"}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	health, err := svc.GetHealth(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if health.Status != "healthy" {
+		t.Errorf("expected 'healthy' when taskRepo is nil, got %q", health.Status)
+	}
+}
+
 // --- Tests for resolveAction integration ---
 
 func TestEpicService_TransitionStatus_WithAction(t *testing.T) {
@@ -435,7 +1039,7 @@ func TestEpicService_TransitionStatus_WithAction(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// Transition to "active" which has an orchestrator_action defined
@@ -477,7 +1081,7 @@ func TestEpicService_TransitionStatus_WithoutAction(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// Transition to "completed" which has no orchestrator_action
@@ -501,7 +1105,7 @@ func TestEpicService_GetNextStatus_WithActions(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -553,7 +1157,7 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 	// Create an EpicService with a default workflow (no actions defined)
 	// resolveAction should return nil gracefully
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
 	action := svc.resolveAction(context.Background(), epic, "draft")
@@ -565,7 +1169,7 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 	// resolveAction with a status not in metadata should return nil
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "nonexistent_status"}
 	action := svc.resolveAction(context.Background(), epic, "nonexistent_status")
@@ -577,7 +1181,7 @@ func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 	// resolveAction for a status that exists but has no orchestrator_action
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
 	action := svc.resolveAction(context.Background(), epic, "draft")
@@ -588,7 +1192,7 @@ func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 
 func TestEpicService_resolveAction_StatusWithAction(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil, nil)
 
 	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "active"}
 	action := svc.resolveAction(context.Background(), epic, "active")
@@ -624,7 +1228,7 @@ func TestEpicService_TransitionStatus_ActionJSON(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceWithActions(t), nil, nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})

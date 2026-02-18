@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -54,23 +53,22 @@ func TestFeatureProgressPerformance(t *testing.T) {
 
 // TestEpicProgressPerformance verifies the epic progress SQL performance
 func TestEpicProgressPerformance(t *testing.T) {
-	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
-	featureRepo := NewFeatureRepository(db)
 
 	// Create test data with multiple features
 	epicID, feature1ID := setupProgressTest(t, 84, 1, []models.TaskStatus{
 		models.TaskStatus("completed"),
 		models.TaskStatus("todo"),
 	})
-	_ = featureRepo.UpdateProgress(ctx, feature1ID)
+	// Set progress_pct directly via SQL (UpdateProgress was moved to FeatureService)
+	_, _ = database.Exec("UPDATE features SET progress_pct = 50.0 WHERE id = ?", feature1ID)
 
 	// Create second feature with 1 completed task using setupProgressTest helper
 	_, feature2ID := setupProgressTest(t, 84, 2, []models.TaskStatus{
 		models.TaskStatus("completed"),
 	})
-	_ = featureRepo.UpdateProgress(ctx, feature2ID)
+	// Set progress_pct directly via SQL (UpdateProgress was moved to FeatureService)
+	_, _ = database.Exec("UPDATE features SET progress_pct = 100.0 WHERE id = ?", feature2ID)
 
 	// Get the SQL query plan for epic progress
 	query := `
@@ -107,8 +105,9 @@ func TestEpicProgressPerformance(t *testing.T) {
 	// Should show "SEARCH features USING INDEX idx_features_epic_id"
 }
 
-// BenchmarkFeatureProgress measures feature progress calculation performance
-func BenchmarkFeatureProgress(b *testing.B) {
+// BenchmarkFeatureTaskStatusBreakdown measures feature task status breakdown performance
+// (CalculateProgress was moved to FeatureService; this benchmarks the underlying data query)
+func BenchmarkFeatureTaskStatusBreakdown(b *testing.B) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
@@ -128,72 +127,12 @@ func BenchmarkFeatureProgress(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := featureRepo.CalculateProgress(ctx, featureID)
+		_, err := featureRepo.GetTaskStatusBreakdown(ctx, featureID)
 		if err != nil {
-			b.Fatalf("Failed to calculate progress: %v", err)
+			b.Fatalf("Failed to get task status breakdown: %v", err)
 		}
 	}
 }
 
-// BenchmarkEpicProgress measures epic progress calculation performance
-func BenchmarkEpicProgress(b *testing.B) {
-	ctx := context.Background()
-	database := test.GetTestDB()
-	db := NewDB(database)
-	epicRepo := NewEpicRepository(db)
-	featureRepo := NewFeatureRepository(db)
-
-	// Create epic E88 with 50 features via setupProgressTest
-	// Use E88 (reserved for benchmarks) to avoid conflicts with other tests
-	epicKey := "E88"
-
-	// Create epic using INSERT OR IGNORE pattern
-	result, _ := database.Exec(`
-		INSERT OR IGNORE INTO epics (key, title, description, status, priority)
-		VALUES (?, 'Benchmark Epic', 'Epic for benchmarking', 'active', 'medium')
-	`, epicKey)
-	epicID, _ := result.LastInsertId()
-	if epicID == 0 {
-		_ = database.QueryRow("SELECT id FROM epics WHERE key = ?", epicKey).Scan(&epicID)
-	}
-
-	// Create 50 features, each with 10 tasks (5 completed, 5 todo)
-	for f := 1; f <= 50; f++ {
-		featureKey := fmt.Sprintf("E88-F%02d", f)
-
-		// Create feature with INSERT OR IGNORE
-		result, _ := database.Exec(`
-			INSERT OR IGNORE INTO features (epic_id, key, title, description, status)
-			VALUES (?, ?, ?, 'Feature for benchmarking', 'active')
-		`, epicID, featureKey, fmt.Sprintf("Benchmark Feature %d", f))
-		featureID, _ := result.LastInsertId()
-		if featureID == 0 {
-			_ = database.QueryRow("SELECT id FROM features WHERE key = ?", featureKey).Scan(&featureID)
-		}
-
-		// Delete and recreate tasks for this feature
-		_, _ = database.Exec("DELETE FROM tasks WHERE feature_id = ?", featureID)
-
-		// Create 10 tasks (5 completed, 5 todo)
-		for t := 1; t <= 10; t++ {
-			status := models.TaskStatus("todo")
-			if t <= 5 {
-				status = models.TaskStatus("completed")
-			}
-			_, _ = database.Exec(`
-				INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on)
-				VALUES (?, ?, ?, ?, 'testing', 1, '[]')
-			`, featureID, fmt.Sprintf("%s-T%03d", featureKey, t), fmt.Sprintf("Task %d", t), status)
-		}
-
-		_ = featureRepo.UpdateProgress(ctx, featureID)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := epicRepo.CalculateProgress(ctx, epicID)
-		if err != nil {
-			b.Fatalf("Failed to calculate epic progress: %v", err)
-		}
-	}
-}
+// NOTE: BenchmarkEpicProgress was removed because EpicRepository.CalculateProgress
+// was migrated to EpicService.CalculateProgress as part of E15-F05.

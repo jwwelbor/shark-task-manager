@@ -29,9 +29,10 @@ func GetEpicService() *services.EpicService {
 	}
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
 	workflowSvc := GetWorkflowService()
 	// TODO: noteRepo interface mismatch - EpicNoteRepository expects different signature
-	return services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo)
+	return services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo, taskRepo)
 }
 
 // GetFeatureService returns a FeatureService instance.

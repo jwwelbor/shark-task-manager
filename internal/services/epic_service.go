@@ -3,9 +3,12 @@ package services
 import (
 	"context"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -14,6 +17,17 @@ import (
 type EpicRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Epic, error)
 	Update(ctx context.Context, epic *models.Epic) error
+	List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
+	GetFeatureProgressDataByEpic(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error)
+	GetFeatureStatusBreakdownByKey(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error)
+	GetFeatureStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
+	GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
+}
+
+// EpicTaskLister defines the task repository interface needed by EpicService
+// for querying blocked tasks across an epic.
+type EpicTaskLister interface {
+	ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
 }
 
 // EpicNoteRepository defines the note repo interface needed by EpicService
@@ -35,6 +49,7 @@ type EpicService struct {
 	workflowSvc *workflow.Service
 	noteRepo    EpicNoteRepository
 	featureRepo EpicFeatureCounter
+	taskRepo    EpicTaskLister
 	docRepo     config.DocumentRepository
 	relRepo     config.EpicRelationshipRepository
 }
@@ -46,7 +61,7 @@ type EpicService struct {
 // Panics:
 //   - If repo is nil (required dependency)
 //   - If workflowSvc is nil (required dependency)
-func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter) *EpicService {
+func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter, taskRepo EpicTaskLister) *EpicService {
 	if repo == nil {
 		panic("EpicService requires a non-nil EpicRepository")
 	}
@@ -58,6 +73,7 @@ func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),
 		noteRepo:    noteRepo,
 		featureRepo: featureRepo,
+		taskRepo:    taskRepo,
 		docRepo:     nil,
 		relRepo:     nil,
 	}
@@ -249,4 +265,213 @@ func (s *EpicService) resolveAction(ctx context.Context, epic *models.Epic, stat
 		Skills:      meta.OrchestratorAction.Skills,
 		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
 	}
+}
+
+// GetEpic retrieves an epic by key.
+func (s *EpicService) GetEpic(ctx context.Context, key string) (*models.Epic, error) {
+	epic, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
+	}
+	if epic == nil {
+		return nil, fmt.Errorf("epic not found: %s", key)
+	}
+	return epic, nil
+}
+
+// ListEpics retrieves epics with optional filtering.
+func (s *EpicService) ListEpics(ctx context.Context, filters EpicFilters) ([]*models.Epic, error) {
+	var statusPtr *models.EpicStatus
+	if filters.Status != "" {
+		status := models.EpicStatus(filters.Status)
+		statusPtr = &status
+	}
+	epics, err := s.repo.List(ctx, statusPtr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list epics: %w", err)
+	}
+	return epics, nil
+}
+
+// CalculateProgress computes epic progress from raw feature data.
+// Business rule: completed/archived features count as 100% progress regardless
+// of their stored progress_pct value. All other features use their stored
+// progress_pct. Epic progress is the average across all features.
+// Returns 0 if the epic has no features.
+func (s *EpicService) CalculateProgress(ctx context.Context, epicID int64) (float64, error) {
+	data, err := s.repo.GetFeatureProgressDataByEpic(ctx, epicID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get feature progress data: %w", err)
+	}
+
+	if len(data) == 0 {
+		return 0, nil
+	}
+
+	var totalProgress float64
+	for _, d := range data {
+		if d.Status == "completed" || d.Status == "archived" {
+			totalProgress += 100.0
+		} else {
+			totalProgress += d.ProgressPct
+		}
+	}
+
+	return totalProgress / float64(len(data)), nil
+}
+
+// GetProgress retrieves progress metrics for an epic.
+func (s *EpicService) GetProgress(ctx context.Context, key string) (*EpicProgressInfo, error) {
+	epic, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
+	}
+	if epic == nil {
+		return nil, fmt.Errorf("epic not found: %s", key)
+	}
+
+	progressPct, err := s.CalculateProgress(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate progress for epic %s: %w", key, err)
+	}
+
+	featureRollup, err := s.repo.GetFeatureStatusRollup(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature rollup for epic %s: %w", key, err)
+	}
+
+	taskRollup, err := s.repo.GetTaskStatusRollup(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task rollup for epic %s: %w", key, err)
+	}
+
+	totalFeatures := 0
+	for _, count := range featureRollup {
+		totalFeatures += count
+	}
+
+	return &EpicProgressInfo{
+		EpicKey:       key,
+		ProgressPct:   math.Round(progressPct*100) / 100,
+		TotalFeatures: totalFeatures,
+		TaskRollup:    taskRollup,
+	}, nil
+}
+
+// GetFeatureRollup aggregates feature statuses for an epic.
+func (s *EpicService) GetFeatureRollup(ctx context.Context, key string) (*FeatureRollup, error) {
+	epic, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
+	}
+	if epic == nil {
+		return nil, fmt.Errorf("epic not found: %s", key)
+	}
+
+	statusCounts, err := s.repo.GetFeatureStatusRollup(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature rollup for epic %s: %w", key, err)
+	}
+
+	totalFeatures := 0
+	for _, count := range statusCounts {
+		totalFeatures += count
+	}
+
+	return &FeatureRollup{
+		EpicKey:       key,
+		TotalFeatures: totalFeatures,
+		StatusCounts:  statusCounts,
+	}, nil
+}
+
+// GetTaskStatusRollup aggregates task statuses across all features in an epic.
+func (s *EpicService) GetTaskStatusRollup(ctx context.Context, key string) (map[string]int, error) {
+	epic, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
+	}
+	if epic == nil {
+		return nil, fmt.Errorf("epic not found: %s", key)
+	}
+
+	rollup, err := s.repo.GetTaskStatusRollup(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task status rollup for epic %s: %w", key, err)
+	}
+	return rollup, nil
+}
+
+// GetImpediments returns blocked tasks that impede epic progress.
+// Degrades gracefully if taskRepo is nil (returns empty slice).
+func (s *EpicService) GetImpediments(ctx context.Context, key string) ([]*Impediment, error) {
+	if s.taskRepo == nil {
+		return []*Impediment{}, nil
+	}
+
+	blockedTasks, err := s.taskRepo.ListBlockedTasksByEpic(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get impediments for epic %s: %w", key, err)
+	}
+
+	impediments := make([]*Impediment, 0, len(blockedTasks))
+	now := time.Now()
+	for _, task := range blockedTasks {
+		ageDays := 0
+		if task.BlockedAt.Valid {
+			ageDays = int(now.Sub(task.BlockedAt.Time).Hours() / 24)
+		} else {
+			ageDays = int(now.Sub(task.UpdatedAt).Hours() / 24)
+		}
+		impediments = append(impediments, &Impediment{
+			TaskKey:  task.Key,
+			Title:    task.Title,
+			Status:   string(task.Status),
+			Priority: task.Priority,
+			AgeDays:  ageDays,
+		})
+	}
+
+	return impediments, nil
+}
+
+// GetHealth analyzes the health of an epic based on blocked tasks and feature status.
+// Degrades gracefully if taskRepo is nil (returns healthy).
+func (s *EpicService) GetHealth(ctx context.Context, key string) (*EpicHealthInfo, error) {
+	epic, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
+	}
+	if epic == nil {
+		return nil, fmt.Errorf("epic not found: %s", key)
+	}
+
+	health := &EpicHealthInfo{
+		EpicKey: key,
+		Status:  "healthy",
+	}
+
+	// Check for blocked tasks
+	impediments, err := s.GetImpediments(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to analyze health for epic %s: %w", key, err)
+	}
+
+	if len(impediments) >= 2 {
+		health.Status = "critical"
+		health.Reasons = append(health.Reasons, fmt.Sprintf("%d blocked tasks", len(impediments)))
+	} else if len(impediments) == 1 {
+		health.Status = "warning"
+		health.Reasons = append(health.Reasons, "1 blocked task")
+	}
+
+	// Check for high-priority blocked tasks
+	for _, imp := range impediments {
+		if imp.Priority <= 3 && health.Status != "critical" {
+			health.Status = "critical"
+			health.Reasons = append(health.Reasons, fmt.Sprintf("high-priority task %s is blocked", imp.TaskKey))
+		}
+	}
+
+	return health, nil
 }

@@ -5,12 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/progress"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
 
@@ -617,114 +614,6 @@ func (r *FeatureRepository) UpdateFilePath(ctx context.Context, featureKey strin
 	}
 
 	return nil
-}
-
-// CalculateProgress calculates the weighted progress of a feature based on task status weights
-// Uses workflow config to apply progress weights to each task status
-func (r *FeatureRepository) CalculateProgress(ctx context.Context, featureID int64) (float64, error) {
-	// Get task status breakdown
-	query := `
-		SELECT status, COUNT(*) as count
-		FROM tasks
-		WHERE feature_id = ?
-		GROUP BY status
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, featureID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get task status breakdown: %w", err)
-	}
-	defer rows.Close()
-
-	statusCounts := make(map[string]int)
-	for rows.Next() {
-		var taskStatus string
-		var count int
-		if err := rows.Scan(&taskStatus, &count); err != nil {
-			return 0, fmt.Errorf("failed to scan status count: %w", err)
-		}
-		statusCounts[taskStatus] = count
-	}
-
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("error iterating status counts: %w", err)
-	}
-
-	// If feature has no tasks, return 0.0 (not an error)
-	if len(statusCounts) == 0 {
-		return 0.0, nil
-	}
-
-	// Load workflow config for weighted progress calculation
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = ""
-	}
-
-	var cfg *config.WorkflowConfig
-	if cwd != "" {
-		configPath := cwd + "/.sharkconfig.json"
-		cfg, err = config.LoadWorkflowConfig(configPath)
-		if err != nil {
-			// If config load fails, use default weights (completion-based)
-			cfg = nil
-		}
-	}
-
-	// Calculate weighted progress using progress package
-	progressInfo := progress.CalculateProgress(statusCounts, cfg)
-	return progressInfo.WeightedPct, nil
-}
-
-// CalculateProgressByKey calculates the progress of a feature by its key
-func (r *FeatureRepository) CalculateProgressByKey(ctx context.Context, key string) (float64, error) {
-	feature, err := r.GetByKey(ctx, key)
-	if err != nil {
-		return 0, err
-	}
-	return r.CalculateProgress(ctx, feature.ID)
-}
-
-// UpdateProgress recalculates and updates the cached progress_pct field
-// Automatically sets feature status to "completed" when progress reaches 100%
-func (r *FeatureRepository) UpdateProgress(ctx context.Context, featureID int64) error {
-	progress, err := r.CalculateProgress(ctx, featureID)
-	if err != nil {
-		return err
-	}
-
-	// Auto-complete feature when all tasks are completed
-	var newStatus models.FeatureStatus
-	if progress >= 100.0 {
-		newStatus = models.FeatureStatusCompleted
-	} else {
-		// Keep existing status but update progress
-		// For features that are not yet 100% complete, don't change their status
-		query := "UPDATE features SET progress_pct = ? WHERE id = ?"
-		_, err = r.db.ExecContext(ctx, query, progress, featureID)
-		if err != nil {
-			return fmt.Errorf("failed to update feature progress: %w", err)
-		}
-		return nil
-	}
-
-	// Update both progress and status when reaching 100%
-	query := "UPDATE features SET progress_pct = ?, status = ? WHERE id = ?"
-	_, err = r.db.ExecContext(ctx, query, progress, newStatus, featureID)
-	if err != nil {
-		return fmt.Errorf("failed to update feature progress: %w", err)
-	}
-
-	return nil
-}
-
-// UpdateProgressByKey recalculates and updates the cached progress_pct field by feature key
-func (r *FeatureRepository) UpdateProgressByKey(ctx context.Context, key string) error {
-	feature, err := r.GetByKey(ctx, key)
-	if err != nil {
-		return err
-	}
-	return r.UpdateProgress(ctx, feature.ID)
 }
 
 // ListByStatus retrieves all features with a specific status

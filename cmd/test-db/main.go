@@ -9,6 +9,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 func main() {
@@ -127,21 +129,24 @@ func main() {
 			*history[0].OldStatus, history[0].NewStatus, *history[0].Agent)
 	}
 
-	// Test Feature Progress Calculation
+	// Test Feature Progress Calculation via service layer
 	fmt.Println("\n--- Testing Progress Calculation ---")
 
-	progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
+	workflowSvc := workflow.NewService(".")
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
+
+	progressInfo, err := featureSvc.GetProgress(ctx, feature.Key)
 	if err != nil {
 		log.Fatal("Failed to calculate feature progress:", err)
 	}
-	fmt.Printf("✓ Feature progress: %.1f%% (0/1 tasks completed)\n", progress)
+	fmt.Printf("✓ Feature progress: %.1f%% (0/1 tasks completed)\n", progressInfo.WeightedProgress)
 
 	// Complete the task and recalculate
 	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil); err != nil {
 		log.Fatal("Failed to complete task:", err)
 	}
 
-	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		log.Fatal("Failed to update feature progress:", err)
 	}
 
@@ -151,10 +156,22 @@ func main() {
 	}
 	fmt.Printf("✓ Feature progress updated: %.1f%% (1/1 tasks completed)\n", updatedFeature.ProgressPct)
 
-	// Test Epic Progress Calculation
-	epicProgress, err := epicRepo.CalculateProgress(ctx, epic.ID)
+	// Test Epic Progress Calculation (using raw data access method)
+	progressData, err := epicRepo.GetFeatureProgressDataByEpic(ctx, epic.ID)
 	if err != nil {
-		log.Fatal("Failed to calculate epic progress:", err)
+		log.Fatal("Failed to get feature progress data:", err)
+	}
+	var epicProgress float64
+	if len(progressData) > 0 {
+		var total float64
+		for _, d := range progressData {
+			if d.Status == "completed" || d.Status == "archived" {
+				total += 100.0
+			} else {
+				total += d.ProgressPct
+			}
+		}
+		epicProgress = total / float64(len(progressData))
 	}
 	fmt.Printf("✓ Epic progress: %.1f%%\n", epicProgress)
 

@@ -78,11 +78,6 @@ func BenchmarkEpicGetWithFeatures(b *testing.B) {
 			b.Fatalf("Failed to get features: %v", err)
 		}
 
-		// Calculate progress for epic
-		_, err = epicRepo.CalculateProgress(ctx, retrievedEpic.ID)
-		if err != nil {
-			b.Fatalf("Failed to calculate epic progress: %v", err)
-		}
 	}
 
 	avgNs := b.Elapsed().Nanoseconds() / int64(b.N)
@@ -124,10 +119,10 @@ func BenchmarkFeatureGetWithTasks(b *testing.B) {
 			b.Fatalf("Failed to get feature: %v", err)
 		}
 
-		// Calculate progress
-		_, err = featureRepo.CalculateProgress(ctx, retrievedFeature.ID)
+		// Get task status breakdown (CalculateProgress moved to FeatureService)
+		_, err = featureRepo.GetTaskStatusBreakdown(ctx, retrievedFeature.ID)
 		if err != nil {
-			b.Fatalf("Failed to calculate progress: %v", err)
+			b.Fatalf("Failed to get task status breakdown: %v", err)
 		}
 	}
 
@@ -162,17 +157,17 @@ func BenchmarkProgressCalculation(b *testing.B) {
 
 	b.ResetTimer()
 
-	b.Run("FeatureProgress", func(b *testing.B) {
+	b.Run("FeatureTaskStatusBreakdown", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_, err := featureRepo.CalculateProgress(ctx, feature.ID)
+			_, err := featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
 			if err != nil {
-				b.Fatalf("Failed to calculate feature progress: %v", err)
+				b.Fatalf("Failed to get task status breakdown: %v", err)
 			}
 		}
 
 		avgNs := b.Elapsed().Nanoseconds() / int64(b.N)
 		avgMs := float64(avgNs) / 1_000_000
-		b.Logf("Average feature progress calculation: %.2f ms", avgMs)
+		b.Logf("Average feature task status breakdown: %.2f ms", avgMs)
 	})
 }
 

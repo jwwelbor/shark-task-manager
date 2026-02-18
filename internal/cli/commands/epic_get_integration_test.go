@@ -7,6 +7,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -327,24 +328,27 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 		}
 	}
 
-	// Update feature progress (caches progress_pct in database)
-	if err := featureRepo.UpdateProgress(ctx, feature1.ID); err != nil {
+	// Update feature progress via service layer (caches progress_pct in database)
+	featureSvcProgress := services.NewFeatureService(featureRepo, workflow.NewService("."), nil, taskRepo)
+	if err := featureSvcProgress.RecalculateAndSetProgress(ctx, feature1.ID); err != nil {
 		t.Fatalf("Failed to update feature 1 progress: %v", err)
 	}
-	if err := featureRepo.UpdateProgress(ctx, feature2.ID); err != nil {
+	if err := featureSvcProgress.RecalculateAndSetProgress(ctx, feature2.ID); err != nil {
 		t.Fatalf("Failed to update feature 2 progress: %v", err)
 	}
 
-	// Calculate feature progress for each
-	progress1, err := featureRepo.CalculateProgress(ctx, feature1.ID)
+	// Calculate feature progress for each via service layer
+	progressInfo1, err := featureSvcProgress.GetProgress(ctx, feature1.Key)
 	if err != nil {
 		t.Fatalf("Failed to calculate feature 1 progress: %v", err)
 	}
+	progress1 := progressInfo1.WeightedProgress
 
-	progress2, err := featureRepo.CalculateProgress(ctx, feature2.ID)
+	progressInfo2, err := featureSvcProgress.GetProgress(ctx, feature2.Key)
 	if err != nil {
 		t.Fatalf("Failed to calculate feature 2 progress: %v", err)
 	}
+	progress2 := progressInfo2.WeightedProgress
 
 	// Feature 1 should be 50%, Feature 2 should be 100%
 	if progress1 != 50.0 {
@@ -355,8 +359,9 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 		t.Errorf("Expected feature 2 progress 100%%, got %f%%", progress2)
 	}
 
-	// Calculate epic progress (average of features)
-	epicProgress, err := epicRepo.CalculateProgress(ctx, epic.ID)
+	// Calculate epic progress (average of features) via EpicService
+	epicSvc := services.NewEpicService(epicRepo, workflow.NewService("."), nil, featureRepo, taskRepo)
+	epicProgress, err := epicSvc.CalculateProgress(ctx, epic.ID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)
 	}

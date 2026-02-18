@@ -8,6 +8,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // TestEpicCompleteCascadesToFeatures verifies that completing an epic
@@ -143,10 +145,12 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 		}
 	}
 
-	// Update progress for all features and mark them as completed
+	// Update progress for all features and mark them as completed via service layer
+	workflowSvc := workflow.NewService(".")
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
 	for _, feature := range features {
-		// Update progress first (will auto-complete if all tasks are done)
-		if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+		// Update progress first via service layer (will auto-complete if all tasks are done)
+		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 			t.Fatalf("Failed to update progress for feature %s: %v", feature.Key, err)
 		}
 

@@ -406,10 +406,11 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update progress and add task count for each feature
+	featureSvc := cli.GetFeatureService()
 	featuresWithTaskCount := make([]FeatureWithTaskCount, 0, len(features))
 	for _, feature := range features {
 		// Update feature progress (in case it's stale)
-		if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 			if cli.GlobalConfig.Verbose {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
 			}
@@ -627,8 +628,9 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Update feature progress
-	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+	// Update feature progress via service layer
+	featureSvcGet := cli.GetFeatureService()
+	if err := featureSvcGet.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		if cli.GlobalConfig.Verbose {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
 		}
@@ -1924,8 +1926,9 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		affectedTaskKeys = append(affectedTaskKeys, task.Key)
 	}
 
-	// Update feature progress (which now auto-completes at 100%)
-	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+	// Update feature progress via service layer (which now auto-completes at 100%)
+	featureSvcComplete := cli.GetFeatureService()
+	if err := featureSvcComplete.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to update feature progress: %v", err))
 		os.Exit(2)
 	}

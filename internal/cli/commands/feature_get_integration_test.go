@@ -7,6 +7,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -88,14 +89,17 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 		}
 	}
 
-	// Calculate progress
-	progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
+	// Calculate progress via service layer
+	workflowSvc := workflow.NewService(".")
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
+	progressInfo, err := featureSvc.GetProgress(ctx, feature.Key)
 	if err != nil {
-		t.Fatalf("CalculateProgress failed: %v", err)
+		t.Fatalf("GetProgress failed: %v", err)
 	}
 
-	// Verify: 2 completed out of 4 = 50%
-	expectedProgress := 50.0
+	// Verify weighted progress: 2 completed (1.0) + 1 in_progress (0.5) + 1 todo (0.0) = 2.5/4 = 62.5%
+	expectedProgress := 62.5
+	progress := progressInfo.WeightedProgress
 	if progress != expectedProgress {
 		t.Errorf("Expected progress %f, got %f", expectedProgress, progress)
 	}
@@ -262,8 +266,9 @@ func TestFeatureGetIntegration_FeatureGetCommandJSONOutput(t *testing.T) {
 		t.Fatalf("Failed to create task: %v", err)
 	}
 
-	// Update feature progress
-	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+	// Update feature progress via service layer
+	featureSvcProgress := services.NewFeatureService(featureRepo, workflow.NewService("."), nil, taskRepo)
+	if err := featureSvcProgress.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		t.Fatalf("Failed to update progress: %v", err)
 	}
 
@@ -430,13 +435,15 @@ func TestFeatureGetIntegration_MultipleFeatures(t *testing.T) {
 		t.Errorf("Expected 3 features, got %d", len(features))
 	}
 
-	// Verify each feature's progress can be calculated
+	// Verify each feature's progress can be calculated via service layer
+	featureSvcMulti := services.NewFeatureService(featureRepo, workflow.NewService("."), nil, taskRepo)
 	for _, feature := range features {
-		progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
+		progressInfo, err := featureSvcMulti.GetProgress(ctx, feature.Key)
 		if err != nil {
 			t.Errorf("Failed to calculate progress for feature %s: %v", feature.Key, err)
 		}
 
+		progress := progressInfo.WeightedProgress
 		// Verify progress is a valid percentage (0-100)
 		if progress < 0 || progress > 100 {
 			t.Errorf("Feature %s progress out of range: %f", feature.Key, progress)
@@ -506,13 +513,15 @@ func TestFeatureGetIntegration_EmptyFeature(t *testing.T) {
 		t.Fatalf("Failed to create feature: %v", err)
 	}
 
-	// Calculate progress for feature with no tasks
-	progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
+	// Calculate progress for feature with no tasks via service layer
+	featureSvcEmpty := services.NewFeatureService(featureRepo, workflow.NewService("."), nil, nil)
+	progressInfo, err := featureSvcEmpty.GetProgress(ctx, feature.Key)
 	if err != nil {
-		t.Fatalf("CalculateProgress failed: %v", err)
+		t.Fatalf("GetProgress failed: %v", err)
 	}
 
 	// Empty feature should have 0% progress
+	progress := progressInfo.WeightedProgress
 	if progress != 0.0 {
 		t.Errorf("Expected 0%% progress for empty feature, got %f%%", progress)
 	}

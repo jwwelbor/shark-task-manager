@@ -337,9 +337,10 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Calculate progress for each epic
+	epicSvc := cli.GetEpicService()
 	epicsWithProgress := make([]EpicWithProgress, 0, len(epics))
 	for _, epic := range epics {
-		progress, err := epicRepo.CalculateProgress(ctx, epic.ID)
+		progress, err := epicSvc.CalculateProgress(ctx, epic.ID)
 		if err != nil {
 			if cli.GlobalConfig.Verbose {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to calculate progress for epic %s: %v\n", epic.Key, err)
@@ -450,7 +451,8 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Calculate epic progress
-	epicProgress, err := epicRepo.CalculateProgress(ctx, epic.ID)
+	epicSvc := cli.GetEpicService()
+	epicProgress, err := epicSvc.CalculateProgress(ctx, epic.ID)
 	if err != nil {
 		if cli.GlobalConfig.Verbose {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to calculate epic progress: %v\n", err)
@@ -469,10 +471,11 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Calculate progress and task count for each feature
+	featureSvc := cli.GetFeatureService()
 	featuresWithDetails := make([]FeatureWithDetails, 0, len(features))
 	for _, feature := range features {
-		// Update feature progress (in case it's stale)
-		if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+		// Update feature progress (in case it's stale) via service layer
+		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 			if cli.GlobalConfig.Verbose {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
 			}
@@ -1582,9 +1585,10 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update progress for all features and mark them as completed
+	featureSvcComplete := cli.GetFeatureService()
 	for _, feature := range features {
-		// Update progress first (will auto-complete if all tasks are done)
-		if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+		// Update progress first via service layer (will auto-complete if all tasks are done)
+		if err := featureSvcComplete.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update progress for feature %s: %v", feature.Key, err))
 			os.Exit(2)
 		}

@@ -84,7 +84,7 @@ func TestEpicService_BackwardTransition_RequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// active -> draft is backward (execution -> planning)
@@ -116,7 +116,7 @@ func TestEpicService_BackwardTransition_WithReason(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// active -> draft with reason should succeed (valid backward transition)
@@ -148,7 +148,7 @@ func TestEpicService_ForceTransition_RequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// Force without reason should fail
@@ -174,7 +174,7 @@ func TestEpicService_ForwardTransition_NoReasonRequired(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// Forward transition (draft -> active) should not require reason
@@ -212,7 +212,7 @@ func TestEpicService_ChildCount_WithFeatureRepo(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, featureCounter)
+	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, featureCounter, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})

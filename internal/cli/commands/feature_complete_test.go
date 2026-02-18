@@ -8,6 +8,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 func TestFeatureComplete_SetsFeatureStatusToCompletedWithNoTasks(t *testing.T) {
@@ -125,8 +127,10 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 		t.Fatalf("Failed to complete task: %v", err)
 	}
 
-	// Update feature progress
-	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+	// Update feature progress via service layer
+	workflowSvc := workflow.NewService(".")
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
+	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		t.Fatalf("Failed to update feature progress: %v", err)
 	}
 

@@ -378,47 +378,42 @@ func (r *EpicRepository) UpdateFilePath(ctx context.Context, epicKey string, new
 	return nil
 }
 
-// CalculateProgress calculates the progress of an epic based on its features
-// Formula: simple average = Σ(feature_progress) / total_features
-// Feature progress is determined by:
-//   - If feature status = "completed" OR "archived" → 100% (regardless of tasks)
-//   - Otherwise → use feature's progress_pct field (calculated from tasks)
-func (r *EpicRepository) CalculateProgress(ctx context.Context, epicID int64) (float64, error) {
+// FeatureProgressData holds raw feature progress data for service-level calculation.
+type FeatureProgressData struct {
+	Status      string
+	ProgressPct float64
+}
+
+// GetFeatureProgressDataByEpic returns raw feature status and progress_pct values
+// for all features in an epic. This is pure data access; the business logic for
+// calculating epic progress (e.g., treating completed/archived as 100%) belongs
+// in the service layer.
+func (r *EpicRepository) GetFeatureProgressDataByEpic(ctx context.Context, epicID int64) ([]FeatureProgressData, error) {
 	query := `
-		SELECT
-		    COALESCE(SUM(
-		        CASE
-		            WHEN f.status IN ('completed', 'archived') THEN 100.0
-		            ELSE f.progress_pct
-		        END
-		    ), 0) as total_progress,
-		    COUNT(*) as feature_count
+		SELECT f.status, f.progress_pct
 		FROM features f
 		WHERE f.epic_id = ?
 	`
 
-	var totalProgress float64
-	var featureCount int
-	err := r.db.QueryRowContext(ctx, query, epicID).Scan(&totalProgress, &featureCount)
+	rows, err := r.db.QueryContext(ctx, query, epicID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to calculate epic progress: %w", err)
+		return nil, fmt.Errorf("failed to get feature progress data: %w", err)
+	}
+	defer rows.Close()
+
+	var result []FeatureProgressData
+	for rows.Next() {
+		var data FeatureProgressData
+		if err := rows.Scan(&data.Status, &data.ProgressPct); err != nil {
+			return nil, fmt.Errorf("failed to scan feature progress data: %w", err)
+		}
+		result = append(result, data)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate feature progress data: %w", err)
 	}
 
-	// If epic has no features, return 0.0
-	if featureCount == 0 {
-		return 0.0, nil
-	}
-
-	return totalProgress / float64(featureCount), nil
-}
-
-// CalculateProgressByKey calculates the progress of an epic by its key
-func (r *EpicRepository) CalculateProgressByKey(ctx context.Context, key string) (float64, error) {
-	epic, err := r.GetByKey(ctx, key)
-	if err != nil {
-		return 0, err
-	}
-	return r.CalculateProgress(ctx, epic.ID)
+	return result, nil
 }
 
 // CreateIfNotExists creates epic only if it doesn't exist

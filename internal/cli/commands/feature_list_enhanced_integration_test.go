@@ -7,7 +7,9 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // TestFeatureListIntegration_ProgressFormatValidation tests progress formatting
@@ -90,13 +92,16 @@ func TestFeatureListIntegration_ProgressFormatValidation(t *testing.T) {
 		}
 	}
 
-	// Verify progress calculation for each feature
+	// Verify progress calculation for each feature via service layer
+	workflowSvc := workflow.NewService(".")
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
 	for i, fd := range featureData {
-		progress, err := featureRepo.CalculateProgress(ctx, features[i].ID)
+		progressInfo, err := featureSvc.GetProgress(ctx, features[i].Key)
 		if err != nil {
 			t.Fatalf("Failed to calculate progress for %s: %v", fd.key, err)
 		}
 
+		progress := progressInfo.WeightedProgress
 		if progress != fd.expected {
 			t.Errorf("Feature %s: expected progress %.1f%%, got %.1f%%", fd.key, fd.expected, progress)
 		}
