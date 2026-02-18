@@ -304,7 +304,7 @@ func (s *TaskService) DeleteTask(ctx context.Context, key string) error {
 //
 // Parameters:
 //   - ctx: context for cancellation and timeout
-//   - filters: filter criteria (epic, feature, status, agent, show_all, etc.)
+//   - filters: filter criteria (epic, feature, status, agent, show_all, title_search, priority, etc.)
 //
 // Returns:
 //   - []*models.Task: list of matching tasks (empty if none found)
@@ -341,6 +341,21 @@ func (s *TaskService) ListTasks(ctx context.Context, filters TaskFilters) ([]*mo
 
 		// Exclude completed unless show_all
 		if !filters.ShowAll && string(task.Status) == "completed" {
+			continue
+		}
+
+		// Filter by title search (case-insensitive substring)
+		if filters.TitleSearch != "" {
+			if !strings.Contains(strings.ToLower(task.Title), strings.ToLower(filters.TitleSearch)) {
+				continue
+			}
+		}
+
+		// Filter by priority range
+		if filters.MinPriority > 0 && task.Priority < filters.MinPriority {
+			continue
+		}
+		if filters.MaxPriority > 0 && task.Priority > filters.MaxPriority {
 			continue
 		}
 
@@ -694,6 +709,7 @@ func (s *TaskService) ValidateStatus(status string) error {
 }
 
 // ValidateDependencies checks if a task's dependencies are met for the given transition.
+// Includes circular dependency detection using depth-first search.
 //
 // Parameters:
 //   - ctx: context for cancellation and timeout
@@ -701,15 +717,60 @@ func (s *TaskService) ValidateStatus(status string) error {
 //   - targetStatus: status the task wants to transition to
 //
 // Returns:
-//   - error: DependencyError if dependencies not met, or repository errors
+//   - error: DependencyError if dependencies not met, circular dependency detected, or repository errors
 //
 // Errors:
-//   - DependencyError: one or more dependencies are not satisfied
+//   - DependencyError: one or more dependencies are not satisfied or circular dependency found
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) ValidateDependencies(ctx context.Context, key string, targetStatus string) error {
-	// TODO: Implementation in F02-F07
-	return fmt.Errorf("not implemented")
+	// Get task dependencies
+	dependents, err := s.repo.GetTaskDependents(ctx, key)
+	if err != nil {
+		return fmt.Errorf("failed to get dependencies for task %s: %w", key, err)
+	}
+
+	if len(dependents) == 0 {
+		return nil // No dependencies to validate
+	}
+
+	// Check each dependency is completed
+	for _, dep := range dependents {
+		if dep.Status != models.TaskStatus("completed") {
+			return fmt.Errorf("dependency not met: task %s depends on %s which is in status %s (must be completed)", key, dep.Key, dep.Status)
+		}
+	}
+
+	// Detect circular dependencies using DFS
+	if err := s.detectCircularDependency(ctx, key, make(map[string]bool), make(map[string]bool)); err != nil {
+		return fmt.Errorf("circular dependency detected: %w", err)
+	}
+
+	return nil
+}
+
+// detectCircularDependency uses depth-first search to detect cycles in the dependency graph.
+func (s *TaskService) detectCircularDependency(ctx context.Context, taskKey string, visited map[string]bool, recStack map[string]bool) error {
+	visited[taskKey] = true
+	recStack[taskKey] = true
+
+	dependents, err := s.repo.GetTaskDependents(ctx, taskKey)
+	if err != nil {
+		return err
+	}
+
+	for _, dep := range dependents {
+		if !visited[dep.Key] {
+			if err := s.detectCircularDependency(ctx, dep.Key, visited, recStack); err != nil {
+				return err
+			}
+		} else if recStack[dep.Key] {
+			return fmt.Errorf("cycle detected: %s → %s", taskKey, dep.Key)
+		}
+	}
+
+	recStack[taskKey] = false
+	return nil
 }
 
 // GetDependencyTree retrieves the full dependency tree for a task.
@@ -726,8 +787,58 @@ func (s *TaskService) ValidateDependencies(ctx context.Context, key string, targ
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) GetDependencyTree(ctx context.Context, key string) (*DependencyTree, error) {
-	// TODO: Implementation in F02-F07
-	return nil, fmt.Errorf("not implemented")
+	// Get root task
+	task, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dependency tree for task %s: %w", key, err)
+	}
+
+	// Build dependency tree
+	tree := &DependencyTree{
+		Task: &TaskNode{
+			Key:         task.Key,
+			Title:       task.Title,
+			Status:      string(task.Status),
+			Priority:    task.Priority,
+			IsCompleted: task.Status == models.TaskStatus("completed"),
+			IsBlocked:   task.Status == models.TaskStatus("blocked"),
+			UpdatedAt:   task.UpdatedAt,
+		},
+		Dependencies: []*TaskNode{},
+		Dependents:   []*TaskNode{},
+		Blocked:      false,
+		BlockedBy:    []string{},
+		CanStart:     true,
+		Depth:        0,
+	}
+
+	// Get dependencies (tasks this task depends on)
+	dependents, err := s.repo.GetTaskDependents(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dependencies: %w", err)
+	}
+
+	for _, dep := range dependents {
+		depNode := &TaskNode{
+			Key:         dep.Key,
+			Title:       dep.Title,
+			Status:      string(dep.Status),
+			Priority:    dep.Priority,
+			IsCompleted: dep.Status == models.TaskStatus("completed"),
+			IsBlocked:   dep.Status == models.TaskStatus("blocked"),
+			UpdatedAt:   dep.UpdatedAt,
+		}
+		tree.Dependencies = append(tree.Dependencies, depNode)
+
+		// Check if dependency blocks starting
+		if dep.Status != models.TaskStatus("completed") {
+			tree.Blocked = true
+			tree.BlockedBy = append(tree.BlockedBy, dep.Key)
+			tree.CanStart = false
+		}
+	}
+
+	return tree, nil
 }
 
 // resolveAction looks up the orchestrator action for a given status.
@@ -760,4 +871,138 @@ func (s *TaskService) resolveAction(ctx context.Context, task *models.Task, stat
 		Skills:      meta.OrchestratorAction.Skills,
 		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
 	}
+}
+
+// ListTasksWithPagination retrieves a paginated list of tasks matching the given filters.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - filters: criteria for task filtering (epic, feature, status, agent, limit, offset)
+//
+// Returns:
+//   - []*models.Task: filtered and paginated tasks
+//   - int: total count of tasks (before pagination) for UI pagination controls
+//   - error: repository errors
+//
+// Pagination behavior:
+//   - Limit=0: returns all filtered tasks
+//   - Offset >= total: returns empty slice
+//   - Applies pagination after filtering and sorting
+//
+// Errors:
+//   - RepositoryError: database query failed
+func (s *TaskService) ListTasksWithPagination(ctx context.Context, filters TaskFilters) ([]*models.Task, int, error) {
+	// Get filtered tasks using existing ListTasks
+	allTasks, err := s.ListTasks(ctx, filters)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total := len(allTasks)
+
+	// Apply pagination
+	start := filters.Offset
+	if start > total {
+		return []*models.Task{}, total, nil
+	}
+
+	// If limit is 0, return all tasks after offset
+	if filters.Limit == 0 {
+		return allTasks[start:], total, nil
+	}
+
+	end := start + filters.Limit
+	if end > total {
+		end = total
+	}
+
+	return allTasks[start:end], total, nil
+}
+
+// GetTasksByStatus groups tasks by status and returns count per status.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - filters: additional filters to apply (epic, feature, agent)
+//
+// Returns:
+//   - map[string]int: status -> count mapping
+//   - error: repository errors
+//
+// Errors:
+//   - RepositoryError: database query failed
+func (s *TaskService) GetTasksByStatus(ctx context.Context, filters TaskFilters) (map[string]int, error) {
+	// Always show all statuses for aggregation
+	filters.ShowAll = true
+
+	// Get filtered tasks
+	tasks, err := s.ListTasks(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tasks by status: %w", err)
+	}
+
+	// Group by status
+	statusMap := make(map[string]int)
+	for _, task := range tasks {
+		statusMap[string(task.Status)]++
+	}
+
+	return statusMap, nil
+}
+
+// GetTasksByAgent groups tasks by agent type and returns count per agent.
+// Excludes completed tasks by default unless ShowAll filter is set.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - filters: filters to apply (ShowAll to include completed tasks)
+//
+// Returns:
+//   - map[string]int: agent_type -> count mapping
+//   - error: repository errors
+//
+// Errors:
+//   - RepositoryError: database query failed
+func (s *TaskService) GetTasksByAgent(ctx context.Context, filters TaskFilters) (map[string]int, error) {
+	// Get filtered tasks
+	tasks, err := s.ListTasks(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tasks by agent: %w", err)
+	}
+
+	// Group by agent type
+	agentMap := make(map[string]int)
+	for _, task := range tasks {
+		if task.AgentType != nil {
+			agentMap[*task.AgentType]++
+		}
+	}
+
+	return agentMap, nil
+}
+
+// GetBlockedTasks returns all blocked tasks matching the given filters.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - filters: additional filters to apply (epic, feature, agent)
+//
+// Returns:
+//   - []*models.Task: blocked tasks
+//   - error: repository errors
+//
+// Errors:
+//   - RepositoryError: database query failed
+func (s *TaskService) GetBlockedTasks(ctx context.Context, filters TaskFilters) ([]*models.Task, error) {
+	// Set blocked filter
+	filters.Blocked = true
+	filters.ShowAll = true // Include all blocked tasks regardless of completion
+
+	// Get filtered tasks
+	tasks, err := s.ListTasks(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get blocked tasks: %w", err)
+	}
+
+	return tasks, nil
 }

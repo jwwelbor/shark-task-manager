@@ -2,7 +2,7 @@
 feature_key: E15-F05-epic-and-feature-service-expansion
 epic_key: E15
 title: Epic and Feature Service Expansion
-description: 
+description: Implement EpicService and FeatureService with CRUD operations, progress/health calculations, and feature rollup logic. These services receive business logic migrated from repositories (F06) and provide the foundation for CLI refactoring (F07).
 ---
 
 # Epic and Feature Service Expansion
@@ -13,84 +13,49 @@ description:
 
 ## Epic
 
-- **Epic PRD**: [Epic](../../epic.md)
-- **Epic Architecture**: [Architecture](../../architecture.md) _(if available)_
+- **Epic PRD**: [Service Layer Architecture Refactoring](../../epic.md)
+- **Epic Requirements**: [Requirements](../../requirements.md)
+- **Epic Personas**: [User Personas](../../personas.md)
 
 ---
 
 ## Goal
 
 ### Problem
-[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]
+
+EpicService and FeatureService exist but lack critical methods for progress calculation, health analysis, and feature rollup operations. Repository layer currently performs these operations (FeatureRepository.CalculateProgress, EpicRepository.GetHealthStatus), but this violates clean architecture. Without complete services, CLI commands cannot be refactored to thin wrappers (must call repositories directly for missing functionality).
 
 ### Solution
-[Explain how this feature solves the problem. Focus on the "what" not the "how."]
+
+Expand EpicService and FeatureService to include all business logic methods: CRUD operations, progress/health calculations, feature rollups, and action item tracking. Services will be ready to receive logic from repositories (F06) and support CLI refactoring (F07).
 
 ### Impact
-[Define expected outcomes with specific, measurable metrics.]
 
-**Examples**:
-- Reduce user onboarding time by 40%
-- Increase feature adoption to 60% of active users within 3 months
-
----
-
-## User Personas
-
-### Persona 1: [Persona Name/Role]
-
-**Profile**:
-- **Role/Title**: [e.g., "Marketing Manager at mid-size B2B SaaS company"]
-- **Experience Level**: [e.g., "3-5 years in role, moderate technical proficiency"]
-- **Key Characteristics**:
-  - [Characteristic 1]
-  - [Characteristic 2]
-
-**Goals Related to This Feature**:
-1. [Specific goal 1]
-2. [Specific goal 2]
-
-**Pain Points This Feature Addresses**:
-- [Pain point 1]
-- [Pain point 2]
-
-**Success Looks Like**:
-[2-3 sentences describing success from this persona's perspective]
+- **Service layer complete**: All Epic/Feature business logic centralized in services
+- **Architecture compliance**: Services own business logic, repositories own data access
+- **CLI readiness**: Services provide all methods needed for CLI thin wrappers
 
 ---
 
-## User Stories
+## User Stories (MoSCoW)
 
 ### Must-Have Stories
 
-**Story 1**: As a [user persona], I want to [perform an action] so that I can [achieve a benefit].
+**Story 1**: As a Shark developer, I want EpicService to handle all epic business logic so that CLI commands only call service methods.
 
 **Acceptance Criteria**:
-- [ ] [Specific testable criterion 1]
-- [ ] [Specific testable criterion 2]
-- [ ] [Specific testable criterion 3]
+- [ ] EpicService.GetHealth() calculates health status (healthy/warning/critical)
+- [ ] EpicService.GetImpediments() analyzes blocked tasks
+- [ ] EpicService.GetFeatureRollup() aggregates feature statuses
+- [ ] All methods use repositories for data access only
 
----
-
-### Should-Have Stories
-
-[Follow same format for important but not critical stories]
-
----
-
-### Could-Have Stories
-
-[Follow same format for nice-to-have stories]
-
----
-
-### Edge Case & Error Stories
-
-**Error Story 1**: As a [user persona], when [error condition], I want to [see/receive] so that I can [recover/understand].
+**Story 2**: As a Shark developer, I want FeatureService to handle all feature business logic so that CLI commands only call service methods.
 
 **Acceptance Criteria**:
-- [ ] [How error is presented]
-- [ ] [How user can recover]
+- [ ] FeatureService.GetProgress() calculates weighted and completion progress
+- [ ] FeatureService.GetHealth() determines health status
+- [ ] FeatureService.GetActionItems() identifies ready_for_* tasks
+- [ ] All methods tested with mocked repositories
 
 ---
 
@@ -98,121 +63,38 @@ description:
 
 ### Functional Requirements
 
-**Category: [e.g., Core Functionality]**
+1. **REQ-F-001**: Implement EpicService.GetHealth()
+   - Calculate health based on feature statuses, blocked tasks, approval age
+   - Return: healthy/warning/critical
 
-1. **REQ-F-001**: [Requirement Title]
-   - **Description**: [Clear, specific, testable requirement statement]
-   - **User Story**: Links to Story [#]
-   - **Priority**: [Must-Have | Should-Have | Could-Have]
-   - **Acceptance Criteria**:
-     - [ ] [Specific criterion 1]
-     - [ ] [Specific criterion 2]
+2. **REQ-F-002**: Implement EpicService.GetImpediments()
+   - Analyze blocked tasks (age, reason, priority)
+   - Return structured impediment data
 
----
+3. **REQ-F-003**: Implement FeatureService.GetProgress()
+   - Calculate weighted progress (using status metadata)
+   - Calculate completion progress (raw percentage)
+   - Return both metrics
 
-### Non-Functional Requirements
-
-**Performance**
-
-1. **REQ-NF-001**: [Performance Requirement]
-   - **Description**: [Specific performance target]
-   - **Measurement**: [How it will be measured]
-   - **Target**: [Quantitative threshold, e.g., "Page load < 2 seconds on 3G"]
-   - **Justification**: [Why this matters]
-
-**Security**
-
-1. **REQ-NF-010**: [Security Requirement]
-   - **Description**: [Specific security control]
-   - **Implementation**: [High-level approach]
-   - **Compliance**: [Relevant standards: OWASP, SOC2, etc.]
-   - **Risk Mitigation**: [What threat this addresses]
-
-**Accessibility**
-
-1. **REQ-NF-020**: [Accessibility Requirement]
-   - **Description**: [Specific WCAG criterion]
-   - **Standard**: [WCAG 2.1 Level AA, etc.]
-   - **Testing**: [How compliance will be verified]
-
----
-
-## Acceptance Criteria
-
-### Feature-Level Acceptance
-
-**Given/When/Then Format**:
-
-**Scenario 1: [Primary Use Case]**
-- **Given** [initial context/state]
-- **When** [user action is performed]
-- **Then** [expected outcome]
-- **And** [additional outcome]
-
-**Scenario 2: [Error Handling]**
-- **Given** [error precondition]
-- **When** [action that triggers error]
-- **Then** [error is handled gracefully]
-- **And** [user can recover]
-
----
-
-## Out of Scope
-
-### Explicitly Excluded
-
-1. **[Feature/Capability]**
-   - **Why**: [Reasoning - complexity, dependencies, prioritization]
-   - **Future**: [Will this be addressed later? If so, when/why?]
-   - **Workaround**: [How users can accomplish this currently, if applicable]
-
----
-
-### Alternative Approaches Rejected
-
-**Alternative 1: [Approach Name]**
-- **Description**: [Brief overview]
-- **Why Rejected**: [Reasoning]
+4. **REQ-F-004**: Implement FeatureService.GetHealth()
+   - Analyze task statuses, blockers, approval age
+   - Return health status
 
 ---
 
 ## Success Metrics
 
-### Primary Metrics
-
-1. **[Metric Name]**
-   - **What**: [What data point is tracked]
-   - **Target**: [Specific goal]
-   - **Timeline**: [When to achieve]
-   - **Measurement**: [How to measure]
+- **Service completeness**: 100% of Epic/Feature business logic in services
+- **Zero repository business logic**: After F06, no business logic in repositories
+- **Test coverage**: All service methods tested with mocks (no database)
 
 ---
 
-### Secondary Metrics
+## Dependencies
 
-- **[Metric]**: [Brief description and target]
-
----
-
-## Dependencies & Integrations
-
-### Dependencies
-
-- **[System/Feature/Service]**: [Description of dependency]
-
-### Integration Requirements
-
-- **[External System]**: [What data/functionality is exchanged]
+- **Blocks**: E15-F06 (Repository cleanup needs these services to exist)
+- **Blocks**: E15-F07 (CLI refactoring needs complete services)
 
 ---
 
-## Compliance & Security Considerations
-
-[If applicable, note specific requirements]:
-- **Regulatory**: [GDPR, HIPAA, SOC2, etc.]
-- **Data Protection**: [Encryption, access controls]
-- **Audit**: [Logging, audit trail requirements]
-
----
-
-*Last Updated*: 2026-02-16
+*Last Updated*: 2026-02-17

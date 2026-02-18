@@ -36,13 +36,18 @@ type TaskUpdates struct {
 
 // TaskFilters contains criteria for filtering task lists.
 type TaskFilters struct {
-	EpicKey    string   `json:"epic_key,omitempty"`    // Filter by epic
-	FeatureKey string   `json:"feature_key,omitempty"` // Filter by feature
-	Status     string   `json:"status,omitempty"`      // Filter by status
-	AgentType  string   `json:"agent_type,omitempty"`  // Filter by agent type
-	Statuses   []string `json:"statuses,omitempty"`    // Filter by multiple statuses
-	ShowAll    bool     `json:"show_all,omitempty"`    // Include completed tasks
-	Blocked    bool     `json:"blocked,omitempty"`     // Only blocked tasks
+	EpicKey     string   `json:"epic_key,omitempty"`     // Filter by epic
+	FeatureKey  string   `json:"feature_key,omitempty"`  // Filter by feature
+	Status      string   `json:"status,omitempty"`       // Filter by status
+	AgentType   string   `json:"agent_type,omitempty"`   // Filter by agent type
+	Statuses    []string `json:"statuses,omitempty"`     // Filter by multiple statuses
+	ShowAll     bool     `json:"show_all,omitempty"`     // Include completed tasks
+	Blocked     bool     `json:"blocked,omitempty"`      // Only blocked tasks
+	Limit       int      `json:"limit,omitempty"`        // Pagination: max results (0 = all)
+	Offset      int      `json:"offset,omitempty"`       // Pagination: skip N results
+	TitleSearch string   `json:"title_search,omitempty"` // Fuzzy search in title (case-insensitive substring)
+	MinPriority int      `json:"min_priority,omitempty"` // Minimum priority (1-10)
+	MaxPriority int      `json:"max_priority,omitempty"` // Maximum priority (1-10)
 }
 
 // NextTaskFilters contains criteria for selecting the next task to work on.

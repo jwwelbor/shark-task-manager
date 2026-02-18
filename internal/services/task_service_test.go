@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -1396,4 +1397,547 @@ func TestTaskService_ListTasks_Repository_Error(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, tasks)
 	assert.Contains(t, err.Error(), "failed to list")
+}
+
+// ============================================================================
+// Pagination Tests (T-E15-F04-001)
+// ============================================================================
+
+// TestTaskService_ListTasks_Pagination tests pagination support in ListTasks
+func TestTaskService_ListTasks_Pagination(t *testing.T) {
+	// Arrange: Create 100 tasks for pagination testing
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			tasks := make([]*models.Task, 100)
+			for i := 0; i < 100; i++ {
+				agentType := "backend"
+				tasks[i] = &models.Task{
+					Key:       fmt.Sprintf("E15-F04-%03d", i+1),
+					Title:     fmt.Sprintf("Task %d", i+1),
+					Status:    "todo",
+					Priority:  5,
+					AgentType: &agentType,
+				}
+			}
+			return tasks, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	tests := []struct {
+		name         string
+		limit        int
+		offset       int
+		wantCount    int
+		wantTotal    int
+		wantFirstKey string
+	}{
+		{
+			name:         "first page",
+			limit:        10,
+			offset:       0,
+			wantCount:    10,
+			wantTotal:    100,
+			wantFirstKey: "E15-F04-001",
+		},
+		{
+			name:         "second page",
+			limit:        10,
+			offset:       10,
+			wantCount:    10,
+			wantTotal:    100,
+			wantFirstKey: "E15-F04-011",
+		},
+		{
+			name:         "last page partial",
+			limit:        10,
+			offset:       95,
+			wantCount:    5,
+			wantTotal:    100,
+			wantFirstKey: "E15-F04-096",
+		},
+		{
+			name:      "offset beyond total",
+			limit:     10,
+			offset:    100,
+			wantCount: 0,
+			wantTotal: 100,
+		},
+		{
+			name:         "limit zero returns all",
+			limit:        0,
+			offset:       0,
+			wantCount:    100,
+			wantTotal:    100,
+			wantFirstKey: "E15-F04-001",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filters := TaskFilters{
+				Limit:  tt.limit,
+				Offset: tt.offset,
+			}
+
+			tasks, total, err := svc.ListTasksWithPagination(context.Background(), filters)
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantTotal, total, "total count should match")
+			assert.Equal(t, tt.wantCount, len(tasks), "returned tasks count should match")
+
+			if tt.wantCount > 0 && tt.wantFirstKey != "" {
+				assert.Equal(t, tt.wantFirstKey, tasks[0].Key, "first task key should match")
+			}
+		})
+	}
+}
+
+// ============================================================================
+// Aggregation Tests (T-E15-F04-001)
+// ============================================================================
+
+// TestTaskService_GetTasksByStatus tests status aggregation
+func TestTaskService_GetTasksByStatus(t *testing.T) {
+	// Arrange: Create tasks with various statuses
+	agentType := "backend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Status: "todo", AgentType: &agentType},
+				{Key: "E15-F04-002", Status: "todo", AgentType: &agentType},
+				{Key: "E15-F04-003", Status: "in_development", AgentType: &agentType},
+				{Key: "E15-F04-004", Status: "completed", AgentType: &agentType},
+				{Key: "E15-F04-005", Status: "blocked", AgentType: &agentType},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Get tasks by status
+	statusMap, err := svc.GetTasksByStatus(context.Background(), TaskFilters{})
+
+	// Assert: Correct counts per status
+	assert.NoError(t, err)
+	assert.Equal(t, 2, statusMap["todo"])
+	assert.Equal(t, 1, statusMap["in_development"])
+	assert.Equal(t, 1, statusMap["completed"])
+	assert.Equal(t, 1, statusMap["blocked"])
+}
+
+// TestTaskService_GetTasksByAgent tests agent workload aggregation
+func TestTaskService_GetTasksByAgent(t *testing.T) {
+	// Arrange: Create tasks assigned to different agents
+	backend := "backend"
+	frontend := "frontend"
+	qa := "qa"
+
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Status: "todo", Priority: 5, AgentType: &backend},
+				{Key: "E15-F04-002", Status: "todo", Priority: 8, AgentType: &backend},
+				{Key: "E15-F04-003", Status: "in_development", Priority: 7, AgentType: &frontend},
+				{Key: "E15-F04-004", Status: "completed", Priority: 6, AgentType: &qa},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Get tasks by agent
+	agentMap, err := svc.GetTasksByAgent(context.Background(), TaskFilters{})
+
+	// Assert: Correct counts per agent (excluding completed by default)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, agentMap["backend"])
+	assert.Equal(t, 1, agentMap["frontend"])
+	// QA task is completed, should be excluded by default
+	_, exists := agentMap["qa"]
+	assert.False(t, exists, "completed tasks should be excluded by default")
+}
+
+// TestTaskService_GetBlockedTasks tests blocked task retrieval
+func TestTaskService_GetBlockedTasks(t *testing.T) {
+	// Arrange: Create some blocked tasks
+	agentType := "backend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Status: "todo", AgentType: &agentType},
+				{Key: "E15-F04-002", Status: "blocked", AgentType: &agentType},
+				{Key: "E15-F04-003", Status: "in_development", AgentType: &agentType},
+				{Key: "E15-F04-004", Status: "blocked", AgentType: &agentType},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Get blocked tasks
+	blockedTasks, err := svc.GetBlockedTasks(context.Background(), TaskFilters{})
+
+	// Assert: Only blocked tasks returned
+	assert.NoError(t, err)
+	assert.Len(t, blockedTasks, 2)
+	for _, task := range blockedTasks {
+		assert.Equal(t, models.TaskStatus("blocked"), task.Status)
+	}
+}
+
+// ============================================================================
+// TaskQueryBuilder Tests (T-E15-F04-001)
+// ============================================================================
+
+// TestTaskQueryBuilder_WithStatus tests filtering by status
+func TestTaskQueryBuilder_WithStatus(t *testing.T) {
+	agentType := "backend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Status: "todo", Priority: 5, AgentType: &agentType},
+				{Key: "E15-F04-002", Status: "in_development", Priority: 8, AgentType: &agentType},
+				{Key: "E15-F04-003", Status: "todo", Priority: 3, AgentType: &agentType},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Query with status filter
+	tasks, total, err := svc.Query().
+		WithStatus("todo").
+		Build(context.Background())
+
+	// Assert: Only todo tasks returned
+	assert.NoError(t, err)
+	assert.Equal(t, 2, total)
+	assert.Len(t, tasks, 2)
+	for _, task := range tasks {
+		assert.Equal(t, models.TaskStatus("todo"), task.Status)
+	}
+}
+
+// TestTaskQueryBuilder_WithAgent tests filtering by agent type
+func TestTaskQueryBuilder_WithAgent(t *testing.T) {
+	backend := "backend"
+	frontend := "frontend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Status: "todo", AgentType: &backend},
+				{Key: "E15-F04-002", Status: "todo", AgentType: &frontend},
+				{Key: "E15-F04-003", Status: "todo", AgentType: &backend},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Query with agent filter
+	tasks, total, err := svc.Query().
+		WithAgent("backend").
+		Build(context.Background())
+
+	// Assert: Only backend tasks returned
+	assert.NoError(t, err)
+	assert.Equal(t, 2, total)
+	assert.Len(t, tasks, 2)
+	for _, task := range tasks {
+		assert.Equal(t, "backend", *task.AgentType)
+	}
+}
+
+// TestTaskQueryBuilder_WithPriorityRange tests priority filtering
+func TestTaskQueryBuilder_WithPriorityRange(t *testing.T) {
+	agentType := "backend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Status: "todo", Priority: 3, AgentType: &agentType},
+				{Key: "E15-F04-002", Status: "todo", Priority: 5, AgentType: &agentType},
+				{Key: "E15-F04-003", Status: "todo", Priority: 8, AgentType: &agentType},
+				{Key: "E15-F04-004", Status: "todo", Priority: 10, AgentType: &agentType},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Query with priority range 5-8
+	tasks, total, err := svc.Query().
+		WithPriorityRange(5, 8).
+		Build(context.Background())
+
+	// Assert: Only tasks with priority 5-8 returned
+	assert.NoError(t, err)
+	assert.Equal(t, 2, total)
+	assert.Len(t, tasks, 2)
+	for _, task := range tasks {
+		assert.GreaterOrEqual(t, task.Priority, 5)
+		assert.LessOrEqual(t, task.Priority, 8)
+	}
+}
+
+// TestTaskQueryBuilder_WithTitleSearch tests fuzzy title search
+func TestTaskQueryBuilder_WithTitleSearch(t *testing.T) {
+	agentType := "backend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Title: "Implement user authentication", Status: "todo", AgentType: &agentType},
+				{Key: "E15-F04-002", Title: "Add database migration", Status: "todo", AgentType: &agentType},
+				{Key: "E15-F04-003", Title: "Implement JWT token validation", Status: "todo", AgentType: &agentType},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Query with title search
+	tasks, total, err := svc.Query().
+		WithTitleSearch("implement").
+		Build(context.Background())
+
+	// Assert: Only tasks with "implement" in title
+	assert.NoError(t, err)
+	assert.Equal(t, 2, total)
+	assert.Len(t, tasks, 2)
+	for _, task := range tasks {
+		assert.Contains(t, strings.ToLower(task.Title), "implement")
+	}
+}
+
+// TestTaskQueryBuilder_SortBy tests multi-field sorting
+func TestTaskQueryBuilder_SortBy(t *testing.T) {
+	agentType := "backend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Title: "Task A", Status: "todo", Priority: 5, AgentType: &agentType},
+				{Key: "E15-F04-002", Title: "Task B", Status: "todo", Priority: 8, AgentType: &agentType},
+				{Key: "E15-F04-003", Title: "Task C", Status: "todo", Priority: 3, AgentType: &agentType},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Query with priority DESC sort
+	tasks, _, err := svc.Query().
+		SortBy("priority", "DESC").
+		Build(context.Background())
+
+	// Assert: Tasks sorted by priority descending
+	assert.NoError(t, err)
+	assert.Equal(t, 8, tasks[0].Priority)
+	assert.Equal(t, 5, tasks[1].Priority)
+	assert.Equal(t, 3, tasks[2].Priority)
+}
+
+// TestTaskQueryBuilder_Paginate tests pagination
+func TestTaskQueryBuilder_Paginate(t *testing.T) {
+	agentType := "backend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			tasks := make([]*models.Task, 50)
+			for i := 0; i < 50; i++ {
+				tasks[i] = &models.Task{
+					Key:       fmt.Sprintf("E15-F04-%03d", i+1),
+					Status:    "todo",
+					Priority:  5,
+					AgentType: &agentType,
+				}
+			}
+			return tasks, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Query with pagination (offset 10, limit 10)
+	tasks, total, err := svc.Query().
+		Paginate(10, 10).
+		Build(context.Background())
+
+	// Assert: Correct page returned
+	assert.NoError(t, err)
+	assert.Equal(t, 50, total)                   // Total count
+	assert.Len(t, tasks, 10)                     // Page size
+	assert.Equal(t, "E15-F04-011", tasks[0].Key) // First task on page 2
+}
+
+// TestTaskQueryBuilder_ChainedFilters tests method chaining
+func TestTaskQueryBuilder_ChainedFilters(t *testing.T) {
+	backend := "backend"
+	frontend := "frontend"
+	mockRepo := &MockTaskRepository{
+		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+			return []*models.Task{
+				{Key: "E15-F04-001", Title: "Implement API", Status: "todo", Priority: 5, AgentType: &backend},
+				{Key: "E15-F04-002", Title: "Implement UI", Status: "todo", Priority: 8, AgentType: &frontend},
+				{Key: "E15-F04-003", Title: "Add tests", Status: "in_development", Priority: 7, AgentType: &backend},
+				{Key: "E15-F04-004", Title: "Implement auth", Status: "todo", Priority: 9, AgentType: &backend},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Chain multiple filters
+	tasks, total, err := svc.Query().
+		WithStatus("todo").
+		WithAgent("backend").
+		WithPriorityRange(5, 8).
+		WithTitleSearch("implement").
+		SortBy("priority", "DESC").
+		Build(context.Background())
+
+	// Assert: All filters applied correctly
+	assert.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Len(t, tasks, 1)
+	assert.Equal(t, "E15-F04-001", tasks[0].Key) // Only task matching all criteria
+}
+
+// ============================================================================
+// ValidateDependencies Tests (T-E15-F04-002)
+// ============================================================================
+
+// TestTaskService_ValidateDependencies_NoDependencies tests tasks without dependencies
+func TestTaskService_ValidateDependencies_NoDependencies(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			return []*models.Task{}, nil // No dependencies
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Validate task with no dependencies
+	err := svc.ValidateDependencies(context.Background(), "E15-F04-001", "in_development")
+
+	// Assert: Validation passes
+	assert.NoError(t, err)
+}
+
+// TestTaskService_ValidateDependencies_CircularDependency tests circular dependency detection
+func TestTaskService_ValidateDependencies_CircularDependency(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			// Create circular dependency: A -> B -> C -> A
+			// All dependencies are completed so we can reach the circular check
+			// DependsOn is stored as JSON array string in DB
+			dep1 := `["E15-F04-001"]`
+			dep2 := `["E15-F04-002"]`
+			dep3 := `["E15-F04-003"]`
+			switch taskKey {
+			case "E15-F04-001":
+				return []*models.Task{
+					{Key: "E15-F04-002", Status: "completed", DependsOn: &dep1}, // Completed to pass first check
+				}, nil
+			case "E15-F04-002":
+				return []*models.Task{
+					{Key: "E15-F04-003", Status: "completed", DependsOn: &dep2}, // Completed to pass first check
+				}, nil
+			case "E15-F04-003":
+				return []*models.Task{
+					{Key: "E15-F04-001", Status: "completed", DependsOn: &dep3}, // Completed to pass first check
+				}, nil
+			}
+			return []*models.Task{}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Validate task that's part of circular dependency
+	err := svc.ValidateDependencies(context.Background(), "E15-F04-001", "in_development")
+
+	// Assert: Circular dependency error
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "circular")
+}
+
+// TestTaskService_ValidateDependencies_DependencyNotCompleted tests incomplete dependencies
+func TestTaskService_ValidateDependencies_DependencyNotCompleted(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			emptyDeps := "[]"
+			return []*models.Task{
+				{Key: "E15-F04-001", Status: "todo", DependsOn: &emptyDeps}, // Dependency not completed
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Validate task with incomplete dependency
+	err := svc.ValidateDependencies(context.Background(), "E15-F04-002", "in_development")
+
+	// Assert: Dependency error - check for "must be completed" message
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "must be completed")
+}
+
+// ============================================================================
+// GetDependencyTree Tests (T-E15-F04-002)
+// ============================================================================
+
+// TestTaskService_GetDependencyTree tests dependency tree retrieval
+func TestTaskService_GetDependencyTree(t *testing.T) {
+	emptyDeps := "[]"
+	dep1 := `["E15-F04-001"]`
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			switch key {
+			case "E15-F04-001":
+				return &models.Task{
+					Key:       "E15-F04-001",
+					Title:     "Task 1",
+					Status:    "todo",
+					Priority:  5,
+					DependsOn: &emptyDeps,
+				}, nil
+			case "E15-F04-002":
+				return &models.Task{
+					Key:       "E15-F04-002",
+					Title:     "Task 2",
+					Status:    "todo",
+					Priority:  5,
+					DependsOn: &dep1,
+				}, nil
+			}
+			return nil, fmt.Errorf("not found")
+		},
+		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
+			// GetTaskDependents returns tasks that taskKey depends on
+			switch taskKey {
+			case "E15-F04-002":
+				// Task 2 depends on Task 1 (has it in DependsOn field)
+				return []*models.Task{
+					{Key: "E15-F04-001", Title: "Task 1", Status: "completed", Priority: 5},
+				}, nil
+			case "E15-F04-001":
+				// Task 1 has no dependencies
+				return []*models.Task{}, nil
+			}
+			return []*models.Task{}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act: Get dependency tree
+	tree, err := svc.GetDependencyTree(context.Background(), "E15-F04-002")
+
+	// Assert: Tree structure is correct
+	assert.NoError(t, err)
+	assert.NotNil(t, tree)
+	assert.Equal(t, "E15-F04-002", tree.Task.Key)
+	assert.Len(t, tree.Dependencies, 1)
+	assert.Equal(t, "E15-F04-001", tree.Dependencies[0].Key)
+	assert.True(t, tree.CanStart) // Dependency completed, can start
 }

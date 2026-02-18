@@ -2,7 +2,7 @@
 feature_key: E15-F06-repository-layer-cleanup
 epic_key: E15
 title: Repository Layer Cleanup
-description: 
+description: Remove all business logic from repository layer (FeatureRepository, TaskRepository, EpicRepository), moving progress calculations, status derivations, and health checks into services. Repositories must only perform pure data access operations (SELECT/INSERT/UPDATE/DELETE).
 ---
 
 # Repository Layer Cleanup
@@ -13,84 +13,95 @@ description:
 
 ## Epic
 
-- **Epic PRD**: [Epic](../../epic.md)
-- **Epic Architecture**: [Architecture](../../architecture.md) _(if available)_
+- **Epic PRD**: [Service Layer Architecture Refactoring](../../epic.md)
+- **Epic Requirements**: [Requirements](../../requirements.md)
+- **Epic Personas**: [User Personas](../../personas.md)
 
 ---
 
 ## Goal
 
 ### Problem
-[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]
+
+The repository layer currently violates the pure data access pattern by containing business logic. Three repositories perform calculations and derivations that belong in the service layer:
+
+1. **FeatureRepository.CalculateProgress()** - Computes weighted and completion progress (business logic)
+2. **TaskRepository.GetStatusBreakdown()** - Derives status summaries and categorizations (business logic)
+3. **EpicRepository.GetHealthStatus()** - Calculates health indicators and impediments (business logic)
+
+This creates two critical issues:
+- **Architecture violation**: Repositories are "smart" when they should be "dumb" data access only
+- **Logic duplication**: When services need progress/health data, they must either call repository methods (bypassing service layer) or duplicate the logic
 
 ### Solution
-[Explain how this feature solves the problem. Focus on the "what" not the "how."]
+
+Remove all business logic methods from repositories, moving calculations into corresponding services (FeatureService, TaskService, EpicService). Repositories will only contain CRUD + List operations that return raw data models. Services will perform all calculations, derivations, and aggregations using data from repositories.
 
 ### Impact
-[Define expected outcomes with specific, measurable metrics.]
 
-**Examples**:
-- Reduce user onboarding time by 40%
-- Increase feature adoption to 60% of active users within 3 months
+- **Architecture clarity**: Clear layer boundary - repositories do data access, services do business logic
+- **Service layer complete**: All business logic centralized in services (no exceptions)
+- **Repository simplification**: ~30% reduction in repository method count (business logic methods removed)
+- **Testability improved**: Business logic testable with mocked repositories (no database required)
 
 ---
 
 ## User Personas
 
-### Persona 1: [Persona Name/Role]
+### Primary Persona: Shark Core Developer
 
-**Profile**:
-- **Role/Title**: [e.g., "Marketing Manager at mid-size B2B SaaS company"]
-- **Experience Level**: [e.g., "3-5 years in role, moderate technical proficiency"]
-- **Key Characteristics**:
-  - [Characteristic 1]
-  - [Characteristic 2]
+**Reference**: [Persona 1: Shark Core Developer](../../personas.md#persona-1-shark-core-developer-human) from epic personas
 
-**Goals Related to This Feature**:
-1. [Specific goal 1]
-2. [Specific goal 2]
+**Goals for This Feature**:
+1. Find all business logic in services (not scattered across repositories and services)
+2. Understand what repositories do by reading method signatures (no hidden logic)
+3. Add new progress/health calculations in services only
 
 **Pain Points This Feature Addresses**:
-- [Pain point 1]
-- [Pain point 2]
+- Can't tell if repository methods contain business logic or just data access
+- Must read repository implementation to understand if calculations are performed
+- Business logic scattered across repositories and services (unclear ownership)
 
 **Success Looks Like**:
-[2-3 sentences describing success from this persona's perspective]
+Developer needs to change progress calculation logic. Opens `FeatureService.GetProgress()` (not repository), makes change in one place (service method), tests with mocked repository (no database needed).
 
 ---
 
-## User Stories
+## User Stories (MoSCoW)
 
 ### Must-Have Stories
 
-**Story 1**: As a [user persona], I want to [perform an action] so that I can [achieve a benefit].
+**Story 1**: As a Shark developer, I want all business logic removed from FeatureRepository so that repositories only perform data access queries.
 
 **Acceptance Criteria**:
-- [ ] [Specific testable criterion 1]
-- [ ] [Specific testable criterion 2]
-- [ ] [Specific testable criterion 3]
+- [ ] FeatureRepository.CalculateProgress() removed (logic moved to FeatureService)
+- [ ] FeatureRepository.GetHealthStatus() removed (logic moved to FeatureService)
+- [ ] FeatureRepository only contains: Create, Get, Update, Delete, List methods
+- [ ] FeatureRepository methods return raw models (no calculated/derived fields)
 
----
+**Story 2**: As a Shark developer, I want all business logic removed from TaskRepository so that repositories only perform data access queries.
+
+**Acceptance Criteria**:
+- [ ] TaskRepository.GetStatusBreakdown() removed (logic moved to TaskService)
+- [ ] TaskRepository.GetDependencyTree() (if exists) simplified to data access only
+- [ ] TaskRepository only contains: Create, Get, Update, Delete, List, UpdateStatus methods
+- [ ] No workflow validation in repository (moved to TaskService)
+
+**Story 3**: As a Shark developer, I want all business logic removed from EpicRepository so that repositories only perform data access queries.
+
+**Acceptance Criteria**:
+- [ ] EpicRepository.GetHealthStatus() removed (logic moved to EpicService)
+- [ ] EpicRepository.GetImpediments() simplified to data query only (logic in EpicService)
+- [ ] EpicRepository only contains: Create, Get, Update, Delete, List methods
 
 ### Should-Have Stories
 
-[Follow same format for important but not critical stories]
-
----
-
-### Could-Have Stories
-
-[Follow same format for nice-to-have stories]
-
----
-
-### Edge Case & Error Stories
-
-**Error Story 1**: As a [user persona], when [error condition], I want to [see/receive] so that I can [recover/understand].
+**Story 4**: As a Shark maintainer, I want repository documentation updated so that contributors understand the pure data access pattern.
 
 **Acceptance Criteria**:
-- [ ] [How error is presented]
-- [ ] [How user can recover]
+- [ ] `.claude/rules/go/patterns.md` shows repository pattern (data access only)
+- [ ] Repository godoc comments clarify "no business logic"
+- [ ] Architecture docs show clear layer boundaries
 
 ---
 
@@ -98,62 +109,113 @@ description:
 
 ### Functional Requirements
 
-**Category: [e.g., Core Functionality]**
+**Category: FeatureRepository Cleanup**
 
-1. **REQ-F-001**: [Requirement Title]
-   - **Description**: [Clear, specific, testable requirement statement]
-   - **User Story**: Links to Story [#]
-   - **Priority**: [Must-Have | Should-Have | Could-Have]
+1. **REQ-F-001**: Remove CalculateProgress from FeatureRepository
+   - **Description**: Remove FeatureRepository.CalculateProgress() method, move logic to FeatureService.GetProgress()
+   - **User Story**: Story 1
+   - **Priority**: Must-Have
    - **Acceptance Criteria**:
-     - [ ] [Specific criterion 1]
-     - [ ] [Specific criterion 2]
+     - [ ] Method removed from FeatureRepository
+     - [ ] Logic migrated to FeatureService.GetProgress()
+     - [ ] All callers updated to use service method
+     - [ ] Tests updated to use service instead of repository
 
----
+2. **REQ-F-002**: Remove GetHealthStatus from FeatureRepository
+   - **Description**: Remove FeatureRepository.GetHealthStatus() method, move logic to FeatureService.GetHealth()
+   - **User Story**: Story 1
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] Method removed from FeatureRepository
+     - [ ] Logic migrated to FeatureService.GetHealth()
+     - [ ] All callers updated to use service method
+
+**Category: TaskRepository Cleanup**
+
+3. **REQ-F-003**: Remove GetStatusBreakdown from TaskRepository
+   - **Description**: Remove TaskRepository.GetStatusBreakdown() method, move logic to TaskService.GetStatusSummary()
+   - **User Story**: Story 2
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] Method removed from TaskRepository
+     - [ ] Logic migrated to TaskService.GetStatusSummary()
+     - [ ] All callers updated to use service method
+
+4. **REQ-F-004**: Simplify GetDependencyTree in TaskRepository
+   - **Description**: If TaskRepository.GetDependencyTree() exists, simplify to pure data access (return raw task records, no logic)
+   - **User Story**: Story 2
+   - **Priority**: Should-Have
+   - **Acceptance Criteria**:
+     - [ ] Method returns raw task models only
+     - [ ] No dependency resolution logic in repository
+     - [ ] Logic moved to TaskService if needed
+
+**Category: EpicRepository Cleanup**
+
+5. **REQ-F-005**: Remove GetHealthStatus from EpicRepository
+   - **Description**: Remove EpicRepository.GetHealthStatus() method, move logic to EpicService.GetHealth()
+   - **User Story**: Story 3
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] Method removed from EpicRepository
+     - [ ] Logic migrated to EpicService.GetHealth()
+     - [ ] All callers updated to use service method
+
+6. **REQ-F-006**: Simplify GetImpediments in EpicRepository
+   - **Description**: Simplify EpicRepository.GetImpediments() to pure data query (no health/blocking analysis)
+   - **User Story**: Story 3
+   - **Priority**: Must-Have
+   - **Acceptance Criteria**:
+     - [ ] Method returns raw blocked tasks only (SQL query: WHERE status = 'blocked')
+     - [ ] No impediment analysis logic in repository
+     - [ ] Logic moved to EpicService.GetImpediments()
 
 ### Non-Functional Requirements
 
-**Performance**
+**Architecture**
 
-1. **REQ-NF-001**: [Performance Requirement]
-   - **Description**: [Specific performance target]
-   - **Measurement**: [How it will be measured]
-   - **Target**: [Quantitative threshold, e.g., "Page load < 2 seconds on 3G"]
-   - **Justification**: [Why this matters]
+1. **REQ-NF-001**: Repository Purity
+   - **Description**: All repository methods must perform only data access operations (no calculations, no derivations)
+   - **Measurement**: Code review - verify no business logic in repository methods
+   - **Target**: 100% pure data access (0 business logic methods remain)
+   - **Justification**: Clean architecture requires clear layer boundaries
 
-**Security**
+**Testability**
 
-1. **REQ-NF-010**: [Security Requirement]
-   - **Description**: [Specific security control]
-   - **Implementation**: [High-level approach]
-   - **Compliance**: [Relevant standards: OWASP, SOC2, etc.]
-   - **Risk Mitigation**: [What threat this addresses]
-
-**Accessibility**
-
-1. **REQ-NF-020**: [Accessibility Requirement]
-   - **Description**: [Specific WCAG criterion]
-   - **Standard**: [WCAG 2.1 Level AA, etc.]
-   - **Testing**: [How compliance will be verified]
+2. **REQ-NF-002**: Service Layer Testability
+   - **Description**: All moved business logic must be testable with mocked repositories
+   - **Measurement**: Service tests use mocks (not real database)
+   - **Target**: 100% of service methods tested with mocks
+   - **Justification**: Service layer tests should not require database
 
 ---
 
-## Acceptance Criteria
+## Acceptance Criteria (Feature-Level)
 
-### Feature-Level Acceptance
+### Scenario 1: Repository Layer Audit
 
-**Given/When/Then Format**:
+**Given** a code reviewer audits the repository layer
+**When** they examine FeatureRepository, TaskRepository, EpicRepository
+**Then** no business logic methods exist (only CRUD + List operations)
+**And** no progress calculations exist in repositories
+**And** no status derivations exist in repositories
+**And** no workflow validations exist in repositories
 
-**Scenario 1: [Primary Use Case]**
-- **Given** [initial context/state]
-- **When** [user action is performed]
-- **Then** [expected outcome]
-- **And** [additional outcome]
+### Scenario 2: Service Layer Ownership
 
-**Scenario 2: [Error Handling]**
-- **Given** [error precondition]
-- **When** [action that triggers error]
-- **Then** [error is handled gracefully]
-- **And** [user can recover]
+**Given** a developer needs to change progress calculation logic
+**When** they search for progress calculation code
+**Then** all logic exists in FeatureService.GetProgress() (not repository)
+**And** repository only returns raw task data
+**And** service performs all calculations
+
+### Scenario 3: Test Coverage Verification
+
+**Given** repository cleanup is complete
+**When** service tests are examined
+**Then** all service tests use mocked repositories
+**And** no service tests require real database
+**And** business logic is tested in isolation
 
 ---
 
@@ -161,18 +223,20 @@ description:
 
 ### Explicitly Excluded
 
-1. **[Feature/Capability]**
-   - **Why**: [Reasoning - complexity, dependencies, prioritization]
-   - **Future**: [Will this be addressed later? If so, when/why?]
-   - **Workaround**: [How users can accomplish this currently, if applicable]
+1. **Repository Method Renaming**
+   - **Why**: Focus is removing business logic methods, not renaming remaining CRUD methods
+   - **Future**: Method naming standardization can be addressed separately if needed
+   - **Workaround**: N/A
 
----
+2. **Database Schema Changes**
+   - **Why**: Moving logic from repositories to services doesn't require schema changes
+   - **Future**: N/A
+   - **Workaround**: N/A
 
-### Alternative Approaches Rejected
-
-**Alternative 1: [Approach Name]**
-- **Description**: [Brief overview]
-- **Why Rejected**: [Reasoning]
+3. **HTTP API Repository Calls**
+   - **Why**: HTTP API should use services (covered in separate features). This feature focuses on repository cleanup only.
+   - **Future**: Ensure HTTP API uses services (not repositories directly)
+   - **Workaround**: Audit HTTP API before removing repository methods
 
 ---
 
@@ -180,17 +244,17 @@ description:
 
 ### Primary Metrics
 
-1. **[Metric Name]**
-   - **What**: [What data point is tracked]
-   - **Target**: [Specific goal]
-   - **Timeline**: [When to achieve]
-   - **Measurement**: [How to measure]
+1. **Repository Method Reduction**
+   - **What**: Percentage of business logic methods removed from repositories
+   - **Target**: 50% reduction (6 business logic methods → 0)
+   - **Timeline**: Measured at feature completion
+   - **Measurement**: Count methods before/after in FeatureRepository, TaskRepository, EpicRepository
 
----
-
-### Secondary Metrics
-
-- **[Metric]**: [Brief description and target]
+2. **Business Logic Centralization**
+   - **What**: Percentage of business logic in services vs. repositories
+   - **Target**: 100% in services (0% in repositories)
+   - **Timeline**: Measured at feature completion
+   - **Measurement**: Code audit - verify no calculations/derivations in repositories
 
 ---
 
@@ -198,21 +262,21 @@ description:
 
 ### Dependencies
 
-- **[System/Feature/Service]**: [Description of dependency]
+- **FeatureService Implementation** (E15-F05): FeatureService must exist before moving repository logic
+- **EpicService Implementation** (E15-F05): EpicService must exist before moving repository logic
+- **TaskService Enhancement**: TaskService may need new methods for status breakdown logic
 
 ### Integration Requirements
 
-- **[External System]**: [What data/functionality is exchanged]
+- **Service Layer**: Services must have methods to accept raw data from repositories and perform calculations
+- **CLI Commands**: CLI commands must call services (not repositories directly) after cleanup
 
 ---
 
 ## Compliance & Security Considerations
 
-[If applicable, note specific requirements]:
-- **Regulatory**: [GDPR, HIPAA, SOC2, etc.]
-- **Data Protection**: [Encryption, access controls]
-- **Audit**: [Logging, audit trail requirements]
+**Not Applicable**: This is an internal architecture refactoring. No user-facing changes, no data access changes, no security controls affected.
 
 ---
 
-*Last Updated*: 2026-02-16
+*Last Updated*: 2026-02-17
