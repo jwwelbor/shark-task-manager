@@ -1414,17 +1414,11 @@ func runEpicComplete(cmd *cobra.Command, args []string) error {
 		allTasks = append(allTasks, tasks...)
 		featureTaskCounts[feature.Key] = len(tasks)
 
-		// Get status breakdown using new workflow-aware method
-		statusBreakdownSlice, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+		// Get status breakdown using feature repository method
+		statusBreakdown, err := featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to get status breakdown for feature %s: %v", feature.Key, err))
 			os.Exit(2)
-		}
-
-		// Convert to map for efficient lookup during aggregation
-		statusBreakdown := make(map[models.TaskStatus]int)
-		for _, sc := range statusBreakdownSlice {
-			statusBreakdown[models.TaskStatus(sc.Status)] = sc.Count
 		}
 
 		featureTaskBreakdown[feature.Key] = statusBreakdown

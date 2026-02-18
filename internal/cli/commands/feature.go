@@ -656,8 +656,9 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		os.Exit(2)
 	}
 
-	// Get task status breakdown from repository
-	statusBreakdown, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+	// Get task status breakdown via service (enriched with workflow metadata)
+	featureSvcBreakdown := cli.GetFeatureService()
+	statusBreakdown, err := featureSvcBreakdown.GetEnrichedTaskStatusBreakdown(ctx, featureKey)
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
@@ -1797,17 +1798,11 @@ func runFeatureComplete(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get status breakdown using new workflow-aware method
-	statusBreakdownSlice, err := taskRepo.GetStatusBreakdown(ctx, feature.ID)
+	// Get status breakdown using feature repository method
+	statusBreakdown, err := featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to get task status: %v", err))
 		os.Exit(2)
-	}
-
-	// Convert to map for efficient lookup
-	statusBreakdown := make(map[models.TaskStatus]int)
-	for _, sc := range statusBreakdownSlice {
-		statusBreakdown[models.TaskStatus(sc.Status)] = sc.Count
 	}
 
 	// Count completed and reviewed tasks (tasks that don't need completion)

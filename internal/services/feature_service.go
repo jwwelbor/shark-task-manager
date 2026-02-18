@@ -592,6 +592,35 @@ func (s *FeatureService) GetActionItems(ctx context.Context, key string) (*Featu
 	return result, nil
 }
 
+// GetEnrichedTaskStatusBreakdown returns task status counts for a feature,
+// enriched with workflow metadata (phase, color, order) from the task-level workflow.
+// Returns a []workflow.StatusCount ordered by workflow phase.
+func (s *FeatureService) GetEnrichedTaskStatusBreakdown(ctx context.Context, key string) ([]workflow.StatusCount, error) {
+	feature, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature %s: %w", key, err)
+	}
+	if feature == nil {
+		return nil, fmt.Errorf("feature not found: %s", key)
+	}
+
+	rawBreakdown, err := s.repo.GetTaskStatusBreakdown(ctx, feature.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task status breakdown for feature %s: %w", key, err)
+	}
+
+	// Convert to map[string]int for NewStatusBreakdown
+	counts := make(map[string]int, len(rawBreakdown))
+	for k, v := range rawBreakdown {
+		counts[string(k)] = v
+	}
+
+	// Use task-level workflow service to enrich with phase/color/order metadata
+	taskWorkflowSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
+	breakdown := workflow.NewStatusBreakdown(counts, taskWorkflowSvc)
+	return breakdown.Counts, nil
+}
+
 // GetTaskStatusBreakdown returns the count of tasks per status for a feature.
 func (s *FeatureService) GetTaskStatusBreakdown(ctx context.Context, key string) (map[string]int, error) {
 	feature, err := s.repo.GetByKey(ctx, key)
