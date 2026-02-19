@@ -17,13 +17,16 @@ import (
 
 // mockEpicRepo implements EpicRepository for testing.
 type mockEpicRepo struct {
-	getByKeyFn                     func(ctx context.Context, key string) (*models.Epic, error)
-	updateFn                       func(ctx context.Context, epic *models.Epic) error
-	listFn                         func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
-	getFeatureProgressDataByEpicFn func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error)
-	getFeatureStatusBreakdownFn    func(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error)
-	getFeatureStatusRollupFn       func(ctx context.Context, epicID int64) (map[string]int, error)
-	getTaskStatusRollupFn          func(ctx context.Context, epicID int64) (map[string]int, error)
+	getByKeyFn                        func(ctx context.Context, key string) (*models.Epic, error)
+	updateFn                          func(ctx context.Context, epic *models.Epic) error
+	listFn                            func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
+	getFeatureProgressDataByEpicFn    func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error)
+	getFeatureStatusBreakdownFn       func(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error)
+	getFeatureStatusRollupFn          func(ctx context.Context, epicID int64) (map[string]int, error)
+	getTaskStatusRollupFn             func(ctx context.Context, epicID int64) (map[string]int, error)
+	createFn                          func(ctx context.Context, epic *models.Epic) error
+	deleteFn                          func(ctx context.Context, id int64) error
+	cascadeStatusToFeaturesAndTasksFn func(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error
 }
 
 func (m *mockEpicRepo) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
@@ -73,6 +76,51 @@ func (m *mockEpicRepo) GetTaskStatusRollup(ctx context.Context, epicID int64) (m
 		return m.getTaskStatusRollupFn(ctx, epicID)
 	}
 	return nil, nil
+}
+
+func (m *mockEpicRepo) Create(ctx context.Context, epic *models.Epic) error {
+	if m.createFn != nil {
+		return m.createFn(ctx, epic)
+	}
+	return nil
+}
+
+func (m *mockEpicRepo) Delete(ctx context.Context, id int64) error {
+	if m.deleteFn != nil {
+		return m.deleteFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockEpicRepo) GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error) {
+	return nil, nil
+}
+
+func (m *mockEpicRepo) UpdateFilePath(ctx context.Context, epicKey string, newFilePath *string) error {
+	return nil
+}
+
+func (m *mockEpicRepo) UpdateKey(ctx context.Context, oldKey string, newKey string) error {
+	return nil
+}
+
+func (m *mockEpicRepo) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
+	return nil, nil
+}
+
+func (m *mockEpicRepo) GetFeatureStatusBreakdown(ctx context.Context, epicID int64) (map[models.FeatureStatus]int, error) {
+	return nil, nil
+}
+
+func (m *mockEpicRepo) UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error {
+	return nil
+}
+
+func (m *mockEpicRepo) CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
+	if m.cascadeStatusToFeaturesAndTasksFn != nil {
+		return m.cascadeStatusToFeaturesAndTasksFn(ctx, epicID, targetFeatureStatus, targetTaskStatus)
+	}
+	return nil
 }
 
 // newTestEpicWorkflowService creates a workflow.Service with default config for testing.
@@ -466,6 +514,8 @@ func TestNextStatusInfo_JSONSerialization(t *testing.T) {
 
 type mockEpicTaskLister struct {
 	listBlockedTasksByEpicFn func(ctx context.Context, epicKey string) ([]*models.Task, error)
+	listByFeatureFn          func(ctx context.Context, featureID int64) ([]*models.Task, error)
+	updateStatusForcedFn     func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
 }
 
 func (m *mockEpicTaskLister) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
@@ -473,6 +523,20 @@ func (m *mockEpicTaskLister) ListBlockedTasksByEpic(ctx context.Context, epicKey
 		return m.listBlockedTasksByEpicFn(ctx, epicKey)
 	}
 	return nil, nil
+}
+
+func (m *mockEpicTaskLister) ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error) {
+	if m.listByFeatureFn != nil {
+		return m.listByFeatureFn(ctx, featureID)
+	}
+	return nil, nil
+}
+
+func (m *mockEpicTaskLister) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+	if m.updateStatusForcedFn != nil {
+		return m.updateStatusForcedFn(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
+	}
+	return nil
 }
 
 // --- Tests for GetEpic ---
@@ -1251,5 +1315,493 @@ func TestEpicService_TransitionStatus_ActionJSON(t *testing.T) {
 	}
 	if parsed.OrchestratorAction.Action != "spawn_agent" {
 		t.Errorf("expected action 'spawn_agent' in JSON, got %q", parsed.OrchestratorAction.Action)
+	}
+}
+
+// --- Tests for CreateEpic ---
+
+func TestEpicService_CreateEpic_Success(t *testing.T) {
+	var capturedEpic *models.Epic
+	repo := &mockEpicRepo{
+		// getByKeyFn returns nil to indicate no existing epic with auto-generated key
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			// Called during nextEpicKey to list existing epics; also for custom key check
+			return nil, nil
+		},
+		listFn: func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+			// Return empty list so nextEpicKey generates E01
+			return []*models.Epic{}, nil
+		},
+		createFn: func(ctx context.Context, epic *models.Epic) error {
+			capturedEpic = epic
+			return nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	input := CreateEpicInput{
+		Title: "My New Epic",
+	}
+	epic, err := svc.CreateEpic(context.Background(), input)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if epic == nil {
+		t.Fatal("expected non-nil epic")
+	}
+	if epic.Title != "My New Epic" {
+		t.Errorf("expected title 'My New Epic', got %q", epic.Title)
+	}
+	if capturedEpic == nil {
+		t.Fatal("expected repo.Create to be called")
+	}
+	if capturedEpic.Title != "My New Epic" {
+		t.Errorf("expected captured epic title 'My New Epic', got %q", capturedEpic.Title)
+	}
+}
+
+func TestEpicService_CreateEpic_EmptyTitle(t *testing.T) {
+	repo := &mockEpicRepo{}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{Title: "   "})
+	if err == nil {
+		t.Fatal("expected error for empty title, got nil")
+	}
+}
+
+func TestEpicService_CreateEpic_CustomKey(t *testing.T) {
+	var capturedEpic *models.Epic
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			// Return nil to indicate key doesn't exist yet
+			return nil, fmt.Errorf("not found")
+		},
+		createFn: func(ctx context.Context, epic *models.Epic) error {
+			capturedEpic = epic
+			return nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	input := CreateEpicInput{
+		Title:     "Custom Key Epic",
+		CustomKey: "E99",
+	}
+	epic, err := svc.CreateEpic(context.Background(), input)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if epic.Key != "E99" {
+		t.Errorf("expected key 'E99', got %q", epic.Key)
+	}
+	if capturedEpic == nil {
+		t.Fatal("expected repo.Create to be called")
+	}
+}
+
+func TestEpicService_CreateEpic_DuplicateCustomKey(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			// Return existing epic for duplicate key check
+			return &models.Epic{Key: "E99"}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{
+		Title:     "Duplicate Epic",
+		CustomKey: "E99",
+	})
+	if err == nil {
+		t.Fatal("expected error for duplicate key, got nil")
+	}
+}
+
+func TestEpicService_CreateEpic_RepoError(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, fmt.Errorf("not found")
+		},
+		listFn: func(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+			return []*models.Epic{}, nil
+		},
+		createFn: func(ctx context.Context, epic *models.Epic) error {
+			return fmt.Errorf("db write failed")
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{Title: "Failing Epic"})
+	if err == nil {
+		t.Fatal("expected error from repo, got nil")
+	}
+}
+
+// --- Tests for UpdateEpic ---
+
+func TestEpicService_UpdateEpic_Success(t *testing.T) {
+	existing := &models.Epic{ID: 1, Key: "E01", Title: "Old Title", Status: models.EpicStatusActive, Priority: models.Priority("medium")}
+	var updatedEpic *models.Epic
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return existing, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			updatedEpic = epic
+			return nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	newTitle := "New Title"
+	result, err := svc.UpdateEpic(context.Background(), "E01", EpicUpdates{Title: &newTitle})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if result.Title != "New Title" {
+		t.Errorf("expected updated title 'New Title', got %q", result.Title)
+	}
+	if updatedEpic == nil {
+		t.Fatal("expected repo.Update to be called")
+	}
+	if updatedEpic.Title != "New Title" {
+		t.Errorf("expected updated epic title 'New Title', got %q", updatedEpic.Title)
+	}
+}
+
+func TestEpicService_UpdateEpic_NotFound(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil // Not found (nil, nil pattern)
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	newTitle := "Whatever"
+	_, err := svc.UpdateEpic(context.Background(), "E99", EpicUpdates{Title: &newTitle})
+	if err == nil {
+		t.Fatal("expected error for non-existent epic")
+	}
+}
+
+func TestEpicService_UpdateEpic_EmptyTitle(t *testing.T) {
+	existing := &models.Epic{ID: 1, Key: "E01", Title: "Original", Status: models.EpicStatusActive}
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return existing, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	emptyTitle := "   "
+	_, err := svc.UpdateEpic(context.Background(), "E01", EpicUpdates{Title: &emptyTitle})
+	if err == nil {
+		t.Fatal("expected error for empty title, got nil")
+	}
+}
+
+func TestEpicService_UpdateEpic_RepoError(t *testing.T) {
+	existing := &models.Epic{ID: 1, Key: "E01", Title: "Title", Status: models.EpicStatusActive}
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return existing, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			return fmt.Errorf("db write failed")
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	newTitle := "New Title"
+	_, err := svc.UpdateEpic(context.Background(), "E01", EpicUpdates{Title: &newTitle})
+	if err == nil {
+		t.Fatal("expected error from repo, got nil")
+	}
+}
+
+// --- Tests for DeleteEpic ---
+
+func TestEpicService_DeleteEpic_Success(t *testing.T) {
+	var deletedID int64
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 42, Key: "E01", Title: "To Delete", Status: models.EpicStatusActive}, nil
+		},
+		deleteFn: func(ctx context.Context, id int64) error {
+			deletedID = id
+			return nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	err := svc.DeleteEpic(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if deletedID != 42 {
+		t.Errorf("expected deleted ID 42, got %d", deletedID)
+	}
+}
+
+func TestEpicService_DeleteEpic_NotFound(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	err := svc.DeleteEpic(context.Background(), "E99")
+	if err == nil {
+		t.Fatal("expected error for non-existent epic")
+	}
+}
+
+func TestEpicService_DeleteEpic_RepoError(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+		},
+		deleteFn: func(ctx context.Context, id int64) error {
+			return fmt.Errorf("db delete failed")
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	err := svc.DeleteEpic(context.Background(), "E01")
+	if err == nil {
+		t.Fatal("expected error from repo, got nil")
+	}
+}
+
+// --- Tests for CompleteEpic ---
+
+func TestEpicService_CompleteEpic_NoFeatures(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+		},
+	}
+	featureCounter := &mockEpicFeatureCounter{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+	}
+	taskLister := &mockEpicTaskLister{}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, featureCounter, taskLister)
+
+	result, err := svc.CompleteEpic(context.Background(), "E01", false, "agent1")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if result.FeatureCount != 0 {
+		t.Errorf("expected 0 features, got %d", result.FeatureCount)
+	}
+	if result.TotalCount != 0 {
+		t.Errorf("expected 0 total tasks, got %d", result.TotalCount)
+	}
+}
+
+func TestEpicService_CompleteEpic_AllTasksComplete_NoForce(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			return nil
+		},
+	}
+	featureCounter := &mockEpicFeatureCounter{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{
+				{ID: 10, Key: "E01-F01", Title: "Feature 1", Status: models.FeatureStatusActive},
+			}, nil
+		},
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{ID: id, Key: "E01-F01", Status: models.FeatureStatusActive}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			return nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return map[models.TaskStatus]int{
+				models.TaskStatus("completed"): 3,
+			}, nil
+		},
+	}
+	taskLister := &mockEpicTaskLister{
+		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			return []*models.Task{
+				{ID: 100, Key: "T-E01-F01-001", Status: models.TaskStatus("completed")},
+				{ID: 101, Key: "T-E01-F01-002", Status: models.TaskStatus("completed")},
+				{ID: 102, Key: "T-E01-F01-003", Status: models.TaskStatus("completed")},
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, featureCounter, taskLister)
+
+	result, err := svc.CompleteEpic(context.Background(), "E01", false, "agent1")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if result.RequiresForce {
+		t.Error("expected RequiresForce=false when all tasks complete")
+	}
+	if result.CompletedCount != 3 {
+		t.Errorf("expected 3 completed tasks, got %d", result.CompletedCount)
+	}
+}
+
+func TestEpicService_CompleteEpic_IncompleteTasksRequireForce(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+		},
+	}
+	featureCounter := &mockEpicFeatureCounter{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{
+				{ID: 10, Key: "E01-F01", Title: "Feature 1", Status: models.FeatureStatusActive},
+			}, nil
+		},
+	}
+	taskLister := &mockEpicTaskLister{
+		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			return []*models.Task{
+				{ID: 100, Key: "T-E01-F01-001", Status: models.TaskStatus("in_progress"), Title: "Incomplete task"},
+				{ID: 101, Key: "T-E01-F01-002", Status: models.TaskStatus("completed"), Title: "Done task"},
+			}, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, featureCounter, taskLister)
+
+	result, err := svc.CompleteEpic(context.Background(), "E01", false, "agent1")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !result.RequiresForce {
+		t.Error("expected RequiresForce=true when tasks are incomplete")
+	}
+}
+
+func TestEpicService_CompleteEpic_Force(t *testing.T) {
+	forcedTaskIDs := make([]int64, 0)
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			return nil
+		},
+	}
+	featureCounter := &mockEpicFeatureCounter{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{
+				{ID: 10, Key: "E01-F01", Title: "Feature 1", Status: models.FeatureStatusActive},
+			}, nil
+		},
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{ID: id, Key: "E01-F01", Status: models.FeatureStatusActive}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			return nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return map[models.TaskStatus]int{"completed": 2}, nil
+		},
+	}
+	taskLister := &mockEpicTaskLister{
+		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			return []*models.Task{
+				{ID: 100, Key: "T-E01-F01-001", Status: models.TaskStatus("in_progress"), Title: "Running task"},
+				{ID: 101, Key: "T-E01-F01-002", Status: models.TaskStatus("completed"), Title: "Done task"},
+			}, nil
+		},
+		updateStatusForcedFn: func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+			forcedTaskIDs = append(forcedTaskIDs, taskID)
+			return nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, featureCounter, taskLister)
+
+	result, err := svc.CompleteEpic(context.Background(), "E01", true, "agent1")
+	if err != nil {
+		t.Fatalf("expected no error with force=true, got: %v", err)
+	}
+	if result.RequiresForce {
+		t.Error("expected RequiresForce=false after forced completion")
+	}
+	// Only the non-completed task (ID 100) should be force-completed
+	if len(forcedTaskIDs) != 1 || forcedTaskIDs[0] != 100 {
+		t.Errorf("expected only task 100 to be force-completed, got: %v", forcedTaskIDs)
+	}
+}
+
+func TestEpicService_CompleteEpic_NotFound(t *testing.T) {
+	repo := &mockEpicRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	_, err := svc.CompleteEpic(context.Background(), "E99", false, "agent1")
+	if err == nil {
+		t.Fatal("expected error for non-existent epic")
+	}
+}
+
+// --- Tests for CascadeStatusToFeaturesAndTasks ---
+
+func TestEpicService_CascadeStatusToFeaturesAndTasks_Success(t *testing.T) {
+	var capturedEpicID int64
+	var capturedFeatureStatus models.FeatureStatus
+	var capturedTaskStatus models.TaskStatus
+
+	repo := &mockEpicRepo{
+		cascadeStatusToFeaturesAndTasksFn: func(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
+			capturedEpicID = epicID
+			capturedFeatureStatus = targetFeatureStatus
+			capturedTaskStatus = targetTaskStatus
+			return nil
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	err := svc.CascadeStatusToFeaturesAndTasks(
+		context.Background(), 1,
+		models.FeatureStatus("completed"),
+		models.TaskStatus("completed"),
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if capturedEpicID != 1 {
+		t.Errorf("expected epicID 1, got %d", capturedEpicID)
+	}
+	if capturedFeatureStatus != models.FeatureStatus("completed") {
+		t.Errorf("expected featureStatus 'completed', got %q", capturedFeatureStatus)
+	}
+	if capturedTaskStatus != models.TaskStatus("completed") {
+		t.Errorf("expected taskStatus 'completed', got %q", capturedTaskStatus)
+	}
+}
+
+func TestEpicService_CascadeStatusToFeaturesAndTasks_RepoError(t *testing.T) {
+	repo := &mockEpicRepo{
+		cascadeStatusToFeaturesAndTasksFn: func(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
+			return fmt.Errorf("db cascade failed")
+		},
+	}
+	svc := NewEpicService(repo, newTestEpicWorkflowService(), nil, nil, nil)
+
+	err := svc.CascadeStatusToFeaturesAndTasks(
+		context.Background(), 1,
+		models.FeatureStatus("completed"),
+		models.TaskStatus("completed"),
+	)
+	if err == nil {
+		t.Fatal("expected error from repo, got nil")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,10 +18,41 @@ import (
 type mockFeatureRepo struct {
 	getByKeyFn               func(ctx context.Context, key string) (*models.Feature, error)
 	getByIDFn                func(ctx context.Context, id int64) (*models.Feature, error)
+	createFn                 func(ctx context.Context, feature *models.Feature) error
 	updateFn                 func(ctx context.Context, feature *models.Feature) error
+	deleteFn                 func(ctx context.Context, id int64) error
 	listFn                   func(ctx context.Context) ([]*models.Feature, error)
 	listByEpicFn             func(ctx context.Context, epicID int64) ([]*models.Feature, error)
 	getTaskStatusBreakdownFn func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
+	cascadeStatusToTasksFn   func(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error
+}
+
+// mockFeatureEpicLookup implements FeatureEpicLookup for testing.
+type mockFeatureEpicLookup struct {
+	getByKeyFn      func(ctx context.Context, key string) (*models.Epic, error)
+	getByFilePathFn func(ctx context.Context, filePath string) (*models.Epic, error)
+}
+
+func (m *mockFeatureEpicLookup) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+	if m.getByKeyFn != nil {
+		return m.getByKeyFn(ctx, key)
+	}
+	return nil, nil
+}
+
+func (m *mockFeatureEpicLookup) GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error) {
+	if m.getByFilePathFn != nil {
+		return m.getByFilePathFn(ctx, filePath)
+	}
+	return nil, nil
+}
+
+func (m *mockFeatureEpicLookup) UpdateFilePath(ctx context.Context, epicKey string, newFilePath *string) error {
+	return nil
+}
+
+func (m *mockFeatureEpicLookup) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+	return nil, nil
 }
 
 func (m *mockFeatureRepo) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
@@ -65,6 +97,51 @@ func (m *mockFeatureRepo) GetTaskStatusBreakdown(ctx context.Context, featureID 
 	return nil, nil
 }
 
+func (m *mockFeatureRepo) Create(ctx context.Context, feature *models.Feature) error {
+	if m.createFn != nil {
+		return m.createFn(ctx, feature)
+	}
+	return nil
+}
+
+func (m *mockFeatureRepo) Delete(ctx context.Context, id int64) error {
+	if m.deleteFn != nil {
+		return m.deleteFn(ctx, id)
+	}
+	return nil
+}
+
+func (m *mockFeatureRepo) GetByFilePath(ctx context.Context, filePath string) (*models.Feature, error) {
+	return nil, nil
+}
+
+func (m *mockFeatureRepo) UpdateFilePath(ctx context.Context, featureKey string, newFilePath *string) error {
+	return nil
+}
+
+func (m *mockFeatureRepo) ListByEpicAndStatus(ctx context.Context, epicID int64, status models.FeatureStatus) ([]*models.Feature, error) {
+	return nil, nil
+}
+
+func (m *mockFeatureRepo) UpdateKey(ctx context.Context, oldKey string, newKey string) error {
+	return nil
+}
+
+func (m *mockFeatureRepo) GetTaskCount(ctx context.Context, featureID int64) (int, error) {
+	return 0, nil
+}
+
+func (m *mockFeatureRepo) SetStatusOverride(ctx context.Context, featureID int64, override bool) error {
+	return nil
+}
+
+func (m *mockFeatureRepo) CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error {
+	if m.cascadeStatusToTasksFn != nil {
+		return m.cascadeStatusToTasksFn(ctx, featureID, targetTaskStatus)
+	}
+	return nil
+}
+
 // Suppress unused import warnings
 var _ = time.Now
 
@@ -87,7 +164,7 @@ func TestFeatureService_TransitionStatus_Valid(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
@@ -128,7 +205,7 @@ func TestFeatureService_TransitionStatus_Invalid(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	// "draft" -> "completed" is not valid in default feature workflow
@@ -153,7 +230,7 @@ func TestFeatureService_TransitionStatus_Force(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16-F01", "custom_status", TransitionOptions{Force: true, Reason: "test force override"})
@@ -175,7 +252,7 @@ func TestFeatureService_TransitionStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E99-F01", "active", TransitionOptions{})
@@ -194,7 +271,7 @@ func TestFeatureService_TransitionStatus_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
@@ -216,7 +293,7 @@ func TestFeatureService_TransitionStatus_UpdateError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
@@ -235,7 +312,7 @@ func TestFeatureService_GetNextStatus(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16-F01")
@@ -267,7 +344,7 @@ func TestFeatureService_GetNextStatus_Terminal(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16-F01")
@@ -290,7 +367,7 @@ func TestFeatureService_GetNextStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetNextStatus(ctx, "E99-F01")
@@ -301,7 +378,7 @@ func TestFeatureService_GetNextStatus_NotFound(t *testing.T) {
 
 func TestFeatureService_ValidateStatus(t *testing.T) {
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 
 	// Valid feature statuses
 	for _, status := range []string{"draft", "active", "completed", "archived"} {
@@ -400,7 +477,7 @@ func TestFeatureService_TransitionStatus_WithAction(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// Transition from draft -> active; "active" has an orchestrator_action defined
@@ -445,7 +522,7 @@ func TestFeatureService_TransitionStatus_WithoutAction(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// Transition from active -> completed; "completed" has NO orchestrator_action
@@ -469,7 +546,7 @@ func TestFeatureService_GetNextStatus_WithActions(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16-F01")
@@ -522,7 +599,7 @@ func TestFeatureService_resolveAction_NilWorkflow(t *testing.T) {
 	// Use empty string project root - this gives a default workflow (not nil).
 	// To truly test nil, we test through the default workflow which has no actions.
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 
 	// The default feature workflow has no orchestrator_action on any status.
 	// resolveAction should return nil without panicking.
@@ -536,7 +613,7 @@ func TestFeatureService_resolveAction_NilWorkflow(t *testing.T) {
 
 func TestFeatureService_resolveAction_UnknownStatus(t *testing.T) {
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil, nil)
 
 	// Unknown status should return nil without panicking
 	feature := &models.Feature{Key: "E16-F01", Title: "Test Feature", Status: "nonexistent_status"}
@@ -549,7 +626,7 @@ func TestFeatureService_resolveAction_UnknownStatus(t *testing.T) {
 
 func TestFeatureService_resolveAction_StatusWithAction(t *testing.T) {
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil, nil)
 
 	feature := &models.Feature{Key: "E16-F02", Title: "Test Feature", Status: "active"}
 	ctx := context.Background()
@@ -572,7 +649,7 @@ func TestFeatureService_resolveAction_StatusWithAction(t *testing.T) {
 
 func TestFeatureService_resolveAction_StatusWithoutAction(t *testing.T) {
 	repo := &mockFeatureRepo{}
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceWithActions(t), nil, nil, nil)
 
 	feature := &models.Feature{Key: "E16-F01", Title: "Test Feature", Status: "completed"}
 	ctx := context.Background()
@@ -598,7 +675,7 @@ func TestFeatureService_GetFeature_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	feature, err := svc.GetFeature(ctx, "E16-F01")
@@ -623,7 +700,7 @@ func TestFeatureService_GetFeature_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetFeature(ctx, "E99-F01")
@@ -642,7 +719,7 @@ func TestFeatureService_GetFeature_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetFeature(ctx, "E16-F01")
@@ -666,7 +743,7 @@ func TestFeatureService_ListFeatures_NoFilter(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	features, err := svc.ListFeatures(ctx, FeatureFilters{})
@@ -689,7 +766,7 @@ func TestFeatureService_ListFeatures_StatusFilter(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	features, err := svc.ListFeatures(ctx, FeatureFilters{Status: "active"})
@@ -715,7 +792,7 @@ func TestFeatureService_ListFeatures_StatusFilterNoMatch(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	features, err := svc.ListFeatures(ctx, FeatureFilters{Status: "active"})
@@ -734,7 +811,7 @@ func TestFeatureService_ListFeatures_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.ListFeatures(ctx, FeatureFilters{})
@@ -761,7 +838,7 @@ func TestFeatureService_GetProgress_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	progress, err := svc.GetProgress(ctx, "E16-F01")
@@ -795,7 +872,7 @@ func TestFeatureService_GetProgress_NoTasks(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	progress, err := svc.GetProgress(ctx, "E16-F01")
@@ -817,7 +894,7 @@ func TestFeatureService_GetProgress_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetProgress(ctx, "E99-F01")
@@ -836,7 +913,7 @@ func TestFeatureService_GetProgress_BreakdownError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetProgress(ctx, "E16-F01")
@@ -864,7 +941,7 @@ func TestFeatureService_GetHealth_Healthy(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
 	ctx := context.Background()
 
 	health, err := svc.GetHealth(ctx, "E16-F01")
@@ -894,7 +971,7 @@ func TestFeatureService_GetHealth_Warning_OneBlocked(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
 	ctx := context.Background()
 
 	health, err := svc.GetHealth(ctx, "E16-F01")
@@ -924,7 +1001,7 @@ func TestFeatureService_GetHealth_Critical_MultipleBlocked(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
 	ctx := context.Background()
 
 	health, err := svc.GetHealth(ctx, "E16-F01")
@@ -950,7 +1027,7 @@ func TestFeatureService_GetHealth_Critical_HighPriorityBlocked(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
 	ctx := context.Background()
 
 	health, err := svc.GetHealth(ctx, "E16-F01")
@@ -971,7 +1048,7 @@ func TestFeatureService_GetHealth_NilTaskRepo(t *testing.T) {
 	}
 
 	// No task repo - should degrade gracefully
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	health, err := svc.GetHealth(ctx, "E16-F01")
@@ -990,7 +1067,7 @@ func TestFeatureService_GetHealth_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetHealth(ctx, "E99-F01")
@@ -1011,7 +1088,7 @@ func TestFeatureService_GetHealth_TaskRepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetHealth(ctx, "E16-F01")
@@ -1039,7 +1116,7 @@ func TestFeatureService_GetWorkBreakdown_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	wb, err := svc.GetWorkBreakdown(ctx, "E16-F01")
@@ -1069,7 +1146,7 @@ func TestFeatureService_GetWorkBreakdown_NoTasks(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	wb, err := svc.GetWorkBreakdown(ctx, "E16-F01")
@@ -1088,7 +1165,7 @@ func TestFeatureService_GetWorkBreakdown_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetWorkBreakdown(ctx, "E99-F01")
@@ -1107,7 +1184,7 @@ func TestFeatureService_GetWorkBreakdown_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetWorkBreakdown(ctx, "E16-F01")
@@ -1137,7 +1214,7 @@ func TestFeatureService_GetActionItems_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
 	ctx := context.Background()
 
 	items, err := svc.GetActionItems(ctx, "E16-F01")
@@ -1162,7 +1239,7 @@ func TestFeatureService_GetActionItems_NilTaskRepo(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	items, err := svc.GetActionItems(ctx, "E16-F01")
@@ -1184,7 +1261,7 @@ func TestFeatureService_GetActionItems_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetActionItems(ctx, "E99-F01")
@@ -1205,7 +1282,7 @@ func TestFeatureService_GetActionItems_TaskRepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetActionItems(ctx, "E16-F01")
@@ -1232,7 +1309,7 @@ func TestFeatureService_GetTaskStatusBreakdown_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	breakdown, err := svc.GetTaskStatusBreakdown(ctx, "E16-F01")
@@ -1263,7 +1340,7 @@ func TestFeatureService_GetTaskStatusBreakdown_Empty(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	breakdown, err := svc.GetTaskStatusBreakdown(ctx, "E16-F01")
@@ -1282,7 +1359,7 @@ func TestFeatureService_GetTaskStatusBreakdown_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetTaskStatusBreakdown(ctx, "E99-F01")
@@ -1301,7 +1378,7 @@ func TestFeatureService_GetTaskStatusBreakdown_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetTaskStatusBreakdown(ctx, "E16-F01")
@@ -1333,7 +1410,7 @@ func TestFeatureService_RecalculateAndSetProgress_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	err := svc.RecalculateAndSetProgress(ctx, 1)
@@ -1368,7 +1445,7 @@ func TestFeatureService_RecalculateAndSetProgress_AutoComplete(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	err := svc.RecalculateAndSetProgress(ctx, 1)
@@ -1393,7 +1470,7 @@ func TestFeatureService_RecalculateAndSetProgress_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	err := svc.RecalculateAndSetProgress(ctx, 999)
@@ -1412,7 +1489,7 @@ func TestFeatureService_RecalculateAndSetProgress_BreakdownError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	err := svc.RecalculateAndSetProgress(ctx, 1)
@@ -1434,7 +1511,7 @@ func TestFeatureService_RecalculateAndSetProgress_UpdateError(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	err := svc.RecalculateAndSetProgress(ctx, 1)
@@ -1465,7 +1542,7 @@ func TestFeatureService_RecalculateAndSetProgressByKey_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	err := svc.RecalculateAndSetProgressByKey(ctx, "E16-F01")
@@ -1484,11 +1561,483 @@ func TestFeatureService_RecalculateAndSetProgressByKey_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
 	ctx := context.Background()
 
 	err := svc.RecalculateAndSetProgressByKey(ctx, "E99-F01")
 	if err == nil {
 		t.Fatal("expected error for not-found feature")
+	}
+}
+
+// ==================== CRUD Tests ====================
+
+func TestFeatureService_CreateFeature_Success(t *testing.T) {
+	var capturedFeature *models.Feature
+	epicTitle := "Test Epic"
+	repo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeature = feature
+			return nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: epicTitle, Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "My Feature",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if feature.Key == "" {
+		t.Error("expected non-empty key")
+	}
+	if capturedFeature == nil {
+		t.Fatal("expected Create to be called")
+	}
+	if capturedFeature.Title != "My Feature" {
+		t.Errorf("expected title 'My Feature', got %q", capturedFeature.Title)
+	}
+	if capturedFeature.EpicID != 1 {
+		t.Errorf("expected EpicID 1, got %d", capturedFeature.EpicID)
+	}
+}
+
+func TestFeatureService_CreateFeature_EpicNotFound(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	_, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E99",
+		Title:   "My Feature",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing epic")
+	}
+}
+
+func TestFeatureService_CreateFeature_EmptyTitle(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	_, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "",
+	})
+	if err == nil {
+		t.Fatal("expected validation error for empty title")
+	}
+}
+
+func TestFeatureService_UpdateFeature_Success(t *testing.T) {
+	var updatedFeature *models.Feature
+	newTitle := "Updated Title"
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				ID:     1,
+				Key:    "E01-F01",
+				Title:  "Old Title",
+				Status: models.FeatureStatusActive,
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			updatedFeature = feature
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	feature, err := svc.UpdateFeature(context.Background(), "E01-F01", FeatureUpdates{
+		Title: &newTitle,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if feature.Title != "Updated Title" {
+		t.Errorf("expected title 'Updated Title', got %q", feature.Title)
+	}
+	if updatedFeature == nil {
+		t.Fatal("expected Update to be called")
+	}
+}
+
+func TestFeatureService_UpdateFeature_NotFound(t *testing.T) {
+	updateCalled := false
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			updateCalled = true
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	_, err := svc.UpdateFeature(context.Background(), "E99-F01", FeatureUpdates{})
+	if err == nil {
+		t.Fatal("expected error for not-found feature")
+	}
+	if updateCalled {
+		t.Error("expected Update not to be called for not-found feature")
+	}
+}
+
+func TestFeatureService_UpdateFeature_EmptyTitle(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E01-F01", Title: "Title", Status: models.FeatureStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	emptyTitle := ""
+	_, err := svc.UpdateFeature(context.Background(), "E01-F01", FeatureUpdates{
+		Title: &emptyTitle,
+	})
+	if err == nil {
+		t.Fatal("expected validation error for empty title")
+	}
+}
+
+func TestFeatureService_DeleteFeature_Success(t *testing.T) {
+	var deletedID int64
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 42, Key: "E01-F01", Title: "Feature", Status: models.FeatureStatusActive}, nil
+		},
+		deleteFn: func(ctx context.Context, id int64) error {
+			deletedID = id
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.DeleteFeature(context.Background(), "E01-F01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if deletedID != 42 {
+		t.Errorf("expected Delete to be called with ID 42, got %d", deletedID)
+	}
+}
+
+func TestFeatureService_DeleteFeature_NotFound(t *testing.T) {
+	deleteCalled := false
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, nil
+		},
+		deleteFn: func(ctx context.Context, id int64) error {
+			deleteCalled = true
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.DeleteFeature(context.Background(), "E99-F01")
+	if err == nil {
+		t.Fatal("expected error for not-found feature")
+	}
+	if deleteCalled {
+		t.Error("expected Delete not to be called for not-found feature")
+	}
+}
+
+func TestFeatureService_GetFeatureByID_Success(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{ID: id, Key: "E01-F01", Title: "Feature", Status: models.FeatureStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	feature, err := svc.GetFeatureByID(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if feature.ID != 5 {
+		t.Errorf("expected ID 5, got %d", feature.ID)
+	}
+}
+
+func TestFeatureService_GetFeatureByID_NotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return nil, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	feature, err := svc.GetFeatureByID(context.Background(), 999)
+	if err == nil {
+		t.Fatal("expected error for not-found ID, got nil")
+	}
+	if feature != nil {
+		t.Error("expected nil feature on error")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error message, got: %v", err)
+	}
+}
+
+func TestFeatureService_ListFeaturesByEpicKey_Success(t *testing.T) {
+	repo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{
+				{ID: 1, Key: "E01-F01", Title: "Feature 1", Status: models.FeatureStatusActive},
+				{ID: 2, Key: "E01-F02", Title: "Feature 2", Status: models.FeatureStatusDraft},
+			}, nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	features, err := svc.ListFeaturesByEpicKey(context.Background(), "E01", "")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(features) != 2 {
+		t.Errorf("expected 2 features, got %d", len(features))
+	}
+}
+
+func TestFeatureService_ListFeaturesByEpicKey_EpicNotFound(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return nil, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	_, err := svc.ListFeaturesByEpicKey(context.Background(), "E99", "")
+	if err == nil {
+		t.Fatal("expected error for missing epic")
+	}
+}
+
+// ==================== Lifecycle Tests ====================
+
+func TestFeatureService_CompleteFeature_AllTasksDone(t *testing.T) {
+	var updatedFeature *models.Feature
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E01-F01", Title: "Feature", Status: models.FeatureStatusActive}, nil
+		},
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{ID: id, Key: "E01-F01", Title: "Feature", Status: models.FeatureStatusActive}, nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return map[models.TaskStatus]int{
+				models.TaskStatus("completed"): 3,
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			updatedFeature = feature
+			return nil
+		},
+	}
+	taskRepo := &mockFeatureTaskCounter{
+		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			return []*models.Task{
+				{ID: 1, Key: "T-E01-F01-001", Status: models.TaskStatus("completed")},
+				{ID: 2, Key: "T-E01-F01-002", Status: models.TaskStatus("completed")},
+				{ID: 3, Key: "T-E01-F01-003", Status: models.TaskStatus("completed")},
+			}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
+
+	result, err := svc.CompleteFeature(context.Background(), "E01-F01", false)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if result.RequiresForce {
+		t.Error("expected RequiresForce=false when all tasks complete")
+	}
+	if updatedFeature == nil {
+		t.Fatal("expected Update to be called")
+	}
+}
+
+func TestFeatureService_CompleteFeature_TasksIncomplete(t *testing.T) {
+	updateCalled := false
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E01-F01", Title: "Feature", Status: models.FeatureStatusActive}, nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return map[models.TaskStatus]int{
+				models.TaskStatus("completed"):   1,
+				models.TaskStatus("in_progress"): 1,
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			updateCalled = true
+			return nil
+		},
+	}
+	taskRepo := &mockFeatureTaskCounter{
+		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			return []*models.Task{
+				{ID: 1, Key: "T-E01-F01-001", Status: models.TaskStatus("completed")},
+				{ID: 2, Key: "T-E01-F01-002", Status: models.TaskStatus("in_progress")},
+			}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
+
+	result, err := svc.CompleteFeature(context.Background(), "E01-F01", false)
+	if err != nil {
+		t.Fatalf("expected no error (RequiresForce signal, not error), got: %v", err)
+	}
+	if !result.RequiresForce {
+		t.Error("expected RequiresForce=true for incomplete tasks with force=false")
+	}
+	if updateCalled {
+		t.Error("expected Update not to be called when force=false and tasks incomplete")
+	}
+}
+
+func TestFeatureService_CompleteFeature_Force(t *testing.T) {
+	forcedTaskIDs := make([]int64, 0)
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E01-F01", Title: "Feature", Status: models.FeatureStatusActive}, nil
+		},
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{ID: id, Key: "E01-F01", Status: models.FeatureStatusActive}, nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return map[models.TaskStatus]int{
+				models.TaskStatus("completed"):   1,
+				models.TaskStatus("in_progress"): 1,
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			return nil
+		},
+	}
+	taskRepo := &mockFeatureTaskCounter{
+		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			return []*models.Task{
+				{ID: 1, Key: "T-E01-F01-001", Status: models.TaskStatus("completed")},
+				{ID: 2, Key: "T-E01-F01-002", Status: models.TaskStatus("in_progress")},
+			}, nil
+		},
+		updateStatusForcedFn: func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+			forcedTaskIDs = append(forcedTaskIDs, taskID)
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
+
+	result, err := svc.CompleteFeature(context.Background(), "E01-F01", true)
+	if err != nil {
+		t.Fatalf("expected no error with force=true, got: %v", err)
+	}
+	if result.RequiresForce {
+		t.Error("expected RequiresForce=false after forced completion")
+	}
+	// Only the in_progress task (ID 2) should be force-completed
+	if len(forcedTaskIDs) != 1 || forcedTaskIDs[0] != 2 {
+		t.Errorf("expected only task 2 to be force-completed, got: %v", forcedTaskIDs)
+	}
+}
+
+func TestFeatureService_CascadeFeatureStatusToTasks_Success(t *testing.T) {
+	var cascadeFeatureID int64
+	var cascadeTargetStatus models.TaskStatus
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 10, Key: "E01-F01", Title: "Feature", Status: models.FeatureStatusActive}, nil
+		},
+		cascadeStatusToTasksFn: func(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error {
+			cascadeFeatureID = featureID
+			cascadeTargetStatus = targetTaskStatus
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.CascadeFeatureStatusToTasks(context.Background(), "E01-F01", models.TaskStatus("completed"))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if cascadeFeatureID != 10 {
+		t.Errorf("expected cascade called with featureID 10, got %d", cascadeFeatureID)
+	}
+	if cascadeTargetStatus != models.TaskStatus("completed") {
+		t.Errorf("expected cascade target status 'completed', got %q", cascadeTargetStatus)
+	}
+}
+
+func TestFeatureService_CascadeFeatureStatusToTasks_NotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, fmt.Errorf("feature not found")
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.CascadeFeatureStatusToTasks(context.Background(), "E99-F01", models.TaskStatus("completed"))
+	if err == nil {
+		t.Fatal("expected error for not-found feature")
+	}
+}
+
+func TestFeatureService_CascadeFeatureStatusToTasks_ZeroTasks(t *testing.T) {
+	// When feature exists but has no tasks, cascade should succeed with no error.
+	cascadeCalled := false
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 10, Key: key, Title: "Empty Feature"}, nil
+		},
+		cascadeStatusToTasksFn: func(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error {
+			cascadeCalled = true
+			if featureID != 10 {
+				t.Errorf("expected featureID 10, got %d", featureID)
+			}
+			// Simulate successful cascade with zero tasks (no error)
+			return nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.CascadeFeatureStatusToTasks(context.Background(), "E15-F09", models.TaskStatus("completed"))
+	if err != nil {
+		t.Fatalf("expected no error for zero-task cascade, got: %v", err)
+	}
+	if !cascadeCalled {
+		t.Error("expected CascadeStatusToTasks to be called even for zero tasks")
 	}
 }
