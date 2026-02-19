@@ -1,6 +1,60 @@
 package services
 
-import "time"
+import (
+	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
+)
+
+// CreateEpicInput contains the parameters for creating a new epic.
+type CreateEpicInput struct {
+	// Required fields
+	Title string `json:"title"`
+
+	// Optional fields
+	Description   *string `json:"description,omitempty"`
+	Status        string  `json:"status,omitempty"`         // Defaults to "draft" if empty
+	Priority      string  `json:"priority,omitempty"`       // Defaults to "medium" if empty
+	BusinessValue *string `json:"business_value,omitempty"` // Optional priority value
+	FilePath      *string `json:"file_path,omitempty"`      // Custom file path (relative)
+	CustomKey     string  `json:"custom_key,omitempty"`     // Override auto-generated key
+	Force         bool    `json:"force,omitempty"`          // Force file reassignment
+}
+
+// EpicUpdates contains fields that can be updated on an existing epic.
+// Only non-nil pointer fields will be updated.
+type EpicUpdates struct {
+	Title         *string            `json:"title,omitempty"`
+	Description   *string            `json:"description,omitempty"`
+	Status        *models.EpicStatus `json:"status,omitempty"`
+	Priority      *models.Priority   `json:"priority,omitempty"`
+	BusinessValue *models.Priority   `json:"business_value,omitempty"`
+	FilePath      *string            `json:"file_path,omitempty"`
+}
+
+// CreateFeatureInput contains the parameters for creating a new feature.
+type CreateFeatureInput struct {
+	// Required fields
+	EpicKey string `json:"epic_key"`
+	Title   string `json:"title"`
+
+	// Optional fields
+	Description    *string `json:"description,omitempty"`
+	Status         string  `json:"status,omitempty"`          // Defaults to "draft" if empty
+	ExecutionOrder *int    `json:"execution_order,omitempty"` // Position in feature execution sequence
+	FilePath       *string `json:"file_path,omitempty"`       // Custom file path (relative)
+	Force          bool    `json:"force,omitempty"`           // Force file reassignment
+}
+
+// FeatureUpdates contains fields that can be updated on an existing feature.
+// Only non-nil pointer fields will be updated.
+type FeatureUpdates struct {
+	Title          *string               `json:"title,omitempty"`
+	Description    *string               `json:"description,omitempty"`
+	Status         *models.FeatureStatus `json:"status,omitempty"`
+	ExecutionOrder *int                  `json:"execution_order,omitempty"`
+	FilePath       *string               `json:"file_path,omitempty"`
+}
 
 // EpicFilters contains criteria for filtering epic lists.
 type EpicFilters struct {
@@ -55,6 +109,18 @@ type FeatureProgressInfo struct {
 	CompletionRatio    string  `json:"completion_ratio"` // "2/5"
 }
 
+// FeatureCompleteResult contains the result of a CompleteFeature operation.
+type FeatureCompleteResult struct {
+	FeatureKey      string         `json:"feature_key"`
+	TotalCount      int            `json:"total_count"`
+	CompletedCount  int            `json:"completed_count"`
+	AffectedTasks   []string       `json:"affected_tasks"`
+	StatusBreakdown map[string]int `json:"status_breakdown"`
+	// RequiresForce is true when there are incomplete tasks and force was not set.
+	// The caller should display a warning and ask the user to retry with --force.
+	RequiresForce bool `json:"requires_force"`
+}
+
 // FeatureHealthInfo contains health analysis for a feature.
 type FeatureHealthInfo struct {
 	FeatureKey string   `json:"feature_key"`
@@ -71,6 +137,39 @@ type WorkBreakdown struct {
 	HumanWork      int    `json:"human_work"`
 	BlockedWork    int    `json:"blocked_work"`
 	NotStarted     int    `json:"not_started"`
+}
+
+// EpicCompleteResult contains the result of a CompleteEpic operation.
+type EpicCompleteResult struct {
+	EpicKey      string `json:"epic_key"`
+	FeatureCount int    `json:"feature_count"`
+	TotalCount   int    `json:"total_count"`
+	// CompletedCount is the total number of tasks now completed (pre-existing + newly completed).
+	CompletedCount  int            `json:"completed_count"`
+	AffectedTasks   []string       `json:"affected_tasks"`
+	StatusBreakdown map[string]int `json:"status_breakdown"`
+	// RequiresForce is true when there are incomplete tasks and force was not set.
+	// The caller should display a warning and ask the user to retry with --force.
+	RequiresForce bool `json:"requires_force"`
+	// IncompleteDetails holds a summary of incomplete task counts per feature (for the warning message).
+	IncompleteDetails map[string]FeatureIncompleteDetails `json:"incomplete_details,omitempty"`
+	// ForceCompleted is true when the operation completed tasks that were not yet done.
+	ForceCompleted bool `json:"force_completed"`
+}
+
+// FeatureIncompleteDetails holds incomplete task counts for a feature during epic complete.
+type FeatureIncompleteDetails struct {
+	TotalTasks      int            `json:"total_tasks"`
+	CompletedTasks  int            `json:"completed_tasks"`
+	IncompleteCount int            `json:"incomplete_count"`
+	StatusBreakdown map[string]int `json:"status_breakdown"`
+}
+
+// ProblematicTask holds a summary of a problematic task for display.
+type ProblematicTask struct {
+	Key           string  `json:"key"`
+	Status        string  `json:"status"`
+	BlockedReason *string `json:"blocked_reason,omitempty"`
 }
 
 // FeatureActionItems contains tasks requiring immediate attention for a feature.
