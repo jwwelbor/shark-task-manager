@@ -2353,3 +2353,286 @@ func TestTaskService_UnlinkFile_TargetTaskNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "target task not found")
 }
+
+// ============================================================================
+// MockWorkSessionRepository
+// ============================================================================
+
+// MockWorkSessionRepository implements WorkSessionRepository for testing.
+type MockWorkSessionRepository struct {
+	GetByTaskIDFunc             func(ctx context.Context, taskID int64) ([]*models.WorkSession, error)
+	GetSessionStatsByTaskIDFunc func(ctx context.Context, taskID int64) (*WorkSessionStats, error)
+}
+
+func (m *MockWorkSessionRepository) GetByTaskID(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
+	if m.GetByTaskIDFunc != nil {
+		return m.GetByTaskIDFunc(ctx, taskID)
+	}
+	return nil, fmt.Errorf("GetByTaskID not implemented in mock")
+}
+
+func (m *MockWorkSessionRepository) GetSessionStatsByTaskID(ctx context.Context, taskID int64) (*WorkSessionStats, error) {
+	if m.GetSessionStatsByTaskIDFunc != nil {
+		return m.GetSessionStatsByTaskIDFunc(ctx, taskID)
+	}
+	return nil, fmt.Errorf("GetSessionStatsByTaskID not implemented in mock")
+}
+
+// ============================================================================
+// GetWorkSessions Tests
+// ============================================================================
+
+func TestTaskService_GetWorkSessions_Happy_Path(t *testing.T) {
+	// Arrange
+	agentID := "agent-001"
+	mockSessions := []*models.WorkSession{
+		{ID: 1, TaskID: 42, AgentID: &agentID},
+		{ID: 2, TaskID: 42, AgentID: &agentID},
+	}
+	mockStats := &WorkSessionStats{
+		TotalSessions: 2,
+		ActiveSession: false,
+	}
+
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			assert.Equal(t, "E07-F01-001", key)
+			return &models.Task{ID: 42, Key: "E07-F01-001", Title: "Test Task"}, nil
+		},
+	}
+	mockSessionRepo := &MockWorkSessionRepository{
+		GetByTaskIDFunc: func(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
+			assert.Equal(t, int64(42), taskID)
+			return mockSessions, nil
+		},
+		GetSessionStatsByTaskIDFunc: func(ctx context.Context, taskID int64) (*WorkSessionStats, error) {
+			assert.Equal(t, int64(42), taskID)
+			return mockStats, nil
+		},
+	}
+
+	svc := NewTaskServiceWithRelationships(mockRepo, newMockWorkflowService(), nil, nil, nil, nil, mockSessionRepo)
+
+	// Act
+	result, err := svc.GetWorkSessions(context.Background(), "E07-F01-001")
+
+	// Assert
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, "E07-F01-001", result.TaskKey)
+	assert.Equal(t, "Test Task", result.TaskTitle)
+	assert.Len(t, result.Sessions, 2)
+	assert.NotNil(t, result.Stats)
+	assert.Equal(t, 2, result.Stats.TotalSessions)
+}
+
+func TestTaskService_GetWorkSessions_Nil_Session_Repo(t *testing.T) {
+	// Arrange: service constructed without session repo
+	mockRepo := &MockTaskRepository{}
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Act
+	result, err := svc.GetWorkSessions(context.Background(), "E07-F01-001")
+
+	// Assert: error returned because session repo is nil
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "work session repository not configured")
+}
+
+func TestTaskService_GetWorkSessions_Task_Not_Found(t *testing.T) {
+	// Arrange
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return nil, fmt.Errorf("task not found")
+		},
+	}
+	mockSessionRepo := &MockWorkSessionRepository{}
+
+	svc := NewTaskServiceWithRelationships(mockRepo, newMockWorkflowService(), nil, nil, nil, nil, mockSessionRepo)
+
+	// Act
+	result, err := svc.GetWorkSessions(context.Background(), "E07-F01-999")
+
+	// Assert
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "task not found")
+}
+
+func TestTaskService_GetWorkSessions_Sessions_Repository_Error(t *testing.T) {
+	// Arrange
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{ID: 1, Key: key, Title: "Task"}, nil
+		},
+	}
+	mockSessionRepo := &MockWorkSessionRepository{
+		GetByTaskIDFunc: func(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
+			return nil, fmt.Errorf("database error")
+		},
+	}
+
+	svc := NewTaskServiceWithRelationships(mockRepo, newMockWorkflowService(), nil, nil, nil, nil, mockSessionRepo)
+
+	// Act
+	result, err := svc.GetWorkSessions(context.Background(), "E07-F01-001")
+
+	// Assert
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "failed to get work sessions")
+}
+
+func TestTaskService_GetWorkSessions_Stats_Repository_Error(t *testing.T) {
+	// Arrange
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{ID: 1, Key: key, Title: "Task"}, nil
+		},
+	}
+	mockSessionRepo := &MockWorkSessionRepository{
+		GetByTaskIDFunc: func(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
+			return []*models.WorkSession{}, nil
+		},
+		GetSessionStatsByTaskIDFunc: func(ctx context.Context, taskID int64) (*WorkSessionStats, error) {
+			return nil, fmt.Errorf("stats query failed")
+		},
+	}
+
+	svc := NewTaskServiceWithRelationships(mockRepo, newMockWorkflowService(), nil, nil, nil, nil, mockSessionRepo)
+
+	// Act
+	result, err := svc.GetWorkSessions(context.Background(), "E07-F01-001")
+
+	// Assert
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "failed to get session stats")
+}
+
+func TestTaskService_GetWorkSessions_Empty_Sessions(t *testing.T) {
+	// Arrange: task exists but has no sessions
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{ID: 5, Key: key, Title: "New Task"}, nil
+		},
+	}
+	mockSessionRepo := &MockWorkSessionRepository{
+		GetByTaskIDFunc: func(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
+			return []*models.WorkSession{}, nil
+		},
+		GetSessionStatsByTaskIDFunc: func(ctx context.Context, taskID int64) (*WorkSessionStats, error) {
+			return &WorkSessionStats{TotalSessions: 0, ActiveSession: false}, nil
+		},
+	}
+
+	svc := NewTaskServiceWithRelationships(mockRepo, newMockWorkflowService(), nil, nil, nil, nil, mockSessionRepo)
+
+	// Act
+	result, err := svc.GetWorkSessions(context.Background(), "E07-F01-001")
+
+	// Assert
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Empty(t, result.Sessions)
+	assert.Equal(t, 0, result.Stats.TotalSessions)
+	assert.False(t, result.Stats.ActiveSession)
+}
+
+// MockTaskHistoryRepository implements TaskHistoryRepository for testing.
+type MockTaskHistoryRepository struct {
+	GetHistoryByTaskKeyFunc func(ctx context.Context, taskKey string) ([]*models.TaskHistory, error)
+}
+
+func (m *MockTaskHistoryRepository) GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
+	if m.GetHistoryByTaskKeyFunc != nil {
+		return m.GetHistoryByTaskKeyFunc(ctx, taskKey)
+	}
+	return nil, fmt.Errorf("GetHistoryByTaskKey not implemented in mock")
+}
+
+func TestTaskService_GetTaskHistory_Happy_Path(t *testing.T) {
+	// Arrange
+	oldStatus1 := "todo"
+	oldStatus2 := "in_progress"
+	expectedHistory := []*models.TaskHistory{
+		{ID: 1, TaskID: 10, OldStatus: &oldStatus1, NewStatus: "in_progress"},
+		{ID: 2, TaskID: 10, OldStatus: &oldStatus2, NewStatus: "ready_for_review"},
+	}
+	mockHistoryRepo := &MockTaskHistoryRepository{
+		GetHistoryByTaskKeyFunc: func(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
+			assert.Equal(t, "E07-F01-001", taskKey)
+			return expectedHistory, nil
+		},
+	}
+
+	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc.SetHistoryRepo(mockHistoryRepo)
+
+	// Act
+	result, err := svc.GetTaskHistory(context.Background(), "E07-F01-001")
+
+	// Assert
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Len(t, result, 2)
+	assert.Equal(t, "todo", *result[0].OldStatus)
+	assert.Equal(t, "in_progress", result[0].NewStatus)
+	assert.Equal(t, "in_progress", *result[1].OldStatus)
+	assert.Equal(t, "ready_for_review", result[1].NewStatus)
+}
+
+func TestTaskService_GetTaskHistory_Nil_History_Repo(t *testing.T) {
+	// Arrange: service constructed without history repo and SetHistoryRepo not called
+	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+
+	// Act
+	result, err := svc.GetTaskHistory(context.Background(), "E07-F01-001")
+
+	// Assert
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "history repository not configured")
+}
+
+func TestTaskService_GetTaskHistory_Repository_Error(t *testing.T) {
+	// Arrange
+	mockHistoryRepo := &MockTaskHistoryRepository{
+		GetHistoryByTaskKeyFunc: func(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
+			return nil, fmt.Errorf("database query failed")
+		},
+	}
+
+	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc.SetHistoryRepo(mockHistoryRepo)
+
+	// Act
+	result, err := svc.GetTaskHistory(context.Background(), "E07-F01-001")
+
+	// Assert
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "failed to get task history for E07-F01-001")
+	assert.Contains(t, err.Error(), "database query failed")
+}
+
+func TestTaskService_GetTaskHistory_Empty_History(t *testing.T) {
+	// Arrange: task exists but has no history entries
+	mockHistoryRepo := &MockTaskHistoryRepository{
+		GetHistoryByTaskKeyFunc: func(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
+			return []*models.TaskHistory{}, nil
+		},
+	}
+
+	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc.SetHistoryRepo(mockHistoryRepo)
+
+	// Act
+	result, err := svc.GetTaskHistory(context.Background(), "E07-F01-001")
+
+	// Assert
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Empty(t, result)
+}

@@ -116,6 +116,13 @@ type TaskNoteRepository interface {
 		historyID int64, fromStatus, toStatus, reason, rejectedBy string, documentPath *string) (*models.EntityNote, error)
 }
 
+// TaskHistoryRepository defines the repository interface for task history access.
+// This interface is satisfied by *repository.TaskHistoryRepository.
+type TaskHistoryRepository interface {
+	// GetHistoryByTaskKey retrieves all history records for a task by its key
+	GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error)
+}
+
 // TaskService provides business logic for task operations.
 // It orchestrates task lifecycle, status transitions, dependency validation,
 // and coordinates with workflow and taskcreation services.
@@ -124,6 +131,7 @@ type TaskService struct {
 	workflowSvc     *workflow.Service
 	creatorSvc      *taskcreation.Creator
 	noteRepo        TaskNoteRepository
+	historyRepo     TaskHistoryRepository
 	docRepo         config.DocumentRepository
 	writableDocRepo TaskWritableDocumentRepository
 	relRepo         config.TaskRelationshipRepository
@@ -1754,4 +1762,33 @@ func (s *TaskService) GetWorkSessions(ctx context.Context, taskKey string) (*Tas
 		Sessions:  sessions,
 		Stats:     stats,
 	}, nil
+}
+
+// SetHistoryRepo sets the task history repository for this service.
+// This is used by CLI global accessors to wire optional history repository
+// after initial construction via NewTaskService.
+func (s *TaskService) SetHistoryRepo(repo TaskHistoryRepository) {
+	s.historyRepo = repo
+}
+
+// GetTaskHistory retrieves the complete status change history for a task.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - taskKey: the task key to get history for
+//
+// Returns:
+//   - []*models.TaskHistory: all history records in chronological order
+//   - error: if history repo not configured, or database operation fails
+func (s *TaskService) GetTaskHistory(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
+	if s.historyRepo == nil {
+		return nil, fmt.Errorf("history repository not configured")
+	}
+
+	histories, err := s.historyRepo.GetHistoryByTaskKey(ctx, taskKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task history for %s: %w", taskKey, err)
+	}
+
+	return histories, nil
 }

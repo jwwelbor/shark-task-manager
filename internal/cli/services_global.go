@@ -133,6 +133,41 @@ func GetTaskService() *services.TaskService {
 	return services.NewTaskService(taskRepo, workflowSvc, creatorSvc, noteRepo)
 }
 
+// GetTaskServiceWithHistory returns a TaskService with the history repository wired.
+// Used by commands that need to query task history (e.g., the history command).
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetTaskServiceWithHistory()
+//	histories, err := svc.GetTaskHistory(ctx, "E07-F01-001")
+func GetTaskServiceWithHistory() *services.TaskService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	taskRepo := repository.NewTaskRepository(db)
+	workflowSvc := GetWorkflowService()
+	noteRepo := repository.NewEntityNoteRepository(db)
+
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+	historyRepo := repository.NewTaskHistoryRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
+
+	svc := services.NewTaskService(taskRepo, workflowSvc, creatorSvc, noteRepo)
+	svc.SetHistoryRepo(historyRepo)
+	return svc
+}
+
 // GetTaskServiceWithDeps returns a TaskService with relationship and document repositories wired.
 // Used by commands that need dependency/relationship management (unlink, deps) or document operations.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
