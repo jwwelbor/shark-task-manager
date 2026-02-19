@@ -15,9 +15,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
-	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
@@ -87,26 +85,6 @@ func backupDatabaseOnForce(force bool, dbPath string, operation string) (string,
 	}
 
 	return backupPath, nil
-}
-
-// getNextEpicKey finds the next available epic key
-func getNextEpicKey(ctx context.Context, epicRepo *repository.EpicRepository) (string, error) {
-	epics, err := epicRepo.List(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-
-	maxNum := 0
-	for _, epic := range epics {
-		var num int
-		if _, err := fmt.Sscanf(epic.Key, "E%d", &num); err == nil {
-			if num > maxNum {
-				maxNum = num
-			}
-		}
-	}
-
-	return fmt.Sprintf("E%02d", maxNum+1), nil
 }
 
 // sortEpics sorts epics by the specified field
@@ -682,45 +660,54 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 
 	force, _ := cmd.Flags().GetBool("force")
 
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		cli.Error("Error: Database error. Run with --verbose for details.")
-		if cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Database error: %v\n", err)
-		}
-		os.Exit(2)
-	}
-
 	projectRoot, err := os.Getwd()
 	if err != nil {
 		cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
 		os.Exit(1)
 	}
 
-	epicRepo := repository.NewEpicRepository(repoDb)
-	featureRepo := repository.NewFeatureRepository(repoDb)
+	// Parse priority flag
+	priorityStr, _ := cmd.Flags().GetString("priority")
+	if priorityStr == "" {
+		priorityStr = "medium"
+	}
+	priorityStr, err = ParseEpicPriority(priorityStr)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
 
-	// Get epic key (custom or auto-generated)
-	var nextKey string
+	// Parse business-value flag
+	businessValueStr, _ := cmd.Flags().GetString("business-value")
+	var businessValuePtr *string
+	if businessValueStr != "" {
+		businessValueStr, err = ParseEpicPriority(businessValueStr)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Invalid business-value: %v", err))
+			os.Exit(1)
+		}
+		businessValuePtr = &businessValueStr
+	}
+
+	// Parse status flag
+	statusStr, _ := cmd.Flags().GetString("status")
+	if statusStr == "" {
+		statusStr = "draft"
+	}
+	statusStr, err = ParseEpicStatus(statusStr)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
+	}
+
 	if epicCreateKey != "" {
 		if err := ValidateNoSpaces(epicCreateKey, "epic"); err != nil {
 			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
-		existing, err := epicRepo.GetByKey(ctx, epicCreateKey)
-		if err == nil && existing != nil {
-			cli.Error(fmt.Sprintf("Error: Epic with key '%s' already exists", epicCreateKey))
-			os.Exit(1)
-		}
-		nextKey = epicCreateKey
-	} else {
-		nextKey, err = getNextEpicKey(ctx, epicRepo)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to get next epic key: %v", err))
-			os.Exit(1)
-		}
 	}
 
+	// Resolve custom file path for template rendering
 	var customFilePath *string
 	var actualFilePath string
 
@@ -730,71 +717,38 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 			cli.Error(fmt.Sprintf("Error: Invalid filename: %v", err))
 			os.Exit(1)
 		}
-
-		existingEpic, err := epicRepo.GetByFilePath(ctx, relPath)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to check for file collision: %v", err))
-			os.Exit(2)
-		}
-
-		existingFeature, _ := featureRepo.GetByFilePath(ctx, relPath)
-
-		if existingEpic != nil && !force {
-			cli.Error(fmt.Sprintf("Error: file '%s' is already claimed by epic %s ('%s'). Use --force to reassign",
-				relPath, existingEpic.Key, existingEpic.Title))
-			os.Exit(1)
-		}
-
-		if existingFeature != nil && !force {
-			cli.Error(fmt.Sprintf("Error: file '%s' is already claimed by feature %s ('%s'). Use --force to reassign",
-				relPath, existingFeature.Key, existingFeature.Title))
-			os.Exit(1)
-		}
-
-		if (existingEpic != nil || existingFeature != nil) && force {
-			dbPath, canBackup, err := cli.GetDatabasePathForBackup()
-			if err != nil {
-				cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
-				os.Exit(2)
-			}
-			if canBackup {
-				if _, err := backupDatabaseOnForce(force, dbPath, "force file reassignment"); err != nil {
-					cli.Error(fmt.Sprintf("Error: %v", err))
-					cli.Info("Aborting operation to prevent data loss")
-					os.Exit(2)
-				}
-			} else if cli.GlobalConfig.Verbose {
-				cli.Info("Using cloud database - backup handled by provider")
-			}
-		}
-
-		if existingEpic != nil && force {
-			if err := epicRepo.UpdateFilePath(ctx, existingEpic.Key, nil); err != nil {
-				cli.Error(fmt.Sprintf("Error: Failed to reassign file from epic %s: %v", existingEpic.Key, err))
-				os.Exit(2)
-			}
-			cli.Warning(fmt.Sprintf("Reassigned file from epic %s ('%s')", existingEpic.Key, existingEpic.Title))
-		}
-
-		if existingFeature != nil && force {
-			if err := featureRepo.UpdateFilePath(ctx, existingFeature.Key, nil); err != nil {
-				cli.Error(fmt.Sprintf("Error: Failed to reassign file from feature %s: %v", existingFeature.Key, err))
-				os.Exit(2)
-			}
-			cli.Warning(fmt.Sprintf("Reassigned file from feature %s ('%s')", existingFeature.Key, existingFeature.Title))
-		}
-
 		customFilePath = &relPath
 		actualFilePath = absPath
-	} else {
+	}
+
+	// Build CreateEpicInput and delegate key generation, collision checks, and DB creation to service
+	input := services.CreateEpicInput{
+		Title:         epicTitle,
+		Description:   &epicCreateDescription,
+		Status:        statusStr,
+		Priority:      priorityStr,
+		BusinessValue: businessValuePtr,
+		CustomKey:     epicCreateKey,
+		Force:         force,
+	}
+	if customFilePath != nil {
+		input.FilePath = customFilePath
+	}
+
+	epicSvc := cli.GetEpicService()
+	epic, err := epicSvc.CreateEpic(ctx, input)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Error: Failed to create epic: %v", err))
+		os.Exit(1)
+	}
+
+	nextKey := epic.Key
+
+	// Determine the actual file path for template rendering and output
+	if actualFilePath == "" {
 		slug := utils.GenerateSlug(epicTitle)
 		epicSlug := fmt.Sprintf("%s-%s", nextKey, slug)
 		epicDir := fmt.Sprintf("docs/plan/%s", epicSlug)
-
-		if _, err := os.Stat(epicDir); err == nil {
-			cli.Error(fmt.Sprintf("Error: Epic directory already exists: %s", epicDir))
-			os.Exit(1)
-		}
 
 		if err := os.MkdirAll(epicDir, 0755); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to create epic directory: %v", err))
@@ -802,8 +756,6 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		}
 
 		actualFilePath = fmt.Sprintf("%s/epic.md", epicDir)
-		relPath := actualFilePath
-		customFilePath = &relPath
 	}
 
 	// Read and render template
@@ -854,60 +806,6 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 	}
 
 	fileWasLinked := result.Linked
-
-	// Parse priority flag
-	priorityStr, _ := cmd.Flags().GetString("priority")
-	if priorityStr == "" {
-		priorityStr = "medium"
-	}
-	priorityStr, err = ParseEpicPriority(priorityStr)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: %v", err))
-		os.Exit(1)
-	}
-	priority := models.Priority(priorityStr)
-
-	// Parse business-value flag
-	businessValueStr, _ := cmd.Flags().GetString("business-value")
-	var businessValue *models.Priority
-	if businessValueStr != "" {
-		businessValueStr, err = ParseEpicPriority(businessValueStr)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: Invalid business-value: %v", err))
-			os.Exit(1)
-		}
-		bv := models.Priority(businessValueStr)
-		businessValue = &bv
-	}
-
-	// Parse status flag
-	statusStr, _ := cmd.Flags().GetString("status")
-	if statusStr == "" {
-		statusStr = "draft"
-	}
-	statusStr, err = ParseEpicStatus(statusStr)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: %v", err))
-		os.Exit(1)
-	}
-	epicStatus := models.EpicStatus(statusStr)
-
-	// Create database entry
-	epic := &models.Epic{
-		Key:           nextKey,
-		Title:         epicTitle,
-		Description:   &epicCreateDescription,
-		Status:        epicStatus,
-		Priority:      priority,
-		BusinessValue: businessValue,
-		FilePath:      customFilePath,
-	}
-
-	if err := epicRepo.Create(ctx, epic); err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to create epic in database: %v", err))
-		os.Remove(actualFilePath)
-		os.Exit(1)
-	}
 
 	requiredSections := cli.GetRequiredSectionsForEntityType("epic")
 	if cli.GlobalConfig.JSON {
@@ -1124,27 +1022,7 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 
 	if statusFlag != "" {
 		if strings.ToLower(statusFlag) == "auto" {
-			// Auto status recalculation uses the status.CalculationService which
-			// still requires direct DB access (pre-E15 pattern not yet migrated).
-			repoDb, dbErr := cli.GetDB(ctx)
-			if dbErr != nil {
-				cli.Error("Error: Database error. Run with --verbose for details.")
-				if cli.GlobalConfig.Verbose {
-					fmt.Fprintf(os.Stderr, "Database error: %v\n", dbErr)
-				}
-				os.Exit(2)
-			}
-			configPath, cfgPathErr := cli.GetConfigPath()
-			if cfgPathErr != nil && cli.GlobalConfig.Verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", cfgPathErr)
-			}
-			cfg, cfgErr := config.LoadWorkflowConfig(configPath)
-			if cfgErr != nil && cli.GlobalConfig.Verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", cfgErr)
-			}
-
-			calcService := status.NewCalculationService(repoDb, cfg)
-			result, calcErr := calcService.RecalculateEpicStatus(ctx, epic.ID)
+			result, calcErr := epicSvc.RecalculateStatus(ctx, epic.ID)
 			if calcErr != nil {
 				cli.Error(fmt.Sprintf("Error: Failed to recalculate status: %v", calcErr))
 				os.Exit(1)
@@ -1164,18 +1042,7 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 		changed = true
 
 		if force && epicStatus == models.EpicStatusCompleted {
-			// Cascade status to features and tasks still uses the repository directly
-			// as this operation is not yet exposed through the service layer.
-			repoDb, dbErr := cli.GetDB(ctx)
-			if dbErr != nil {
-				cli.Error("Error: Database error. Run with --verbose for details.")
-				if cli.GlobalConfig.Verbose {
-					fmt.Fprintf(os.Stderr, "Database error: %v\n", dbErr)
-				}
-				os.Exit(2)
-			}
-			epicRepo := repository.NewEpicRepository(repoDb)
-			if err := epicRepo.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
+			if err := epicSvc.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
 				cli.Error(fmt.Sprintf("Error: Failed to cascade status to features and tasks: %v", err))
 				os.Exit(1)
 			}
@@ -1227,18 +1094,7 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 				os.Exit(1)
 			}
 
-			// Key rename uses the repository directly as it is not yet
-			// exposed as a dedicated service method.
-			repoDb, dbErr := cli.GetDB(ctx)
-			if dbErr != nil {
-				cli.Error("Error: Database error. Run with --verbose for details.")
-				if cli.GlobalConfig.Verbose {
-					fmt.Fprintf(os.Stderr, "Database error: %v\n", dbErr)
-				}
-				os.Exit(2)
-			}
-			epicRepo := repository.NewEpicRepository(repoDb)
-			if err := epicRepo.UpdateKey(ctx, epicKey, newKey); err != nil {
+			if err := epicSvc.RenameKey(ctx, epicKey, newKey); err != nil {
 				cli.Error(fmt.Sprintf("Error: Failed to update epic key: %v", err))
 				os.Exit(1)
 			}

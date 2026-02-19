@@ -11,7 +11,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -253,31 +253,19 @@ func init() {
 
 // runIdeaList handles the idea list command
 func runIdeaList(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
-
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	repo := repository.NewIdeaRepository(repoDb)
-
-	// Build filter
-	var filter *repository.IdeaFilter
-	if ideaStatus != "" {
-		status := models.IdeaStatus(ideaStatus)
-		filter = &repository.IdeaFilter{Status: &status}
+	// Step 1: Parse arguments
+	filters := services.IdeaFilters{
+		Status: ideaStatus,
 	}
 
-	// Get ideas
-	ideas, err := repo.List(ctx, filter)
+	// Step 2: Call service
+	svc := cli.GetIdeaService()
+	ideas, err := svc.ListIdeas(cmd.Context(), filters)
 	if err != nil {
 		return fmt.Errorf("failed to list ideas: %w", err)
 	}
 
-	// Filter by priority if specified
+	// Filter by priority if specified (presentation filtering not supported by service)
 	if ideaPriority > 0 {
 		filtered := []*models.Idea{}
 		for _, idea := range ideas {
@@ -288,7 +276,7 @@ func runIdeaList(cmd *cobra.Command, args []string) error {
 		ideas = filtered
 	}
 
-	// Filter out archived ideas by default
+	// Filter out archived ideas by default (service returns all when no status filter)
 	if ideaStatus == "" {
 		filtered := []*models.Idea{}
 		for _, idea := range ideas {
@@ -299,12 +287,11 @@ func runIdeaList(cmd *cobra.Command, args []string) error {
 		ideas = filtered
 	}
 
-	// Output
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(ideas)
 	}
 
-	// Table output
 	if len(ideas) == 0 {
 		fmt.Println("No ideas found")
 		return nil
@@ -332,20 +319,12 @@ func runIdeaList(cmd *cobra.Command, args []string) error {
 
 // runIdeaGet handles the idea get command
 func runIdeaGet(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	// Step 1: Parse arguments
 	ideaKey := args[0]
 
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	repo := repository.NewIdeaRepository(repoDb)
-
-	// Get idea
-	idea, err := repo.GetByKey(ctx, ideaKey)
+	// Step 2: Call service
+	svc := cli.GetIdeaService()
+	idea, err := svc.GetIdea(cmd.Context(), ideaKey)
 	if err != nil {
 		return fmt.Errorf("failed to get idea: %w", err)
 	}
@@ -396,77 +375,55 @@ func runIdeaGet(cmd *cobra.Command, args []string) error {
 
 // runIdeaCreate handles the idea create command
 func runIdeaCreate(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	// Step 1: Parse arguments
 	title := args[0]
 
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	repo := repository.NewIdeaRepository(repoDb)
-
-	// Generate idea key
-	ideaKey, err := generateIdeaKey(ctx, repo)
-	if err != nil {
-		return fmt.Errorf("failed to generate idea key: %w", err)
+	input := services.CreateIdeaInput{
+		Title:  title,
+		Status: ideaStatus,
 	}
 
-	// Build idea with default status if not provided
-	status := ideaStatus
-	if status == "" {
-		status = "new"
-	}
-
-	idea := &models.Idea{
-		Key:         ideaKey,
-		Title:       title,
-		CreatedDate: time.Now(),
-		Status:      models.IdeaStatus(status),
-	}
-
-	// Set optional fields
 	if ideaDescription != "" {
-		idea.Description = &ideaDescription
+		input.Description = &ideaDescription
 	}
 	if ideaPriority > 0 {
-		idea.Priority = &ideaPriority
+		input.Priority = &ideaPriority
 	}
 	if ideaOrder > 0 {
-		idea.Order = &ideaOrder
+		input.Order = &ideaOrder
 	}
 	if ideaNotes != "" {
-		idea.Notes = &ideaNotes
+		input.Notes = &ideaNotes
 	}
 
-	// Handle related docs (convert slice to JSON array)
+	// Convert slice to JSON array for related docs
 	if len(ideaRelatedDocs) > 0 {
 		docs, err := json.Marshal(ideaRelatedDocs)
 		if err != nil {
 			return fmt.Errorf("failed to marshal related docs: %w", err)
 		}
 		docsStr := string(docs)
-		idea.RelatedDocs = &docsStr
+		input.RelatedDocs = &docsStr
 	}
 
-	// Handle dependencies (convert slice to JSON array)
+	// Convert slice to JSON array for dependencies
 	if len(ideaDependencies) > 0 {
 		deps, err := json.Marshal(ideaDependencies)
 		if err != nil {
 			return fmt.Errorf("failed to marshal dependencies: %w", err)
 		}
 		depsStr := string(deps)
-		idea.Dependencies = &depsStr
+		input.Dependencies = &depsStr
 	}
 
-	// Create idea
-	if err := repo.Create(ctx, idea); err != nil {
+	// Step 2: Call service
+	svc := cli.GetIdeaService()
+	idea, err := svc.CreateIdea(cmd.Context(), input)
+	if err != nil {
 		return fmt.Errorf("failed to create idea: %w", err)
 	}
 
-	// Output
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(idea)
 	}
@@ -477,43 +434,29 @@ func runIdeaCreate(cmd *cobra.Command, args []string) error {
 
 // runIdeaUpdate handles the idea update command
 func runIdeaUpdate(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	// Step 1: Parse arguments
 	ideaKey := args[0]
 
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
+	input := services.UpdateIdeaInput{}
 
-	repo := repository.NewIdeaRepository(repoDb)
-
-	// Get existing idea
-	idea, err := repo.GetByKey(ctx, ideaKey)
-	if err != nil {
-		return fmt.Errorf("failed to get idea: %w", err)
-	}
-
-	// Update fields if flags were provided
 	if cmd.Flags().Changed("title") {
 		title, _ := cmd.Flags().GetString("title")
-		idea.Title = title
+		input.Title = &title
 	}
 	if cmd.Flags().Changed("description") {
-		idea.Description = &ideaDescription
+		input.Description = &ideaDescription
 	}
 	if cmd.Flags().Changed("status") {
-		idea.Status = models.IdeaStatus(ideaStatus)
+		input.Status = &ideaStatus
 	}
 	if cmd.Flags().Changed("priority") {
-		idea.Priority = &ideaPriority
+		input.Priority = &ideaPriority
 	}
 	if cmd.Flags().Changed("order") {
-		idea.Order = &ideaOrder
+		input.Order = &ideaOrder
 	}
 	if cmd.Flags().Changed("notes") {
-		idea.Notes = &ideaNotes
+		input.Notes = &ideaNotes
 	}
 	if cmd.Flags().Changed("related-docs") {
 		docs, err := json.Marshal(ideaRelatedDocs)
@@ -521,7 +464,7 @@ func runIdeaUpdate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to marshal related docs: %w", err)
 		}
 		docsStr := string(docs)
-		idea.RelatedDocs = &docsStr
+		input.RelatedDocs = &docsStr
 	}
 	if cmd.Flags().Changed("depends-on") {
 		deps, err := json.Marshal(ideaDependencies)
@@ -529,15 +472,17 @@ func runIdeaUpdate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to marshal dependencies: %w", err)
 		}
 		depsStr := string(deps)
-		idea.Dependencies = &depsStr
+		input.Dependencies = &depsStr
 	}
 
-	// Update idea
-	if err := repo.Update(ctx, idea); err != nil {
+	// Step 2: Call service
+	svc := cli.GetIdeaService()
+	idea, err := svc.UpdateIdea(cmd.Context(), ideaKey, input)
+	if err != nil {
 		return fmt.Errorf("failed to update idea: %w", err)
 	}
 
-	// Output
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(idea)
 	}
@@ -548,25 +493,17 @@ func runIdeaUpdate(cmd *cobra.Command, args []string) error {
 
 // runIdeaDelete handles the idea delete command
 func runIdeaDelete(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	// Step 1: Parse arguments
 	ideaKey := args[0]
 
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	repo := repository.NewIdeaRepository(repoDb)
-
-	// Get idea to confirm it exists
-	idea, err := repo.GetByKey(ctx, ideaKey)
+	// Get idea first for confirmation prompt (presentation concern)
+	svc := cli.GetIdeaService()
+	idea, err := svc.GetIdea(cmd.Context(), ideaKey)
 	if err != nil {
 		return fmt.Errorf("failed to get idea: %w", err)
 	}
 
-	// Confirmation prompt (unless --force)
+	// Confirmation prompt (unless --force) - presentation logic stays in CLI
 	if !ideaForce {
 		var response string
 		deleteType := "archive"
@@ -581,26 +518,31 @@ func runIdeaDelete(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Perform delete
+	// Step 2: Call service
 	if ideaHard {
-		// Hard delete
-		if err := repo.Delete(ctx, idea.ID); err != nil {
+		// Hard delete via service
+		if err := svc.DeleteIdea(cmd.Context(), ideaKey); err != nil {
 			return fmt.Errorf("failed to delete idea: %w", err)
 		}
+		// Step 3: Format output
 		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]string{"status": "deleted", "key": idea.Key})
+			return cli.OutputJSON(map[string]string{"status": "deleted", "key": ideaKey})
 		}
-		cli.Success(fmt.Sprintf("Permanently deleted idea %s", idea.Key))
+		cli.Success(fmt.Sprintf("Permanently deleted idea %s", ideaKey))
 	} else {
-		// Soft delete (archive)
-		idea.Status = models.IdeaStatusArchived
-		if err := repo.Update(ctx, idea); err != nil {
+		// Soft delete (archive) via service update
+		archivedStatus := string(models.IdeaStatusArchived)
+		updated, err := svc.UpdateIdea(cmd.Context(), ideaKey, services.UpdateIdeaInput{
+			Status: &archivedStatus,
+		})
+		if err != nil {
 			return fmt.Errorf("failed to archive idea: %w", err)
 		}
+		// Step 3: Format output
 		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]string{"status": "archived", "key": idea.Key})
+			return cli.OutputJSON(map[string]string{"status": "archived", "key": updated.Key})
 		}
-		cli.Success(fmt.Sprintf("Archived idea %s", idea.Key))
+		cli.Success(fmt.Sprintf("Archived idea %s", updated.Key))
 	}
 
 	return nil
@@ -798,55 +740,6 @@ func convertIdeaToTask(ctx context.Context, ideaRepo IdeaRepository, epicRepo in
 	return task.Key, nil
 }
 
-// convertIdeaToTaskWithKey converts an idea to a task with a specified key
-func convertIdeaToTaskWithKey(ctx context.Context, ideaRepo IdeaRepository, epic *models.Epic, feature *models.Feature, taskRepo interface {
-	Create(context.Context, *models.Task) error
-}, ideaKey, taskKey string) (string, error) {
-	// Get the idea
-	idea, err := ideaRepo.GetByKey(ctx, ideaKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to get idea: %w", err)
-	}
-
-	// Check if already converted
-	if idea.Status == models.IdeaStatusConverted {
-		convertedInfo := ""
-		if idea.ConvertedToType != nil && idea.ConvertedToKey != nil {
-			convertedInfo = fmt.Sprintf(" to %s %s", *idea.ConvertedToType, *idea.ConvertedToKey)
-		}
-		return "", fmt.Errorf("idea %s is already converted%s", idea.Key, convertedInfo)
-	}
-
-	// Create task from idea
-	agentType := "general"
-	task := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         taskKey,
-		Title:       idea.Title,
-		Description: idea.Description,
-		Status:      "todo",
-		AgentType:   &agentType,
-		Priority:    5, // default priority
-	}
-
-	// Use idea priority if provided
-	if idea.Priority != nil {
-		task.Priority = *idea.Priority
-	}
-
-	// Create the task
-	if err := taskRepo.Create(ctx, task); err != nil {
-		return "", fmt.Errorf("failed to create task: %w", err)
-	}
-
-	// Mark idea as converted
-	if err := ideaRepo.MarkAsConverted(ctx, idea.ID, "task", task.Key); err != nil {
-		return "", fmt.Errorf("failed to mark idea as converted: %w", err)
-	}
-
-	return task.Key, nil
-}
-
 // priorityPtr returns a pointer to a Priority value
 func priorityPtr(p models.Priority) *models.Priority {
 	return &p
@@ -854,149 +747,133 @@ func priorityPtr(p models.Priority) *models.Priority {
 
 // runIdeaConvertEpic handles converting an idea to an epic
 func runIdeaConvertEpic(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	// Step 1: Parse arguments
 	ideaKey := args[0]
 
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
+	// Step 2: Get idea details for creating the epic
+	ideaSvc := cli.GetIdeaService()
+	idea, err := ideaSvc.GetIdea(cmd.Context(), ideaKey)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ideaRepo := repository.NewIdeaRepository(repoDb)
-	epicRepo := repository.NewEpicRepository(repoDb)
-
-	// Generate next epic key
-	nextKey, err := getNextEpicKey(ctx, epicRepo)
-	if err != nil {
-		return fmt.Errorf("failed to generate epic key: %w", err)
+		return fmt.Errorf("failed to get idea: %w", err)
 	}
 
-	// Convert idea to epic
-	newKey, err := convertIdeaToEpicWithKey(ctx, ideaRepo, epicRepo, ideaKey, nextKey)
+	// Create epic from idea via EpicService
+	epicSvc := cli.GetEpicService()
+	epic, err := epicSvc.CreateEpic(cmd.Context(), services.CreateEpicInput{
+		Title:       idea.Title,
+		Description: idea.Description,
+		Status:      "draft",
+		Priority:    "medium",
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create epic: %w", err)
 	}
 
-	// Output
+	// Mark idea as converted
+	if err := ideaSvc.ConvertIdea(cmd.Context(), ideaKey, "epic", epic.Key); err != nil {
+		return fmt.Errorf("failed to mark idea as converted: %w", err)
+	}
+
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
 			"idea_key":     ideaKey,
-			"converted_to": newKey,
+			"converted_to": epic.Key,
 			"type":         "epic",
 		})
 	}
 
-	cli.Success(fmt.Sprintf("Idea %s converted to epic %s", ideaKey, newKey))
+	cli.Success(fmt.Sprintf("Idea %s converted to epic %s", ideaKey, epic.Key))
 	return nil
 }
 
 // runIdeaConvertFeature handles converting an idea to a feature
 func runIdeaConvertFeature(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
 	ideaKey := args[0]
 
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
+	// Step 1: Get idea details
+	ideaSvc := cli.GetIdeaService()
+	idea, err := ideaSvc.GetIdea(cmd.Context(), ideaKey)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ideaRepo := repository.NewIdeaRepository(repoDb)
-	epicRepo := repository.NewEpicRepository(repoDb)
-	featureRepo := repository.NewFeatureRepository(repoDb)
-
-	// Get epic first to generate feature key
-	epic, err := epicRepo.GetByKey(ctx, ideaConvertEpic)
-	if err != nil {
-		return fmt.Errorf("failed to get epic: %w", err)
+		return fmt.Errorf("failed to get idea: %w", err)
 	}
 
-	// Generate next feature key
-	nextKey, err := getNextFeatureKey(ctx, featureRepo, epic.ID, epic.Key)
+	// Step 2: Create feature from idea
+	featureSvc := cli.GetFeatureService()
+	feature, err := featureSvc.CreateFeature(cmd.Context(), services.CreateFeatureInput{
+		EpicKey:     ideaConvertEpic,
+		Title:       idea.Title,
+		Description: idea.Description,
+		Status:      "draft",
+	})
 	if err != nil {
-		return fmt.Errorf("failed to generate feature key: %w", err)
+		return fmt.Errorf("failed to create feature: %w", err)
 	}
 
-	// Convert idea to feature
-	newKey, err := convertIdeaToFeatureWithKey(ctx, ideaRepo, epic, featureRepo, ideaKey, nextKey)
-	if err != nil {
-		return err
+	// Mark idea as converted
+	if err := ideaSvc.ConvertIdea(cmd.Context(), ideaKey, "feature", feature.Key); err != nil {
+		return fmt.Errorf("failed to mark idea as converted: %w", err)
 	}
 
-	// Output
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
 			"idea_key":     ideaKey,
-			"converted_to": newKey,
+			"converted_to": feature.Key,
 			"type":         "feature",
 			"epic":         ideaConvertEpic,
 		})
 	}
 
-	cli.Success(fmt.Sprintf("Idea %s converted to feature %s in epic %s", ideaKey, newKey, ideaConvertEpic))
+	cli.Success(fmt.Sprintf("Idea %s converted to feature %s in epic %s", ideaKey, feature.Key, ideaConvertEpic))
 	return nil
 }
 
 // runIdeaConvertTask handles converting an idea to a task
 func runIdeaConvertTask(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
 	ideaKey := args[0]
 
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
+	// Step 1: Get idea details
+	ideaSvc := cli.GetIdeaService()
+	idea, err := ideaSvc.GetIdea(cmd.Context(), ideaKey)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+		return fmt.Errorf("failed to get idea: %w", err)
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	ideaRepo := repository.NewIdeaRepository(repoDb)
-	epicRepo := repository.NewEpicRepository(repoDb)
-	featureRepo := repository.NewFeatureRepository(repoDb)
-	taskRepo := repository.NewTaskRepository(repoDb)
+	// Build description string from pointer
+	description := ""
+	if idea.Description != nil {
+		description = *idea.Description
+	}
 
-	// Get epic and feature to validate
-	epic, err := epicRepo.GetByKey(ctx, ideaConvertEpic)
+	// Step 2: Create task from idea
+	taskSvc := cli.GetTaskService()
+	task, err := taskSvc.CreateTask(cmd.Context(), services.CreateTaskInput{
+		EpicKey:     ideaConvertEpic,
+		FeatureKey:  ideaConvertFeature,
+		Title:       idea.Title,
+		Description: description,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to get epic: %w", err)
+		return fmt.Errorf("failed to create task: %w", err)
 	}
 
-	feature, err := featureRepo.GetByKey(ctx, ideaConvertFeature)
-	if err != nil {
-		return fmt.Errorf("failed to get feature: %w", err)
+	// Mark idea as converted
+	if err := ideaSvc.ConvertIdea(cmd.Context(), ideaKey, "task", task.Key); err != nil {
+		return fmt.Errorf("failed to mark idea as converted: %w", err)
 	}
 
-	// Verify feature belongs to epic
-	if feature.EpicID != epic.ID {
-		return fmt.Errorf("feature %s does not belong to epic %s", feature.Key, epic.Key)
-	}
-
-	// Generate task key using KeyGenerator
-	kg := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
-	taskKey, err := kg.GenerateTaskKey(ctx, epic.Key, feature.Key)
-	if err != nil {
-		return fmt.Errorf("failed to generate task key: %w", err)
-	}
-
-	// Convert idea to task
-	newKey, err := convertIdeaToTaskWithKey(ctx, ideaRepo, epic, feature, taskRepo, ideaKey, taskKey)
-	if err != nil {
-		return err
-	}
-
-	// Output
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
 			"idea_key":     ideaKey,
-			"converted_to": newKey,
+			"converted_to": task.Key,
 			"type":         "task",
 			"epic":         ideaConvertEpic,
 			"feature":      ideaConvertFeature,
 		})
 	}
 
-	cli.Success(fmt.Sprintf("Idea %s converted to task %s in %s/%s", ideaKey, newKey, ideaConvertEpic, ideaConvertFeature))
+	cli.Success(fmt.Sprintf("Idea %s converted to task %s in %s/%s", ideaKey, task.Key, ideaConvertEpic, ideaConvertFeature))
 	return nil
 }

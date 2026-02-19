@@ -2,8 +2,6 @@ package commands
 
 // feature_helpers.go contains presentation/rendering helpers for feature commands.
 // These are display-only functions that live in the command layer (not the service layer).
-// Some of these helpers require direct repository access for batch data fetching
-// (e.g., renderFeatureListTable needs task status breakdowns for health indicators).
 
 import (
 	"bytes"
@@ -21,8 +19,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/formatters"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/pathresolver"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
@@ -61,15 +57,6 @@ type FeatureTemplateData struct {
 	Description string
 	FilePath    string
 	Date        string
-}
-
-// getRelativePathFeature converts an absolute path to relative path from project root.
-func getRelativePathFeature(absPath string, projectRoot string) string {
-	relPath, err := filepath.Rel(projectRoot, absPath)
-	if err != nil {
-		return absPath // Fall back to absolute path if conversion fails
-	}
-	return relPath
 }
 
 // backupDatabaseOnForceFeature creates a backup when --force flag is used.
@@ -226,23 +213,19 @@ func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
 }
 
 // renderFeatureListTable renders features as a table.
-// Note: This function uses repository.NewTaskRepository for batch status breakdown fetching
-// which is needed for health indicators. This is presentation data fetching (display only).
-func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context, repoDb *repository.DB) {
+func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context) {
 	// Create table data with reordered columns (removed Notes, Health next to Status)
 	tableData := pterm.TableData{
 		{"Key", "Title", "Progress", "Status", "Health"},
 	}
 
-	// Get task repository for additional data
-	taskRepo := repository.NewTaskRepository(repoDb)
-
 	// Batch fetch status breakdowns for all features to avoid N+1 query
+	featureSvc := cli.GetFeatureService()
 	featureIDs := make([]int64, len(features))
 	for i, feature := range features {
 		featureIDs[i] = feature.ID
 	}
-	statusBreakdownBatch, err := taskRepo.GetStatusBreakdownMapBatch(ctx, featureIDs)
+	statusBreakdownBatch, err := featureSvc.GetStatusBreakdownBatch(ctx, featureIDs)
 	if err != nil && cli.GlobalConfig.Verbose {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to batch fetch status breakdowns: %v\n", err)
 	}
@@ -619,9 +602,7 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 }
 
 // outputFeatureListJSON renders the feature list as enhanced JSON with health and progress info.
-func outputFeatureListJSON(ctx context.Context, featuresWithTaskCount []FeatureWithTaskCount, repoDb *repository.DB) error {
-	taskRepo := repository.NewTaskRepository(repoDb)
-
+func outputFeatureListJSON(ctx context.Context, featuresWithTaskCount []FeatureWithTaskCount) error {
 	// Load workflow config
 	configPath, _ := cli.GetConfigPath()
 	var cfg *config.WorkflowConfig
@@ -630,11 +611,12 @@ func outputFeatureListJSON(ctx context.Context, featuresWithTaskCount []FeatureW
 	}
 
 	// Batch fetch status breakdowns for all features to avoid N+1 query
+	featureSvc := cli.GetFeatureService()
 	featureIDs := make([]int64, len(featuresWithTaskCount))
 	for i, f := range featuresWithTaskCount {
 		featureIDs[i] = f.ID
 	}
-	statusBreakdownBatch, _ := taskRepo.GetStatusBreakdownMapBatch(ctx, featureIDs)
+	statusBreakdownBatch, _ := featureSvc.GetStatusBreakdownBatch(ctx, featureIDs)
 	if statusBreakdownBatch == nil {
 		statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
 	}
@@ -698,17 +680,7 @@ type FeatureGetData struct {
 
 // buildFeatureGetData gathers all enriched data needed to display a feature.
 func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*FeatureGetData, error) {
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	projectRoot, _ := os.Getwd()
-
-	featureRepo := repository.NewFeatureRepository(repoDb)
-	epicRepo := repository.NewEpicRepository(repoDb)
-	taskRepo := repository.NewTaskRepository(repoDb)
-	documentRepo := repository.NewDocumentRepository(repoDb)
 
 	featureSvc := cli.GetFeatureService()
 
@@ -716,23 +688,22 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil && cli.GlobalConfig.Verbose {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
 	}
-	feature, _ = featureRepo.GetByID(ctx, feature.ID)
+	feature, _ = featureSvc.GetFeature(ctx, feature.Key)
 
-	tasks, _ := taskRepo.ListByFeature(ctx, feature.ID)
+	tasks, _ := featureSvc.ListTasksForFeature(ctx, feature.ID)
 	statusBreakdown, _ := featureSvc.GetEnrichedTaskStatusBreakdown(ctx, feature.Key)
 
-	// Resolve path
+	// Resolve path via service (uses stored FilePath or constructs default)
 	var dirPath, filename string
 	if projectRoot != "" {
-		pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
-		if absPath, pathErr := pathResolver.ResolveFeaturePath(ctx, feature.Key); pathErr == nil {
-			relPath := getRelativePathFeature(absPath, projectRoot)
+		relPath := featureSvc.ResolveFeaturePath(ctx, feature.Key, projectRoot)
+		if relPath != "" {
 			dirPath = filepath.Dir(relPath) + "/"
 			filename = filepath.Base(relPath)
 		}
 	}
 
-	relatedDocs, _ := documentRepo.ListForFeature(ctx, feature.ID)
+	relatedDocs, _ := featureSvc.ListRelatedDocuments(ctx, feature.ID)
 	if relatedDocs == nil {
 		relatedDocs = []*models.Document{}
 	}
@@ -799,26 +770,19 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 }
 
 // fetchFeaturesWithTaskCount fetches features with progress and task count enrichment.
-func fetchFeaturesWithTaskCount(ctx context.Context, repoDb *repository.DB, epicFilter, statusFilter string, showAll bool) ([]FeatureWithTaskCount, error) {
-	featureRepo := repository.NewFeatureRepository(repoDb)
+func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter string, showAll bool) ([]FeatureWithTaskCount, error) {
+	featureSvc := cli.GetFeatureService()
 
 	var features []*models.Feature
 	var err error
 	if epicFilter != "" {
-		epicRepo := repository.NewEpicRepository(repoDb)
-		epic, epicErr := epicRepo.GetByKey(ctx, epicFilter)
-		if epicErr != nil {
+		features, err = featureSvc.ListFeaturesByEpicKey(ctx, epicFilter, statusFilter)
+		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicFilter))
 			cli.Info("Use 'shark epic list' to see available epics")
 			os.Exit(1)
 		}
-		if statusFilter != "" {
-			features, err = featureRepo.ListByEpicAndStatus(ctx, epic.ID, models.FeatureStatus(statusFilter))
-		} else {
-			features, err = featureRepo.ListByEpic(ctx, epic.ID)
-		}
 	} else {
-		featureSvc := cli.GetFeatureService()
 		features, err = featureSvc.ListFeatures(ctx, services.FeatureFilters{Status: statusFilter})
 	}
 	if err != nil {
@@ -829,23 +793,23 @@ func fetchFeaturesWithTaskCount(ctx context.Context, repoDb *repository.DB, epic
 		return nil, nil
 	}
 
-	featureSvc := cli.GetFeatureService()
 	result := make([]FeatureWithTaskCount, 0, len(features))
 	for _, feature := range features {
 		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil && cli.GlobalConfig.Verbose {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
 		}
-		feature, _ = featureRepo.GetByID(ctx, feature.ID)
-		if feature == nil {
+		// Re-fetch feature to get updated progress
+		updated, fetchErr := featureSvc.GetFeature(ctx, feature.Key)
+		if fetchErr != nil || updated == nil {
 			continue
 		}
-		taskCount, _ := featureRepo.GetTaskCount(ctx, feature.ID)
+		taskCount, _ := featureSvc.GetTaskCount(ctx, updated.ID)
 		statusSource := "calculated"
-		if feature.StatusOverride {
+		if updated.StatusOverride {
 			statusSource = "manual"
 		}
 		result = append(result, FeatureWithTaskCount{
-			Feature:      feature,
+			Feature:      updated,
 			TaskCount:    taskCount,
 			StatusSource: statusSource,
 		})
@@ -994,181 +958,14 @@ func writeFeatureFile(content []byte, featureFilePath, projectRoot string) (bool
 	return writeResult.Linked, nil
 }
 
-// completeFeatureWithTasks handles the main logic of completing a feature that has tasks.
-// Extracted from runFeatureComplete to keep the command handler thin.
-func completeFeatureWithTasks(ctx context.Context, featureKey string, feature *models.Feature, tasks []*models.Task,
-	featureRepo *repository.FeatureRepository, taskRepo *repository.TaskRepository, force bool) error {
-
-	statusBreakdown, _ := featureRepo.GetTaskStatusBreakdown(ctx, feature.ID)
-	completedCount := statusBreakdown[models.TaskStatus("completed")]
-	reviewedCount := statusBreakdown[models.TaskStatus("ready_for_review")]
-	allDoneCount := completedCount + reviewedCount
-
-	var incompleteTasks []*models.Task
-	for _, task := range tasks {
-		if task.Status != models.TaskStatus("completed") && task.Status != models.TaskStatus("ready_for_review") {
-			incompleteTasks = append(incompleteTasks, task)
-		}
-	}
-	hasIncomplete := len(incompleteTasks) > 0
-
-	if hasIncomplete && !force {
-		todoCount := statusBreakdown[models.TaskStatus("todo")]
-		inProgressCount := statusBreakdown[models.TaskStatus("in_progress")]
-		blockedCount := statusBreakdown[models.TaskStatus("blocked")]
-		cli.Warning("Cannot complete feature with incomplete tasks")
-		fmt.Printf("  Status breakdown: %d todo, %d in_progress, %d blocked, %d ready_for_review\n",
-			todoCount, inProgressCount, blockedCount, reviewedCount)
-		fmt.Println("\nAffected tasks:")
-		maxTasks := 10
-		if len(incompleteTasks) < maxTasks {
-			maxTasks = len(incompleteTasks)
-		}
-		for i := 0; i < maxTasks; i++ {
-			fmt.Printf("  - %s (%s)\n", incompleteTasks[i].Key, incompleteTasks[i].Status)
-		}
-		if len(incompleteTasks) > 10 {
-			fmt.Printf("  ... and %d more\n", len(incompleteTasks)-10)
-		}
-		cli.Info("Use --force to complete all tasks regardless of status")
-		if cli.GlobalConfig.JSON {
-			taskKeys := make([]string, len(incompleteTasks))
-			for i, t := range incompleteTasks {
-				taskKeys[i] = t.Key
-			}
-			return cli.OutputJSON(map[string]interface{}{
-				"feature_key": featureKey, "completed_count": allDoneCount,
-				"total_count": len(tasks),
-				"status_breakdown": map[string]int{
-					"todo": todoCount, "in_progress": inProgressCount,
-					"blocked": blockedCount, "ready_for_review": reviewedCount, "completed": completedCount,
-				},
-				"affected_tasks": taskKeys,
-				"requires_force": true,
-			})
-		}
-		os.Exit(3)
-	}
-
-	if force && hasIncomplete {
-		dbPath, canBackup, err := cli.GetDatabasePathForBackup()
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
-			os.Exit(2)
-		}
-		if canBackup {
-			if _, err := backupDatabaseOnForceFeature(force, dbPath, "force complete feature"); err != nil {
-				cli.Error(fmt.Sprintf("Error: %v", err))
-				os.Exit(2)
-			}
-		}
-	}
-
-	agent := getAgentIdentifier("")
-	numCompleted := 0
-	affectedTaskKeys := make([]string, 0)
-	for _, task := range tasks {
-		if task.Status == models.TaskStatus("completed") {
-			continue
-		}
-		if err := taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("completed"), &agent, nil, nil, nil, true); err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to complete task %s: %v", task.Key, err))
-			os.Exit(2)
-		}
-		numCompleted++
-		affectedTaskKeys = append(affectedTaskKeys, task.Key)
-	}
-
-	featureSvc := cli.GetFeatureService()
-	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to update feature progress: %v", err))
-		os.Exit(2)
-	}
-	feature, _ = featureRepo.GetByKey(ctx, featureKey)
-
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"feature_key":     featureKey,
-			"completed_count": len(tasks),
-			"total_count":     len(tasks),
-			"status_breakdown": map[string]int{
-				"todo": statusBreakdown[models.TaskStatus("todo")], "in_progress": statusBreakdown[models.TaskStatus("in_progress")],
-				"blocked": statusBreakdown[models.TaskStatus("blocked")], "ready_for_review": reviewedCount,
-				"completed": completedCount,
-			},
-			"affected_tasks": affectedTaskKeys,
-		})
-	}
-
-	statusMsg := ""
-	if feature != nil && feature.Status == models.FeatureStatusCompleted {
-		statusMsg = " (feature marked as completed)"
-	}
-	if hasIncomplete && force {
-		todoCount := statusBreakdown[models.TaskStatus("todo")]
-		inProgressCount := statusBreakdown[models.TaskStatus("in_progress")]
-		blockedCount := statusBreakdown[models.TaskStatus("blocked")]
-		cli.Success(fmt.Sprintf("Feature %s completed: Force-completed %d tasks (%d todo, %d in_progress, %d blocked, %d ready_for_review)%s",
-			featureKey, numCompleted, todoCount, inProgressCount, blockedCount, reviewedCount, statusMsg))
-	} else {
-		cli.Success(fmt.Sprintf("Feature %s completed: %d/%d tasks completed%s", featureKey, len(tasks), len(tasks), statusMsg))
-	}
-	return nil
-}
-
-// getNextFeatureKey generates the next available feature key for an epic.
-// Used by idea.go and other commands that need to generate feature keys.
-func getNextFeatureKey(ctx context.Context, featureRepo *repository.FeatureRepository, epicID int64, epicKey ...string) (string, error) {
-	features, err := featureRepo.ListByEpic(ctx, epicID)
-	if err != nil {
-		return "", fmt.Errorf("failed to list features: %w", err)
-	}
-
-	maxNum := 0
-	extractedEpicKey := ""
-	for _, feature := range features {
-		var epicNum, featureNum int
-		if _, err := fmt.Sscanf(feature.Key, "E%d-F%d", &epicNum, &featureNum); err == nil {
-			if extractedEpicKey == "" {
-				extractedEpicKey = fmt.Sprintf("E%02d", epicNum)
-			}
-			if featureNum > maxNum {
-				maxNum = featureNum
-			}
-		}
-	}
-
-	finalEpicKey := extractedEpicKey
-	if len(epicKey) > 0 && epicKey[0] != "" {
-		finalEpicKey = epicKey[0]
-	}
-
-	if finalEpicKey == "" {
-		return "", fmt.Errorf("unable to determine epic key - no existing features and no epic key provided")
-	}
-
-	return fmt.Sprintf("%s-F%02d", finalEpicKey, maxNum+1), nil
-}
-
 // resolveFeaturePath resolves the relative path to a feature file.
 func resolveFeaturePath(ctx context.Context, feature *models.Feature) string {
 	projectRoot, err := os.Getwd()
 	if err != nil || projectRoot == "" {
 		return ""
 	}
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return ""
-	}
-	epicRepo := repository.NewEpicRepository(repoDb)
-	featureRepo := repository.NewFeatureRepository(repoDb)
-	taskRepo := repository.NewTaskRepository(repoDb)
-	pathResolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
-	absPath, err := pathResolver.ResolveFeaturePath(ctx, feature.Key)
-	if err != nil {
-		return ""
-	}
-	return getRelativePathFeature(absPath, projectRoot)
+	featureSvc := cli.GetFeatureService()
+	return featureSvc.ResolveFeaturePath(ctx, feature.Key, projectRoot)
 }
 
 // resolveFeatureFilePath returns the absolute file path for a new feature.
@@ -1181,21 +978,16 @@ func resolveFeatureFilePath(feature *models.Feature, epicKey, projectRoot string
 
 // performFeatureDelete handles the core delete logic for a feature.
 func performFeatureDelete(ctx context.Context, featureKey string, force bool) error {
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return err
-	}
-	featureRepo := repository.NewFeatureRepository(repoDb)
-	taskRepo := repository.NewTaskRepository(repoDb)
+	featureSvc := cli.GetFeatureService()
 
-	feature, err := featureRepo.GetByKey(ctx, featureKey)
+	feature, err := featureSvc.GetFeature(ctx, featureKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
 		cli.Info("Use 'shark feature list' to see available features")
 		os.Exit(1)
 	}
 
-	tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
+	tasks, err := featureSvc.ListTasksForFeature(ctx, feature.ID)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to check for tasks: %v", err))
 		os.Exit(1)
@@ -1226,7 +1018,6 @@ func performFeatureDelete(ctx context.Context, featureKey string, force bool) er
 		}
 	}
 
-	featureSvc := cli.GetFeatureService()
 	if err := featureSvc.DeleteFeature(ctx, featureKey); err != nil {
 		return err
 	}
@@ -1240,12 +1031,7 @@ func performFeatureDelete(ctx context.Context, featureKey string, force bool) er
 
 // performFeatureUpdate handles the core update logic for a feature.
 func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Command) error {
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return err
-	}
-	featureRepo := repository.NewFeatureRepository(repoDb)
-
+	featureSvc := cli.GetFeatureService()
 	changed := false
 	updates := services.FeatureUpdates{}
 
@@ -1262,7 +1048,7 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 	force, _ := cmd.Flags().GetBool("force")
 
 	if statusFlag != "" {
-		if err := applyFeatureStatusUpdate(ctx, featureRepo, featureKey, statusFlag, force, &updates, &changed); err != nil {
+		if err := applyFeatureStatusUpdate(ctx, featureSvc, featureKey, statusFlag, force, &updates, &changed); err != nil {
 			cli.Error(fmt.Sprintf("Error: %v", err))
 			os.Exit(1)
 		}
@@ -1274,7 +1060,6 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 	}
 
 	if changed {
-		featureSvc := cli.GetFeatureService()
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
 			return err
 		}
@@ -1287,13 +1072,8 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 			os.Exit(1)
 		}
 		if newKey != featureKey {
-			existing, err := featureRepo.GetByKey(ctx, newKey)
-			if err == nil && existing != nil {
-				cli.Error(fmt.Sprintf("Error: Feature with key '%s' already exists", newKey))
-				os.Exit(1)
-			}
-			if err := featureRepo.UpdateKey(ctx, featureKey, newKey); err != nil {
-				cli.Error(fmt.Sprintf("Error: Failed to update feature key: %v", err))
+			if err := featureSvc.UpdateFeatureKey(ctx, featureKey, newKey); err != nil {
+				cli.Error(fmt.Sprintf("Error: %v", err))
 				os.Exit(1)
 			}
 			changed = true
@@ -1302,7 +1082,7 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 
 	// Handle file path update
 	if customFile := getFileFlagValue(cmd); customFile != "" {
-		if err := featureRepo.UpdateFilePath(ctx, featureKey, &customFile); err != nil {
+		if err := featureSvc.UpdateFeatureFilePath(ctx, featureKey, &customFile); err != nil {
 			cli.Error(fmt.Sprintf("Error: Failed to update feature file path: %v", err))
 			os.Exit(1)
 		}
@@ -1319,16 +1099,11 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 }
 
 // applyFeatureStatusUpdate handles status-related logic for feature update.
-func applyFeatureStatusUpdate(ctx context.Context, featureRepo *repository.FeatureRepository, featureKey, statusFlag string, force bool, updates *services.FeatureUpdates, changed *bool) error {
+func applyFeatureStatusUpdate(ctx context.Context, featureSvc *services.FeatureService, featureKey, statusFlag string, force bool, updates *services.FeatureUpdates, changed *bool) error {
 	if strings.ToLower(statusFlag) == "auto" {
-		feature, err := featureRepo.GetByKey(ctx, featureKey)
-		if err != nil {
-			return fmt.Errorf("feature %s does not exist", featureKey)
+		if err := featureSvc.SetFeatureStatusOverride(ctx, featureKey, false); err != nil {
+			return fmt.Errorf("feature %s does not exist or override clear failed: %w", featureKey, err)
 		}
-		if err := featureRepo.SetStatusOverride(ctx, feature.ID, false); err != nil {
-			return fmt.Errorf("failed to clear status override: %w", err)
-		}
-		featureSvc := cli.GetFeatureService()
 		if err := featureSvc.RecalculateAndSetProgressByKey(ctx, featureKey); err != nil {
 			return fmt.Errorf("failed to recalculate status: %w", err)
 		}
@@ -1344,15 +1119,11 @@ func applyFeatureStatusUpdate(ctx context.Context, featureRepo *repository.Featu
 	updates.Status = &s
 	*changed = true
 
-	feature, err := featureRepo.GetByKey(ctx, featureKey)
-	if err != nil {
-		return fmt.Errorf("feature %s does not exist", featureKey)
-	}
-	if err := featureRepo.SetStatusOverride(ctx, feature.ID, true); err != nil {
-		return fmt.Errorf("failed to set status override: %w", err)
+	if err := featureSvc.SetFeatureStatusOverride(ctx, featureKey, true); err != nil {
+		return fmt.Errorf("feature %s does not exist or override set failed: %w", featureKey, err)
 	}
 	if force && s == models.FeatureStatusCompleted {
-		if err := featureRepo.CascadeStatusToTasks(ctx, feature.ID, models.TaskStatus("completed")); err != nil {
+		if err := featureSvc.CascadeFeatureStatusToTasks(ctx, featureKey, models.TaskStatus("completed")); err != nil {
 			return fmt.Errorf("failed to cascade status to tasks: %w", err)
 		}
 	}
@@ -1411,47 +1182,89 @@ func buildFeatureGetJSON(feature *models.Feature, data *FeatureGetData, orchestr
 
 // performFeatureComplete handles the core logic for the feature complete command.
 func performFeatureComplete(ctx context.Context, featureKey string, force bool) error {
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return err
+	featureSvc := cli.GetFeatureService()
+
+	// First check if force-completion requires a database backup.
+	// We do a preliminary check by calling the service without force to see if there
+	// are incomplete tasks. If force is set and there are incomplete tasks, back up first.
+	if force {
+		// Do a dry-run check: call without force to detect incomplete tasks.
+		dryResult, err := featureSvc.CompleteFeature(ctx, featureKey, false)
+		if err != nil {
+			cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
+			cli.Info("Use 'shark feature list' to see available features")
+			os.Exit(1)
+		}
+		if dryResult.RequiresForce {
+			// There are incomplete tasks — back up database before force-completing.
+			dbPath, canBackup, err := cli.GetDatabasePathForBackup()
+			if err != nil {
+				cli.Error(fmt.Sprintf("Error: failed to get database path for backup: %v", err))
+				os.Exit(2)
+			}
+			if canBackup {
+				if _, err := backupDatabaseOnForceFeature(force, dbPath, "force complete feature"); err != nil {
+					cli.Error(fmt.Sprintf("Error: %v", err))
+					os.Exit(2)
+				}
+			}
+		}
 	}
 
-	featureRepo := repository.NewFeatureRepository(repoDb)
-	taskRepo := repository.NewTaskRepository(repoDb)
-
-	feature, err := featureRepo.GetByKey(ctx, featureKey)
+	result, err := featureSvc.CompleteFeature(ctx, featureKey, force)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Feature %s does not exist", featureKey))
 		cli.Info("Use 'shark feature list' to see available features")
 		os.Exit(1)
 	}
 
-	tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to list tasks: %v", err))
-		os.Exit(2)
+	// Feature has no tasks — simple completion.
+	if result.TotalCount == 0 {
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(result)
+		}
+		cli.Success(fmt.Sprintf("Feature %s completed (no tasks)", featureKey))
+		return nil
 	}
 
-	if len(tasks) == 0 {
-		return performFeatureCompleteEmpty(ctx, featureKey, feature, featureRepo)
+	// Incomplete tasks but force not set — show warning and exit.
+	if result.RequiresForce {
+		incompleteTasks := result.AffectedTasks
+		cli.Warning("Cannot complete feature with incomplete tasks")
+		fmt.Printf("  Status breakdown: %d todo, %d in_progress, %d blocked, %d ready_for_review\n",
+			result.StatusBreakdown["todo"], result.StatusBreakdown["in_progress"],
+			result.StatusBreakdown["blocked"], result.StatusBreakdown["ready_for_review"])
+		fmt.Println("\nAffected tasks:")
+		maxTasks := 10
+		if len(incompleteTasks) < maxTasks {
+			maxTasks = len(incompleteTasks)
+		}
+		for i := 0; i < maxTasks; i++ {
+			fmt.Printf("  - %s\n", incompleteTasks[i])
+		}
+		if len(incompleteTasks) > 10 {
+			fmt.Printf("  ... and %d more\n", len(incompleteTasks)-10)
+		}
+		cli.Info("Use --force to complete all tasks regardless of status")
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(result)
+		}
+		os.Exit(3)
 	}
 
-	return completeFeatureWithTasks(ctx, featureKey, feature, tasks, featureRepo, taskRepo, force)
-}
-
-// performFeatureCompleteEmpty handles completing a feature that has no tasks.
-func performFeatureCompleteEmpty(ctx context.Context, featureKey string, feature *models.Feature, featureRepo *repository.FeatureRepository) error {
-	feature.Status = models.FeatureStatusCompleted
-	if err := featureRepo.Update(ctx, feature); err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to update feature status: %v", err))
-		os.Exit(2)
-	}
+	// Success — tasks were completed.
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"feature_key": featureKey, "completed_count": 0, "total_count": 0,
-			"status_breakdown": map[string]int{}, "affected_tasks": []string{},
-		})
+		return cli.OutputJSON(result)
 	}
-	cli.Success(fmt.Sprintf("Feature %s completed (no tasks)", featureKey))
+
+	hasIncomplete := len(result.AffectedTasks) > 0
+	if hasIncomplete && force {
+		cli.Success(fmt.Sprintf("Feature %s completed: Force-completed %d tasks (%d todo, %d in_progress, %d blocked, %d ready_for_review)",
+			featureKey, len(result.AffectedTasks),
+			result.StatusBreakdown["todo"], result.StatusBreakdown["in_progress"],
+			result.StatusBreakdown["blocked"], result.StatusBreakdown["ready_for_review"]))
+	} else {
+		cli.Success(fmt.Sprintf("Feature %s completed: %d/%d tasks completed", featureKey, result.TotalCount, result.TotalCount))
+	}
 	return nil
 }

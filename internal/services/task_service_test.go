@@ -108,6 +108,10 @@ func (m *MockTaskRepository) UpdateStatusForced(ctx context.Context, taskID int6
 	return fmt.Errorf("UpdateStatusForced not implemented in mock")
 }
 
+func (m *MockTaskRepository) FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error) {
+	return nil, fmt.Errorf("FindByFileChanged not implemented in mock")
+}
+
 // Helper function to create a minimal workflow service for testing
 func newMockWorkflowService() *workflow.Service {
 	return workflow.NewService(".")
@@ -1940,4 +1944,404 @@ func TestTaskService_GetDependencyTree(t *testing.T) {
 	assert.Len(t, tree.Dependencies, 1)
 	assert.Equal(t, "E15-F04-001", tree.Dependencies[0].Key)
 	assert.True(t, tree.CanStart) // Dependency completed, can start
+}
+
+// ============================================================================
+// MockTaskDependencyRepository
+// ============================================================================
+
+// MockTaskDependencyRepository implements TaskDependencyRepository for testing.
+type MockTaskDependencyRepository struct {
+	CreateFunc               func(ctx context.Context, rel *models.TaskRelationship) error
+	GetOutgoingFunc          func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
+	GetIncomingFunc          func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
+	DeleteByTasksAndTypeFunc func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
+}
+
+func (m *MockTaskDependencyRepository) Create(ctx context.Context, rel *models.TaskRelationship) error {
+	if m.CreateFunc != nil {
+		return m.CreateFunc(ctx, rel)
+	}
+	return fmt.Errorf("Create not implemented in MockTaskDependencyRepository")
+}
+
+func (m *MockTaskDependencyRepository) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
+	if m.GetOutgoingFunc != nil {
+		return m.GetOutgoingFunc(ctx, taskID, relTypes)
+	}
+	return nil, fmt.Errorf("GetOutgoing not implemented in MockTaskDependencyRepository")
+}
+
+func (m *MockTaskDependencyRepository) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
+	if m.GetIncomingFunc != nil {
+		return m.GetIncomingFunc(ctx, taskID, relTypes)
+	}
+	return nil, fmt.Errorf("GetIncoming not implemented in MockTaskDependencyRepository")
+}
+
+func (m *MockTaskDependencyRepository) DeleteByTasksAndType(ctx context.Context, fromTaskID, toTaskID int64, relType string) error {
+	if m.DeleteByTasksAndTypeFunc != nil {
+		return m.DeleteByTasksAndTypeFunc(ctx, fromTaskID, toTaskID, relType)
+	}
+	return fmt.Errorf("DeleteByTasksAndType not implemented in MockTaskDependencyRepository")
+}
+
+func (m *MockTaskDependencyRepository) Delete(ctx context.Context, id int64) error {
+	return fmt.Errorf("Delete not implemented in MockTaskDependencyRepository")
+}
+
+// ============================================================================
+// AddDependency Tests
+// ============================================================================
+
+func TestTaskService_AddDependency_Happy_Path(t *testing.T) {
+	var capturedRel *models.TaskRelationship
+
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			switch key {
+			case "E07-F01-002":
+				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+			case "E07-F01-001":
+				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+			}
+			return nil, fmt.Errorf("task not found: %s", key)
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{
+		CreateFunc: func(ctx context.Context, rel *models.TaskRelationship) error {
+			capturedRel = rel
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, capturedRel)
+	assert.Equal(t, int64(2), capturedRel.FromTaskID)
+	assert.Equal(t, int64(1), capturedRel.ToTaskID)
+	assert.Equal(t, "depends_on", string(capturedRel.RelationshipType))
+}
+
+func TestTaskService_AddDependency_NoDepRepo(t *testing.T) {
+	mockRepo := &MockTaskRepository{}
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	// depRepo not set
+
+	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "dependency repository not configured")
+}
+
+func TestTaskService_AddDependency_TaskNotFound(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{}
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "task not found")
+}
+
+func TestTaskService_AddDependency_SelfDependency(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			// Both keys resolve to same task ID
+			return &models.Task{ID: 1, Key: key}, nil
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{}
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.AddDependency(context.Background(), "E07-F01-001", "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "task cannot depend on itself")
+}
+
+func TestTaskService_AddDependency_DepRepoError(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			switch key {
+			case "E07-F01-002":
+				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+			case "E07-F01-001":
+				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+			}
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{
+		CreateFunc: func(ctx context.Context, rel *models.TaskRelationship) error {
+			return fmt.Errorf("database error")
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to add dependency")
+}
+
+// ============================================================================
+// RemoveDependency Tests
+// ============================================================================
+
+func TestTaskService_RemoveDependency_Happy_Path(t *testing.T) {
+	var capturedFromID, capturedToID int64
+	var capturedRelType string
+
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			switch key {
+			case "E07-F01-002":
+				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+			case "E07-F01-001":
+				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+			}
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{
+		DeleteByTasksAndTypeFunc: func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error {
+			capturedFromID = fromTaskID
+			capturedToID = toTaskID
+			capturedRelType = relType
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), capturedFromID)
+	assert.Equal(t, int64(1), capturedToID)
+	assert.Equal(t, "depends_on", capturedRelType)
+}
+
+func TestTaskService_RemoveDependency_NoDepRepo(t *testing.T) {
+	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+
+	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "dependency repository not configured")
+}
+
+func TestTaskService_RemoveDependency_TaskNotFound(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{}
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "task not found")
+}
+
+// ============================================================================
+// ListDependencies Tests
+// ============================================================================
+
+func TestTaskService_ListDependencies_Happy_Path(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			if key == "E07-F01-002" {
+				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+			}
+			return nil, fmt.Errorf("not found")
+		},
+		GetByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
+			if id == 1 {
+				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+			}
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{
+		GetOutgoingFunc: func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
+			assert.Equal(t, int64(2), taskID)
+			assert.Equal(t, []string{"depends_on"}, relTypes)
+			return []*models.TaskRelationship{
+				{FromTaskID: 2, ToTaskID: 1, RelationshipType: "depends_on"},
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-002")
+
+	assert.NoError(t, err)
+	assert.Len(t, tasks, 1)
+	assert.Equal(t, "E07-F01-001", tasks[0].Key)
+}
+
+func TestTaskService_ListDependencies_NoDependencies(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{ID: 1, Key: key}, nil
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{
+		GetOutgoingFunc: func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
+			return []*models.TaskRelationship{}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
+
+	assert.NoError(t, err)
+	assert.Empty(t, tasks)
+}
+
+func TestTaskService_ListDependencies_NoDepRepo(t *testing.T) {
+	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+
+	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Nil(t, tasks)
+	assert.Contains(t, err.Error(), "dependency repository not configured")
+}
+
+func TestTaskService_ListDependencies_TaskNotFound(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{}
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Nil(t, tasks)
+	assert.Contains(t, err.Error(), "task not found")
+}
+
+// ============================================================================
+// UnlinkFile Tests
+// ============================================================================
+
+func TestTaskService_UnlinkFile_Happy_Path(t *testing.T) {
+	var capturedFromID, capturedToID int64
+	var capturedRelType string
+
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			switch key {
+			case "E07-F01-002":
+				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+			case "E07-F01-001":
+				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+			}
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{
+		DeleteByTasksAndTypeFunc: func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error {
+			capturedFromID = fromTaskID
+			capturedToID = toTaskID
+			capturedRelType = relType
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), capturedFromID)
+	assert.Equal(t, int64(1), capturedToID)
+	assert.Equal(t, "blocks", capturedRelType)
+}
+
+func TestTaskService_UnlinkFile_NoDepRepo(t *testing.T) {
+	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+
+	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "dependency repository not configured")
+}
+
+func TestTaskService_UnlinkFile_TaskNotFound(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{}
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "task not found")
+}
+
+func TestTaskService_UnlinkFile_TargetTaskNotFound(t *testing.T) {
+	callCount := 0
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			callCount++
+			if callCount == 1 {
+				return &models.Task{ID: 2, Key: key}, nil // First call succeeds (taskKey)
+			}
+			return nil, fmt.Errorf("not found") // Second call fails (targetKey)
+		},
+	}
+
+	mockDepRepo := &MockTaskDependencyRepository{}
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc.SetDepRepo(mockDepRepo)
+
+	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-999")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "target task not found")
 }
