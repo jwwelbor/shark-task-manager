@@ -18,18 +18,19 @@ import (
 
 // MockTaskRepository implements TaskRepository interface for testing
 type MockTaskRepository struct {
-	CreateFunc             func(ctx context.Context, task *models.Task) error
-	GetByKeyFunc           func(ctx context.Context, key string) (*models.Task, error)
-	GetByIDFunc            func(ctx context.Context, id int64) (*models.Task, error)
-	UpdateFunc             func(ctx context.Context, task *models.Task) error
-	DeleteFunc             func(ctx context.Context, id int64) error
-	ListFunc               func(ctx context.Context) ([]*models.Task, error)
-	ListByFeatureFunc      func(ctx context.Context, featureID int64) ([]*models.Task, error)
-	ListByEpicFunc         func(ctx context.Context, epicKey string) ([]*models.Task, error)
-	GetTaskDependentsFunc  func(ctx context.Context, taskKey string) ([]*models.Task, error)
-	UpdateStatusFunc       func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
-	UpdateStatusForcedFunc func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
-	ListByKeyPrefixFunc    func(ctx context.Context, prefix string) ([]*models.Task, error)
+	CreateFunc                        func(ctx context.Context, task *models.Task) error
+	GetByKeyFunc                      func(ctx context.Context, key string) (*models.Task, error)
+	GetByIDFunc                       func(ctx context.Context, id int64) (*models.Task, error)
+	UpdateFunc                        func(ctx context.Context, task *models.Task) error
+	DeleteFunc                        func(ctx context.Context, id int64) error
+	ListFunc                          func(ctx context.Context) ([]*models.Task, error)
+	ListByFeatureFunc                 func(ctx context.Context, featureID int64) ([]*models.Task, error)
+	ListByEpicFunc                    func(ctx context.Context, epicKey string) ([]*models.Task, error)
+	GetTaskDependentsFunc             func(ctx context.Context, taskKey string) ([]*models.Task, error)
+	UpdateStatusFunc                  func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
+	UpdateStatusForcedFunc            func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
+	UpdateStatusForcedWithUnblockFunc func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error)
+	ListByKeyPrefixFunc               func(ctx context.Context, prefix string) ([]*models.Task, error)
 }
 
 func (m *MockTaskRepository) Create(ctx context.Context, task *models.Task) error {
@@ -107,6 +108,13 @@ func (m *MockTaskRepository) UpdateStatusForced(ctx context.Context, taskID int6
 		return m.UpdateStatusForcedFunc(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
 	}
 	return fmt.Errorf("UpdateStatusForced not implemented in mock")
+}
+
+func (m *MockTaskRepository) UpdateStatusForcedWithUnblock(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error) {
+	if m.UpdateStatusForcedWithUnblockFunc != nil {
+		return m.UpdateStatusForcedWithUnblockFunc(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
+	}
+	return nil, fmt.Errorf("UpdateStatusForcedWithUnblock not implemented in mock")
 }
 
 func (m *MockTaskRepository) FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error) {
@@ -1964,6 +1972,7 @@ type MockTaskDependencyRepository struct {
 	GetOutgoingFunc          func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
 	GetIncomingFunc          func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
 	DeleteByTasksAndTypeFunc func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
+	DetectCycleFunc          func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
 }
 
 func (m *MockTaskDependencyRepository) Create(ctx context.Context, rel *models.TaskRelationship) error {
@@ -1996,6 +2005,13 @@ func (m *MockTaskDependencyRepository) DeleteByTasksAndType(ctx context.Context,
 
 func (m *MockTaskDependencyRepository) Delete(ctx context.Context, id int64) error {
 	return fmt.Errorf("Delete not implemented in MockTaskDependencyRepository")
+}
+
+func (m *MockTaskDependencyRepository) DetectCycle(ctx context.Context, fromTaskID, toTaskID int64, relType string) error {
+	if m.DetectCycleFunc != nil {
+		return m.DetectCycleFunc(ctx, fromTaskID, toTaskID, relType)
+	}
+	return nil
 }
 
 // ============================================================================
@@ -2360,8 +2376,11 @@ func TestTaskService_UnlinkFile_TargetTaskNotFound(t *testing.T) {
 
 // MockWorkSessionRepository implements WorkSessionRepository for testing.
 type MockWorkSessionRepository struct {
-	GetByTaskIDFunc             func(ctx context.Context, taskID int64) ([]*models.WorkSession, error)
-	GetSessionStatsByTaskIDFunc func(ctx context.Context, taskID int64) (*WorkSessionStats, error)
+	GetByTaskIDFunc                  func(ctx context.Context, taskID int64) ([]*models.WorkSession, error)
+	GetSessionStatsByTaskIDFunc      func(ctx context.Context, taskID int64) (*WorkSessionStats, error)
+	GetActiveSessionByTaskIDFunc     func(ctx context.Context, taskID int64) (*models.WorkSession, error)
+	GetSessionAnalyticsByFeatureFunc func(ctx context.Context, featureID int64, agentType *string) (*SessionAnalytics, error)
+	GetSessionAnalyticsByEpicFunc    func(ctx context.Context, epicID int64, agentType *string) (*SessionAnalytics, error)
 }
 
 func (m *MockWorkSessionRepository) GetByTaskID(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
@@ -2376,6 +2395,27 @@ func (m *MockWorkSessionRepository) GetSessionStatsByTaskID(ctx context.Context,
 		return m.GetSessionStatsByTaskIDFunc(ctx, taskID)
 	}
 	return nil, fmt.Errorf("GetSessionStatsByTaskID not implemented in mock")
+}
+
+func (m *MockWorkSessionRepository) GetActiveSessionByTaskID(ctx context.Context, taskID int64) (*models.WorkSession, error) {
+	if m.GetActiveSessionByTaskIDFunc != nil {
+		return m.GetActiveSessionByTaskIDFunc(ctx, taskID)
+	}
+	return nil, fmt.Errorf("GetActiveSessionByTaskID not implemented in mock")
+}
+
+func (m *MockWorkSessionRepository) GetSessionAnalyticsByFeature(ctx context.Context, featureID int64, agentType *string) (*SessionAnalytics, error) {
+	if m.GetSessionAnalyticsByFeatureFunc != nil {
+		return m.GetSessionAnalyticsByFeatureFunc(ctx, featureID, agentType)
+	}
+	return nil, fmt.Errorf("GetSessionAnalyticsByFeature not implemented in mock")
+}
+
+func (m *MockWorkSessionRepository) GetSessionAnalyticsByEpic(ctx context.Context, epicID int64, agentType *string) (*SessionAnalytics, error) {
+	if m.GetSessionAnalyticsByEpicFunc != nil {
+		return m.GetSessionAnalyticsByEpicFunc(ctx, epicID, agentType)
+	}
+	return nil, fmt.Errorf("GetSessionAnalyticsByEpic not implemented in mock")
 }
 
 // ============================================================================
@@ -2543,6 +2583,7 @@ func TestTaskService_GetWorkSessions_Empty_Sessions(t *testing.T) {
 // MockTaskHistoryRepository implements TaskHistoryRepository for testing.
 type MockTaskHistoryRepository struct {
 	GetHistoryByTaskKeyFunc func(ctx context.Context, taskKey string) ([]*models.TaskHistory, error)
+	ListWithFiltersFunc     func(ctx context.Context, filters HistoryFilters) ([]*models.TaskHistory, error)
 }
 
 func (m *MockTaskHistoryRepository) GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
@@ -2550,6 +2591,13 @@ func (m *MockTaskHistoryRepository) GetHistoryByTaskKey(ctx context.Context, tas
 		return m.GetHistoryByTaskKeyFunc(ctx, taskKey)
 	}
 	return nil, fmt.Errorf("GetHistoryByTaskKey not implemented in mock")
+}
+
+func (m *MockTaskHistoryRepository) ListWithFilters(ctx context.Context, filters HistoryFilters) ([]*models.TaskHistory, error) {
+	if m.ListWithFiltersFunc != nil {
+		return m.ListWithFiltersFunc(ctx, filters)
+	}
+	return nil, fmt.Errorf("ListWithFilters not implemented in mock")
 }
 
 func TestTaskService_GetTaskHistory_Happy_Path(t *testing.T) {

@@ -1,16 +1,12 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
 
 // NormalizeKey converts a key to canonical uppercase format.
@@ -674,32 +670,6 @@ func DetectEntityType(key string) string {
 	}
 
 	return "unknown"
-}
-
-// triggerStatusCascade triggers cascading status updates for parent feature and epic
-// after a task status change. Errors are logged but do not fail the operation.
-func triggerStatusCascade(ctx context.Context, dbWrapper *repository.DB, featureID int64) {
-	configPath, err := cli.GetConfigPath()
-	if err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", err)
-	}
-	cfg, err := config.LoadWorkflowConfig(configPath)
-	if err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
-	}
-
-	calcService := status.NewCalculationService(dbWrapper, cfg)
-	results, err := calcService.CascadeFromFeatureID(ctx, featureID)
-	if err != nil {
-		cli.Warning(fmt.Sprintf("Status cascade failed: %v", err))
-		return
-	}
-
-	for _, r := range results {
-		if r.WasChanged {
-			cli.Info(fmt.Sprintf("  %s %s status: %s -> %s", r.EntityType, r.EntityKey, r.PreviousStatus, r.NewStatus))
-		}
-	}
 }
 
 // getAgentIdentifier returns flagValue if non-empty, otherwise falls back to the USER env var.
