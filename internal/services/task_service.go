@@ -104,6 +104,10 @@ type TaskRepository interface {
 
 	// Search operations
 	FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error)
+
+	// Key prefix search - returns all tasks whose key starts with the given prefix.
+	// Used for key generation to avoid UNIQUE constraint collisions.
+	ListByKeyPrefix(ctx context.Context, prefix string) ([]*models.Task, error)
 }
 
 // TaskNoteRepository defines the note repository interface for rejection notes.
@@ -233,9 +237,72 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		priority = 5 // Default priority
 	}
 
-	// Generate task key - use simple format that will be validated by the model
-	// Repository can override if needed for actual database sequence
-	taskKey := fmt.Sprintf("T-%s-%s-001", input.EpicKey, input.FeatureKey)
+	// Delegate to creatorSvc when available - it handles proper key generation,
+	// file creation, and all task creation orchestration.
+	if s.creatorSvc != nil {
+		// Map services.CreateTaskInput to taskcreation.CreateTaskInput
+		// DependsOn []string -> string (join with comma for creator)
+		dependsOnStr := strings.Join(input.DependsOn, ",")
+
+		creatorInput := taskcreation.CreateTaskInput{
+			EpicKey:        input.EpicKey,
+			FeatureKey:     input.FeatureKey,
+			Title:          input.Title,
+			Description:    input.Description,
+			AgentType:      input.AgentType,
+			Priority:       priority,
+			DependsOn:      dependsOnStr,
+			ExecutionOrder: input.ExecutionOrder,
+			Filename:       input.FilePath,
+			Force:          input.Force,
+			Create:         input.CreateFile,
+		}
+
+		result, err := s.creatorSvc.CreateTask(ctx, creatorInput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create task: %w", err)
+		}
+		return result.Task, nil
+	}
+
+	// Fallback path (no creatorSvc): generate key via repository prefix search.
+	// This path should rarely be hit in production since GetTaskService() always
+	// wires a creatorSvc, but it keeps the service functional when creatorSvc is nil
+	// (e.g., in unit tests that don't need file creation).
+
+	// Build key prefix and find next available sequence number
+	epicKey := strings.ToUpper(input.EpicKey)
+	featureKey := strings.ToUpper(input.FeatureKey)
+	// Normalise feature key: if it contains the epic prefix already, strip it
+	if strings.Contains(featureKey, "-") {
+		parts := strings.SplitN(featureKey, "-", 2)
+		featureKey = parts[len(parts)-1]
+	}
+	keyPrefix := fmt.Sprintf("T-%s-%s-", epicKey, featureKey)
+
+	// Find existing tasks with this prefix to determine next sequence number
+	existing, err := s.repo.ListByKeyPrefix(ctx, keyPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task: could not query existing keys: %w", err)
+	}
+	nextSeq := len(existing) + 1
+	taskKey := fmt.Sprintf("%s%03d", keyPrefix, nextSeq)
+
+	// Ensure generated key is not already taken (handles gaps from deletions)
+	for {
+		taken := false
+		for _, t := range existing {
+			if strings.EqualFold(t.Key, taskKey) {
+				taken = true
+				break
+			}
+		}
+		if !taken {
+			break
+		}
+		nextSeq++
+		taskKey = fmt.Sprintf("%s%03d", keyPrefix, nextSeq)
+	}
 
 	// Create task model
 	agentType := input.AgentType

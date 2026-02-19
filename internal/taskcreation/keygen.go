@@ -38,17 +38,26 @@ func (kg *KeyGenerator) GenerateTaskKey(ctx context.Context, epicKey, featureKey
 		return "", fmt.Errorf("feature %s does not exist", normalizedFeatureKey)
 	}
 
-	// Get all tasks for this feature to find the highest number
-	tasks, err := kg.taskRepo.ListByFeature(ctx, feature.ID)
+	// Find the highest task number globally for this key prefix to avoid
+	// collisions with keys from prior features assigned the same prefix.
+	featurePart := extractFeaturePart(normalizedFeatureKey)
+	keyPrefix := fmt.Sprintf("T-%s-%s-", epicKey, featurePart)
+
+	// Search globally by key prefix to catch keys used by any feature
+	globalTasks, err := kg.taskRepo.ListByKeyPrefix(ctx, keyPrefix)
 	if err != nil {
-		return "", fmt.Errorf("failed to list tasks for feature: %w", err)
+		// Fall back to feature-only list if global search fails
+		globalTasks, err = kg.taskRepo.ListByFeature(ctx, feature.ID)
+		if err != nil {
+			return "", fmt.Errorf("failed to list tasks for feature: %w", err)
+		}
 	}
 
 	// Find the highest task number
 	maxNumber := 0
 	keyPattern := regexp.MustCompile(`^T-E\d{2}-F\d{2}-(\d{3})$`)
 
-	for _, task := range tasks {
+	for _, task := range globalTasks {
 		matches := keyPattern.FindStringSubmatch(task.Key)
 		if len(matches) == 2 {
 			num, err := strconv.Atoi(matches[1])
@@ -66,9 +75,6 @@ func (kg *KeyGenerator) GenerateTaskKey(ctx context.Context, epicKey, featureKey
 		return "", fmt.Errorf("feature %s has reached maximum task count (999)", normalizedFeatureKey)
 	}
 
-	// Extract just the feature part (F01, F02, etc.) from the normalized key
-	featurePart := extractFeaturePart(normalizedFeatureKey)
-
 	// Generate the key with zero-padded number
 	key := fmt.Sprintf("T-%s-%s-%03d", epicKey, featurePart, nextNumber)
 
@@ -80,22 +86,27 @@ func (kg *KeyGenerator) GenerateTaskKeyWithTx(ctx context.Context, tx *sql.Tx, e
 	// Normalize feature key
 	normalizedFeatureKey := normalizeFeatureKey(epicKey, featureKey)
 
-	// Get feature to verify it exists
-	feature, err := kg.featureRepo.GetByKey(ctx, normalizedFeatureKey)
-	if err != nil {
+	// Verify feature exists
+	if _, err := kg.featureRepo.GetByKey(ctx, normalizedFeatureKey); err != nil {
 		return "", fmt.Errorf("feature %s does not exist", normalizedFeatureKey)
 	}
 
-	// Query max key within transaction with row lock
+	// Extract feature part for key prefix matching
+	featurePart := extractFeaturePart(normalizedFeatureKey)
+	keyPrefix := fmt.Sprintf("T-%s-%s-", epicKey, featurePart)
+
+	// Query max key globally for this key prefix to avoid collisions with
+	// keys from prior features that were assigned the same T-EXX-FXX prefix
+	// (e.g., cancelled features that reused the same epic/feature number).
 	query := `
 		SELECT key FROM tasks
-		WHERE feature_id = ?
+		WHERE key LIKE ?
 		ORDER BY key DESC
 		LIMIT 1
 	`
 
 	var maxKey sql.NullString
-	err = tx.QueryRowContext(ctx, query, feature.ID).Scan(&maxKey)
+	err := tx.QueryRowContext(ctx, query, keyPrefix+"%").Scan(&maxKey)
 	if err != nil && err != sql.ErrNoRows {
 		return "", fmt.Errorf("failed to query max task key: %w", err)
 	}
@@ -116,9 +127,6 @@ func (kg *KeyGenerator) GenerateTaskKeyWithTx(ctx context.Context, tx *sql.Tx, e
 	if nextNumber > 999 {
 		return "", fmt.Errorf("feature %s has reached maximum task count (999)", normalizedFeatureKey)
 	}
-
-	// Extract feature part
-	featurePart := extractFeaturePart(normalizedFeatureKey)
 
 	// Generate key
 	key := fmt.Sprintf("T-%s-%s-%03d", epicKey, featurePart, nextNumber)

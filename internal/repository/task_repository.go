@@ -568,6 +568,23 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 	return tasks, nil
 }
 
+// ListByKeyPrefix retrieves all tasks whose key starts with the given prefix.
+// Used by key generation to find globally unique keys regardless of feature_id.
+func (r *TaskRepository) ListByKeyPrefix(ctx context.Context, prefix string) ([]*models.Task, error) {
+	query := `
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
+		FROM tasks
+		WHERE key LIKE ?
+		ORDER BY key ASC
+	`
+
+	return r.queryTasks(ctx, query, prefix+"%")
+}
+
 // List retrieves all tasks
 func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 	query := `

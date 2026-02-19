@@ -29,6 +29,7 @@ type MockTaskRepository struct {
 	GetTaskDependentsFunc  func(ctx context.Context, taskKey string) ([]*models.Task, error)
 	UpdateStatusFunc       func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
 	UpdateStatusForcedFunc func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
+	ListByKeyPrefixFunc    func(ctx context.Context, prefix string) ([]*models.Task, error)
 }
 
 func (m *MockTaskRepository) Create(ctx context.Context, task *models.Task) error {
@@ -110,6 +111,13 @@ func (m *MockTaskRepository) UpdateStatusForced(ctx context.Context, taskID int6
 
 func (m *MockTaskRepository) FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error) {
 	return nil, fmt.Errorf("FindByFileChanged not implemented in mock")
+}
+
+func (m *MockTaskRepository) ListByKeyPrefix(ctx context.Context, prefix string) ([]*models.Task, error) {
+	if m.ListByKeyPrefixFunc != nil {
+		return m.ListByKeyPrefixFunc(ctx, prefix)
+	}
+	return []*models.Task{}, nil
 }
 
 // Helper function to create a minimal workflow service for testing
