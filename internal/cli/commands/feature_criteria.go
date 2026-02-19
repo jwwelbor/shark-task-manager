@@ -1,11 +1,9 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -29,157 +27,62 @@ Examples:
 	RunE: runFeatureCriteria,
 }
 
-// TaskCriteriaSummary represents criteria summary for a single task
-type TaskCriteriaSummary struct {
-	TaskKey         string  `json:"task_key"`
-	TaskTitle       string  `json:"task_title"`
-	TotalCount      int     `json:"total_count"`
-	PendingCount    int     `json:"pending_count"`
-	InProgressCount int     `json:"in_progress_count"`
-	CompleteCount   int     `json:"complete_count"`
-	FailedCount     int     `json:"failed_count"`
-	NACount         int     `json:"na_count"`
-	CompletionPct   float64 `json:"completion_pct"`
-}
-
-// FeatureCriteriaSummary represents aggregated criteria for a feature
-type FeatureCriteriaSummary struct {
-	FeatureKey      string                `json:"feature_key"`
-	FeatureTitle    string                `json:"feature_title"`
-	TaskCount       int                   `json:"task_count"`
-	TotalCount      int                   `json:"total_count"`
-	PendingCount    int                   `json:"pending_count"`
-	InProgressCount int                   `json:"in_progress_count"`
-	CompleteCount   int                   `json:"complete_count"`
-	FailedCount     int                   `json:"failed_count"`
-	NACount         int                   `json:"na_count"`
-	CompletionPct   float64               `json:"completion_pct"`
-	TaskSummaries   []TaskCriteriaSummary `json:"task_summaries,omitempty"`
-}
-
 // runFeatureCriteria handles the feature criteria command
 func runFeatureCriteria(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	featureKey := args[0]
 	byTask, _ := cmd.Flags().GetBool("by-task")
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	svc := cli.GetCriteriaService()
+	result, err := svc.GetFeatureCriteria(cmd.Context(), featureKey)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
-
-	// Get feature by key
-	feature, err := featureRepo.GetByKey(ctx, featureKey)
-	if err != nil {
-		return fmt.Errorf("feature %s not found", featureKey)
+		return fmt.Errorf("failed to get criteria for feature %s: %w", featureKey, err)
 	}
 
-	// Get all tasks for the feature
-	tasks, err := taskRepo.ListByFeature(ctx, feature.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get tasks for feature: %w", err)
-	}
-
-	if len(tasks) == 0 {
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"feature_key": featureKey,
-				"message":     "No tasks found for feature",
-			})
-		}
-		fmt.Printf("No tasks found for feature %s\n", featureKey)
-		return nil
-	}
-
-	// Aggregate criteria across all tasks
-	featureSummary := FeatureCriteriaSummary{
-		FeatureKey:    featureKey,
-		FeatureTitle:  feature.Title,
-		TaskCount:     len(tasks),
-		TaskSummaries: make([]TaskCriteriaSummary, 0),
-	}
-
-	for _, task := range tasks {
-		summary, err := criteriaRepo.GetSummaryByTaskID(ctx, task.ID)
-		if err != nil {
-			return fmt.Errorf("failed to get criteria summary for task %s: %w", task.Key, err)
-		}
-
-		// Aggregate counts
-		featureSummary.TotalCount += summary.TotalCount
-		featureSummary.PendingCount += summary.PendingCount
-		featureSummary.InProgressCount += summary.InProgressCount
-		featureSummary.CompleteCount += summary.CompleteCount
-		featureSummary.FailedCount += summary.FailedCount
-		featureSummary.NACount += summary.NACount
-
-		// Add task summary if requested
-		if byTask && summary.TotalCount > 0 {
-			featureSummary.TaskSummaries = append(featureSummary.TaskSummaries, TaskCriteriaSummary{
-				TaskKey:         task.Key,
-				TaskTitle:       task.Title,
-				TotalCount:      summary.TotalCount,
-				PendingCount:    summary.PendingCount,
-				InProgressCount: summary.InProgressCount,
-				CompleteCount:   summary.CompleteCount,
-				FailedCount:     summary.FailedCount,
-				NACount:         summary.NACount,
-				CompletionPct:   summary.CompletionPct,
-			})
-		}
-	}
-
-	// Calculate overall completion percentage
-	if featureSummary.TotalCount > 0 {
-		featureSummary.CompletionPct = float64(featureSummary.CompleteCount+featureSummary.NACount) / float64(featureSummary.TotalCount) * 100.0
-	}
-
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(featureSummary)
+		return cli.OutputJSON(result)
 	}
 
 	// Human-readable output
-	if featureSummary.TotalCount == 0 {
-		fmt.Printf("Feature %s: %s\n", featureKey, feature.Title)
+	if result.Summary.TotalCriteria == 0 {
+		fmt.Printf("Feature %s\n", result.FeatureKey)
 		fmt.Println("No acceptance criteria found for this feature")
 		return nil
 	}
 
-	fmt.Printf("Feature %s: %s\n\n", featureKey, feature.Title)
+	fmt.Printf("Feature %s\n\n", result.FeatureKey)
 	fmt.Printf("Overall Progress: %.0f%% complete (%d/%d criteria)\n",
-		featureSummary.CompletionPct,
-		featureSummary.CompleteCount+featureSummary.NACount,
-		featureSummary.TotalCount)
+		result.Summary.CompletionPct,
+		result.Summary.CompleteCount+result.Summary.NACount,
+		result.Summary.TotalCriteria)
 	fmt.Printf("  Complete: %d | Pending: %d | In Progress: %d | Failed: %d | N/A: %d\n",
-		featureSummary.CompleteCount,
-		featureSummary.PendingCount,
-		featureSummary.InProgressCount,
-		featureSummary.FailedCount,
-		featureSummary.NACount)
-	fmt.Printf("  Tasks: %d\n", featureSummary.TaskCount)
+		result.Summary.CompleteCount,
+		result.Summary.PendingCount,
+		result.Summary.InProgressCount,
+		result.Summary.FailedCount,
+		result.Summary.NACount)
+	fmt.Printf("  Tasks: %d\n", result.Summary.TotalTasks)
 
 	// Show per-task breakdown if requested
-	if byTask && len(featureSummary.TaskSummaries) > 0 {
+	if byTask {
 		fmt.Println("\nPer-Task Breakdown:")
-		for _, taskSummary := range featureSummary.TaskSummaries {
-			fmt.Printf("\n  %s: %s\n", taskSummary.TaskKey, taskSummary.TaskTitle)
+		for _, taskResult := range result.Tasks {
+			if taskResult.Summary.TotalCount == 0 {
+				continue
+			}
+			fmt.Printf("\n  %s\n", taskResult.TaskKey)
 			fmt.Printf("    %.0f%% complete (%d/%d criteria)\n",
-				taskSummary.CompletionPct,
-				taskSummary.CompleteCount+taskSummary.NACount,
-				taskSummary.TotalCount)
+				taskResult.Summary.CompletionPct,
+				taskResult.Summary.CompleteCount+taskResult.Summary.NACount,
+				taskResult.Summary.TotalCount)
 			fmt.Printf("    Complete: %d | Pending: %d | In Progress: %d | Failed: %d | N/A: %d\n",
-				taskSummary.CompleteCount,
-				taskSummary.PendingCount,
-				taskSummary.InProgressCount,
-				taskSummary.FailedCount,
-				taskSummary.NACount)
+				taskResult.Summary.CompleteCount,
+				taskResult.Summary.PendingCount,
+				taskResult.Summary.InProgressCount,
+				taskResult.Summary.FailedCount,
+				taskResult.Summary.NACount)
 		}
 	}
 
