@@ -9,6 +9,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
+	"github.com/jwwelbor/shark-task-manager/internal/validation"
+	"github.com/jwwelbor/shark-task-manager/internal/view"
 )
 
 var (
@@ -83,8 +85,11 @@ func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
 		featureRepo := repository.NewFeatureRepository(db)
 		taskRepo := repository.NewTaskRepository(db)
 		noteRepo := repository.NewEntityNoteRepository(db)
+		sessionRepo := &resumeSessionAdapter{repo: repository.NewWorkSessionRepository(db)}
 
-		globalResumeService = services.NewResumeService(epicRepo, featureRepo, taskRepo, noteRepo)
+		svc := services.NewResumeService(epicRepo, featureRepo, taskRepo, noteRepo)
+		svc.SetSessionRepo(sessionRepo)
+		globalResumeService = svc
 	})
 
 	if resumeServiceErr != nil {
@@ -164,7 +169,7 @@ func GetTaskServiceWithHistory() *services.TaskService {
 	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
 
 	svc := services.NewTaskService(taskRepo, workflowSvc, creatorSvc, noteRepo)
-	svc.SetHistoryRepo(historyRepo)
+	svc.SetHistoryRepo(&taskHistoryAdapter{repo: historyRepo})
 	return svc
 }
 
@@ -208,6 +213,64 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	svc.SetRelQueryRepo(relRepo)
 	svc.SetWritableDocRepo(docRepo)
 	return svc
+}
+
+// GetCriteriaService returns a CriteriaService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetCriteriaService()
+//	count, err := svc.ImportCriteriaFromFile(ctx, "E07-F01-001")
+func GetCriteriaService() *services.CriteriaService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	criteriaRepo := repository.NewTaskCriteriaRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	return services.NewCriteriaService(criteriaRepo, taskRepo, featureRepo)
+}
+
+// GetViewService returns a view.Service instance for viewing entity file paths.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetViewService()
+//	filePath, err := svc.GetFilePath(ctx, parsedScope)
+func GetViewService() *view.Service {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	return view.NewService(epicRepo, featureRepo, taskRepo)
+}
+
+// GetValidationRunner returns a validation.Validator configured with all repositories.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	v := cli.GetValidationRunner()
+//	result, err := v.Validate(ctx)
+func GetValidationRunner() *validation.Validator {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	repoAdapter := validation.NewRepositoryAdapter(epicRepo, featureRepo, taskRepo)
+	return validation.NewValidator(repoAdapter)
 }
 
 // ResetServices clears global service state. For testing only.
