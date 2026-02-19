@@ -7,6 +7,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
 
 // epicNoteAdapter adapts *repository.EntityNoteRepository to the services.EpicNoteRepository interface.
@@ -36,6 +37,30 @@ func (a *epicNoteAdapter) CreateRejectionNote(
 // Same bridging logic as epicNoteAdapter.
 type featureNoteAdapter struct {
 	repo *repository.EntityNoteRepository
+}
+
+// workSessionAdapter adapts *repository.WorkSessionRepository to the services.WorkSessionRepository interface.
+// The repository returns *repository.SessionStats but the service interface expects *services.WorkSessionStats.
+type workSessionAdapter struct {
+	repo *repository.WorkSessionRepository
+}
+
+func (a *workSessionAdapter) GetByTaskID(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
+	return a.repo.GetByTaskID(ctx, taskID)
+}
+
+func (a *workSessionAdapter) GetSessionStatsByTaskID(ctx context.Context, taskID int64) (*services.WorkSessionStats, error) {
+	stats, err := a.repo.GetSessionStatsByTaskID(ctx, taskID)
+	if err != nil || stats == nil {
+		return nil, err
+	}
+	return &services.WorkSessionStats{
+		TotalSessions:   stats.TotalSessions,
+		TotalDuration:   stats.TotalDuration,
+		AverageDuration: stats.AverageDuration,
+		MedianDuration:  stats.MedianDuration,
+		ActiveSession:   stats.ActiveSession,
+	}, nil
 }
 
 func (a *featureNoteAdapter) CreateRejectionNote(
@@ -81,6 +106,7 @@ func GetEpicService() *services.EpicService {
 	workflowSvc := GetWorkflowService()
 	svc := services.NewEpicService(epicRepo, workflowSvc, noteRepo, featureRepo, taskRepo)
 	svc.SetDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo)
 	return svc
 }
 
@@ -109,7 +135,26 @@ func GetFeatureService() *services.FeatureService {
 	noteRepo := &featureNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	docRepo := repository.NewDocumentRepository(db)
 	workflowSvc := GetWorkflowService()
-	return services.NewFeatureServiceWithRelationships(featureRepo, workflowSvc, noteRepo, taskRepo, docRepo, nil, epicRepo)
+	svc := services.NewFeatureServiceWithRelationships(featureRepo, workflowSvc, noteRepo, taskRepo, docRepo, nil, epicRepo)
+	svc.SetWritableDocRepo(docRepo)
+	return svc
+}
+
+// GetIdeaService returns an IdeaService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetIdeaService()
+//	idea, err := svc.CreateIdea(cmd.Context(), services.CreateIdeaInput{Title: "My idea"})
+func GetIdeaService() *services.IdeaService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	ideaRepo := repository.NewIdeaRepository(db)
+	return services.NewIdeaService(ideaRepo)
 }
 
 // GetDisplayService returns a DisplayService instance.
@@ -122,4 +167,20 @@ func GetDisplayService() *services.DisplayService {
 	}
 	workflowSvc := GetWorkflowService()
 	return services.NewDisplayService(db, workflowSvc)
+}
+
+// GetStatusService returns a StatusService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetStatusService()
+//	dashboard, err := svc.GetDashboard(ctx, req)
+func GetStatusService() *status.StatusService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	return status.NewStatusService(db)
 }

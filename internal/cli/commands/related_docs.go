@@ -3,11 +3,9 @@ package commands
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -73,285 +71,126 @@ Examples:
 	RunE: runRelatedDocsListList,
 }
 
+// dispatchAddDoc links a document to an epic, feature, or task based on which key is set.
+func dispatchAddDoc(ctx context.Context, epic, feature, task, title, path string) error {
+	if epic != "" {
+		if err := cli.GetEpicService().LinkDocument(ctx, epic, title, path); err != nil {
+			return fmt.Errorf("failed to link document to epic: %w", err)
+		}
+		return printDocLinked(title, path, "epic", epic, 0)
+	}
+	if feature != "" {
+		if err := cli.GetFeatureService().LinkDocument(ctx, feature, title, path); err != nil {
+			return fmt.Errorf("failed to link document to feature: %w", err)
+		}
+		return printDocLinked(title, path, "feature", feature, 0)
+	}
+	doc, err := cli.GetTaskServiceWithDeps().LinkDocument(ctx, task, title, path)
+	if err != nil {
+		return fmt.Errorf("failed to link document to task: %w", err)
+	}
+	return printDocLinked(doc.Title, doc.FilePath, "task", task, doc.ID)
+}
+
 // runRelatedDocsAdd handles adding a document
 func runRelatedDocsAdd(cmd *cobra.Command, args []string) error {
-	title := args[0]
-	path := args[1]
-
+	title, path := args[0], args[1]
 	epic, _ := cmd.Flags().GetString("epic")
 	feature, _ := cmd.Flags().GetString("feature")
 	task, _ := cmd.Flags().GetString("task")
 
-	// Validate exactly one parent is specified
-	count := 0
-	if epic != "" {
-		count++
-	}
-	if feature != "" {
-		count++
-	}
-	if task != "" {
-		count++
-	}
-
+	count := boolInt(epic != "") + boolInt(feature != "") + boolInt(task != "")
 	if count != 1 {
 		_ = cmd.Usage()
 		return nil
 	}
 
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	return dispatchAddDoc(cmd.Context(), epic, feature, task, title, path)
+}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+// boolInt converts a bool to 0 or 1.
+func boolInt(b bool) int {
+	if b {
+		return 1
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
+	return 0
+}
 
-	// Wrap database with repository.DB
-	dbWrapper := repoDb
-	docRepo := repository.NewDocumentRepository(dbWrapper)
-	epicRepo := repository.NewEpicRepository(dbWrapper)
-	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-
-	// Handle epic parent
-	if epic != "" {
-		e, err := epicRepo.GetByKey(ctx, epic)
-		if err != nil {
-			return fmt.Errorf("epic not found: %w", err)
+// printDocLinked outputs the result of linking a document (JSON or human-readable).
+func printDocLinked(title, path, entityType, parentKey string, docID int64) error {
+	if cli.GlobalConfig.JSON {
+		out := map[string]interface{}{
+			"title": title, "path": path, "linked_to": entityType, "parent_key": parentKey,
 		}
-
-		doc, err := docRepo.CreateOrGet(ctx, title, path)
-		if err != nil {
-			return fmt.Errorf("failed to create or get document: %w", err)
+		if docID != 0 {
+			out["document_id"] = docID
 		}
-
-		if err := docRepo.LinkToEpic(ctx, e.ID, doc.ID); err != nil {
-			return fmt.Errorf("failed to link document to epic: %w", err)
-		}
-
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"document_id": doc.ID,
-				"title":       doc.Title,
-				"path":        doc.FilePath,
-				"linked_to":   "epic",
-				"parent_key":  epic,
-			})
-		}
-
-		fmt.Printf("Document linked to epic %s\n", epic)
-		return nil
+		return cli.OutputJSON(out)
 	}
-
-	// Handle feature parent
-	if feature != "" {
-		f, err := featureRepo.GetByKey(ctx, feature)
-		if err != nil {
-			return fmt.Errorf("feature not found: %w", err)
-		}
-
-		doc, err := docRepo.CreateOrGet(ctx, title, path)
-		if err != nil {
-			return fmt.Errorf("failed to create or get document: %w", err)
-		}
-
-		if err := docRepo.LinkToFeature(ctx, f.ID, doc.ID); err != nil {
-			return fmt.Errorf("failed to link document to feature: %w", err)
-		}
-
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"document_id": doc.ID,
-				"title":       doc.Title,
-				"path":        doc.FilePath,
-				"linked_to":   "feature",
-				"parent_key":  feature,
-			})
-		}
-
-		fmt.Printf("Document linked to feature %s\n", feature)
-		return nil
-	}
-
-	// Handle task parent
-	if task != "" {
-		t, err := taskRepo.GetByKey(ctx, task)
-		if err != nil {
-			return fmt.Errorf("task not found: %w", err)
-		}
-
-		doc, err := docRepo.CreateOrGet(ctx, title, path)
-		if err != nil {
-			return fmt.Errorf("failed to create or get document: %w", err)
-		}
-
-		if err := docRepo.LinkToTask(ctx, t.ID, doc.ID); err != nil {
-			return fmt.Errorf("failed to link document to task: %w", err)
-		}
-
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"document_id": doc.ID,
-				"title":       doc.Title,
-				"path":        doc.FilePath,
-				"linked_to":   "task",
-				"parent_key":  task,
-			})
-		}
-
-		fmt.Printf("Document linked to task %s\n", task)
-		return nil
-	}
-
+	fmt.Printf("Document linked to %s %s\n", entityType, parentKey)
 	return nil
 }
 
 // runRelatedDocsDelete handles deleting a document link
 func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	title := args[0]
-
 	epic, _ := cmd.Flags().GetString("epic")
 	feature, _ := cmd.Flags().GetString("feature")
 	task, _ := cmd.Flags().GetString("task")
+	ctx := cmd.Context()
 
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	// Wrap database with repository.DB
-	dbWrapper := repoDb
-	docRepo := repository.NewDocumentRepository(dbWrapper)
-	epicRepo := repository.NewEpicRepository(dbWrapper)
-	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-
-	// Handle epic parent
 	if epic != "" {
-		e, err := epicRepo.GetByKey(ctx, epic)
-		if err != nil {
-			// Epic doesn't exist, but delete is idempotent - succeed anyway
-			if cli.GlobalConfig.JSON {
-				return cli.OutputJSON(map[string]interface{}{
-					"status": "unlinked",
-					"parent": "epic",
-				})
-			}
-			return nil
-		}
-
-		// Look up the document by title
-		doc, err := docRepo.GetByTitle(ctx, title)
-		if err == nil {
-			// Document exists, actually perform the unlinking
-			if err := docRepo.UnlinkFromEpic(ctx, e.ID, doc.ID); err != nil {
-				return fmt.Errorf("failed to unlink document: %w", err)
-			}
-		}
-		// If document doesn't exist, delete is idempotent - succeed anyway
-
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"status": "unlinked",
-				"title":  title,
-				"parent": "epic",
-			})
-		}
-
-		fmt.Printf("Document unlinked from epic %s\n", epic)
-		return nil
+		// Idempotent: ignore "not found" errors
+		_ = cli.GetEpicService().UnlinkDocument(ctx, epic, title)
+		return printDocUnlinked(title, "epic", epic)
 	}
-
-	// Handle feature parent
 	if feature != "" {
-		f, err := featureRepo.GetByKey(ctx, feature)
-		if err != nil {
-			// Feature doesn't exist, but delete is idempotent - succeed anyway
-			if cli.GlobalConfig.JSON {
-				return cli.OutputJSON(map[string]interface{}{
-					"status": "unlinked",
-					"parent": "feature",
-				})
-			}
-			return nil
-		}
-
-		// Look up the document by title
-		doc, err := docRepo.GetByTitle(ctx, title)
-		if err == nil {
-			// Document exists, actually perform the unlinking
-			if err := docRepo.UnlinkFromFeature(ctx, f.ID, doc.ID); err != nil {
-				return fmt.Errorf("failed to unlink document: %w", err)
-			}
-		}
-		// If document doesn't exist, delete is idempotent - succeed anyway
-
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"status": "unlinked",
-				"title":  title,
-				"parent": "feature",
-			})
-		}
-
-		fmt.Printf("Document unlinked from feature %s\n", feature)
-		return nil
+		_ = cli.GetFeatureService().UnlinkDocument(ctx, feature, title)
+		return printDocUnlinked(title, "feature", feature)
 	}
-
-	// Handle task parent
 	if task != "" {
-		t, err := taskRepo.GetByKey(ctx, task)
-		if err != nil {
-			// Task doesn't exist, but delete is idempotent - succeed anyway
-			if cli.GlobalConfig.JSON {
-				return cli.OutputJSON(map[string]interface{}{
-					"status": "unlinked",
-					"parent": "task",
-				})
-			}
-			return nil
-		}
-
-		// Look up the document by title
-		doc, err := docRepo.GetByTitle(ctx, title)
-		if err == nil {
-			// Document exists, actually perform the unlinking
-			if err := docRepo.UnlinkFromTask(ctx, t.ID, doc.ID); err != nil {
-				return fmt.Errorf("failed to unlink document: %w", err)
-			}
-		}
-		// If document doesn't exist, delete is idempotent - succeed anyway
-
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"status": "unlinked",
-				"title":  title,
-				"parent": "task",
-			})
-		}
-
-		fmt.Printf("Document unlinked from task %s\n", task)
-		return nil
+		_ = cli.GetTaskServiceWithDeps().UnlinkDocument(ctx, task, title)
+		return printDocUnlinked(title, "task", task)
 	}
 
 	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(map[string]interface{}{"status": "unlinked", "title": title})
+	}
+	return nil
+}
+
+// printDocUnlinked outputs the result of unlinking a document.
+func printDocUnlinked(title, entityType, parentKey string) error {
+	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"status": "unlinked",
-			"title":  title,
+			"status": "unlinked", "title": title, "parent": entityType,
 		})
 	}
-
+	fmt.Printf("Document unlinked from %s %s\n", entityType, parentKey)
 	return nil
+}
+
+// dispatchListDocs fetches related documents for the first non-empty entity key.
+func dispatchListDocs(ctx context.Context, epic, feature, task string) ([]*models.Document, error) {
+	if epic != "" {
+		docs, err := cli.GetEpicService().ListRelatedDocumentsByKey(ctx, epic)
+		if err != nil {
+			return nil, fmt.Errorf("epic not found: %w", err)
+		}
+		return docs, nil
+	}
+	if feature != "" {
+		docs, err := cli.GetFeatureService().ListRelatedDocumentsByKey(ctx, feature)
+		if err != nil {
+			return nil, fmt.Errorf("feature not found: %w", err)
+		}
+		return docs, nil
+	}
+	docs, err := cli.GetTaskServiceWithDeps().ListRelatedDocuments(ctx, task)
+	if err != nil {
+		return nil, fmt.Errorf("task not found: %w", err)
+	}
+	return docs, nil
 }
 
 // runRelatedDocsListList handles listing documents
@@ -360,78 +199,32 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 	feature, _ := cmd.Flags().GetString("feature")
 	task, _ := cmd.Flags().GetString("task")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
+	useJSON := jsonOutput || cli.GlobalConfig.JSON
 
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	// Wrap database with repository.DB
-	dbWrapper := repoDb
-	docRepo := repository.NewDocumentRepository(dbWrapper)
-	epicRepo := repository.NewEpicRepository(dbWrapper)
-	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-
-	var docs []*models.Document
-
-	// Handle epic parent
-	if epic != "" {
-		e, err := epicRepo.GetByKey(ctx, epic)
-		if err != nil {
-			return fmt.Errorf("epic not found: %w", err)
-		}
-
-		docs, err = docRepo.ListForEpic(ctx, e.ID)
-		if err != nil {
-			return fmt.Errorf("failed to list documents for epic: %w", err)
-		}
-	} else if feature != "" {
-		f, err := featureRepo.GetByKey(ctx, feature)
-		if err != nil {
-			return fmt.Errorf("feature not found: %w", err)
-		}
-
-		docs, err = docRepo.ListForFeature(ctx, f.ID)
-		if err != nil {
-			return fmt.Errorf("failed to list documents for feature: %w", err)
-		}
-	} else if task != "" {
-		t, err := taskRepo.GetByKey(ctx, task)
-		if err != nil {
-			return fmt.Errorf("task not found: %w", err)
-		}
-
-		docs, err = docRepo.ListForTask(ctx, t.ID)
-		if err != nil {
-			return fmt.Errorf("failed to list documents for task: %w", err)
-		}
-	} else {
+	if epic == "" && feature == "" && task == "" {
 		return fmt.Errorf("one of --epic, --feature, or --task must be specified")
 	}
 
-	// Output results
-	if jsonOutput || cli.GlobalConfig.JSON {
+	docs, err := dispatchListDocs(cmd.Context(), epic, feature, task)
+	if err != nil {
+		return err
+	}
+	return printRelatedDocs(docs, useJSON)
+}
+
+// printRelatedDocs outputs a list of related documents.
+func printRelatedDocs(docs []*models.Document, useJSON bool) error {
+	if useJSON {
 		return cli.OutputJSON(docs)
 	}
-
-	// Human-readable output
 	if len(docs) == 0 {
 		fmt.Println("No documents found")
 		return nil
 	}
-
 	fmt.Println("Related Documents:")
 	for _, doc := range docs {
 		fmt.Printf("  - %s (%s)\n", doc.Title, doc.FilePath)
 	}
-
 	return nil
 }
 

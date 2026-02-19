@@ -183,12 +183,7 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		handleServiceError(err, "feature", "")
-		return nil
-	}
-	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, repoDb, epicFilter, statusFilter, showAll)
+	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll)
 	if err != nil {
 		handleServiceError(err, "feature", "")
 		return nil
@@ -211,9 +206,9 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 	sortFeatures(featuresWithTaskCount, sortBy)
 
 	if cli.GlobalConfig.JSON {
-		return outputFeatureListJSON(ctx, featuresWithTaskCount, repoDb)
+		return outputFeatureListJSON(ctx, featuresWithTaskCount)
 	}
-	renderFeatureListTable(featuresWithTaskCount, epicFilter, ctx, repoDb)
+	renderFeatureListTable(featuresWithTaskCount, epicFilter, ctx)
 	return nil
 }
 

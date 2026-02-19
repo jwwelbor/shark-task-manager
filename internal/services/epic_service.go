@@ -28,9 +28,12 @@ type EpicRepository interface {
 	UpdateFilePath(ctx context.Context, epicKey string, newFilePath *string) error
 	UpdateKey(ctx context.Context, oldKey string, newKey string) error
 	GetFeatureProgressDataByEpic(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error)
+	GetFeatureStatusBreakdown(ctx context.Context, epicID int64) (map[models.FeatureStatus]int, error)
 	GetFeatureStatusBreakdownByKey(ctx context.Context, epicKey string) (map[models.FeatureStatus]int, error)
 	GetFeatureStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
 	GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
+	UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error
+	CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error
 }
 
 // EpicTaskLister defines the task repository interface needed by EpicService
@@ -48,6 +51,17 @@ type EpicNoteRepository interface {
 		historyID int64, fromStatus, toStatus, reason, rejectedBy, documentPath string) error
 }
 
+// EpicWritableDocumentRepository defines the writable interface for document linking on epics.
+// This interface is satisfied by *repository.DocumentRepository.
+// The existing config.DocumentRepository only exposes read-only List methods; this interface
+// adds the write operations needed by LinkDocument and UnlinkDocument.
+type EpicWritableDocumentRepository interface {
+	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
+	GetByTitle(ctx context.Context, title string) (*models.Document, error)
+	LinkToEpic(ctx context.Context, epicID, documentID int64) error
+	UnlinkFromEpic(ctx context.Context, epicID, documentID int64) error
+}
+
 // EpicFeatureCounter defines the feature counting interface needed by EpicService
 // to count child features for backward transition warnings and epic completion.
 type EpicFeatureCounter interface {
@@ -59,13 +73,14 @@ type EpicFeatureCounter interface {
 
 // EpicService provides business logic for epic operations.
 type EpicService struct {
-	repo        EpicRepository
-	workflowSvc *workflow.Service
-	noteRepo    EpicNoteRepository
-	featureRepo EpicFeatureCounter
-	taskRepo    EpicTaskLister
-	docRepo     config.DocumentRepository
-	relRepo     config.EpicRelationshipRepository
+	repo            EpicRepository
+	workflowSvc     *workflow.Service
+	noteRepo        EpicNoteRepository
+	featureRepo     EpicFeatureCounter
+	taskRepo        EpicTaskLister
+	docRepo         config.DocumentRepository
+	relRepo         config.EpicRelationshipRepository
+	writableDocRepo EpicWritableDocumentRepository
 }
 
 // NewEpicService creates a new EpicService.
@@ -121,6 +136,89 @@ func NewEpicServiceWithRelationships(repo EpicRepository, workflowSvc *workflow.
 // but the caller needs document lookup functionality (e.g., GetRelatedDocuments).
 func (s *EpicService) SetDocRepo(docRepo config.DocumentRepository) {
 	s.docRepo = docRepo
+}
+
+// SetWritableDocRepo sets the writable document repository on the service.
+// This enables LinkDocument and UnlinkDocument operations on epics.
+// The *repository.DocumentRepository type satisfies the EpicWritableDocumentRepository interface.
+func (s *EpicService) SetWritableDocRepo(docRepo EpicWritableDocumentRepository) {
+	s.writableDocRepo = docRepo
+}
+
+// LinkDocument creates or retrieves a document by its title and file path, then links it to an epic.
+// If the document already exists, it is reused (no duplicate created).
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - epicKey: the epic key (e.g., "E07")
+//   - docTitle: the title of the document to link
+//   - docPath: the file path of the document
+//
+// Returns:
+//   - error: EpicNotFoundError if epic not found, or repository errors
+//
+// Errors:
+//   - writable document repository not configured
+//   - epic not found
+//   - repository operation failed
+func (s *EpicService) LinkDocument(ctx context.Context, epicKey, docTitle, docPath string) error {
+	if s.writableDocRepo == nil {
+		return fmt.Errorf("writable document repository not configured")
+	}
+
+	epic, err := s.repo.GetByKey(ctx, epicKey)
+	if err != nil {
+		return fmt.Errorf("epic not found: %w", err)
+	}
+
+	doc, err := s.writableDocRepo.CreateOrGet(ctx, docTitle, docPath)
+	if err != nil {
+		return fmt.Errorf("failed to create or get document: %w", err)
+	}
+
+	if err := s.writableDocRepo.LinkToEpic(ctx, epic.ID, doc.ID); err != nil {
+		return fmt.Errorf("failed to link document to epic %s: %w", epicKey, err)
+	}
+
+	return nil
+}
+
+// UnlinkDocument removes a document link from an epic by document title.
+// If the document does not exist, it returns an error.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - epicKey: the epic key (e.g., "E07")
+//   - docTitle: the title of the document to unlink
+//
+// Returns:
+//   - error: EpicNotFoundError if epic not found, or repository errors
+//
+// Errors:
+//   - writable document repository not configured
+//   - epic not found
+//   - document not found
+//   - repository operation failed
+func (s *EpicService) UnlinkDocument(ctx context.Context, epicKey, docTitle string) error {
+	if s.writableDocRepo == nil {
+		return fmt.Errorf("writable document repository not configured")
+	}
+
+	epic, err := s.repo.GetByKey(ctx, epicKey)
+	if err != nil {
+		return fmt.Errorf("epic not found: %w", err)
+	}
+
+	doc, err := s.writableDocRepo.GetByTitle(ctx, docTitle)
+	if err != nil {
+		return fmt.Errorf("document not found: %w", err)
+	}
+
+	if err := s.writableDocRepo.UnlinkFromEpic(ctx, epic.ID, doc.ID); err != nil {
+		return fmt.Errorf("failed to unlink document from epic %s: %w", epicKey, err)
+	}
+
+	return nil
 }
 
 // TransitionStatus validates and performs a status transition on an epic.
@@ -484,6 +582,16 @@ func (s *EpicService) GetRelatedDocuments(ctx context.Context, epicID int64) ([]
 		return []*models.Document{}, nil
 	}
 	return docs, nil
+}
+
+// ListRelatedDocumentsByKey returns the documents associated with an epic identified by key.
+// Degrades gracefully if docRepo is nil (returns empty slice).
+func (s *EpicService) ListRelatedDocumentsByKey(ctx context.Context, epicKey string) ([]*models.Document, error) {
+	epic, err := s.repo.GetByKey(ctx, epicKey)
+	if err != nil {
+		return nil, fmt.Errorf("epic not found: %w", err)
+	}
+	return s.GetRelatedDocuments(ctx, epic.ID)
 }
 
 // GetHealth analyzes the health of an epic based on blocked tasks and feature status.
@@ -883,6 +991,101 @@ func (s *EpicService) GetFeatures(ctx context.Context, epicKey string) ([]*model
 		return nil, nil
 	}
 	return s.featureRepo.ListByEpic(ctx, epic.ID)
+}
+
+// RecalculateStatus recalculates and persists the derived status for an epic
+// based on the statuses of its child features.
+//
+// Returns the previous and new status values. If the status did not change
+// or if the epic is in planning mode, the result reflects that without error.
+func (s *EpicService) RecalculateStatus(ctx context.Context, epicID int64) (*EpicRecalcResult, error) {
+	epic, err := s.repo.GetByID(ctx, epicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic for status recalculation: %w", err)
+	}
+	if epic == nil {
+		return nil, fmt.Errorf("epic not found for ID %d", epicID)
+	}
+
+	featureCounts, err := s.repo.GetFeatureStatusBreakdown(ctx, epicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature status breakdown for epic %s: %w", epic.Key, err)
+	}
+
+	// Derive new status from feature breakdown
+	newStatus := deriveEpicStatusFromFeatures(featureCounts, epic.Status)
+	previousStatus := string(epic.Status)
+
+	result := &EpicRecalcResult{
+		EpicKey:        epic.Key,
+		PreviousStatus: previousStatus,
+		NewStatus:      string(newStatus),
+		WasChanged:     string(newStatus) != previousStatus,
+	}
+
+	if result.WasChanged {
+		if err := s.repo.UpdateStatus(ctx, epicID, newStatus); err != nil {
+			return nil, fmt.Errorf("failed to update epic %s status: %w", epic.Key, err)
+		}
+	}
+
+	return result, nil
+}
+
+// deriveEpicStatusFromFeatures determines the appropriate epic status based on
+// the breakdown of child feature statuses. This mirrors the logic used by the
+// status.CalculationService but operates without that package dependency.
+//
+// Rules:
+//   - No features → keep current status
+//   - All completed/archived → completed
+//   - Any active → active
+//   - Otherwise → draft
+func deriveEpicStatusFromFeatures(featureCounts map[models.FeatureStatus]int, current models.EpicStatus) models.EpicStatus {
+	total := 0
+	for _, count := range featureCounts {
+		total += count
+	}
+	if total == 0 {
+		return current
+	}
+
+	completed := featureCounts[models.FeatureStatusCompleted] + featureCounts[models.FeatureStatusArchived]
+	if completed == total {
+		return models.EpicStatusCompleted
+	}
+
+	active := featureCounts[models.FeatureStatusActive]
+	if active > 0 {
+		return models.EpicStatusActive
+	}
+
+	return models.EpicStatusDraft
+}
+
+// CascadeStatusToFeaturesAndTasks cascades a status change from this epic to all
+// child features and their tasks. This is used when force-completing an epic via
+// the --status=completed --force flags.
+func (s *EpicService) CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, featureStatus models.FeatureStatus, taskStatus models.TaskStatus) error {
+	if err := s.repo.CascadeStatusToFeaturesAndTasks(ctx, epicID, featureStatus, taskStatus); err != nil {
+		return fmt.Errorf("failed to cascade status to features and tasks for epic ID %d: %w", epicID, err)
+	}
+	return nil
+}
+
+// RenameKey updates the key of an existing epic.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - oldKey: current epic key (e.g., "E07")
+//   - newKey: desired new epic key (e.g., "E08")
+//
+// Returns an error if the old key does not exist or if the update fails.
+func (s *EpicService) RenameKey(ctx context.Context, oldKey, newKey string) error {
+	if err := s.repo.UpdateKey(ctx, oldKey, newKey); err != nil {
+		return fmt.Errorf("failed to rename epic key from %s to %s: %w", oldKey, newKey, err)
+	}
+	return nil
 }
 
 // ResolveEpicPath returns the relative file path for an epic's planning document.

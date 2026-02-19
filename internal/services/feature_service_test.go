@@ -25,6 +25,11 @@ type mockFeatureRepo struct {
 	listByEpicFn             func(ctx context.Context, epicID int64) ([]*models.Feature, error)
 	getTaskStatusBreakdownFn func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
 	cascadeStatusToTasksFn   func(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error
+	updateKeyFn              func(ctx context.Context, oldKey string, newKey string) error
+	getTaskCountFn           func(ctx context.Context, featureID int64) (int, error)
+	setStatusOverrideFn      func(ctx context.Context, featureID int64, override bool) error
+	updateFilePathFn         func(ctx context.Context, featureKey string, newFilePath *string) error
+	getByFilePathFn          func(ctx context.Context, filePath string) (*models.Feature, error)
 }
 
 // mockFeatureEpicLookup implements FeatureEpicLookup for testing.
@@ -112,10 +117,16 @@ func (m *mockFeatureRepo) Delete(ctx context.Context, id int64) error {
 }
 
 func (m *mockFeatureRepo) GetByFilePath(ctx context.Context, filePath string) (*models.Feature, error) {
+	if m.getByFilePathFn != nil {
+		return m.getByFilePathFn(ctx, filePath)
+	}
 	return nil, nil
 }
 
 func (m *mockFeatureRepo) UpdateFilePath(ctx context.Context, featureKey string, newFilePath *string) error {
+	if m.updateFilePathFn != nil {
+		return m.updateFilePathFn(ctx, featureKey, newFilePath)
+	}
 	return nil
 }
 
@@ -124,14 +135,23 @@ func (m *mockFeatureRepo) ListByEpicAndStatus(ctx context.Context, epicID int64,
 }
 
 func (m *mockFeatureRepo) UpdateKey(ctx context.Context, oldKey string, newKey string) error {
+	if m.updateKeyFn != nil {
+		return m.updateKeyFn(ctx, oldKey, newKey)
+	}
 	return nil
 }
 
 func (m *mockFeatureRepo) GetTaskCount(ctx context.Context, featureID int64) (int, error) {
+	if m.getTaskCountFn != nil {
+		return m.getTaskCountFn(ctx, featureID)
+	}
 	return 0, nil
 }
 
 func (m *mockFeatureRepo) SetStatusOverride(ctx context.Context, featureID int64, override bool) error {
+	if m.setStatusOverrideFn != nil {
+		return m.setStatusOverrideFn(ctx, featureID, override)
+	}
 	return nil
 }
 
@@ -2039,5 +2059,1003 @@ func TestFeatureService_CascadeFeatureStatusToTasks_ZeroTasks(t *testing.T) {
 	}
 	if !cascadeCalled {
 		t.Error("expected CascadeStatusToTasks to be called even for zero tasks")
+	}
+}
+
+// ============================================================================
+// MockFeatureWritableDocumentRepository
+// ============================================================================
+
+// mockFeatureWritableDocRepo implements FeatureWritableDocumentRepository for testing.
+type mockFeatureWritableDocRepo struct {
+	createOrGetFn       func(ctx context.Context, title, filePath string) (*models.Document, error)
+	getByTitleFn        func(ctx context.Context, title string) (*models.Document, error)
+	linkToFeatureFn     func(ctx context.Context, featureID, documentID int64) error
+	unlinkFromFeatureFn func(ctx context.Context, featureID, documentID int64) error
+}
+
+func (m *mockFeatureWritableDocRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
+	if m.createOrGetFn != nil {
+		return m.createOrGetFn(ctx, title, filePath)
+	}
+	return nil, fmt.Errorf("CreateOrGet not implemented in mockFeatureWritableDocRepo")
+}
+
+func (m *mockFeatureWritableDocRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
+	if m.getByTitleFn != nil {
+		return m.getByTitleFn(ctx, title)
+	}
+	return nil, fmt.Errorf("GetByTitle not implemented in mockFeatureWritableDocRepo")
+}
+
+func (m *mockFeatureWritableDocRepo) LinkToFeature(ctx context.Context, featureID, documentID int64) error {
+	if m.linkToFeatureFn != nil {
+		return m.linkToFeatureFn(ctx, featureID, documentID)
+	}
+	return fmt.Errorf("LinkToFeature not implemented in mockFeatureWritableDocRepo")
+}
+
+func (m *mockFeatureWritableDocRepo) UnlinkFromFeature(ctx context.Context, featureID, documentID int64) error {
+	if m.unlinkFromFeatureFn != nil {
+		return m.unlinkFromFeatureFn(ctx, featureID, documentID)
+	}
+	return fmt.Errorf("UnlinkFromFeature not implemented in mockFeatureWritableDocRepo")
+}
+
+// ============================================================================
+// FeatureService.LinkDocument Tests
+// ============================================================================
+
+func TestFeatureService_LinkDocument_Happy_Path(t *testing.T) {
+	var capturedFeatureID, capturedDocID int64
+
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E07-F01"}, nil
+		},
+	}
+
+	docRepo := &mockFeatureWritableDocRepo{
+		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
+			if title != "API Spec" {
+				t.Errorf("expected title 'API Spec', got %q", title)
+			}
+			if filePath != "docs/api-spec.md" {
+				t.Errorf("expected filePath 'docs/api-spec.md', got %q", filePath)
+			}
+			return &models.Document{ID: 55, Title: title, FilePath: filePath}, nil
+		},
+		linkToFeatureFn: func(ctx context.Context, featureID, documentID int64) error {
+			capturedFeatureID = featureID
+			capturedDocID = documentID
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetWritableDocRepo(docRepo)
+
+	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if capturedFeatureID != 1 {
+		t.Errorf("expected feature ID 1, got %d", capturedFeatureID)
+	}
+	if capturedDocID != 55 {
+		t.Errorf("expected doc ID 55, got %d", capturedDocID)
+	}
+}
+
+func TestFeatureService_LinkDocument_NoWritableDocRepo(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	// writableDocRepo not set
+
+	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "writable document repository not configured") {
+		t.Errorf("expected error to contain 'writable document repository not configured', got: %v", err)
+	}
+}
+
+func TestFeatureService_LinkDocument_FeatureNotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, fmt.Errorf("feature not found")
+		},
+	}
+
+	docRepo := &mockFeatureWritableDocRepo{}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetWritableDocRepo(docRepo)
+
+	err := svc.LinkDocument(context.Background(), "E07-F99", "API Spec", "docs/api-spec.md")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "feature not found") {
+		t.Errorf("expected error to contain 'feature not found', got: %v", err)
+	}
+}
+
+func TestFeatureService_LinkDocument_CreateOrGetError(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E07-F01"}, nil
+		},
+	}
+
+	docRepo := &mockFeatureWritableDocRepo{
+		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
+			return nil, fmt.Errorf("database error")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetWritableDocRepo(docRepo)
+
+	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to create or get document") {
+		t.Errorf("expected error to contain 'failed to create or get document', got: %v", err)
+	}
+}
+
+func TestFeatureService_LinkDocument_LinkError(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E07-F01"}, nil
+		},
+	}
+
+	docRepo := &mockFeatureWritableDocRepo{
+		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
+			return &models.Document{ID: 55, Title: title}, nil
+		},
+		linkToFeatureFn: func(ctx context.Context, featureID, documentID int64) error {
+			return fmt.Errorf("link failed")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetWritableDocRepo(docRepo)
+
+	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to link document to feature") {
+		t.Errorf("expected error to contain 'failed to link document to feature', got: %v", err)
+	}
+}
+
+// ============================================================================
+// FeatureService.UnlinkDocument Tests
+// ============================================================================
+
+func TestFeatureService_UnlinkDocument_Happy_Path(t *testing.T) {
+	var capturedFeatureID, capturedDocID int64
+
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E07-F01"}, nil
+		},
+	}
+
+	docRepo := &mockFeatureWritableDocRepo{
+		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
+			if title != "API Spec" {
+				t.Errorf("expected title 'API Spec', got %q", title)
+			}
+			return &models.Document{ID: 55, Title: title}, nil
+		},
+		unlinkFromFeatureFn: func(ctx context.Context, featureID, documentID int64) error {
+			capturedFeatureID = featureID
+			capturedDocID = documentID
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetWritableDocRepo(docRepo)
+
+	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if capturedFeatureID != 1 {
+		t.Errorf("expected feature ID 1, got %d", capturedFeatureID)
+	}
+	if capturedDocID != 55 {
+		t.Errorf("expected doc ID 55, got %d", capturedDocID)
+	}
+}
+
+func TestFeatureService_UnlinkDocument_NoWritableDocRepo(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "writable document repository not configured") {
+		t.Errorf("expected error to contain 'writable document repository not configured', got: %v", err)
+	}
+}
+
+func TestFeatureService_UnlinkDocument_FeatureNotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, fmt.Errorf("feature not found")
+		},
+	}
+
+	docRepo := &mockFeatureWritableDocRepo{}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetWritableDocRepo(docRepo)
+
+	err := svc.UnlinkDocument(context.Background(), "E07-F99", "API Spec")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "feature not found") {
+		t.Errorf("expected error to contain 'feature not found', got: %v", err)
+	}
+}
+
+func TestFeatureService_UnlinkDocument_DocumentNotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E07-F01"}, nil
+		},
+	}
+
+	docRepo := &mockFeatureWritableDocRepo{
+		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
+			return nil, fmt.Errorf("document not found")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetWritableDocRepo(docRepo)
+
+	err := svc.UnlinkDocument(context.Background(), "E07-F01", "Missing Doc")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "document not found") {
+		t.Errorf("expected error to contain 'document not found', got: %v", err)
+	}
+}
+
+func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: "E07-F01"}, nil
+		},
+	}
+
+	docRepo := &mockFeatureWritableDocRepo{
+		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
+			return &models.Document{ID: 55, Title: title}, nil
+		},
+		unlinkFromFeatureFn: func(ctx context.Context, featureID, documentID int64) error {
+			return fmt.Errorf("unlink failed")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetWritableDocRepo(docRepo)
+
+	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to unlink document from feature") {
+		t.Errorf("expected error to contain 'failed to unlink document from feature', got: %v", err)
+	}
+}
+
+// mockDocumentRepository implements DocumentRepository (read-only) for testing.
+type mockDocumentRepository struct {
+	listForFeatureFn func(ctx context.Context, featureID int64) ([]*models.Document, error)
+}
+
+func (m *mockDocumentRepository) ListForTask(ctx context.Context, taskID int64) ([]*models.Document, error) {
+	return nil, nil
+}
+
+func (m *mockDocumentRepository) ListForFeature(ctx context.Context, featureID int64) ([]*models.Document, error) {
+	if m.listForFeatureFn != nil {
+		return m.listForFeatureFn(ctx, featureID)
+	}
+	return nil, nil
+}
+
+func (m *mockDocumentRepository) ListForEpic(ctx context.Context, epicID int64) ([]*models.Document, error) {
+	return nil, nil
+}
+
+// TestFeatureService_NewFeatureServiceWithRelationships verifies the constructor
+// properly wires all optional repository dependencies.
+func TestFeatureService_NewFeatureServiceWithRelationships(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	workflowSvc := newTestFeatureWorkflowService()
+	docRepo := &mockDocumentRepository{
+		listForFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Document, error) {
+			return []*models.Document{}, nil
+		},
+	}
+
+	svc := NewFeatureServiceWithRelationships(repo, workflowSvc, nil, nil, docRepo, nil, nil)
+
+	if svc == nil {
+		t.Fatal("expected non-nil service")
+	}
+	// Verify docRepo was wired (ListRelatedDocuments will call the docRepo without error)
+	docs, err := svc.ListRelatedDocuments(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	// docRepo was called (not nil path), so result is non-nil empty slice
+	if docs == nil {
+		t.Error("expected non-nil slice from docRepo (even if empty)")
+	}
+}
+
+func TestFeatureService_GetTaskCount_Success(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getTaskCountFn: func(ctx context.Context, featureID int64) (int, error) {
+			if featureID != 42 {
+				t.Errorf("expected featureID 42, got %d", featureID)
+			}
+			return 7, nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	count, err := svc.GetTaskCount(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if count != 7 {
+		t.Errorf("expected count 7, got %d", count)
+	}
+}
+
+func TestFeatureService_GetTaskCount_Error(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getTaskCountFn: func(ctx context.Context, featureID int64) (int, error) {
+			return 0, fmt.Errorf("db error")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetTaskCount(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get task count") {
+		t.Errorf("expected error to contain 'failed to get task count', got: %v", err)
+	}
+}
+
+func TestFeatureService_GetStatusBreakdownBatch_NilTaskRepo(t *testing.T) {
+	repo := &mockFeatureRepo{}
+
+	// No taskRepo passed → graceful degradation
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	result, err := svc.GetStatusBreakdownBatch(context.Background(), []int64{1, 2})
+	if err != nil {
+		t.Fatalf("expected no error with nil taskRepo, got: %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil result with nil taskRepo, got: %v", result)
+	}
+}
+
+// mockFeatureTaskCounterWithBatch is a local variant that supports
+// configurable GetStatusBreakdownMapBatch for TestFeatureService_GetStatusBreakdownBatch_WithTaskRepo.
+type mockFeatureTaskCounterWithBatch struct {
+	listByFeatureFn              func(ctx context.Context, featureID int64) ([]*models.Task, error)
+	getStatusBreakdownMapBatchFn func(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error)
+}
+
+func (m *mockFeatureTaskCounterWithBatch) ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error) {
+	if m.listByFeatureFn != nil {
+		return m.listByFeatureFn(ctx, featureID)
+	}
+	return nil, nil
+}
+
+func (m *mockFeatureTaskCounterWithBatch) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+	return nil
+}
+
+func (m *mockFeatureTaskCounterWithBatch) GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error) {
+	if m.getStatusBreakdownMapBatchFn != nil {
+		return m.getStatusBreakdownMapBatchFn(ctx, featureIDs)
+	}
+	return nil, nil
+}
+
+func TestFeatureService_GetStatusBreakdownBatch_WithTaskRepo(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	taskRepo := &mockFeatureTaskCounterWithBatch{
+		getStatusBreakdownMapBatchFn: func(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error) {
+			result := map[int64]map[models.TaskStatus]int{
+				1: {models.TaskStatus("todo"): 3},
+			}
+			return result, nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
+
+	result, err := svc.GetStatusBreakdownBatch(context.Background(), []int64{1})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result[1][models.TaskStatus("todo")] != 3 {
+		t.Errorf("expected 3 todo tasks for feature 1, got %d", result[1][models.TaskStatus("todo")])
+	}
+}
+
+func TestFeatureService_UpdateFeatureKey_Success(t *testing.T) {
+	callCount := 0
+	repo := &mockFeatureRepo{
+		// GetByKey called to check if newKey exists - return error (not found)
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			if key == "E07-F02" {
+				return nil, fmt.Errorf("not found")
+			}
+			return nil, fmt.Errorf("unexpected key: %s", key)
+		},
+		updateKeyFn: func(ctx context.Context, oldKey string, newKey string) error {
+			callCount++
+			if oldKey != "E07-F01" {
+				t.Errorf("expected oldKey 'E07-F01', got %q", oldKey)
+			}
+			if newKey != "E07-F02" {
+				t.Errorf("expected newKey 'E07-F02', got %q", newKey)
+			}
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.UpdateFeatureKey(context.Background(), "E07-F01", "E07-F02")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("expected UpdateKey called once, got %d", callCount)
+	}
+}
+
+func TestFeatureService_UpdateFeatureKey_KeyAlreadyExists(t *testing.T) {
+	repo := &mockFeatureRepo{
+		// GetByKey for newKey returns an existing feature (key collision)
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			if key == "E07-F02" {
+				return &models.Feature{ID: 99, Key: "E07-F02"}, nil
+			}
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.UpdateFeatureKey(context.Background(), "E07-F01", "E07-F02")
+	if err == nil {
+		t.Fatal("expected error for key collision, got nil")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("expected error to contain 'already exists', got: %v", err)
+	}
+}
+
+func TestFeatureService_SetFeatureStatusOverride_Success(t *testing.T) {
+	callCount := 0
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 5, Key: key}, nil
+		},
+		setStatusOverrideFn: func(ctx context.Context, featureID int64, override bool) error {
+			callCount++
+			if featureID != 5 {
+				t.Errorf("expected featureID 5, got %d", featureID)
+			}
+			if !override {
+				t.Errorf("expected override=true")
+			}
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.SetFeatureStatusOverride(context.Background(), "E07-F01", true)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("expected SetStatusOverride called once, got %d", callCount)
+	}
+}
+
+func TestFeatureService_SetFeatureStatusOverride_FeatureNotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.SetFeatureStatusOverride(context.Background(), "E07-F99", false)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("expected error to contain 'does not exist', got: %v", err)
+	}
+}
+
+func TestFeatureService_ResolveFeaturePath_StoredFilePath(t *testing.T) {
+	storedPath := "docs/custom/E07-F01/feature.md"
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 1, Key: key, FilePath: &storedPath}, nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	path := svc.ResolveFeaturePath(context.Background(), "E07-F01", "/project/root")
+	if path != storedPath {
+		t.Errorf("expected %q, got %q", storedPath, path)
+	}
+}
+
+func TestFeatureService_ResolveFeaturePath_DefaultPath(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			// No FilePath set
+			return &models.Feature{ID: 1, Key: key, FilePath: nil}, nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	path := svc.ResolveFeaturePath(context.Background(), "E07-F01", "/project/root")
+	expected := "docs/plan/E07/E07-F01/feature.md"
+	if path != expected {
+		t.Errorf("expected default path %q, got %q", expected, path)
+	}
+}
+
+func TestFeatureService_ResolveFeaturePath_NotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	path := svc.ResolveFeaturePath(context.Background(), "E07-F99", "/project/root")
+	if path != "" {
+		t.Errorf("expected empty path for not-found feature, got %q", path)
+	}
+}
+
+func TestFeatureService_UpdateFeatureFilePath_Success(t *testing.T) {
+	newPath := "docs/custom/feature.md"
+	callCount := 0
+	repo := &mockFeatureRepo{
+		updateFilePathFn: func(ctx context.Context, featureKey string, fp *string) error {
+			callCount++
+			if featureKey != "E07-F01" {
+				t.Errorf("expected key 'E07-F01', got %q", featureKey)
+			}
+			if fp == nil || *fp != newPath {
+				t.Errorf("expected path %q, got %v", newPath, fp)
+			}
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.UpdateFeatureFilePath(context.Background(), "E07-F01", &newPath)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if callCount != 1 {
+		t.Errorf("expected UpdateFilePath called once, got %d", callCount)
+	}
+}
+
+func TestFeatureService_UpdateFeatureFilePath_Error(t *testing.T) {
+	repo := &mockFeatureRepo{
+		updateFilePathFn: func(ctx context.Context, featureKey string, fp *string) error {
+			return fmt.Errorf("db write error")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	err := svc.UpdateFeatureFilePath(context.Background(), "E07-F01", nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to update file path") {
+		t.Errorf("expected error to contain 'failed to update file path', got: %v", err)
+	}
+}
+
+func TestFeatureService_ListTasksForFeature_NilTaskRepo(t *testing.T) {
+	repo := &mockFeatureRepo{}
+
+	// No taskRepo - graceful degradation
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	tasks, err := svc.ListTasksForFeature(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error with nil taskRepo, got: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Errorf("expected empty slice, got %d tasks", len(tasks))
+	}
+}
+
+func TestFeatureService_ListTasksForFeature_Success(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	taskRepo := &mockFeatureTaskCounter{
+		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			return []*models.Task{
+				{ID: 1, Key: "E07-F01-001"},
+				{ID: 2, Key: "E07-F01-002"},
+			}, nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
+
+	tasks, err := svc.ListTasksForFeature(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(tasks))
+	}
+}
+
+func TestFeatureService_ListTasksForFeature_Error(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	taskRepo := &mockFeatureTaskCounter{
+		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, taskRepo, nil)
+
+	_, err := svc.ListTasksForFeature(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to list tasks for feature") {
+		t.Errorf("expected error to contain 'failed to list tasks for feature', got: %v", err)
+	}
+}
+
+func TestFeatureService_ListRelatedDocuments_NilDocRepo(t *testing.T) {
+	repo := &mockFeatureRepo{}
+
+	// No docRepo - graceful degradation
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	docs, err := svc.ListRelatedDocuments(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error with nil docRepo, got: %v", err)
+	}
+	if len(docs) != 0 {
+		t.Errorf("expected empty slice, got %d docs", len(docs))
+	}
+}
+
+func TestFeatureService_ListRelatedDocuments_Success(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	docRepo := &mockDocumentRepository{
+		listForFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Document, error) {
+			return []*models.Document{
+				{ID: 10, Title: "API Spec"},
+				{ID: 11, Title: "Design Doc"},
+			}, nil
+		},
+	}
+
+	svc := NewFeatureServiceWithRelationships(repo, newTestFeatureWorkflowService(), nil, nil, docRepo, nil, nil)
+
+	docs, err := svc.ListRelatedDocuments(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Errorf("expected 2 documents, got %d", len(docs))
+	}
+}
+
+func TestFeatureService_ListRelatedDocuments_Error(t *testing.T) {
+	repo := &mockFeatureRepo{}
+	docRepo := &mockDocumentRepository{
+		listForFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Document, error) {
+			return nil, fmt.Errorf("db error listing docs")
+		},
+	}
+
+	svc := NewFeatureServiceWithRelationships(repo, newTestFeatureWorkflowService(), nil, nil, docRepo, nil, nil)
+
+	_, err := svc.ListRelatedDocuments(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to list related documents") {
+		t.Errorf("expected error to contain 'failed to list related documents', got: %v", err)
+	}
+}
+
+func TestFeatureService_ListRelatedDocumentsByKey_Success(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 3, Key: key}, nil
+		},
+	}
+	docRepo := &mockDocumentRepository{
+		listForFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Document, error) {
+			if featureID != 3 {
+				return nil, fmt.Errorf("unexpected featureID %d", featureID)
+			}
+			return []*models.Document{{ID: 20, Title: "Spec"}}, nil
+		},
+	}
+
+	svc := NewFeatureServiceWithRelationships(repo, newTestFeatureWorkflowService(), nil, nil, docRepo, nil, nil)
+
+	docs, err := svc.ListRelatedDocumentsByKey(context.Background(), "E07-F01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Errorf("expected 1 document, got %d", len(docs))
+	}
+}
+
+func TestFeatureService_ListRelatedDocumentsByKey_FeatureNotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	_, err := svc.ListRelatedDocumentsByKey(context.Background(), "E07-F99")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "feature not found") {
+		t.Errorf("expected error to contain 'feature not found', got: %v", err)
+	}
+}
+
+func TestFeatureService_GetEnrichedTaskStatusBreakdown_Success(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 10, Key: key}, nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return map[models.TaskStatus]int{
+				models.TaskStatus("todo"):        2,
+				models.TaskStatus("in_progress"): 1,
+				models.TaskStatus("completed"):   3,
+			}, nil
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	counts, err := svc.GetEnrichedTaskStatusBreakdown(context.Background(), "E07-F01")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	// The result is a []workflow.StatusCount; verify we got entries
+	if len(counts) == 0 {
+		t.Error("expected non-empty status counts")
+	}
+}
+
+func TestFeatureService_GetEnrichedTaskStatusBreakdown_FeatureNotFound(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetEnrichedTaskStatusBreakdown(context.Background(), "E07-F99")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get feature") {
+		t.Errorf("expected error to contain 'failed to get feature', got: %v", err)
+	}
+}
+
+func TestFeatureService_GetEnrichedTaskStatusBreakdown_BreakdownError(t *testing.T) {
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{ID: 10, Key: key}, nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return nil, fmt.Errorf("breakdown db error")
+		},
+	}
+
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+
+	_, err := svc.GetEnrichedTaskStatusBreakdown(context.Background(), "E07-F01")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to get task status breakdown") {
+		t.Errorf("expected error to contain 'failed to get task status breakdown', got: %v", err)
+	}
+}
+
+// TestFeatureService_resolveFeatureFilePath tests indirectly via CreateFeature with a non-nil FilePath.
+
+func TestFeatureService_CreateFeature_WithFilePath_NoCollision(t *testing.T) {
+	customPath := "docs/custom/feature.md"
+	repo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			return nil
+		},
+		// GetByFilePath returns nil (no collision)
+		getByFilePathFn: func(ctx context.Context, filePath string) (*models.Feature, error) {
+			return nil, nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Test Epic", Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey:  "E01",
+		Title:    "My Feature",
+		FilePath: &customPath,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected non-nil feature")
+	}
+	if feature.FilePath == nil || *feature.FilePath != customPath {
+		t.Errorf("expected FilePath %q, got %v", customPath, feature.FilePath)
+	}
+}
+
+func TestFeatureService_CreateFeature_WithFilePath_Collision_NoForce(t *testing.T) {
+	customPath := "docs/custom/feature.md"
+	repo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		// GetByFilePath returns an existing feature (collision)
+		getByFilePathFn: func(ctx context.Context, filePath string) (*models.Feature, error) {
+			return &models.Feature{ID: 99, Key: "E01-F02", Title: "Other Feature"}, nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Test Epic", Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	_, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey:  "E01",
+		Title:    "My Feature",
+		FilePath: &customPath,
+		Force:    false,
+	})
+	if err == nil {
+		t.Fatal("expected error for file path collision without force, got nil")
+	}
+	if !strings.Contains(err.Error(), "already claimed") {
+		t.Errorf("expected error to contain 'already claimed', got: %v", err)
+	}
+}
+
+func TestFeatureService_CreateFeature_WithFilePath_Collision_WithForce(t *testing.T) {
+	customPath := "docs/custom/feature.md"
+	updateFilePathCalled := false
+	repo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			return nil
+		},
+		// GetByFilePath returns an existing feature (collision)
+		getByFilePathFn: func(ctx context.Context, filePath string) (*models.Feature, error) {
+			return &models.Feature{ID: 99, Key: "E01-F02", Title: "Other Feature"}, nil
+		},
+		// UpdateFilePath called to release path from old feature
+		updateFilePathFn: func(ctx context.Context, featureKey string, fp *string) error {
+			updateFilePathCalled = true
+			if featureKey != "E01-F02" {
+				return fmt.Errorf("unexpected key: %s", featureKey)
+			}
+			if fp != nil {
+				return fmt.Errorf("expected nil path to release, got %v", fp)
+			}
+			return nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{ID: 1, Key: "E01", Title: "Test Epic", Status: models.EpicStatusActive}, nil
+		},
+	}
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey:  "E01",
+		Title:    "My Feature",
+		FilePath: &customPath,
+		Force:    true,
+	})
+	if err != nil {
+		t.Fatalf("expected no error with force=true, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected non-nil feature")
+	}
+	if !updateFilePathCalled {
+		t.Error("expected UpdateFilePath to be called to release old path")
 	}
 }

@@ -294,7 +294,7 @@ func TestFeatureService_BackwardTransition_RequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// active -> draft is backward
@@ -321,7 +321,7 @@ func TestFeatureService_ForceTransition_RequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil, nil)
 	ctx := context.Background()
 
 	// Force without reason should fail
@@ -347,7 +347,7 @@ func TestFeatureService_ForwardTransition_NoReasonRequired(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
@@ -383,7 +383,7 @@ func TestFeatureService_ChildCount_WithTaskRepo(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, taskCounter)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, taskCounter, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
@@ -500,7 +500,10 @@ func TestTransitionResult_OmitsEmptyBackwardFields(t *testing.T) {
 // --- Mock helpers ---
 
 type mockEpicFeatureCounter struct {
-	listByEpicFn func(ctx context.Context, epicID int64) ([]*models.Feature, error)
+	listByEpicFn             func(ctx context.Context, epicID int64) ([]*models.Feature, error)
+	getByIDFn                func(ctx context.Context, id int64) (*models.Feature, error)
+	updateFn                 func(ctx context.Context, feature *models.Feature) error
+	getTaskStatusBreakdownFn func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
 }
 
 func (m *mockEpicFeatureCounter) ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error) {
@@ -510,8 +513,30 @@ func (m *mockEpicFeatureCounter) ListByEpic(ctx context.Context, epicID int64) (
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (m *mockEpicFeatureCounter) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
+	if m.getByIDFn != nil {
+		return m.getByIDFn(ctx, id)
+	}
+	return nil, nil
+}
+
+func (m *mockEpicFeatureCounter) Update(ctx context.Context, feature *models.Feature) error {
+	if m.updateFn != nil {
+		return m.updateFn(ctx, feature)
+	}
+	return nil
+}
+
+func (m *mockEpicFeatureCounter) GetTaskStatusBreakdown(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+	if m.getTaskStatusBreakdownFn != nil {
+		return m.getTaskStatusBreakdownFn(ctx, featureID)
+	}
+	return nil, nil
+}
+
 type mockFeatureTaskCounter struct {
-	listByFeatureFn func(ctx context.Context, featureID int64) ([]*models.Task, error)
+	listByFeatureFn      func(ctx context.Context, featureID int64) ([]*models.Task, error)
+	updateStatusForcedFn func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
 }
 
 func (m *mockFeatureTaskCounter) ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error) {
@@ -519,4 +544,15 @@ func (m *mockFeatureTaskCounter) ListByFeature(ctx context.Context, featureID in
 		return m.listByFeatureFn(ctx, featureID)
 	}
 	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockFeatureTaskCounter) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+	if m.updateStatusForcedFn != nil {
+		return m.updateStatusForcedFn(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
+	}
+	return nil
+}
+
+func (m *mockFeatureTaskCounter) GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error) {
+	return nil, nil
 }

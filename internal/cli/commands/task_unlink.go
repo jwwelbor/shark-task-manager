@@ -1,12 +1,10 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -49,130 +47,107 @@ func init() {
 	taskCmd.AddCommand(taskUnlinkCmd)
 }
 
-// runTaskUnlink handles the task unlink command
-func runTaskUnlink(cmd *cobra.Command, args []string) error {
-	taskKey := args[0]
-
-	// Get all relationship flags
-	relationships := map[string]string{
-		"depends_on":   cmd.Flag("depends-on").Value.String(),
-		"blocks":       cmd.Flag("blocks").Value.String(),
-		"related_to":   cmd.Flag("related-to").Value.String(),
-		"follows":      cmd.Flag("follows").Value.String(),
-		"spawned_from": cmd.Flag("spawned-from").Value.String(),
-		"duplicates":   cmd.Flag("duplicates").Value.String(),
-		"references":   cmd.Flag("references").Value.String(),
+// parseUnlinkInput parses flag inputs into (relType, targetKeys) pairs for processing
+func parseUnlinkInput(cmd *cobra.Command) (map[string][]string, string, bool, error) {
+	// Map of flag name → relationship type
+	flagToRelType := map[string]string{
+		"depends-on":   "depends_on",
+		"blocks":       "blocks",
+		"related-to":   "related_to",
+		"follows":      "follows",
+		"spawned-from": "spawned_from",
+		"duplicates":   "duplicates",
+		"references":   "references",
 	}
 
 	removeType, _ := cmd.Flags().GetString("type")
 	removeAll, _ := cmd.Flags().GetBool("all")
 
-	// Check if at least one relationship flag or --all was provided
-	hasRelationships := false
-	for _, value := range relationships {
-		if value != "" {
-			hasRelationships = true
-			break
+	relationships := make(map[string][]string)
+	for flagName, relType := range flagToRelType {
+		val := cmd.Flag(flagName).Value.String()
+		if val == "" {
+			continue
+		}
+		var keys []string
+		for _, k := range strings.Split(val, ",") {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) > 0 {
+			relationships[relType] = keys
 		}
 	}
 
+	hasRelationships := len(relationships) > 0
+
 	if !hasRelationships && !removeAll {
-		return fmt.Errorf("at least one relationship flag required, or use --type with --all")
+		return nil, "", false, fmt.Errorf("at least one relationship flag required, or use --type with --all")
 	}
 
 	if removeAll && removeType == "" {
-		return fmt.Errorf("--all requires --type to be specified")
+		return nil, "", false, fmt.Errorf("--all requires --type to be specified")
 	}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	return relationships, removeType, removeAll, nil
+}
+
+// runTaskUnlink handles the task unlink command
+func runTaskUnlink(cmd *cobra.Command, args []string) error {
+	taskKey := args[0]
+
+	// Step 1: Parse arguments
+	relationships, removeType, removeAll, err := parseUnlinkInput(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+		return err
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
-
-	// Get source task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
+	// Step 2: Call service
+	totalRemoved, err := performUnlink(cmd, taskKey, relationships, removeType, removeAll)
 	if err != nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found", taskKey)
+		return err
 	}
 
-	// Track removed relationships for output
-	removedCount := 0
+	// Step 3: Format output
+	return printUnlinkResult(taskKey, totalRemoved)
+}
 
-	// Handle --all flag
+// performUnlink calls the service to remove relationships and returns the total count removed.
+func performUnlink(cmd *cobra.Command, taskKey string, relationships map[string][]string, removeType string, removeAll bool) (int, error) {
+	svc := cli.GetTaskServiceWithDeps()
+	totalRemoved := 0
 	if removeAll {
-		rels, err := relRepo.GetOutgoing(ctx, task.ID, []string{removeType})
+		count, err := svc.UnlinkRelationships(cmd.Context(), taskKey, removeType, nil)
 		if err != nil {
-			return fmt.Errorf("failed to get relationships: %w", err)
+			return 0, fmt.Errorf("failed to unlink relationships: %w", err)
 		}
-
-		for _, rel := range rels {
-			err := relRepo.Delete(ctx, rel.ID)
-			if err != nil {
-				cli.Warning(fmt.Sprintf("Failed to remove relationship %d: %v", rel.ID, err))
-				continue
-			}
-			removedCount++
-		}
+		totalRemoved += count
 	} else {
-		// Process each relationship type
-		for relType, targetKeysStr := range relationships {
-			if targetKeysStr == "" {
+		for relType, targetKeys := range relationships {
+			count, err := svc.UnlinkRelationships(cmd.Context(), taskKey, relType, targetKeys)
+			if err != nil {
+				cli.Warning(fmt.Sprintf("Failed to remove %s relationships: %v", relType, err))
 				continue
 			}
-
-			targetKeys := strings.Split(targetKeysStr, ",")
-			for _, targetKey := range targetKeys {
-				targetKey = strings.TrimSpace(targetKey)
-				if targetKey == "" {
-					continue
-				}
-
-				// Get target task
-				targetTask, err := taskRepo.GetByKey(ctx, targetKey)
-				if err != nil {
-					cli.Warning(fmt.Sprintf("Target task %s not found, skipping", targetKey))
-					continue
-				}
-
-				// Remove relationship
-				err = relRepo.DeleteByTasksAndType(ctx, task.ID, targetTask.ID, relType)
-				if err != nil {
-					if strings.Contains(err.Error(), "not found") {
-						cli.Warning(fmt.Sprintf("Relationship not found: %s %s %s", taskKey, relType, targetKey))
-						continue
-					}
-					cli.Error(fmt.Sprintf("Failed to remove relationship: %v", err))
-					return fmt.Errorf("failed to remove relationship: %w", err)
-				}
-
-				removedCount++
-			}
+			totalRemoved += count
 		}
 	}
+	return totalRemoved, nil
+}
 
-	// Output results
+// printUnlinkResult prints the human-readable result of an unlink operation.
+func printUnlinkResult(taskKey string, totalRemoved int) error {
 	if cli.GlobalConfig.JSON {
-		output := map[string]interface{}{
-			"task_key":      taskKey,
-			"removed_count": removedCount,
-		}
-		return cli.OutputJSON(output)
+		return cli.OutputJSON(map[string]interface{}{
+			"task_key": taskKey, "removed_count": totalRemoved,
+		})
 	}
-
-	// Human-readable output
-	if removedCount == 0 {
+	if totalRemoved == 0 {
 		cli.Warning(fmt.Sprintf("No relationships removed for %s", taskKey))
 	} else {
-		cli.Success(fmt.Sprintf("Removed %d relationship(s) for %s", removedCount, taskKey))
+		cli.Success(fmt.Sprintf("Removed %d relationship(s) for %s", totalRemoved, taskKey))
 	}
-
 	return nil
 }

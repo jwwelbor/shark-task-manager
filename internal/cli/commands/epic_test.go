@@ -147,7 +147,7 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 
 	// Update progress for all features and mark them as completed via service layer
 	workflowSvc := workflow.NewService(".")
-	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, nil)
 	for _, feature := range features {
 		// Update progress first via service layer (will auto-complete if all tasks are done)
 		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {

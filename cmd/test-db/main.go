@@ -133,7 +133,7 @@ func main() {
 	fmt.Println("\n--- Testing Progress Calculation ---")
 
 	workflowSvc := workflow.NewService(".")
-	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, epicRepo)
 
 	progressInfo, err := featureSvc.GetProgress(ctx, feature.Key)
 	if err != nil {

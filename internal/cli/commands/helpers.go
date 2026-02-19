@@ -1,10 +1,16 @@
 package commands
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
 
 // NormalizeKey converts a key to canonical uppercase format.
@@ -668,4 +674,93 @@ func DetectEntityType(key string) string {
 	}
 
 	return "unknown"
+}
+
+// triggerStatusCascade triggers cascading status updates for parent feature and epic
+// after a task status change. Errors are logged but do not fail the operation.
+func triggerStatusCascade(ctx context.Context, dbWrapper *repository.DB, featureID int64) {
+	configPath, err := cli.GetConfigPath()
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", err)
+	}
+	cfg, err := config.LoadWorkflowConfig(configPath)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
+	}
+
+	calcService := status.NewCalculationService(dbWrapper, cfg)
+	results, err := calcService.CascadeFromFeatureID(ctx, featureID)
+	if err != nil {
+		cli.Warning(fmt.Sprintf("Status cascade failed: %v", err))
+		return
+	}
+
+	for _, r := range results {
+		if r.WasChanged {
+			cli.Info(fmt.Sprintf("  %s %s status: %s -> %s", r.EntityType, r.EntityKey, r.PreviousStatus, r.NewStatus))
+		}
+	}
+}
+
+// getAgentIdentifier returns flagValue if non-empty, otherwise falls back to the USER env var.
+func getAgentIdentifier(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if user := os.Getenv("USER"); user != "" {
+		return user
+	}
+	return ""
+}
+
+// derefString safely dereferences a *string, returning "" if nil.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// handleServiceError translates service errors into user-friendly CLI messages and exit codes.
+//
+// Exit codes:
+//   - 1: Not found (entity doesn't exist)
+//   - 2: Database/system error
+//   - 3: Invalid state (business rule violation)
+//
+// Parameters:
+//   - err: the error returned by a service method (nil returns immediately)
+//   - entityType: human-readable entity type for messages (e.g., "feature", "epic", "task")
+//   - key: entity key for messages (e.g., "E07-F01", "E07")
+func handleServiceError(err error, entityType, key string) {
+	if err == nil {
+		return
+	}
+
+	// Check if error message contains "not found" patterns (no specific NotFoundError type in repo)
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "does not exist") {
+		displayType := strings.ToUpper(entityType[:1]) + entityType[1:]
+		cli.Error(fmt.Sprintf("%s not found: %s", displayType, key))
+		cli.Info(fmt.Sprintf("Use 'shark %s list' to see available %ss", entityType, entityType))
+		os.Exit(1)
+	}
+
+	// Check for conflict/validation errors (exit code 3 = invalid state)
+	if strings.Contains(errMsg, "already exists") ||
+		strings.Contains(errMsg, "validation failed") ||
+		strings.Contains(errMsg, "cannot be empty") ||
+		strings.Contains(errMsg, "invalid transition") ||
+		strings.Contains(errMsg, "cannot start") ||
+		strings.Contains(errMsg, "cannot complete") {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(3)
+	}
+
+	// Default: database/system error
+	cli.Error(fmt.Sprintf("Error: %v", err))
+	if cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Details: %v\n", err)
+	}
+	os.Exit(2)
 }

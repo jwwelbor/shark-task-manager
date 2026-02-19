@@ -1,14 +1,11 @@
 package commands
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -39,67 +36,36 @@ func init() {
 
 // runTaskSessions displays work sessions for a task
 func runTaskSessions(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+	// Step 1: Parse arguments
 	taskKey := args[0]
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	svc := cli.GetTaskServiceWithDeps()
+	result, err := svc.GetWorkSessions(cmd.Context(), taskKey)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	// Create repositories
-	dbConn := repoDb
-	taskRepo := repository.NewTaskRepository(dbConn)
-	sessionRepo := repository.NewWorkSessionRepository(dbConn)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		os.Exit(1)
+		return fmt.Errorf("failed to get work sessions for %s: %w", taskKey, err)
 	}
 
-	// Get work sessions
-	sessions, err := sessionRepo.GetByTaskID(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get work sessions: %w", err)
-	}
-
-	// Get session stats
-	stats, err := sessionRepo.GetSessionStatsByTaskID(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get session stats: %w", err)
-	}
-
-	// Output
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		output := map[string]interface{}{
-			"task_key":   taskKey,
-			"task_title": task.Title,
-			"sessions":   sessions,
-			"stats":      stats,
-		}
-		return cli.OutputJSON(output)
+		return cli.OutputJSON(result)
 	}
 
-	printSessions(taskKey, task.Title, sessions, stats)
+	printSessions(result)
 	return nil
 }
 
 // printSessions prints human-readable session information
-func printSessions(taskKey, taskTitle string, sessions []*models.WorkSession, stats *repository.SessionStats) {
-	// Header
-	fmt.Printf("Task %s: %s\n", taskKey, taskTitle)
+func printSessions(result *services.TaskWorkSessions) {
+	fmt.Printf("Task %s: %s\n", result.TaskKey, result.TaskTitle)
 	fmt.Printf("═══════════════════════════════════════════════════════════════\n\n")
 
-	if len(sessions) == 0 {
+	if len(result.Sessions) == 0 {
 		fmt.Println("No work sessions found for this task.")
 		return
 	}
+
+	stats := result.Stats
 
 	// Summary stats
 	fmt.Printf("Summary:\n")
@@ -119,11 +85,12 @@ func printSessions(taskKey, taskTitle string, sessions []*models.WorkSession, st
 	fmt.Printf("Session History:\n")
 	fmt.Printf("───────────────────────────────────────────────────────────────\n")
 
+	sessions := result.Sessions
 	for i, session := range sessions {
 		sessionNum := len(sessions) - i
 		startTime := session.StartedAt.Format("2006-01-02 15:04")
 
-		if session.IsActive() {
+		if isActiveSession(session) {
 			// Active session
 			duration := formatDuration(session.Duration())
 			fmt.Printf("\nSession %d: %s - Active (%s)\n", sessionNum, startTime, duration)
@@ -150,4 +117,9 @@ func printSessions(taskKey, taskTitle string, sessions []*models.WorkSession, st
 	}
 
 	fmt.Printf("\n───────────────────────────────────────────────────────────────\n")
+}
+
+// isActiveSession checks if a work session is currently active
+func isActiveSession(session *models.WorkSession) bool {
+	return session.IsActive()
 }

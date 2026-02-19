@@ -329,7 +329,7 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 	}
 
 	// Update feature progress via service layer (caches progress_pct in database)
-	featureSvcProgress := services.NewFeatureService(featureRepo, workflow.NewService("."), nil, taskRepo)
+	featureSvcProgress := services.NewFeatureService(featureRepo, workflow.NewService("."), nil, taskRepo, nil)
 	if err := featureSvcProgress.RecalculateAndSetProgress(ctx, feature1.ID); err != nil {
 		t.Fatalf("Failed to update feature 1 progress: %v", err)
 	}

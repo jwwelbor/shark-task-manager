@@ -7,6 +7,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 )
 
 var (
@@ -113,8 +115,64 @@ func GetTaskService() *services.TaskService {
 	taskRepo := repository.NewTaskRepository(db)
 	workflowSvc := GetWorkflowService()
 	noteRepo := repository.NewEntityNoteRepository(db)
-	// TODO: Add taskcreation.Creator when task creation is implemented
-	return services.NewTaskService(taskRepo, workflowSvc, nil, noteRepo)
+
+	// Wire taskcreation.Creator for task file creation support
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+	historyRepo := repository.NewTaskHistoryRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("") // use embedded templates
+	renderer := templates.NewRenderer(loader)
+	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
+
+	return services.NewTaskService(taskRepo, workflowSvc, creatorSvc, noteRepo)
+}
+
+// GetTaskServiceWithDeps returns a TaskService with relationship and document repositories wired.
+// Used by commands that need dependency/relationship management (unlink, deps) or document operations.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetTaskServiceWithDeps()
+//	count, err := svc.UnlinkRelationships(ctx, taskKey, relType, targetKeys)
+func GetTaskServiceWithDeps() *services.TaskService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	taskRepo := repository.NewTaskRepository(db)
+	workflowSvc := GetWorkflowService()
+	noteRepo := repository.NewEntityNoteRepository(db)
+
+	// Wire taskcreation.Creator for task file creation support
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+	historyRepo := repository.NewTaskHistoryRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
+
+	relRepo := repository.NewTaskRelationshipRepository(db)
+	docRepo := repository.NewDocumentRepository(db)
+	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(db)}
+
+	svc := services.NewTaskServiceWithRelationships(taskRepo, workflowSvc, creatorSvc, noteRepo, docRepo, relRepo, sessionRepo)
+	svc.SetDepRepo(relRepo)
+	svc.SetRelQueryRepo(relRepo)
+	svc.SetWritableDocRepo(docRepo)
+	return svc
 }
 
 // ResetServices clears global service state. For testing only.

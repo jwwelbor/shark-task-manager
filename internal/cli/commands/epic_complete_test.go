@@ -100,7 +100,7 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 
 		// Update feature progress via service layer
 		workflowSvc := workflow.NewService(".")
-		featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo)
+		featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, nil)
 		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 			t.Fatalf("Failed to update feature progress: %v", err)
 		}

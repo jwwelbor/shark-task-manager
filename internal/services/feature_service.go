@@ -66,15 +66,27 @@ type DocumentRepository = config.DocumentRepository
 // This is satisfied by implementations from the config or repository packages.
 type FeatureRelationshipRepository = config.FeatureRelationshipRepository
 
+// FeatureWritableDocumentRepository defines the writable interface for document linking on features.
+// This interface is satisfied by *repository.DocumentRepository.
+// The existing DocumentRepository (config.DocumentRepository) only exposes read-only List methods;
+// this interface adds the write operations needed by LinkDocument and UnlinkDocument.
+type FeatureWritableDocumentRepository interface {
+	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
+	GetByTitle(ctx context.Context, title string) (*models.Document, error)
+	LinkToFeature(ctx context.Context, featureID, documentID int64) error
+	UnlinkFromFeature(ctx context.Context, featureID, documentID int64) error
+}
+
 // FeatureService provides business logic for feature operations.
 type FeatureService struct {
-	repo           FeatureRepository
-	workflowSvc    *workflow.Service
-	noteRepo       FeatureNoteRepository
-	taskRepo       FeatureTaskCounter
-	docRepo        DocumentRepository
-	relRepo        FeatureRelationshipRepository
-	epicLookupRepo FeatureEpicLookup
+	repo            FeatureRepository
+	workflowSvc     *workflow.Service
+	noteRepo        FeatureNoteRepository
+	taskRepo        FeatureTaskCounter
+	docRepo         DocumentRepository
+	relRepo         FeatureRelationshipRepository
+	epicLookupRepo  FeatureEpicLookup
+	writableDocRepo FeatureWritableDocumentRepository
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -124,6 +136,89 @@ func NewFeatureServiceWithRelationships(repo FeatureRepository, workflowSvc *wor
 		relRepo:        relRepo,
 		epicLookupRepo: epicLookupRepo,
 	}
+}
+
+// SetWritableDocRepo sets the writable document repository on the service.
+// This enables LinkDocument and UnlinkDocument operations on features.
+// The *repository.DocumentRepository type satisfies the FeatureWritableDocumentRepository interface.
+func (s *FeatureService) SetWritableDocRepo(docRepo FeatureWritableDocumentRepository) {
+	s.writableDocRepo = docRepo
+}
+
+// LinkDocument creates or retrieves a document by its title and file path, then links it to a feature.
+// If the document already exists, it is reused (no duplicate created).
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - featureKey: the feature key (e.g., "E07-F01")
+//   - docTitle: the title of the document to link
+//   - docPath: the file path of the document
+//
+// Returns:
+//   - error: FeatureNotFoundError if feature not found, or repository errors
+//
+// Errors:
+//   - writable document repository not configured
+//   - feature not found
+//   - repository operation failed
+func (s *FeatureService) LinkDocument(ctx context.Context, featureKey, docTitle, docPath string) error {
+	if s.writableDocRepo == nil {
+		return fmt.Errorf("writable document repository not configured")
+	}
+
+	feature, err := s.repo.GetByKey(ctx, featureKey)
+	if err != nil {
+		return fmt.Errorf("feature not found: %w", err)
+	}
+
+	doc, err := s.writableDocRepo.CreateOrGet(ctx, docTitle, docPath)
+	if err != nil {
+		return fmt.Errorf("failed to create or get document: %w", err)
+	}
+
+	if err := s.writableDocRepo.LinkToFeature(ctx, feature.ID, doc.ID); err != nil {
+		return fmt.Errorf("failed to link document to feature %s: %w", featureKey, err)
+	}
+
+	return nil
+}
+
+// UnlinkDocument removes a document link from a feature by document title.
+// If the document does not exist, it returns an error.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - featureKey: the feature key (e.g., "E07-F01")
+//   - docTitle: the title of the document to unlink
+//
+// Returns:
+//   - error: FeatureNotFoundError if feature not found, or repository errors
+//
+// Errors:
+//   - writable document repository not configured
+//   - feature not found
+//   - document not found
+//   - repository operation failed
+func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitle string) error {
+	if s.writableDocRepo == nil {
+		return fmt.Errorf("writable document repository not configured")
+	}
+
+	feature, err := s.repo.GetByKey(ctx, featureKey)
+	if err != nil {
+		return fmt.Errorf("feature not found: %w", err)
+	}
+
+	doc, err := s.writableDocRepo.GetByTitle(ctx, docTitle)
+	if err != nil {
+		return fmt.Errorf("document not found: %w", err)
+	}
+
+	if err := s.writableDocRepo.UnlinkFromFeature(ctx, feature.ID, doc.ID); err != nil {
+		return fmt.Errorf("failed to unlink document from feature %s: %w", featureKey, err)
+	}
+
+	return nil
 }
 
 // TransitionStatus validates and performs a status transition on a feature.
@@ -469,6 +564,16 @@ func (s *FeatureService) ListRelatedDocuments(ctx context.Context, featureID int
 		return nil, fmt.Errorf("failed to list related documents for feature ID %d: %w", featureID, err)
 	}
 	return docs, nil
+}
+
+// ListRelatedDocumentsByKey returns all documents linked to a feature identified by key.
+// Returns an empty slice if the document repository is not available.
+func (s *FeatureService) ListRelatedDocumentsByKey(ctx context.Context, featureKey string) ([]*models.Document, error) {
+	feature, err := s.repo.GetByKey(ctx, featureKey)
+	if err != nil {
+		return nil, fmt.Errorf("feature not found: %w", err)
+	}
+	return s.ListRelatedDocuments(ctx, feature.ID)
 }
 
 // CompleteFeature marks all tasks in a feature as completed and sets the feature status to completed.

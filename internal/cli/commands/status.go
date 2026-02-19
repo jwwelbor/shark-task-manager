@@ -47,70 +47,56 @@ func init() {
 
 // runStatus executes the status command
 func runStatus(cmd *cobra.Command, args []string) error {
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Parse positional arguments first
-	_, positionalEpic, _, err := ParseListArgs(args)
+	req, err := parseStatusRequest(cmd, args)
 	if err != nil {
 		return err
 	}
 
-	// Get flags
-	epicKeyFlag, _ := cmd.Flags().GetString("epic")
-	recentWindow, _ := cmd.Flags().GetString("recent")
-	includeArchived, _ := cmd.Flags().GetBool("include-archived")
-
-	// Positional argument takes priority over flag
-	epicKey := epicKeyFlag
-	if positionalEpic != nil {
-		epicKey = *positionalEpic
+	ctx := cmd.Context()
+	if ctx == nil {
+		var cancel func()
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 	}
 
-	// For now, if a feature is specified, we treat it as epic-level status
-	// Future enhancement could add feature-specific status view
-
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	// Create service
-	service := status.NewStatusService(repoDb)
-
-	// Build request
-	req := &status.StatusRequest{
-		EpicKey:         epicKey,
-		RecentWindow:    recentWindow,
-		IncludeArchived: includeArchived,
-	}
-
-	// Get dashboard
-	dashboard, err := service.GetDashboard(ctx, req)
+	dashboard, err := cli.GetStatusService().GetDashboard(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to get dashboard: %w", err)
 	}
 
-	// Enrich epic summaries with planning mode information
-	displaySvc := cli.GetDisplayService()
-	enrichEpicSummaries(ctx, dashboard.Epics, displaySvc)
+	enrichEpicSummaries(dashboard.Epics, cli.GetDisplayService())
 
-	// Output
 	if cli.GlobalConfig.JSON {
 		return outputStatusJSON(dashboard)
 	}
-
-	// Rich terminal output
 	return outputStatusTerminal(dashboard)
+}
+
+// parseStatusRequest builds a StatusRequest from command arguments and flags.
+func parseStatusRequest(cmd *cobra.Command, args []string) (*status.StatusRequest, error) {
+	_, positionalEpic, _, err := ParseListArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	epicKeyFlag, _ := cmd.Flags().GetString("epic")
+	recentWindow, _ := cmd.Flags().GetString("recent")
+	includeArchived, _ := cmd.Flags().GetBool("include-archived")
+
+	epicKey := epicKeyFlag
+	if positionalEpic != nil {
+		epicKey = *positionalEpic
+	}
+	return &status.StatusRequest{
+		EpicKey:         epicKey,
+		RecentWindow:    recentWindow,
+		IncludeArchived: includeArchived,
+	}, nil
 }
 
 // enrichEpicSummaries populates DisplayMode, IsPlanning, and Phase fields
 // on each EpicSummary using the DisplayService to determine planning vs aggregation mode.
 // Uses in-memory workflow config lookup (no additional DB queries).
-func enrichEpicSummaries(_ context.Context, epics []*status.EpicSummary, displaySvc *services.DisplayService) {
+func enrichEpicSummaries(epics []*status.EpicSummary, displaySvc *services.DisplayService) {
 	for _, epic := range epics {
 		mode := displaySvc.DetermineEpicDisplayModeByStatus(epic.Status)
 		epic.DisplayMode = string(mode)

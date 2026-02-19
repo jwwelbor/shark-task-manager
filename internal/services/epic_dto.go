@@ -189,3 +189,11 @@ type ActionTaskItem struct {
 	BlockedReason *string   `json:"blocked_reason,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
+
+// EpicRecalcResult contains the result of a RecalculateStatus operation on an epic.
+type EpicRecalcResult struct {
+	EpicKey        string `json:"epic_key"`
+	PreviousStatus string `json:"previous_status"`
+	NewStatus      string `json:"new_status"`
+	WasChanged     bool   `json:"was_changed"`
+}
