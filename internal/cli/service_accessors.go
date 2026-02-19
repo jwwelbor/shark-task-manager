@@ -63,6 +63,67 @@ func (a *workSessionAdapter) GetSessionStatsByTaskID(ctx context.Context, taskID
 	}, nil
 }
 
+func (a *workSessionAdapter) GetActiveSessionByTaskID(ctx context.Context, taskID int64) (*models.WorkSession, error) {
+	return a.repo.GetActiveSessionByTaskID(ctx, taskID)
+}
+
+func (a *workSessionAdapter) GetSessionAnalyticsByFeature(ctx context.Context, featureID int64, agentType *string) (*services.SessionAnalytics, error) {
+	return a.repo.GetSessionAnalyticsByFeature(ctx, featureID, agentType)
+}
+
+func (a *workSessionAdapter) GetSessionAnalyticsByEpic(ctx context.Context, epicID int64, agentType *string) (*services.SessionAnalytics, error) {
+	return a.repo.GetSessionAnalyticsByEpic(ctx, epicID, agentType)
+}
+
+// taskHistoryAdapter adapts *repository.TaskHistoryRepository to the services.TaskHistoryRepository interface.
+// The two HistoryFilters types have identical fields but different package paths, so an adapter is needed.
+type taskHistoryAdapter struct {
+	repo *repository.TaskHistoryRepository
+}
+
+func (a *taskHistoryAdapter) GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
+	return a.repo.GetHistoryByTaskKey(ctx, taskKey)
+}
+
+func (a *taskHistoryAdapter) ListWithFilters(ctx context.Context, filters services.HistoryFilters) ([]*models.TaskHistory, error) {
+	return a.repo.ListWithFilters(ctx, repository.HistoryFilters{
+		Agent:      filters.Agent,
+		Since:      filters.Since,
+		EpicKey:    filters.EpicKey,
+		FeatureKey: filters.FeatureKey,
+		OldStatus:  filters.OldStatus,
+		NewStatus:  filters.NewStatus,
+		Limit:      filters.Limit,
+		Offset:     filters.Offset,
+	})
+}
+
+// resumeSessionAdapter adapts *repository.WorkSessionRepository to the services.ResumeWorkSessionRepository interface.
+type resumeSessionAdapter struct {
+	repo *repository.WorkSessionRepository
+}
+
+func (a *resumeSessionAdapter) GetByTaskID(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
+	return a.repo.GetByTaskID(ctx, taskID)
+}
+
+func (a *resumeSessionAdapter) GetSessionStatsByTaskID(ctx context.Context, taskID int64) (*services.ResumeSessionStats, error) {
+	stats, err := a.repo.GetSessionStatsByTaskID(ctx, taskID)
+	if err != nil || stats == nil {
+		return nil, err
+	}
+	return &services.ResumeSessionStats{
+		TotalSessions:   stats.TotalSessions,
+		TotalDuration:   stats.TotalDuration,
+		AverageDuration: stats.AverageDuration,
+		ActiveSession:   stats.ActiveSession,
+	}, nil
+}
+
+func (a *resumeSessionAdapter) GetActiveSessionByTaskID(ctx context.Context, taskID int64) (*models.WorkSession, error) {
+	return a.repo.GetActiveSessionByTaskID(ctx, taskID)
+}
+
 func (a *featureNoteAdapter) CreateRejectionNote(
 	ctx context.Context,
 	entityType string,

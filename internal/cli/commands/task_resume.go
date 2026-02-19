@@ -1,8 +1,6 @@
 package commands
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -10,7 +8,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -38,109 +36,46 @@ func init() {
 	taskCmd.AddCommand(taskResumeCmd)
 }
 
-// ResumeContext aggregates all context needed to resume a task
+// ResumeContext aggregates all context needed to resume a task.
+// This is the CLI-layer view backed by services.TaskResumeContext.
 type ResumeContext struct {
-	Task           *models.Task               `json:"task"`
-	ContextData    *models.ContextData        `json:"context_data,omitempty"`
-	Notes          []*models.EntityNote       `json:"notes,omitempty"`
-	WorkSessions   []*models.WorkSession      `json:"work_sessions,omitempty"`
-	SessionStats   *repository.SessionStats   `json:"session_stats,omitempty"`
-	ActiveSession  *models.WorkSession        `json:"active_session,omitempty"`
-	Dependencies   []string                   `json:"dependencies,omitempty"`
-	CompletionMeta *models.CompletionMetadata `json:"completion_metadata,omitempty"`
+	Task           *models.Task                 `json:"task"`
+	ContextData    *models.ContextData          `json:"context_data,omitempty"`
+	Notes          []*models.EntityNote         `json:"notes,omitempty"`
+	WorkSessions   []*models.WorkSession        `json:"work_sessions,omitempty"`
+	SessionStats   *services.ResumeSessionStats `json:"session_stats,omitempty"`
+	ActiveSession  *models.WorkSession          `json:"active_session,omitempty"`
+	Dependencies   []string                     `json:"dependencies,omitempty"`
+	CompletionMeta *models.CompletionMetadata   `json:"completion_metadata,omitempty"`
 }
 
 // runTaskResume retrieves and displays comprehensive task context
 func runTaskResume(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	taskKey := args[0]
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Get resume service
+	svc, err := cli.GetResumeService(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+		return fmt.Errorf("failed to get resume service: %w", err)
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repositories
-	dbConn := repoDb
-	taskRepo := repository.NewTaskRepository(dbConn)
-	noteRepo := repository.NewEntityNoteRepository(dbConn)
-	sessionRepo := repository.NewWorkSessionRepository(dbConn)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
+	// Get comprehensive task context from service
+	taskResume, err := svc.GetTaskResume(cmd.Context(), taskKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
 		os.Exit(1)
 	}
 
-	// Build resume context
+	// Map service DTO to CLI-layer struct for output
 	resumeCtx := &ResumeContext{
-		Task: task,
-	}
-
-	// Parse context data
-	if task.ContextData != nil && *task.ContextData != "" && *task.ContextData != "{}" {
-		contextData, err := models.FromJSON(*task.ContextData)
-		if err == nil {
-			resumeCtx.ContextData = contextData
-		}
-	}
-
-	// Get notes
-	notes, err := noteRepo.GetByEntity(ctx, models.EntityTypeTask, task.ID)
-	if err == nil {
-		resumeCtx.Notes = notes
-	}
-
-	// Get work sessions
-	sessions, err := sessionRepo.GetByTaskID(ctx, task.ID)
-	if err == nil {
-		resumeCtx.WorkSessions = sessions
-	}
-
-	// Get session stats
-	stats, err := sessionRepo.GetSessionStatsByTaskID(ctx, task.ID)
-	if err == nil {
-		resumeCtx.SessionStats = stats
-	}
-
-	// Get active session
-	activeSession, err := sessionRepo.GetActiveSessionByTaskID(ctx, task.ID)
-	if err == nil && err != sql.ErrNoRows {
-		resumeCtx.ActiveSession = activeSession
-	}
-
-	// Parse dependencies
-	if task.DependsOn != nil && *task.DependsOn != "" {
-		deps := strings.Split(strings.Trim(*task.DependsOn, "[]"), ",")
-		for i, dep := range deps {
-			deps[i] = strings.Trim(strings.Trim(dep, "\""), " ")
-		}
-		resumeCtx.Dependencies = deps
-	}
-
-	// Build completion metadata if task is completed
-	if task.Status == models.TaskStatus("completed") || task.Status == models.TaskStatus("ready_for_review") {
-		completionMeta := &models.CompletionMetadata{
-			CompletedBy:      task.CompletedBy,
-			CompletionNotes:  task.CompletionNotes,
-			TestsPassed:      task.TestsPassed,
-			TimeSpentMinutes: task.TimeSpentMinutes,
-		}
-		if task.VerificationStatus != nil {
-			completionMeta.VerificationStatus = *task.VerificationStatus
-		}
-		if task.FilesChanged != nil && *task.FilesChanged != "" {
-			if err := completionMeta.FromJSON(*task.FilesChanged); err == nil {
-				resumeCtx.CompletionMeta = completionMeta
-			}
-		} else {
-			resumeCtx.CompletionMeta = completionMeta
-		}
+		Task:           taskResume.Task,
+		ContextData:    taskResume.ContextData,
+		Notes:          taskResume.Notes,
+		WorkSessions:   taskResume.WorkSessions,
+		SessionStats:   taskResume.SessionStats,
+		ActiveSession:  taskResume.ActiveSession,
+		Dependencies:   taskResume.Dependencies,
+		CompletionMeta: taskResume.CompletionMeta,
 	}
 
 	// Output

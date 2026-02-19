@@ -9,6 +9,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -563,7 +564,7 @@ func TestResumeContextStructure(t *testing.T) {
 		StartedAt: time.Now(),
 	}
 
-	stats := &repository.SessionStats{
+	stats := &services.ResumeSessionStats{
 		TotalSessions: 1,
 		ActiveSession: true,
 	}
