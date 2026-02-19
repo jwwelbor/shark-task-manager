@@ -52,6 +52,8 @@ type TaskDependencyRepository interface {
 	DeleteByTasksAndType(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
 	// Delete removes a relationship by ID
 	Delete(ctx context.Context, id int64) error
+	// DetectCycle checks if creating a relationship would create a circular dependency
+	DetectCycle(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
 }
 
 // WorkSessionStats contains aggregated statistics for a task's work sessions.
@@ -72,12 +74,18 @@ type TaskWorkSessions struct {
 }
 
 // WorkSessionRepository defines the interface for work session data access.
-// This interface is satisfied by *repository.WorkSessionRepository.
+// This interface is satisfied by *repository.WorkSessionRepository (via workSessionAdapter).
 type WorkSessionRepository interface {
 	// GetByTaskID retrieves all work sessions for a task
 	GetByTaskID(ctx context.Context, taskID int64) ([]*models.WorkSession, error)
 	// GetSessionStatsByTaskID retrieves aggregated statistics for a task's sessions
 	GetSessionStatsByTaskID(ctx context.Context, taskID int64) (*WorkSessionStats, error)
+	// GetActiveSessionByTaskID retrieves the currently active (not yet ended) work session for a task, if any
+	GetActiveSessionByTaskID(ctx context.Context, taskID int64) (*models.WorkSession, error)
+	// GetSessionAnalyticsByFeature retrieves session analytics aggregated for all tasks in a feature
+	GetSessionAnalyticsByFeature(ctx context.Context, featureID int64, agentType *string) (*SessionAnalytics, error)
+	// GetSessionAnalyticsByEpic retrieves session analytics aggregated for all tasks in an epic
+	GetSessionAnalyticsByEpic(ctx context.Context, epicID int64, agentType *string) (*SessionAnalytics, error)
 }
 
 // TaskRepository defines the repository interface needed by TaskService.
@@ -101,6 +109,9 @@ type TaskRepository interface {
 	// Status operations (service layer will wrap these with business logic)
 	UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
 	UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
+	// UpdateStatusForcedWithUnblock atomically updates status and auto-unblocks dependent tasks.
+	// Returns the list of task keys that were automatically unblocked.
+	UpdateStatusForcedWithUnblock(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error)
 
 	// Search operations
 	FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error)
@@ -121,11 +132,36 @@ type TaskNoteRepository interface {
 type TaskHistoryRepository interface {
 	// GetHistoryByTaskKey retrieves all history records for a task by its key
 	GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error)
+	// ListWithFilters retrieves history records with optional filters
+	ListWithFilters(ctx context.Context, filters HistoryFilters) ([]*models.TaskHistory, error)
+}
+
+// HistoryFilters defines filters for querying task history.
+// This mirrors repository.HistoryFilters to avoid direct repository dependency in services.
+type HistoryFilters struct {
+	Agent      *string    // Filter by agent ID
+	Since      *time.Time // Filter by timestamp (>= since)
+	EpicKey    *string    // Filter by epic key
+	FeatureKey *string    // Filter by feature key
+	OldStatus  *string    // Filter by old status
+	NewStatus  *string    // Filter by new status
+	Limit      int        // Maximum number of records to return (default 50)
+	Offset     int        // Number of records to skip for pagination
 }
 
 // TaskService provides business logic for task operations.
 // It orchestrates task lifecycle, status transitions, dependency validation,
 // and coordinates with workflow and taskcreation services.
+// AnalyticsEpicRepository is the minimal epic repo interface needed for analytics scope resolution.
+type AnalyticsEpicRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Epic, error)
+}
+
+// AnalyticsFeatureRepository is the minimal feature repo interface needed for analytics scope resolution.
+type AnalyticsFeatureRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Feature, error)
+}
+
 type TaskService struct {
 	repo            TaskRepository
 	workflowSvc     *workflow.Service
@@ -138,6 +174,8 @@ type TaskService struct {
 	relQueryRepo    TaskRelationshipQueryRepository
 	depRepo         TaskDependencyRepository
 	sessionRepo     WorkSessionRepository
+	epicRepo        AnalyticsEpicRepository
+	featureRepo     AnalyticsFeatureRepository
 }
 
 // NewTaskService creates a new TaskService with the required dependencies.
@@ -824,8 +862,61 @@ func (s *TaskService) UnblockTask(ctx context.Context, key string) (*models.Task
 //   - ValidationError: missing required reason for backward transitions
 //   - RepositoryError: database update failed
 func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	// TODO: Implementation in F02-F07
-	return nil, fmt.Errorf("not implemented")
+	// Step 1: Get task
+	task, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task %s: %w", key, err)
+	}
+
+	fromStatus := string(task.Status)
+
+	// Step 2: Validate transition (unless forced)
+	if !opts.Force {
+		if err := s.workflowSvc.ValidateTransition(fromStatus, targetStatus); err != nil {
+			return nil, fmt.Errorf("invalid transition for task %s: %w", key, err)
+		}
+	}
+
+	// Step 3: Prepare options
+	var agentPtr *string
+	if opts.Agent != "" {
+		agentPtr = &opts.Agent
+	}
+	var reasonPtr *string
+	if opts.Reason != "" {
+		reasonPtr = &opts.Reason
+	}
+	var docPathPtr *string
+	if opts.DocumentPath != "" {
+		docPathPtr = &opts.DocumentPath
+	}
+
+	// Step 4: Perform transition with auto-unblock
+	unblockedKeys, err := s.repo.UpdateStatusForcedWithUnblock(ctx, task.ID, models.TaskStatus(targetStatus), agentPtr, nil, reasonPtr, docPathPtr, opts.Force)
+	if err != nil {
+		return nil, fmt.Errorf("failed to transition task %s to %s: %w", key, targetStatus, err)
+	}
+
+	// Step 5: Build result with orchestrator action for new status
+	result := &TransitionResult{
+		EntityType:         "task",
+		EntityKey:          task.Key,
+		FromStatus:         fromStatus,
+		ToStatus:           targetStatus,
+		Transitioned:       true,
+		Message:            fmt.Sprintf("Transitioned: %s -> %s", fromStatus, targetStatus),
+		IsForced:           opts.Force,
+		Reason:             opts.Reason,
+		OrchestratorAction: s.resolveAction(ctx, task, targetStatus),
+	}
+
+	// Step 6: Store auto-unblocked keys in result message if any
+	if len(unblockedKeys) > 0 {
+		result.Message = fmt.Sprintf("Transitioned: %s -> %s (auto-unblocked: %s)",
+			fromStatus, targetStatus, strings.Join(unblockedKeys, ", "))
+	}
+
+	return result, nil
 }
 
 // GetNextStatus returns available status transitions for a task.
@@ -842,8 +933,32 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) GetNextStatus(ctx context.Context, key string) (*NextStatusInfo, error) {
-	// TODO: Implementation in F02-F07
-	return nil, fmt.Errorf("not implemented")
+	task, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task %s: %w", key, err)
+	}
+
+	currentStatus := string(task.Status)
+	transitions := s.workflowSvc.GetTransitionInfo(currentStatus)
+	currentMeta := s.workflowSvc.GetStatusMetadata(currentStatus)
+
+	// Wrap transitions with orchestrator action support
+	wrapped := make([]TransitionInfoWithAction, 0, len(transitions))
+	for _, t := range transitions {
+		wrapped = append(wrapped, TransitionInfoWithAction{
+			TransitionInfo:     t,
+			OrchestratorAction: s.resolveAction(ctx, task, t.TargetStatus),
+		})
+	}
+
+	return &NextStatusInfo{
+		EntityType:           "task",
+		EntityKey:            key,
+		CurrentStatus:        currentStatus,
+		CurrentPhase:         currentMeta.Phase,
+		AvailableTransitions: wrapped,
+		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
+	}, nil
 }
 
 // ValidateStatus checks if a status is valid in the task workflow.
@@ -992,8 +1107,6 @@ func (s *TaskService) GetDependencyTree(ctx context.Context, key string) (*Depen
 
 // resolveAction looks up the orchestrator action for a given status.
 // Returns nil if no action is defined or if document/relationship repositories are not available.
-//
-//nolint:unused // Will be used when TransitionStatus and GetNextStatus are implemented
 func (s *TaskService) resolveAction(ctx context.Context, task *models.Task, status string) *config.PopulatedAction {
 	wf := s.workflowSvc.GetWorkflow()
 	if wf == nil || wf.StatusMetadata == nil {
@@ -1384,6 +1497,53 @@ func (s *TaskService) UnlinkRelationships(ctx context.Context, taskKey, relType 
 	return count, nil
 }
 
+// CreateTypedRelationship creates a typed relationship between two tasks.
+// For depends_on and blocks relationships, circular dependency detection is performed.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - taskKey: the source task key (e.g., "E07-F01-002")
+//   - targetKey: the target task key (e.g., "E07-F01-001")
+//   - relType: the relationship type (depends_on, blocks, related_to, follows, spawned_from, duplicates, references)
+//
+// Returns:
+//   - *models.Task: the resolved target task (for display purposes)
+//   - error: task not found, circular dependency, or repository errors
+func (s *TaskService) CreateTypedRelationship(ctx context.Context, taskKey, targetKey, relType string) (*models.Task, error) {
+	if s.depRepo == nil {
+		return nil, fmt.Errorf("relationship repository not configured")
+	}
+
+	task, err := s.repo.GetByKey(ctx, taskKey)
+	if err != nil {
+		return nil, fmt.Errorf("task %s not found: %w", taskKey, err)
+	}
+
+	targetTask, err := s.repo.GetByKey(ctx, targetKey)
+	if err != nil {
+		return nil, fmt.Errorf("target task %s not found: %w", targetKey, err)
+	}
+
+	// Check for cycles on directed relationship types
+	if relType == "depends_on" || relType == "blocks" {
+		if err := s.depRepo.DetectCycle(ctx, task.ID, targetTask.ID, relType); err != nil {
+			return nil, fmt.Errorf("circular dependency detected: %w", err)
+		}
+	}
+
+	rel := &models.TaskRelationship{
+		FromTaskID:       task.ID,
+		ToTaskID:         targetTask.ID,
+		RelationshipType: models.RelationshipType(relType),
+	}
+
+	if err := s.depRepo.Create(ctx, rel); err != nil {
+		return nil, fmt.Errorf("failed to create %s relationship from %s to %s: %w", relType, taskKey, targetKey, err)
+	}
+
+	return targetTask, nil
+}
+
 // SearchByFile finds tasks that reference or are related to the given file path,
 // optionally filtered by epic key, feature key, or status.
 //
@@ -1771,6 +1931,27 @@ func (s *TaskService) SetHistoryRepo(repo TaskHistoryRepository) {
 	s.historyRepo = repo
 }
 
+// SetSessionRepo sets the work session repository for analytics.
+// This is used by CLI global accessors to wire optional session repository
+// after initial construction via NewTaskService.
+func (s *TaskService) SetSessionRepo(repo WorkSessionRepository) {
+	s.sessionRepo = repo
+}
+
+// SetEpicRepo sets the analytics epic repository for scope resolution.
+// This is used by CLI global accessors to wire optional epic repository
+// after initial construction via NewTaskService.
+func (s *TaskService) SetEpicRepo(repo AnalyticsEpicRepository) {
+	s.epicRepo = repo
+}
+
+// SetFeatureRepo sets the analytics feature repository for scope resolution.
+// This is used by CLI global accessors to wire optional feature repository
+// after initial construction via NewTaskService.
+func (s *TaskService) SetFeatureRepo(repo AnalyticsFeatureRepository) {
+	s.featureRepo = repo
+}
+
 // GetTaskHistory retrieves the complete status change history for a task.
 //
 // Parameters:
@@ -1791,4 +1972,73 @@ func (s *TaskService) GetTaskHistory(ctx context.Context, taskKey string) ([]*mo
 	}
 
 	return histories, nil
+}
+
+// ListHistory retrieves task history records with optional filters.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - filters: optional filters for limiting results
+//
+// Returns:
+//   - []*models.TaskHistory: matching history records
+//   - error: if history repo not configured, or database operation fails
+func (s *TaskService) ListHistory(ctx context.Context, filters HistoryFilters) ([]*models.TaskHistory, error) {
+	if s.historyRepo == nil {
+		return nil, fmt.Errorf("history repository not configured")
+	}
+
+	histories, err := s.historyRepo.ListWithFilters(ctx, filters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list task history: %w", err)
+	}
+
+	return histories, nil
+}
+
+// GetSessionAnalytics retrieves aggregated work session analytics for a feature or epic.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - input: specifies scope (epic or feature) and optional agent filter
+//
+// Returns:
+//   - *SessionAnalytics: aggregated analytics data
+//   - error: if session repo not configured, entity not found, or database operation fails
+func (s *TaskService) GetSessionAnalytics(ctx context.Context, input SessionAnalyticsInput) (*SessionAnalytics, error) {
+	if s.sessionRepo == nil {
+		return nil, fmt.Errorf("work session repository not configured")
+	}
+
+	// Convert AgentType string to *string for repo methods (nil means no filter)
+	var agentTypePtr *string
+	if input.AgentType != "" {
+		agentTypePtr = &input.AgentType
+	}
+
+	if input.FeatureKey != "" {
+		if s.featureRepo == nil {
+			return nil, fmt.Errorf("feature repository not configured")
+		}
+		// Get feature to resolve ID
+		feature, err := s.featureRepo.GetByKey(ctx, input.FeatureKey)
+		if err != nil {
+			return nil, fmt.Errorf("feature not found: %s: %w", input.FeatureKey, err)
+		}
+		return s.sessionRepo.GetSessionAnalyticsByFeature(ctx, feature.ID, agentTypePtr)
+	}
+
+	if input.EpicKey != "" {
+		if s.epicRepo == nil {
+			return nil, fmt.Errorf("epic repository not configured")
+		}
+		// Get epic to resolve ID
+		epic, err := s.epicRepo.GetByKey(ctx, input.EpicKey)
+		if err != nil {
+			return nil, fmt.Errorf("epic not found: %s: %w", input.EpicKey, err)
+		}
+		return s.sessionRepo.GetSessionAnalyticsByEpic(ctx, epic.ID, agentTypePtr)
+	}
+
+	return nil, fmt.Errorf("either EpicKey or FeatureKey must be specified")
 }
