@@ -441,6 +441,25 @@ func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]
 	return r.queryTasks(ctx, query, featureID)
 }
 
+// ListByFeatureKey retrieves all tasks for a feature using the feature key directly.
+// This avoids the two-step lookup (feature key → feature ID → tasks) and is more
+// efficient for remote databases where each round-trip has network latency.
+func (r *TaskRepository) ListByFeatureKey(ctx context.Context, featureKey string) ([]*models.Task, error) {
+	query := `
+		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
+		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
+		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
+		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
+		       t.verification_status, t.time_spent_minutes, t.context_data
+		FROM tasks t
+		INNER JOIN features f ON t.feature_id = f.id
+		WHERE f.key = ?
+		ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
+	`
+
+	return r.queryTasks(ctx, query, featureKey)
+}
+
 // ListByEpic retrieves all tasks for an epic (via features)
 func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
 	query := `

@@ -101,6 +101,7 @@ type TaskRepository interface {
 	// Query operations
 	List(ctx context.Context) ([]*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
+	ListByFeatureKey(ctx context.Context, featureKey string) ([]*models.Task, error)
 	ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
 
 	// Dependency operations
@@ -506,13 +507,9 @@ func (s *TaskService) ListTasks(ctx context.Context, filters TaskFilters) ([]*mo
 	var err error
 
 	switch {
-	case filters.FeatureKey != "" && s.featureRepo != nil:
-		// Look up the feature to get its DB ID, then query tasks for that feature.
-		feature, ferr := s.featureRepo.GetByKey(ctx, filters.FeatureKey)
-		if ferr != nil {
-			return nil, fmt.Errorf("feature not found: %s: %w", filters.FeatureKey, ferr)
-		}
-		tasks, err = s.repo.ListByFeature(ctx, feature.ID)
+	case filters.FeatureKey != "":
+		// Query tasks directly by feature key via JOIN - avoids a separate feature lookup round-trip.
+		tasks, err = s.repo.ListByFeatureKey(ctx, filters.FeatureKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list tasks for feature %s: %w", filters.FeatureKey, err)
 		}

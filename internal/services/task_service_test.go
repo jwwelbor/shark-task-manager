@@ -82,6 +82,13 @@ func (m *MockTaskRepository) ListByFeature(ctx context.Context, featureID int64)
 	return nil, fmt.Errorf("ListByFeature not implemented in mock")
 }
 
+func (m *MockTaskRepository) ListByFeatureKey(ctx context.Context, featureKey string) ([]*models.Task, error) {
+	if m.ListByFeatureFunc != nil {
+		return m.ListByFeatureFunc(ctx, 0)
+	}
+	return nil, fmt.Errorf("ListByFeatureKey not implemented in mock")
+}
+
 func (m *MockTaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
 	if m.ListByEpicFunc != nil {
 		return m.ListByEpicFunc(ctx, epicKey)

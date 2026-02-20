@@ -1796,3 +1796,8 @@
 {"ts":"2026-02-20T14:04:03.582766-06:00","sid":"bb32e071-4ee5-46f8-8973-18569e122536","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a065298"}}
 {"ts":"2026-02-20T15:31:46.514569-06:00","sid":"ee36d76d-2604-409b-998c-3b2ac32f3fe3","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a95874b"}}
 {"ts":"2026-02-20T15:32:57.814493-06:00","sid":"ee36d76d-2604-409b-998c-3b2ac32f3fe3","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a0b4f69"}}
+{"ts":"2026-02-20T15:38:15.845594-06:00","sid":"60885395-e1e8-4a2c-a3f4-e52204d5c911","event":"agent_spawned","detail":{"hook_event":"SubagentStart","agent_id":"acc9fb4","agent_type":"Explore"}}
+{"ts":"2026-02-20T15:39:00.117151-06:00","sid":"60885395-e1e8-4a2c-a3f4-e52204d5c911","event":"agent_spawned","detail":{"hook_event":"SubagentStart","agent_id":"a6e4384","agent_type":"Explore"}}
+{"ts":"2026-02-20T15:40:04.949871-06:00","sid":"60885395-e1e8-4a2c-a3f4-e52204d5c911","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a6e4384","agent_type":"Explore"}}
+{"ts":"2026-02-20T15:41:50.255799-06:00","sid":"60885395-e1e8-4a2c-a3f4-e52204d5c911","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a278d75"}}
+{"ts":"2026-02-20T15:44:13.862966-06:00","sid":"60885395-e1e8-4a2c-a3f4-e52204d5c911","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"ae4e251"}}

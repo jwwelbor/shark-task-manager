@@ -3,6 +3,9 @@
     "allow": [
       "Skill(uat)",
       "Skill(orchestration)"
+    ],
+    "additionalDirectories": [
+      "/home/jwwel/projects/"
     ]
   }
 }
