@@ -1,9 +1,12 @@
 package commands
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
@@ -125,33 +128,109 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runTaskGet displays details for a single task.
+// runTaskGet displays details for a single task with full rich output.
 func runTaskGet(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	taskKey, err := NormalizeTaskKey(args[0])
 	if err != nil {
 		return fmt.Errorf("invalid task key: %w", err)
 	}
-	svc := cli.GetTaskService()
-	task, err := svc.GetTask(cmd.Context(), taskKey)
+
+	svc := cli.GetTaskServiceWithDeps()
+	task, err := svc.GetTask(ctx, taskKey)
 	if err != nil {
 		return err
 	}
+
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(task)
 	}
-	cli.Info(fmt.Sprintf("Task: %s", task.Key))
-	cli.Info(fmt.Sprintf("Title: %s", task.Title))
-	cli.Info(fmt.Sprintf("Status: %s", task.Status))
+
+	// Gather related data (errors non-fatal — display is best-effort)
+	relatedDocs, _ := svc.ListRelatedDocuments(ctx, taskKey)
+	blockedBy, _ := svc.GetTaskBlockedBy(ctx, taskKey)
+	blocks, _ := svc.GetTaskBlocks(ctx, taskKey)
+	deps, _ := svc.ListDependencies(ctx, taskKey)
+
+	orchestratorAction := cli.GetDisplayService().ResolveTaskAction(ctx, task)
+
+	workflowCfg := cli.GetWorkflowService().ForLevel("task").GetWorkflow()
+	validTransitions := GetValidTransitions(string(task.Status), workflowCfg)
+
+	var notes []*models.EntityNote
+	if noteSvc, err := cli.GetNoteService(ctx); err == nil && noteSvc != nil {
+		notes, _ = noteSvc.ListNotes(ctx, models.EntityTypeTask, taskKey, nil)
+	}
+
+	var contextData *models.ContextData
+	if ctxSvc, err := cli.GetContextService(ctx); err == nil && ctxSvc != nil {
+		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeTask, taskKey)
+	}
+
+	RenderEntity(EntityDisplayOptions{
+		EntityType:         "task",
+		Key:                task.Key,
+		Status:             string(task.Status),
+		BasicInfo:          buildTaskBasicInfo(task, deps, blockedBy, blocks),
+		ValidTransitions:   validTransitions,
+		OrchestratorAction: orchestratorAction,
+		RelatedDocs:        relatedDocs,
+		Notes:              notes,
+		ContextData:        contextData,
+	})
+	return nil
+}
+
+// buildTaskBasicInfo assembles the key-value info table for task display.
+func buildTaskBasicInfo(task *models.Task, deps []*models.Task, blockedBy, blocks []services.RelationshipWithTask) [][]string {
+	var info [][]string
+
+	info = append(info, []string{"Title", task.Title})
+	info = append(info, []string{"Status", string(task.Status)})
+
 	if agent := derefString(task.AgentType); agent != "" {
-		cli.Info(fmt.Sprintf("Agent: %s", agent))
+		info = append(info, []string{"Agent", agent})
 	}
 	if task.Priority > 0 {
-		cli.Info(fmt.Sprintf("Priority: %d", task.Priority))
+		info = append(info, []string{"Priority", fmt.Sprintf("%d", task.Priority)})
+	}
+	if task.ExecutionOrder != nil && *task.ExecutionOrder > 0 {
+		info = append(info, []string{"Execution Order", fmt.Sprintf("%d", *task.ExecutionOrder)})
+	}
+	if fp := derefString(task.FilePath); fp != "" {
+		info = append(info, []string{"File", fp})
 	}
 	if desc := derefString(task.Description); desc != "" {
-		cli.Info(fmt.Sprintf("Description: %s", desc))
+		info = append(info, []string{"Description", desc})
 	}
-	return nil
+	if reason := derefString(task.BlockedReason); reason != "" {
+		info = append(info, []string{"Blocked Reason", reason})
+	}
+
+	info = append(info, []string{"Created", task.CreatedAt.Format(time.RFC3339)})
+	if task.StartedAt.Valid {
+		info = append(info, []string{"Started", task.StartedAt.Time.Format(time.RFC3339)})
+	}
+	if task.CompletedAt.Valid {
+		info = append(info, []string{"Completed", task.CompletedAt.Time.Format(time.RFC3339)})
+	}
+	if task.BlockedAt.Valid {
+		info = append(info, []string{"Blocked At", task.BlockedAt.Time.Format(time.RFC3339)})
+	}
+
+	for _, dep := range deps {
+		info = append(info, []string{"Depends On", fmt.Sprintf("%s (%s)", dep.Key, string(dep.Status))})
+	}
+	for _, rel := range blockedBy {
+		info = append(info, []string{"Blocked By", fmt.Sprintf("%s (%s)", rel.TaskKey, rel.TaskStatus)})
+	}
+	for _, rel := range blocks {
+		info = append(info, []string{"Blocks", fmt.Sprintf("%s (%s)", rel.TaskKey, rel.TaskStatus)})
+	}
+
+	return info
 }
 
 // runTaskCreate creates a new task.

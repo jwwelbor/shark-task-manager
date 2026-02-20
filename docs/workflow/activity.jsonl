@@ -1747,3 +1747,21 @@
 {"ts":"2026-02-19T18:03:58.256410-06:00","sid":"9c98b81c-bd2f-4581-8047-fc402374195a","event":"status_changed","entity":"E15-F11","detail":{"command":"shark feature next-status E15-F11 --preview 2>&1"}}
 {"ts":"2026-02-19T18:04:08.529121-06:00","sid":"9c98b81c-bd2f-4581-8047-fc402374195a","event":"entity_queried","entity":"E15","detail":{"command":"shark epic get E15 2>&1 | head -40"}}
 {"ts":"2026-02-19T18:04:19.046164-06:00","sid":"9c98b81c-bd2f-4581-8047-fc402374195a","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a6d77a0"}}
+{"ts":"2026-02-19T18:20:47.022881-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"agent_spawned","detail":{"hook_event":"SubagentStart","agent_id":"a0920f5","agent_type":"Explore"}}
+{"ts":"2026-02-19T18:21:44.744790-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a0920f5","agent_type":"Explore"}}
+{"ts":"2026-02-19T18:25:14.231861-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"entity_queried","entity":"E15-F11","detail":{"command":"./bin/shark feature get E15-F11-015 --json 2>&1 | head -20"}}
+{"ts":"2026-02-19T18:25:26.887225-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"entity_queried","entity":"E15-F11","detail":{"command":"make shark && ./bin/shark feature get E15-F11-015 --json 2>&1 | python3 -c \"import sys,json; d=json.load(sys.stdin); print(f\\\"key={d['key']}, title={d['title']}, status={d['status']}\\\")\""}}
+{"ts":"2026-02-19T18:25:39.881316-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"aa56e3c"}}
+{"ts":"2026-02-19T18:30:49.345090-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a8edef5"}}
+{"ts":"2026-02-19T18:31:28.264770-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a5b94a8"}}
+{"ts":"2026-02-19T18:39:54.861090-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"aa87ee1"}}
+{"ts":"2026-02-19T18:40:57.908961-06:00","sid":"e36c8e6b-2b72-4556-99bb-a2a341cdfe83","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"adefd04"}}
+{"ts":"2026-02-19T18:50:28.393790-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a33db50"}}
+{"ts":"2026-02-19T18:52:10.856980-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"abf41f1"}}
+{"ts":"2026-02-19T18:55:19.375990-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a214318"}}
+{"ts":"2026-02-19T18:57:55.483043-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"acc7913"}}
+{"ts":"2026-02-19T19:00:26.599282-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a1e7be2"}}
+{"ts":"2026-02-19T19:03:11.216300-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"aa1dd49"}}
+{"ts":"2026-02-19T19:06:31.915274-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"ab2a4d5"}}
+{"ts":"2026-02-19T19:42:46.554650-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"ae6e9e4"}}
+{"ts":"2026-02-19T19:46:38.543329-06:00","sid":"10cc3aa2-47d0-45f1-b7e4-cf7ce00dcc5b","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"aebdb5a"}}
