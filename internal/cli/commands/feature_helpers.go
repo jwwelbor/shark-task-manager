@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -59,21 +60,6 @@ type FeatureTemplateData struct {
 	Date        string
 }
 
-// backupDatabaseOnForceFeature creates a backup when --force flag is used.
-// DEPRECATED: Use CreateBackupIfForce from file_assignment.go instead.
-func backupDatabaseOnForceFeature(force bool, dbPath string, operation string) (string, error) {
-	backupPath, err := CreateBackupIfForce(force, dbPath, operation)
-	if err != nil {
-		return "", err
-	}
-
-	if backupPath != "" && !cli.GlobalConfig.JSON {
-		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
-	}
-
-	return backupPath, nil
-}
-
 // filterFeaturesByCompletedStatus filters out completed features unless showAll is true
 // or an explicit status filter is set.
 func filterFeaturesByCompletedStatus(features []FeatureWithTaskCount, showAll bool, statusFilter string) []FeatureWithTaskCount {
@@ -99,51 +85,25 @@ func filterFeaturesByCompletedStatus(features []FeatureWithTaskCount, showAll bo
 
 // sortFeatures sorts features by the specified field.
 func sortFeatures(features []FeatureWithTaskCount, sortBy string) {
-	if sortBy == "" || sortBy == "key" {
-		sortFeaturesByKey(features)
-	} else if sortBy == "progress" {
-		sortFeaturesByProgress(features)
-	} else if sortBy == "status" {
-		sortFeaturesByStatus(features)
-	}
-}
-
-// sortFeaturesByKey sorts features by key.
-func sortFeaturesByKey(features []FeatureWithTaskCount) {
-	for i := 0; i < len(features); i++ {
-		for j := i + 1; j < len(features); j++ {
-			if features[i].Key > features[j].Key {
-				features[i], features[j] = features[j], features[i]
-			}
+	switch sortBy {
+	case "progress":
+		sort.Slice(features, func(i, j int) bool {
+			return features[i].ProgressPct < features[j].ProgressPct
+		})
+	case "status":
+		statusOrder := map[models.FeatureStatus]int{
+			models.FeatureStatusDraft:     1,
+			models.FeatureStatusActive:    2,
+			models.FeatureStatusCompleted: 3,
+			models.FeatureStatusArchived:  4,
 		}
-	}
-}
-
-// sortFeaturesByProgress sorts features by progress (ascending).
-func sortFeaturesByProgress(features []FeatureWithTaskCount) {
-	for i := 0; i < len(features); i++ {
-		for j := i + 1; j < len(features); j++ {
-			if features[i].ProgressPct > features[j].ProgressPct {
-				features[i], features[j] = features[j], features[i]
-			}
-		}
-	}
-}
-
-// sortFeaturesByStatus sorts features by status (draft, active, completed, archived).
-func sortFeaturesByStatus(features []FeatureWithTaskCount) {
-	statusOrder := map[models.FeatureStatus]int{
-		models.FeatureStatusDraft:     1,
-		models.FeatureStatusActive:    2,
-		models.FeatureStatusCompleted: 3,
-		models.FeatureStatusArchived:  4,
-	}
-	for i := 0; i < len(features); i++ {
-		for j := i + 1; j < len(features); j++ {
-			if statusOrder[features[i].Status] > statusOrder[features[j].Status] {
-				features[i], features[j] = features[j], features[i]
-			}
-		}
+		sort.Slice(features, func(i, j int) bool {
+			return statusOrder[features[i].Status] < statusOrder[features[j].Status]
+		})
+	default: // "", "key"
+		sort.Slice(features, func(i, j int) bool {
+			return features[i].Key < features[j].Key
+		})
 	}
 }
 
@@ -837,7 +797,7 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		return services.CreateFeatureInput{}, "", "", fmt.Errorf("%v", err)
 	}
 
-	if !isValidEpicKey(featureCreateEpic) {
+	if !IsEpicKey(featureCreateEpic) {
 		return services.CreateFeatureInput{}, "", "", fmt.Errorf("invalid epic key format. Must be E## (e.g., E01, E02)")
 	}
 
@@ -1203,9 +1163,13 @@ func performFeatureComplete(ctx context.Context, featureKey string, force bool) 
 				os.Exit(2)
 			}
 			if canBackup {
-				if _, err := backupDatabaseOnForceFeature(force, dbPath, "force complete feature"); err != nil {
-					cli.Error(fmt.Sprintf("Error: %v", err))
+				backupPath, backupErr := CreateBackupIfForce(force, dbPath, "force complete feature")
+				if backupErr != nil {
+					cli.Error(fmt.Sprintf("Error: %v", backupErr))
 					os.Exit(2)
+				}
+				if backupPath != "" && !cli.GlobalConfig.JSON {
+					cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
 				}
 			}
 		}

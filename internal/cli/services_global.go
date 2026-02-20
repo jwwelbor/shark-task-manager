@@ -11,6 +11,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/validation"
 	"github.com/jwwelbor/shark-task-manager/internal/view"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 var (
@@ -98,21 +99,21 @@ func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
 	return globalResumeService, nil
 }
 
-// GetTaskService returns a TaskService instance.
-// Creates a new instance each call with the global DB connection and workflow service.
+// taskServiceDeps holds the shared dependencies for constructing a TaskService.
+// Extracted to eliminate duplication across GetTaskService, GetTaskServiceWithHistory,
+// and GetTaskServiceWithDeps which all wire the same base dependencies.
+type taskServiceDeps struct {
+	db          *repository.DB
+	taskRepo    *repository.TaskRepository
+	workflowSvc *workflow.Service
+	noteRepo    *repository.EntityNoteRepository
+	creatorSvc  *taskcreation.Creator
+	historyRepo *repository.TaskHistoryRepository
+}
+
+// buildTaskServiceDeps constructs the shared dependencies for TaskService variants.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
-//
-// Pattern:
-//   - Creates new service instance per call (lightweight, no shared state)
-//   - Reuses global DB and workflow service (expensive to recreate)
-//   - Panics on DB failure (fail-fast for CLI entry points)
-//   - Optional dependencies (creatorSvc, noteRepo) passed as nil for now
-//
-// Usage:
-//
-//	svc := cli.GetTaskService()
-//	task, err := svc.StartTask(ctx, "E07-F01-001", "agent123")
-func GetTaskService() *services.TaskService {
+func buildTaskServiceDeps() taskServiceDeps {
 	db, err := GetDB(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
@@ -121,7 +122,6 @@ func GetTaskService() *services.TaskService {
 	workflowSvc := GetWorkflowService()
 	noteRepo := repository.NewEntityNoteRepository(db)
 
-	// Wire taskcreation.Creator for task file creation support
 	projectRoot, _ := FindProjectRoot()
 	if projectRoot == "" {
 		projectRoot = "."
@@ -131,11 +131,30 @@ func GetTaskService() *services.TaskService {
 	featureRepo := repository.NewFeatureRepository(db)
 	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
 	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
-	loader := templates.NewLoader("") // use embedded templates
-	renderer := templates.NewRenderer(loader)
+	renderer := templates.NewRenderer(templates.NewLoader(""))
 	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
 
-	return services.NewTaskService(taskRepo, workflowSvc, creatorSvc, noteRepo)
+	return taskServiceDeps{
+		db:          db,
+		taskRepo:    taskRepo,
+		workflowSvc: workflowSvc,
+		noteRepo:    noteRepo,
+		creatorSvc:  creatorSvc,
+		historyRepo: historyRepo,
+	}
+}
+
+// GetTaskService returns a TaskService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetTaskService()
+//	task, err := svc.StartTask(ctx, "E07-F01-001", "agent123")
+func GetTaskService() *services.TaskService {
+	d := buildTaskServiceDeps()
+	return services.NewTaskService(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo)
 }
 
 // GetTaskServiceWithHistory returns a TaskService with the history repository wired.
@@ -147,29 +166,9 @@ func GetTaskService() *services.TaskService {
 //	svc := cli.GetTaskServiceWithHistory()
 //	histories, err := svc.GetTaskHistory(ctx, "E07-F01-001")
 func GetTaskServiceWithHistory() *services.TaskService {
-	db, err := GetDB(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("failed to get database: %v", err))
-	}
-	taskRepo := repository.NewTaskRepository(db)
-	workflowSvc := GetWorkflowService()
-	noteRepo := repository.NewEntityNoteRepository(db)
-
-	projectRoot, _ := FindProjectRoot()
-	if projectRoot == "" {
-		projectRoot = "."
-	}
-	historyRepo := repository.NewTaskHistoryRepository(db)
-	epicRepo := repository.NewEpicRepository(db)
-	featureRepo := repository.NewFeatureRepository(db)
-	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
-	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
-	loader := templates.NewLoader("")
-	renderer := templates.NewRenderer(loader)
-	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
-
-	svc := services.NewTaskService(taskRepo, workflowSvc, creatorSvc, noteRepo)
-	svc.SetHistoryRepo(&taskHistoryAdapter{repo: historyRepo})
+	d := buildTaskServiceDeps()
+	svc := services.NewTaskService(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo)
+	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 	return svc
 }
 
@@ -182,33 +181,12 @@ func GetTaskServiceWithHistory() *services.TaskService {
 //	svc := cli.GetTaskServiceWithDeps()
 //	count, err := svc.UnlinkRelationships(ctx, taskKey, relType, targetKeys)
 func GetTaskServiceWithDeps() *services.TaskService {
-	db, err := GetDB(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("failed to get database: %v", err))
-	}
-	taskRepo := repository.NewTaskRepository(db)
-	workflowSvc := GetWorkflowService()
-	noteRepo := repository.NewEntityNoteRepository(db)
+	d := buildTaskServiceDeps()
+	relRepo := repository.NewTaskRelationshipRepository(d.db)
+	docRepo := repository.NewDocumentRepository(d.db)
+	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(d.db)}
 
-	// Wire taskcreation.Creator for task file creation support
-	projectRoot, _ := FindProjectRoot()
-	if projectRoot == "" {
-		projectRoot = "."
-	}
-	historyRepo := repository.NewTaskHistoryRepository(db)
-	epicRepo := repository.NewEpicRepository(db)
-	featureRepo := repository.NewFeatureRepository(db)
-	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
-	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
-	loader := templates.NewLoader("")
-	renderer := templates.NewRenderer(loader)
-	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
-
-	relRepo := repository.NewTaskRelationshipRepository(db)
-	docRepo := repository.NewDocumentRepository(db)
-	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(db)}
-
-	svc := services.NewTaskServiceWithRelationships(taskRepo, workflowSvc, creatorSvc, noteRepo, docRepo, relRepo, sessionRepo)
+	svc := services.NewTaskServiceWithRelationships(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo, docRepo, relRepo, sessionRepo)
 	svc.SetDepRepo(relRepo)
 	svc.SetRelQueryRepo(relRepo)
 	svc.SetWritableDocRepo(docRepo)

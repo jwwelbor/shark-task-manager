@@ -369,29 +369,6 @@ func TestParseFeatureKey(t *testing.T) {
 	}
 }
 
-// TestIsValidEpicKey tests backward compatibility with deprecated function
-func TestIsValidEpicKey(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{"Valid E01", "E01", true},
-		{"Valid E04", "E04", true},
-		{"Invalid E1", "E1", false},
-		{"Valid e04 (case insensitive)", "e04", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isValidEpicKey(tt.input)
-			if result != tt.expected {
-				t.Errorf("isValidEpicKey(%q) = %v, want %v", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 // BenchmarkIsEpicKey benchmarks the IsEpicKey function
 func BenchmarkIsEpicKey(b *testing.B) {
 	for i := 0; i < b.N; i++ {

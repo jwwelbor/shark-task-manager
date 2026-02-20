@@ -40,6 +40,8 @@ package main
 import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -78,12 +80,19 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	featureRepo := repository.NewFeatureRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
 	noteRepo := repository.NewEntityNoteRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db)
+
+	// Step 2b: Construct taskcreation.Creator for task file creation
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	renderer := templates.NewRenderer(templates.NewLoader("")) // use embedded templates
+	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
 
 	// Step 3: Construct domain services (business logic layer)
 	taskService := services.NewTaskService(
 		taskRepo,    // Task data access
 		workflowSvc, // Workflow validation
-		nil,         // TODO: taskcreation.Creator for task creation
+		creatorSvc,  // Task file creation
 		noteRepo,    // Rejection note tracking (implements TaskNoteRepository)
 	)
 
@@ -100,7 +109,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		workflowSvc, // Workflow validation
 		nil,         // TODO: Note repository (EpicNoteRepository interface differs)
 		featureRepo, // Child feature counting for warnings
-		nil,         // TODO: Task repository for impediment tracking
+		taskRepo,    // Task repository for impediment tracking
 	)
 
 	// Step 4: Construct supporting services

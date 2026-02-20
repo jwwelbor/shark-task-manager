@@ -10,14 +10,15 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
 
-// epicNoteAdapter adapts *repository.EntityNoteRepository to the services.EpicNoteRepository interface.
-// The service interface uses (string, string) for entityType and documentPath,
+// entityNoteAdapter adapts *repository.EntityNoteRepository to the services.EpicNoteRepository
+// and services.FeatureNoteRepository interfaces (both have identical signatures).
+// The service interfaces use (string, string) for entityType and documentPath,
 // while the repository uses (models.EntityType, *string).
-type epicNoteAdapter struct {
+type entityNoteAdapter struct {
 	repo *repository.EntityNoteRepository
 }
 
-func (a *epicNoteAdapter) CreateRejectionNote(
+func (a *entityNoteAdapter) CreateRejectionNote(
 	ctx context.Context,
 	entityType string,
 	entityID int64,
@@ -31,12 +32,6 @@ func (a *epicNoteAdapter) CreateRejectionNote(
 	_, err := a.repo.CreateRejectionNote(ctx, models.EntityType(entityType), entityID, historyID,
 		fromStatus, toStatus, reason, rejectedBy, dp)
 	return err
-}
-
-// featureNoteAdapter adapts *repository.EntityNoteRepository to the services.FeatureNoteRepository interface.
-// Same bridging logic as epicNoteAdapter.
-type featureNoteAdapter struct {
-	repo *repository.EntityNoteRepository
 }
 
 // workSessionAdapter adapts *repository.WorkSessionRepository to the services.WorkSessionRepository interface.
@@ -124,22 +119,6 @@ func (a *resumeSessionAdapter) GetActiveSessionByTaskID(ctx context.Context, tas
 	return a.repo.GetActiveSessionByTaskID(ctx, taskID)
 }
 
-func (a *featureNoteAdapter) CreateRejectionNote(
-	ctx context.Context,
-	entityType string,
-	entityID int64,
-	historyID int64,
-	fromStatus, toStatus, reason, rejectedBy, documentPath string,
-) error {
-	var dp *string
-	if documentPath != "" {
-		dp = &documentPath
-	}
-	_, err := a.repo.CreateRejectionNote(ctx, models.EntityType(entityType), entityID, historyID,
-		fromStatus, toStatus, reason, rejectedBy, dp)
-	return err
-}
-
 // GetEpicService returns an EpicService instance.
 // Creates a new instance each call with the global DB connection and workflow service.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
@@ -163,7 +142,7 @@ func GetEpicService() *services.EpicService {
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	docRepo := repository.NewDocumentRepository(db)
-	noteRepo := &epicNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
+	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	workflowSvc := GetWorkflowService()
 	svc := services.NewEpicService(epicRepo, workflowSvc, noteRepo, featureRepo, taskRepo)
 	svc.SetDocRepo(docRepo)
@@ -193,7 +172,7 @@ func GetFeatureService() *services.FeatureService {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
-	noteRepo := &featureNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
+	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	docRepo := repository.NewDocumentRepository(db)
 	workflowSvc := GetWorkflowService()
 	svc := services.NewFeatureServiceWithRelationships(featureRepo, workflowSvc, noteRepo, taskRepo, docRepo, nil, epicRepo)

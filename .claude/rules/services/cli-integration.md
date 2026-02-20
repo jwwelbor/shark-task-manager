@@ -602,6 +602,8 @@ func runMyCommand(cmd *cobra.Command, args []string) error {
 
 Commands translate service errors into appropriate **exit codes** and user-friendly messages.
 
+**Note on `os.Exit()`**: Calling `os.Exit()` directly in Cobra command handlers bypasses Cobra's `PersistentPostRun` cleanup hooks and makes the command difficult to test. Prefer returning a typed error from the handler and letting the root command's `Execute()` error handler translate it to an exit code via `os.Exit()`. The pattern below shows typed error returns as the preferred approach.
+
 **Pattern:**
 
 ```go
@@ -609,22 +611,22 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
     svc := cli.GetTaskService()
     task, err := svc.StartTask(cmd.Context(), args[0], agentID)
     if err != nil {
-        // Error type detection
+        // Return typed errors — the caller maps these to exit codes
         var notFoundErr *repository.NotFoundError
         if errors.As(err, &notFoundErr) {
             cli.Error(fmt.Sprintf("Task not found: %s", args[0]))
-            os.Exit(1) // Exit code 1 for not found
+            return fmt.Errorf("exit code 1: %w", err)
         }
 
         var workflowErr *workflow.TransitionError
         if errors.As(err, &workflowErr) {
             cli.Error(fmt.Sprintf("Invalid status transition: %v", err))
-            os.Exit(3) // Exit code 3 for invalid state
+            return fmt.Errorf("exit code 3: %w", err)
         }
 
         // Generic error
         cli.Error(fmt.Sprintf("Error: %v", err))
-        os.Exit(2) // Exit code 2 for database/system errors
+        return fmt.Errorf("exit code 2: %w", err)
     }
 
     cli.Success(fmt.Sprintf("Task %s started", task.Key))

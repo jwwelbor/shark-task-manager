@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -72,68 +73,27 @@ func getRelativePath(absPath string, projectRoot string) string {
 	return relPath
 }
 
-// backupDatabaseOnForce creates a backup when --force flag is used.
-// DEPRECATED: Use CreateBackupIfForce from file_assignment.go instead.
-func backupDatabaseOnForce(force bool, dbPath string, operation string) (string, error) {
-	backupPath, err := CreateBackupIfForce(force, dbPath, operation)
-	if err != nil {
-		return "", err
-	}
-
-	if backupPath != "" && !cli.GlobalConfig.JSON {
-		cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
-	}
-
-	return backupPath, nil
-}
-
 // sortEpics sorts epics by the specified field
 func sortEpics(epics []EpicWithProgress, sortBy string) {
-	if sortBy == "" || sortBy == "key" {
-		sortEpicsByKey(epics)
-	} else if sortBy == "progress" {
-		sortEpicsByProgress(epics)
-	} else if sortBy == "status" {
-		sortEpicsByStatus(epics)
-	}
-}
-
-// sortEpicsByKey sorts epics by key
-func sortEpicsByKey(epics []EpicWithProgress) {
-	for i := 0; i < len(epics); i++ {
-		for j := i + 1; j < len(epics); j++ {
-			if epics[i].Key > epics[j].Key {
-				epics[i], epics[j] = epics[j], epics[i]
-			}
+	switch sortBy {
+	case "progress":
+		sort.Slice(epics, func(i, j int) bool {
+			return epics[i].ProgressPct < epics[j].ProgressPct
+		})
+	case "status":
+		statusOrder := map[models.EpicStatus]int{
+			models.EpicStatusDraft:     1,
+			models.EpicStatusActive:    2,
+			models.EpicStatusCompleted: 3,
+			models.EpicStatusArchived:  4,
 		}
-	}
-}
-
-// sortEpicsByProgress sorts epics by progress (ascending)
-func sortEpicsByProgress(epics []EpicWithProgress) {
-	for i := 0; i < len(epics); i++ {
-		for j := i + 1; j < len(epics); j++ {
-			if epics[i].ProgressPct > epics[j].ProgressPct {
-				epics[i], epics[j] = epics[j], epics[i]
-			}
-		}
-	}
-}
-
-// sortEpicsByStatus sorts epics by status (draft, active, completed, archived)
-func sortEpicsByStatus(epics []EpicWithProgress) {
-	statusOrder := map[models.EpicStatus]int{
-		models.EpicStatusDraft:     1,
-		models.EpicStatusActive:    2,
-		models.EpicStatusCompleted: 3,
-		models.EpicStatusArchived:  4,
-	}
-	for i := 0; i < len(epics); i++ {
-		for j := i + 1; j < len(epics); j++ {
-			if statusOrder[epics[i].Status] > statusOrder[epics[j].Status] {
-				epics[i], epics[j] = epics[j], epics[i]
-			}
-		}
+		sort.Slice(epics, func(i, j int) bool {
+			return statusOrder[epics[i].Status] < statusOrder[epics[j].Status]
+		})
+	default: // "", "key"
+		sort.Slice(epics, func(i, j int) bool {
+			return epics[i].Key < epics[j].Key
+		})
 	}
 }
 
@@ -887,10 +847,14 @@ func performEpicComplete(ctx context.Context, epicKey string, force bool) error 
 			os.Exit(2)
 		}
 		if canBackup {
-			if _, backupCreateErr := backupDatabaseOnForce(force, dbPath, "force complete epic"); backupCreateErr != nil {
+			backupPath, backupCreateErr := CreateBackupIfForce(force, dbPath, "force complete epic")
+			if backupCreateErr != nil {
 				cli.Error(fmt.Sprintf("Error: %v", backupCreateErr))
 				cli.Info("Aborting operation to prevent data loss")
 				os.Exit(2)
+			}
+			if backupPath != "" && !cli.GlobalConfig.JSON {
+				cli.Info(fmt.Sprintf("Database backup created: %s", backupPath))
 			}
 		} else if cli.GlobalConfig.Verbose {
 			cli.Info("Using cloud database - backup handled by provider")

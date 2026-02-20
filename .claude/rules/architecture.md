@@ -259,8 +259,11 @@ EpicService
 ├── EpicNoteRepository (interface, optional)
 │   └── *repository.EntityNoteRepository
 │       └── *repository.DB
-└── EpicFeatureCounter (interface, optional)
-    └── *repository.FeatureRepository
+├── EpicFeatureCounter (interface, optional)
+│   └── *repository.FeatureRepository
+│       └── *repository.DB
+└── EpicTaskLister (interface, optional)
+    └── *repository.TaskRepository
         └── *repository.DB
 
 NoteService

@@ -46,7 +46,7 @@ func setupAccessorTestDB(t *testing.T) func() {
 }
 
 // ---------------------------------------------------------------------------
-// epicNoteAdapter unit tests
+// entityNoteAdapter unit tests
 //
 // These tests verify the adapter's translation logic:
 //   - empty documentPath string → nil *string passed to underlying repo
@@ -130,7 +130,7 @@ func TestEpicNoteAdapter_CallsCreateRejectionNote(t *testing.T) {
 	}
 
 	noteRepo := repository.NewEntityNoteRepository(db)
-	adapter := &epicNoteAdapter{repo: noteRepo}
+	adapter := &entityNoteAdapter{repo: noteRepo}
 
 	ctx := context.Background()
 
@@ -145,9 +145,9 @@ func TestEpicNoteAdapter_CallsCreateRejectionNote(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// featureNoteAdapter unit tests
+// entityNoteAdapter unit tests
 //
-// Identical translation behavior as epicNoteAdapter — verified separately.
+// Identical translation behavior as entityNoteAdapter — verified separately.
 // ---------------------------------------------------------------------------
 
 // TestFeatureNoteAdapter_EmptyDocumentPath verifies nil *string for empty path.
@@ -201,7 +201,7 @@ func TestFeatureNoteAdapter_CallsCreateRejectionNote(t *testing.T) {
 	}
 
 	noteRepo := repository.NewEntityNoteRepository(db)
-	adapter := &featureNoteAdapter{repo: noteRepo}
+	adapter := &entityNoteAdapter{repo: noteRepo}
 
 	ctx := context.Background()
 

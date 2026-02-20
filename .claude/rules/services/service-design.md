@@ -300,10 +300,26 @@ func (s *TaskService) GetTask(ctx context.Context, key string, format string) (s
 
 Services own **transaction boundaries**, not repositories. Repositories can accept `*sql.Tx` for participation in service-managed transactions.
 
+To begin a transaction, inject `*repository.DB` into the service constructor alongside the repository interface. This keeps the dependency explicit while allowing services to manage transaction scope.
+
+```go
+// Service struct includes db for transaction management
+type TaskService struct {
+    db          *repository.DB      // For transaction management
+    repo        TaskRepository      // Data access (interface)
+    workflowSvc *workflow.Service
+}
+
+// Constructor injects both db and repo
+func NewTaskService(db *repository.DB, repo TaskRepository, workflowSvc *workflow.Service, ...) *TaskService {
+    return &TaskService{db: db, repo: repo, workflowSvc: workflowSvc}
+}
+```
+
 **Pattern:**
 ```go
 func (s *TaskService) CompleteTaskWithNotes(ctx context.Context, key string, notes string) (*models.Task, error) {
-    // Service starts transaction
+    // Service starts transaction via injected db
     tx, err := s.db.BeginTx(ctx, nil)
     if err != nil {
         return nil, fmt.Errorf("failed to begin transaction: %w", err)
