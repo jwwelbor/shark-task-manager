@@ -1604,6 +1604,25 @@ func (s *TaskService) GetTaskRepository() TaskRepository {
 	return s.repo
 }
 
+// GetTaskByID retrieves a task by its database ID.
+// This is used by history display to resolve task keys from history records,
+// which store task IDs rather than keys.
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - id: database ID of the task
+//
+// Returns:
+//   - *models.Task: the task if found
+//   - error: NotFoundError if task doesn't exist, or repository errors
+func (s *TaskService) GetTaskByID(ctx context.Context, id int64) (*models.Task, error) {
+	task, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task by ID %d: %w", id, err)
+	}
+	return task, nil
+}
+
 // GetRelQueryRepo returns the relationship query repository for use by tree traversal functions.
 // Returns nil if relationship queries are not configured.
 func (s *TaskService) GetRelQueryRepo() TaskRelationshipQueryRepository {

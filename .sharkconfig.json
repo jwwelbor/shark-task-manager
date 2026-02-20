@@ -841,7 +841,7 @@
     ],
     "in_code_review": [
       "ready_for_qa",
-      "in_development",
+      "ready_for_development",
       "ready_for_refinement_ba",
       "ready_for_refinement_tech",
       "on_hold"
@@ -855,7 +855,7 @@
     ],
     "in_qa": [
       "ready_for_approval",
-      "in_development",
+      "ready_for_development",
       "ready_for_refinement_ba",
       "ready_for_refinement_tech",
       "blocked",

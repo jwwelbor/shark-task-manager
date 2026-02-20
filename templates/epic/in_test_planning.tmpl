@@ -1,0 +1,31 @@
+{{template "_resume_preamble" .}}RESUME epic test planning for {{.id}}: "{{.title}}".
+
+Check for existing UAT acceptance plan at {{.file_path}}. If plan exists with all 5 sections complete (acceptance scenarios, success metrics validation, cross-epic integration, risk-based priorities, persona acceptance matrix) and exit gate criteria met, advance immediately.
+
+---
+
+Create UAT acceptance plan for epic {{.id}}: "{{.title}}".
+
+STRATEGIC TEST PLANNING -- define how we know this epic delivers what it promises.
+
+READ:
+(1) Epic PRD at {{.file_path}} -- all 6 files (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md)
+(2) Research report for feasibility constraints and risk areas
+(3) BA feasibility review report for business viability assessment and cross-epic conflict analysis
+(4) Technical feasibility review report for architectural concerns and dependency risks
+(5) Other epic UAT plans under docs/plan/ for cross-epic test coverage
+
+PRODUCE: Epic UAT plan containing:
+(1) Acceptance scenarios derived from each user journey -- concrete end-to-end scenarios with preconditions, steps, expected outcomes that prove the journey works
+(2) Success metrics validation plan -- how each metric from success-metrics.md will be measured and what constitutes pass/fail
+(3) Cross-epic integration test scenarios -- where this epic's capabilities interact with other epics
+(4) Risk-based test priorities -- which scenarios must pass first based on research risk assessment and feasibility review findings
+(5) Persona-based acceptance matrix -- for each persona, which scenarios validate their needs are met
+
+EXIT GATE:
+- Every user journey has at least one acceptance scenario
+- Every success metric has a validation method
+- Risk areas from research and feasibility reviews have targeted scenarios
+- Plan is actionable for feature-level decomposition into test strategies
+
+Advance: shark epic next-status {{.id}}.

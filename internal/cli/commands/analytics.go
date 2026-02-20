@@ -1,13 +1,12 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -28,6 +27,7 @@ Examples:
   shark analytics --session-duration --epic E10
   shark analytics --pause-frequency --epic E10 --feature F05
   shark analytics --session-duration --epic E10 --agent-type backend`,
+	RunE: runAnalytics,
 }
 
 func init() {
@@ -43,9 +43,6 @@ func init() {
 
 // runAnalytics executes the analytics command
 func runAnalytics(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	sessionDuration, _ := cmd.Flags().GetBool("session-duration")
 	pauseFrequency, _ := cmd.Flags().GetBool("pause-frequency")
 	epicKey, _ := cmd.Flags().GetString("epic")
@@ -64,68 +61,28 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 		os.Exit(3)
 	}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	// Create repositories
-	dbConn := repoDb
-	epicRepo := repository.NewEpicRepository(dbConn)
-	featureRepo := repository.NewFeatureRepository(dbConn)
-	sessionRepo := repository.NewWorkSessionRepository(dbConn)
-
-	var analytics *repository.SessionAnalytics
-	var scopeDescription string
-
-	// Get analytics data based on scope
+	// Build scope description
+	scopeDescription := ""
 	if featureKey != "" {
-		// Feature-level analytics
-		feature, err := featureRepo.GetByKey(ctx, featureKey)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Feature %s not found", featureKey))
-			os.Exit(1)
-		}
-
-		var agentTypePtr *string
-		if agentType != "" {
-			agentTypePtr = &agentType
-		}
-
-		analytics, err = sessionRepo.GetSessionAnalyticsByFeature(ctx, feature.ID, agentTypePtr)
-		if err != nil {
-			return fmt.Errorf("failed to get session analytics: %w", err)
-		}
-
 		scopeDescription = fmt.Sprintf("Feature %s", featureKey)
-		if agentType != "" {
-			scopeDescription += fmt.Sprintf(" (Agent: %s)", agentType)
-		}
-
-	} else if epicKey != "" {
-		// Epic-level analytics
-		epic, err := epicRepo.GetByKey(ctx, epicKey)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Epic %s not found", epicKey))
-			os.Exit(1)
-		}
-
-		var agentTypePtr *string
-		if agentType != "" {
-			agentTypePtr = &agentType
-		}
-
-		analytics, err = sessionRepo.GetSessionAnalyticsByEpic(ctx, epic.ID, agentTypePtr)
-		if err != nil {
-			return fmt.Errorf("failed to get session analytics: %w", err)
-		}
-
+	} else {
 		scopeDescription = fmt.Sprintf("Epic %s", epicKey)
-		if agentType != "" {
-			scopeDescription += fmt.Sprintf(" (Agent: %s)", agentType)
-		}
+	}
+	if agentType != "" {
+		scopeDescription += fmt.Sprintf(" (Agent: %s)", agentType)
+	}
+
+	// Call service
+	svc := cli.GetTaskServiceWithDeps()
+	input := services.SessionAnalyticsInput{
+		EpicKey:    epicKey,
+		FeatureKey: featureKey,
+		AgentType:  agentType,
+	}
+
+	analytics, err := svc.GetSessionAnalytics(cmd.Context(), input)
+	if err != nil {
+		return fmt.Errorf("failed to get session analytics: %w", err)
 	}
 
 	// Output
@@ -137,20 +94,20 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 			"analytics":        analytics,
 		}
 		return cli.OutputJSON(output)
-	} else {
-		if sessionDuration {
-			printSessionDurationAnalytics(scopeDescription, analytics)
-		}
-		if pauseFrequency {
-			printPauseFrequencyAnalytics(scopeDescription, analytics)
-		}
+	}
+
+	if sessionDuration {
+		printSessionDurationAnalytics(scopeDescription, analytics)
+	}
+	if pauseFrequency {
+		printPauseFrequencyAnalytics(scopeDescription, analytics)
 	}
 
 	return nil
 }
 
 // printSessionDurationAnalytics prints session duration analysis
-func printSessionDurationAnalytics(scope string, analytics *repository.SessionAnalytics) {
+func printSessionDurationAnalytics(scope string, analytics *services.SessionAnalytics) {
 	fmt.Printf("═══════════════════════════════════════════════════════════════\n")
 	fmt.Printf("Session Duration Analysis: %s\n", scope)
 	fmt.Printf("═══════════════════════════════════════════════════════════════\n\n")
@@ -187,7 +144,7 @@ func printSessionDurationAnalytics(scope string, analytics *repository.SessionAn
 }
 
 // printPauseFrequencyAnalytics prints pause frequency analysis
-func printPauseFrequencyAnalytics(scope string, analytics *repository.SessionAnalytics) {
+func printPauseFrequencyAnalytics(scope string, analytics *services.SessionAnalytics) {
 	fmt.Printf("═══════════════════════════════════════════════════════════════\n")
 	fmt.Printf("Pause Frequency Analysis: %s\n", scope)
 	fmt.Printf("═══════════════════════════════════════════════════════════════\n\n")
@@ -231,8 +188,4 @@ func printPauseFrequencyAnalytics(scope string, analytics *repository.SessionAna
 	}
 
 	fmt.Printf("\n───────────────────────────────────────────────────────────────\n\n")
-}
-
-func init() {
-	analyticsCmd.RunE = runAnalytics
 }

@@ -13,21 +13,58 @@ type NoteEntityNoteRepository interface {
 	GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
 	GetByEntityAndType(ctx context.Context, entityType models.EntityType, entityID int64, noteTypes []string) ([]*models.EntityNote, error)
 	Search(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error)
+	SearchWithTimePeriod(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string, since string, until string) ([]*models.EntityNote, error)
 }
 
 // NoteEpicRepository defines the epic repository interface needed by NoteService.
 type NoteEpicRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Epic, error)
+	GetByID(ctx context.Context, id int64) (*models.Epic, error)
 }
 
 // NoteFeatureRepository defines the feature repository interface needed by NoteService.
 type NoteFeatureRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Feature, error)
+	GetByID(ctx context.Context, id int64) (*models.Feature, error)
 }
 
 // NoteTaskRepository defines the task repository interface needed by NoteService.
 type NoteTaskRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
+	GetByID(ctx context.Context, id int64) (*models.Task, error)
+}
+
+// NoteEntityDetails contains the key and name of an entity referenced by a note.
+type NoteEntityDetails struct {
+	Key  string
+	Name string
+}
+
+// GetEntityDetails returns the key and name of the entity referenced by a note.
+// Returns nil if the entity cannot be found (caller should skip or handle gracefully).
+func (s *NoteService) GetEntityDetails(ctx context.Context, entityType models.EntityType, entityID int64) *NoteEntityDetails {
+	switch entityType {
+	case models.EntityTypeTask:
+		task, err := s.taskRepo.GetByID(ctx, entityID)
+		if err != nil {
+			return nil
+		}
+		return &NoteEntityDetails{Key: task.Key, Name: task.Title}
+	case models.EntityTypeEpic:
+		epic, err := s.epicRepo.GetByID(ctx, entityID)
+		if err != nil {
+			return nil
+		}
+		return &NoteEntityDetails{Key: epic.Key, Name: epic.Title}
+	case models.EntityTypeFeature:
+		feature, err := s.featureRepo.GetByID(ctx, entityID)
+		if err != nil {
+			return nil
+		}
+		return &NoteEntityDetails{Key: feature.Key, Name: feature.Title}
+	default:
+		return nil
+	}
 }
 
 // NoteService provides business logic for note operations across all entity types.
@@ -95,6 +132,12 @@ func (s *NoteService) ListNotes(ctx context.Context, entityType models.EntityTyp
 // SearchNotes searches across notes with optional filters.
 func (s *NoteService) SearchNotes(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error) {
 	return s.noteRepo.Search(ctx, query, noteTypes, entityType, epicKey, featureKey)
+}
+
+// SearchNotesWithTimePeriod searches notes filtered by time period (since/until date strings).
+// The since and until parameters are date strings in YYYY-MM-DD format; empty means no bound.
+func (s *NoteService) SearchNotesWithTimePeriod(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string, since string, until string) ([]*models.EntityNote, error) {
+	return s.noteRepo.SearchWithTimePeriod(ctx, query, noteTypes, epicKey, featureKey, since, until)
 }
 
 // resolveEntityID resolves an entity key to its database ID using the appropriate repository.

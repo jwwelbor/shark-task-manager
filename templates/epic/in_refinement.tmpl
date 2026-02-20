@@ -1,0 +1,22 @@
+{{template "_resume_preamble" .}}RESUME epic refinement for {{.id}}: "{{.title}}".
+
+Check for existing PRD files at {{.file_path}} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md). If all 6 exist and pass the exit gate, advance immediately.
+
+---
+
+Write epic PRD for {{.id}}: "{{.title}}".
+
+LOAD: specification-writing workflow write-epic.md -- follow multi-file architecture.
+
+READ:
+(1) Draft epic document at {{.file_path}} and any vision notes
+(2) Other epic PRDs under docs/plan/ for consistency and overlap awareness
+
+PRODUCE: 6 PRD files per write-epic.md (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md). Define clear scope boundaries to guide research. Success metrics must be measurable.
+
+EXIT GATE:
+- All 6 files created and cross-referenced
+- Write-epic.md checklist passes
+- No vague language or TBDs
+
+Advance: shark epic next-status {{.id}}.

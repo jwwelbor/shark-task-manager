@@ -11,10 +11,11 @@ import (
 // Mock implementations for NoteService dependencies
 
 type mockNoteEntityNoteRepo struct {
-	createFunc          func(ctx context.Context, note *models.EntityNote) error
-	getByEntityFunc     func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
-	getByEntityTypeFunc func(ctx context.Context, entityType models.EntityType, entityID int64, noteTypes []string) ([]*models.EntityNote, error)
-	searchFunc          func(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error)
+	createFunc               func(ctx context.Context, note *models.EntityNote) error
+	getByEntityFunc          func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
+	getByEntityTypeFunc      func(ctx context.Context, entityType models.EntityType, entityID int64, noteTypes []string) ([]*models.EntityNote, error)
+	searchFunc               func(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error)
+	searchWithTimePeriodFunc func(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string, since string, until string) ([]*models.EntityNote, error)
 }
 
 func (m *mockNoteEntityNoteRepo) Create(ctx context.Context, note *models.EntityNote) error {
@@ -46,8 +47,16 @@ func (m *mockNoteEntityNoteRepo) Search(ctx context.Context, query string, noteT
 	return nil, nil
 }
 
+func (m *mockNoteEntityNoteRepo) SearchWithTimePeriod(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string, since string, until string) ([]*models.EntityNote, error) {
+	if m.searchWithTimePeriodFunc != nil {
+		return m.searchWithTimePeriodFunc(ctx, query, noteTypes, epicKey, featureKey, since, until)
+	}
+	return nil, nil
+}
+
 type mockNoteEpicRepo struct {
 	getByKeyFunc func(ctx context.Context, key string) (*models.Epic, error)
+	getByIDFunc  func(ctx context.Context, id int64) (*models.Epic, error)
 }
 
 func (m *mockNoteEpicRepo) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
@@ -57,8 +66,16 @@ func (m *mockNoteEpicRepo) GetByKey(ctx context.Context, key string) (*models.Ep
 	return &models.Epic{ID: 1, Key: key}, nil
 }
 
+func (m *mockNoteEpicRepo) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
+	if m.getByIDFunc != nil {
+		return m.getByIDFunc(ctx, id)
+	}
+	return &models.Epic{ID: id, Key: "E01"}, nil
+}
+
 type mockNoteFeatureRepo struct {
 	getByKeyFunc func(ctx context.Context, key string) (*models.Feature, error)
+	getByIDFunc  func(ctx context.Context, id int64) (*models.Feature, error)
 }
 
 func (m *mockNoteFeatureRepo) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
@@ -68,8 +85,16 @@ func (m *mockNoteFeatureRepo) GetByKey(ctx context.Context, key string) (*models
 	return &models.Feature{ID: 2, Key: key}, nil
 }
 
+func (m *mockNoteFeatureRepo) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
+	if m.getByIDFunc != nil {
+		return m.getByIDFunc(ctx, id)
+	}
+	return &models.Feature{ID: id, Key: "E01-F01"}, nil
+}
+
 type mockNoteTaskRepo struct {
 	getByKeyFunc func(ctx context.Context, key string) (*models.Task, error)
+	getByIDFunc  func(ctx context.Context, id int64) (*models.Task, error)
 }
 
 func (m *mockNoteTaskRepo) GetByKey(ctx context.Context, key string) (*models.Task, error) {
@@ -77,6 +102,13 @@ func (m *mockNoteTaskRepo) GetByKey(ctx context.Context, key string) (*models.Ta
 		return m.getByKeyFunc(ctx, key)
 	}
 	return &models.Task{ID: 3, Key: key}, nil
+}
+
+func (m *mockNoteTaskRepo) GetByID(ctx context.Context, id int64) (*models.Task, error) {
+	if m.getByIDFunc != nil {
+		return m.getByIDFunc(ctx, id)
+	}
+	return &models.Task{ID: id, Key: "E01-F01-001"}, nil
 }
 
 func TestNoteService_AddNote_Epic(t *testing.T) {

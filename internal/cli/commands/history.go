@@ -8,7 +8,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/formatters"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -87,7 +87,7 @@ func init() {
 }
 
 func runHistory(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx := cmd.Context()
 
 	// Parse positional arguments first
 	_, positionalEpic, positionalFeature, err := ParseListArgs(args)
@@ -95,19 +95,8 @@ func runHistory(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Initialize database
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	dbConn := repoDb
-	historyRepo := repository.NewTaskHistoryRepository(dbConn)
-	taskRepo := repository.NewTaskRepository(dbConn)
-
-	// Build filters
-	filters := repository.HistoryFilters{
+	// Build service-layer filters
+	filters := services.HistoryFilters{
 		Limit:  historyLimit,
 		Offset: historyOffset,
 	}
@@ -149,15 +138,16 @@ func runHistory(cmd *cobra.Command, args []string) error {
 		filters.NewStatus = &historyNewStatus
 	}
 
-	// Retrieve history
-	histories, err := historyRepo.ListWithFilters(ctx, filters)
+	// Retrieve history via service
+	svc := cli.GetTaskServiceWithHistory()
+	histories, err := svc.ListHistory(ctx, filters)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve history: %w", err)
 	}
 
 	// Handle format-based export
 	if historyFormat != "" {
-		return outputHistoryExport(ctx, histories, taskRepo, historyFormat)
+		return outputHistoryExport(ctx, histories, svc, historyFormat)
 	}
 
 	// Output based on format
@@ -183,7 +173,7 @@ func runHistory(cmd *cobra.Command, args []string) error {
 
 	var displayRecords []HistoryDisplay
 	for _, h := range histories {
-		task, err := taskRepo.GetByID(ctx, h.TaskID)
+		task, err := svc.GetTaskByID(ctx, h.TaskID)
 		if err != nil {
 			continue // Skip if task not found
 		}
@@ -237,11 +227,17 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func outputHistoryExport(ctx context.Context, histories []*models.TaskHistory, taskRepo *repository.TaskRepository, format string) error {
+// taskByIDGetter is a minimal interface for retrieving a task by database ID.
+// Used by outputHistoryExport to resolve task keys from history records.
+type taskByIDGetter interface {
+	GetTaskByID(ctx context.Context, id int64) (*models.Task, error)
+}
+
+func outputHistoryExport(ctx context.Context, histories []*models.TaskHistory, svc taskByIDGetter, format string) error {
 	// Build export records with task keys
 	var historyWithTasks []formatters.HistoryWithTask
 	for _, h := range histories {
-		task, err := taskRepo.GetByID(ctx, h.TaskID)
+		task, err := svc.GetTaskByID(ctx, h.TaskID)
 		if err != nil {
 			continue // Skip if task not found
 		}
