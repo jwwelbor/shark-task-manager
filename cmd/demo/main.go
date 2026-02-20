@@ -180,21 +180,13 @@ func main() {
 		fmt.Printf("     %s: %d\n", status, count)
 	}
 
-	// Show epic progress (using raw data access method)
-	progressData, _ := epicRepo.GetFeatureProgressDataByEpic(ctx, epic.ID)
-	var epicProgress float64
-	if len(progressData) > 0 {
-		var total float64
-		for _, d := range progressData {
-			if d.Status == "completed" || d.Status == "archived" {
-				total += 100.0
-			} else {
-				total += d.ProgressPct
-			}
-		}
-		epicProgress = total / float64(len(progressData))
+	// Show epic progress via service layer
+	epicSvc := services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo, taskRepo)
+	epicProgressInfo, err := epicSvc.GetProgress(ctx, epic.Key)
+	if err != nil {
+		log.Fatal("Failed to get epic progress:", err)
 	}
-	fmt.Printf("\n   Epic Progress: %.1f%%\n", epicProgress)
+	fmt.Printf("\n   Epic Progress: %.1f%%\n", epicProgressInfo.ProgressPct)
 
 	fmt.Println("\n6️⃣  Testing Queries:")
 	fmt.Println("   ─────────────────────────────────────────")
