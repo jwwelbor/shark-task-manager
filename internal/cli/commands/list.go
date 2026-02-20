@@ -76,6 +76,8 @@ func runEpicListWithFlags(cmd *cobra.Command, statusFilter, sortBy string, showA
 	_ = epicListCmd.Flags().Set("sort-by", sortBy)
 	// Note: epic list doesn't have show-all flag, completed epics are always shown
 
+	// Propagate context so the delegated command has a non-nil context for DB calls.
+	epicListCmd.SetContext(cmd.Context())
 	return runEpicList(epicListCmd, []string{})
 }
 
@@ -86,6 +88,8 @@ func runFeatureListWithFlags(cmd *cobra.Command, epic, statusFilter, sortBy stri
 	_ = featureListCmd.Flags().Set("sort-by", sortBy)
 	_ = featureListCmd.Flags().Set("show-all", formatBool(showAll))
 
+	// Propagate context so the delegated command has a non-nil context for DB calls.
+	featureListCmd.SetContext(cmd.Context())
 	return runFeatureList(featureListCmd, []string{epic})
 }
 
@@ -96,6 +100,8 @@ func runTaskListWithFlags(cmd *cobra.Command, epic, feature, statusFilter, sortB
 	// Note: task list doesn't have sort-by flag yet
 	_ = taskListCmd.Flags().Set("show-all", formatBool(showAll))
 
+	// Propagate context so the delegated command has a non-nil context for DB calls.
+	taskListCmd.SetContext(cmd.Context())
 	return runTaskList(taskListCmd, []string{epic, feature})
 }
 

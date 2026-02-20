@@ -1781,3 +1781,5 @@
 {"ts":"2026-02-20T12:12:56.719292-06:00","sid":"728398a9-259d-4ca7-a94d-2aec50989781","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a14bb6e"}}
 {"ts":"2026-02-20T12:13:09.826324-06:00","sid":"728398a9-259d-4ca7-a94d-2aec50989781","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"aa21891","agent_type":"code-simplifier:code-simplifier"}}
 {"ts":"2026-02-20T12:13:18.782828-06:00","sid":"728398a9-259d-4ca7-a94d-2aec50989781","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"ab4a99e"}}
+{"ts":"2026-02-20T12:50:45.149472-06:00","sid":"b06c6df4-81cd-4e8c-a45e-96bbd0bc1145","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a5acec3"}}
+{"ts":"2026-02-20T12:56:07.554234-06:00","sid":"ac41bf0e-a1dc-440c-a4e1-621a3b3cf6c5","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a7e1786"}}

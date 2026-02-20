@@ -12,7 +12,6 @@ A task management system built with Go and SQLite, featuring both an HTTP API an
 - **AI-Driven Workflows**: Built-in support for multiple agent types with dependency-aware task selection
 - **Flexible Organization**: Organize with custom file paths (`--file` flag) for complete control over project structure
 - **Auto-Detect Project Root**: Run shark commands from any subdirectory - automatically finds database and config
-- **Bidirectional Sync**: Synchronize markdown files with SQLite database with conflict resolution
 - **Progress Tracking**: Automatic progress calculation from task completion to features and epics
 - **Audit Trail**: Complete history of all status changes with timestamps and agent tracking
 - **Dependency Management**: Express task dependencies and get warnings about blocking work
@@ -301,45 +300,7 @@ shark task reopen T-E04-F06-001 --notes="Need to add error handling" --json
 shark task complete T-E04-F06-001 --json
 ```
 
-#### 6. Synchronizing with File System
-
-After Git operations or manual file edits:
-
-```bash
-# Preview sync changes (dry-run)
-shark sync --dry-run --json
-
-# Sync task files with database
-shark sync --json
-
-# Sync with conflict resolution strategy
-shark sync --strategy=file-wins --json
-shark sync --strategy=database-wins --json
-shark sync --strategy=newer-wins --json
-
-# Create missing epics/features from files
-shark sync --create-missing --json
-
-# Delete orphaned database records (files deleted)
-shark sync --cleanup --json
-
-# Sync specific folder only
-shark sync --folder=docs/plan/E04-task-mgmt-cli-core --json
-```
-
-**Sync patterns:**
-```bash
-# Sync task files only (default)
-shark sync --pattern=task --json
-
-# Sync PRP (Product Requirement Prompt) files only
-shark sync --pattern=prp --json
-
-# Sync both task and PRP files
-shark sync --pattern=task --pattern=prp --json
-```
-
-**Important:** Status is managed exclusively in the database and is NOT synced from files. This ensures atomic status transitions and audit trails.
+**Important:** Status is managed exclusively in the database and is NOT from files. This ensures atomic status transitions and audit trails.
 
 #### 7. Progress Tracking
 
@@ -368,34 +329,9 @@ Returns:
 2. **Check dependencies** before starting tasks via `shark task next --json`
 3. **Use atomic operations** - each command is a single transaction
 4. **Handle blocked tasks** - use `block` command with reasons
-5. **Sync after Git operations** - run `shark sync` after pulls/checkouts
-6. **Track work with agent identifier** - use `--agent` flag for audit trail
-7. **Use priority effectively** - 1=highest, 10=lowest for task ordering
-8. **Check exit codes** - Non-zero indicates errors (1=not found, 2=db error, 3=invalid state)
-
-### Example: Complete AI Agent Workflow
-
-```bash
-# 1. Initialize project (first time)
-shark init --non-interactive
-
-# 2. Discover available work
-NEXT_TASK=$(shark task next --agent=backend --json | jq -r '.key')
-
-# 3. Start the task
-shark task start "$NEXT_TASK" --agent="ai-agent-001"
-
-# 4. Do the implementation work...
-# ... code implementation happens here ...
-
-# 5. Mark ready for review
-shark task complete "$NEXT_TASK" --agent="ai-agent-001" --notes="Implementation complete, all tests passing"
-
-# 6. After review approval
-shark task approve "$NEXT_TASK" --agent="reviewer-001" --notes="LGTM, approved"
-
-# 7. Sync changes to filesystem
-shark sync
+5. **Track work with agent identifier** - use `--agent` flag for audit trail
+6. **Use priority effectively** - 1=highest, 10=lowest for task ordering
+7. **Check exit codes** - Non-zero indicates errors (1=not found, 2=db error, 3=invalid state)
 ```
 
 ### JSON Output Format
@@ -421,7 +357,6 @@ All commands support `--json` for structured output:
 
 #### User Guides
 - [Initialization Guide](docs/user-guide/initialization.md) - Set up Shark CLI
-- [Synchronization Guide](docs/user-guide/synchronization.md) - Sync tasks with Git workflow
 - [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
 
 #### Reference
