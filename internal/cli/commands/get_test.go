@@ -1,8 +1,73 @@
 package commands
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
+
+// TestRunGet_ContextPropagatedToSubcommands verifies that runGet passes the live
+// executing command's context to subcommand handlers — not the static package-level
+// command vars (taskGetCmd, epicGetCmd, featureGetCmd) which have nil context.
+//
+// Root cause: runGet dispatched with static *cobra.Command vars that are never
+// executed through Cobra's lifecycle, so Context() returns nil. Nil context
+// panics in database/sql: "invalid memory address or nil pointer dereference".
+//
+// Fix: pass cmd (the live executing command with real context) to subhandlers.
+func TestRunGet_ContextPropagatedToSubcommands(t *testing.T) {
+	// Verify root cause: static command vars have nil context because they're
+	// never executed through Cobra's lifecycle (only getCmd is executed).
+	if taskGetCmd.Context() != nil {
+		t.Log("note: taskGetCmd.Context() is non-nil (unexpected)")
+	}
+	if featureGetCmd.Context() != nil {
+		t.Log("note: featureGetCmd.Context() is non-nil (unexpected)")
+	}
+	if epicGetCmd.Context() != nil {
+		t.Log("note: epicGetCmd.Context() is non-nil (unexpected)")
+	}
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"task key dispatch", []string{"T-E15-F11-015"}},
+		{"feature key dispatch", []string{"E15-F11"}},
+		{"epic key dispatch", []string{"E15"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create cmd with proper context, as Cobra sets during real execution.
+			cmd := &cobra.Command{}
+			cmd.SetContext(context.Background())
+
+			// Capture any panic. Before fix: nil pointer dereference (nil context
+			// from static command var). After fix: error return, no panic.
+			var panicMsg string
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						panicMsg = fmt.Sprintf("%v", r)
+					}
+				}()
+				_ = runGet(cmd, tt.args)
+			}()
+
+			if strings.Contains(panicMsg, "invalid memory address") ||
+				strings.Contains(panicMsg, "nil pointer dereference") {
+				t.Errorf("runGet panicked with nil pointer — context not propagated to subcommand.\n"+
+					"Bug: runGet passes static command var with nil Context().\n"+
+					"Fix: pass cmd (the live executing command) instead.\n"+
+					"Panic: %s", panicMsg)
+			}
+		})
+	}
+}
 
 // TestParseGetArgs tests the parsing of positional arguments for the get command
 func TestParseGetArgs(t *testing.T) {

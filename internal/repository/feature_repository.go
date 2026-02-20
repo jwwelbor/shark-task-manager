@@ -233,6 +233,13 @@ func (r *FeatureRepository) getBySluggedKey(ctx context.Context, sluggedKey stri
 		// Format: E07-F11-slug-name
 		numericPart = parts[1]                  // F11
 		slugPart = strings.Join(parts[2:], "-") // slug-name
+
+		// If the slug part is purely numeric (e.g., "015"), this is a task key format
+		// like "E15-F11-015". Look up the parent feature instead of treating it as a slug.
+		if isNumeric(slugPart) {
+			featureKey := parts[0] + "-" + numericPart // e.g., "E15-F11"
+			return r.getByExactKey(ctx, featureKey)
+		}
 	} else if strings.HasPrefix(parts[0], "F") {
 		// Format: F11-slug-name
 		numericPart = parts[0]                  // F11
@@ -976,4 +983,17 @@ func (r *FeatureRepository) CascadeStatusToTasksByKey(ctx context.Context, featu
 		return err
 	}
 	return r.CascadeStatusToTasks(ctx, feature.ID, targetTaskStatus)
+}
+
+// isNumeric returns true if s is a non-empty string containing only ASCII digits.
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, ch := range s {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
