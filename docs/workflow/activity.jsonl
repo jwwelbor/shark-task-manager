@@ -1783,3 +1783,16 @@
 {"ts":"2026-02-20T12:13:18.782828-06:00","sid":"728398a9-259d-4ca7-a94d-2aec50989781","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"ab4a99e"}}
 {"ts":"2026-02-20T12:50:45.149472-06:00","sid":"b06c6df4-81cd-4e8c-a45e-96bbd0bc1145","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a5acec3"}}
 {"ts":"2026-02-20T12:56:07.554234-06:00","sid":"ac41bf0e-a1dc-440c-a4e1-621a3b3cf6c5","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a7e1786"}}
+{"ts":"2026-02-20T13:10:55.969607-06:00","sid":"5bbab3c8-7160-44d6-91fd-34d844cffe9e","event":"agent_spawned","detail":{"hook_event":"SubagentStart","agent_id":"a85fc9f","agent_type":"Explore"}}
+{"ts":"2026-02-20T13:11:54.762267-06:00","sid":"5bbab3c8-7160-44d6-91fd-34d844cffe9e","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a85fc9f","agent_type":"Explore"}}
+{"ts":"2026-02-20T13:12:02.838931-06:00","sid":"5bbab3c8-7160-44d6-91fd-34d844cffe9e","event":"agent_spawned","detail":{"hook_event":"SubagentStart","agent_id":"a758f34","agent_type":"Explore"}}
+{"ts":"2026-02-20T13:12:40.423145-06:00","sid":"5bbab3c8-7160-44d6-91fd-34d844cffe9e","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a68dbed"}}
+{"ts":"2026-02-20T13:12:49.556475-06:00","sid":"5bbab3c8-7160-44d6-91fd-34d844cffe9e","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a758f34","agent_type":"Explore"}}
+{"ts":"2026-02-20T13:52:23.470192-06:00","sid":"bb32e071-4ee5-46f8-8973-18569e122536","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a7a92d8"}}
+{"ts":"2026-02-20T13:54:05.665152-06:00","sid":"bb32e071-4ee5-46f8-8973-18569e122536","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"aaa8998"}}
+{"ts":"2026-02-20T13:57:16.251733-06:00","sid":"bb32e071-4ee5-46f8-8973-18569e122536","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a4c7a30"}}
+{"ts":"2026-02-20T14:00:49.375521-06:00","sid":"bb32e071-4ee5-46f8-8973-18569e122536","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"ab53d14"}}
+{"ts":"2026-02-20T14:02:44.574615-06:00","sid":"bb32e071-4ee5-46f8-8973-18569e122536","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a413b26"}}
+{"ts":"2026-02-20T14:04:03.582766-06:00","sid":"bb32e071-4ee5-46f8-8973-18569e122536","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a065298"}}
+{"ts":"2026-02-20T15:31:46.514569-06:00","sid":"ee36d76d-2604-409b-998c-3b2ac32f3fe3","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a95874b"}}
+{"ts":"2026-02-20T15:32:57.814493-06:00","sid":"ee36d76d-2604-409b-998c-3b2ac32f3fe3","event":"agent_completed","detail":{"hook_event":"SubagentStop","agent_id":"a0b4f69"}}

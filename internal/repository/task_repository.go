@@ -1865,3 +1865,49 @@ func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64
 
 	return counts, lastTimes, nil
 }
+
+// GetTaskCountsForFeatures returns the total task count for each of the given feature IDs
+// in a single batch query. This replaces N individual GetTaskCount calls with one query.
+//
+// Returns a map from featureID to count. Feature IDs with no tasks are not included in
+// the map; callers should treat a missing key as a count of zero.
+func (r *TaskRepository) GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error) {
+	if len(featureIDs) == 0 {
+		return map[int64]int{}, nil
+	}
+
+	// Build parameterised IN clause
+	placeholders := make([]string, len(featureIDs))
+	args := make([]interface{}, len(featureIDs))
+	for i, id := range featureIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(
+		`SELECT feature_id, COUNT(*) FROM tasks WHERE feature_id IN (%s) GROUP BY feature_id`,
+		strings.Join(placeholders, ", "),
+	)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task counts for features: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[int64]int, len(featureIDs))
+	for rows.Next() {
+		var featureID int64
+		var count int
+		if err := rows.Scan(&featureID, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan task count row: %w", err)
+		}
+		counts[featureID] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating task counts: %w", err)
+	}
+
+	return counts, nil
+}

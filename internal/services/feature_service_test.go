@@ -2498,6 +2498,10 @@ func (m *mockFeatureTaskCounterWithBatch) GetStatusBreakdownMapBatch(ctx context
 	return nil, nil
 }
 
+func (m *mockFeatureTaskCounterWithBatch) GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error) {
+	return map[int64]int{}, nil
+}
+
 func TestFeatureService_GetStatusBreakdownBatch_WithTaskRepo(t *testing.T) {
 	repo := &mockFeatureRepo{}
 	taskRepo := &mockFeatureTaskCounterWithBatch{

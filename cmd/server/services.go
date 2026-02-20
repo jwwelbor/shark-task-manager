@@ -104,6 +104,9 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		epicRepo,    // Epic lookup for CreateFeature
 	)
 
+	// Wire featureService into taskService so status mutations trigger progress recalculation.
+	taskService.SetFeatureService(featureService)
+
 	epicService := services.NewEpicService(
 		epicRepo,    // Epic data access
 		workflowSvc, // Workflow validation

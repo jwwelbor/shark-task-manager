@@ -753,24 +753,27 @@ func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter st
 		return nil, nil
 	}
 
+	// Batch-fetch task counts for all features in one query (avoids N+1).
+	featureIDs := make([]int64, len(features))
+	for i, f := range features {
+		featureIDs[i] = f.ID
+	}
+	taskCounts, err := featureSvc.GetTaskCounts(ctx, featureIDs)
+	if err != nil && cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get task counts: %v\n", err)
+	}
+
+	// Build result using stored progress_pct — no per-feature recalculation needed.
+	// Progress is kept current via write-through updates on task status changes.
 	result := make([]FeatureWithTaskCount, 0, len(features))
 	for _, feature := range features {
-		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil && cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
-		}
-		// Re-fetch feature to get updated progress
-		updated, fetchErr := featureSvc.GetFeature(ctx, feature.Key)
-		if fetchErr != nil || updated == nil {
-			continue
-		}
-		taskCount, _ := featureSvc.GetTaskCount(ctx, updated.ID)
 		statusSource := "calculated"
-		if updated.StatusOverride {
+		if feature.StatusOverride {
 			statusSource = "manual"
 		}
 		result = append(result, FeatureWithTaskCount{
-			Feature:      updated,
-			TaskCount:    taskCount,
+			Feature:      feature,
+			TaskCount:    taskCounts[feature.ID],
 			StatusSource: statusSource,
 		})
 	}

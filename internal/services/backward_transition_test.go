@@ -556,3 +556,7 @@ func (m *mockFeatureTaskCounter) UpdateStatusForced(ctx context.Context, taskID 
 func (m *mockFeatureTaskCounter) GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error) {
 	return nil, nil
 }
+
+func (m *mockFeatureTaskCounter) GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error) {
+	return map[int64]int{}, nil
+}

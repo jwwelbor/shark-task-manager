@@ -176,6 +176,7 @@ type TaskService struct {
 	sessionRepo     WorkSessionRepository
 	epicRepo        AnalyticsEpicRepository
 	featureRepo     AnalyticsFeatureRepository
+	featureService  *FeatureService // optional: triggers progress recalc on status change
 }
 
 // NewTaskService creates a new TaskService with the required dependencies.
@@ -500,10 +501,31 @@ func (s *TaskService) DeleteTask(ctx context.Context, key string) error {
 // Errors:
 //   - RepositoryError: database query failed
 func (s *TaskService) ListTasks(ctx context.Context, filters TaskFilters) ([]*models.Task, error) {
-	// Get all tasks
-	tasks, err := s.repo.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tasks: %w", err)
+	// Scope the DB query to the requested epic/feature for efficiency.
+	var tasks []*models.Task
+	var err error
+
+	switch {
+	case filters.FeatureKey != "" && s.featureRepo != nil:
+		// Look up the feature to get its DB ID, then query tasks for that feature.
+		feature, ferr := s.featureRepo.GetByKey(ctx, filters.FeatureKey)
+		if ferr != nil {
+			return nil, fmt.Errorf("feature not found: %s: %w", filters.FeatureKey, ferr)
+		}
+		tasks, err = s.repo.ListByFeature(ctx, feature.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tasks for feature %s: %w", filters.FeatureKey, err)
+		}
+	case filters.EpicKey != "":
+		tasks, err = s.repo.ListByEpic(ctx, filters.EpicKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tasks for epic %s: %w", filters.EpicKey, err)
+		}
+	default:
+		tasks, err = s.repo.List(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list tasks: %w", err)
+		}
 	}
 
 	// Apply filters
@@ -634,6 +656,7 @@ func (s *TaskService) StartTask(ctx context.Context, key string, agentID string)
 
 	// Step 4: Return updated task
 	task.Status = models.TaskStatus("in_progress")
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
 	return task, nil
 }
 
@@ -675,6 +698,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, key string, notes string
 
 	// Step 4: Return updated task
 	task.Status = models.TaskStatus("ready_for_review")
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
 	return task, nil
 }
 
@@ -716,6 +740,7 @@ func (s *TaskService) ApproveTask(ctx context.Context, key string, notes string)
 
 	// Step 4: Return updated task
 	task.Status = models.TaskStatus("completed")
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
 	return task, nil
 }
 
@@ -757,6 +782,7 @@ func (s *TaskService) ReopenTask(ctx context.Context, key string, notes string) 
 
 	// Step 4: Return updated task
 	task.Status = models.TaskStatus("in_progress")
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
 	return task, nil
 }
 
@@ -799,6 +825,7 @@ func (s *TaskService) BlockTask(ctx context.Context, key string, reason string) 
 
 	// Step 5: Return updated task
 	task.Status = models.TaskStatus("blocked")
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
 	return task, nil
 }
 
@@ -841,6 +868,7 @@ func (s *TaskService) UnblockTask(ctx context.Context, key string) (*models.Task
 
 	// Step 5: Return updated task with empty suggestions (can be enhanced later with dependency analysis)
 	task.Status = models.TaskStatus("todo")
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
 	return task, []string{}, nil
 }
 
@@ -896,6 +924,7 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 	if err != nil {
 		return nil, fmt.Errorf("failed to transition task %s to %s: %w", key, targetStatus, err)
 	}
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
 
 	// Step 5: Build result with orchestrator action for new status
 	result := &TransitionResult{
@@ -1969,6 +1998,25 @@ func (s *TaskService) SetEpicRepo(repo AnalyticsEpicRepository) {
 // after initial construction via NewTaskService.
 func (s *TaskService) SetFeatureRepo(repo AnalyticsFeatureRepository) {
 	s.featureRepo = repo
+}
+
+// SetFeatureService sets the feature service for write-through progress recalculation.
+// When set, every status-mutating operation on a task triggers a progress recalculation
+// on the parent feature. This is non-fatal: errors are silently ignored.
+// This is used by CLI global accessors to wire the optional feature service
+// after initial construction via NewTaskService.
+func (s *TaskService) SetFeatureService(featureService *FeatureService) {
+	s.featureService = featureService
+}
+
+// recalculateFeatureProgress triggers a feature progress recalculation after a task
+// status change. Non-fatal: silently ignores errors and nil featureService.
+// Only recalculates when featureID is non-zero (i.e., task is associated with a feature).
+func (s *TaskService) recalculateFeatureProgress(ctx context.Context, featureID int64) {
+	if s.featureService == nil || featureID == 0 {
+		return
+	}
+	_ = s.featureService.RecalculateAndSetProgress(ctx, featureID)
 }
 
 // GetTaskHistory retrieves the complete status change history for a task.

@@ -56,6 +56,7 @@ type FeatureTaskCounter interface {
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 	UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
 	GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error)
+	GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error)
 }
 
 // DocumentRepository defines the interface for accessing documents linked to entities.
@@ -788,6 +789,19 @@ func (s *FeatureService) RecalculateAndSetProgressByKey(ctx context.Context, key
 	}
 
 	return s.RecalculateAndSetProgress(ctx, feature.ID)
+}
+
+// GetTaskCounts returns the total task count for each of the given feature IDs in a
+// single batch query. This is used by the feature list command to avoid N+1 queries.
+//
+// Returns a map from featureID to count. Feature IDs with no tasks will have a count
+// of zero (not included in the map; callers should treat missing keys as zero).
+// Degrades gracefully if taskRepo is nil (returns empty map).
+func (s *FeatureService) GetTaskCounts(ctx context.Context, featureIDs []int64) (map[int64]int, error) {
+	if s.taskRepo == nil || len(featureIDs) == 0 {
+		return map[int64]int{}, nil
+	}
+	return s.taskRepo.GetTaskCountsForFeatures(ctx, featureIDs)
 }
 
 // GetHealth analyzes the health of a feature based on blocked tasks and approval age.

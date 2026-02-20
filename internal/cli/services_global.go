@@ -105,6 +105,7 @@ func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
 type taskServiceDeps struct {
 	db          *repository.DB
 	taskRepo    *repository.TaskRepository
+	featureRepo *repository.FeatureRepository
 	workflowSvc *workflow.Service
 	noteRepo    *repository.EntityNoteRepository
 	creatorSvc  *taskcreation.Creator
@@ -137,6 +138,7 @@ func buildTaskServiceDeps() taskServiceDeps {
 	return taskServiceDeps{
 		db:          db,
 		taskRepo:    taskRepo,
+		featureRepo: featureRepo,
 		workflowSvc: workflowSvc,
 		noteRepo:    noteRepo,
 		creatorSvc:  creatorSvc,
@@ -154,7 +156,10 @@ func buildTaskServiceDeps() taskServiceDeps {
 //	task, err := svc.StartTask(ctx, "E07-F01-001", "agent123")
 func GetTaskService() *services.TaskService {
 	d := buildTaskServiceDeps()
-	return services.NewTaskService(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo)
+	svc := services.NewTaskService(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo)
+	svc.SetFeatureRepo(d.featureRepo)
+	svc.SetFeatureService(GetFeatureService())
+	return svc
 }
 
 // GetTaskServiceWithHistory returns a TaskService with the history repository wired.
@@ -168,7 +173,9 @@ func GetTaskService() *services.TaskService {
 func GetTaskServiceWithHistory() *services.TaskService {
 	d := buildTaskServiceDeps()
 	svc := services.NewTaskService(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo)
+	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
+	svc.SetFeatureService(GetFeatureService())
 	return svc
 }
 
@@ -187,6 +194,7 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(d.db)}
 
 	svc := services.NewTaskServiceWithRelationships(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo, docRepo, relRepo, sessionRepo)
+	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetDepRepo(relRepo)
 	svc.SetRelQueryRepo(relRepo)
 	svc.SetWritableDocRepo(docRepo)
