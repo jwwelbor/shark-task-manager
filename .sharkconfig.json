@@ -415,7 +415,7 @@
         "on_hold"
       ],
       "in_research": [
-        "ready_for_refinement_ba",
+        "ready_for_refinement_tech",
         "draft",
         "blocked",
         "on_hold"
@@ -426,6 +426,7 @@
         "on_hold"
       ],
       "in_refinement_ba": [
+        "ready_for_research",
         "ready_for_refinement_tech",
         "draft",
         "blocked",
@@ -557,7 +558,7 @@
             "research",
             "shark"
           ],
-          "instruction_template": "Assess complexity for feature {id}: \"{title}\" using assessment skill (complexity-triage workflow). LOAD: assessment skill - Use Workflow 1: Complexity Triage. READ: (1) Feature description at {file_path}, (2) Parent epic PRD for context, (3) Codebase via research skill for file impact estimation, (4) Existing tasks via shark task list --feature={id} for task count. SCORE: Use 9-dimension scoring from assessment skill (max 27 points) - Technical Complexity (6 dimensions: File Impact, Pattern Novelty, Data Model, API Surface, Cross-Feature Dependencies, UI Complexity) + Execution Complexity (3 dimensions: Task Estimation, Regression Risk, Execution Effort). TIER ASSIGNMENT: 0-6=SIMPLE, 7-15=STANDARD, 16+=COMPLEX per assessment skill tier thresholds. PRODUCE: Triage report following assessment skill template with dimension scores, total score, tier assignment, file impact estimate, autonomous build feasibility. STORE METADATA: shark feature note {id} 'COMPLEXITY_TIER: {tier} (score: {score}/27) - {rationale}' --metadata complexity_tier={tier} complexity_score={score}. ROUTE: SIMPLE->ready_for_task_generation, STANDARD->ready_for_refinement_ba, COMPLEX->ready_for_research. Execute routing via shark feature update {id} --status={target_status}."
+          "instruction_template": "Assess complexity for feature {id}: \"{title}\" using assessment skill (complexity-triage workflow). LOAD: assessment skill - Use Workflow 1: Complexity Triage. READ: (1) Feature description at {file_path}, (2) Parent epic PRD for context, (3) Codebase via research skill for file impact estimation, (4) Existing tasks via shark task list --feature={id} for task count. SCORE: Use 9-dimension scoring from assessment skill (max 27 points) - Technical Complexity (6 dimensions: File Impact, Pattern Novelty, Data Model, API Surface, Cross-Feature Dependencies, UI Complexity) + Execution Complexity (3 dimensions: Task Estimation, Regression Risk, Execution Effort). TIER ASSIGNMENT: 0-6=SIMPLE, 7-15=STANDARD, 16+=COMPLEX per assessment skill tier thresholds. PRODUCE: Triage report following assessment skill template with dimension scores, total score, tier assignment, file impact estimate, autonomous build feasibility. STORE METADATA: shark feature note {id} 'COMPLEXITY_TIER: {tier} (score: {score}/27) - {rationale}' --metadata complexity_tier={tier} complexity_score={score}. ROUTE: SIMPLE->ready_for_task_generation, STANDARD->ready_for_refinement_ba, COMPLEX->ready_for_refinement_ba. Execute routing via shark feature update {id} --status={target_status}."
         }
       },
       "in_triage": {
@@ -572,7 +573,7 @@
         "description": "Ready for tactical codebase and integration research",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.03,
+        "progress_weight": 0.16,
         "is_planning": true,
         "responsibility": "agent",
         "agent_types": [
@@ -592,7 +593,7 @@
         "description": "Research in progress",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.08,
+        "progress_weight": 0.20,
         "is_planning": true,
         "responsibility": "agent"
       },
@@ -600,7 +601,7 @@
         "description": "Ready for business analysis and requirements specification",
         "phase": "refinement",
         "color": "cyan",
-        "progress_weight": 0.12,
+        "progress_weight": 0.08,
         "is_planning": true,
         "responsibility": "agent",
         "agent_types": [
@@ -620,7 +621,7 @@
         "description": "BA actively refining requirements",
         "phase": "refinement",
         "color": "blue",
-        "progress_weight": 0.18,
+        "progress_weight": 0.12,
         "is_planning": true,
         "responsibility": "agent"
       },
