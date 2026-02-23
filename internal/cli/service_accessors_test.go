@@ -317,6 +317,169 @@ func TestGetFeatureService_UsesWithRelationshipsConstructor(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Workflow wiring regression tests
+//
+// These tests verify that buildTaskServiceDeps() correctly propagates the
+// workflow configuration from .sharkconfig.json through to the TaskRepository.
+//
+// Regression for: "invalid status: in_approval" bug where buildTaskServiceDeps
+// used NewTaskRepository(db) (defaulting to basic 5-status workflow) instead of
+// NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()), causing the
+// TaskRepository to reject advanced statuses that the workflow service considered
+// valid.
+// ---------------------------------------------------------------------------
+
+// setupAdvancedWorkflowDB sets up a temporary database with an advanced workflow
+// config containing statuses like in_approval that only exist in non-basic profiles.
+// Returns a cleanup function that resets both DB and workflow service globals.
+func setupAdvancedWorkflowDB(t *testing.T) func() {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	testDB := filepath.Join(tmpDir, "test-wiring.db")
+
+	// Config with advanced workflow: includes in_approval and other non-basic statuses.
+	// The key invariant is that status_flow must contain statuses beyond the basic 5.
+	configContent := `{
+		"database": {
+			"backend": "local",
+			"url": "` + testDB + `"
+		},
+		"status_flow": {
+			"todo": ["in_progress", "blocked"],
+			"in_progress": ["ready_for_review", "blocked"],
+			"ready_for_review": ["completed", "in_progress"],
+			"completed": [],
+			"blocked": ["todo", "in_progress"],
+			"ready_for_approval": ["in_approval", "blocked"],
+			"in_approval": ["completed", "ready_for_approval"]
+		}
+	}`
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to chdir to tmpDir: %v", err)
+	}
+
+	return func() {
+		ResetDB()
+		ResetWorkflowService()
+		if err := os.Chdir(origWd); err != nil {
+			t.Errorf("Failed to restore working directory: %v", err)
+		}
+	}
+}
+
+// TestBuildTaskServiceDeps_WorkflowPropagation verifies that buildTaskServiceDeps
+// propagates the workflow config from .sharkconfig.json to the TaskRepository.
+// This is the core regression test: if someone changes buildTaskServiceDeps to use
+// NewTaskRepository(db) instead of NewTaskRepositoryWithWorkflow(db, workflow),
+// this test will fail because the repo's workflow won't contain advanced statuses.
+func TestBuildTaskServiceDeps_WorkflowPropagation(t *testing.T) {
+	cleanup := setupAdvancedWorkflowDB(t)
+	defer cleanup()
+
+	deps := buildTaskServiceDeps()
+
+	// The repo's workflow must match the workflow service's workflow.
+	// This is the invariant that was violated in the original bug.
+	repoWorkflow := deps.taskRepo.GetWorkflow()
+	svcWorkflow := deps.workflowSvc.GetWorkflow()
+
+	if repoWorkflow == nil {
+		t.Fatal("TaskRepository workflow is nil; expected non-nil workflow config")
+	}
+	if svcWorkflow == nil {
+		t.Fatal("WorkflowService workflow is nil; expected non-nil workflow config")
+	}
+
+	// Verify they share the same StatusFlow map (same pointer or same content).
+	// The fix uses workflowSvc.GetWorkflow() to construct the repo, so they should
+	// be the exact same object.
+	if repoWorkflow != svcWorkflow {
+		t.Error("TaskRepository and WorkflowService have different workflow config objects; " +
+			"expected same instance (buildTaskServiceDeps should pass workflowSvc.GetWorkflow() to repo)")
+	}
+}
+
+// TestBuildTaskServiceDeps_AdvancedStatusesInRepo verifies that when the config
+// contains advanced statuses (like in_approval), the TaskRepository's workflow
+// recognizes them. This directly tests the scenario that caused the original bug.
+func TestBuildTaskServiceDeps_AdvancedStatusesInRepo(t *testing.T) {
+	cleanup := setupAdvancedWorkflowDB(t)
+	defer cleanup()
+
+	deps := buildTaskServiceDeps()
+
+	repoWorkflow := deps.taskRepo.GetWorkflow()
+	if repoWorkflow == nil || repoWorkflow.StatusFlow == nil {
+		t.Fatal("TaskRepository workflow or StatusFlow is nil")
+	}
+
+	// These statuses exist in the advanced config but NOT in the basic 5-status default.
+	// If buildTaskServiceDeps uses NewTaskRepository(db) (bug), these won't be present.
+	advancedStatuses := []string{"in_approval", "ready_for_approval"}
+	for _, status := range advancedStatuses {
+		if _, exists := repoWorkflow.StatusFlow[status]; !exists {
+			t.Errorf("TaskRepository workflow missing advanced status %q; "+
+				"buildTaskServiceDeps may be using NewTaskRepository(db) instead of "+
+				"NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())", status)
+		}
+	}
+
+	// Also verify basic statuses are present (sanity check).
+	basicStatuses := []string{"todo", "in_progress", "completed", "blocked"}
+	for _, status := range basicStatuses {
+		if _, exists := repoWorkflow.StatusFlow[status]; !exists {
+			t.Errorf("TaskRepository workflow missing basic status %q", status)
+		}
+	}
+}
+
+// TestBuildTaskServiceDeps_WorkflowServiceStatusAgreement verifies that every
+// status known to the workflow service is also recognized by the TaskRepository.
+// This catches any scenario where the two components disagree on valid statuses.
+func TestBuildTaskServiceDeps_WorkflowServiceStatusAgreement(t *testing.T) {
+	cleanup := setupAdvancedWorkflowDB(t)
+	defer cleanup()
+
+	deps := buildTaskServiceDeps()
+
+	svcWorkflow := deps.workflowSvc.GetWorkflow()
+	repoWorkflow := deps.taskRepo.GetWorkflow()
+
+	if svcWorkflow == nil || svcWorkflow.StatusFlow == nil {
+		t.Fatal("WorkflowService workflow or StatusFlow is nil")
+	}
+	if repoWorkflow == nil || repoWorkflow.StatusFlow == nil {
+		t.Fatal("TaskRepository workflow or StatusFlow is nil")
+	}
+
+	// Every status in the workflow service must exist in the repo's workflow.
+	for status := range svcWorkflow.StatusFlow {
+		if _, exists := repoWorkflow.StatusFlow[status]; !exists {
+			t.Errorf("Status %q exists in WorkflowService but not in TaskRepository workflow; "+
+				"this mismatch will cause 'invalid status' errors at runtime", status)
+		}
+	}
+
+	// Every status in the repo's workflow must exist in the service's workflow.
+	for status := range repoWorkflow.StatusFlow {
+		if _, exists := svcWorkflow.StatusFlow[status]; !exists {
+			t.Errorf("Status %q exists in TaskRepository but not in WorkflowService workflow; "+
+				"this mismatch may cause unexpected behavior", status)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Architecture compliance test
 // ---------------------------------------------------------------------------
 

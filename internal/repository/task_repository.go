@@ -817,10 +817,14 @@ func (r *TaskRepository) listByFeatureInTx(ctx context.Context, tx *sql.Tx, feat
 
 // isValidStatusEnum checks if a status is valid according to the workflow configuration
 func (r *TaskRepository) isValidStatusEnum(status models.TaskStatus) bool {
-	// Check if status exists in workflow config
+	// Check if status exists in workflow config (case-insensitive)
 	if r.workflow != nil && r.workflow.StatusFlow != nil {
-		_, exists := r.workflow.StatusFlow[string(status)]
-		return exists
+		for key := range r.workflow.StatusFlow {
+			if strings.EqualFold(key, string(status)) {
+				return true
+			}
+		}
+		return false
 	}
 
 	// Fallback to hardcoded statuses if no workflow config

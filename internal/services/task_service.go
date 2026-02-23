@@ -902,6 +902,11 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 		}
 	}
 
+	// Normalize target status (unless forcing, where we accept any string)
+	if !opts.Force {
+		targetStatus = s.workflowSvc.NormalizeStatus(targetStatus)
+	}
+
 	// Step 3: Prepare options
 	var agentPtr *string
 	if opts.Agent != "" {

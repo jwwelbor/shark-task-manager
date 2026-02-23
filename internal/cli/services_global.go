@@ -119,8 +119,8 @@ func buildTaskServiceDeps() taskServiceDeps {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	taskRepo := repository.NewTaskRepository(db)
 	workflowSvc := GetWorkflowService()
+	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	noteRepo := repository.NewEntityNoteRepository(db)
 
 	projectRoot, _ := FindProjectRoot()

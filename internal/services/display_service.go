@@ -119,7 +119,7 @@ func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *Displa
 		deps: DisplayServiceDeps{
 			EpicRepo:       repository.NewEpicRepository(db),
 			FeatureRepo:    repository.NewFeatureRepository(db),
-			TaskRepo:       repository.NewTaskRepository(db),
+			TaskRepo:       repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
 			DocumentRepo:   repository.NewDocumentRepository(db),
 			TaskRelRepo:    repository.NewTaskRelationshipRepository(db),
 			FeatureRelRepo: repository.NewFeatureRelationshipRepository(db),

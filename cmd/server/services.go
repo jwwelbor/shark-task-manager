@@ -76,7 +76,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	workflowSvc := workflow.NewService(projectRoot)
 
 	// Step 2: Construct repositories (data access layer)
-	taskRepo := repository.NewTaskRepository(db)
+	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	featureRepo := repository.NewFeatureRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
 	noteRepo := repository.NewEntityNoteRepository(db)

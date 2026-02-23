@@ -138,12 +138,12 @@ func GetEpicService() *services.EpicService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
+	workflowSvc := GetWorkflowService()
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
-	taskRepo := repository.NewTaskRepository(db)
+	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	docRepo := repository.NewDocumentRepository(db)
 	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
-	workflowSvc := GetWorkflowService()
 	svc := services.NewEpicService(epicRepo, workflowSvc, noteRepo, featureRepo, taskRepo)
 	svc.SetDocRepo(docRepo)
 	svc.SetWritableDocRepo(docRepo)
@@ -169,12 +169,12 @@ func GetFeatureService() *services.FeatureService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
+	workflowSvc := GetWorkflowService()
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
-	taskRepo := repository.NewTaskRepository(db)
+	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	docRepo := repository.NewDocumentRepository(db)
-	workflowSvc := GetWorkflowService()
 	svc := services.NewFeatureServiceWithRelationships(featureRepo, workflowSvc, noteRepo, taskRepo, docRepo, nil, epicRepo)
 	svc.SetWritableDocRepo(docRepo)
 	return svc
