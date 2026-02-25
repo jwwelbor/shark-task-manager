@@ -206,6 +206,7 @@ Services receive dependencies through **explicit constructor parameters**, not g
 ```go
 // Service struct with dependency fields
 type TaskService struct {
+    db          *repository.DB              // Optional: for transaction management (see Section 8)
     repo        TaskRepository              // Required: data access
     workflowSvc *workflow.Service           // Required: workflow validation
     creatorSvc  *taskcreation.Creator       // Optional: task creation
@@ -213,6 +214,8 @@ type TaskService struct {
 }
 
 // Constructor with explicit dependencies
+// Note: db is optional and only needed if the service manages transactions directly.
+// See "Transaction Ownership" (Section 8) for the pattern when db is required.
 func NewTaskService(
     repo TaskRepository,                    // Interface, not concrete type
     workflowSvc *workflow.Service,
