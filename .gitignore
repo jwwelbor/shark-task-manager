@@ -46,3 +46,4 @@ build-errors.log
 dev-artifacts/
 shark-tasks.*
 .sharkconfig.json.backup*
+.claude/settings.local.json
