@@ -1,0 +1,47 @@
+{{template "_resume_preamble" .}}RESUME task generation for feature {{.id}}: "{{.title}}".
+
+Check for existing tasks: shark task list --feature={{.id}}. If tasks exist and cover all feature requirements with proper sequencing, verify task specs are complete and advance immediately.
+
+---
+
+Generate tasks for feature {{.id}}: "{{.title}}".
+
+CRITICAL CONSTRAINTS — READ BEFORE STARTING:
+- Tasks must NOT contain implementation code. No Go, Python, TypeScript, SQL, or any language code blocks.
+- Each task file: 50-100 lines maximum (not counting frontmatter). If you exceed this, you are over-specifying.
+- Tasks tell agents WHAT to build and WHERE to find design details — not HOW to code it.
+- REFERENCE design doc sections (e.g., "See technical-spec.md Section 4.3 for interface contract") instead of copying content.
+- After creating each task file, register it: shark related-docs add "<title>" <task-file-path> --task=<task-key>
+- Also register feature-level docs if not already registered: shark related-docs add "<title>" <doc-path> --feature={{.id}}
+- READ docs/plan/RULES.md for documentation standards.
+
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
+
+LOAD: specification-writing workflow write-task.md.
+
+READ AVAILABLE DOCS:
+(1) Feature description and triage report at {{.file_path}}
+(2) Feature PRD if exists (prd.md)
+(3) Architecture docs if exist (02-08 series)
+(4) Test plan if exists (09-test-plan.md)
+(5) Parent epic context
+(6) docs/plan/RULES.md for documentation standards
+
+Run write-task.md Step 0 (documentation detection).
+
+ADAPT TO TIER:
+- SIMPLE (typically no PRD/arch/test docs -- create 1-3 focused tasks directly from triage report and feature description, include acceptance criteria in task spec, reference existing patterns from triage)
+- STANDARD (PRD + focused arch + test plan available -- create tasks per normal write-task.md process, typically 3-8 tasks)
+- COMPLEX (full doc suite -- create comprehensive task breakdown per write-task.md, typically 8+ tasks with detailed dependency graph)
+
+PRODUCE: Tasks via shark task create. Each task: goal, success criteria, design doc references (NOT copied content), test case references if test plan exists, validation gates, agent assignment, dependencies. For SIMPLE tier, embed test cases directly in task spec.
+
+EXIT GATE varies by tier:
+- ALL TIERS: Zero code blocks in any task file. Each task under 100 lines. All task files registered via shark related-docs add.
+- SIMPLE (feature requirements covered by 1-3 tasks, AC clear)
+- STANDARD (PRD requirements map to tasks, test cases mapped)
+- COMPLEX (full write-task.md checklist, contract validation task if applicable)
+
+Verify: shark task list --feature={{.id}}.
+
+Advance: shark feature next-status {{.id}}.

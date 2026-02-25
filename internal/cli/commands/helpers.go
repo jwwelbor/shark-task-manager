@@ -2,8 +2,10 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 )
 
@@ -151,22 +153,11 @@ func ParseTaskListArgs(args []string) (*string, *string, error) {
 	}
 
 	// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
-	if IsFeatureKeySuffix(featureNormalized) {
-		// Just feature suffix
-		return &epicNormalized, &featureNormalized, nil
+	featureSuffix, err := resolveFeatureSuffix(featureNormalized, args[1])
+	if err != nil {
+		return nil, nil, err
 	}
-
-	if IsFeatureKey(featureNormalized) {
-		// Full feature key - extract the feature suffix
-		_, featureSuffix, err := ParseFeatureKey(featureNormalized)
-		if err != nil {
-			return nil, nil, err
-		}
-		return &epicNormalized, &featureSuffix, nil
-	}
-
-	// Invalid feature format
-	return nil, nil, InvalidFeatureKeyError(args[1])
+	return &epicNormalized, &featureSuffix, nil
 }
 
 // ParseListArgs parses positional arguments for the list command dispatcher
@@ -237,22 +228,11 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 	}
 
 	// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
-	if IsFeatureKeySuffix(featureNormalized) {
-		// Just feature suffix
-		return "task", &epicNormalized, &featureNormalized, nil
+	featureSuffix, err := resolveFeatureSuffix(featureNormalized, args[1])
+	if err != nil {
+		return "", nil, nil, err
 	}
-
-	if IsFeatureKey(featureNormalized) {
-		// Full feature key - extract the feature suffix
-		_, featureSuffix, err := ParseFeatureKey(featureNormalized)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		return "task", &epicNormalized, &featureSuffix, nil
-	}
-
-	// Invalid feature format
-	return "", nil, nil, InvalidFeatureKeyError(args[1])
+	return "task", &epicNormalized, &featureSuffix, nil
 }
 
 // ParseGetArgs parses positional arguments for the get command dispatcher
@@ -385,18 +365,9 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 		}
 
 		// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
-		var featureSuffix string
-		if IsFeatureKeySuffix(featureNormalized) {
-			featureSuffix = featureNormalized
-		} else if IsFeatureKey(featureNormalized) {
-			// Full feature key - extract the feature suffix
-			_, suffix, err := ParseFeatureKey(featureNormalized)
-			if err != nil {
-				return nil, err
-			}
-			featureSuffix = suffix
-		} else {
-			return nil, InvalidFeatureKeyError(args[1])
+		featureSuffix, err := resolveFeatureSuffix(featureNormalized, args[1])
+		if err != nil {
+			return nil, err
 		}
 
 		// Construct full feature key
@@ -415,18 +386,9 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 	}
 
 	// Second argument can be a feature suffix (F##) or full feature key (E##-F##)
-	var featureSuffix string
-	if IsFeatureKeySuffix(featureNormalized) {
-		featureSuffix = featureNormalized
-	} else if IsFeatureKey(featureNormalized) {
-		// Full feature key - extract the feature suffix
-		_, suffix, err := ParseFeatureKey(featureNormalized)
-		if err != nil {
-			return nil, err
-		}
-		featureSuffix = suffix
-	} else {
-		return nil, InvalidFeatureKeyError(args[1])
+	featureSuffix, err := resolveFeatureSuffix(featureNormalized, args[1])
+	if err != nil {
+		return nil, err
 	}
 
 	// Third argument must be a task number (1-999)
@@ -440,6 +402,23 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 	return &parsedScope{Type: scopeTask, Key: fullTaskKey}, nil
 }
 
+// resolveFeatureSuffix resolves a feature argument to a feature suffix (F##).
+// Accepts either a feature suffix (F##) or a full feature key (E##-F##).
+// Returns the suffix and nil on success, or empty string and an error on failure.
+func resolveFeatureSuffix(featureArg, rawArg string) (string, error) {
+	if IsFeatureKeySuffix(featureArg) {
+		return featureArg, nil
+	}
+	if IsFeatureKey(featureArg) {
+		_, suffix, err := ParseFeatureKey(featureArg)
+		if err != nil {
+			return "", err
+		}
+		return suffix, nil
+	}
+	return "", InvalidFeatureKeyError(rawArg)
+}
+
 // isTaskKey validates if a string is a valid task key format (T-E##-F##-###)
 // Delegates to keys.IsTaskKey for implementation.
 func isTaskKey(s string) bool {
@@ -450,12 +429,6 @@ func isTaskKey(s string) bool {
 // Delegates to keys.ParseTaskNumber for implementation.
 func parseTaskNumber(s string) (int, error) {
 	return keys.ParseTaskNumber(s)
-}
-
-// Deprecated: Use IsEpicKey instead
-// isValidEpicKey validates epic key format (E##)
-func isValidEpicKey(key string) bool {
-	return IsEpicKey(key)
 }
 
 // isShortTaskKey validates if a string matches the short task key pattern (E##-F##-###)
@@ -550,19 +523,9 @@ func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
 		}
 
 		// Feature can be either F## (suffix) or E##-F## (full key)
-		var featureKey string
-		if IsFeatureKeySuffix(featureArg) {
-			// Just the suffix (F##)
-			featureKey = featureArg
-		} else if IsFeatureKey(featureArg) {
-			// Full feature key (E##-F##) - extract suffix
-			_, suffix, err := ParseFeatureKey(featureArg)
-			if err != nil {
-				return nil, nil, nil, InvalidFeatureKeyError(args[1])
-			}
-			featureKey = suffix
-		} else {
-			return nil, nil, nil, InvalidFeatureKeyError(args[1])
+		featureKey, err := resolveFeatureSuffix(featureArg, args[1])
+		if err != nil {
+			return nil, nil, nil, err
 		}
 
 		return &epicKey, &featureKey, &title, nil
@@ -668,4 +631,67 @@ func DetectEntityType(key string) string {
 	}
 
 	return "unknown"
+}
+
+// getAgentIdentifier returns flagValue if non-empty, otherwise falls back to the USER env var.
+func getAgentIdentifier(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if user := os.Getenv("USER"); user != "" {
+		return user
+	}
+	return ""
+}
+
+// derefString safely dereferences a *string, returning "" if nil.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// handleServiceError translates service errors into user-friendly CLI messages and exit codes.
+//
+// Exit codes:
+//   - 1: Not found (entity doesn't exist)
+//   - 2: Database/system error
+//   - 3: Invalid state (business rule violation)
+//
+// Parameters:
+//   - err: the error returned by a service method (nil returns immediately)
+//   - entityType: human-readable entity type for messages (e.g., "feature", "epic", "task")
+//   - key: entity key for messages (e.g., "E07-F01", "E07")
+func handleServiceError(err error, entityType, key string) {
+	if err == nil {
+		return
+	}
+
+	// Check if error message contains "not found" patterns (no specific NotFoundError type in repo)
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "does not exist") {
+		displayType := strings.ToUpper(entityType[:1]) + entityType[1:]
+		cli.Error(fmt.Sprintf("%s not found: %s", displayType, key))
+		cli.Info(fmt.Sprintf("Use 'shark %s list' to see available %ss", entityType, entityType))
+		os.Exit(1)
+	}
+
+	// Check for conflict/validation errors (exit code 3 = invalid state)
+	if strings.Contains(errMsg, "already exists") ||
+		strings.Contains(errMsg, "validation failed") ||
+		strings.Contains(errMsg, "cannot be empty") ||
+		strings.Contains(errMsg, "invalid transition") ||
+		strings.Contains(errMsg, "cannot start") ||
+		strings.Contains(errMsg, "cannot complete") {
+		cli.Error(fmt.Sprintf("Error: %v", err))
+		os.Exit(3)
+	}
+
+	// Default: database/system error
+	cli.Error(fmt.Sprintf("Error: %v", err))
+	if cli.GlobalConfig.Verbose {
+		fmt.Fprintf(os.Stderr, "Details: %v\n", err)
+	}
+	os.Exit(2)
 }

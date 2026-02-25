@@ -1,13 +1,10 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -59,9 +56,10 @@ func init() {
 
 // runTaskLink handles the task link command
 func runTaskLink(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	taskKey := args[0]
 
-	// Get all relationship flags
+	// Map CLI flag names to relationship type strings
 	relationships := map[string]string{
 		"depends_on":   cmd.Flag("depends-on").Value.String(),
 		"blocks":       cmd.Flag("blocks").Value.String(),
@@ -72,7 +70,7 @@ func runTaskLink(cmd *cobra.Command, args []string) error {
 		"references":   cmd.Flag("references").Value.String(),
 	}
 
-	// Check if at least one relationship flag was provided
+	// Validate that at least one relationship flag was provided
 	hasRelationships := false
 	for _, value := range relationships {
 		if value != "" {
@@ -80,118 +78,73 @@ func runTaskLink(cmd *cobra.Command, args []string) error {
 			break
 		}
 	}
-
 	if !hasRelationships {
 		return fmt.Errorf("at least one relationship flag required (--depends-on, --blocks, etc.)")
 	}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+	// Step 2: Call service for each relationship
+	svc := cli.GetTaskServiceWithDeps()
+	ctx := cmd.Context()
+
+	type createdRel struct {
+		Type        string
+		TargetKey   string
+		TargetTitle string
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
+	var createdRels []createdRel
 
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
-
-	// Get source task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found", taskKey)
-	}
-
-	// Track created relationships for output
-	var createdRels []struct {
-		Type       string
-		TargetKey  string
-		TargetTask *models.Task
-	}
-
-	// Process each relationship type
 	for relType, targetKeysStr := range relationships {
 		if targetKeysStr == "" {
 			continue
 		}
 
-		targetKeys := strings.Split(targetKeysStr, ",")
-		for _, targetKey := range targetKeys {
+		for _, targetKey := range strings.Split(targetKeysStr, ",") {
 			targetKey = strings.TrimSpace(targetKey)
 			if targetKey == "" {
 				continue
 			}
 
-			// Get target task
-			targetTask, err := taskRepo.GetByKey(ctx, targetKey)
-			if err != nil {
-				cli.Error(fmt.Sprintf("Target task %s not found", targetKey))
-				return fmt.Errorf("target task %s not found", targetKey)
-			}
-
-			// Check for cycle (for depends_on and blocks relationships)
-			if relType == "depends_on" || relType == "blocks" {
-				if err := relRepo.DetectCycle(ctx, task.ID, targetTask.ID, relType); err != nil {
-					cli.Error(fmt.Sprintf("Circular dependency detected: %v", err))
-					return err
-				}
-			}
-
-			// Create relationship
-			rel := &models.TaskRelationship{
-				FromTaskID:       task.ID,
-				ToTaskID:         targetTask.ID,
-				RelationshipType: models.RelationshipType(relType),
-			}
-
-			err = relRepo.Create(ctx, rel)
+			targetTask, err := svc.CreateTypedRelationship(ctx, taskKey, targetKey, relType)
 			if err != nil {
 				if strings.Contains(err.Error(), "relationship already exists") {
 					cli.Warning(fmt.Sprintf("Relationship already exists: %s %s %s", taskKey, relType, targetKey))
 					continue
 				}
+				if strings.Contains(err.Error(), "circular dependency") {
+					cli.Error(fmt.Sprintf("Circular dependency detected: %v", err))
+					return err
+				}
 				cli.Error(fmt.Sprintf("Failed to create relationship: %v", err))
 				return fmt.Errorf("failed to create relationship: %w", err)
 			}
 
-			createdRels = append(createdRels, struct {
-				Type       string
-				TargetKey  string
-				TargetTask *models.Task
-			}{
-				Type:       relType,
-				TargetKey:  targetKey,
-				TargetTask: targetTask,
+			createdRels = append(createdRels, createdRel{
+				Type:        relType,
+				TargetKey:   targetKey,
+				TargetTitle: targetTask.Title,
 			})
 		}
 	}
 
-	// Output results
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		output := map[string]interface{}{
-			"task_key":      taskKey,
-			"relationships": []map[string]string{},
-		}
-
-		relationships := output["relationships"].([]map[string]string)
+		relMaps := make([]map[string]string, 0, len(createdRels))
 		for _, rel := range createdRels {
-			relationships = append(relationships, map[string]string{
+			relMaps = append(relMaps, map[string]string{
 				"type":         rel.Type,
 				"target_key":   rel.TargetKey,
-				"target_title": rel.TargetTask.Title,
+				"target_title": rel.TargetTitle,
 			})
 		}
-		output["relationships"] = relationships
-
-		return cli.OutputJSON(output)
+		return cli.OutputJSON(map[string]interface{}{
+			"task_key":      taskKey,
+			"relationships": relMaps,
+		})
 	}
 
-	// Human-readable output
 	cli.Success(fmt.Sprintf("Created %d relationship(s) for %s:", len(createdRels), taskKey))
 	for _, rel := range createdRels {
-		fmt.Printf("  %s → %s (%s)\n", rel.Type, rel.TargetKey, rel.TargetTask.Title)
+		fmt.Printf("  %s → %s (%s)\n", rel.Type, rel.TargetKey, rel.TargetTitle)
 	}
 
 	return nil

@@ -129,25 +129,25 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 
 	// Scenario 2: Invalid transitions are blocked
 	t.Run("InvalidTransitionsBlocked", func(t *testing.T) {
+		// NOTE: Workflow validation has moved to the service layer.
+		// The repository layer no longer validates transitions, so all transitions succeed.
 		// Reset to in_progress
 		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("in_progress"), task.ID)
 
-		// Try to skip ready_for_review and go directly to completed
+		// Skip ready_for_review and go directly to completed - repo allows this now
 		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &developer, nil)
-		if err == nil {
-			t.Error("Should not allow skipping ready_for_review")
+		if err != nil {
+			t.Errorf("Repo should allow any transition (validation moved to service): %v", err)
 		}
 
-		// Verify error message is helpful
-		if err != nil && !containsString(err.Error(), "invalid transition") {
-			t.Errorf("Error should mention invalid transition, got: %v", err)
+		// Verify task status DID change (repo no longer blocks this)
+		updatedTask, _ := repo.GetByID(ctx, task.ID)
+		if updatedTask.Status != models.TaskStatus("completed") {
+			t.Errorf("Task status should have changed to completed, got %s", updatedTask.Status)
 		}
 
-		// Verify task status didn't change
-		unchangedTask, _ := repo.GetByID(ctx, task.ID)
-		if unchangedTask.Status != models.TaskStatus("in_progress") {
-			t.Errorf("Task status should not have changed, got %s", unchangedTask.Status)
-		}
+		// Reset for next test
+		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("in_progress"), task.ID)
 	})
 
 	// Scenario 3: Force flag bypasses validation
@@ -182,13 +182,15 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 	})
 
 	// Scenario 4: Blocking and unblocking workflow
+	// NOTE: BlockTask/UnblockTask removed from repo (validation moved to service layer).
+	// Use UpdateStatusForced directly for block/unblock transitions.
 	t.Run("BlockingWorkflow", func(t *testing.T) {
 		// Reset to in_progress
 		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("in_progress"), task.ID)
 
-		// Block task
+		// Block task via UpdateStatusForced
 		blockReason := "Waiting for API specification"
-		err := repo.BlockTask(ctx, task.ID, blockReason, &developer)
+		err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("blocked"), &developer, &blockReason, nil, nil, false)
 		if err != nil {
 			t.Fatalf("Failed to block task: %v", err)
 		}
@@ -199,8 +201,8 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 			t.Errorf("Expected status blocked, got %s", blockedTask.Status)
 		}
 
-		// Unblock to todo
-		err = repo.UnblockTask(ctx, task.ID, &developer)
+		// Unblock to todo via UpdateStatusForced
+		err = repo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("todo"), &developer, nil, nil, nil, false)
 		if err != nil {
 			t.Fatalf("Failed to unblock task: %v", err)
 		}
@@ -213,13 +215,15 @@ func TestWorkflowIntegration_E2E(t *testing.T) {
 	})
 
 	// Scenario 5: Reopen workflow
+	// NOTE: ReopenTask removed from repo (validation moved to service layer).
+	// Use UpdateStatusForced directly for reopen transitions.
 	t.Run("ReopenWorkflow", func(t *testing.T) {
 		// Set to ready_for_review
 		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("ready_for_review"), task.ID)
 
-		// Tech lead requests changes
+		// Tech lead requests changes via UpdateStatusForced
 		reopenNotes := "Found bug in edge case handling, please fix"
-		err := repo.ReopenTask(ctx, task.ID, &techLead, &reopenNotes)
+		err := repo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("in_progress"), &techLead, &reopenNotes, nil, nil, false)
 		if err != nil {
 			t.Fatalf("Failed to reopen task: %v", err)
 		}
@@ -275,7 +279,9 @@ func TestWorkflowIntegration_DefaultWorkflowBackwardCompatibility(t *testing.T) 
 	}
 }
 
-// TestWorkflowIntegration_PerformanceBenchmark tests that workflow validation is fast (REQ-NF-001)
+// TestWorkflowIntegration_PerformanceBenchmark tests that status updates are fast under load (REQ-NF-001)
+// NOTE: Workflow validation has moved to the service layer. Repository now performs
+// raw status updates without validation, so all transitions succeed.
 func TestWorkflowIntegration_PerformanceBenchmark(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping performance test in short mode")
@@ -285,67 +291,33 @@ func TestWorkflowIntegration_PerformanceBenchmark(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
 
-	customWorkflow := &config.WorkflowConfig{
-		Version: "1.0",
-		StatusFlow: map[string][]string{
-			"todo":             {"in_progress"},
-			"in_progress":      {"ready_for_review"},
-			"ready_for_review": {"completed"},
-			"completed":        {},
-			"blocked":          {"todo"},
-		},
-		SpecialStatuses: map[string][]string{
-			config.StartStatusKey:    {"todo"},
-			config.CompleteStatusKey: {"completed"},
-		},
-		StatusMetadata: map[string]config.StatusMetadata{
-			"todo":             {ProgressWeight: 0, Phase: "planning"},
-			"in_progress":      {ProgressWeight: 33, Phase: "development"},
-			"ready_for_review": {ProgressWeight: 66, Phase: "review"},
-			"completed":        {ProgressWeight: 100, Phase: "done"},
-			"blocked":          {ProgressWeight: 0, Phase: "planning"},
-		},
-	}
-
-	repo := NewTaskRepositoryWithWorkflow(db, customWorkflow)
+	repo := NewTaskRepository(db)
 
 	test.SeedTestData()
 	task, _ := repo.GetByKey(ctx, "T-E99-F99-001")
 
 	agent := "perf-test"
 
-	// Measure 100 status updates (50 valid, 50 invalid)
-	// According to REQ-NF-001, validation should add <100ms overhead (P95)
-	validTransitions := 0
-	invalidTransitions := 0
+	// Measure 100 status updates - all succeed now (validation in service layer)
+	successCount := 0
 
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		// Reset to todo
 		_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
-		// Valid transition
+		// Any transition succeeds at repo layer
 		err := repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 		if err == nil {
-			validTransitions++
-		}
-
-		// Invalid transition
-		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
-		if err != nil {
-			invalidTransitions++
+			successCount++
 		}
 	}
 
-	// Verify transitions worked as expected
-	if validTransitions != 50 {
-		t.Errorf("Expected 50 valid transitions, got %d", validTransitions)
-	}
-
-	if invalidTransitions != 50 {
-		t.Errorf("Expected 50 invalid transitions, got %d", invalidTransitions)
+	// Verify all transitions succeeded
+	if successCount != 100 {
+		t.Errorf("Expected 100 successful transitions, got %d", successCount)
 	}
 
 	// Performance is measured by Go's benchmark tool, not in test
-	// This test just verifies that validation doesn't break under load
-	t.Logf("Successfully validated 100 transitions (50 valid, 50 invalid)")
+	// This test just verifies that updates don't break under load
+	t.Logf("Successfully processed 100 status updates at repo layer")
 }

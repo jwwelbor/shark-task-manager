@@ -1,13 +1,10 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/taskfile"
 	"github.com/spf13/cobra"
 )
 
@@ -89,38 +86,18 @@ Examples:
 
 // runTaskCriteriaImport handles the task criteria import command
 func runTaskCriteriaImport(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	taskKey := args[0]
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	svc := cli.GetCriteriaService()
+	importCount, err := svc.ImportCriteriaFromFile(cmd.Context(), taskKey)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found", taskKey)
+		return err
 	}
 
-	// Get task file path
-	if task.FilePath == nil || *task.FilePath == "" {
-		return fmt.Errorf("task %s has no file path", taskKey)
-	}
-
-	// Parse criteria from file
-	criteria, err := taskfile.ParseCriteriaFromFile(*task.FilePath)
-	if err != nil {
-		return fmt.Errorf("failed to parse criteria from file: %w", err)
-	}
-
-	if len(criteria) == 0 {
+	// Step 3: Format output
+	if importCount == 0 {
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(map[string]interface{}{
 				"task_key": taskKey,
@@ -132,21 +109,6 @@ func runTaskCriteriaImport(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Import criteria into database
-	importCount := 0
-	for _, item := range criteria {
-		criterion := &models.TaskCriteria{
-			TaskID:    task.ID,
-			Criterion: item.Criterion,
-			Status:    item.Status,
-		}
-
-		if err := criteriaRepo.Create(ctx, criterion); err != nil {
-			return fmt.Errorf("failed to import criterion: %w", err)
-		}
-		importCount++
-	}
-
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
 			"task_key": taskKey,
@@ -155,107 +117,79 @@ func runTaskCriteriaImport(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Human-readable output
 	fmt.Printf("Imported %d acceptance criteria for %s\n", importCount, taskKey)
 	return nil
 }
 
 // runTaskCriteriaList handles the task criteria list command
 func runTaskCriteriaList(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	taskKey := args[0]
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	svc := cli.GetCriteriaService()
+	result, err := svc.GetTaskCriteriaWithSummary(cmd.Context(), taskKey)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found", taskKey)
+		return err
 	}
 
-	// Get criteria
-	criteria, err := criteriaRepo.GetByTaskID(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get criteria: %w", err)
-	}
-
-	// Get summary
-	summary, err := criteriaRepo.GetSummaryByTaskID(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get criteria summary: %w", err)
-	}
-
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"task_key":          taskKey,
-			"title":             task.Title,
-			"criteria":          criteria,
-			"total_count":       summary.TotalCount,
-			"pending_count":     summary.PendingCount,
-			"in_progress_count": summary.InProgressCount,
-			"complete_count":    summary.CompleteCount,
-			"failed_count":      summary.FailedCount,
-			"na_count":          summary.NACount,
-			"completion_pct":    summary.CompletionPct,
+			"task_key":          result.TaskKey,
+			"title":             result.Title,
+			"criteria":          result.Criteria,
+			"total_count":       result.Summary.TotalCount,
+			"pending_count":     result.Summary.PendingCount,
+			"in_progress_count": result.Summary.InProgressCount,
+			"complete_count":    result.Summary.CompleteCount,
+			"failed_count":      result.Summary.FailedCount,
+			"na_count":          result.Summary.NACount,
+			"completion_pct":    result.Summary.CompletionPct,
 		})
 	}
 
-	// Human-readable output
-	if len(criteria) == 0 {
+	if len(result.Criteria) == 0 {
 		fmt.Printf("No criteria found for task %s\n", taskKey)
 		return nil
 	}
 
-	fmt.Printf("Task %s: %s\n\n", taskKey, task.Title)
+	fmt.Printf("Task %s: %s\n\n", result.TaskKey, result.Title)
 	fmt.Printf("Criteria Summary: %.0f%% complete (%d/%d criteria)\n",
-		summary.CompletionPct,
-		summary.CompleteCount+summary.NACount,
-		summary.TotalCount)
+		result.Summary.CompletionPct,
+		result.Summary.CompleteCount+result.Summary.NACount,
+		result.Summary.TotalCount)
 	fmt.Printf("  Complete: %d | Pending: %d | In Progress: %d | Failed: %d | N/A: %d\n\n",
-		summary.CompleteCount,
-		summary.PendingCount,
-		summary.InProgressCount,
-		summary.FailedCount,
-		summary.NACount)
+		result.Summary.CompleteCount,
+		result.Summary.PendingCount,
+		result.Summary.InProgressCount,
+		result.Summary.FailedCount,
+		result.Summary.NACount)
 
 	// Sort criteria: failed first, then pending, in_progress, complete, na
-	sortedCriteria := make([]*models.TaskCriteria, 0, len(criteria))
+	sortedCriteria := make([]*models.TaskCriteria, 0, len(result.Criteria))
 
-	// Failed first
-	for _, c := range criteria {
+	for _, c := range result.Criteria {
 		if c.Status == models.CriteriaStatusFailed {
 			sortedCriteria = append(sortedCriteria, c)
 		}
 	}
-	// Then pending
-	for _, c := range criteria {
+	for _, c := range result.Criteria {
 		if c.Status == models.CriteriaStatusPending {
 			sortedCriteria = append(sortedCriteria, c)
 		}
 	}
-	// Then in_progress
-	for _, c := range criteria {
+	for _, c := range result.Criteria {
 		if c.Status == models.CriteriaStatusInProgress {
 			sortedCriteria = append(sortedCriteria, c)
 		}
 	}
-	// Then complete
-	for _, c := range criteria {
+	for _, c := range result.Criteria {
 		if c.Status == models.CriteriaStatusComplete {
 			sortedCriteria = append(sortedCriteria, c)
 		}
 	}
-	// Finally na
-	for _, c := range criteria {
+	for _, c := range result.Criteria {
 		if c.Status == models.CriteriaStatusNA {
 			sortedCriteria = append(sortedCriteria, c)
 		}
@@ -276,6 +210,7 @@ func runTaskCriteriaList(cmd *cobra.Command, args []string) error {
 
 // runTaskCriteriaCheck handles the task criteria check command
 func runTaskCriteriaCheck(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	taskKey := args[0]
 	var criterionID int64
 	if _, err := fmt.Sscanf(args[1], "%d", &criterionID); err != nil {
@@ -288,68 +223,37 @@ func runTaskCriteriaCheck(cmd *cobra.Command, args []string) error {
 		notePtr = &note
 	}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	svc := cli.GetCriteriaService()
+	result, err := svc.CheckCriterionForTask(cmd.Context(), taskKey, criterionID, notePtr)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found", taskKey)
+		return err
 	}
 
-	// Verify criterion belongs to this task
-	criterion, err := criteriaRepo.GetByID(ctx, criterionID)
-	if err != nil {
-		return fmt.Errorf("criterion %d not found", criterionID)
-	}
-	if criterion.TaskID != task.ID {
-		return fmt.Errorf("criterion %d does not belong to task %s", criterionID, taskKey)
-	}
-
-	// Update status to complete
-	err = criteriaRepo.UpdateStatus(ctx, criterionID, models.CriteriaStatusComplete, notePtr)
-	if err != nil {
-		return fmt.Errorf("failed to update criterion status: %w", err)
-	}
-
-	// Get updated summary
-	summary, err := criteriaRepo.GetSummaryByTaskID(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get criteria summary: %w", err)
-	}
-
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"task_key":       taskKey,
-			"criterion_id":   criterionID,
+			"task_key":       result.TaskKey,
+			"criterion_id":   result.CriterionID,
 			"status":         "complete",
-			"total_count":    summary.TotalCount,
-			"complete_count": summary.CompleteCount,
-			"completion_pct": summary.CompletionPct,
+			"total_count":    result.Summary.TotalCount,
+			"complete_count": result.Summary.CompleteCount,
+			"completion_pct": result.Summary.CompletionPct,
 		})
 	}
 
-	// Human-readable output
 	fmt.Printf("Criterion %d marked as complete\n", criterionID)
 	fmt.Printf("Progress: %.0f%% complete (%d/%d criteria)\n",
-		summary.CompletionPct,
-		summary.CompleteCount+summary.NACount,
-		summary.TotalCount)
+		result.Summary.CompletionPct,
+		result.Summary.CompleteCount+result.Summary.NACount,
+		result.Summary.TotalCount)
 
 	return nil
 }
 
 // runTaskCriteriaFail handles the task criteria fail command
 func runTaskCriteriaFail(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	taskKey := args[0]
 	var criterionID int64
 	if _, err := fmt.Sscanf(args[1], "%d", &criterionID); err != nil {
@@ -361,64 +265,32 @@ func runTaskCriteriaFail(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--note flag is required for failed criteria")
 	}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	svc := cli.GetCriteriaService()
+	result, err := svc.FailCriterionForTask(cmd.Context(), taskKey, criterionID, &note)
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	criteriaRepo := repository.NewTaskCriteriaRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found", taskKey)
+		return err
 	}
 
-	// Verify criterion belongs to this task
-	criterion, err := criteriaRepo.GetByID(ctx, criterionID)
-	if err != nil {
-		return fmt.Errorf("criterion %d not found", criterionID)
-	}
-	if criterion.TaskID != task.ID {
-		return fmt.Errorf("criterion %d does not belong to task %s", criterionID, taskKey)
-	}
-
-	// Update status to failed
-	err = criteriaRepo.UpdateStatus(ctx, criterionID, models.CriteriaStatusFailed, &note)
-	if err != nil {
-		return fmt.Errorf("failed to update criterion status: %w", err)
-	}
-
-	// Get updated summary
-	summary, err := criteriaRepo.GetSummaryByTaskID(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get criteria summary: %w", err)
-	}
-
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"task_key":       taskKey,
-			"criterion_id":   criterionID,
+			"task_key":       result.TaskKey,
+			"criterion_id":   result.CriterionID,
 			"status":         "failed",
 			"note":           note,
-			"total_count":    summary.TotalCount,
-			"failed_count":   summary.FailedCount,
-			"completion_pct": summary.CompletionPct,
+			"total_count":    result.Summary.TotalCount,
+			"failed_count":   result.Summary.FailedCount,
+			"completion_pct": result.Summary.CompletionPct,
 		})
 	}
 
-	// Human-readable output
 	fmt.Printf("Criterion %d marked as failed\n", criterionID)
 	fmt.Printf("Reason: %s\n", note)
 	fmt.Printf("Progress: %.0f%% complete (%d/%d criteria)\n",
-		summary.CompletionPct,
-		summary.CompleteCount+summary.NACount,
-		summary.TotalCount)
+		result.Summary.CompletionPct,
+		result.Summary.CompleteCount+result.Summary.NACount,
+		result.Summary.TotalCount)
 
 	return nil
 }

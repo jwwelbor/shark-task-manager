@@ -7,7 +7,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -89,365 +89,201 @@ func init() {
 	taskCmd.AddCommand(taskBlocksCmd)
 }
 
-// RelationshipWithTask combines relationship and task info for output
-type RelationshipWithTask struct {
-	RelationshipType string `json:"relationship_type"`
-	Direction        string `json:"direction"` // "outgoing" or "incoming"
-	TaskKey          string `json:"task_key"`
-	TaskTitle        string `json:"task_title"`
-	TaskStatus       string `json:"task_status"`
+// taskDepsOptions holds parsed flags for the task deps command.
+type taskDepsOptions struct {
+	typeFilter []string
+	showTree   bool
+	upstream   bool
+	downstream bool
+	maxDepth   int
 }
 
-// runTaskDeps handles the task deps command
-func runTaskDeps(cmd *cobra.Command, args []string) error {
-	taskKey := args[0]
+// parseTaskDepsOptions reads all flags for the task deps command.
+func parseTaskDepsOptions(cmd *cobra.Command) taskDepsOptions {
 	filterTypes, _ := cmd.Flags().GetString("type")
 	showTree, _ := cmd.Flags().GetBool("tree")
 	upstream, _ := cmd.Flags().GetBool("upstream")
 	downstream, _ := cmd.Flags().GetBool("downstream")
 	maxDepth, _ := cmd.Flags().GetInt("max-depth")
+	return taskDepsOptions{
+		typeFilter: parseTypeFilter(filterTypes),
+		showTree:   showTree,
+		upstream:   upstream,
+		downstream: downstream,
+		maxDepth:   maxDepth,
+	}
+}
 
-	var typeFilter []string
-	if filterTypes != "" {
-		typeFilter = strings.Split(filterTypes, ",")
-		for i, t := range typeFilter {
-			typeFilter[i] = strings.TrimSpace(t)
-		}
+// runTaskDeps handles the task deps command
+func runTaskDeps(cmd *cobra.Command, args []string) error {
+	taskKey := args[0]
+	opts := parseTaskDepsOptions(cmd)
+	svc := cli.GetTaskServiceWithDeps()
+
+	if opts.showTree {
+		return runTaskDepsTreeViaService(cmd.Context(), svc, taskKey, opts.upstream, opts.downstream, opts.maxDepth)
 	}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
+	relWithTasks, err := svc.GetTaskRelationships(cmd.Context(), taskKey, opts.typeFilter)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found", taskKey)
+		return fmt.Errorf("task %s not found or error retrieving relationships: %w", taskKey, err)
 	}
 
-	// If tree mode is enabled, use tree visualization
-	if showTree {
-		return runTaskDepsTree(ctx, task, taskRepo, relRepo, upstream, downstream, maxDepth)
-	}
-
-	// Get all relationships
-	allRels, err := relRepo.GetByTaskID(ctx, task.ID)
+	task, err := svc.GetTask(cmd.Context(), taskKey)
 	if err != nil {
-		return fmt.Errorf("failed to get relationships: %w", err)
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	// Organize by type and direction
-	outgoingByType := make(map[string][]*models.TaskRelationship)
-	incomingByType := make(map[string][]*models.TaskRelationship)
-
-	for _, rel := range allRels {
-		// Filter by type if specified
-		if len(typeFilter) > 0 {
-			found := false
-			for _, t := range typeFilter {
-				if string(rel.RelationshipType) == t {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
-		}
-
-		if rel.FromTaskID == task.ID {
-			// Outgoing relationship
-			relType := string(rel.RelationshipType)
-			outgoingByType[relType] = append(outgoingByType[relType], rel)
-		} else {
-			// Incoming relationship
-			relType := string(rel.RelationshipType)
-			incomingByType[relType] = append(incomingByType[relType], rel)
-		}
-	}
-
-	// Fetch related task details
-	relWithTasks := []RelationshipWithTask{}
-
-	for relType, rels := range outgoingByType {
-		for _, rel := range rels {
-			relTask, err := taskRepo.GetByID(ctx, rel.ToTaskID)
-			if err != nil {
-				continue
-			}
-			relWithTasks = append(relWithTasks, RelationshipWithTask{
-				RelationshipType: relType,
-				Direction:        "outgoing",
-				TaskKey:          relTask.Key,
-				TaskTitle:        relTask.Title,
-				TaskStatus:       string(relTask.Status),
-			})
-		}
-	}
-
-	for relType, rels := range incomingByType {
-		for _, rel := range rels {
-			relTask, err := taskRepo.GetByID(ctx, rel.FromTaskID)
-			if err != nil {
-				continue
-			}
-			relWithTasks = append(relWithTasks, RelationshipWithTask{
-				RelationshipType: relType,
-				Direction:        "incoming",
-				TaskKey:          relTask.Key,
-				TaskTitle:        relTask.Title,
-				TaskStatus:       string(relTask.Status),
-			})
-		}
-	}
-
-	// Output results
 	if cli.GlobalConfig.JSON {
-		output := map[string]interface{}{
-			"task_key":      taskKey,
-			"task_title":    task.Title,
-			"relationships": relWithTasks,
-		}
-		return cli.OutputJSON(output)
+		return cli.OutputJSON(map[string]interface{}{
+			"task_key": taskKey, "task_title": task.Title, "relationships": relWithTasks,
+		})
 	}
 
-	// Human-readable output
-	fmt.Printf("%s: %s\n\n", taskKey, task.Title)
+	return printTaskDeps(taskKey, task.Title, relWithTasks)
+}
+
+// parseTypeFilter splits a comma-separated type filter string into a slice.
+func parseTypeFilter(filterTypes string) []string {
+	if filterTypes == "" {
+		return nil
+	}
+	parts := strings.Split(filterTypes, ",")
+	for i, t := range parts {
+		parts[i] = strings.TrimSpace(t)
+	}
+	return parts
+}
+
+// printTaskDeps prints human-readable relationship output for a task.
+func printTaskDeps(taskKey, taskTitle string, relWithTasks []services.RelationshipWithTask) error {
+	fmt.Printf("%s: %s\n\n", taskKey, taskTitle)
 
 	if len(relWithTasks) == 0 {
 		fmt.Println("No relationships found")
 		return nil
 	}
 
-	// Group by type for output
-	printed := make(map[string]bool)
+	outgoingByType := make(map[string][]services.RelationshipWithTask)
+	incomingByType := make(map[string][]services.RelationshipWithTask)
+	for _, rel := range relWithTasks {
+		if rel.Direction == "outgoing" {
+			outgoingByType[rel.RelationshipType] = append(outgoingByType[rel.RelationshipType], rel)
+		} else {
+			incomingByType[rel.RelationshipType] = append(incomingByType[rel.RelationshipType], rel)
+		}
+	}
 
-	// Print outgoing relationships
 	relationshipOrder := []string{"depends_on", "blocks", "related_to", "follows", "spawned_from", "duplicates", "references"}
-
-	for _, relType := range relationshipOrder {
-		rels, ok := outgoingByType[relType]
-		if !ok || len(rels) == 0 {
-			continue
-		}
-
-		fmt.Printf("%s (this task → other tasks):\n", getRelationshipLabel(relType, "outgoing"))
-		for _, rel := range rels {
-			relTask, _ := taskRepo.GetByID(ctx, rel.ToTaskID)
-			if relTask != nil {
-				status := getStatusIcon(string(relTask.Status))
-				fmt.Printf("  %s %s: %s\n", status, relTask.Key, relTask.Title)
-			}
-		}
-		fmt.Println()
-		printed[relType] = true
-	}
-
-	// Print incoming relationships
-	for _, relType := range relationshipOrder {
-		rels, ok := incomingByType[relType]
-		if !ok || len(rels) == 0 {
-			continue
-		}
-
-		fmt.Printf("%s (other tasks → this task):\n", getRelationshipLabel(relType, "incoming"))
-		for _, rel := range rels {
-			relTask, _ := taskRepo.GetByID(ctx, rel.FromTaskID)
-			if relTask != nil {
-				status := getStatusIcon(string(relTask.Status))
-				fmt.Printf("  %s %s: %s\n", status, relTask.Key, relTask.Title)
-			}
-		}
-		fmt.Println()
-	}
-
+	printRelationshipGroup(outgoingByType, relationshipOrder, "outgoing")
+	printRelationshipGroup(incomingByType, relationshipOrder, "incoming")
 	fmt.Println("Legend: ✓ completed | • in_progress | ○ todo | ✗ blocked")
-
 	return nil
+}
+
+// printRelationshipGroup prints one direction of relationships (outgoing or incoming).
+func printRelationshipGroup(byType map[string][]services.RelationshipWithTask, order []string, direction string) {
+	suffix := map[string]string{"outgoing": "(this task → other tasks)", "incoming": "(other tasks → this task)"}
+	for _, relType := range order {
+		rels, ok := byType[relType]
+		if !ok || len(rels) == 0 {
+			continue
+		}
+		fmt.Printf("%s %s:\n", getRelationshipLabel(relType, direction), suffix[direction])
+		for _, rel := range rels {
+			fmt.Printf("  %s %s: %s\n", getStatusIcon(rel.TaskStatus), rel.TaskKey, rel.TaskTitle)
+		}
+		fmt.Println()
+	}
 }
 
 // runTaskBlockedBy shows incoming dependencies
 func runTaskBlockedBy(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
+	svc := cli.GetTaskServiceWithDeps()
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
+	blockers, err := svc.GetTaskBlockedBy(cmd.Context(), taskKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found", taskKey)
+		return fmt.Errorf("task %s not found or error retrieving dependencies: %w", taskKey, err)
 	}
 
-	// Get outgoing depends_on relationships (this task depends on others)
-	deps, err := relRepo.GetOutgoing(ctx, task.ID, []string{"depends_on"})
+	task, err := svc.GetTask(cmd.Context(), taskKey)
 	if err != nil {
-		return fmt.Errorf("failed to get dependencies: %w", err)
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	// Fetch task details
-	blockers := []RelationshipWithTask{}
-	for _, rel := range deps {
-		depTask, err := taskRepo.GetByID(ctx, rel.ToTaskID)
-		if err != nil {
-			continue
-		}
-		blockers = append(blockers, RelationshipWithTask{
-			RelationshipType: "depends_on",
-			Direction:        "outgoing",
-			TaskKey:          depTask.Key,
-			TaskTitle:        depTask.Title,
-			TaskStatus:       string(depTask.Status),
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(map[string]interface{}{
+			"task_key": taskKey, "task_title": task.Title, "blocked_by": blockers,
 		})
 	}
 
-	// Output results
-	if cli.GlobalConfig.JSON {
-		output := map[string]interface{}{
-			"task_key":   taskKey,
-			"task_title": task.Title,
-			"blocked_by": blockers,
-		}
-		return cli.OutputJSON(output)
-	}
+	return printBlockedBy(taskKey, task.Title, blockers)
+}
 
-	// Human-readable output
-	fmt.Printf("%s: %s\n\n", taskKey, task.Title)
-
+// printBlockedBy prints the human-readable blocked-by output.
+func printBlockedBy(taskKey, taskTitle string, blockers []services.RelationshipWithTask) error {
+	fmt.Printf("%s: %s\n\n", taskKey, taskTitle)
 	if len(blockers) == 0 {
 		fmt.Println("No blocking dependencies")
 		return nil
 	}
-
 	fmt.Println("Blocked by (must complete first):")
 	for _, blocker := range blockers {
-		status := getStatusIcon(blocker.TaskStatus)
-		fmt.Printf("  %s %s: %s\n", status, blocker.TaskKey, blocker.TaskTitle)
+		fmt.Printf("  %s %s: %s\n", getStatusIcon(blocker.TaskStatus), blocker.TaskKey, blocker.TaskTitle)
 	}
-
 	fmt.Println("\nLegend: ✓ completed | • in_progress | ○ todo | ✗ blocked")
-
 	return nil
 }
 
 // runTaskBlocks shows outgoing blocks
 func runTaskBlocks(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
+	svc := cli.GetTaskServiceWithDeps()
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	relRepo := repository.NewTaskRelationshipRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
+	blocked, err := svc.GetTaskBlocks(cmd.Context(), taskKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found", taskKey)
+		return fmt.Errorf("task %s not found or error retrieving blocks: %w", taskKey, err)
 	}
 
-	// Get incoming depends_on relationships (others depend on this task)
-	blockedTasks, err := relRepo.GetIncoming(ctx, task.ID, []string{"depends_on"})
+	task, err := svc.GetTask(cmd.Context(), taskKey)
 	if err != nil {
-		return fmt.Errorf("failed to get blocked tasks: %w", err)
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	// Also get outgoing blocks relationships
-	explicitBlocks, err := relRepo.GetOutgoing(ctx, task.ID, []string{"blocks"})
-	if err != nil {
-		return fmt.Errorf("failed to get explicit blocks: %w", err)
-	}
-
-	// Combine both
-	allBlocked := append(blockedTasks, explicitBlocks...)
-
-	// Fetch task details
-	blocked := []RelationshipWithTask{}
-	for _, rel := range allBlocked {
-		var blockedTask *models.Task
-		var err error
-
-		if rel.FromTaskID == task.ID {
-			blockedTask, err = taskRepo.GetByID(ctx, rel.ToTaskID)
-		} else {
-			blockedTask, err = taskRepo.GetByID(ctx, rel.FromTaskID)
-		}
-
-		if err != nil {
-			continue
-		}
-
-		blocked = append(blocked, RelationshipWithTask{
-			RelationshipType: string(rel.RelationshipType),
-			Direction:        "outgoing",
-			TaskKey:          blockedTask.Key,
-			TaskTitle:        blockedTask.Title,
-			TaskStatus:       string(blockedTask.Status),
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(map[string]interface{}{
+			"task_key": taskKey, "task_title": task.Title, "blocks": blocked,
 		})
 	}
 
-	// Output results
-	if cli.GlobalConfig.JSON {
-		output := map[string]interface{}{
-			"task_key":   taskKey,
-			"task_title": task.Title,
-			"blocks":     blocked,
-		}
-		return cli.OutputJSON(output)
-	}
+	return printBlocks(taskKey, task.Title, string(task.Status), blocked)
+}
 
-	// Human-readable output
-	fmt.Printf("%s: %s\n\n", taskKey, task.Title)
-
+// printBlocks prints the human-readable blocks output.
+func printBlocks(taskKey, taskTitle, taskStatus string, blocked []services.RelationshipWithTask) error {
+	fmt.Printf("%s: %s\n\n", taskKey, taskTitle)
 	if len(blocked) == 0 {
 		fmt.Println("Not blocking any tasks")
 		return nil
 	}
-
 	ws := cli.GetWorkflowService()
-
+	isTerminal := ws.IsTerminalStatus(taskStatus)
 	fmt.Println("Blocks (waiting on this task):")
 	for _, b := range blocked {
-		status := getStatusIcon(b.TaskStatus)
-		completed := ""
-		if ws.IsTerminalStatus(string(task.Status)) {
-			completed = " (unblocked)"
+		suffix := ""
+		if isTerminal {
+			suffix = " (unblocked)"
 		}
-		fmt.Printf("  %s %s: %s%s\n", status, b.TaskKey, b.TaskTitle, completed)
+		fmt.Printf("  %s %s: %s%s\n", getStatusIcon(b.TaskStatus), b.TaskKey, b.TaskTitle, suffix)
 	}
-
-	if ws.IsTerminalStatus(string(task.Status)) {
+	if isTerminal {
 		fmt.Println("\nThis task is completed - all downstream tasks are unblocked.")
 	}
-
 	fmt.Println("\nLegend: ✓ completed | • in_progress | ○ todo | ✗ blocked")
-
 	return nil
 }
 
@@ -694,6 +530,30 @@ func renderTree(tree *DependencyTree, prefix string, isLast bool) string {
 	return output.String()
 }
 
+// runTaskDepsTreeViaService handles tree visualization mode using the service for task lookup
+// and repository interfaces for recursive tree traversal.
+func runTaskDepsTreeViaService(
+	ctx context.Context,
+	svc *services.TaskService,
+	taskKey string,
+	showUpstream bool,
+	showDownstream bool,
+	maxDepth int,
+) error {
+	task, err := svc.GetTask(ctx, taskKey)
+	if err != nil {
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
+	}
+
+	taskRepo := svc.GetTaskRepository()
+	relRepo := svc.GetRelQueryRepo()
+	if taskRepo == nil || relRepo == nil {
+		return fmt.Errorf("relationship repositories not available")
+	}
+
+	return runTaskDepsTree(ctx, task, taskRepo, relRepo, showUpstream, showDownstream, maxDepth)
+}
+
 // runTaskDepsTree handles tree visualization mode for task deps
 func runTaskDepsTree(
 	ctx context.Context,
@@ -704,77 +564,75 @@ func runTaskDepsTree(
 	showDownstream bool,
 	maxDepth int,
 ) error {
-	// If neither flag is set, show both
 	if !showUpstream && !showDownstream {
 		showUpstream = true
 		showDownstream = true
 	}
 
-	var output strings.Builder
+	if cli.GlobalConfig.JSON {
+		return outputDepsTreeJSON(ctx, task, taskRepo, relRepo, showUpstream, showDownstream, maxDepth)
+	}
 
-	// Show task header
-	status := getStatusIcon(string(task.Status))
-	output.WriteString(fmt.Sprintf("\n%s %s: %s\n", status, task.Key, task.Title))
+	return printDepsTree(ctx, task, taskRepo, relRepo, showUpstream, showDownstream, maxDepth)
+}
+
+// outputDepsTreeJSON renders the dependency tree as JSON.
+func outputDepsTreeJSON(
+	ctx context.Context, task *models.Task,
+	taskRepo TaskRepositoryInterfaceWithID, relRepo RelationshipRepositoryInterface,
+	showUpstream, showDownstream bool, maxDepth int,
+) error {
+	jsonOutput := map[string]interface{}{
+		"task_key": task.Key, "task_title": task.Title, "task_status": string(task.Status),
+	}
+	if showUpstream {
+		upstreamTree, _ := buildDependencyTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
+		jsonOutput["upstream"] = upstreamTree
+	}
+	if showDownstream {
+		downstreamTree, _ := buildDependentsTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
+		jsonOutput["downstream"] = downstreamTree
+	}
+	return cli.OutputJSON(jsonOutput)
+}
+
+// printDepsTree renders the dependency tree in human-readable ASCII format.
+func printDepsTree(
+	ctx context.Context, task *models.Task,
+	taskRepo TaskRepositoryInterfaceWithID, relRepo RelationshipRepositoryInterface,
+	showUpstream, showDownstream bool, maxDepth int,
+) error {
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("\n%s %s: %s\n", getStatusIcon(string(task.Status)), task.Key, task.Title))
 	output.WriteString(strings.Repeat("=", 80) + "\n\n")
 
-	// Build and show upstream dependencies tree
 	if showUpstream {
 		output.WriteString("Upstream Dependencies (Prerequisites):\n\n")
 		upstreamTree, err := buildDependencyTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
 		if err != nil {
 			return fmt.Errorf("failed to build upstream tree: %w", err)
 		}
-
 		if len(upstreamTree.Dependencies) == 0 {
 			output.WriteString("  No upstream dependencies\n\n")
 		} else {
-			treeOutput := renderTree(upstreamTree, "", true)
-			output.WriteString(treeOutput + "\n")
+			output.WriteString(renderTree(upstreamTree, "", true) + "\n")
 		}
 	}
 
-	// Build and show downstream dependents tree
 	if showDownstream {
 		output.WriteString("Downstream Dependents (Tasks waiting on this):\n\n")
 		downstreamTree, err := buildDependentsTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
 		if err != nil {
 			return fmt.Errorf("failed to build downstream tree: %w", err)
 		}
-
 		if len(downstreamTree.Dependents) == 0 {
 			output.WriteString("  No downstream dependents\n\n")
 		} else {
-			treeOutput := renderTree(downstreamTree, "", true)
-			output.WriteString(treeOutput + "\n")
+			output.WriteString(renderTree(downstreamTree, "", true) + "\n")
 		}
 	}
 
-	// Show legend
 	output.WriteString("Legend: ✓ completed | ⊙ ready_for_review | • in_progress | ○ todo | ✗ blocked\n")
-
-	// Output results
-	if cli.GlobalConfig.JSON {
-		// For JSON mode, return structured data
-		jsonOutput := map[string]interface{}{
-			"task_key":    task.Key,
-			"task_title":  task.Title,
-			"task_status": string(task.Status),
-		}
-
-		if showUpstream {
-			upstreamTree, _ := buildDependencyTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
-			jsonOutput["upstream"] = upstreamTree
-		}
-
-		if showDownstream {
-			downstreamTree, _ := buildDependentsTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
-			jsonOutput["downstream"] = downstreamTree
-		}
-
-		return cli.OutputJSON(jsonOutput)
-	}
-
-	// Human-readable output
 	fmt.Print(output.String())
 	return nil
 }

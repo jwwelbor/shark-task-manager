@@ -103,9 +103,9 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 		t.Fatalf("Failed to update task status to in_progress: %v", err)
 	}
 
-	// Block it
+	// Block it via UpdateStatusForced (BlockTask removed - validation moved to service layer)
 	reason := "Waiting for API specification"
-	err = taskRepo.BlockTask(ctx, task.ID, reason, &agent)
+	err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("blocked"), &agent, &reason, nil, nil, false)
 	if err != nil {
 		t.Fatalf("Failed to block task: %v", err)
 	}
@@ -114,15 +114,11 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	if blockedTask.Status != models.TaskStatus("blocked") {
 		t.Errorf("Expected status blocked, got %s", blockedTask.Status)
 	}
-	if blockedTask.BlockedReason == nil || *blockedTask.BlockedReason != reason {
-		t.Errorf("Expected blocked_reason '%s'", reason)
-	}
-	if !blockedTask.BlockedAt.Valid {
-		t.Error("Expected blocked_at to be set")
-	}
+	// NOTE: blocked_reason and blocked_at field management has moved to the service layer.
+	// UpdateStatusForced only updates status and timestamps, not blocked_reason.
 
-	// Unblock it
-	err = taskRepo.UnblockTask(ctx, task.ID, &agent)
+	// Unblock it via UpdateStatusForced (UnblockTask removed - validation moved to service layer)
+	err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("todo"), &agent, nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("Failed to unblock task: %v", err)
 	}
@@ -131,12 +127,8 @@ func TestBlockUnblockWorkflow(t *testing.T) {
 	if unblockedTask.Status != models.TaskStatus("todo") {
 		t.Errorf("Expected status todo after unblock, got %s", unblockedTask.Status)
 	}
-	if unblockedTask.BlockedReason != nil {
-		t.Error("Expected blocked_reason to be cleared")
-	}
-	if unblockedTask.BlockedAt.Valid {
-		t.Error("Expected blocked_at to be cleared")
-	}
+	// NOTE: blocked_reason and blocked_at clearing has moved to the service layer.
+	// UpdateStatusForced only updates status, not blocked_reason/blocked_at fields.
 }
 
 // TestReopenWorkflow tests reopening a task for rework
@@ -165,9 +157,9 @@ func TestReopenWorkflow(t *testing.T) {
 		t.Fatalf("Failed to update task status to ready_for_review: %v", err)
 	}
 
-	// Reopen for rework
+	// Reopen for rework via UpdateStatusForced (ReopenTask removed - validation moved to service layer)
 	reworkNotes := "Need to add error handling"
-	err = taskRepo.ReopenTask(ctx, task.ID, &agent, &reworkNotes)
+	err = taskRepo.UpdateStatusForced(ctx, task.ID, models.TaskStatus("in_progress"), &agent, &reworkNotes, nil, nil, false)
 	if err != nil {
 		t.Fatalf("Failed to reopen task: %v", err)
 	}

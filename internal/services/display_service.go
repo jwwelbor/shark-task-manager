@@ -119,7 +119,7 @@ func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *Displa
 		deps: DisplayServiceDeps{
 			EpicRepo:       repository.NewEpicRepository(db),
 			FeatureRepo:    repository.NewFeatureRepository(db),
-			TaskRepo:       repository.NewTaskRepository(db),
+			TaskRepo:       repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
 			DocumentRepo:   repository.NewDocumentRepository(db),
 			TaskRelRepo:    repository.NewTaskRelationshipRepository(db),
 			FeatureRelRepo: repository.NewFeatureRelationshipRepository(db),
@@ -387,12 +387,23 @@ func (s *DisplayService) populateEpicAggregationInfo(ctx context.Context, info *
 
 	info.StatusSource = "calculated"
 
-	// Calculate progress
-	progress, err := s.deps.EpicRepo.CalculateProgress(ctx, epicID)
+	// Calculate progress from raw feature data (same business logic as EpicService.CalculateProgress)
+	progressData, err := s.deps.EpicRepo.GetFeatureProgressDataByEpic(ctx, epicID)
 	if err != nil {
-		progress = 0.0
+		info.Progress = 0.0
+	} else if len(progressData) == 0 {
+		info.Progress = 0.0
+	} else {
+		var totalProgress float64
+		for _, d := range progressData {
+			if d.Status == "completed" || d.Status == "archived" {
+				totalProgress += 100.0
+			} else {
+				totalProgress += d.ProgressPct
+			}
+		}
+		info.Progress = totalProgress / float64(len(progressData))
 	}
-	info.Progress = progress
 
 	// Get features
 	features, err := s.deps.FeatureRepo.ListByEpic(ctx, epicID)

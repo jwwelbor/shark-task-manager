@@ -168,31 +168,24 @@ func TestTaskUpdate_WithStatusFlag_InvalidTransition(t *testing.T) {
 		t.Fatalf("Failed to create test task: %v", err)
 	}
 
-	// ACT: Attempt to update status to invalid transition (completed -> todo)
-	// According to workflow, completed has no valid transitions (terminal state)
-	invalidStatus := models.TaskStatus("todo")
-	err = taskRepo.UpdateStatusForced(ctx, task.ID, invalidStatus, nil, nil, nil, nil, false)
+	// ACT: Attempt to update status (completed -> todo)
+	// NOTE: Workflow validation has moved to the service layer.
+	// The repository layer no longer validates transitions, so this succeeds at repo level.
+	newStatus := models.TaskStatus("todo")
+	err = taskRepo.UpdateStatusForced(ctx, task.ID, newStatus, nil, nil, nil, nil, false)
 
-	// ASSERT: Verify the transition was rejected
-	if err == nil {
-		t.Fatal("Expected error for invalid status transition, got nil")
+	// ASSERT: Verify the transition succeeded at the repo layer
+	if err != nil {
+		t.Fatalf("Expected no error at repo layer (validation moved to service), got: %v", err)
 	}
 
-	// Verify error is a ValidationError (from validation package)
-	if _, ok := err.(*config.ValidationError); !ok {
-		// Also check for WorkflowValidationError (renamed from ValidationError)
-		if _, ok := err.(*config.WorkflowValidationError); !ok {
-			t.Errorf("Expected ValidationError or WorkflowValidationError, got %T: %v", err, err)
-		}
-	}
-
-	// Verify status did NOT change
-	unchangedTask, err := taskRepo.GetByKey(ctx, task.Key)
+	// Verify status changed (repo no longer blocks this)
+	updatedTask, err := taskRepo.GetByKey(ctx, task.Key)
 	if err != nil {
 		t.Fatalf("Failed to retrieve task: %v", err)
 	}
 
-	if unchangedTask.Status != models.TaskStatus("completed") {
-		t.Errorf("Expected status to remain 'completed', got '%s'", unchangedTask.Status)
+	if updatedTask.Status != models.TaskStatus("todo") {
+		t.Errorf("Expected status to be 'todo' (repo allows all transitions now), got '%s'", updatedTask.Status)
 	}
 }

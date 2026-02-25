@@ -25,7 +25,7 @@ func NewCalculationService(db *repository.DB, cfg *config.WorkflowConfig) *Calcu
 	return &CalculationService{
 		featureRepo: repository.NewFeatureRepository(db),
 		epicRepo:    repository.NewEpicRepository(db),
-		taskRepo:    repository.NewTaskRepository(db),
+		taskRepo:    repository.NewTaskRepositoryWithWorkflow(db, cfg),
 		cfg:         cfg,
 	}
 }

@@ -2,19 +2,15 @@ package commands
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -72,89 +68,57 @@ type NextStatusResult struct {
 }
 
 func runTaskNextStatus(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+	// Step 1: Parse arguments
 	taskKey, err := NormalizeTaskKey(args[0])
 	if err != nil {
 		return fmt.Errorf("invalid task key: %w", err)
 	}
 
-	// Get flags
 	targetStatus, _ := cmd.Flags().GetString("status")
 	preview, _ := cmd.Flags().GetBool("preview")
 	force, _ := cmd.Flags().GetBool("force")
 	reason, _ := cmd.Flags().GetString("reason")
 	reasonDocFlag, _ := cmd.Flags().GetString("reason-doc")
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-
-	// Get project root for workflow service
-	projectRoot, err := cli.FindProjectRoot()
-	if err != nil {
-		return fmt.Errorf("failed to find project root: %w", err)
-	}
-
-	// Validate and process reason-doc flag
-	var documentPath *string
+	// Validate and resolve reason-doc path
+	var documentPath string
 	if reasonDocFlag != "" {
-		// Validate document path format
 		if err := ValidateRejectionReasonDocPath(reasonDocFlag); err != nil {
 			cli.Error(fmt.Sprintf("Invalid document path: %s", err.Error()))
 			os.Exit(1)
 		}
 
-		// Check if document file exists
+		projectRoot, findErr := cli.FindProjectRoot()
+		if findErr != nil {
+			return fmt.Errorf("failed to find project root: %w", findErr)
+		}
+
 		fullPath := filepath.Join(projectRoot, reasonDocFlag)
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		if _, statErr := os.Stat(fullPath); os.IsNotExist(statErr) {
 			cli.Error(fmt.Sprintf("Document not found: %s", reasonDocFlag))
 			cli.Info(fmt.Sprintf("Looked for file at: %s", fullPath))
 			os.Exit(1)
 		}
 
-		// Convert to pointer for passing to repository
-		documentPath = &reasonDocFlag
+		documentPath = reasonDocFlag
 	}
 
-	// Load workflow config for repository
-	configPath, err := cli.GetConfigPath()
+	// Step 2: Call service to get current status and available transitions
+	svc := cli.GetTaskServiceWithDeps()
+	info, err := svc.GetNextStatus(cmd.Context(), taskKey)
 	if err != nil {
-		return fmt.Errorf("failed to get config path: %w", err)
-	}
-	workflowConfig := config.GetWorkflowOrDefault(configPath)
-
-	// Get task - use workflow-aware repository
-	taskRepo := repository.NewTaskRepositoryWithWorkflow(repoDb, workflowConfig)
-	task, err := taskRepo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("failed to get task: %w", err)
-	}
-	if task == nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task not found")
+		return fmt.Errorf("failed to get task status: %w", err)
 	}
 
-	// Create workflow service
-	workflowSvc := workflow.NewService(projectRoot)
-	currentStatus := string(task.Status)
-
-	// Get available transitions
-	transitions := workflowSvc.GetTransitionInfo(currentStatus)
-	currentMeta := workflowSvc.GetStatusMetadata(currentStatus)
-
-	// Build result
+	// Build result for display/JSON output
 	result := NextStatusResult{
-		TaskKey:       task.Key,
-		CurrentStatus: currentStatus,
-		CurrentPhase:  currentMeta.Phase,
+		TaskKey:       info.EntityKey,
+		CurrentStatus: info.CurrentStatus,
+		CurrentPhase:  info.CurrentPhase,
 	}
 
-	// Build transition choices
-	for i, t := range transitions {
+	// Build transition choices from service response
+	for i, t := range info.AvailableTransitions {
 		result.AvailableTransitions = append(result.AvailableTransitions, TransitionChoice{
 			Number:      i + 1,
 			Status:      t.TargetStatus,
@@ -165,12 +129,12 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Handle terminal status
-	if len(transitions) == 0 {
-		if workflowSvc.IsTerminalStatus(currentStatus) {
-			result.Message = fmt.Sprintf("Task is in terminal status '%s' - no transitions available", currentStatus)
+	// Step 3: Handle terminal / no-transitions case
+	if len(info.AvailableTransitions) == 0 {
+		if info.IsTerminal {
+			result.Message = fmt.Sprintf("Task is in terminal status '%s' - no transitions available", info.CurrentStatus)
 		} else {
-			result.Message = fmt.Sprintf("No valid transitions from status '%s'", currentStatus)
+			result.Message = fmt.Sprintf("No valid transitions from status '%s'", info.CurrentStatus)
 		}
 
 		if cli.GlobalConfig.JSON {
@@ -181,7 +145,7 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Preview mode - just show transitions
+	// Preview mode - show transitions without making changes
 	if preview {
 		result.Message = "Preview mode - no changes made"
 
@@ -189,38 +153,37 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 			return cli.OutputJSON(result)
 		}
 
-		fmt.Printf("\nTask: %s\n", task.Key)
-		fmt.Printf("Current status: %s", currentStatus)
-		if currentMeta.Phase != "" {
-			fmt.Printf(" (phase: %s)", currentMeta.Phase)
+		fmt.Printf("\nTask: %s\n", info.EntityKey)
+		fmt.Printf("Current status: %s", info.CurrentStatus)
+		if info.CurrentPhase != "" {
+			fmt.Printf(" (phase: %s)", info.CurrentPhase)
 		}
 		fmt.Println()
 		fmt.Println()
 		fmt.Println("Available transitions:")
 		printTransitions(result.AvailableTransitions)
 		fmt.Println()
-		fmt.Println("Use 'shark task next-status " + task.Key + "' to transition")
+		fmt.Println("Use 'shark task next-status " + info.EntityKey + "' to transition")
 		return nil
 	}
 
 	// Direct transition mode (--status flag)
 	if targetStatus != "" {
-		// Validate target status
-		targetStatus = workflowSvc.NormalizeStatus(targetStatus)
+		// Validate target status against available transitions
 		valid := false
-		for _, t := range transitions {
+		for _, t := range info.AvailableTransitions {
 			if strings.EqualFold(t.TargetStatus, targetStatus) {
 				valid = true
-				targetStatus = t.TargetStatus // Use canonical case
+				targetStatus = t.TargetStatus // use canonical case
 				break
 			}
 		}
 
 		if !valid && !force {
-			cli.Error(fmt.Sprintf("Invalid transition: '%s' -> '%s'", currentStatus, targetStatus))
+			cli.Error(fmt.Sprintf("Invalid transition: '%s' -> '%s'", info.CurrentStatus, targetStatus))
 			fmt.Println()
 			fmt.Println("Valid transitions from current status:")
-			for _, t := range transitions {
+			for _, t := range info.AvailableTransitions {
 				fmt.Printf("  - %s\n", t.TargetStatus)
 			}
 			fmt.Println()
@@ -228,51 +191,45 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("invalid transition")
 		}
 
-		// Perform transition
-		return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, reason, documentPath, &result)
+		return doTransition(svc, cmd, taskKey, targetStatus, force, reason, documentPath, &result)
 	}
 
 	// Load config to check interactive mode setting
+	projectRoot, _ := cli.FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
 	cfgManager := config.NewManager(projectRoot)
-	cfg, err := cfgManager.Load()
-	if err != nil {
-		// If config fails to load, default to non-interactive
+	cfg, cfgErr := cfgManager.Load()
+	if cfgErr != nil {
 		cfg = &config.Config{}
 	}
 
-	// Check if interactive mode is enabled
 	interactiveMode := cfg.IsInteractiveModeEnabled()
 
 	// Non-interactive mode: auto-select first transition
 	if !interactiveMode {
 		if cli.GlobalConfig.JSON {
-			// JSON mode - return available transitions
 			result.Message = "Use --status=<name> to specify target status for JSON output"
 			return cli.OutputJSON(result)
 		}
 
-		// Auto-select first transition
-		targetStatus = transitions[0].TargetStatus
-		cli.Info(fmt.Sprintf("Auto-selected next status: %s (from %d options)", targetStatus, len(transitions)))
-		return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, reason, documentPath, &result)
+		targetStatus = info.AvailableTransitions[0].TargetStatus
+		cli.Info(fmt.Sprintf("Auto-selected next status: %s (from %d options)", targetStatus, len(info.AvailableTransitions)))
+		return doTransition(svc, cmd, taskKey, targetStatus, force, reason, documentPath, &result)
 	}
 
 	// Interactive mode
 	if cli.GlobalConfig.JSON {
-		// JSON mode but no target status - return available transitions
 		result.Message = "Use --status=<name> to specify target status for JSON output"
 		return cli.OutputJSON(result)
 	}
 
 	// Show interactive prompt
-	fmt.Printf("\nTask: %s\n", task.Key)
-	fmt.Printf("Title: %s\n", task.Title)
-	fmt.Printf("Current status: %s", currentStatus)
-	if currentMeta.Phase != "" {
-		fmt.Printf(" (phase: %s)", currentMeta.Phase)
-	}
-	if currentMeta.Description != "" {
-		fmt.Printf("\n  %s", currentMeta.Description)
+	fmt.Printf("\nTask: %s\n", info.EntityKey)
+	fmt.Printf("Current status: %s", info.CurrentStatus)
+	if info.CurrentPhase != "" {
+		fmt.Printf(" (phase: %s)", info.CurrentPhase)
 	}
 	fmt.Println()
 	fmt.Println()
@@ -280,15 +237,53 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 	printTransitions(result.AvailableTransitions)
 	fmt.Println()
 
-	// Get user selection
-	selection, err := promptForSelection(len(transitions))
+	selection, err := promptForSelection(len(info.AvailableTransitions))
 	if err != nil {
 		cli.Info("Cancelled - no changes made")
 		return nil
 	}
 
-	targetStatus = transitions[selection-1].TargetStatus
-	return performTransition(ctx, taskRepo, repoDb, task, targetStatus, force, reason, documentPath, &result)
+	targetStatus = info.AvailableTransitions[selection-1].TargetStatus
+	return doTransition(svc, cmd, taskKey, targetStatus, force, reason, documentPath, &result)
+}
+
+// doTransition calls the service to perform the actual status transition.
+func doTransition(svc *services.TaskService, cmd *cobra.Command, taskKey, targetStatus string, force bool, reason, documentPath string, result *NextStatusResult) error {
+	opts := services.TransitionOptions{
+		Force:        force,
+		Reason:       reason,
+		DocumentPath: documentPath,
+	}
+
+	transResult, err := svc.TransitionStatus(cmd.Context(), taskKey, targetStatus, opts)
+	if err != nil {
+		return fmt.Errorf("failed to transition status: %w", err)
+	}
+
+	result.NewStatus = transResult.ToStatus
+	result.Transitioned = transResult.Transitioned
+
+	// Extract auto-unblocked keys from message if present
+	if strings.Contains(transResult.Message, "auto-unblocked:") {
+		parts := strings.SplitN(transResult.Message, "auto-unblocked:", 2)
+		if len(parts) == 2 {
+			for _, k := range strings.Split(strings.TrimSpace(parts[1]), ", ") {
+				k = strings.TrimSpace(k)
+				if k != "" {
+					result.AutoUnblocked = append(result.AutoUnblocked, k)
+				}
+			}
+		}
+	}
+
+	if cli.GlobalConfig.JSON {
+		result.Message = transResult.Message
+		return cli.OutputJSON(result)
+	}
+
+	cli.Success(fmt.Sprintf("Transitioned: %s -> %s", result.CurrentStatus, result.NewStatus))
+	displayAutoUnblockedTasks(result.AutoUnblocked)
+	return nil
 }
 
 // printTransitions prints available transitions in a formatted list
@@ -326,36 +321,4 @@ func promptForSelection(max int) (int, error) {
 	}
 
 	return selection, nil
-}
-
-// performTransition executes the status transition
-func performTransition(ctx context.Context, taskRepo *repository.TaskRepository, repoDb *repository.DB, task *models.Task, targetStatus string, force bool, reason string, documentPath *string, result *NextStatusResult) error {
-	// Prepare rejection reason pointer
-	var rejectionReasonPtr *string
-	if reason != "" {
-		rejectionReasonPtr = &reason
-	}
-
-	// Use UpdateStatusForcedWithUnblock to get auto-unblocked task keys
-	unblockedKeys, err := taskRepo.UpdateStatusForcedWithUnblock(ctx, task.ID, models.TaskStatus(targetStatus), nil, nil, rejectionReasonPtr, documentPath, force)
-	if err != nil {
-		return fmt.Errorf("failed to update status: %w", err)
-	}
-
-	result.NewStatus = targetStatus
-	result.Transitioned = true
-	result.AutoUnblocked = unblockedKeys
-
-	// Trigger cascade
-	triggerStatusCascade(ctx, repoDb, task.FeatureID)
-
-	if cli.GlobalConfig.JSON {
-		result.Message = fmt.Sprintf("Transitioned: %s -> %s", result.CurrentStatus, targetStatus)
-		return cli.OutputJSON(result)
-	}
-
-	cli.Success(fmt.Sprintf("Transitioned: %s -> %s", result.CurrentStatus, targetStatus))
-	displayAutoUnblockedTasks(unblockedKeys)
-
-	return nil
 }

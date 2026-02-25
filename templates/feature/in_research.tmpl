@@ -1,0 +1,33 @@
+{{template "_resume_preamble" .}}RESUME feature research for {{.id}}: "{{.title}}".
+
+Check for existing feature research report at {{.file_path}}. If report exists with all 6 sections populated and file paths cited, advance immediately.
+
+---
+
+Research feature {{.id}}: "{{.title}}".
+
+TACTICAL RESEARCH -- analyze codebase and integration points informed by parent epic research.
+
+LOAD: research skill (analyze-codebase, trace-dependencies, find-patterns, understand-feature).
+
+READ:
+(1) Parent epic research report and PRD for strategic context
+(2) Feature description at {{.file_path}}
+(3) Sibling features (shark feature list) for inter-feature interactions
+(4) Codebase: CLAUDE.md, architecture docs for conventions
+
+PRODUCE: Feature research report:
+(1) Codebase patterns relevant to this feature
+(2) Existing implementations with file paths
+(3) Integration points (services, APIs, tables)
+(4) Extension vs new code analysis
+(5) Inter-feature technical dependency map
+(6) Implementation approach recommendations
+
+EXIT GATE:
+- All sections populated with codebase evidence
+- File paths cited
+- Integration points identified
+- Actionable for BA and architect
+
+Advance: shark feature next-status {{.id}}.

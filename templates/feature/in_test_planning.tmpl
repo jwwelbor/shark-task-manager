@@ -1,0 +1,34 @@
+{{template "_resume_preamble" .}}RESUME feature test planning for {{.id}}: "{{.title}}".
+
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
+
+Check for existing test plan at {{.file_path}}/09-test-plan.md. If test plan exists and meets exit gate criteria for the complexity tier, advance immediately.
+
+---
+
+Create feature test plan for {{.id}}: "{{.title}}".
+
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
+
+READ:
+(1) Parent epic UAT acceptance plan for acceptance scenarios this feature must satisfy
+(2) Feature PRD at {{.file_path}}/prd.md for requirements and acceptance criteria
+(3) Feature architecture docs (02-08 series) for API contracts, data models, and integration points
+(4) Triage or research report for codebase patterns and existing test infrastructure
+(5) Sibling feature test plans for cross-feature test coordination
+
+SCALE OUTPUT BY TIER:
+- SIMPLE (lightweight test plan: AC test matrix only -- concrete test cases for each acceptance criterion with inputs/expected outputs/edge cases, reference existing test patterns, 1-2 pages)
+- STANDARD (focused test plan: AC test matrix, API contract test cases if applicable, component test strategy for key components, integration scenarios for cross-feature touchpoints, 3-5 pages)
+- COMPLEX (comprehensive test plan per quality skill: all 6 sections -- epic UAT scenario decomposition, component test strategy, API contract test cases, integration scenarios, AC test matrix, performance/security approach)
+
+Tests must trace to USER GOALS and persona needs.
+
+EXIT GATE varies by tier:
+- SIMPLE (every AC has test case, actionable for TDD)
+- STANDARD (AC coverage, API contracts tested, integration points identified)
+- COMPLEX (full 6-section plan, epic UAT traceability, quality skill checklist passes)
+
+Write to 09-test-plan.md.
+
+Advance: shark feature next-status {{.id}}.

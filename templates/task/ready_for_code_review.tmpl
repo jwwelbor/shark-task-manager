@@ -1,6 +1,6 @@
 Launch tech-lead with quality skill to review task {{.task_id}}: "{{.title}}".
 
-LOAD: quality skill.
+LOAD: quality skill workflow review-code.md.
 
 READ:
 (1) Task spec at {{.file_path}}
@@ -21,9 +21,13 @@ REVIEW:
 - Verify TDD compliance -- tests from feature test plan are implemented and passing
 - Flag any deviation between feature intent, spec, and actual behavior
 
-EXIT GATE:
-- Code quality passes
-- Tests from feature plan implemented and passing
-- No spec drift from feature PRD
+ON PASS (all acceptance criteria met, no blockers):
+- Write code review report to code_review/ directory
+- Add note: shark note add --task={{.task_id}} --type=review "Code review approved - see report"
+- Advance: shark task next-status {{.task_id}}
 
-Advance: shark task next-status {{.task_id}}.
+ON FAIL (blockers found, spec drift, or missing acceptance criteria):
+- Write code review report with detailed findings and required changes
+- Add note: shark note add --task={{.task_id}} --type=blocker "Code review failed - see report for required changes"
+- Send back to development: shark task update {{.task_id}} --status=ready_for_development
+- Do NOT use changes_requested, in_development, or any invented status. The valid rejection status from code review is ready_for_development.

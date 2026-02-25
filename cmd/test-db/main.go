@@ -9,6 +9,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 func main() {
@@ -127,21 +129,24 @@ func main() {
 			*history[0].OldStatus, history[0].NewStatus, *history[0].Agent)
 	}
 
-	// Test Feature Progress Calculation
+	// Test Feature Progress Calculation via service layer
 	fmt.Println("\n--- Testing Progress Calculation ---")
 
-	progress, err := featureRepo.CalculateProgress(ctx, feature.ID)
+	workflowSvc := workflow.NewService(".")
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, epicRepo)
+
+	progressInfo, err := featureSvc.GetProgress(ctx, feature.Key)
 	if err != nil {
 		log.Fatal("Failed to calculate feature progress:", err)
 	}
-	fmt.Printf("✓ Feature progress: %.1f%% (0/1 tasks completed)\n", progress)
+	fmt.Printf("✓ Feature progress: %.1f%% (0/1 tasks completed)\n", progressInfo.WeightedProgress)
 
 	// Complete the task and recalculate
 	if err := taskRepo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil); err != nil {
 		log.Fatal("Failed to complete task:", err)
 	}
 
-	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		log.Fatal("Failed to update feature progress:", err)
 	}
 
@@ -151,12 +156,13 @@ func main() {
 	}
 	fmt.Printf("✓ Feature progress updated: %.1f%% (1/1 tasks completed)\n", updatedFeature.ProgressPct)
 
-	// Test Epic Progress Calculation
-	epicProgress, err := epicRepo.CalculateProgress(ctx, epic.ID)
+	// Test Epic Progress Calculation via service layer
+	epicSvc := services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo, taskRepo)
+	epicProgressInfo, err := epicSvc.GetProgress(ctx, epic.Key)
 	if err != nil {
 		log.Fatal("Failed to calculate epic progress:", err)
 	}
-	fmt.Printf("✓ Epic progress: %.1f%%\n", epicProgress)
+	fmt.Printf("✓ Epic progress: %.1f%%\n", epicProgressInfo.ProgressPct)
 
 	// Test Cascade Delete
 	fmt.Println("\n--- Testing Cascade Delete ---")

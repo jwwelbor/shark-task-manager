@@ -42,19 +42,18 @@ func runGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Dispatch to appropriate subcommand
+	// Dispatch to appropriate subcommand, passing cmd so the live context is
+	// preserved. Static vars (epicGetCmd, featureGetCmd, taskGetCmd) are never
+	// executed through Cobra's lifecycle and always have nil Context().
 	switch command {
 	case "epic":
-		// Call epic get command
-		return runEpicGet(epicGetCmd, []string{key})
+		return runEpicGet(cmd, []string{key})
 
 	case "feature":
-		// Call feature get command
-		return runFeatureGet(featureGetCmd, []string{key})
+		return runFeatureGet(cmd, []string{key})
 
 	case "task":
-		// Call task get command
-		return runTaskGet(taskGetCmd, []string{key})
+		return runTaskGet(cmd, []string{key})
 
 	default:
 		// Should never happen

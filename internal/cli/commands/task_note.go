@@ -1,14 +1,12 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -88,64 +86,25 @@ type TimelineEvent struct {
 
 // runTaskNoteAdd handles the task note add command
 func runTaskNoteAdd(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	taskKey := args[0]
 	content := args[1]
 
 	noteTypeStr, _ := cmd.Flags().GetString("type")
 	createdBy, _ := cmd.Flags().GetString("created-by")
 
-	if noteTypeStr == "" {
-		return fmt.Errorf("--type flag is required")
-	}
-
-	// Validate note type
-	if err := models.ValidateNoteType(noteTypeStr); err != nil {
-		return err
-	}
-
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	noteSvc, err := cli.GetNoteService(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+		return fmt.Errorf("failed to get note service: %w", err)
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	noteRepo := repository.NewEntityNoteRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
+	note, err := noteSvc.AddNote(cmd.Context(), models.EntityTypeTask, taskKey, noteTypeStr, content, createdBy)
 	if err != nil {
-		return fmt.Errorf("task %s not found", taskKey)
+		return fmt.Errorf("failed to add note: %w", err)
 	}
 
-	// Create note
-	var createdByPtr *string
-	if createdBy != "" {
-		createdByPtr = &createdBy
-	}
-
-	note := &models.EntityNote{
-		EntityType: models.EntityTypeTask,
-		EntityID:   task.ID,
-		NoteType:   models.NoteType(noteTypeStr),
-		Content:    content,
-		CreatedBy:  createdByPtr,
-	}
-
-	err = noteRepo.Create(ctx, note)
-	if err != nil {
-		return fmt.Errorf("failed to create note: %w", err)
-	}
-
-	// Retrieve the note to get the timestamp
-	note, err = noteRepo.GetByID(ctx, note.ID)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve created note: %w", err)
-	}
-
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(note)
 	}
@@ -156,8 +115,13 @@ func runTaskNoteAdd(cmd *cobra.Command, args []string) error {
 		creator = *note.CreatedBy
 	}
 
+	ts := note.CreatedAt
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+
 	fmt.Printf("Note added to %s\n\n", taskKey)
-	fmt.Printf("[%s] %s (%s)\n", strings.ToUpper(noteTypeStr), note.CreatedAt.Format("2006-01-02 15:04"), creator)
+	fmt.Printf("[%s] %s (%s)\n", strings.ToUpper(noteTypeStr), ts.Format("2006-01-02 15:04"), creator)
 	fmt.Println(content)
 
 	return nil
@@ -165,50 +129,30 @@ func runTaskNoteAdd(cmd *cobra.Command, args []string) error {
 
 // runTaskNotes handles the task notes command
 func runTaskNotes(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	taskKey := args[0]
 	noteTypesStr, _ := cmd.Flags().GetString("type")
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	noteRepo := repository.NewEntityNoteRepository(dbWrapper)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found", taskKey)
-	}
-
-	// Parse note types filter
 	var noteTypes []string
 	if noteTypesStr != "" {
 		noteTypes = strings.Split(noteTypesStr, ",")
-		// Validate each note type
-		for _, nt := range noteTypes {
-			if err := models.ValidateNoteType(strings.TrimSpace(nt)); err != nil {
-				return err
-			}
+		for i, nt := range noteTypes {
+			noteTypes[i] = strings.TrimSpace(nt)
 		}
 	}
 
-	// Get notes
-	var notes []*models.EntityNote
-	if len(noteTypes) > 0 {
-		notes, err = noteRepo.GetByEntityAndType(ctx, models.EntityTypeTask, task.ID, noteTypes)
-	} else {
-		notes, err = noteRepo.GetByEntity(ctx, models.EntityTypeTask, task.ID)
+	// Step 2: Call service
+	noteSvc, err := cli.GetNoteService(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("failed to get note service: %w", err)
 	}
+
+	notes, err := noteSvc.ListNotes(cmd.Context(), models.EntityTypeTask, taskKey, noteTypes)
 	if err != nil {
 		return fmt.Errorf("failed to get notes: %w", err)
 	}
 
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(notes)
 	}
@@ -219,7 +163,14 @@ func runTaskNotes(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Task %s: %s (%d notes)\n\n", taskKey, task.Title, len(notes))
+	// Try to get task title for display
+	taskSvc := cli.GetTaskService()
+	task, taskErr := taskSvc.GetTask(cmd.Context(), taskKey)
+	if taskErr == nil {
+		fmt.Printf("Task %s: %s (%d notes)\n\n", taskKey, task.Title, len(notes))
+	} else {
+		fmt.Printf("Task %s (%d notes)\n\n", taskKey, len(notes))
+	}
 
 	for _, note := range notes {
 		creator := "unknown"
@@ -237,28 +188,18 @@ func runTaskNotes(cmd *cobra.Command, args []string) error {
 
 // runTaskTimeline handles the task timeline command
 func runTaskTimeline(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
 	taskKey := args[0]
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
+	// Step 2: Call services
+	taskSvc := cli.GetTaskServiceWithDeps()
 
-	ctx := context.Background()
-	taskRepo := repository.NewTaskRepository(repoDb)
-	noteRepo := repository.NewEntityNoteRepository(repoDb)
-	historyRepo := repository.NewTaskHistoryRepository(repoDb)
-
-	// Get task by key
-	task, err := taskRepo.GetByKey(ctx, taskKey)
+	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
 	if err != nil {
 		return fmt.Errorf("task %s not found", taskKey)
 	}
 
-	// Get status changes from task_history using repository
-	histories, err := historyRepo.GetHistoryByTaskKey(ctx, taskKey)
+	histories, err := taskSvc.GetTaskHistory(cmd.Context(), taskKey)
 	if err != nil {
 		return fmt.Errorf("failed to get task history: %w", err)
 	}
@@ -270,10 +211,9 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		Timestamp: task.CreatedAt,
 		EventType: "status",
 		Content:   "Created",
-		Actor:     "",
 	})
 
-	// Add status changes
+	// Add status changes and rejections from history
 	for _, history := range histories {
 		oldStatus := ""
 		if history.OldStatus != nil {
@@ -285,80 +225,16 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 			agent = *history.Agent
 		}
 
-		var content string
-		if oldStatus == "" {
-			content = fmt.Sprintf("Status: → %s", history.NewStatus)
-		} else {
-			content = fmt.Sprintf("Status: %s → %s", oldStatus, history.NewStatus)
-		}
-
-		timeline = append(timeline, TimelineEvent{
-			Timestamp: history.Timestamp,
-			EventType: "status",
-			Content:   content,
-			Actor:     agent,
-		})
-	}
-
-	// Get notes
-	notes, err := noteRepo.GetByEntity(ctx, models.EntityTypeTask, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get notes: %w", err)
-	}
-
-	// Add notes to timeline
-	for _, note := range notes {
-		actor := ""
-		if note.CreatedBy != nil {
-			actor = *note.CreatedBy
-		}
-
-		// Truncate long content for timeline view
-		content := note.Content
-		if len(content) > 80 {
-			content = content[:77] + "..."
-		}
-
-		timeline = append(timeline, TimelineEvent{
-			Timestamp: note.CreatedAt,
-			EventType: string(note.NoteType),
-			Content:   content,
-			Actor:     actor,
-		})
-	}
-
-	// Get rejection history from task_history table (where rejections are actually stored)
-	historyRejections, err := historyRepo.GetRejectionHistoryForTask(ctx, task.ID)
-	if err != nil {
-		// Log error but don't fail - rejection history is optional
-		cli.Warning(fmt.Sprintf("Failed to get rejection history: %v", err))
-	} else if len(historyRejections) > 0 {
-		// Add rejection events to timeline
-		for _, historyRecord := range historyRejections {
-			// Extract rejection information from task history record
-			agent := ""
-			if historyRecord.Agent != nil {
-				agent = *historyRecord.Agent
-			}
-
-			// Truncate reason for timeline view (80 char limit)
-			reason := ""
-			if historyRecord.RejectionReason != nil {
-				reason = *historyRecord.RejectionReason
-				if len(reason) > 80 {
-					reason = reason[:77] + "..."
-				}
-			}
-
-			// Format rejection event content with warning symbol and transition info
-			oldStatus := ""
-			if historyRecord.OldStatus != nil {
-				oldStatus = *historyRecord.OldStatus
+		if history.RejectionReason != nil {
+			// This is a rejection event
+			reason := *history.RejectionReason
+			if len(reason) > 80 {
+				reason = reason[:77] + "..."
 			}
 
 			var content string
-			if oldStatus != "" && historyRecord.NewStatus != "" {
-				content = fmt.Sprintf("⚠️ Rejected by %s: %s → %s", agent, oldStatus, historyRecord.NewStatus)
+			if oldStatus != "" && history.NewStatus != "" {
+				content = fmt.Sprintf("⚠️ Rejected by %s: %s → %s", agent, oldStatus, history.NewStatus)
 			} else if agent != "" {
 				content = fmt.Sprintf("⚠️ Rejected by %s", agent)
 			} else {
@@ -366,13 +242,58 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 			}
 
 			timeline = append(timeline, TimelineEvent{
-				Timestamp:      historyRecord.Timestamp,
-				EventType:      "rejection",
-				Content:        content,
-				Actor:          agent,
-				Reason:         reason,
-				ReasonDocument: nil, // Not available in task_history, but could be extracted from Notes field if needed
+				Timestamp: history.Timestamp,
+				EventType: "rejection",
+				Content:   content,
+				Actor:     agent,
+				Reason:    reason,
 			})
+		} else {
+			// Regular status change
+			var content string
+			if oldStatus == "" {
+				content = fmt.Sprintf("Status: → %s", history.NewStatus)
+			} else {
+				content = fmt.Sprintf("Status: %s → %s", oldStatus, history.NewStatus)
+			}
+
+			timeline = append(timeline, TimelineEvent{
+				Timestamp: history.Timestamp,
+				EventType: "status",
+				Content:   content,
+				Actor:     agent,
+			})
+		}
+	}
+
+	// Get notes and add to timeline
+	noteSvc, err := cli.GetNoteService(cmd.Context())
+	if err != nil {
+		cli.Warning(fmt.Sprintf("Failed to get note service: %v", err))
+	} else {
+		notes, notesErr := noteSvc.ListNotes(cmd.Context(), models.EntityTypeTask, taskKey, nil)
+		if notesErr != nil {
+			cli.Warning(fmt.Sprintf("Failed to get notes: %v", notesErr))
+		} else {
+			for _, note := range notes {
+				actor := ""
+				if note.CreatedBy != nil {
+					actor = *note.CreatedBy
+				}
+
+				// Truncate long content for timeline view
+				content := note.Content
+				if len(content) > 80 {
+					content = content[:77] + "..."
+				}
+
+				timeline = append(timeline, TimelineEvent{
+					Timestamp: note.CreatedAt,
+					EventType: string(note.NoteType),
+					Content:   content,
+					Actor:     actor,
+				})
+			}
 		}
 	}
 
@@ -385,6 +306,7 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(timeline)
 	}

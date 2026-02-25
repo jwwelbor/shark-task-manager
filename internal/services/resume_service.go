@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
@@ -22,6 +24,7 @@ type ResumeFeatureRepository interface {
 
 // ResumeTaskRepository defines the task repository interface needed by ResumeService.
 type ResumeTaskRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 	ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
 }
@@ -29,6 +32,33 @@ type ResumeTaskRepository interface {
 // ResumeEntityNoteRepository defines the entity note repository interface needed by ResumeService.
 type ResumeEntityNoteRepository interface {
 	GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
+}
+
+// ResumeSessionStats contains aggregated work session statistics for task resume context.
+type ResumeSessionStats struct {
+	TotalSessions   int
+	TotalDuration   time.Duration
+	AverageDuration time.Duration
+	ActiveSession   bool
+}
+
+// ResumeWorkSessionRepository defines the work session repository interface needed by ResumeService.
+type ResumeWorkSessionRepository interface {
+	GetByTaskID(ctx context.Context, taskID int64) ([]*models.WorkSession, error)
+	GetSessionStatsByTaskID(ctx context.Context, taskID int64) (*ResumeSessionStats, error)
+	GetActiveSessionByTaskID(ctx context.Context, taskID int64) (*models.WorkSession, error)
+}
+
+// TaskResumeContext aggregates all context needed to resume work on a task.
+type TaskResumeContext struct {
+	Task           *models.Task               `json:"task"`
+	ContextData    *models.ContextData        `json:"context_data,omitempty"`
+	Notes          []*models.EntityNote       `json:"notes,omitempty"`
+	WorkSessions   []*models.WorkSession      `json:"work_sessions,omitempty"`
+	SessionStats   *ResumeSessionStats        `json:"session_stats,omitempty"`
+	ActiveSession  *models.WorkSession        `json:"active_session,omitempty"`
+	Dependencies   []string                   `json:"dependencies,omitempty"`
+	CompletionMeta *models.CompletionMetadata `json:"completion_metadata,omitempty"`
 }
 
 // EpicResumeContext aggregates all context needed to resume work on an epic
@@ -78,6 +108,7 @@ type ResumeService struct {
 	featureRepo ResumeFeatureRepository
 	taskRepo    ResumeTaskRepository
 	noteRepo    ResumeEntityNoteRepository
+	sessionRepo ResumeWorkSessionRepository
 }
 
 // NewResumeService creates a new ResumeService with injected dependencies.
@@ -88,6 +119,11 @@ func NewResumeService(epicRepo ResumeEpicRepository, featureRepo ResumeFeatureRe
 		taskRepo:    taskRepo,
 		noteRepo:    noteRepo,
 	}
+}
+
+// SetSessionRepo sets the optional work session repository for task resume support.
+func (s *ResumeService) SetSessionRepo(repo ResumeWorkSessionRepository) {
+	s.sessionRepo = repo
 }
 
 // GetEpicResume aggregates all context needed to resume work on an epic.
@@ -198,6 +234,85 @@ func (s *ResumeService) GetFeatureResume(ctx context.Context, featureKey string)
 		}
 		resumeCtx.Tasks = summaries
 		resumeCtx.TaskSummary = rollup
+	}
+
+	return resumeCtx, nil
+}
+
+// GetTaskResume aggregates all context needed to resume work on a task.
+func (s *ResumeService) GetTaskResume(ctx context.Context, taskKey string) (*TaskResumeContext, error) {
+	task, err := s.taskRepo.GetByKey(ctx, taskKey)
+	if err != nil {
+		return nil, fmt.Errorf("task not found: %s: %w", taskKey, err)
+	}
+
+	resumeCtx := &TaskResumeContext{
+		Task: task,
+	}
+
+	// Parse context data from task field
+	if task.ContextData != nil && *task.ContextData != "" && *task.ContextData != "{}" {
+		contextData, parseErr := models.FromJSON(*task.ContextData)
+		if parseErr == nil {
+			resumeCtx.ContextData = contextData
+		}
+	}
+
+	// Get notes
+	notes, err := s.noteRepo.GetByEntity(ctx, models.EntityTypeTask, task.ID)
+	if err == nil {
+		resumeCtx.Notes = notes
+	}
+
+	// Get work sessions and statistics (optional - degrade gracefully if sessionRepo is nil)
+	if s.sessionRepo != nil {
+		sessions, sessErr := s.sessionRepo.GetByTaskID(ctx, task.ID)
+		if sessErr == nil {
+			resumeCtx.WorkSessions = sessions
+		}
+
+		stats, statsErr := s.sessionRepo.GetSessionStatsByTaskID(ctx, task.ID)
+		if statsErr == nil {
+			resumeCtx.SessionStats = stats
+		}
+
+		activeSession, activeErr := s.sessionRepo.GetActiveSessionByTaskID(ctx, task.ID)
+		if activeErr == nil && activeSession != nil {
+			resumeCtx.ActiveSession = activeSession
+		}
+	}
+
+	// Parse dependencies from task field
+	if task.DependsOn != nil && *task.DependsOn != "" {
+		deps := strings.Split(strings.Trim(*task.DependsOn, "[]"), ",")
+		parsed := make([]string, 0, len(deps))
+		for _, dep := range deps {
+			dep = strings.Trim(strings.Trim(dep, "\""), " ")
+			if dep != "" {
+				parsed = append(parsed, dep)
+			}
+		}
+		resumeCtx.Dependencies = parsed
+	}
+
+	// Build completion metadata if task is completed or ready for review
+	if task.Status == models.TaskStatus("completed") || task.Status == models.TaskStatus("ready_for_review") {
+		completionMeta := &models.CompletionMetadata{
+			CompletedBy:      task.CompletedBy,
+			CompletionNotes:  task.CompletionNotes,
+			TestsPassed:      task.TestsPassed,
+			TimeSpentMinutes: task.TimeSpentMinutes,
+		}
+		if task.VerificationStatus != nil {
+			completionMeta.VerificationStatus = *task.VerificationStatus
+		}
+		if task.FilesChanged != nil && *task.FilesChanged != "" {
+			if parseErr := completionMeta.FromJSON(*task.FilesChanged); parseErr == nil {
+				resumeCtx.CompletionMeta = completionMeta
+			}
+		} else {
+			resumeCtx.CompletionMeta = completionMeta
+		}
 	}
 
 	return resumeCtx, nil

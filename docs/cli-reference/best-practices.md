@@ -8,10 +8,9 @@ Guidelines for using Shark CLI effectively, especially for AI agents and automat
 2. **Check dependencies** before starting tasks via `shark task next --json`
 3. **Use atomic operations** - each command is a single transaction
 4. **Handle blocked tasks** - use `block` command with reasons
-5. **Sync after Git operations** - run `shark sync` after pulls/checkouts
-6. **Track work with agent identifier** - use `--agent` flag for audit trail
-7. **Use priority effectively** - 1=highest, 10=lowest for task ordering
-8. **Check exit codes** - Non-zero indicates errors
+5. **Track work with agent identifier** - use `--agent` flag for audit trail
+6. **Use priority effectively** - 1=highest, 10=lowest for task ordering
+7. **Check exit codes** - Non-zero indicates errors
 
 ## Exit Codes
 
@@ -137,37 +136,6 @@ shark task block E07-F01-002 \
 # Unblock when ready
 shark task unblock E07-F01-002 --json
 ```
-
-## Database Sync Best Practices
-
-### After Git Operations
-
-```bash
-# After pulling changes
-git pull
-shark sync --strategy=file-wins
-
-# After switching branches
-git checkout feature-branch
-shark sync --strategy=file-wins
-
-# Preview changes before sync
-shark sync --dry-run --json
-```
-
-### Conflict Resolution
-
-```bash
-# File system is source of truth (recommended for most cases)
-shark sync --strategy=file-wins
-
-# Database is source of truth (for recovering from file corruption)
-shark sync --strategy=database-wins
-
-# Most recent modification wins
-shark sync --strategy=newer-wins
-```
-
 ## Agent Type Selection
 
 ### Choose Appropriate Agent Types

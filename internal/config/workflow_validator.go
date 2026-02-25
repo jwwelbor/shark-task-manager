@@ -235,18 +235,24 @@ func validateTerminalPaths(workflow *WorkflowConfig) error {
 // - nil if transition is valid
 // - ValidationError with current status, attempted status, and valid next statuses
 func ValidateTransition(workflow *WorkflowConfig, fromStatus, toStatus string) error {
-	// Check if fromStatus exists in workflow
-	validNext, exists := workflow.StatusFlow[fromStatus]
-	if !exists {
+	// Check if fromStatus exists in workflow (case-insensitive)
+	var validNext []string
+	for key, targets := range workflow.StatusFlow {
+		if strings.EqualFold(key, fromStatus) {
+			validNext = targets
+			break
+		}
+	}
+	if validNext == nil {
 		return &WorkflowValidationError{
 			Message: fmt.Sprintf("status '%s' is not defined in workflow", fromStatus),
 			Fix:     "add this status to workflow config or use --force to override",
 		}
 	}
 
-	// Check if toStatus is in valid next statuses
+	// Check if toStatus is in valid next statuses (case-insensitive)
 	for _, valid := range validNext {
-		if valid == toStatus {
+		if strings.EqualFold(valid, toStatus) {
 			return nil // Valid transition
 		}
 	}

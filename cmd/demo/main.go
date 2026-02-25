@@ -8,6 +8,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 func main() {
@@ -145,8 +147,10 @@ func main() {
 		}
 	}
 
-	// Update feature progress
-	if err := featureRepo.UpdateProgress(ctx, feature.ID); err != nil {
+	// Update feature progress via service layer
+	workflowSvc := workflow.NewService(".")
+	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, epicRepo)
+	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		log.Fatal("Failed to update feature progress:", err)
 	}
 
@@ -176,9 +180,13 @@ func main() {
 		fmt.Printf("     %s: %d\n", status, count)
 	}
 
-	// Show epic progress
-	epicProgress, _ := epicRepo.CalculateProgress(ctx, epic.ID)
-	fmt.Printf("\n   Epic Progress: %.1f%%\n", epicProgress)
+	// Show epic progress via service layer
+	epicSvc := services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo, taskRepo)
+	epicProgressInfo, err := epicSvc.GetProgress(ctx, epic.Key)
+	if err != nil {
+		log.Fatal("Failed to get epic progress:", err)
+	}
+	fmt.Printf("\n   Epic Progress: %.1f%%\n", epicProgressInfo.ProgressPct)
 
 	fmt.Println("\n6️⃣  Testing Queries:")
 	fmt.Println("   ─────────────────────────────────────────")

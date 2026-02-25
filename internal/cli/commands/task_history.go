@@ -1,13 +1,11 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/formatters"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -50,31 +48,23 @@ type HistoryEntry struct {
 }
 
 func runTaskHistory(cmd *cobra.Command, args []string) error {
-	taskKey := args[0]
-	ctx := context.Background()
-
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 1: Parse arguments
+	taskKey, err := NormalizeTaskKey(args[0])
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+		return fmt.Errorf("invalid task key: %w", err)
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
-	dbConn := repoDb
-	historyRepo := repository.NewTaskHistoryRepository(dbConn)
-
-	// Get history
-	histories, err := historyRepo.GetHistoryByTaskKey(ctx, taskKey)
+	// Step 2: Call service
+	svc := cli.GetTaskServiceWithHistory()
+	histories, err := svc.GetTaskHistory(cmd.Context(), taskKey)
 	if err != nil {
-		return fmt.Errorf("failed to get task history: %w", err)
+		return err
 	}
 
 	// Check if task exists (empty history could mean no task or no transitions)
 	if len(histories) == 0 {
-		// Verify task exists
-		taskRepo := repository.NewTaskRepository(dbConn)
-		_, err := taskRepo.GetByKey(ctx, taskKey)
+		// Verify task exists by calling GetTask
+		_, err := svc.GetTask(cmd.Context(), taskKey)
 		if err != nil {
 			return fmt.Errorf("task not found: %s", taskKey)
 		}
@@ -92,7 +82,7 @@ func runTaskHistory(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Format output based on --format flag or --json flag
+	// Step 3: Format output based on --format flag or --json flag
 	switch taskHistoryFormat {
 	case "csv":
 		return outputHistoryCSV(taskKey, histories)

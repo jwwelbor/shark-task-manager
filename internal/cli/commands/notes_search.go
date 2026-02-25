@@ -1,13 +1,11 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -54,6 +52,7 @@ type NoteSearchResult struct {
 
 // runNotesSearch handles the notes search command
 func runNotesSearch(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments and flags
 	query := args[0]
 
 	epicKey, _ := cmd.Flags().GetString("epic")
@@ -63,50 +62,49 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 	until, _ := cmd.Flags().GetString("until")
 	entityTypeStr, _ := cmd.Flags().GetString("entity-type")
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	ctx := context.Background()
-	dbWrapper := repoDb
-	noteRepo := repository.NewEntityNoteRepository(dbWrapper)
-	taskRepo := repository.NewTaskRepository(dbWrapper)
-	epicRepo := repository.NewEpicRepository(dbWrapper)
-	featureRepo := repository.NewFeatureRepository(dbWrapper)
-
-	// Parse note types filter
+	// Parse note types filter (validation is handled in service)
 	var noteTypes []string
 	if noteTypesStr != "" {
-		noteTypes = strings.Split(noteTypesStr, ",")
-		// Validate each note type
-		for i, nt := range noteTypes {
-			noteTypes[i] = strings.TrimSpace(nt)
-			if err := models.ValidateNoteType(noteTypes[i]); err != nil {
-				return err
-			}
+		parts := strings.Split(noteTypesStr, ",")
+		for _, nt := range parts {
+			noteTypes = append(noteTypes, strings.TrimSpace(nt))
 		}
 	}
 
-	// Parse entity type filter
+	// Parse entity type filter (validation is handled in service)
 	var entityType *models.EntityType
 	if entityTypeStr != "" {
-		entityTypeStr = strings.ToLower(strings.TrimSpace(entityTypeStr))
-		et := models.EntityType(entityTypeStr)
-		if !models.ValidEntityTypes[et] {
-			return fmt.Errorf("invalid entity-type: %s (must be one of: epic, feature, task)", entityTypeStr)
-		}
+		et := models.EntityType(strings.ToLower(strings.TrimSpace(entityTypeStr)))
 		entityType = &et
 	}
 
-	// Search notes with time period filtering
+	// Step 2: Call service
+	svc, err := cli.GetNoteService(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("failed to get note service: %w", err)
+	}
+
 	var notes []*models.EntityNote
 	if since != "" || until != "" {
-		notes, err = noteRepo.SearchWithTimePeriod(ctx, query, noteTypes, epicKey, featureKey, since, until)
+		// Validate note types before passing to service
+		for _, nt := range noteTypes {
+			if err := models.ValidateNoteType(nt); err != nil {
+				return err
+			}
+		}
+		notes, err = svc.SearchNotesWithTimePeriod(cmd.Context(), query, noteTypes, epicKey, featureKey, since, until)
 	} else {
-		notes, err = noteRepo.Search(ctx, query, noteTypes, entityType, epicKey, featureKey)
+		// Validate entity type before passing to service
+		if entityType != nil && !models.ValidEntityTypes[*entityType] {
+			return fmt.Errorf("invalid entity-type: %s (must be one of: epic, feature, task)", entityTypeStr)
+		}
+		// Validate note types before passing to service
+		for _, nt := range noteTypes {
+			if err := models.ValidateNoteType(nt); err != nil {
+				return err
+			}
+		}
+		notes, err = svc.SearchNotes(cmd.Context(), query, noteTypes, entityType, epicKey, featureKey)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to search notes: %w", err)
@@ -120,68 +118,32 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get entity details for each note
+	// Build results with entity details (delegated to service)
 	results := make([]NoteSearchResult, 0, len(notes))
-	taskCache := make(map[int64]*models.Task)
-	epicCache := make(map[int64]*models.Epic)
-	featureCache := make(map[int64]*models.Feature)
-
 	for _, note := range notes {
+		details := svc.GetEntityDetails(cmd.Context(), note.EntityType, note.EntityID)
+		if details == nil {
+			// Skip notes where entity can't be found
+			continue
+		}
+
 		result := NoteSearchResult{
 			EntityType: string(note.EntityType),
+			EntityKey:  details.Key,
+			EntityName: details.Name,
 			Note:       note,
 		}
 
-		switch note.EntityType {
-		case models.EntityTypeTask:
-			// Check cache first
-			task, ok := taskCache[note.EntityID]
-			if !ok {
-				task, err = taskRepo.GetByID(ctx, note.EntityID)
-				if err != nil {
-					// Skip this note if we can't get the task
-					continue
-				}
-				taskCache[note.EntityID] = task
-			}
-			result.EntityKey = task.Key
-			result.EntityName = task.Title
-			// Set legacy fields for backward compatibility
-			result.TaskKey = task.Key
-			result.TaskTitle = task.Title
-
-		case models.EntityTypeEpic:
-			// Check cache first
-			epic, ok := epicCache[note.EntityID]
-			if !ok {
-				epic, err = epicRepo.GetByID(ctx, note.EntityID)
-				if err != nil {
-					// Skip this note if we can't get the epic
-					continue
-				}
-				epicCache[note.EntityID] = epic
-			}
-			result.EntityKey = epic.Key
-			result.EntityName = epic.Title
-
-		case models.EntityTypeFeature:
-			// Check cache first
-			feature, ok := featureCache[note.EntityID]
-			if !ok {
-				feature, err = featureRepo.GetByID(ctx, note.EntityID)
-				if err != nil {
-					// Skip this note if we can't get the feature
-					continue
-				}
-				featureCache[note.EntityID] = feature
-			}
-			result.EntityKey = feature.Key
-			result.EntityName = feature.Title
+		// Set legacy fields for backward compatibility (task-specific)
+		if note.EntityType == models.EntityTypeTask {
+			result.TaskKey = details.Key
+			result.TaskTitle = details.Name
 		}
 
 		results = append(results, result)
 	}
 
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(results)
 	}

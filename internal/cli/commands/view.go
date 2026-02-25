@@ -7,8 +7,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/cli/scope"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/view"
 	"github.com/spf13/cobra"
 )
 
@@ -52,19 +50,12 @@ func init() {
 func runView(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	// Get database
-	repoDb, err := cli.GetDB(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-
-	// Get project root for config loading
+	// Step 1: Parse arguments - load viewer config (presentation concern)
 	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
 		return fmt.Errorf("failed to find project root: %w", err)
 	}
 
-	// Load config for viewer setting
 	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
 	cfgManager := config.NewManager(configPath)
 	cfg, err := cfgManager.Load()
@@ -73,30 +64,21 @@ func runView(cmd *cobra.Command, args []string) error {
 		cfg = &config.Config{}
 	}
 
-	// Parse scope from arguments using ScopeInterpreter
 	interpreter := scope.NewInterpreter()
 	parsedScope, err := interpreter.ParseScope(args)
 	if err != nil {
 		return err
 	}
 
-	// Create repositories
-	epicRepo := repository.NewEpicRepository(repoDb)
-	featureRepo := repository.NewFeatureRepository(repoDb)
-	taskRepo := repository.NewTaskRepository(repoDb)
-
-	// Create view service
-	viewService := view.NewService(epicRepo, featureRepo, taskRepo)
-
-	// Get file path
-	filePath, err := viewService.GetFilePath(ctx, parsedScope)
+	// Step 2: Call service
+	viewSvc := cli.GetViewService()
+	filePath, err := viewSvc.GetFilePath(ctx, parsedScope)
 	if err != nil {
 		return fmt.Errorf("failed to get file path: %w", err)
 	}
 
-	// Launch viewer
 	viewerCmd := cfg.GetViewer()
-	if err := viewService.LaunchViewer(ctx, filePath, viewerCmd); err != nil {
+	if err := viewSvc.LaunchViewer(ctx, filePath, viewerCmd); err != nil {
 		return fmt.Errorf("failed to launch viewer: %w", err)
 	}
 

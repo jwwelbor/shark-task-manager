@@ -65,6 +65,87 @@ func TestFeatureRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	assert.Equal(t, "implement-user-authentication-system", *retrieved.Slug)
 }
 
+// TestFeatureRepository_GetByKey_WithTaskKeySuffix verifies that GetByKey handles task-key-style
+// inputs like "E88-F01-015" by returning the parent feature "E88-F01" instead of failing.
+// This fixes the bug where `shark feature get E15-F11-015` returned "no rows in result set"
+// because "015" was treated as a slug instead of a task number suffix.
+func TestFeatureRepository_GetByKey_WithTaskKeySuffix(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := NewEpicRepository(db)
+
+	// Clean up test data first (use E88 - not used by other tests)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E88-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E88'")
+
+	testEpic := &models.Epic{
+		Key:      "E88",
+		Title:    "Test Epic for Task Key Suffix",
+		Status:   models.EpicStatusActive,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	}()
+
+	feature := &models.Feature{
+		EpicID: testEpic.ID,
+		Key:    "E88-F01",
+		Title:  "My Feature",
+		Status: models.FeatureStatusActive,
+	}
+	err = repo.Create(ctx, feature)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	}()
+
+	tests := []struct {
+		name        string
+		key         string
+		wantFeature string // expected feature key
+	}{
+		{
+			name:        "task key format E88-F01-001 returns parent feature",
+			key:         "E88-F01-001",
+			wantFeature: "E88-F01",
+		},
+		{
+			name:        "task key format E88-F01-015 returns parent feature",
+			key:         "E88-F01-015",
+			wantFeature: "E88-F01",
+		},
+		{
+			name:        "task key format E88-F01-999 returns parent feature",
+			key:         "E88-F01-999",
+			wantFeature: "E88-F01",
+		},
+		{
+			name:        "case insensitive task key format e88-f01-001",
+			key:         "e88-f01-001",
+			wantFeature: "E88-F01",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := repo.GetByKey(ctx, tt.key)
+			require.NoError(t, err, "GetByKey(%q) should return parent feature, not error", tt.key)
+			assert.Equal(t, tt.wantFeature, result.Key)
+		})
+	}
+
+	t.Run("non-numeric suffix is still treated as slug", func(t *testing.T) {
+		// "E88-F01-somefeature" should fail (it's a slug lookup for a different feature)
+		_, err := repo.GetByKey(ctx, "E88-F01-somefeature")
+		assert.Error(t, err, "GetByKey with non-matching slug should return error")
+	})
+}
+
 // TestFeatureRepository_Create_SlugHandlesSpecialCharacters verifies slug handles special characters
 func TestFeatureRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 	ctx := context.Background()

@@ -133,20 +133,17 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 
 	// Not found by numeric key - try slugged format if key contains hyphen
 	// Slugged format: E04-epic-name (key + slug)
-	if !containsHyphen(key) {
+	if !ContainsHyphen(key) {
 		// No hyphen means it's not a slugged key, return not found
 		return nil, sql.ErrNoRows
 	}
 
 	// Parse slugged key: extract numeric key and slug
 	// Format: E04-epic-name -> key="E04", slug="epic-name"
-	parts := splitSluggedKey(key)
-	if len(parts) < 2 {
+	numericKey, slug, ok := SplitAtFirstHyphen(key)
+	if !ok || slug == "" {
 		return nil, sql.ErrNoRows
 	}
-
-	numericKey := parts[0]
-	slug := parts[1]
 
 	// Query by numeric key and slug
 	slugQuery := `
@@ -181,36 +178,25 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 	return epic, nil
 }
 
-// containsHyphen checks if a string contains a hyphen
+// containsHyphen is a backward-compatible wrapper around ContainsHyphen.
+// Kept for existing test compatibility. New code should use ContainsHyphen.
 func containsHyphen(s string) bool {
-	for _, c := range s {
-		if c == '-' {
-			return true
-		}
-	}
-	return false
+	return ContainsHyphen(s)
 }
 
-// splitSluggedKey splits a slugged key into [numericKey, slug]
+// splitSluggedKey is a backward-compatible wrapper that splits a slugged key
+// into [numericKey, slug] or [key] if no hyphen is present.
+// Kept for existing test compatibility. New code should use SplitAtFirstHyphen.
+//
 // Example: "E04-epic-name" -> ["E04", "epic-name"]
+// Example: "E04" -> ["E04"]
+// Example: "" -> [""]
 func splitSluggedKey(key string) []string {
-	// Find first hyphen position
-	hyphenIdx := -1
-	for i, c := range key {
-		if c == '-' {
-			hyphenIdx = i
-			break
-		}
+	prefix, suffix, ok := SplitAtFirstHyphen(key)
+	if !ok {
+		return []string{prefix}
 	}
-
-	if hyphenIdx == -1 {
-		return []string{key}
-	}
-
-	numericKey := key[:hyphenIdx]
-	slug := key[hyphenIdx+1:]
-
-	return []string{numericKey, slug}
+	return []string{prefix, suffix}
 }
 
 // GetByFilePath retrieves an epic by its file path for collision detection
@@ -378,47 +364,42 @@ func (r *EpicRepository) UpdateFilePath(ctx context.Context, epicKey string, new
 	return nil
 }
 
-// CalculateProgress calculates the progress of an epic based on its features
-// Formula: simple average = Σ(feature_progress) / total_features
-// Feature progress is determined by:
-//   - If feature status = "completed" OR "archived" → 100% (regardless of tasks)
-//   - Otherwise → use feature's progress_pct field (calculated from tasks)
-func (r *EpicRepository) CalculateProgress(ctx context.Context, epicID int64) (float64, error) {
+// FeatureProgressData holds raw feature progress data for service-level calculation.
+type FeatureProgressData struct {
+	Status      string
+	ProgressPct float64
+}
+
+// GetFeatureProgressDataByEpic returns raw feature status and progress_pct values
+// for all features in an epic. This is pure data access; the business logic for
+// calculating epic progress (e.g., treating completed/archived as 100%) belongs
+// in the service layer.
+func (r *EpicRepository) GetFeatureProgressDataByEpic(ctx context.Context, epicID int64) ([]FeatureProgressData, error) {
 	query := `
-		SELECT
-		    COALESCE(SUM(
-		        CASE
-		            WHEN f.status IN ('completed', 'archived') THEN 100.0
-		            ELSE f.progress_pct
-		        END
-		    ), 0) as total_progress,
-		    COUNT(*) as feature_count
+		SELECT f.status, f.progress_pct
 		FROM features f
 		WHERE f.epic_id = ?
 	`
 
-	var totalProgress float64
-	var featureCount int
-	err := r.db.QueryRowContext(ctx, query, epicID).Scan(&totalProgress, &featureCount)
+	rows, err := r.db.QueryContext(ctx, query, epicID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to calculate epic progress: %w", err)
+		return nil, fmt.Errorf("failed to get feature progress data: %w", err)
+	}
+	defer rows.Close()
+
+	var result []FeatureProgressData
+	for rows.Next() {
+		var data FeatureProgressData
+		if err := rows.Scan(&data.Status, &data.ProgressPct); err != nil {
+			return nil, fmt.Errorf("failed to scan feature progress data: %w", err)
+		}
+		result = append(result, data)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate feature progress data: %w", err)
 	}
 
-	// If epic has no features, return 0.0
-	if featureCount == 0 {
-		return 0.0, nil
-	}
-
-	return totalProgress / float64(featureCount), nil
-}
-
-// CalculateProgressByKey calculates the progress of an epic by its key
-func (r *EpicRepository) CalculateProgressByKey(ctx context.Context, key string) (float64, error) {
-	epic, err := r.GetByKey(ctx, key)
-	if err != nil {
-		return 0, err
-	}
-	return r.CalculateProgress(ctx, epic.ID)
+	return result, nil
 }
 
 // CreateIfNotExists creates epic only if it doesn't exist
@@ -571,15 +552,6 @@ func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status 
 	return nil
 }
 
-// UpdateStatusByKey updates the status of an epic by its key
-func (r *EpicRepository) UpdateStatusByKey(ctx context.Context, epicKey string, status models.EpicStatus) error {
-	epic, err := r.GetByKey(ctx, epicKey)
-	if err != nil {
-		return err
-	}
-	return r.UpdateStatus(ctx, epic.ID, status)
-}
-
 // CascadeStatusToFeaturesAndTasks updates the status of all child features and their tasks
 // Used when --force is specified to override workflow validation
 func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
@@ -614,15 +586,6 @@ func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, ep
 	}
 
 	return nil
-}
-
-// CascadeStatusToFeaturesAndTasksByKey is a convenience method that cascades status by epic key
-func (r *EpicRepository) CascadeStatusToFeaturesAndTasksByKey(ctx context.Context, epicKey string, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
-	epic, err := r.GetByKey(ctx, epicKey)
-	if err != nil {
-		return err
-	}
-	return r.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, targetFeatureStatus, targetTaskStatus)
 }
 
 // ============================================================================

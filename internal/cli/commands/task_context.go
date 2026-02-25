@@ -1,15 +1,11 @@
 package commands
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -86,78 +82,23 @@ func init() {
 
 // runTaskContextSet sets or updates a context field
 func runTaskContextSet(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+	// Step 1: Parse arguments
 	taskKey := args[0]
 	field, _ := cmd.Flags().GetString("field")
 	value, _ := cmd.Flags().GetString("value")
 
-	// Validate field name
-	validFields := map[string]bool{
-		"current_step":               true,
-		"completed_steps":            true,
-		"remaining_steps":            true,
-		"implementation_decisions":   true,
-		"open_questions":             true,
-		"blockers":                   true,
-		"acceptance_criteria_status": true,
-		"related_tasks":              true,
+	// Step 2: Call service
+	svc, err := cli.GetContextService(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("failed to get context service: %w", err)
 	}
 
-	if !validFields[field] {
-		cli.Error(fmt.Sprintf("Invalid context field: %s", field))
-		cli.Info("Supported fields: current_step, completed_steps, remaining_steps, implementation_decisions, open_questions, blockers, acceptance_criteria_status, related_tasks")
+	if err := svc.SetContextField(cmd.Context(), models.EntityTypeTask, taskKey, field, value); err != nil {
+		cli.Error(fmt.Sprintf("Failed to set context field: %v", err))
 		os.Exit(3)
 	}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	// Create repository
-	repo := repository.NewTaskRepository(repoDb)
-
-	// Get task by key
-	task, err := repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		cli.Info("Use 'shark task list' to see available tasks")
-		os.Exit(1)
-	}
-
-	// Parse existing context data or create new
-	var contextData *models.ContextData
-	if task.ContextData != nil && *task.ContextData != "" {
-		contextData, err = models.FromJSON(*task.ContextData)
-		if err != nil {
-			return fmt.Errorf("failed to parse existing context data: %w", err)
-		}
-	} else {
-		contextData = &models.ContextData{}
-	}
-
-	// Update the specified field
-	if err := updateContextField(contextData, field, value); err != nil {
-		cli.Error(fmt.Sprintf("Failed to update field: %v", err))
-		os.Exit(3)
-	}
-
-	// Validate and convert back to JSON
-	jsonStr, err := contextData.ToJSON()
-	if err != nil {
-		return fmt.Errorf("failed to convert context data to JSON: %w", err)
-	}
-
-	// Update task in database
-	task.ContextData = &jsonStr
-	if err := repo.Update(ctx, task); err != nil {
-		return fmt.Errorf("failed to update task: %w", err)
-	}
-
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		output := map[string]interface{}{
 			"task_key": taskKey,
@@ -171,108 +112,29 @@ func runTaskContextSet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// updateContextField updates a specific field in the context data
-func updateContextField(cd *models.ContextData, field, value string) error {
-	switch field {
-	case "current_step":
-		if cd.Progress == nil {
-			cd.Progress = &models.ProgressContext{}
-		}
-		cd.Progress.CurrentStep = &value
-
-	case "completed_steps":
-		var steps []string
-		if err := json.Unmarshal([]byte(value), &steps); err != nil {
-			return fmt.Errorf("invalid JSON for completed_steps: %w", err)
-		}
-		if cd.Progress == nil {
-			cd.Progress = &models.ProgressContext{}
-		}
-		cd.Progress.CompletedSteps = steps
-
-	case "remaining_steps":
-		var steps []string
-		if err := json.Unmarshal([]byte(value), &steps); err != nil {
-			return fmt.Errorf("invalid JSON for remaining_steps: %w", err)
-		}
-		if cd.Progress == nil {
-			cd.Progress = &models.ProgressContext{}
-		}
-		cd.Progress.RemainingSteps = steps
-
-	case "implementation_decisions":
-		var decisions map[string]string
-		if err := json.Unmarshal([]byte(value), &decisions); err != nil {
-			return fmt.Errorf("invalid JSON for implementation_decisions: %w", err)
-		}
-		if cd.ImplementationDecisions == nil {
-			cd.ImplementationDecisions = make(map[string]string)
-		}
-		// Merge decisions
-		for k, v := range decisions {
-			cd.ImplementationDecisions[k] = v
-		}
-
-	case "open_questions":
-		var questions []string
-		if err := json.Unmarshal([]byte(value), &questions); err != nil {
-			return fmt.Errorf("invalid JSON for open_questions: %w", err)
-		}
-		cd.OpenQuestions = questions
-
-	case "blockers":
-		var blockers []models.BlockerContext
-		if err := json.Unmarshal([]byte(value), &blockers); err != nil {
-			return fmt.Errorf("invalid JSON for blockers: %w", err)
-		}
-		cd.Blockers = blockers
-
-	case "acceptance_criteria_status":
-		var criteria []models.AcceptanceCriterionContext
-		if err := json.Unmarshal([]byte(value), &criteria); err != nil {
-			return fmt.Errorf("invalid JSON for acceptance_criteria_status: %w", err)
-		}
-		cd.AcceptanceCriteriaStatus = criteria
-	}
-
-	return nil
-}
-
 // runTaskContextGet retrieves and displays task context
 func runTaskContextGet(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+	// Step 1: Parse arguments
 	taskKey := args[0]
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	svc, err := cli.GetContextService(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+		return fmt.Errorf("failed to get context service: %w", err)
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
-	repo := repository.NewTaskRepository(repoDb)
-
-	// Get task by key
-	task, err := repo.GetByKey(ctx, taskKey)
+	contextData, err := svc.GetContext(cmd.Context(), models.EntityTypeTask, taskKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
 		os.Exit(1)
 	}
 
-	// Parse context data
-	var contextData *models.ContextData
-	if task.ContextData != nil && *task.ContextData != "" {
-		contextData, err = models.FromJSON(*task.ContextData)
-		if err != nil {
-			return fmt.Errorf("failed to parse context data: %w", err)
-		}
-	} else {
+	// If no context data, use empty struct for display
+	if contextData == nil {
 		contextData = &models.ContextData{}
 	}
 
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		output := map[string]interface{}{
 			"task_key":     taskKey,
@@ -352,37 +214,21 @@ func runTaskContextGet(cmd *cobra.Command, args []string) error {
 
 // runTaskContextClear clears task context data
 func runTaskContextClear(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+	// Step 1: Parse arguments
 	taskKey := args[0]
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
+	// Step 2: Call service
+	svc, err := cli.GetContextService(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
+		return fmt.Errorf("failed to get context service: %w", err)
 	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
 
-	// Create repository
-	repo := repository.NewTaskRepository(repoDb)
-
-	// Get task by key
-	task, err := repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
+	if err := svc.ClearContext(cmd.Context(), models.EntityTypeTask, taskKey); err != nil {
+		cli.Error(fmt.Sprintf("Failed to clear context: %v", err))
 		os.Exit(1)
 	}
 
-	// Clear context data
-	emptyJSON := "{}"
-	task.ContextData = &emptyJSON
-
-	// Update task in database
-	if err := repo.Update(ctx, task); err != nil {
-		return fmt.Errorf("failed to update task: %w", err)
-	}
-
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		output := map[string]interface{}{
 			"task_key": taskKey,

@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	"github.com/jwwelbor/shark-task-manager/internal/validation"
 	"github.com/spf13/cobra"
 )
 
@@ -47,25 +45,7 @@ func init() {
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
-	// Get database connection (cloud-aware)
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	// Create repositories
-	epicRepo := repository.NewEpicRepository(repoDb)
-	featureRepo := repository.NewFeatureRepository(repoDb)
-	taskRepo := repository.NewTaskRepository(repoDb)
-
-	// Create repository adapter for validation
-	repoAdapter := validation.NewRepositoryAdapter(epicRepo, featureRepo, taskRepo)
-
-	// Create validator
-	validator := validation.NewValidator(repoAdapter)
-
-	// Run validation
+	// Step 1: Parse arguments
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -73,12 +53,14 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		cli.Info("Starting validation...")
 	}
 
+	// Step 2: Call service (all repository wiring in accessor)
+	validator := cli.GetValidationRunner()
 	result, err := validator.Validate(ctx)
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Output results
+	// Step 3: Format output
 	if validateJSON {
 		if err := result.FormatJSON(os.Stdout); err != nil {
 			return fmt.Errorf("failed to format JSON output: %w", err)

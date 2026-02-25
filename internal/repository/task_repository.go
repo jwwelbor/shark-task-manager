@@ -26,44 +26,34 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
-	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // TaskRepository handles CRUD operations for tasks
 type TaskRepository struct {
-	db       *DB
-	workflow *config.WorkflowConfig
+	db *DB
 }
 
-// NewTaskRepository creates a new TaskRepository with default workflow configuration
+// NewTaskRepository creates a new TaskRepository
 func NewTaskRepository(db *DB) *TaskRepository {
 	return &TaskRepository{
-		db:       db,
-		workflow: config.DefaultWorkflow(),
+		db: db,
 	}
 }
 
-// NewTaskRepositoryWithWorkflow creates a new TaskRepository with custom workflow configuration
-func NewTaskRepositoryWithWorkflow(db *DB, workflow *config.WorkflowConfig) *TaskRepository {
-	if workflow == nil {
-		workflow = config.DefaultWorkflow()
-	}
+// NewTaskRepositoryWithWorkflow creates a new TaskRepository.
+// Deprecated: The workflow parameter is ignored. Use NewTaskRepository instead.
+// This constructor is kept temporarily for backward compatibility with callers
+// that pass a workflow config. It will be removed in a future cleanup.
+func NewTaskRepositoryWithWorkflow(db *DB, _ *config.WorkflowConfig) *TaskRepository {
 	return &TaskRepository{
-		db:       db,
-		workflow: workflow,
+		db: db,
 	}
-}
-
-// GetWorkflow returns the workflow configuration used by this repository
-func (r *TaskRepository) GetWorkflow() *config.WorkflowConfig {
-	return r.workflow
 }
 
 // Create creates a new task
@@ -296,10 +286,12 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task
 // parseSluggedKey parses a slugged task key into numeric key and slug components.
 // Input format: T-E##-F##-###-slug-text
 // Returns: numericKey (T-E##-F##-###), slug (slug-text), ok (true if valid format)
-func parseSluggedKey(key string) (numericKey string, slug string, ok bool) {
+//
+// Uses the shared SplitAtNthHyphen helper to split at the 4th hyphen, which
+// separates the numeric task key from the slug suffix.
+func parseSluggedKey(key string) (numericKey string, slugVal string, ok bool) {
 	// Task key format: T-E##-F##-###
-	// Minimum length: T-E1-F1-1 = 9 characters
-	// With slug: T-E1-F1-1-slug = at least 14 characters
+	// Minimum length with slug: T-E1-F1-1-slug = at least 14 characters
 	if len(key) < 14 {
 		return "", "", false
 	}
@@ -309,30 +301,13 @@ func parseSluggedKey(key string) (numericKey string, slug string, ok bool) {
 		return "", "", false
 	}
 
-	// Find the 4th hyphen which separates the numeric part from the slug
-	// Format: T-E##-F##-###-slug
-	//         ^  ^   ^   ^
-	//         1  2   3   4
-	hyphenCount := 0
-	lastHyphenPos := -1
-
-	for i, ch := range key {
-		if ch == '-' {
-			hyphenCount++
-			if hyphenCount == 4 {
-				lastHyphenPos = i
-				break
-			}
-		}
-	}
-
-	if lastHyphenPos == -1 || lastHyphenPos >= len(key)-1 {
-		// No 4th hyphen or nothing after it
+	// Split at the 4th hyphen: T-E##-F##-###-slug-text
+	//                          ^  ^   ^   ^
+	//                          1  2   3   4
+	numericKey, slugVal, ok = SplitAtNthHyphen(key, 4)
+	if !ok || slugVal == "" {
 		return "", "", false
 	}
-
-	numericKey = key[:lastHyphenPos]
-	slug = key[lastHyphenPos+1:]
 
 	// Validate numeric key format matches T-E##-F##-###
 	// At minimum: T-E1-F1-1
@@ -340,12 +315,7 @@ func parseSluggedKey(key string) (numericKey string, slug string, ok bool) {
 		return "", "", false
 	}
 
-	// Slug should be non-empty
-	if slug == "" {
-		return "", "", false
-	}
-
-	return numericKey, slug, true
+	return numericKey, slugVal, true
 }
 
 // GetByFilePath retrieves a task by its file path
@@ -441,6 +411,25 @@ func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]
 	`
 
 	return r.queryTasks(ctx, query, featureID)
+}
+
+// ListByFeatureKey retrieves all tasks for a feature using the feature key directly.
+// This avoids the two-step lookup (feature key → feature ID → tasks) and is more
+// efficient for remote databases where each round-trip has network latency.
+func (r *TaskRepository) ListByFeatureKey(ctx context.Context, featureKey string) ([]*models.Task, error) {
+	query := `
+		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
+		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
+		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
+		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
+		       t.verification_status, t.time_spent_minutes, t.context_data
+		FROM tasks t
+		INNER JOIN features f ON t.feature_id = f.id
+		WHERE f.key = ?
+		ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
+	`
+
+	return r.queryTasks(ctx, query, featureKey)
 }
 
 // ListByEpic retrieves all tasks for an epic (via features)
@@ -568,6 +557,23 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 	}
 
 	return tasks, nil
+}
+
+// ListByKeyPrefix retrieves all tasks whose key starts with the given prefix.
+// Used by key generation to find globally unique keys regardless of feature_id.
+func (r *TaskRepository) ListByKeyPrefix(ctx context.Context, prefix string) ([]*models.Task, error) {
+	query := `
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
+		FROM tasks
+		WHERE key LIKE ?
+		ORDER BY key ASC
+	`
+
+	return r.queryTasks(ctx, query, prefix+"%")
 }
 
 // List retrieves all tasks
@@ -781,46 +787,6 @@ func (r *TaskRepository) listByFeatureInTx(ctx context.Context, tx *sql.Tx, feat
 	return tasks, nil
 }
 
-// isValidStatusEnum checks if a status is valid according to the workflow configuration
-func (r *TaskRepository) isValidStatusEnum(status models.TaskStatus) bool {
-	// Check if status exists in workflow config
-	if r.workflow != nil && r.workflow.StatusFlow != nil {
-		_, exists := r.workflow.StatusFlow[string(status)]
-		return exists
-	}
-
-	// Fallback to hardcoded statuses if no workflow config
-	validStatuses := []models.TaskStatus{
-		models.TaskStatus("todo"),
-		models.TaskStatus("in_progress"),
-		models.TaskStatus("blocked"),
-		models.TaskStatus("ready_for_review"),
-		models.TaskStatus("completed"),
-		models.TaskStatus("archived"),
-	}
-	for _, valid := range validStatuses {
-		if status == valid {
-			return true
-		}
-	}
-	return false
-}
-
-// isValidTransition checks if a status transition is allowed according to workflow config.
-// This method is now fully config-driven with no hardcoded fallback.
-// If workflow config is missing, it uses the default workflow.
-func (r *TaskRepository) isValidTransition(from models.TaskStatus, to models.TaskStatus) bool {
-	// Workflow should always be initialized (either from config or default)
-	if r.workflow == nil {
-		// This should not happen as NewTaskRepository always sets workflow,
-		// but use default workflow as safety fallback
-		r.workflow = config.DefaultWorkflow()
-	}
-
-	// Validate transition using workflow config
-	return config.ValidateTransition(r.workflow, string(from), string(to)) == nil
-}
-
 // UpdateStatus atomically updates task status, timestamps, and creates history record
 func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
 	// For backward transitions, use notes as rejection reason if provided
@@ -845,10 +811,12 @@ func (r *TaskRepository) UpdateStatusForcedWithUnblock(ctx context.Context, task
 // and UpdateStatusForcedWithUnblock. It performs the status update and auto-unblock
 // in a single transaction, returning any auto-unblocked task keys.
 func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error) {
-	// Validate status is valid enum (skip when force=true to allow any status string)
-	if !force && !r.isValidStatusEnum(newStatus) {
-		return nil, fmt.Errorf("invalid status: %s", newStatus)
-	}
+	// NOTE: All workflow validation (status enum, transition validity, backward transition checks)
+	// is now handled by the service layer via executeStatusTransition() -> StatusUpdateRaw().
+	// This method performs the raw database update without business-logic validation.
+	// The force parameter is kept for backward compatibility but no longer affects behavior
+	// since validation has been removed from this layer.
+
 	// Start transaction
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
@@ -869,38 +837,9 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 		return nil, fmt.Errorf("failed to get current task status: %w", err)
 	}
 
-	// Validate transition if not forcing
-	currentTaskStatus := models.TaskStatus(currentStatus)
 	if force {
 		// Log warning when force is used
 		fmt.Printf("WARNING: Forced status update from %s to %s (taskID=%d)\n", currentStatus, newStatus, taskID)
-	} else {
-		// Check if transition is valid using workflow config
-		if !r.isValidTransition(currentTaskStatus, newStatus) {
-			// Generate helpful error message using workflow validator
-			if r.workflow != nil {
-				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(newStatus))
-				if validationErr != nil {
-					return nil, validationErr
-				}
-			}
-			return nil, fmt.Errorf("invalid status transition from %s to %s", currentStatus, newStatus)
-		}
-
-		// Validate rejection reason for backward transitions
-		if r.workflow != nil {
-			isBackward, err := r.workflow.IsBackwardTransition(currentStatus, string(newStatus))
-			if err != nil {
-				return nil, fmt.Errorf("failed to determine transition direction: %w", err)
-			}
-
-			if isBackward {
-				// Backward transitions require a non-empty reason
-				if rejectionReason == nil || strings.TrimSpace(*rejectionReason) == "" {
-					return nil, fmt.Errorf("rejection reason required for backward transition from %s to %s: use --reason flag or use --force to bypass", currentStatus, newStatus)
-				}
-			}
-		}
 	}
 
 	// Update status and timestamps
@@ -943,33 +882,21 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 		return nil, fmt.Errorf("failed to get history record id: %w", err)
 	}
 
-	// Create rejection note if rejection reason is provided and transition is backward
+	// Create rejection note if rejection reason is provided
 	if rejectionReason != nil && strings.TrimSpace(*rejectionReason) != "" {
-		isBackward := false
-		if r.workflow != nil {
-			var checkErr error
-			isBackward, checkErr = r.workflow.IsBackwardTransition(currentStatus, string(newStatus))
-			if checkErr != nil {
-				// Log but don't fail - the transition already succeeded
-				fmt.Printf("WARNING: Failed to check backward transition for rejection note: %v\n", checkErr)
-			}
+		noteRepo := NewEntityNoteRepository(r.db)
+		rejectedBy := "system"
+		if agent != nil && *agent != "" {
+			rejectedBy = *agent
 		}
 
-		if isBackward {
-			noteRepo := NewEntityNoteRepository(r.db)
-			rejectedBy := "system"
-			if agent != nil && *agent != "" {
-				rejectedBy = *agent
-			}
-
-			_, err := noteRepo.CreateRejectionNoteWithTx(
-				ctx, tx, models.EntityTypeTask, taskID, historyID,
-				currentStatus, string(newStatus),
-				*rejectionReason, rejectedBy, documentPath,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create rejection note: %w", err)
-			}
+		_, err := noteRepo.CreateRejectionNoteWithTx(
+			ctx, tx, models.EntityTypeTask, taskID, historyID,
+			currentStatus, string(newStatus),
+			*rejectionReason, rejectedBy, documentPath,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create rejection note: %w", err)
 		}
 	}
 
@@ -990,13 +917,107 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 	return unblockedKeys, nil
 }
 
+// StatusUpdateRaw performs an atomic status update without any business-logic validation.
+// All validation (transition validity, backward transition checks, reason requirements)
+// must be performed by the calling service layer BEFORE invoking this method.
+//
+// This method performs the following in a single transaction:
+//   - Updates the task status and relevant timestamps (started_at, completed_at, blocked_at)
+//   - Creates a task_history record
+//   - Optionally creates a rejection note (when RejectionReason is non-empty)
+//   - Auto-unblocks dependent tasks when transitioning to completed/archived
+//
+// Returns the list of auto-unblocked task keys.
+func (r *TaskRepository) StatusUpdateRaw(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+	// Start transaction
+	tx, err := r.db.BeginTxContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Update status and timestamps
+	now := time.Now()
+	query := "UPDATE tasks SET status = ?"
+	args := []interface{}{params.NewStatus}
+
+	// Set appropriate timestamp based on new status
+	if params.NewStatus == models.TaskStatus("in_progress") && !params.StartedAt.Valid {
+		query += ", started_at = ?"
+		args = append(args, now)
+	} else if params.NewStatus == models.TaskStatus("completed") && !params.CompletedAt.Valid {
+		query += ", completed_at = ?"
+		args = append(args, now)
+	} else if params.NewStatus == models.TaskStatus("blocked") && !params.BlockedAt.Valid {
+		query += ", blocked_at = ?"
+		args = append(args, now)
+	}
+
+	query += " WHERE id = ?"
+	args = append(args, params.TaskID)
+
+	_, err = tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update task status: %w", err)
+	}
+
+	// Create history record
+	historyQuery := `
+		INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+	result, err := tx.ExecContext(ctx, historyQuery, params.TaskID, params.OldStatus, params.NewStatus, params.Agent, params.Notes, params.RejectionReason, params.Force)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create history record: %w", err)
+	}
+
+	historyID, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get history record id: %w", err)
+	}
+
+	// Create rejection note if rejection reason is provided
+	if params.RejectionReason != nil && strings.TrimSpace(*params.RejectionReason) != "" {
+		noteRepo := NewEntityNoteRepository(r.db)
+		rejectedBy := "system"
+		if params.Agent != nil && *params.Agent != "" {
+			rejectedBy = *params.Agent
+		}
+
+		_, err := noteRepo.CreateRejectionNoteWithTx(
+			ctx, tx, models.EntityTypeTask, params.TaskID, historyID,
+			params.OldStatus, string(params.NewStatus),
+			*params.RejectionReason, rejectedBy, params.DocumentPath,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create rejection note: %w", err)
+		}
+	}
+
+	// Auto-unblock dependents when transitioning to completed or archived
+	var unblockedKeys []string
+	if params.NewStatus == models.TaskStatus("completed") || params.NewStatus == models.TaskStatus("archived") {
+		unblockedKeys, err = r.AutoUnblockDependents(ctx, tx, params.TaskKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to auto-unblock dependents: %w", err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return unblockedKeys, nil
+}
+
 // UpdateStatusWithAction updates a task's status and returns the updated task with orchestrator action
 // This method combines status update with retrieval of orchestrator action from workflow config
 // Returns:
 // - *models.Task: The updated task
 // - *config.PopulatedAction: The orchestrator action for the new status (nil if not defined)
 // - error: Any error that occurred during the update
-func (r *TaskRepository) UpdateStatusWithAction(ctx context.Context, taskKey string, newStatus string) (*models.Task, *config.PopulatedAction, error) {
+func (r *TaskRepository) UpdateStatusWithAction(ctx context.Context, taskKey string, newStatus string, workflow *config.WorkflowConfig) (*models.Task, *config.PopulatedAction, error) {
 	// Get task by key
 	task, err := r.GetByKey(ctx, taskKey)
 	if err != nil {
@@ -1016,7 +1037,7 @@ func (r *TaskRepository) UpdateStatusWithAction(ctx context.Context, taskKey str
 	}
 
 	// Get orchestrator action for new status from workflow config
-	action, err := r.getOrchestratorAction(ctx, updatedTask, newStatus)
+	action, err := r.getOrchestratorAction(ctx, updatedTask, newStatus, workflow)
 	if err != nil {
 		// Log warning but don't fail - action is optional
 		fmt.Printf("WARNING: Failed to get orchestrator action for status %s: %v\n", newStatus, err)
@@ -1028,14 +1049,14 @@ func (r *TaskRepository) UpdateStatusWithAction(ctx context.Context, taskKey str
 
 // getOrchestratorAction retrieves and populates orchestrator action for a status
 // Returns nil if no action is defined for the status (not an error)
-func (r *TaskRepository) getOrchestratorAction(ctx context.Context, task *models.Task, status string) (*config.PopulatedAction, error) {
+func (r *TaskRepository) getOrchestratorAction(ctx context.Context, task *models.Task, status string, workflow *config.WorkflowConfig) (*config.PopulatedAction, error) {
 	// Check if workflow is configured
-	if r.workflow == nil || r.workflow.StatusMetadata == nil {
+	if workflow == nil || workflow.StatusMetadata == nil {
 		return nil, nil // No workflow - no actions
 	}
 
 	// Get status metadata
-	metadata, exists := r.workflow.StatusMetadata[status]
+	metadata, exists := workflow.StatusMetadata[status]
 	if !exists {
 		return nil, nil // Status not in config - no actions
 	}
@@ -1059,151 +1080,6 @@ func (r *TaskRepository) getOrchestratorAction(ctx context.Context, task *models
 	return populatedAction, nil
 }
 
-// BlockTask marks a task as blocked with a reason
-func (r *TaskRepository) BlockTask(ctx context.Context, taskID int64, reason string, agent *string) error {
-	return r.BlockTaskForced(ctx, taskID, reason, agent, false)
-}
-
-// BlockTaskForced marks a task as blocked with optional validation bypass
-func (r *TaskRepository) BlockTaskForced(ctx context.Context, taskID int64, reason string, agent *string, force bool) error {
-	// Start transaction
-	tx, err := r.db.BeginTxContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Get current task state
-	var currentStatus string
-	err = tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
-	if err == sql.ErrNoRows {
-		return fmt.Errorf("task not found with id %d", taskID)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to get current task status: %w", err)
-	}
-
-	// Validate transition if not forcing
-	currentTaskStatus := models.TaskStatus(currentStatus)
-	if force {
-		fmt.Printf("WARNING: Forced block from %s status (taskID=%d)\n", currentStatus, taskID)
-	} else {
-		// Validate transition using workflow config
-		if !r.isValidTransition(currentTaskStatus, models.TaskStatus("blocked")) {
-			if r.workflow != nil {
-				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatus("blocked")))
-				if validationErr != nil {
-					return validationErr
-				}
-			}
-			return fmt.Errorf("invalid status transition from %s to blocked", currentStatus)
-		}
-	}
-
-	// Update status, blocked_at, and blocked_reason
-	now := time.Now()
-	query := `UPDATE tasks SET status = ?, blocked_at = ?, blocked_reason = ? WHERE id = ?`
-	_, err = tx.ExecContext(ctx, query, models.TaskStatus("blocked"), now, reason, taskID)
-	if err != nil {
-		return fmt.Errorf("failed to update task: %w", err)
-	}
-
-	// Create history record with rejection_reason support
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatus("blocked"), agent, &reason, nil, force)
-	if err != nil {
-		return fmt.Errorf("failed to create history record: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
-}
-
-// UnblockTask unblocks a task and returns it to todo status
-func (r *TaskRepository) UnblockTask(ctx context.Context, taskID int64, agent *string) error {
-	return r.UnblockTaskForced(ctx, taskID, agent, false)
-}
-
-// UnblockTaskForced unblocks a task with optional validation bypass
-func (r *TaskRepository) UnblockTaskForced(ctx context.Context, taskID int64, agent *string, force bool) error {
-	// Start transaction
-	tx, err := r.db.BeginTxContext(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Get current task state
-	var currentStatus string
-	err = tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
-	if err == sql.ErrNoRows {
-		return fmt.Errorf("task not found with id %d", taskID)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to get current task status: %w", err)
-	}
-
-	// Validate transition if not forcing
-	currentTaskStatus := models.TaskStatus(currentStatus)
-	if force {
-		fmt.Printf("WARNING: Forced unblock from %s status (taskID=%d)\n", currentStatus, taskID)
-	} else {
-		// Validate transition using workflow config
-		if !r.isValidTransition(currentTaskStatus, models.TaskStatus("todo")) {
-			if r.workflow != nil {
-				validationErr := config.ValidateTransition(r.workflow, string(currentTaskStatus), string(models.TaskStatus("todo")))
-				if validationErr != nil {
-					return validationErr
-				}
-			}
-			return fmt.Errorf("invalid status transition from %s to todo", currentStatus)
-		}
-	}
-
-	// Update status and clear blocked fields
-	query := `UPDATE tasks SET status = ?, blocked_at = NULL, blocked_reason = NULL WHERE id = ?`
-	_, err = tx.ExecContext(ctx, query, models.TaskStatus("todo"), taskID)
-	if err != nil {
-		return fmt.Errorf("failed to update task: %w", err)
-	}
-
-	// Create history record
-	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, rejection_reason, forced) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatus("todo"), agent, nil, nil, force)
-	if err != nil {
-		return fmt.Errorf("failed to create history record: %w", err)
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
-}
-
-// ReopenTask reopens a task from ready_for_review back to in_progress
-func (r *TaskRepository) ReopenTask(ctx context.Context, taskID int64, agent *string, notes *string) error {
-	// For backward compatibility, treat notes as rejection reason for the reopen
-	// If no notes provided, use a default message or require force
-	if notes == nil || strings.TrimSpace(*notes) == "" {
-		// Default rejection reason when reopening without explicit notes
-		defaultReason := "Task returned for rework"
-		notes = &defaultReason
-	}
-	return r.ReopenTaskForced(ctx, taskID, agent, notes, notes, nil, false)
-}
-
-// ReopenTaskForced reopens a task with optional validation bypass
-// Use rejectionReason for backward transitions to capture why task was rejected
-func (r *TaskRepository) ReopenTaskForced(ctx context.Context, taskID int64, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
-	return r.UpdateStatusForced(ctx, taskID, models.TaskStatus("in_progress"), agent, notes, rejectionReason, documentPath, force)
-}
-
 // Delete deletes a task (and its history via CASCADE)
 func (r *TaskRepository) Delete(ctx context.Context, id int64) error {
 	query := "DELETE FROM tasks WHERE id = ?"
@@ -1222,124 +1098,6 @@ func (r *TaskRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	return nil
-}
-
-// GetStatusBreakdown returns a count of tasks by status for a feature.
-// Returns workflow.StatusCount slice ordered by workflow phase, with metadata.
-// Only includes statuses that have non-zero counts.
-func (r *TaskRepository) GetStatusBreakdown(ctx context.Context, featureID int64) ([]workflow.StatusCount, error) {
-	query := `
-		SELECT status, COUNT(*) as count
-		FROM tasks
-		WHERE feature_id = ?
-		GROUP BY status
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, featureID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get status breakdown: %w", err)
-	}
-	defer rows.Close()
-
-	// Build map of actual counts
-	actualCounts := make(map[string]int)
-	for rows.Next() {
-		var status string
-		var count int
-		if err := rows.Scan(&status, &count); err != nil {
-			return nil, fmt.Errorf("failed to scan status breakdown: %w", err)
-		}
-		actualCounts[status] = count
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating status breakdown: %w", err)
-	}
-
-	// Get all statuses from workflow config (in order)
-	allStatuses := r.getOrderedStatuses()
-
-	// Track which statuses we've already added
-	addedStatuses := make(map[string]bool)
-
-	// Build result with workflow metadata, only including non-zero counts
-	var result []workflow.StatusCount
-	for _, status := range allStatuses {
-		count, exists := actualCounts[status]
-		if !exists || count == 0 {
-			continue // Skip zero counts
-		}
-
-		meta := r.getStatusMetadata(status)
-		result = append(result, workflow.StatusCount{
-			Status: status,
-			Count:  count,
-			Phase:  meta.Phase,
-			Color:  meta.Color,
-		})
-		addedStatuses[status] = true
-	}
-
-	// Add any statuses from data that weren't in the workflow config (at the end)
-	for status, count := range actualCounts {
-		if addedStatuses[status] || count == 0 {
-			continue
-		}
-		// These are statuses not in workflow config (e.g., legacy statuses)
-		meta := r.getStatusMetadata(status)
-		result = append(result, workflow.StatusCount{
-			Status: status,
-			Count:  count,
-			Phase:  meta.Phase,
-			Color:  meta.Color,
-		})
-	}
-
-	return result, nil
-}
-
-// GetStatusBreakdownMap returns status counts as a map for backward compatibility.
-// Deprecated: Use GetStatusBreakdown for workflow-aware status displays.
-func (r *TaskRepository) GetStatusBreakdownMap(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
-	query := `
-		SELECT status, COUNT(*) as count
-		FROM tasks
-		WHERE feature_id = ?
-		GROUP BY status
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, featureID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get status breakdown: %w", err)
-	}
-	defer rows.Close()
-
-	// Initialize breakdown with common statuses set to 0
-	breakdown := map[models.TaskStatus]int{
-		models.TaskStatus("todo"):             0,
-		models.TaskStatus("in_progress"):      0,
-		models.TaskStatus("blocked"):          0,
-		models.TaskStatus("ready_for_review"): 0,
-		models.TaskStatus("completed"):        0,
-		models.TaskStatus("archived"):         0,
-	}
-
-	// Fill in actual counts from query
-	for rows.Next() {
-		var status models.TaskStatus
-		var count int
-		err := rows.Scan(&status, &count)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan status breakdown: %w", err)
-		}
-		breakdown[status] = count
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating status breakdown: %w", err)
-	}
-
-	return breakdown, nil
 }
 
 // GetStatusBreakdownMapBatch returns status counts as maps for multiple features in a single query.
@@ -1394,56 +1152,6 @@ func (r *TaskRepository) GetStatusBreakdownMapBatch(ctx context.Context, feature
 	}
 
 	return result, nil
-}
-
-// getOrderedStatuses returns all statuses in workflow order
-func (r *TaskRepository) getOrderedStatuses() []string {
-	if r.workflow == nil {
-		// Fallback to default statuses
-		return []string{
-			"draft", "ready_for_refinement", "in_refinement", "ready_for_development",
-			"in_development", "ready_for_code_review", "in_code_review", "ready_for_qa",
-			"in_qa", "ready_for_approval", "in_approval", "completed", "cancelled", "blocked", "on_hold",
-		}
-	}
-
-	// Group by phase and sort
-	phases := []string{"planning", "development", "review", "qa", "approval", "done", "any"}
-	statusesByPhase := make(map[string][]string)
-
-	for status := range r.workflow.StatusFlow {
-		meta, found := r.workflow.GetStatusMetadata(status)
-		phase := "other"
-		if found && meta.Phase != "" {
-			phase = meta.Phase
-		}
-		statusesByPhase[phase] = append(statusesByPhase[phase], status)
-	}
-
-	// Sort within each phase
-	for _, statuses := range statusesByPhase {
-		sort.Strings(statuses)
-	}
-
-	// Concatenate in phase order
-	var result []string
-	for _, phase := range phases {
-		result = append(result, statusesByPhase[phase]...)
-	}
-	if otherStatuses := statusesByPhase["other"]; len(otherStatuses) > 0 {
-		result = append(result, otherStatuses...)
-	}
-
-	return result
-}
-
-// getStatusMetadata returns metadata for a status
-func (r *TaskRepository) getStatusMetadata(status string) config.StatusMetadata {
-	if r.workflow == nil {
-		return config.StatusMetadata{}
-	}
-	meta, _ := r.workflow.GetStatusMetadata(status)
-	return meta
 }
 
 // GetTaskCountForFeature returns the total number of tasks for a given feature
@@ -1880,7 +1588,7 @@ func (r *TaskRepository) GetUnverifiedTasks(ctx context.Context) ([]*models.Task
 // then returns all tasks in those statuses
 func (r *TaskRepository) FilterByMetadataAgentType(ctx context.Context, agentType string, workflow *config.WorkflowConfig) ([]*models.Task, error) {
 	if workflow == nil {
-		workflow = r.workflow
+		return []*models.Task{}, nil
 	}
 
 	// Get statuses that include this agent type
@@ -1917,7 +1625,7 @@ func (r *TaskRepository) FilterByMetadataAgentType(ctx context.Context, agentTyp
 // then returns all tasks in those statuses
 func (r *TaskRepository) FilterByMetadataPhase(ctx context.Context, phase string, workflow *config.WorkflowConfig) ([]*models.Task, error) {
 	if workflow == nil {
-		workflow = r.workflow
+		return []*models.Task{}, nil
 	}
 
 	// Get statuses in this phase
@@ -2017,4 +1725,50 @@ func (r *TaskRepository) GetRejectionCounts(ctx context.Context, taskIDs []int64
 	}
 
 	return counts, lastTimes, nil
+}
+
+// GetTaskCountsForFeatures returns the total task count for each of the given feature IDs
+// in a single batch query. This replaces N individual GetTaskCount calls with one query.
+//
+// Returns a map from featureID to count. Feature IDs with no tasks are not included in
+// the map; callers should treat a missing key as a count of zero.
+func (r *TaskRepository) GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error) {
+	if len(featureIDs) == 0 {
+		return map[int64]int{}, nil
+	}
+
+	// Build parameterised IN clause
+	placeholders := make([]string, len(featureIDs))
+	args := make([]interface{}, len(featureIDs))
+	for i, id := range featureIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(
+		`SELECT feature_id, COUNT(*) FROM tasks WHERE feature_id IN (%s) GROUP BY feature_id`,
+		strings.Join(placeholders, ", "),
+	)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task counts for features: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[int64]int, len(featureIDs))
+	for rows.Next() {
+		var featureID int64
+		var count int
+		if err := rows.Scan(&featureID, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan task count row: %w", err)
+		}
+		counts[featureID] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating task counts: %w", err)
+	}
+
+	return counts, nil
 }

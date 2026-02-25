@@ -1,0 +1,36 @@
+{{template "_resume_preamble" .}}RESUME QA testing for task {{.task_id}}: "{{.title}}".
+
+Check for existing QA test results or reports. If all mapped test cases pass and acceptance criteria are validated, advance immediately. If partial testing exists, continue from where testing left off.
+
+---
+
+Launch qa agent with quality skill to test task {{.task_id}}: "{{.title}}".
+
+LOAD: quality skill.
+
+READ:
+(1) Task spec at {{.file_path}}
+(2) Feature test plan (09-test-plan.md) for the acceptance test cases mapped to this task
+(3) Feature PRD for feature-level intent
+(4) Implementation code and test results
+{{- if .related_docs}}
+(5) Related docs: {{.related_docs}}
+{{- end}}
+{{- if .related_tasks}}
+({{if .related_docs}}6{{else}}5{{end}}) Related tasks: {{.related_tasks}}
+{{- end}}
+
+VALIDATE:
+- Run test cases from feature test plan that map to this task
+- Verify acceptance criteria are met per the feature test plan, not just the task spec
+- Check edge cases identified in the test plan
+- Validate integration points behave correctly
+
+ON PASS (all test cases pass, acceptance criteria met):
+- Add note: shark note add --task={{.task_id}} --type=review "QA passed - all test cases validated"
+- Advance: shark task next-status {{.task_id}}
+
+ON FAIL (test cases fail, acceptance criteria not met, regressions found):
+- Add note with specific failures: shark note add --task={{.task_id}} --type=blocker "QA failed - [describe failures]"
+- Send back to development: shark task update {{.task_id}} --status=ready_for_development
+- Do NOT use any invented status. The valid rejection status from QA is ready_for_development.

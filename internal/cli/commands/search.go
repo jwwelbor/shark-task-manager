@@ -1,13 +1,11 @@
 package commands
 
 import (
-	"context"
 	"fmt"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
@@ -30,135 +28,69 @@ Examples:
 
 // runSearchFile handles the file search command
 func runSearchFile(cmd *cobra.Command, args []string) error {
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Get file parameter
+	// Step 1: Parse arguments
 	filePath, _ := cmd.Flags().GetString("file")
 	if filePath == "" {
 		return fmt.Errorf("--file parameter is required")
 	}
 
-	// Get optional filters
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
 	status, _ := cmd.Flags().GetString("status")
+	filters := services.TaskFilters{EpicKey: epicKey, FeatureKey: featureKey, Status: status}
 
-	// Get database connection
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
-
-	// Create repository
-	// Note: repoDb initialized via cli.GetDB()
-	taskRepo := repository.NewTaskRepository(repoDb)
-
-	// Search by file changed
-	tasks, err := taskRepo.FindByFileChanged(ctx, filePath)
+	// Step 2: Call service
+	tasks, err := cli.GetTaskService().SearchByFile(cmd.Context(), filePath, filters)
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
 	}
 
-	// Filter by epic if specified
-	if epicKey != "" {
-		filtered := []*models.Task{}
-		for _, task := range tasks {
-			// Need to check if task belongs to epic
-			// Get feature to check epic
-			featureRepo := repository.NewFeatureRepository(repoDb)
-			feature, err := featureRepo.GetByID(ctx, task.FeatureID)
-			if err != nil {
-				continue
-			}
-
-			epicRepo := repository.NewEpicRepository(repoDb)
-			epic, err := epicRepo.GetByID(ctx, feature.EpicID)
-			if err != nil {
-				continue
-			}
-
-			if epic.Key == epicKey {
-				filtered = append(filtered, task)
-			}
-		}
-		tasks = filtered
-	}
-
-	// Filter by feature if specified
-	if featureKey != "" {
-		filtered := []*models.Task{}
-		featureRepo := repository.NewFeatureRepository(repoDb)
-		feature, err := featureRepo.GetByKey(ctx, featureKey)
-		if err == nil {
-			for _, task := range tasks {
-				if task.FeatureID == feature.ID {
-					filtered = append(filtered, task)
-				}
-			}
-			tasks = filtered
-		}
-	}
-
-	// Filter by status if specified
-	if status != "" {
-		filtered := []*models.Task{}
-		for _, task := range tasks {
-			if string(task.Status) == status {
-				filtered = append(filtered, task)
-			}
-		}
-		tasks = filtered
-	}
-
-	// Output results
+	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(tasks)
 	}
+	return printSearchResults(tasks, filePath)
+}
 
-	// Human-readable output
+// printSearchResults prints human-readable search results.
+func printSearchResults(tasks []*models.Task, filePath string) error {
 	if len(tasks) == 0 {
 		fmt.Printf("No tasks found matching file: %s\n", filePath)
 		return nil
 	}
-
 	fmt.Printf("Found %d task(s) matching file \"%s\":\n\n", len(tasks), filePath)
-
 	for _, task := range tasks {
 		fmt.Printf("%s: %s (%s)\n", task.Key, task.Title, task.Status)
-
-		// Display completion date if available
 		if task.CompletedAt.Valid {
 			fmt.Printf("  Completed: %s\n", task.CompletedAt.Time.Format("2006-01-02 15:04:05"))
 		}
-
-		// Display files changed if available
-		if task.FilesChanged != nil && *task.FilesChanged != "" {
-			// Parse and display files
-			var files []string
-			metadata := models.NewCompletionMetadata()
-			if err := metadata.FromJSON(*task.FilesChanged); err == nil {
-				files = metadata.FilesChanged
-			}
-
-			if len(files) > 0 {
-				fmt.Print("  Files: ")
-				for i, file := range files {
-					if i > 0 {
-						fmt.Print(", ")
-					}
-					fmt.Print(file)
-				}
-				fmt.Println()
-			}
-		}
-
+		printTaskFilesChanged(task)
 		fmt.Println()
 	}
-
 	return nil
+}
+
+// printTaskFilesChanged prints the files changed for a task if available
+func printTaskFilesChanged(task *models.Task) {
+	if task.FilesChanged == nil || *task.FilesChanged == "" {
+		return
+	}
+
+	metadata := models.NewCompletionMetadata()
+	if err := metadata.FromJSON(*task.FilesChanged); err != nil {
+		return
+	}
+
+	if len(metadata.FilesChanged) > 0 {
+		fmt.Print("  Files: ")
+		for i, file := range metadata.FilesChanged {
+			if i > 0 {
+				fmt.Print(", ")
+			}
+			fmt.Print(file)
+		}
+		fmt.Println()
+	}
 }
 
 func init() {

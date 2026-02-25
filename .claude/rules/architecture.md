@@ -74,18 +74,302 @@ Many existing CLI commands still call repositories directly (fat controller patt
 ## Key Design Patterns
 
 ### 1. Service Layer (Primary Business Logic Layer)
-Services encapsulate all business logic and are the bridge between entry points (CLI, HTTP API) and data access:
+
+Services encapsulate all business logic and are the bridge between entry points (CLI, HTTP API) and data access.
+
+**Core Principles:**
 - Each domain entity has a service: `TaskService`, `FeatureService`, `EpicService`
 - Services receive repositories via constructor injection
 - Services own transactions, validation, orchestration, and business rules
 - Services are reusable across CLI and HTTP API entry points
 - Existing partial services: `workflow.Service`, `status.CalculationService`, `taskcreation.Creator`
 
+**Service Interface Example (TaskService):**
+```go
+type TaskService struct {
+    repo        TaskRepository        // Data access
+    workflowSvc *workflow.Service     // Workflow validation
+    creatorSvc  *taskcreation.Creator // Task creation
+    noteRepo    TaskNoteRepository    // Rejection notes
+}
+
+// Constructor with dependency injection
+func NewTaskService(repo TaskRepository, workflowSvc *workflow.Service,
+                    creatorSvc *taskcreation.Creator, noteRepo TaskNoteRepository) *TaskService {
+    return &TaskService{
+        repo:        repo,
+        workflowSvc: workflowSvc.ForLevel(workflow.LevelTask),
+        creatorSvc:  creatorSvc,
+        noteRepo:    noteRepo,
+    }
+}
+
+// Business logic methods
+func (s *TaskService) StartTask(ctx context.Context, key string, agentID string) (*models.Task, error)
+func (s *TaskService) CompleteTask(ctx context.Context, key string, notes string) (*models.Task, error)
+func (s *TaskService) BlockTask(ctx context.Context, key string, reason string) (*models.Task, error)
+```
+
+**Service Method Pattern:**
+1. Accept `context.Context` as first parameter
+2. Accept business-level inputs (task key, not ID)
+3. Perform workflow validation via `workflowSvc`
+4. Orchestrate repository calls
+5. Return domain models and errors
+6. Never format output (that's the command layer's job)
+
+**Global Service Accessor Pattern:**
+CLI commands access services via global accessor functions in `internal/cli/services_global.go`:
+
+```go
+// Usage in CLI commands
+func runTaskStart(cmd *cobra.Command, args []string) error {
+    svc := cli.GetTaskService()  // Lazy-initialized singleton
+    task, err := svc.StartTask(cmd.Context(), args[0], agentID)
+    if err != nil {
+        return err
+    }
+    cli.Success(fmt.Sprintf("Task %s started", task.Key))
+    return nil
+}
+```
+
+**HTTP API Service Wiring:**
+For HTTP API handlers, services are explicitly constructed at server startup and injected into handlers. See `cmd/server/services.go` for complete implementation.
+
+```go
+// In cmd/server/main.go
+func main() {
+    // 1. Initialize database
+    db, err := repository.InitDB("shark-tasks.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer db.Close()
+
+    // 2. Wire up services (see WireServices in cmd/server/services.go)
+    services := WireServices(db, ".")
+
+    // 3. Create handlers with service dependencies
+    taskHandler := api.NewTaskHandler(services.TaskService)
+    featureHandler := api.NewFeatureHandler(services.FeatureService)
+
+    // 4. Set up routes and start server
+    http.HandleFunc("/api/tasks", taskHandler.List)
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+
+**Key Differences Between CLI and HTTP Wiring:**
+- **CLI**: Uses global accessors (`cli.GetTaskService()`) with lazy initialization per command
+- **HTTP**: Explicit construction in `WireServices()` at server startup, services reused across requests
+- **CLI**: Service instance created per command invocation (short-lived)
+- **HTTP**: Service instance created once, shared across all requests (long-lived)
+- **CLI**: Panics on DB failure (fail-fast for command execution)
+- **HTTP**: Returns errors to client, server remains running
+
+See `cmd/server/services.go` for the complete `WireServices()` implementation and handler examples.
+
+**Repository Interface Pattern:**
+Services depend on repository interfaces, not concrete types:
+
+```go
+type TaskRepository interface {
+    Create(ctx context.Context, task *models.Task) error
+    GetByKey(ctx context.Context, key string) (*models.Task, error)
+    Update(ctx context.Context, task *models.Task) error
+    // ... other methods
+}
+
+// Concrete *repository.TaskRepository implements this interface
+```
+
+This enables:
+- Mocking repositories in service tests
+- Swapping implementations without changing services
+- Compile-time verification of interface satisfaction
+
 ### 2. Dependency Injection via Constructors
-- Services created with injected repositories: `NewTaskService(repo, workflowSvc)`
-- Repositories created with injected DB: `NewTaskRepository(db *DB)`
-- No DI framework; constructor injection is explicit and compile-safe
-- Wiring happens at the entry point (CLI `init()` or HTTP server setup)
+
+**No DI Framework:**
+- Pure Go constructor injection
+- Explicit dependencies in constructor signatures
+- Compile-time safety (can't construct without required dependencies)
+- No reflection or runtime magic
+
+**Constructor Pattern:**
+```go
+// Service constructor
+func NewTaskService(
+    repo TaskRepository,           // Required: data access
+    workflowSvc *workflow.Service, // Required: workflow validation
+    creatorSvc *taskcreation.Creator, // Optional: task creation
+    noteRepo TaskNoteRepository,   // Optional: rejection notes
+) *TaskService {
+    return &TaskService{
+        repo:        repo,
+        workflowSvc: workflowSvc.ForLevel(workflow.LevelTask),
+        creatorSvc:  creatorSvc,
+        noteRepo:    noteRepo,
+    }
+}
+
+// Repository constructor
+func NewTaskRepository(db *DB) *TaskRepository {
+    return &TaskRepository{db: db}
+}
+```
+
+**Dependency Graph:**
+
+Complete dependency tree for the service layer showing all service→repository and service→service relationships:
+
+```
+TaskService
+├── TaskRepository (interface)
+│   └── *repository.TaskRepository (implementation)
+│       └── *repository.DB
+├── *workflow.Service
+│   └── .sharkconfig.json (config file)
+├── *taskcreation.Creator (optional)
+│   └── ProjectRoot string
+└── TaskNoteRepository (interface, optional)
+    └── *repository.EntityNoteRepository
+        └── *repository.DB
+
+FeatureService
+├── FeatureRepository (interface)
+│   └── *repository.FeatureRepository (implementation)
+│       └── *repository.DB
+├── *workflow.Service
+│   └── .sharkconfig.json (config file)
+├── FeatureNoteRepository (interface, optional)
+│   └── *repository.EntityNoteRepository
+│       └── *repository.DB
+└── FeatureTaskCounter (interface, optional)
+    └── *repository.TaskRepository
+        └── *repository.DB
+
+EpicService
+├── EpicRepository (interface)
+│   └── *repository.EpicRepository (implementation)
+│       └── *repository.DB
+├── *workflow.Service
+│   └── .sharkconfig.json (config file)
+├── EpicNoteRepository (interface, optional)
+│   └── *repository.EntityNoteRepository
+│       └── *repository.DB
+├── EpicFeatureCounter (interface, optional)
+│   └── *repository.FeatureRepository
+│       └── *repository.DB
+└── EpicTaskLister (interface, optional)
+    └── *repository.TaskRepository
+        └── *repository.DB
+
+NoteService
+├── EntityNoteRepository (interface)
+│   └── *repository.EntityNoteRepository
+│       └── *repository.DB
+├── EpicRepository (interface)
+│   └── *repository.EpicRepository
+│       └── *repository.DB
+├── FeatureRepository (interface)
+│   └── *repository.FeatureRepository
+│       └── *repository.DB
+└── TaskRepository (interface)
+    └── *repository.TaskRepository
+        └── *repository.DB
+
+ContextService
+├── EpicRepository (interface)
+│   └── *repository.EpicRepository
+│       └── *repository.DB
+├── FeatureRepository (interface)
+│   └── *repository.FeatureRepository
+│       └── *repository.DB
+└── TaskRepository (interface)
+    └── *repository.TaskRepository
+        └── *repository.DB
+
+ResumeService
+├── EpicRepository (interface)
+│   └── *repository.EpicRepository
+│       └── *repository.DB
+├── FeatureRepository (interface)
+│   └── *repository.FeatureRepository
+│       └── *repository.DB
+├── TaskRepository (interface)
+│   └── *repository.TaskRepository
+│       └── *repository.DB
+└── EntityNoteRepository (interface)
+    └── *repository.EntityNoteRepository
+        └── *repository.DB
+
+Shared Dependencies:
+├── *repository.DB - Global database connection (singleton per CLI invocation)
+└── *workflow.Service - Global workflow service (singleton per CLI invocation)
+```
+
+**Dependency Injection Rules:**
+1. **Required vs Optional**: Services validate required dependencies (panic on nil in constructors)
+2. **Interface-Based**: Services depend on repository interfaces, not concrete *Repository types
+3. **Compile-Time Safe**: Constructor signatures enforce dependency contracts
+4. **No Circular Dependencies**: Services never depend on other services of same level (Epic/Feature/Task)
+5. **Single DB Instance**: All repositories share the same *repository.DB connection
+
+**CLI Wiring (Global Accessors):**
+Services initialized lazily via global accessor functions:
+
+```go
+// internal/cli/services_global.go
+func GetTaskService() *TaskService {
+    db, err := GetDB(context.Background())
+    if err != nil {
+        panic(fmt.Sprintf("failed to get database: %v", err))
+    }
+    taskRepo := repository.NewTaskRepository(db)
+    workflowSvc := GetWorkflowService()
+    return services.NewTaskService(taskRepo, workflowSvc, nil, nil)
+}
+```
+
+Pattern:
+- Creates new service instance per call (lightweight, no shared state)
+- Reuses global DB and workflow service (expensive to recreate)
+- Panics on DB failure (fail-fast for CLI entry points)
+- Matches existing Epic/FeatureService pattern
+
+**Testing Wiring (Mock Injection):**
+Tests inject mocks via interface substitution:
+
+```go
+func TestTaskService_StartTask(t *testing.T) {
+    // Create mock repository
+    mockRepo := &MockTaskRepository{
+        GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+            return &models.Task{Key: "T-E01-F01-001", Status: "todo"}, nil
+        },
+        UpdateStatusFunc: func(ctx context.Context, id int64, status models.TaskStatus, agent, notes *string) error {
+            return nil
+        },
+    }
+
+    // Create mock workflow service
+    mockWorkflow := &MockWorkflowService{
+        ValidateTransitionFunc: func(from, to string) error {
+            return nil
+        },
+    }
+
+    // Construct service with mocks
+    svc := services.NewTaskService(mockRepo, mockWorkflow, nil, nil)
+
+    // Test
+    task, err := svc.StartTask(context.Background(), "T-E01-F01-001", "agent123")
+    assert.NoError(t, err)
+    assert.Equal(t, "in_progress", task.Status)
+}
+```
 
 ### 3. Repository Pattern for Data Access
 Each entity (Epic, Feature, Task) has a repository with:

@@ -99,6 +99,13 @@ This project uses modular documentation. Rules are loaded automatically based on
 **Working on CLI Commands** (`internal/cli/commands/**/*`):
 - CLI Commands: @.claude/rules/cli/commands.md
 
+**Working on Service Layer** (`internal/services/**/*`):
+- Service Design: @.claude/rules/services/service-design.md
+- CLI Integration: @.claude/rules/services/cli-integration.md
+- HTTP Integration: @.claude/rules/services/http-integration.md
+- Service Testing: @.claude/rules/services/testing.md
+- Migration Guide: @docs/guides/service-layer-migration.md
+
 **Writing Tests** (`**/*_test.go`):
 - Testing Architecture: @.claude/rules/testing/architecture.md
 - Repository Tests: @.claude/rules/testing/repository-tests.md (if in `internal/repository/**/*_test.go`)

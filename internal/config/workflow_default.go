@@ -29,37 +29,42 @@ func DefaultWorkflow() *WorkflowConfig {
 			"blocked":          {"todo", "in_progress"},      // Can unblock to todo or in_progress
 		},
 
-		// Metadata for each status (UI display and agent targeting)
+		// Metadata for each status (UI display, agent targeting, and progress tracking)
 		StatusMetadata: map[string]StatusMetadata{
 			"todo": {
-				Color:       "gray",
-				Description: "Task is ready to be started",
-				Phase:       "planning",
-				AgentTypes:  []string{"business-analyst", "project-manager", "developer"},
+				Color:          "gray",
+				Description:    "Task is ready to be started",
+				Phase:          "planning",
+				AgentTypes:     []string{"business-analyst", "project-manager", "developer"},
+				ProgressWeight: 0.0,
 			},
 			"in_progress": {
-				Color:       "blue",
-				Description: "Task is actively being worked on",
-				Phase:       "development",
-				AgentTypes:  []string{"developer", "backend", "frontend", "api-developer"},
+				Color:          "blue",
+				Description:    "Task is actively being worked on",
+				Phase:          "development",
+				AgentTypes:     []string{"developer", "backend", "frontend", "api-developer"},
+				ProgressWeight: 0.5,
 			},
 			"ready_for_review": {
-				Color:       "yellow",
-				Description: "Implementation complete, awaiting code review",
-				Phase:       "review",
-				AgentTypes:  []string{"tech-lead", "senior-developer"},
+				Color:          "yellow",
+				Description:    "Implementation complete, awaiting code review",
+				Phase:          "review",
+				AgentTypes:     []string{"tech-lead", "senior-developer"},
+				ProgressWeight: 0.9,
 			},
 			"completed": {
-				Color:       "green",
-				Description: "Task reviewed, approved, and merged",
-				Phase:       "done",
-				AgentTypes:  []string{}, // No agents target completed tasks
+				Color:          "green",
+				Description:    "Task reviewed, approved, and merged",
+				Phase:          "done",
+				AgentTypes:     []string{}, // No agents target completed tasks
+				ProgressWeight: 1.0,
 			},
 			"blocked": {
-				Color:       "red",
-				Description: "Task blocked by external dependency or issue",
-				Phase:       "blocked",
-				AgentTypes:  []string{"project-manager", "tech-lead"},
+				Color:          "red",
+				Description:    "Task blocked by external dependency or issue",
+				Phase:          "blocked",
+				AgentTypes:     []string{"project-manager", "tech-lead"},
+				ProgressWeight: 0.0,
 			},
 		},
 

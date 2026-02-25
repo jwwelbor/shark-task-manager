@@ -346,14 +346,16 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 	require.NoError(t, err)
 	require.Equal(t, models.TaskStatus("in_progress"), models.TaskStatus(initialTask.Status))
 
-	t.Run("backward transition without reason should fail", func(t *testing.T) {
+	t.Run("backward transition without reason succeeds at repo layer", func(t *testing.T) {
+		// NOTE: Backward transition validation (reason requirement) has moved to the service layer.
+		// The repository layer no longer validates transitions or requires reasons.
+
 		// Ensure task starts in in_progress
 		current, err := repo.GetByID(ctx, task.ID)
 		require.NoError(t, err)
 		require.Equal(t, models.TaskStatus("in_progress"), models.TaskStatus(current.Status))
 
-		// Try to update to ready_for_review (forward - should succeed without reason)
-		// Then try to go back to in_progress (backward - should require reason)
+		// Update to ready_for_review
 		reason := "Test review"
 		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), nil, &reason)
 		require.NoError(t, err, "Forward transition should succeed")
@@ -363,14 +365,14 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 		require.NoError(t, err)
 		require.Equal(t, models.TaskStatus("ready_for_review"), models.TaskStatus(updated.Status))
 
-		// Now try backward transition without reason
+		// Backward transition without reason now succeeds at repo layer
 		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), nil, nil)
-		assert.Error(t, err, "Backward transition without reason should fail")
-		assert.Contains(t, err.Error(), "reason", "Error should mention reason requirement")
+		assert.NoError(t, err, "Backward transition without reason should succeed at repo layer (validation moved to service)")
 
-		// Reset task status for other tests
-		resetReason := "Resetting for next test"
-		_ = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), nil, &resetReason)
+		// Verify status changed
+		updated, err = repo.GetByID(ctx, task.ID)
+		require.NoError(t, err)
+		require.Equal(t, models.TaskStatus("in_progress"), models.TaskStatus(updated.Status))
 	})
 
 	t.Run("backward transition with reason should succeed", func(t *testing.T) {
@@ -438,8 +440,9 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 		require.Equal(t, models.TaskStatus("ready_for_review"), models.TaskStatus(updated.Status))
 	})
 
-	t.Run("empty reason string should fail for backward transition", func(t *testing.T) {
-		// Ensure task is in in_progress first
+	t.Run("empty reason string succeeds at repo layer for backward transition", func(t *testing.T) {
+		// NOTE: Backward transition reason validation has moved to the service layer.
+		// The repository layer no longer validates reasons.
 		current, err := repo.GetByID(ctx, task.ID)
 		require.NoError(t, err)
 		if current.Status != models.TaskStatus("in_progress") {
@@ -452,15 +455,14 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), nil, &reason)
 		require.NoError(t, err)
 
-		// Try with empty reason string
+		// Try with empty reason string - repo allows it now
 		emptyReason := ""
 		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), nil, &emptyReason)
-		assert.Error(t, err, "Backward transition with empty reason should fail")
-		assert.Contains(t, err.Error(), "reason", "Error should mention reason is required")
+		assert.NoError(t, err, "Backward transition with empty reason should succeed at repo layer (validation moved to service)")
 	})
 
-	t.Run("whitespace-only reason should fail for backward transition", func(t *testing.T) {
-		// Ensure task is in in_progress first
+	t.Run("whitespace-only reason succeeds at repo layer for backward transition", func(t *testing.T) {
+		// NOTE: Backward transition reason validation has moved to the service layer.
 		current, err := repo.GetByID(ctx, task.ID)
 		require.NoError(t, err)
 		if current.Status != models.TaskStatus("in_progress") {
@@ -473,10 +475,10 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), nil, &reason)
 		require.NoError(t, err)
 
-		// Try with whitespace-only reason
+		// Try with whitespace-only reason - repo allows it now
 		whitespacedReason := "   \t\n  "
 		err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), nil, &whitespacedReason)
-		assert.Error(t, err, "Backward transition with whitespace-only reason should fail")
+		assert.NoError(t, err, "Backward transition with whitespace-only reason should succeed at repo layer (validation moved to service)")
 	})
 }
 
