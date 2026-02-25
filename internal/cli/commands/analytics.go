@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -51,14 +50,12 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 
 	// Validate: at least one analysis type must be selected
 	if !sessionDuration && !pauseFrequency {
-		cli.Error("Please specify at least one analysis type: --session-duration or --pause-frequency")
-		os.Exit(3)
+		return fmt.Errorf("please specify at least one analysis type: --session-duration or --pause-frequency")
 	}
 
 	// Validate: epic or feature must be specified
 	if epicKey == "" && featureKey == "" {
-		cli.Error("Please specify --epic or --feature for analysis scope")
-		os.Exit(3)
+		return fmt.Errorf("please specify --epic or --feature for analysis scope")
 	}
 
 	// Build scope description

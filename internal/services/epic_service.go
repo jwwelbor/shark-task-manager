@@ -91,12 +91,8 @@ type EpicService struct {
 //   - If repo is nil (required dependency)
 //   - If workflowSvc is nil (required dependency)
 func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter, taskRepo EpicTaskLister) *EpicService {
-	if repo == nil {
-		panic("EpicService requires a non-nil EpicRepository")
-	}
-	if workflowSvc == nil {
-		panic("EpicService requires a non-nil workflow.Service")
-	}
+	requireNonNil(repo, "EpicService requires a non-nil EpicRepository")
+	requireNonNil(workflowSvc, "EpicService requires a non-nil workflow.Service")
 	return &EpicService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),
@@ -108,27 +104,10 @@ func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo
 	}
 }
 
-// NewEpicServiceWithRelationships creates a new EpicService with document and relationship repositories.
-// Use this constructor when orchestrator actions need to populate related documents and epics.
-//
-// Panics:
-//   - If repo is nil (required dependency)
-//   - If workflowSvc is nil (required dependency)
-func NewEpicServiceWithRelationships(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter, docRepo config.DocumentRepository, relRepo config.EpicRelationshipRepository) *EpicService {
-	if repo == nil {
-		panic("EpicService requires a non-nil EpicRepository")
-	}
-	if workflowSvc == nil {
-		panic("EpicService requires a non-nil workflow.Service")
-	}
-	return &EpicService{
-		repo:        repo,
-		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),
-		noteRepo:    noteRepo,
-		featureRepo: featureRepo,
-		docRepo:     docRepo,
-		relRepo:     relRepo,
-	}
+// SetRelRepo sets the epic relationship repository on the service.
+// This enables related epic lookups.
+func (s *EpicService) SetRelRepo(relRepo config.EpicRelationshipRepository) {
+	s.relRepo = relRepo
 }
 
 // SetDocRepo sets the document repository on the service.
@@ -171,16 +150,9 @@ func (s *EpicService) LinkDocument(ctx context.Context, epicKey, docTitle, docPa
 		return fmt.Errorf("epic not found: %w", err)
 	}
 
-	doc, err := s.writableDocRepo.CreateOrGet(ctx, docTitle, docPath)
-	if err != nil {
-		return fmt.Errorf("failed to create or get document: %w", err)
-	}
-
-	if err := s.writableDocRepo.LinkToEpic(ctx, epic.ID, doc.ID); err != nil {
-		return fmt.Errorf("failed to link document to epic %s: %w", epicKey, err)
-	}
-
-	return nil
+	_, err = linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToEpic,
+		epic.ID, docTitle, docPath, "epic", epicKey)
+	return err
 }
 
 // UnlinkDocument removes a document link from an epic by document title.
@@ -209,16 +181,8 @@ func (s *EpicService) UnlinkDocument(ctx context.Context, epicKey, docTitle stri
 		return fmt.Errorf("epic not found: %w", err)
 	}
 
-	doc, err := s.writableDocRepo.GetByTitle(ctx, docTitle)
-	if err != nil {
-		return fmt.Errorf("document not found: %w", err)
-	}
-
-	if err := s.writableDocRepo.UnlinkFromEpic(ctx, epic.ID, doc.ID); err != nil {
-		return fmt.Errorf("failed to unlink document from epic %s: %w", epicKey, err)
-	}
-
-	return nil
+	return unlinkDocumentFromEntity(ctx, s.writableDocRepo, s.writableDocRepo.UnlinkFromEpic,
+		epic.ID, docTitle, "epic", epicKey)
 }
 
 // TransitionStatus validates and performs a status transition on an epic.

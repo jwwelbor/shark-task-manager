@@ -31,6 +31,7 @@ type FeatureRepository interface {
 	GetTaskStatusBreakdown(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
 	GetTaskCount(ctx context.Context, featureID int64) (int, error)
 	SetStatusOverride(ctx context.Context, featureID int64, override bool) error
+	UpdateStatusIfNotOverridden(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error)
 	CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error
 }
 
@@ -98,12 +99,8 @@ type FeatureService struct {
 //   - If repo is nil (required dependency)
 //   - If workflowSvc is nil (required dependency)
 func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service, noteRepo FeatureNoteRepository, taskRepo FeatureTaskCounter, epicLookupRepo FeatureEpicLookup) *FeatureService {
-	if repo == nil {
-		panic("FeatureService requires a non-nil FeatureRepository")
-	}
-	if workflowSvc == nil {
-		panic("FeatureService requires a non-nil workflow.Service")
-	}
+	requireNonNil(repo, "FeatureService requires a non-nil FeatureRepository")
+	requireNonNil(workflowSvc, "FeatureService requires a non-nil workflow.Service")
 	return &FeatureService{
 		repo:           repo,
 		workflowSvc:    workflowSvc.ForLevel(workflow.LevelFeature),
@@ -115,28 +112,16 @@ func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service, no
 	}
 }
 
-// NewFeatureServiceWithRelationships creates a new FeatureService with document and relationship repositories.
-// Use this constructor when orchestrator actions need to populate related documents and features.
-//
-// Panics:
-//   - If repo is nil (required dependency)
-//   - If workflowSvc is nil (required dependency)
-func NewFeatureServiceWithRelationships(repo FeatureRepository, workflowSvc *workflow.Service, noteRepo FeatureNoteRepository, taskRepo FeatureTaskCounter, docRepo DocumentRepository, relRepo FeatureRelationshipRepository, epicLookupRepo FeatureEpicLookup) *FeatureService {
-	if repo == nil {
-		panic("FeatureService requires a non-nil FeatureRepository")
-	}
-	if workflowSvc == nil {
-		panic("FeatureService requires a non-nil workflow.Service")
-	}
-	return &FeatureService{
-		repo:           repo,
-		workflowSvc:    workflowSvc.ForLevel(workflow.LevelFeature),
-		noteRepo:       noteRepo,
-		taskRepo:       taskRepo,
-		docRepo:        docRepo,
-		relRepo:        relRepo,
-		epicLookupRepo: epicLookupRepo,
-	}
+// SetDocRepo sets the read-only document repository on the service.
+// This enables GetRelatedDocuments and document listing operations on features.
+func (s *FeatureService) SetDocRepo(docRepo DocumentRepository) {
+	s.docRepo = docRepo
+}
+
+// SetRelRepo sets the feature relationship repository on the service.
+// This enables related feature lookups.
+func (s *FeatureService) SetRelRepo(relRepo FeatureRelationshipRepository) {
+	s.relRepo = relRepo
 }
 
 // SetWritableDocRepo sets the writable document repository on the service.
@@ -172,16 +157,9 @@ func (s *FeatureService) LinkDocument(ctx context.Context, featureKey, docTitle,
 		return fmt.Errorf("feature not found: %w", err)
 	}
 
-	doc, err := s.writableDocRepo.CreateOrGet(ctx, docTitle, docPath)
-	if err != nil {
-		return fmt.Errorf("failed to create or get document: %w", err)
-	}
-
-	if err := s.writableDocRepo.LinkToFeature(ctx, feature.ID, doc.ID); err != nil {
-		return fmt.Errorf("failed to link document to feature %s: %w", featureKey, err)
-	}
-
-	return nil
+	_, err = linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToFeature,
+		feature.ID, docTitle, docPath, "feature", featureKey)
+	return err
 }
 
 // UnlinkDocument removes a document link from a feature by document title.
@@ -210,16 +188,8 @@ func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitl
 		return fmt.Errorf("feature not found: %w", err)
 	}
 
-	doc, err := s.writableDocRepo.GetByTitle(ctx, docTitle)
-	if err != nil {
-		return fmt.Errorf("document not found: %w", err)
-	}
-
-	if err := s.writableDocRepo.UnlinkFromFeature(ctx, feature.ID, doc.ID); err != nil {
-		return fmt.Errorf("failed to unlink document from feature %s: %w", featureKey, err)
-	}
-
-	return nil
+	return unlinkDocumentFromEntity(ctx, s.writableDocRepo, s.writableDocRepo.UnlinkFromFeature,
+		feature.ID, docTitle, "feature", featureKey)
 }
 
 // TransitionStatus validates and performs a status transition on a feature.
@@ -498,6 +468,16 @@ func (s *FeatureService) SetFeatureStatusOverride(ctx context.Context, featureKe
 		return fmt.Errorf("failed to set status override for feature %s: %w", featureKey, err)
 	}
 	return nil
+}
+
+// UpdateFeatureStatusIfNotOverridden updates the feature status only if the status_override flag is false.
+// Returns true if the status was updated, false if skipped due to override.
+func (s *FeatureService) UpdateFeatureStatusIfNotOverridden(ctx context.Context, featureKey string, newStatus models.FeatureStatus) (bool, error) {
+	feature, err := s.repo.GetByKey(ctx, featureKey)
+	if err != nil {
+		return false, fmt.Errorf("feature %s does not exist: %w", featureKey, err)
+	}
+	return s.repo.UpdateStatusIfNotOverridden(ctx, feature.ID, newStatus)
 }
 
 // CascadeFeatureStatusToTasks sets all tasks in a feature to the given status.

@@ -114,6 +114,14 @@ type TaskRepository interface {
 	// Returns the list of task keys that were automatically unblocked.
 	UpdateStatusForcedWithUnblock(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error)
 
+	// StatusUpdateRaw performs an atomic status update without any business-logic validation.
+	// It updates the task status, creates a history record, optionally creates a rejection note,
+	// and auto-unblocks dependents on terminal statuses -- all in a single transaction.
+	// All validation (transition validity, backward checks, reason requirements) must be
+	// performed by the service layer BEFORE calling this method.
+	// Returns the list of auto-unblocked task keys.
+	StatusUpdateRaw(ctx context.Context, params models.StatusUpdateParams) ([]string, error)
+
 	// Search operations
 	FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error)
 
@@ -197,12 +205,8 @@ type TaskService struct {
 //   - If repo is nil (required dependency)
 //   - If workflowSvc is nil (required dependency)
 func NewTaskService(repo TaskRepository, workflowSvc *workflow.Service, creatorSvc *taskcreation.Creator, noteRepo TaskNoteRepository) *TaskService {
-	if repo == nil {
-		panic("TaskService requires a non-nil TaskRepository")
-	}
-	if workflowSvc == nil {
-		panic("TaskService requires a non-nil workflow.Service")
-	}
+	requireNonNil(repo, "TaskService requires a non-nil TaskRepository")
+	requireNonNil(workflowSvc, "TaskService requires a non-nil workflow.Service")
 	return &TaskService{
 		repo:        repo,
 		workflowSvc: workflowSvc.ForLevel(workflow.LevelTask),
@@ -213,39 +217,16 @@ func NewTaskService(repo TaskRepository, workflowSvc *workflow.Service, creatorS
 	}
 }
 
-// NewTaskServiceWithRelationships creates a TaskService with document and relationship repositories.
-// Use this constructor when orchestrator actions need to populate related documents and tasks.
-//
-// Parameters:
-//   - repo: task repository for data access (required, panics if nil)
-//   - workflowSvc: workflow service for status validation and transitions (required, panics if nil)
-//   - creatorSvc: task creation service for key generation and file creation (optional)
-//   - noteRepo: note repository for rejection tracking (optional)
-//   - docRepo: document repository for related documents (optional)
-//   - relRepo: relationship repository for related tasks (optional)
-//
-// Returns:
-//   - *TaskService: configured task service instance with relationship support
-//
-// Panics:
-//   - If repo is nil (required dependency)
-//   - If workflowSvc is nil (required dependency)
-func NewTaskServiceWithRelationships(repo TaskRepository, workflowSvc *workflow.Service, creatorSvc *taskcreation.Creator, noteRepo TaskNoteRepository, docRepo config.DocumentRepository, relRepo config.TaskRelationshipRepository, sessionRepo WorkSessionRepository) *TaskService {
-	if repo == nil {
-		panic("TaskService requires a non-nil TaskRepository")
-	}
-	if workflowSvc == nil {
-		panic("TaskService requires a non-nil workflow.Service")
-	}
-	return &TaskService{
-		repo:        repo,
-		workflowSvc: workflowSvc.ForLevel(workflow.LevelTask),
-		creatorSvc:  creatorSvc,
-		noteRepo:    noteRepo,
-		docRepo:     docRepo,
-		relRepo:     relRepo,
-		sessionRepo: sessionRepo,
-	}
+// SetDocRepo sets the read-only document repository on the service.
+// This enables GetRelatedDocuments and document listing operations.
+func (s *TaskService) SetDocRepo(docRepo config.DocumentRepository) {
+	s.docRepo = docRepo
+}
+
+// SetRelRepo sets the task relationship repository on the service.
+// This enables related task lookups.
+func (s *TaskService) SetRelRepo(relRepo config.TaskRelationshipRepository) {
+	s.relRepo = relRepo
 }
 
 // CreateTask creates a new task with automatic key generation and file creation.
@@ -641,20 +622,17 @@ func (s *TaskService) StartTask(ctx context.Context, key string, agentID string)
 		return nil, fmt.Errorf("failed to start task %s: %w", key, err)
 	}
 
-	// Step 2: Validate workflow transition
-	if err := s.workflowSvc.ValidateTransition(string(task.Status), "in_progress"); err != nil {
+	// Step 2: Execute transition via orchestrator
+	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
+		targetStatus:      "in_progress",
+		agent:             &agentID,
+		skipBackwardCheck: true, // start is always forward
+	})
+	if err != nil {
 		return nil, fmt.Errorf("cannot start task %s in status %s: %w", key, task.Status, err)
 	}
 
-	// Step 3: Update status to in_progress
-	if err := s.repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agentID, nil); err != nil {
-		return nil, fmt.Errorf("failed to update task %s status: %w", key, err)
-	}
-
-	// Step 4: Return updated task
-	task.Status = models.TaskStatus("in_progress")
-	s.recalculateFeatureProgress(ctx, task.FeatureID)
-	return task, nil
+	return result.task, nil
 }
 
 // CompleteTask marks a task as complete (transitions to ready_for_review or similar).
@@ -679,24 +657,21 @@ func (s *TaskService) CompleteTask(ctx context.Context, key string, notes string
 		return nil, fmt.Errorf("failed to complete task %s: %w", key, err)
 	}
 
-	// Step 2: Validate workflow transition (typically in_progress -> ready_for_review)
-	if err := s.workflowSvc.ValidateTransition(string(task.Status), "ready_for_review"); err != nil {
-		return nil, fmt.Errorf("cannot complete task %s in status %s: %w", key, task.Status, err)
-	}
-
-	// Step 3: Update status to ready_for_review with notes
+	// Step 2: Execute transition via orchestrator
 	var notesPtr *string
 	if notes != "" {
 		notesPtr = &notes
 	}
-	if err := s.repo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), nil, notesPtr); err != nil {
-		return nil, fmt.Errorf("failed to update task %s status: %w", key, err)
+	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
+		targetStatus:      "ready_for_review",
+		notes:             notesPtr,
+		skipBackwardCheck: true, // complete is always forward
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot complete task %s in status %s: %w", key, task.Status, err)
 	}
 
-	// Step 4: Return updated task
-	task.Status = models.TaskStatus("ready_for_review")
-	s.recalculateFeatureProgress(ctx, task.FeatureID)
-	return task, nil
+	return result.task, nil
 }
 
 // ApproveTask approves a completed task (final completion).
@@ -721,24 +696,21 @@ func (s *TaskService) ApproveTask(ctx context.Context, key string, notes string)
 		return nil, fmt.Errorf("failed to approve task %s: %w", key, err)
 	}
 
-	// Step 2: Validate workflow transition (typically ready_for_review -> completed)
-	if err := s.workflowSvc.ValidateTransition(string(task.Status), "completed"); err != nil {
-		return nil, fmt.Errorf("cannot approve task %s in status %s: %w", key, task.Status, err)
-	}
-
-	// Step 3: Update status to completed with optional notes
+	// Step 2: Execute transition via orchestrator
 	var notesPtr *string
 	if notes != "" {
 		notesPtr = &notes
 	}
-	if err := s.repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), nil, notesPtr); err != nil {
-		return nil, fmt.Errorf("failed to update task %s status: %w", key, err)
+	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
+		targetStatus:      "completed",
+		notes:             notesPtr,
+		skipBackwardCheck: true, // approve is always forward
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot approve task %s in status %s: %w", key, task.Status, err)
 	}
 
-	// Step 4: Return updated task
-	task.Status = models.TaskStatus("completed")
-	s.recalculateFeatureProgress(ctx, task.FeatureID)
-	return task, nil
+	return result.task, nil
 }
 
 // ReopenTask moves a task back to in_progress.
@@ -763,24 +735,23 @@ func (s *TaskService) ReopenTask(ctx context.Context, key string, notes string) 
 		return nil, fmt.Errorf("failed to reopen task %s: %w", key, err)
 	}
 
-	// Step 2: Validate workflow transition (typically ready_for_review -> in_progress)
-	if err := s.workflowSvc.ValidateTransition(string(task.Status), "in_progress"); err != nil {
-		return nil, fmt.Errorf("cannot reopen task %s in status %s: %w", key, task.Status, err)
-	}
-
-	// Step 3: Update status to in_progress with notes explaining why reopened
+	// Step 2: Execute transition via orchestrator
+	// Reopen may be backward (e.g., ready_for_review -> in_progress) so we let
+	// the backward check run. Notes serve as the reason for backward transitions.
 	var notesPtr *string
 	if notes != "" {
 		notesPtr = &notes
 	}
-	if err := s.repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), nil, notesPtr); err != nil {
-		return nil, fmt.Errorf("failed to update task %s status: %w", key, err)
+	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
+		targetStatus: "in_progress",
+		notes:        notesPtr,
+		reason:       notesPtr, // reopen notes double as backward-transition reason
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cannot reopen task %s in status %s: %w", key, task.Status, err)
 	}
 
-	// Step 4: Return updated task
-	task.Status = models.TaskStatus("in_progress")
-	s.recalculateFeatureProgress(ctx, task.FeatureID)
-	return task, nil
+	return result.task, nil
 }
 
 // BlockTask marks a task as blocked with a reason.
@@ -810,20 +781,17 @@ func (s *TaskService) BlockTask(ctx context.Context, key string, reason string) 
 		return nil, fmt.Errorf("failed to block task %s: %w", key, err)
 	}
 
-	// Step 3: Validate workflow transition to blocked
-	if err := s.workflowSvc.ValidateTransition(string(task.Status), "blocked"); err != nil {
+	// Step 3: Execute transition via orchestrator
+	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
+		targetStatus:      "blocked",
+		notes:             &reason,
+		skipBackwardCheck: true, // block has its own reason validation above
+	})
+	if err != nil {
 		return nil, fmt.Errorf("cannot block task %s in status %s: %w", key, task.Status, err)
 	}
 
-	// Step 4: Update status to blocked with reason as notes
-	if err := s.repo.UpdateStatus(ctx, task.ID, models.TaskStatus("blocked"), nil, &reason); err != nil {
-		return nil, fmt.Errorf("failed to update task %s status: %w", key, err)
-	}
-
-	// Step 5: Return updated task
-	task.Status = models.TaskStatus("blocked")
-	s.recalculateFeatureProgress(ctx, task.FeatureID)
-	return task, nil
+	return result.task, nil
 }
 
 // UnblockTask removes the blocked status from a task.
@@ -853,20 +821,16 @@ func (s *TaskService) UnblockTask(ctx context.Context, key string) (*models.Task
 		return nil, nil, fmt.Errorf("cannot unblock task %s: task is not blocked (current status: %s)", key, task.Status)
 	}
 
-	// Step 3: Validate workflow transition from blocked to todo
-	if err := s.workflowSvc.ValidateTransition(string(task.Status), "todo"); err != nil {
+	// Step 3: Execute transition via orchestrator
+	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
+		targetStatus:      "todo",
+		skipBackwardCheck: true, // unblock is a special case, not a backward transition
+	})
+	if err != nil {
 		return nil, nil, fmt.Errorf("cannot unblock task %s: %w", key, err)
 	}
 
-	// Step 4: Update status to todo
-	if err := s.repo.UpdateStatus(ctx, task.ID, models.TaskStatus("todo"), nil, nil); err != nil {
-		return nil, nil, fmt.Errorf("failed to update task %s status: %w", key, err)
-	}
-
-	// Step 5: Return updated task with empty suggestions (can be enhanced later with dependency analysis)
-	task.Status = models.TaskStatus("todo")
-	s.recalculateFeatureProgress(ctx, task.FeatureID)
-	return task, []string{}, nil
+	return result.task, result.unblockedKeys, nil
 }
 
 // TransitionStatus validates and performs a status transition on a task.
@@ -895,19 +859,7 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 
 	fromStatus := string(task.Status)
 
-	// Step 2: Validate transition (unless forced)
-	if !opts.Force {
-		if err := s.workflowSvc.ValidateTransition(fromStatus, targetStatus); err != nil {
-			return nil, fmt.Errorf("invalid transition for task %s: %w", key, err)
-		}
-	}
-
-	// Normalize target status (unless forcing, where we accept any string)
-	if !opts.Force {
-		targetStatus = s.workflowSvc.NormalizeStatus(targetStatus)
-	}
-
-	// Step 3: Prepare options
+	// Step 2: Prepare pointer options
 	var agentPtr *string
 	if opts.Agent != "" {
 		agentPtr = &opts.Agent
@@ -921,30 +873,39 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 		docPathPtr = &opts.DocumentPath
 	}
 
-	// Step 4: Perform transition with auto-unblock
-	unblockedKeys, err := s.repo.UpdateStatusForcedWithUnblock(ctx, task.ID, models.TaskStatus(targetStatus), agentPtr, nil, reasonPtr, docPathPtr, opts.Force)
+	// Step 3: Execute transition via orchestrator
+	txResult, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
+		targetStatus: targetStatus,
+		agent:        agentPtr,
+		reason:       reasonPtr,
+		documentPath: docPathPtr,
+		force:        opts.Force,
+		// Do NOT skip backward check -- TransitionStatus is the generic path
+		// that needs full backward transition validation
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to transition task %s to %s: %w", key, targetStatus, err)
 	}
-	s.recalculateFeatureProgress(ctx, task.FeatureID)
 
-	// Step 5: Build result with orchestrator action for new status
+	// Step 4: Build result with orchestrator action for new status
+	actualTarget := string(txResult.task.Status)
 	result := &TransitionResult{
 		EntityType:         "task",
 		EntityKey:          task.Key,
 		FromStatus:         fromStatus,
-		ToStatus:           targetStatus,
+		ToStatus:           actualTarget,
 		Transitioned:       true,
-		Message:            fmt.Sprintf("Transitioned: %s -> %s", fromStatus, targetStatus),
+		Message:            fmt.Sprintf("Transitioned: %s -> %s", fromStatus, actualTarget),
 		IsForced:           opts.Force,
+		IsBackward:         txResult.isBackward,
 		Reason:             opts.Reason,
-		OrchestratorAction: s.resolveAction(ctx, task, targetStatus),
+		OrchestratorAction: s.resolveAction(ctx, task, actualTarget),
 	}
 
-	// Step 6: Store auto-unblocked keys in result message if any
-	if len(unblockedKeys) > 0 {
+	// Step 5: Store auto-unblocked keys in result message if any
+	if len(txResult.unblockedKeys) > 0 {
 		result.Message = fmt.Sprintf("Transitioned: %s -> %s (auto-unblocked: %s)",
-			fromStatus, targetStatus, strings.Join(unblockedKeys, ", "))
+			fromStatus, actualTarget, strings.Join(txResult.unblockedKeys, ", "))
 	}
 
 	return result, nil
@@ -1854,16 +1815,8 @@ func (s *TaskService) LinkDocument(ctx context.Context, taskKey, title, path str
 		return nil, fmt.Errorf("task not found: %w", err)
 	}
 
-	doc, err := s.writableDocRepo.CreateOrGet(ctx, title, path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create or get document: %w", err)
-	}
-
-	if err := s.writableDocRepo.LinkToTask(ctx, task.ID, doc.ID); err != nil {
-		return nil, fmt.Errorf("failed to link document to task %s: %w", taskKey, err)
-	}
-
-	return doc, nil
+	return linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToTask,
+		task.ID, title, path, "task", taskKey)
 }
 
 // UnlinkDocument removes the link between a document and a task.
@@ -2019,6 +1972,121 @@ func (s *TaskService) recalculateFeatureProgress(ctx context.Context, featureID 
 		return
 	}
 	_ = s.featureService.RecalculateAndSetProgress(ctx, featureID)
+}
+
+// statusTransitionOpts bundles all options for a status transition.
+// This is an internal struct used by executeStatusTransition.
+type statusTransitionOpts struct {
+	// targetStatus is the desired new status.
+	targetStatus string
+	// agent is the optional agent performing the transition.
+	agent *string
+	// notes is optional notes for the transition.
+	notes *string
+	// reason is optional rejection/block reason (required for backward transitions).
+	reason *string
+	// documentPath is optional path to a related document.
+	documentPath *string
+	// force bypasses transition validation when true.
+	force bool
+	// skipBackwardCheck skips backward transition reason validation.
+	// Used by named lifecycle methods (e.g., BlockTask) where the transition
+	// direction is known and reason handling is explicit.
+	skipBackwardCheck bool
+}
+
+// statusTransitionResult contains the output of a status transition.
+type statusTransitionResult struct {
+	// task is the updated task with the new status applied in-memory.
+	task *models.Task
+	// unblockedKeys contains keys of tasks that were auto-unblocked.
+	unblockedKeys []string
+	// isBackward is true if this was a backward transition.
+	isBackward bool
+}
+
+// executeStatusTransition orchestrates a full status transition for a task.
+// It performs all business-logic validation and delegates the raw DB write to
+// StatusUpdateRaw on the repository.
+//
+// Orchestration steps:
+//  1. Validate transition (unless force=true)
+//  2. Normalize target status (unless force=true)
+//  3. Check backward transition and enforce reason requirement (unless skipBackwardCheck)
+//  4. Build StatusUpdateParams from task state and opts
+//  5. Call repo.StatusUpdateRaw for atomic DB write
+//  6. Update task in-memory and recalculate feature progress
+//
+// Parameters:
+//   - ctx: context for cancellation and timeout
+//   - task: the task to transition (must be loaded from DB with current state)
+//   - opts: transition options controlling validation and metadata
+//
+// Returns:
+//   - *statusTransitionResult: the result including updated task and unblocked keys
+//   - error: validation, workflow, or repository errors
+func (s *TaskService) executeStatusTransition(ctx context.Context, task *models.Task, opts statusTransitionOpts) (*statusTransitionResult, error) {
+	fromStatus := string(task.Status)
+	targetStatus := opts.targetStatus
+
+	// Step 1: Validate transition (unless forced)
+	if !opts.force {
+		if err := s.workflowSvc.ValidateTransition(fromStatus, targetStatus); err != nil {
+			return nil, err
+		}
+		// Normalize target status
+		targetStatus = s.workflowSvc.NormalizeStatus(targetStatus)
+	}
+
+	// Step 2: Check backward transition and enforce reason requirement
+	isBackward := false
+	if !opts.force && !opts.skipBackwardCheck {
+		var err error
+		isBackward, err = s.workflowSvc.IsBackwardTransition(fromStatus, targetStatus)
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine transition direction: %w", err)
+		}
+		if isBackward {
+			if opts.reason == nil || strings.TrimSpace(*opts.reason) == "" {
+				return nil, &BackwardReasonError{
+					FromStatus: fromStatus,
+					ToStatus:   targetStatus,
+				}
+			}
+		}
+	}
+
+	// Step 3: Build StatusUpdateParams
+	params := models.StatusUpdateParams{
+		TaskID:          task.ID,
+		NewStatus:       models.TaskStatus(targetStatus),
+		Agent:           opts.agent,
+		Notes:           opts.notes,
+		RejectionReason: opts.reason,
+		DocumentPath:    opts.documentPath,
+		Force:           opts.force,
+		OldStatus:       fromStatus,
+		TaskKey:         task.Key,
+		StartedAt:       task.StartedAt,
+		CompletedAt:     task.CompletedAt,
+		BlockedAt:       task.BlockedAt,
+	}
+
+	// Step 5: Call repository for atomic DB write
+	unblockedKeys, err := s.repo.StatusUpdateRaw(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update task %s status: %w", task.Key, err)
+	}
+
+	// Step 6: Update task in-memory and recalculate feature progress
+	task.Status = models.TaskStatus(targetStatus)
+	s.recalculateFeatureProgress(ctx, task.FeatureID)
+
+	return &statusTransitionResult{
+		task:          task,
+		unblockedKeys: unblockedKeys,
+		isBackward:    isBackward,
+	}, nil
 }
 
 // GetTaskHistory retrieves the complete status change history for a task.

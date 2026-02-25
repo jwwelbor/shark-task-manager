@@ -102,7 +102,7 @@ func TestTaskRepository_UpdateStatusWithOrchestratorAction(t *testing.T) {
 
 	// Call UpdateStatusWithAction - the new method we're testing
 	// This should return both the updated task and the orchestrator action
-	updatedTask, action, err := taskRepoWithWorkflow.UpdateStatusWithAction(ctx, task.Key, "in_development")
+	updatedTask, action, err := taskRepoWithWorkflow.UpdateStatusWithAction(ctx, task.Key, "in_development", workflow)
 
 	// Assertions
 	require.NoError(t, err, "UpdateStatusWithAction should not error")
@@ -203,7 +203,7 @@ func TestTaskRepository_UpdateStatusWithoutOrchestratorAction(t *testing.T) {
 	taskRepoWithWorkflow := NewTaskRepositoryWithWorkflow(db, workflow)
 
 	// Call UpdateStatusWithAction
-	updatedTask, action, err := taskRepoWithWorkflow.UpdateStatusWithAction(ctx, task.Key, "in_development")
+	updatedTask, action, err := taskRepoWithWorkflow.UpdateStatusWithAction(ctx, task.Key, "in_development", workflow)
 
 	// Assertions
 	require.NoError(t, err, "UpdateStatusWithAction should not error even without action")
@@ -303,7 +303,7 @@ func TestTaskRepository_UpdateStatusPopulatesTemplateVariables(t *testing.T) {
 	taskRepoWithWorkflow := NewTaskRepositoryWithWorkflow(db, workflow)
 
 	// Call UpdateStatusWithAction
-	_, action, err := taskRepoWithWorkflow.UpdateStatusWithAction(ctx, task.Key, "in_development")
+	_, action, err := taskRepoWithWorkflow.UpdateStatusWithAction(ctx, task.Key, "in_development", workflow)
 
 	// Assertions
 	require.NoError(t, err)

@@ -884,15 +884,6 @@ func (r *FeatureRepository) SetStatusOverride(ctx context.Context, featureID int
 	return nil
 }
 
-// SetStatusOverrideByKey enables or disables status override for a feature by its key
-func (r *FeatureRepository) SetStatusOverrideByKey(ctx context.Context, featureKey string, override bool) error {
-	feature, err := r.GetByKey(ctx, featureKey)
-	if err != nil {
-		return err
-	}
-	return r.SetStatusOverride(ctx, feature.ID, override)
-}
-
 // UpdateStatusIfNotOverridden updates the status only if status_override is false
 // Returns true if the status was updated, false if skipped due to override
 func (r *FeatureRepository) UpdateStatusIfNotOverridden(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error) {
@@ -913,15 +904,6 @@ func (r *FeatureRepository) UpdateStatusIfNotOverridden(ctx context.Context, fea
 	}
 
 	return rows > 0, nil
-}
-
-// UpdateStatusIfNotOverriddenByKey updates the status only if status_override is false
-func (r *FeatureRepository) UpdateStatusIfNotOverriddenByKey(ctx context.Context, featureKey string, newStatus models.FeatureStatus) (bool, error) {
-	feature, err := r.GetByKey(ctx, featureKey)
-	if err != nil {
-		return false, err
-	}
-	return r.UpdateStatusIfNotOverridden(ctx, feature.ID, newStatus)
 }
 
 // GetContextData retrieves the context data JSON string for a feature by its ID
@@ -976,24 +958,8 @@ func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID 
 	return nil
 }
 
-// CascadeStatusToTasksByKey is a convenience method that cascades status by feature key
-func (r *FeatureRepository) CascadeStatusToTasksByKey(ctx context.Context, featureKey string, targetTaskStatus models.TaskStatus) error {
-	feature, err := r.GetByKey(ctx, featureKey)
-	if err != nil {
-		return err
-	}
-	return r.CascadeStatusToTasks(ctx, feature.ID, targetTaskStatus)
-}
-
-// isNumeric returns true if s is a non-empty string containing only ASCII digits.
+// isNumeric delegates to the shared IsNumeric helper.
+// Kept as a package-private wrapper for backward compatibility with existing code.
 func isNumeric(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, ch := range s {
-		if ch < '0' || ch > '9' {
-			return false
-		}
-	}
-	return true
+	return IsNumeric(s)
 }

@@ -133,20 +133,17 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 
 	// Not found by numeric key - try slugged format if key contains hyphen
 	// Slugged format: E04-epic-name (key + slug)
-	if !containsHyphen(key) {
+	if !ContainsHyphen(key) {
 		// No hyphen means it's not a slugged key, return not found
 		return nil, sql.ErrNoRows
 	}
 
 	// Parse slugged key: extract numeric key and slug
 	// Format: E04-epic-name -> key="E04", slug="epic-name"
-	parts := splitSluggedKey(key)
-	if len(parts) < 2 {
+	numericKey, slug, ok := SplitAtFirstHyphen(key)
+	if !ok || slug == "" {
 		return nil, sql.ErrNoRows
 	}
-
-	numericKey := parts[0]
-	slug := parts[1]
 
 	// Query by numeric key and slug
 	slugQuery := `
@@ -181,36 +178,25 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic
 	return epic, nil
 }
 
-// containsHyphen checks if a string contains a hyphen
+// containsHyphen is a backward-compatible wrapper around ContainsHyphen.
+// Kept for existing test compatibility. New code should use ContainsHyphen.
 func containsHyphen(s string) bool {
-	for _, c := range s {
-		if c == '-' {
-			return true
-		}
-	}
-	return false
+	return ContainsHyphen(s)
 }
 
-// splitSluggedKey splits a slugged key into [numericKey, slug]
+// splitSluggedKey is a backward-compatible wrapper that splits a slugged key
+// into [numericKey, slug] or [key] if no hyphen is present.
+// Kept for existing test compatibility. New code should use SplitAtFirstHyphen.
+//
 // Example: "E04-epic-name" -> ["E04", "epic-name"]
+// Example: "E04" -> ["E04"]
+// Example: "" -> [""]
 func splitSluggedKey(key string) []string {
-	// Find first hyphen position
-	hyphenIdx := -1
-	for i, c := range key {
-		if c == '-' {
-			hyphenIdx = i
-			break
-		}
+	prefix, suffix, ok := SplitAtFirstHyphen(key)
+	if !ok {
+		return []string{prefix}
 	}
-
-	if hyphenIdx == -1 {
-		return []string{key}
-	}
-
-	numericKey := key[:hyphenIdx]
-	slug := key[hyphenIdx+1:]
-
-	return []string{numericKey, slug}
+	return []string{prefix, suffix}
 }
 
 // GetByFilePath retrieves an epic by its file path for collision detection
@@ -566,15 +552,6 @@ func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status 
 	return nil
 }
 
-// UpdateStatusByKey updates the status of an epic by its key
-func (r *EpicRepository) UpdateStatusByKey(ctx context.Context, epicKey string, status models.EpicStatus) error {
-	epic, err := r.GetByKey(ctx, epicKey)
-	if err != nil {
-		return err
-	}
-	return r.UpdateStatus(ctx, epic.ID, status)
-}
-
 // CascadeStatusToFeaturesAndTasks updates the status of all child features and their tasks
 // Used when --force is specified to override workflow validation
 func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
@@ -609,15 +586,6 @@ func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, ep
 	}
 
 	return nil
-}
-
-// CascadeStatusToFeaturesAndTasksByKey is a convenience method that cascades status by epic key
-func (r *EpicRepository) CascadeStatusToFeaturesAndTasksByKey(ctx context.Context, epicKey string, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
-	epic, err := r.GetByKey(ctx, epicKey)
-	if err != nil {
-		return err
-	}
-	return r.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, targetFeatureStatus, targetTaskStatus)
 }
 
 // ============================================================================

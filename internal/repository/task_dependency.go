@@ -165,8 +165,8 @@ func (r *TaskRepository) ReopenTaskWithAutoBlock(ctx context.Context, taskID int
 		return fmt.Errorf("failed to get task key: %w", err)
 	}
 
-	// Reopen the task (using existing ReopenTaskForced since we're in a transaction)
-	err = r.reopenTaskInTx(ctx, tx, taskID, agent, notes, false)
+	// Reopen the task
+	err = r.reopenTaskInTx(ctx, tx, taskID, agent, notes)
 	if err != nil {
 		return fmt.Errorf("failed to reopen task: %w", err)
 	}
@@ -193,9 +193,11 @@ func (r *TaskRepository) ReopenTaskWithAutoBlock(ctx context.Context, taskID int
 	return nil
 }
 
-// reopenTaskInTx reopens a task within a transaction
-func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID int64, agent *string, notes *string, force bool) error {
-	// Get current task state
+// reopenTaskInTx reopens a task within a transaction.
+// NOTE: Workflow validation is handled by the service layer. This method performs
+// the raw status update without checking the current status.
+func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID int64, agent *string, notes *string) error {
+	// Get current task state for history record
 	var currentStatus string
 	err := tx.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = ?", taskID).Scan(&currentStatus)
 	if err == sql.ErrNoRows {
@@ -203,15 +205,6 @@ func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID 
 	}
 	if err != nil {
 		return fmt.Errorf("failed to get current task status: %w", err)
-	}
-
-	// Validate transition if not forcing
-	currentTaskStatus := models.TaskStatus(currentStatus)
-	if !force {
-		// Only allow reopening from ready_for_review
-		if currentTaskStatus != models.TaskStatus("ready_for_review") {
-			return fmt.Errorf("invalid status transition from %s to in_progress", currentStatus)
-		}
 	}
 
 	// Update status and clear completed_at
@@ -223,7 +216,7 @@ func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID 
 
 	// Create history record
 	historyQuery := `INSERT INTO task_history (task_id, old_status, new_status, agent, notes, forced) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatus("in_progress"), agent, notes, force)
+	_, err = tx.ExecContext(ctx, historyQuery, taskID, currentStatus, models.TaskStatus("in_progress"), agent, notes, false)
 	if err != nil {
 		return fmt.Errorf("failed to create history record: %w", err)
 	}

@@ -175,7 +175,8 @@ func GetFeatureService() *services.FeatureService {
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	docRepo := repository.NewDocumentRepository(db)
-	svc := services.NewFeatureServiceWithRelationships(featureRepo, workflowSvc, noteRepo, taskRepo, docRepo, nil, epicRepo)
+	svc := services.NewFeatureService(featureRepo, workflowSvc, noteRepo, taskRepo, epicRepo)
+	svc.SetDocRepo(docRepo)
 	svc.SetWritableDocRepo(docRepo)
 	return svc
 }

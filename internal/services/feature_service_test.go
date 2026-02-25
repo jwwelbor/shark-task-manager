@@ -16,20 +16,21 @@ import (
 
 // mockFeatureRepo implements FeatureRepository for testing.
 type mockFeatureRepo struct {
-	getByKeyFn               func(ctx context.Context, key string) (*models.Feature, error)
-	getByIDFn                func(ctx context.Context, id int64) (*models.Feature, error)
-	createFn                 func(ctx context.Context, feature *models.Feature) error
-	updateFn                 func(ctx context.Context, feature *models.Feature) error
-	deleteFn                 func(ctx context.Context, id int64) error
-	listFn                   func(ctx context.Context) ([]*models.Feature, error)
-	listByEpicFn             func(ctx context.Context, epicID int64) ([]*models.Feature, error)
-	getTaskStatusBreakdownFn func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
-	cascadeStatusToTasksFn   func(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error
-	updateKeyFn              func(ctx context.Context, oldKey string, newKey string) error
-	getTaskCountFn           func(ctx context.Context, featureID int64) (int, error)
-	setStatusOverrideFn      func(ctx context.Context, featureID int64, override bool) error
-	updateFilePathFn         func(ctx context.Context, featureKey string, newFilePath *string) error
-	getByFilePathFn          func(ctx context.Context, filePath string) (*models.Feature, error)
+	getByKeyFn                    func(ctx context.Context, key string) (*models.Feature, error)
+	getByIDFn                     func(ctx context.Context, id int64) (*models.Feature, error)
+	createFn                      func(ctx context.Context, feature *models.Feature) error
+	updateFn                      func(ctx context.Context, feature *models.Feature) error
+	deleteFn                      func(ctx context.Context, id int64) error
+	listFn                        func(ctx context.Context) ([]*models.Feature, error)
+	listByEpicFn                  func(ctx context.Context, epicID int64) ([]*models.Feature, error)
+	getTaskStatusBreakdownFn      func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
+	cascadeStatusToTasksFn        func(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error
+	updateKeyFn                   func(ctx context.Context, oldKey string, newKey string) error
+	getTaskCountFn                func(ctx context.Context, featureID int64) (int, error)
+	setStatusOverrideFn           func(ctx context.Context, featureID int64, override bool) error
+	updateStatusIfNotOverriddenFn func(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error)
+	updateFilePathFn              func(ctx context.Context, featureKey string, newFilePath *string) error
+	getByFilePathFn               func(ctx context.Context, filePath string) (*models.Feature, error)
 }
 
 // mockFeatureEpicLookup implements FeatureEpicLookup for testing.
@@ -153,6 +154,13 @@ func (m *mockFeatureRepo) SetStatusOverride(ctx context.Context, featureID int64
 		return m.setStatusOverrideFn(ctx, featureID, override)
 	}
 	return nil
+}
+
+func (m *mockFeatureRepo) UpdateStatusIfNotOverridden(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error) {
+	if m.updateStatusIfNotOverriddenFn != nil {
+		return m.updateStatusIfNotOverriddenFn(ctx, featureID, newStatus)
+	}
+	return true, nil
 }
 
 func (m *mockFeatureRepo) CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error {
@@ -2392,9 +2400,9 @@ func (m *mockDocumentRepository) ListForEpic(ctx context.Context, epicID int64) 
 	return nil, nil
 }
 
-// TestFeatureService_NewFeatureServiceWithRelationships verifies the constructor
-// properly wires all optional repository dependencies.
-func TestFeatureService_NewFeatureServiceWithRelationships(t *testing.T) {
+// TestFeatureService_SetDocRepo verifies the setter
+// properly wires the optional document repository dependency.
+func TestFeatureService_SetDocRepo(t *testing.T) {
 	repo := &mockFeatureRepo{}
 	workflowSvc := newTestFeatureWorkflowService()
 	docRepo := &mockDocumentRepository{
@@ -2403,7 +2411,8 @@ func TestFeatureService_NewFeatureServiceWithRelationships(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureServiceWithRelationships(repo, workflowSvc, nil, nil, docRepo, nil, nil)
+	svc := NewFeatureService(repo, workflowSvc, nil, nil, nil)
+	svc.SetDocRepo(docRepo)
 
 	if svc == nil {
 		t.Fatal("expected non-nil service")
@@ -2804,7 +2813,8 @@ func TestFeatureService_ListRelatedDocuments_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureServiceWithRelationships(repo, newTestFeatureWorkflowService(), nil, nil, docRepo, nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetDocRepo(docRepo)
 
 	docs, err := svc.ListRelatedDocuments(context.Background(), 1)
 	if err != nil {
@@ -2823,7 +2833,8 @@ func TestFeatureService_ListRelatedDocuments_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureServiceWithRelationships(repo, newTestFeatureWorkflowService(), nil, nil, docRepo, nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetDocRepo(docRepo)
 
 	_, err := svc.ListRelatedDocuments(context.Background(), 1)
 	if err == nil {
@@ -2849,7 +2860,8 @@ func TestFeatureService_ListRelatedDocumentsByKey_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureServiceWithRelationships(repo, newTestFeatureWorkflowService(), nil, nil, docRepo, nil, nil)
+	svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+	svc.SetDocRepo(docRepo)
 
 	docs, err := svc.ListRelatedDocumentsByKey(context.Background(), "E07-F01")
 	if err != nil {
@@ -3062,4 +3074,69 @@ func TestFeatureService_CreateFeature_WithFilePath_Collision_WithForce(t *testin
 	if !updateFilePathCalled {
 		t.Error("expected UpdateFilePath to be called to release old path")
 	}
+}
+
+func TestFeatureService_UpdateFeatureStatusIfNotOverridden(t *testing.T) {
+	t.Run("success - status updated", func(t *testing.T) {
+		repo := &mockFeatureRepo{
+			getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+				return &models.Feature{ID: 42, Key: "E01-F01", Status: models.FeatureStatusDraft}, nil
+			},
+			updateStatusIfNotOverriddenFn: func(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error) {
+				if featureID != 42 {
+					t.Errorf("expected featureID 42, got %d", featureID)
+				}
+				if newStatus != models.FeatureStatusActive {
+					t.Errorf("expected status active, got %s", newStatus)
+				}
+				return true, nil
+			},
+		}
+
+		svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+		updated, err := svc.UpdateFeatureStatusIfNotOverridden(context.Background(), "E01-F01", models.FeatureStatusActive)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if !updated {
+			t.Error("expected updated to be true")
+		}
+	})
+
+	t.Run("success - skipped due to override", func(t *testing.T) {
+		repo := &mockFeatureRepo{
+			getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+				return &models.Feature{ID: 42, Key: "E01-F01", Status: models.FeatureStatusDraft}, nil
+			},
+			updateStatusIfNotOverriddenFn: func(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error) {
+				return false, nil
+			},
+		}
+
+		svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+		updated, err := svc.UpdateFeatureStatusIfNotOverridden(context.Background(), "E01-F01", models.FeatureStatusActive)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+		if updated {
+			t.Error("expected updated to be false")
+		}
+	})
+
+	t.Run("error - feature not found", func(t *testing.T) {
+		repo := &mockFeatureRepo{
+			getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+				return nil, fmt.Errorf("feature not found")
+			},
+		}
+
+		svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+		_, err := svc.UpdateFeatureStatusIfNotOverridden(context.Background(), "E01-F99", models.FeatureStatusActive)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "does not exist") {
+			t.Errorf("expected 'does not exist' in error, got: %v", err)
+		}
+	})
 }

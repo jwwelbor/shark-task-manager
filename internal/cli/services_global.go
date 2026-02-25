@@ -193,7 +193,10 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	docRepo := repository.NewDocumentRepository(d.db)
 	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(d.db)}
 
-	svc := services.NewTaskServiceWithRelationships(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo, docRepo, relRepo, sessionRepo)
+	svc := services.NewTaskService(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo)
+	svc.SetDocRepo(docRepo)
+	svc.SetRelRepo(relRepo)
+	svc.SetSessionRepo(sessionRepo)
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetDepRepo(relRepo)
 	svc.SetRelQueryRepo(relRepo)

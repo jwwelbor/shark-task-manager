@@ -9,22 +9,22 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
 
-// TestUpdateStatus_WorkflowValidation tests that status transitions are validated against workflow config
-func TestUpdateStatus_WorkflowValidation(t *testing.T) {
+// TestUpdateStatus_NoValidation tests that the repository layer no longer validates
+// status transitions. All validation is now handled by the service layer.
+func TestUpdateStatus_NoValidation(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 
-	// Create custom workflow with strict transitions using existing DB statuses
-	// Note: We use existing statuses because DB has CHECK constraint
+	// Create custom workflow (kept for constructor compatibility)
 	customWorkflow := &config.WorkflowConfig{
 		Version: "1.0",
 		StatusFlow: map[string][]string{
-			"todo":             {"in_progress"}, // Can only go to in_progress
-			"in_progress":      {"completed"},   // Can only go to completed
-			"completed":        {},              // Terminal status
-			"blocked":          {},              // Terminal (for this test)
-			"ready_for_review": {},              // Terminal (for this test)
+			"todo":             {"in_progress"},
+			"in_progress":      {"completed"},
+			"completed":        {},
+			"blocked":          {},
+			"ready_for_review": {},
 		},
 		SpecialStatuses: map[string][]string{
 			config.StartStatusKey:    {"todo"},
@@ -41,64 +41,55 @@ func TestUpdateStatus_WorkflowValidation(t *testing.T) {
 
 	repo := NewTaskRepositoryWithWorkflow(db, customWorkflow)
 
-	// Clean up and seed test data
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'TEST-WORKFLOW-%'")
 	test.SeedTestData()
 
-	// Get test task and reset to todo
 	task, err := repo.GetByKey(ctx, "T-E99-F99-002")
 	if err != nil {
 		t.Fatalf("Failed to get test task: %v", err)
 	}
 
-	// Reset task to todo status
 	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", "todo", task.ID)
 
 	agent := "workflow-validation-test"
 
-	// Test 1: Valid transition (todo -> in_progress)
+	// Test 1: Forward transition succeeds
 	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err != nil {
-		t.Errorf("Valid transition todo->in_progress should succeed, got error: %v", err)
+		t.Errorf("Transition todo->in_progress should succeed: %v", err)
 	}
 
-	// Verify status was updated
 	updatedTask, _ := repo.GetByID(ctx, task.ID)
 	if updatedTask.Status != models.TaskStatus("in_progress") {
 		t.Errorf("Expected status in_progress, got %s", updatedTask.Status)
 	}
 
-	// Test 2: Invalid transition (in_progress -> todo) - should fail
+	// Test 2: Previously invalid transition now succeeds (validation moved to service)
 	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("todo"), &agent, nil)
-	if err == nil {
-		t.Error("Invalid transition in_progress->todo should fail, but succeeded")
+	if err != nil {
+		t.Errorf("Transition in_progress->todo should succeed at repo layer (validation moved to service): %v", err)
 	}
 
-	// Verify error message mentions the invalid transition
-	if err != nil && !containsString(err.Error(), "invalid transition") {
-		t.Errorf("Error message should mention 'invalid transition', got: %v", err)
-	}
-
-	// Test 3: Valid transition (in_progress -> completed)
+	// Test 3: Any transition succeeds at repo layer
+	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", "in_progress", task.ID)
 	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
 	if err != nil {
-		t.Errorf("Valid transition in_progress->completed should succeed, got error: %v", err)
+		t.Errorf("Transition in_progress->completed should succeed at repo layer: %v", err)
 	}
 
-	// Test 4: Invalid transition from terminal status (completed -> in_progress)
+	// Test 4: Transition from terminal status also succeeds at repo layer
 	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
-	if err == nil {
-		t.Error("Transition from terminal status should fail, but succeeded")
+	if err != nil {
+		t.Errorf("Transition completed->in_progress should succeed at repo layer (validation moved to service): %v", err)
 	}
 }
 
-// TestUpdateStatus_DefaultWorkflowValidation tests validation with default workflow
-func TestUpdateStatus_DefaultWorkflowValidation(t *testing.T) {
+// TestUpdateStatus_DefaultWorkflowAcceptsAll tests that default workflow repo accepts all transitions
+func TestUpdateStatus_DefaultWorkflowAcceptsAll(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 
-	// Use default workflow (todo -> in_progress -> ready_for_review -> completed)
 	repo := NewTaskRepository(db)
 
 	test.SeedTestData()
@@ -107,43 +98,26 @@ func TestUpdateStatus_DefaultWorkflowValidation(t *testing.T) {
 		t.Fatalf("Failed to get test task: %v", err)
 	}
 
-	// Reset to todo
 	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "default-workflow-test"
 
-	// Valid transition: todo -> in_progress
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
-	if err != nil {
-		t.Errorf("Valid transition should succeed: %v", err)
-	}
-
-	// Invalid transition: in_progress -> completed (skipping ready_for_review)
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
-	if err == nil {
-		t.Error("Invalid transition in_progress->completed should fail (must go through ready_for_review)")
-	}
-
-	// Valid transition: in_progress -> ready_for_review
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("ready_for_review"), &agent, nil)
-	if err != nil {
-		t.Errorf("Valid transition should succeed: %v", err)
-	}
-
-	// Valid transition: ready_for_review -> completed
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
-	if err != nil {
-		t.Errorf("Valid transition should succeed: %v", err)
+	// All transitions should succeed at repo layer
+	transitions := []models.TaskStatus{"in_progress", "completed", "ready_for_review", "todo", "blocked"}
+	for _, target := range transitions {
+		err = repo.UpdateStatus(ctx, task.ID, target, &agent, nil)
+		if err != nil {
+			t.Errorf("Transition to %s should succeed at repo layer: %v", target, err)
+		}
 	}
 }
 
-// TestUpdateStatus_BlockedTransitions tests blocking transitions with workflow
+// TestUpdateStatus_BlockedTransitions tests blocking transitions work without validation
 func TestUpdateStatus_BlockedTransitions(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 
-	// Default workflow allows blocking from todo and in_progress
 	repo := NewTaskRepository(db)
 
 	test.SeedTestData()
@@ -152,53 +126,36 @@ func TestUpdateStatus_BlockedTransitions(t *testing.T) {
 		t.Fatalf("Failed to get test task: %v", err)
 	}
 
-	// Reset to todo
 	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
 
 	agent := "blocked-workflow-test"
 
-	// Valid: todo -> blocked
+	// todo -> blocked
 	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("blocked"), &agent, nil)
 	if err != nil {
-		t.Errorf("Valid transition todo->blocked should succeed: %v", err)
+		t.Errorf("Transition todo->blocked should succeed: %v", err)
 	}
 
-	// Valid: blocked -> in_progress
+	// blocked -> in_progress
 	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
 	if err != nil {
-		t.Errorf("Valid transition blocked->in_progress should succeed: %v", err)
+		t.Errorf("Transition blocked->in_progress should succeed: %v", err)
 	}
 
-	// Valid: in_progress -> blocked
+	// in_progress -> blocked
 	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("blocked"), &agent, nil)
 	if err != nil {
-		t.Errorf("Valid transition in_progress->blocked should succeed: %v", err)
+		t.Errorf("Transition in_progress->blocked should succeed: %v", err)
 	}
 }
 
-// TestUpdateStatus_ErrorMessages tests that validation errors include helpful information
-func TestUpdateStatus_ErrorMessages(t *testing.T) {
+// TestUpdateStatus_HistoryRecordsCreated tests that history records are created for all transitions
+func TestUpdateStatus_HistoryRecordsCreated(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := NewDB(database)
 
-	// Use DB-compatible statuses
-	customWorkflow := &config.WorkflowConfig{
-		Version: "1.0",
-		StatusFlow: map[string][]string{
-			"todo":             {"in_progress", "blocked"},
-			"in_progress":      {"ready_for_review"},
-			"ready_for_review": {"completed"},
-			"completed":        {},
-			"blocked":          {"todo"},
-		},
-		SpecialStatuses: map[string][]string{
-			config.StartStatusKey:    {"todo"},
-			config.CompleteStatusKey: {"completed"},
-		},
-	}
-
-	repo := NewTaskRepositoryWithWorkflow(db, customWorkflow)
+	repo := NewTaskRepository(db)
 
 	test.SeedTestData()
 	task, err := repo.GetByKey(ctx, "T-E99-F99-004")
@@ -206,24 +163,27 @@ func TestUpdateStatus_ErrorMessages(t *testing.T) {
 		t.Fatalf("Failed to get test task: %v", err)
 	}
 
-	// Set task to todo status
 	_, _ = database.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE id = ?", models.TaskStatus("todo"), task.ID)
+	// Clean up any existing history for this task
+	_, _ = database.ExecContext(ctx, "DELETE FROM task_history WHERE task_id = ?", task.ID)
 
-	agent := "error-message-test"
+	agent := "history-test"
 
-	// Try invalid transition (todo -> completed, skipping in_progress and ready_for_review)
-	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("completed"), &agent, nil)
-
-	// Verify error contains helpful information
-	if err == nil {
-		t.Fatal("Expected error for invalid transition, got nil")
+	// Perform a transition
+	err = repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agent, nil)
+	if err != nil {
+		t.Fatalf("Transition should succeed: %v", err)
 	}
 
-	errMsg := err.Error()
-	expectedParts := []string{"invalid transition", "todo", "completed"}
-	for _, part := range expectedParts {
-		if !containsString(errMsg, part) {
-			t.Errorf("Error message should contain '%s', got: %s", part, errMsg)
-		}
+	// Verify history record was created
+	var count int
+	err = database.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM task_history WHERE task_id = ? AND old_status = ? AND new_status = ?",
+		task.ID, "todo", "in_progress").Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to query history: %v", err)
+	}
+	if count == 0 {
+		t.Error("Expected history record to be created for transition")
 	}
 }
