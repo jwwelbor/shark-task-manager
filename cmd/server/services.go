@@ -38,12 +38,39 @@ package main
 //	}
 
 import (
+	"context"
+
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// entityNoteAdapter adapts *repository.EntityNoteRepository to the services.EpicNoteRepository
+// and services.FeatureNoteRepository interfaces (both have identical signatures).
+// The service interfaces use (string, string) for entityType and documentPath,
+// while the repository uses (models.EntityType, *string).
+type entityNoteAdapter struct {
+	repo *repository.EntityNoteRepository
+}
+
+func (a *entityNoteAdapter) CreateRejectionNote(
+	ctx context.Context,
+	entityType string,
+	entityID int64,
+	historyID int64,
+	fromStatus, toStatus, reason, rejectedBy, documentPath string,
+) error {
+	var dp *string
+	if documentPath != "" {
+		dp = &documentPath
+	}
+	_, err := a.repo.CreateRejectionNote(ctx, models.EntityType(entityType), entityID, historyID,
+		fromStatus, toStatus, reason, rejectedBy, dp)
+	return err
+}
 
 // ServiceContainer holds all initialized services for HTTP handlers.
 // This provides a clean way to pass services to handlers without global state.
@@ -96,10 +123,12 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		noteRepo,    // Rejection note tracking (implements TaskNoteRepository)
 	)
 
+	noteAdapter := &entityNoteAdapter{repo: noteRepo}
+
 	featureService := services.NewFeatureService(
 		featureRepo, // Feature data access
 		workflowSvc, // Workflow validation
-		nil,         // TODO: Note repository (FeatureNoteRepository interface differs)
+		noteAdapter, // Rejection note tracking (adapted to FeatureNoteRepository)
 		taskRepo,    // Child task counting for warnings
 		epicRepo,    // Epic lookup for CreateFeature
 	)
@@ -110,7 +139,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	epicService := services.NewEpicService(
 		epicRepo,    // Epic data access
 		workflowSvc, // Workflow validation
-		nil,         // TODO: Note repository (EpicNoteRepository interface differs)
+		noteAdapter, // Rejection note tracking (adapted to EpicNoteRepository)
 		featureRepo, // Child feature counting for warnings
 		taskRepo,    // Task repository for impediment tracking
 	)
