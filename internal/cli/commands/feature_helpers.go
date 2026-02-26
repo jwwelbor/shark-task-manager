@@ -1017,14 +1017,20 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 		}
 	}
 
-	execOrder, _ := cmd.Flags().GetInt("execution-order")
-	if orderFlag, _ := cmd.Flags().GetInt("order"); orderFlag != -1 {
-		execOrder = orderFlag
-	}
-	if execOrder != -1 {
-		updates.ExecutionOrder = &execOrder
-		changed = true
-	}
+    var execOrder int
+    var execOrderSet bool
+    if cmd.Flags().Changed("order") {
+        execOrder, _ = cmd.Flags().GetInt("order")
+        execOrderSet = true
+    } else if cmd.Flags().Changed("execution-order") {
+        execOrder, _ = cmd.Flags().GetInt("execution-order")
+        execOrderSet = true
+    }
+
+    if execOrderSet && execOrder != -1 {
+        updates.ExecutionOrder = &execOrder
+        changed = true
+    }
 
 	if changed {
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
