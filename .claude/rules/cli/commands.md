@@ -6,106 +6,157 @@ paths: "internal/cli/commands/**/*"
 
 This rule is loaded when working with CLI command implementations.
 
+## Command Architecture (E17)
+
+The CLI is organized into categories, not by entity type. Two command styles work identically:
+
+- **Quick Commands**: `shark next`, `shark start`, `shark done`, `shark block`, `shark unblock`
+- **Standard Commands**: `shark task next`, `shark task start`, `shark task complete`, `shark task block`, `shark task unblock`
+
+Entity type is auto-detected from key format:
+- `E##` → Epic
+- `E##-F##` or `F##` → Feature
+- `E##-F##-###` or `T-E##-F##-###` → Task
+
 ## Command Categories
 
-### Smart Dispatchers (Recommended Primary Interface)
+### Quick Commands (Task Shortcuts)
 
-Smart dispatchers automatically detect the entity type based on key format. These are the recommended commands for most operations:
+| Command | Standard Equivalent | Description |
+|---------|---------------------|-------------|
+| `shark next` | `shark task next` | Get next available task |
+| `shark start <key>` | `shark task start` | Start a task |
+| `shark done <key>` | `shark task complete` | Complete a task |
+| `shark block <key>` | `shark task block` | Block a task |
+| `shark unblock <key>` | `shark task unblock` | Unblock a task |
 
-- `shark list [EPIC] [FEATURE] [--json]` - Smart list dispatcher
-  - No args: List all epics
-  - With epic key: `shark list E07` - List features in epic
-  - With epic and feature: `shark list E07 F01` - List tasks in feature
-  - Auto-detection: Key format determines what to list
+### Core Commands (Entity Auto-Detection)
 
-- `shark get <KEY> [--json]` - Smart get dispatcher (auto-detects entity type)
-  - Epic format: `shark get E07` - Get epic details
-  - Feature format: `shark get E07-F01` - Get feature details (also works: `shark get F01`)
-  - Task format: `shark get E07-F01-001` - Get task details (also works: `shark get T-E07-F01-001`)
+- `shark get <KEY> [--json] [--field <name>]` — Get entity details (auto-detects type)
+- `shark list [EPIC] [FEATURE] [--json]` — List entities with smart filtering
+- `shark create <type> [args]` — Create epic, feature, or task
+- `shark delete <key> [--force]` — Delete an entity
+- `shark view <key>` — View entity markdown file
 
-- `shark status <KEY> [--json]` - Get entity status and progress
-  - `shark status E07` - Epic status with feature rollups
-  - `shark status E07-F01` - Feature status with task breakdown
-  - `shark status E07-F01-001` - Task status and history
+### Status & Analytics
 
-- `shark history <KEY> [--json]` - Get entity change history
-  - `shark history E07-F01-001` - Task change history
-  - `shark history E07-F01` - Feature change history
+- `shark status [KEY]` — Project dashboard or entity status
+- `shark status set <key> <status> [--reason] [--force]` — Set status directly
+- `shark status advance <key>` — Advance to next workflow status
+- `shark status options <key>` — Show valid next statuses
+- `shark status history <key>` — View status change history
+- `shark progress <key>` — Detailed progress breakdown
+- `shark analytics [key]` — Project or entity analytics
 
-All smart dispatchers support:
-- Case insensitive keys: `e07`, `E07`, `E07-user-management` all work
-- `--json` flag for machine-readable output
-- Both numeric and slugged key formats
+### Entity Management
 
-### Initialization
-- `shark init --non-interactive`: Setup project infrastructure (folders, database, config)
+#### Task Commands (26 subcommands)
 
-### Epic Management
-- `shark epic create --title="..." [--file=<path>] [--force] [--priority=...] [--business-value=...] [--json]`
-  - `--file`: Custom file path (relative to root, must include .md)
-  - `--force`: Reassign file if already claimed by another epic or feature
+**CRUD:**
+- `shark task create <epic> <feature> "<title>" [--order=N] [--agent=TYPE] [--priority=N]`
+- `shark task get <key> [--json] [--field <name>]`
+- `shark task list [EPIC] [FEATURE] [--status=S] [--agent=TYPE] [--blocked] [--json]`
+- `shark task update <key> [--title=...] [--priority=N] [--execution-order=N]`
+- `shark task delete <key>`
+
+**Lifecycle:**
+- `shark task start <key> [--agent=ID]`
+- `shark task complete <key> [--notes="..."] [--summary="..."] [--files-modified=...] [--tests="..."]`
+- `shark task approve <key> [--notes="..."]`
+- `shark task reopen <key> [--notes="..."]`
+- `shark task block <key> --reason="..." [--json]`
+- `shark task unblock <key> [--json]`
+- `shark task next [--agent=TYPE] [--epic=KEY]`
+- `shark task next-status <key> [--force]`
+- `shark task set-status <key> <status> [--reason="..."] [--force]`
+
+**Dependencies:**
+- `shark task deps <key> [--depth=N]` — Dependency tree
+- `shark task link <key1> <key2> --type=TYPE` — Link entities
+- `shark task unlink <key1> <key2>` — Remove link
+- `shark task blocked-by <key>` — Show what blocks this task
+- `shark task blocks <key>` — Show what this task blocks
+
+**Context & Notes:**
+- `shark task context set/get/clear <key>` — Manage context fields
+- `shark task note add <key> --content="..." [--type=TYPE]`
+- `shark task notes <key>` — View notes
+- `shark task criteria <key> list/import/check/fail` — Acceptance criteria
+- `shark task resume <key>` — Resume with full context
+
+**History:**
+- `shark task history <key>` — Status change history
+- `shark task sessions <key>` — Session history
+- `shark task timeline <key>` — Full timeline
+
+#### Feature Commands (13 subcommands)
+
+- `shark feature create <epic> "<title>" [--execution-order=N]`
+- `shark feature get <key> [--json]`
+- `shark feature list [EPIC] [--json]`
+- `shark feature update <key> [--title=...]`
+- `shark feature delete <key>`
+- `shark feature complete <key>`
+- `shark feature next-status <key>`
+- `shark feature set-status <key> <status>`
+- `shark feature context set/get/clear <key>`
+- `shark feature note add <key> --content="..."`
+- `shark feature notes <key>`
+- `shark feature criteria <key>`
+- `shark feature resume <key>`
+
+#### Epic Commands (14 subcommands)
+
+- `shark epic create "<title>" [--priority=N] [--business-value=N]`
+- `shark epic get <key> [--json]`
 - `shark epic list [--json]`
-- `shark epic get <epic-key> [--json]`
-  - Case insensitive: `shark epic get E07`, `shark epic get e07`
+- `shark epic delete <key>`
+- `shark epic update <key> [--title=...]`
+- `shark epic complete <key>`
+- `shark epic next-status <key>`
+- `shark epic set-status <key> <status>`
+- `shark epic status <key>` — Epic status with rollups
+- `shark epic context set/get/clear <key>`
+- `shark epic note add <key> --content="..."`
+- `shark epic notes <key>`
+- `shark epic resume <key>`
 
-### Feature Management
-- **Positional syntax (recommended):** `shark feature create <epic-key> "<title>" [--file=<path>] [--force] [--execution-order=...] [--json]`
-- **Flag syntax (legacy):** `shark feature create --epic=<epic-key> --title="..." [--file=<path>] [--force] [--execution-order=...] [--json]`
-  - `--file`: Custom file path (relative to root, must include .md)
-  - `--force`: Reassign file if already claimed by another feature or epic
-  - Case insensitive: `shark feature create E07 "Title"`, `shark feature create e07 "Title"`
-- `shark feature list [EPIC] [--json]` - List features, optionally filter by epic key
-  - Examples: `shark feature list`, `shark feature list E04`, `shark feature list e04`, `shark feature list E04 --json`
-  - Flag syntax still works: `shark feature list --epic=E04`
-- `shark feature get <feature-key> [--json]`
-  - Case insensitive: `shark feature get E07-F01`, `shark feature get e07-f01`, `shark feature get F01`, `shark feature get f01`
+#### Idea Commands (6 subcommands)
 
-### File Path Organization
+- `shark idea create "<title>" --description="..."`
+- `shark idea get <id>`
+- `shark idea list [--status=S]`
+- `shark idea update <id> [--status=S]`
+- `shark idea delete <id>`
+- `shark idea promote <id> [--epic=KEY]`
 
-Epics and features support custom file paths for flexible project organization:
+### Discovery Commands
 
-```bash
-# Create epic with custom file path
-shark epic create "Q1 2025 Roadmap" --file="docs/roadmap/2025-q1/epic.md"
+- `shark search <query> [--type=TYPE]` — Search across entities
+- `shark notes <key>` — View entity notes
+- `shark related-docs list/add/delete` — Manage related documents
 
-# Create feature with custom file path
-shark feature create --epic=E01 "User Growth" --file="docs/roadmap/2025-q1/features/user-growth.md"
+### Setup & Configuration
 
-# Default behavior (no --file flag)
-shark epic create "User Management"  # Creates docs/plan/E07-user-management/epic.md
-shark feature create E07 "Authentication"  # Positional syntax (recommended)
-shark feature create --epic=E07 --title="Authentication"  # Flag syntax (legacy)
-# Creates: docs/plan/E07-user-management/E07-F01-authentication/feature.md
-```
+- `shark init [--non-interactive]` — Initialize project
+- `shark init update [--workflow=basic|advanced]` — Update config
+- `shark validate` — Validate project structure
+- `shark migrate slugs` — Backfill slugs
+- `shark cloud init/status` — Cloud database
+- `shark config show/validate/get-format/get-status-action` — Config management
 
-### Task Management (Primary AI Interface)
-- `shark task next [--agent=<type>] [--epic=<epic>] [--json]`: Get next available task
-- `shark task list [EPIC] [FEATURE] [--status=<status>] [--agent=<type>] [--json]` - List tasks with flexible positional filtering
-  - Examples: `shark task list`, `shark task list E04`, `shark task list e04`, `shark task list E04 F01`, `shark task list E04-F01`
-  - Flag syntax still works: `shark task list --epic=E04 --feature=F01`
-- `shark task get <task-key> [--json]`
-  - Short format (recommended): `shark task get E07-F20-001`, `shark task get e07-f20-001`
-  - Traditional format: `shark task get T-E07-F20-001`, `shark task get t-e07-f20-001`
-- **Positional syntax (recommended):** `shark task create <epic> <feature> "<title>" [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--file=<path>] [--force]`
-  - 3-arg format: `shark task create E07 F20 "Task Title"`
-  - 2-arg format: `shark task create E07-F20 "Task Title"`
-  - Case insensitive: `shark task create e07 f20 "Task Title"`
-- **Flag syntax (legacy):** `shark task create --epic=E04 --feature=F06 --title="..." [--agent=<type>] [--priority=<1-10>] [--depends-on=...] [--file=<path>] [--force]`
-  - `--file`: Custom file path (relative to root, must include .md)
-  - `--force`: Reassign file if already claimed by another task
-- `shark task start <task-key> [--agent=<agent-id>] [--json]`
-  - Short format: `shark task start E07-F20-001`, `shark task start e07-f20-001`
-- `shark task complete <task-key> [--notes="..."] [--json]` (ready for review)
-  - Short format: `shark task complete E07-F20-001`, `shark task complete e07-f20-001`
-- `shark task approve <task-key> [--notes="..."] [--json]` (mark completed)
-  - Short format: `shark task approve E07-F20-001`, `shark task approve e07-f20-001`
-- `shark task reopen <task-key> [--notes="..."] [--json]` (back to in_progress)
-- `shark task block <task-key> --reason="..." [--json]`
-- `shark task unblock <task-key> [--json]`
+### Global Flags
 
-### Configuration
-- `shark config set <key> <value>`
-- `shark config get <key>`
+| Flag | Description |
+|------|-------------|
+| `--json` | Machine-readable JSON output |
+| `--field <name>` | Extract single field (implies `--json`) |
+| `--no-color` | Disable colored output |
+| `--verbose` / `-v` | Debug logging |
+| `--db <path>` | Override database path |
+| `--config <path>` | Override config path |
+
+---
 
 ## Command Implementation Pattern
 
@@ -118,15 +169,12 @@ var myCmd = &cobra.Command{
     Use:   "mycommand [args]",
     Short: "Brief description",
     Long:  "Detailed description",
-    Args:  cobra.ExactArgs(1), // or MinimumNArgs, etc.
+    Args:  cobra.ExactArgs(1),
     RunE:  runMyCommand,
 }
 
 func init() {
-    // Add flags
     myCmd.Flags().StringVar(&myFlag, "flag", "", "Flag description")
-
-    // Register command
     cli.RootCmd.AddCommand(myCmd)
 }
 

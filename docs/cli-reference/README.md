@@ -1,50 +1,192 @@
-# CLI Reference Documentation
+# Shark CLI Reference
 
-This directory contains the modular Shark CLI reference documentation.
+Complete command reference for the Shark Task Manager CLI.
 
-## Documentation Structure
+---
+
+## Quick Start
+
+### For AI Agents (DevAgent)
+
+```bash
+# Get next task and start working
+shark next --json                          # Get next task (machine-readable)
+shark start E07-F01-001 --json             # Start task
+shark done E07-F01-001 --notes="Done" --json  # Complete task
+
+# Extract specific fields
+shark next --field key                     # Just the task key
+shark get E07-F01-001 --field status       # Just the status
+```
+
+### For Human Developers
+
+```bash
+# Daily workflow
+shark status                               # Project dashboard
+shark next                                 # What should I work on?
+shark start E07-F01-001                    # Start working
+shark done E07-F01-001 --notes="Finished"  # Mark complete
+
+# Browse project
+shark list                                 # List epics
+shark list E07                             # List features in epic
+shark progress E07                         # Epic progress
+```
+
+---
+
+## Command Categories
+
+### Quick Commands
+
+Shorthand aliases for the most common task operations.
+
+| Command | Description | Standard Equivalent |
+|---------|-------------|---------------------|
+| `shark next` | Get next available task | `shark task next` |
+| `shark start <key>` | Start a task | `shark task start` |
+| `shark done <key>` | Complete a task | `shark task complete` |
+| `shark block <key>` | Block a task | `shark task block` |
+| `shark unblock <key>` | Unblock a task | `shark task unblock` |
+
+**Reference:** [Quick Commands](quick-commands.md)
 
 ### Core Commands
-- [initialization.md](initialization.md) - `shark init` command
-- [epic-commands.md](epic-commands.md) - Epic management commands
-- [feature-commands.md](feature-commands.md) - Feature management commands (TODO)
-- [task-commands.md](task-commands.md) - Task management quick reference
-- [task-commands-full.md](task-commands-full.md) - Complete task commands (TODO)
-- [sync-commands.md](sync-commands.md) - Sync commands (TODO)
-- [configuration.md](configuration.md) - Configuration commands (TODO)
 
-### Key Concepts
-- [global-flags.md](global-flags.md) - Global flags available to all commands
-- [key-formats.md](key-formats.md) - Key format improvements (case insensitive, short format, positional args)
+Entity-aware commands that auto-detect type from key format.
 
-### Advanced Topics
-- [rejection-reasons.md](rejection-reasons.md) - Rejection reason workflow (TODO)
-- [orchestrator-actions.md](orchestrator-actions.md) - Orchestrator API response format (TODO)
-- [json-api-fields.md](json-api-fields.md) - Enhanced JSON response fields (TODO)
+| Command | Description |
+|---------|-------------|
+| `shark get <key>` | Get entity details (epic/feature/task) |
+| `shark list [epic] [feature]` | List entities with smart filtering |
+| `shark create <type> [args]` | Create epic, feature, or task |
+| `shark delete <key>` | Delete an entity |
+| `shark view <key>` | View entity markdown file |
 
-### Configuration
-- [interactive-mode.md](interactive-mode.md) - Interactive mode configuration (TODO)
-- [workflow-config.md](workflow-config.md) - Workflow configuration (TODO)
+**Reference:** [Core Commands](core-commands.md)
 
-### Reference
-- [error-messages.md](error-messages.md) - Common errors and solutions (TODO)
-- [best-practices.md](best-practices.md) - AI agent best practices and exit codes (TODO)
-- [json-output.md](json-output.md) - JSON output format reference (TODO)
-- [file-paths.md](file-paths.md) - File path organization (TODO)
+### Status & Analytics
 
-## Creating New Documentation
+| Command | Description |
+|---------|-------------|
+| `shark status [key]` | Project dashboard or entity status |
+| `shark status set <key> <status>` | Set entity status directly |
+| `shark status advance <key>` | Advance to next status |
+| `shark status options <key>` | Show valid next statuses |
+| `shark status history <key>` | View status change history |
+| `shark progress <key>` | Detailed progress breakdown |
+| `shark analytics [key]` | Project or entity analytics |
 
-When adding new documentation:
+**Reference:** [Status Commands](status-commands.md) | [Progress & Analytics](progress-analytics.md)
 
-1. Create the markdown file in this directory
-2. Add it to the appropriate section in this README
-3. Link to it from the main [CLI_REFERENCE.md](../CLI_REFERENCE.md)
-4. Cross-link related documentation
+### Entity Management
 
-## Documentation Guidelines
+Full CRUD and lifecycle commands for each entity type.
 
-- Keep each file focused on a single topic
-- Use clear headings and examples
-- Cross-reference related documentation
-- Include both human and machine-readable examples
-- Document both table and JSON output formats
+| Entity | Subcommands | Reference |
+|--------|-------------|-----------|
+| `shark task` | 26 subcommands (create, get, list, start, complete, block, deps, note, ...) | [Task Commands](task-commands.md) |
+| `shark feature` | 13 subcommands (create, get, list, complete, context, note, ...) | [Feature Commands](feature-commands.md) |
+| `shark epic` | 14 subcommands (create, get, list, complete, context, note, status, ...) | [Epic Commands](epic-commands.md) |
+| `shark idea` | 6 subcommands (create, get, list, update, delete, promote) | [Idea Commands](idea-commands.md) |
+
+### Details & Discovery
+
+| Command | Description |
+|---------|-------------|
+| `shark context get/set/clear <key>` | Manage entity context fields |
+| `shark search <query>` | Search across entities |
+| `shark notes <key>` | View entity notes |
+| `shark related-docs` | Manage related documents |
+
+**Reference:** [Context Commands](context-commands.md) | [Discovery Commands](discovery-commands.md)
+
+### Setup & Maintenance
+
+| Command | Description |
+|---------|-------------|
+| `shark init` | Initialize project |
+| `shark validate` | Validate project structure |
+| `shark migrate` | Run database migrations |
+| `shark cloud` | Cloud database management |
+| `shark config` | Configuration management |
+
+**Reference:** [Setup Commands](setup-commands.md) | [Configuration](configuration.md)
+
+---
+
+## Global Flags
+
+Available on all commands:
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Machine-readable JSON output |
+| `--field <name>` | Extract single field (implies `--json`) |
+| `--no-color` | Disable colored output |
+| `--verbose` / `-v` | Debug logging |
+| `--db <path>` | Override database path |
+| `--config <path>` | Override config path |
+
+**Reference:** [Global Flags](global-flags.md)
+
+---
+
+## Reference Documentation
+
+| Topic | Description |
+|-------|-------------|
+| [Key Formats](key-formats.md) | Case-insensitive keys, slug format, short format |
+| [JSON Output](json-output.md) | JSON response structures |
+| [Error Messages](error-messages.md) | Common errors, exit codes, JSON errors |
+| [Best Practices](best-practices.md) | AI agent and human developer patterns |
+| [Workflow Configuration](workflow-configuration.md) | Status flows, phases, agent routing |
+| [Configuration](configuration.md) | `.sharkconfig.json` and `shark config` commands |
+| [Template System](template-system.md) | Entity file templates |
+| [Orchestrator Actions](orchestrator-actions.md) | Status-based orchestrator routing |
+| [Interactive Mode](interactive-mode.md) | Interactive prompt configuration |
+| [File Paths](file-paths.md) | Custom file path organization |
+| [Rejection Reasons](rejection-reasons.md) | Task rejection workflow |
+
+---
+
+## Key Concepts
+
+### Entity Hierarchy
+
+```
+Epic (E07)
+  └── Feature (E07-F01)
+        └── Task (E07-F01-001 or T-E07-F01-001)
+```
+
+### Key Format Auto-Detection
+
+Shark detects entity type from key format:
+
+| Pattern | Entity | Example |
+|---------|--------|---------|
+| `E##` | Epic | `E07`, `E07-user-management` |
+| `E##-F##` | Feature | `E07-F01`, `F01` |
+| `E##-F##-###` | Task | `E07-F01-001`, `T-E07-F01-001` |
+
+All keys are **case insensitive**.
+
+### Dual Command Style
+
+Every quick command has a standard equivalent:
+
+```bash
+shark next          # Quick style
+shark task next     # Standard style (identical behavior)
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Not found |
+| `2` | Database error |
+| `3` | Invalid state |
