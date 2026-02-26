@@ -83,6 +83,7 @@ func init() {
 	historyCmd.Flags().IntVar(&historyOffset, "offset", 0, "Number of records to skip")
 	historyCmd.Flags().StringVar(&historyFormat, "format", "", "Output format (csv, json)")
 
+	historyCmd.Hidden = true
 	cli.RootCmd.AddCommand(historyCmd)
 }
 

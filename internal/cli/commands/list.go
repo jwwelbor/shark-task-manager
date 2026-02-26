@@ -34,6 +34,8 @@ func init() {
 	listCmd.Flags().String("status", "", "Filter by status")
 	listCmd.Flags().String("sort-by", "", "Sort by: key, progress, status (default: key)")
 	listCmd.Flags().Bool("show-all", false, "Show all items including completed (by default, completed items are hidden)")
+	_ = listCmd.Flags().MarkDeprecated("show-all", "use --all instead")
+	listCmd.Flags().Bool("all", false, "Show all items including completed (by default, completed items are hidden)")
 }
 
 // runList executes the list command dispatcher
@@ -48,6 +50,8 @@ func runList(cmd *cobra.Command, args []string) error {
 	statusFlag, _ := cmd.Flags().GetString("status")
 	sortByFlag, _ := cmd.Flags().GetString("sort-by")
 	showAllFlag, _ := cmd.Flags().GetBool("show-all")
+	allFlag, _ := cmd.Flags().GetBool("all")
+	showAllFlag = showAllFlag || allFlag
 
 	// Dispatch to appropriate subcommand
 	switch command {
@@ -86,7 +90,7 @@ func runFeatureListWithFlags(cmd *cobra.Command, epic, statusFilter, sortBy stri
 	// Set flags on the feature list command
 	_ = featureListCmd.Flags().Set("status", statusFilter)
 	_ = featureListCmd.Flags().Set("sort-by", sortBy)
-	_ = featureListCmd.Flags().Set("show-all", formatBool(showAll))
+	_ = featureListCmd.Flags().Set("all", formatBool(showAll))
 
 	// Propagate context so the delegated command has a non-nil context for DB calls.
 	featureListCmd.SetContext(cmd.Context())
@@ -98,7 +102,7 @@ func runTaskListWithFlags(cmd *cobra.Command, epic, feature, statusFilter, sortB
 	// Set flags on the task list command
 	_ = taskListCmd.Flags().Set("status", statusFilter)
 	// Note: task list doesn't have sort-by flag yet
-	_ = taskListCmd.Flags().Set("show-all", formatBool(showAll))
+	_ = taskListCmd.Flags().Set("all", formatBool(showAll))
 
 	// Propagate context so the delegated command has a non-nil context for DB calls.
 	taskListCmd.SetContext(cmd.Context())
