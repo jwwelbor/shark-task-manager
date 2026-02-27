@@ -118,6 +118,7 @@ var (
 )
 
 func init() {
+	epicCmd.Hidden = true // Hidden from top-level help; accessible via 'shark epic'
 	cli.RootCmd.AddCommand(epicCmd)
 	epicCmd.AddCommand(epicListCmd, epicGetCmd, epicStatusCmd, epicCompleteCmd, epicCreateCmd, epicDeleteCmd, epicUpdateCmd)
 

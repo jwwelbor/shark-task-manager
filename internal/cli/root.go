@@ -28,19 +28,14 @@ var GlobalConfig = &Config{}
 var RootCmd = &cobra.Command{
 	Use:   "shark",
 	Short: "Shark Task Manager - Task management CLI for AI-driven development",
-	Long: `Shark is a command-line tool for managing tasks, epics, and features
-in multi-agent software development projects.
-
-It provides a SQLite-backed database for tracking project state with commands
-optimized for both human developers and AI agents.
+	Long: `Shark is a command-line task management tool for AI Agents.
 
 Examples:
-  shark next                          Get next available task
-  shark start E07-F01-001             Start working on a task
-  shark done E07-F01-001 --notes="…"  Complete a task
-  shark get E07-F01-001               View task details
   shark list E07                      List features in an epic
-  shark status                        Project dashboard`,
+  shark get E07-F01-001               View task details
+  shark create feature E07 "new feature" --description="important feature"
+  shark update E07-F02 --filename="docs/plan/E07-important-epic/F02-new-feature/specs.md"
+  shark status advance T-E07-F01-001  Advance to the next status in the workflow`,
 	Version: "dev", // Will be set by SetVersion() from build-time injection
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize configuration
@@ -86,10 +81,6 @@ func init() {
 	// Define command groups for better organization in help output
 	RootCmd.AddGroup(
 		&cobra.Group{
-			ID:    "workflow",
-			Title: "Workflow:",
-		},
-		&cobra.Group{
 			ID:    "inspect",
 			Title: "Inspect:",
 		},
@@ -98,14 +89,38 @@ func init() {
 			Title: "Manage:",
 		},
 		&cobra.Group{
+			ID:    "workflow",
+			Title: "Workflow:",
+		},
+		&cobra.Group{
 			ID:    "advanced",
 			Title: "Advanced:",
 		},
 	)
 
+	// Set the completion command to the advanced group
+	RootCmd.SetCompletionCommandGroupID("advanced")
+
+	// Put the help command in the advanced group and hide it from top-level help.
+	// Users can still use --help on any command.
+	RootCmd.SetHelpCommandGroupID("advanced")
+	RootCmd.InitDefaultHelpCmd()
+	for _, cmd := range RootCmd.Commands() {
+		if cmd.Name() == "help" {
+			cmd.Hidden = true
+			break
+		}
+	}
+
+	// Customize usage template to show [--help] and add note
+	RootCmd.SetUsageTemplate(rootUsageTemplate)
+
 	// Silence Cobra's default error and usage printing so we handle errors ourselves
 	RootCmd.SilenceErrors = true
 	RootCmd.SilenceUsage = true
+
+	// Customize the help flag description
+	RootCmd.Flags().BoolP("help", "h", false, "help for shark or shark commands")
 
 	// Global flags available to all commands
 	RootCmd.PersistentFlags().BoolVar(&GlobalConfig.JSON, "json", false, "Output in JSON format (machine-readable)")
@@ -129,6 +144,40 @@ func init() {
 		panic(err)
 	}
 }
+
+// rootUsageTemplate customizes the usage output for the root command.
+// It adds [--help] to the usage line and a note about subcommands.
+const rootUsageTemplate = `Usage:{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command] [--help]
+  *Note: most commands have subcommands and flags. Use --help to view syntax.{{end}}{{if gt (len .Aliases) 0}}
+
+Aliases:
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
+
+Available Commands:{{range $cmds}}{{if .IsAvailableCommand}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
+
+{{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) .IsAvailableCommand)}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
+
+Additional Commands:{{range $cmds}}{{if (and (eq .GroupID "") .IsAvailableCommand)}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
+
+Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+  {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
+
+Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+`
 
 // FindProjectRoot walks up the directory tree to find the project root.
 // It looks for markers with different priorities:

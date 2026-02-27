@@ -125,6 +125,7 @@ var (
 )
 
 func init() {
+	featureCmd.Hidden = true // Hidden from top-level help; accessible via 'shark feature'
 	cli.RootCmd.AddCommand(featureCmd)
 
 	featureCmd.AddCommand(featureListCmd)

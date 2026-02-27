@@ -19,7 +19,7 @@ import (
 var progressCmd = &cobra.Command{
 	Use:     "progress [EPIC] [FEATURE]",
 	Short:   "Show progress, health indicators, and task breakdown",
-	GroupID: "inspect",
+	GroupID: "advanced",
 	Long: `Display a progress dashboard showing project progress, health indicators,
 active tasks, and blocked items.
 

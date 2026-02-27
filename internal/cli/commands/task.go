@@ -452,6 +452,7 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
+	taskCmd.Hidden = true // Hidden from top-level help; accessible via 'shark task'
 	cli.RootCmd.AddCommand(taskCmd)
 	taskCmd.AddCommand(taskListCmd)
 	taskCmd.AddCommand(taskGetCmd)

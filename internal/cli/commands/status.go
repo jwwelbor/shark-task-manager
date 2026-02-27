@@ -8,7 +8,7 @@ import (
 // statusCmd represents the status command
 var statusCmd = &cobra.Command{
 	Use:     "status",
-	Short:   "Manage entity statuses (set, advance, transitions, history)",
+	Short:   "Change status for epic, feature, or task",
 	GroupID: "workflow",
 	Long: `Commands for managing entity statuses: set a status directly, advance through the
 workflow, view available transitions, or inspect status change history.
