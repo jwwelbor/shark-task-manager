@@ -16,7 +16,7 @@ import (
 var statusCmd = &cobra.Command{
 	Use:     "status [EPIC] [FEATURE]",
 	Short:   "Show project status dashboard",
-	GroupID: "status",
+	GroupID: "workflow",
 	Long: `Display a comprehensive status dashboard showing project progress, active tasks, and blocked items.
 
 Positional Arguments:

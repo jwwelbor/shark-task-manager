@@ -13,7 +13,7 @@ import (
 var searchCmd = &cobra.Command{
 	Use:     "search",
 	Short:   "Search tasks by various criteria",
-	GroupID: "details",
+	GroupID: "inspect",
 	Long: `Search for tasks using completion metadata like files changed.
 
 Supports partial filename matching. Results are ordered by completion date (most recent first).

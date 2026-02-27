@@ -9,7 +9,7 @@ import (
 var createCmd = &cobra.Command{
 	Use:     "create <type> [args]",
 	Short:   "Create an epic, feature, or task",
-	GroupID: "essentials",
+	GroupID: "manage",
 	Long: `Create a new entity. Dispatches to the appropriate create handler based on type.
 
 Examples:

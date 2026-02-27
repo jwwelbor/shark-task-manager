@@ -12,9 +12,9 @@ import (
 
 // validateCmd represents the validate command
 var validateCmd = &cobra.Command{
-	Use:     "validate",
-	Short:   "Validate database integrity",
-	GroupID: "setup",
+	Use:   "validate",
+	Short: "Validate database integrity",
+
 	Long: `Validate database integrity by checking file paths and relationships.
 
 This command checks:
@@ -37,7 +37,7 @@ var (
 
 func init() {
 	// Register validate command with root
-	cli.RootCmd.AddCommand(validateCmd)
+	adminCmd.AddCommand(validateCmd)
 
 	// Add flags
 	validateCmd.Flags().BoolVar(&validateJSON, "json", false, "Output results as JSON")

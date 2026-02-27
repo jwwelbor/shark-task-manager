@@ -18,7 +18,7 @@ func TestInitCommand(t *testing.T) {
 	}{
 		{
 			name:    "basic initialization",
-			args:    []string{"init", "--non-interactive", "--db", "test-shark.db"},
+			args:    []string{"admin", "init", "--non-interactive", "--db", "test-shark.db"},
 			setup:   nil,
 			wantErr: false,
 			verify: func(t *testing.T, tempDir string) {
@@ -45,7 +45,7 @@ func TestInitCommand(t *testing.T) {
 		},
 		{
 			name:    "init with custom db path",
-			args:    []string{"init", "--non-interactive", "--db", "custom-db.db"},
+			args:    []string{"admin", "init", "--non-interactive", "--db", "custom-db.db"},
 			setup:   nil,
 			wantErr: false,
 			verify: func(t *testing.T, tempDir string) {
@@ -58,7 +58,7 @@ func TestInitCommand(t *testing.T) {
 		},
 		{
 			name: "init with force flag",
-			args: []string{"init", "--non-interactive", "--force"},
+			args: []string{"admin", "init", "--non-interactive", "--force"},
 			setup: func(tempDir string) error {
 				// Create existing config
 				configPath := filepath.Join(tempDir, ".sharkconfig.json")
@@ -80,10 +80,10 @@ func TestInitCommand(t *testing.T) {
 		},
 		{
 			name: "idempotent initialization",
-			args: []string{"init", "--non-interactive", "--db", "test-idempotent.db"},
+			args: []string{"admin", "init", "--non-interactive", "--db", "test-idempotent.db"},
 			setup: func(tempDir string) error {
 				// Run init once first
-				cli.RootCmd.SetArgs([]string{"init", "--non-interactive", "--db", "test-idempotent.db"})
+				cli.RootCmd.SetArgs([]string{"admin", "init", "--non-interactive", "--db", "test-idempotent.db"})
 				return cli.RootCmd.Execute()
 			},
 			wantErr: false,
@@ -150,7 +150,7 @@ func TestInitCommandJSON(t *testing.T) {
 	}
 
 	// Execute with --json flag
-	cli.RootCmd.SetArgs([]string{"init", "--non-interactive", "--json", "--db", "test-json.db"})
+	cli.RootCmd.SetArgs([]string{"admin", "init", "--non-interactive", "--json", "--db", "test-json.db"})
 	err = cli.RootCmd.Execute()
 	if err != nil {
 		t.Fatalf("Command failed: %v", err)

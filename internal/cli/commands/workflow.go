@@ -46,9 +46,9 @@ type StatusDisplay struct {
 
 // workflowCmd represents the workflow command group
 var workflowCmd = &cobra.Command{
-	Use:     "workflow",
-	Short:   "Manage workflow configuration",
-	GroupID: "setup",
+	Use:   "workflow",
+	Short: "Manage workflow configuration",
+
 	Long: `Workflow configuration operations including listing, validation, and migration.
 
 The workflow system allows customizing task status transitions via .sharkconfig.json.
@@ -98,7 +98,7 @@ Examples:
 }
 
 func init() {
-	cli.RootCmd.AddCommand(workflowCmd)
+	adminCmd.AddCommand(workflowCmd)
 	workflowCmd.AddCommand(workflowListCmd)
 	workflowCmd.AddCommand(workflowValidateCmd)
 }

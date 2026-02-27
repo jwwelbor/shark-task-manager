@@ -136,8 +136,8 @@ func TestAliasCommandsHaveCorrectGroupID(t *testing.T) {
 				t.Fatalf("%s command is nil", name)
 			}
 
-			if cmd.GroupID != "quick" {
-				t.Errorf("%s command has GroupID %q, expected 'quick'", name, cmd.GroupID)
+			if cmd.GroupID != "workflow" {
+				t.Errorf("%s command has GroupID %q, expected 'workflow'", name, cmd.GroupID)
 			}
 		})
 	}

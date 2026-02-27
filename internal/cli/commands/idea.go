@@ -18,7 +18,7 @@ import (
 var ideaCmd = &cobra.Command{
 	Use:     "idea",
 	Short:   "Manage ideas",
-	GroupID: "essentials",
+	GroupID: "manage",
 	Long: `Idea capture and management operations for lightweight idea tracking.
 
 Ideas are captured with keys in format I-YYYY-MM-DD-xx (e.g., I-2026-01-01-01).

@@ -9,7 +9,7 @@ import (
 var listCmd = &cobra.Command{
 	Use:     "list [EPIC] [FEATURE]",
 	Short:   "List epics, features, or tasks",
-	GroupID: "essentials",
+	GroupID: "inspect",
 	Long: `Smart list command that dispatches to the appropriate subcommand based on arguments.
 
 Positional Arguments:

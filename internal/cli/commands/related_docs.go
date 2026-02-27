@@ -13,7 +13,8 @@ import (
 var relatedDocsCmd = &cobra.Command{
 	Use:     "related-docs",
 	Short:   "Manage related documents",
-	GroupID: "details",
+	GroupID: "manage",
+	Aliases: []string{"docs"},
 	Long: `Manage related documents linked to epics, features, or tasks.
 
 Examples:

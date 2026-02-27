@@ -34,11 +34,13 @@ in multi-agent software development projects.
 It provides a SQLite-backed database for tracking project state with commands
 optimized for both human developers and AI agents.
 
-Shark supports two command styles:
-  Quick:     shark next, shark start, shark done
-  Standard:  shark task next, shark task start, shark task complete
-
-Both styles work identically. Use whichever you prefer.`,
+Examples:
+  shark next                          Get next available task
+  shark start E07-F01-001             Start working on a task
+  shark done E07-F01-001 --notes="…"  Complete a task
+  shark get E07-F01-001               View task details
+  shark list E07                      List features in an epic
+  shark status                        Project dashboard`,
 	Version: "dev", // Will be set by SetVersion() from build-time injection
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize configuration
@@ -84,28 +86,20 @@ func init() {
 	// Define command groups for better organization in help output
 	RootCmd.AddGroup(
 		&cobra.Group{
-			ID:    "quick",
-			Title: "Quick Commands:",
+			ID:    "workflow",
+			Title: "Workflow:",
 		},
 		&cobra.Group{
-			ID:    "essentials",
-			Title: "Core Commands:",
+			ID:    "inspect",
+			Title: "Inspect:",
 		},
 		&cobra.Group{
-			ID:    "entities",
-			Title: "Entity Management:",
+			ID:    "manage",
+			Title: "Manage:",
 		},
 		&cobra.Group{
-			ID:    "details",
-			Title: "Details & Discovery:",
-		},
-		&cobra.Group{
-			ID:    "status",
-			Title: "Status & Analytics:",
-		},
-		&cobra.Group{
-			ID:    "setup",
-			Title: "Setup & Maintenance:",
+			ID:    "advanced",
+			Title: "Advanced:",
 		},
 	)
 

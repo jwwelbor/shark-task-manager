@@ -13,7 +13,7 @@ import (
 var notesCmd = &cobra.Command{
 	Use:     "notes",
 	Short:   "Search notes across all tasks",
-	GroupID: "details",
+	GroupID: "manage",
 	Long:    `Search for notes across all tasks with optional filtering.`,
 }
 

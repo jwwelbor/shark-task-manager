@@ -24,9 +24,9 @@ var (
 
 // cloudCmd represents the cloud command group
 var cloudCmd = &cobra.Command{
-	Use:     "cloud",
-	Short:   "Manage cloud database configuration",
-	GroupID: "setup",
+	Use:   "cloud",
+	Short: "Manage cloud database configuration",
+
 	Long: `Commands for configuring and managing Turso cloud database integration.
 
 The cloud command group provides:
@@ -79,7 +79,7 @@ is configured and active.`,
 
 func init() {
 	// Register cloud command group
-	cli.RootCmd.AddCommand(cloudCmd)
+	adminCmd.AddCommand(cloudCmd)
 
 	// Register subcommands
 	cloudCmd.AddCommand(cloudInitCmd)

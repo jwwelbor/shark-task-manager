@@ -1007,30 +1007,20 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 		changed = true
 	}
 
-	statusFlag, _ := cmd.Flags().GetString("status")
-	force, _ := cmd.Flags().GetBool("force")
-
-	if statusFlag != "" {
-		if err := applyFeatureStatusUpdate(ctx, featureSvc, featureKey, statusFlag, force, &updates, &changed); err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
+	var execOrder int
+	var execOrderSet bool
+	if cmd.Flags().Changed("order") {
+		execOrder, _ = cmd.Flags().GetInt("order")
+		execOrderSet = true
+	} else if cmd.Flags().Changed("execution-order") {
+		execOrder, _ = cmd.Flags().GetInt("execution-order")
+		execOrderSet = true
 	}
 
-    var execOrder int
-    var execOrderSet bool
-    if cmd.Flags().Changed("order") {
-        execOrder, _ = cmd.Flags().GetInt("order")
-        execOrderSet = true
-    } else if cmd.Flags().Changed("execution-order") {
-        execOrder, _ = cmd.Flags().GetInt("execution-order")
-        execOrderSet = true
-    }
-
-    if execOrderSet && execOrder != -1 {
-        updates.ExecutionOrder = &execOrder
-        changed = true
-    }
+	if execOrderSet && execOrder != -1 {
+		updates.ExecutionOrder = &execOrder
+		changed = true
+	}
 
 	if changed {
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
@@ -1068,38 +1058,6 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 	}
 
 	cli.Success(fmt.Sprintf("Feature %s updated successfully", featureKey))
-	return nil
-}
-
-// applyFeatureStatusUpdate handles status-related logic for feature update.
-func applyFeatureStatusUpdate(ctx context.Context, featureSvc *services.FeatureService, featureKey, statusFlag string, force bool, updates *services.FeatureUpdates, changed *bool) error {
-	if strings.ToLower(statusFlag) == "auto" {
-		if err := featureSvc.SetFeatureStatusOverride(ctx, featureKey, false); err != nil {
-			return fmt.Errorf("feature %s does not exist or override clear failed: %w", featureKey, err)
-		}
-		if err := featureSvc.RecalculateAndSetProgressByKey(ctx, featureKey); err != nil {
-			return fmt.Errorf("failed to recalculate status: %w", err)
-		}
-		cli.Success(fmt.Sprintf("Feature %s status recalculated from tasks", featureKey))
-		os.Exit(0)
-	}
-
-	validatedStatus, err := ParseFeatureStatus(statusFlag)
-	if err != nil {
-		return err
-	}
-	s := models.FeatureStatus(validatedStatus)
-	updates.Status = &s
-	*changed = true
-
-	if err := featureSvc.SetFeatureStatusOverride(ctx, featureKey, true); err != nil {
-		return fmt.Errorf("feature %s does not exist or override set failed: %w", featureKey, err)
-	}
-	if force && s == models.FeatureStatusCompleted {
-		if err := featureSvc.CascadeFeatureStatusToTasks(ctx, featureKey, models.TaskStatus("completed")); err != nil {
-			return fmt.Errorf("failed to cascade status to tasks: %w", err)
-		}
-	}
 	return nil
 }
 

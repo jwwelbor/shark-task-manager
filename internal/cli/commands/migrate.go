@@ -1,14 +1,13 @@
 package commands
 
 import (
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
 var migrateCmd = &cobra.Command{
-	Use:     "migrate",
-	Short:   "Database migration utilities",
-	GroupID: "setup",
+	Use:   "migrate",
+	Short: "Database migration utilities",
+
 	Long: `Run database migrations and data transformations.
 
 These commands help maintain and upgrade the Shark task manager database schema
@@ -25,5 +24,5 @@ the database as new features are added.`,
 }
 
 func init() {
-	cli.RootCmd.AddCommand(migrateCmd)
+	adminCmd.AddCommand(migrateCmd)
 }

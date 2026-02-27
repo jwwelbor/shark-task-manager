@@ -14,7 +14,7 @@ import (
 var nextCmd = &cobra.Command{
 	Use:     "next",
 	Short:   "Get next available task (alias for 'task next')",
-	GroupID: "quick",
+	GroupID: "workflow",
 	Long: `Shortcut for 'shark task next'. Gets the next available task based on priority and dependencies.
 
 Find the next available task based on dependencies, priority, and agent type.
@@ -29,7 +29,7 @@ Examples:
 var startCmd = &cobra.Command{
 	Use:     "start <task-key>",
 	Short:   "Start working on a task (alias for 'task start')",
-	GroupID: "quick",
+	GroupID: "workflow",
 	Long: `Shortcut for 'shark task start'. Mark a task as in_progress and update timestamps.
 
 Use --force to bypass status transition validation. This allows starting a task
@@ -49,7 +49,7 @@ Examples:
 var doneCmd = &cobra.Command{
 	Use:     "done <task-key>",
 	Short:   "Mark task as complete (alias for 'task complete')",
-	GroupID: "quick",
+	GroupID: "workflow",
 	Long: `Shortcut for 'shark task complete'. Mark a task as ready_for_review and update timestamps.
 
 Use --force to bypass status transition validation. This allows marking a task complete
@@ -69,7 +69,7 @@ Examples:
 var blockCmd = &cobra.Command{
 	Use:     "block <task-key>",
 	Short:   "Block a task (alias for 'task block')",
-	GroupID: "quick",
+	GroupID: "workflow",
 	Long: `Shortcut for 'shark task block'. Mark a task as blocked with a required reason.
 
 Use --force to bypass status transition validation. This allows blocking a task
@@ -86,7 +86,7 @@ Examples:
 var unblockCmd = &cobra.Command{
 	Use:     "unblock <task-key>",
 	Short:   "Unblock a task (alias for 'task unblock')",
-	GroupID: "quick",
+	GroupID: "workflow",
 	Long: `Shortcut for 'shark task unblock'. Unblock a task and return it to todo status.
 
 Use --force to bypass status transition validation. This allows unblocking a task

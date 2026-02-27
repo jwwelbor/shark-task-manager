@@ -17,9 +17,9 @@ import (
 
 // configCmd represents the config command group
 var configCmd = &cobra.Command{
-	Use:     "config",
-	Short:   "Manage CLI configuration",
-	GroupID: "setup",
+	Use:   "config",
+	Short: "Manage CLI configuration",
+
 	Long: `View, validate, and test pattern configuration settings.
 
 Examples:
@@ -739,7 +739,7 @@ func runConfigGetStatusAction(cmd *cobra.Command, args []string) error {
 
 func init() {
 	// Register config command with root
-	cli.RootCmd.AddCommand(configCmd)
+	adminCmd.AddCommand(configCmd)
 
 	// Add subcommands
 	configCmd.AddCommand(configShowCmd)

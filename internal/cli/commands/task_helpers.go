@@ -378,8 +378,4 @@ func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("filename", "", "New file path (relative to project root)")
 	cmd.Flags().String("depends-on", "", "New comma-separated dependency task keys")
 	cmd.Flags().Int("order", -1, "New execution order (-1=no change)")
-	cmd.Flags().String("status", "", "New status (uses workflow validation)")
-	cmd.Flags().Bool("force", false, "Force reassignment or bypass workflow validation")
-	cmd.Flags().String("reason", "", "Reason for backward status transitions")
-	cmd.Flags().String("reason-doc", "", "Path to rejection reason document")
 }

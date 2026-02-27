@@ -953,7 +953,7 @@ func performEpicDelete(ctx context.Context, epicKey string, force bool) error {
 func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) error {
 	epicSvc := cli.GetEpicService()
 
-	epic, err := epicSvc.GetEpic(ctx, epicKey)
+	_, err := epicSvc.GetEpic(ctx, epicKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicKey))
 		cli.Info("Use 'shark epic list' to see available epics")
@@ -973,44 +973,6 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 	if description != "" {
 		updates.Description = &description
 		changed = true
-	}
-
-	statusFlag, err := cmd.Flags().GetString("status")
-	if err != nil {
-		return fmt.Errorf("could not get status flag: %w", err)
-	}
-	force, err := cmd.Flags().GetBool("force")
-	if err != nil {
-		return fmt.Errorf("could not get force flag: %w", err)
-	}
-
-	if statusFlag != "" {
-		if strings.ToLower(statusFlag) == "auto" {
-			result, calcErr := epicSvc.RecalculateStatus(ctx, epic.ID)
-			if calcErr != nil {
-				cli.Error(fmt.Sprintf("Error: Failed to recalculate status: %v", calcErr))
-				os.Exit(1)
-			}
-
-			cli.Success(fmt.Sprintf("Epic %s status recalculated: %s (calculated from features)", epic.Key, result.NewStatus))
-			return nil
-		}
-
-		validatedStatus, err := ParseEpicStatus(statusFlag)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
-		epicStatus := models.EpicStatus(validatedStatus)
-		updates.Status = &epicStatus
-		changed = true
-
-		if force && epicStatus == models.EpicStatusCompleted {
-			if err := epicSvc.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
-				cli.Error(fmt.Sprintf("Error: Failed to cascade status to features and tasks: %v", err))
-				os.Exit(1)
-			}
-		}
 	}
 
 	priority, _ := cmd.Flags().GetString("priority")

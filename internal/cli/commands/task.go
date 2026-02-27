@@ -21,7 +21,7 @@ func displayAutoUnblockedTasks(unblockedKeys []string) {
 	}
 }
 
-var taskCmd = &cobra.Command{Use: "task", Short: "Manage tasks", GroupID: "entities",
+var taskCmd = &cobra.Command{Use: "task", Short: "Manage tasks", GroupID: "advanced",
 	Long: "Task lifecycle operations: list, create, update, and manage task status."}
 
 var taskListCmd = &cobra.Command{

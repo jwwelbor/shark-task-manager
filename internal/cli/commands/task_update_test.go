@@ -112,28 +112,6 @@ func TestTaskCreateCommand_OrderFlag(t *testing.T) {
 	}
 }
 
-// TestTaskUpdateCommand_StatusFlag tests that the task update command has a --status flag
-func TestTaskUpdateCommand_StatusFlag(t *testing.T) {
-	// Verify the task update command is registered
-	var found bool
-	for _, cmd := range taskCmd.Commands() {
-		if cmd.Use == "update <task-key>" {
-			found = true
-
-			// Verify it has the --status flag
-			if cmd.Flags().Lookup("status") == nil {
-				t.Error("task update command missing --status flag")
-			}
-
-			break
-		}
-	}
-
-	if !found {
-		t.Fatal("task update command not found in task subcommands")
-	}
-}
-
 // TestTaskReopenCommand_RejectionReasonFlag tests that the task reopen command has a --rejection-reason flag
 func TestTaskReopenCommand_RejectionReasonFlag(t *testing.T) {
 	// Verify the task reopen command is registered
@@ -175,27 +153,5 @@ func TestTaskApproveCommand_RejectionReasonFlag(t *testing.T) {
 
 	if !found {
 		t.Fatal("task approve command not found in task subcommands")
-	}
-}
-
-// TestTaskUpdateCommand_ReasonFlag tests that the task update command has a --reason flag
-func TestTaskUpdateCommand_ReasonFlag(t *testing.T) {
-	// Verify the task update command is registered
-	var found bool
-	for _, cmd := range taskCmd.Commands() {
-		if cmd.Use == "update <task-key>" {
-			found = true
-
-			// Verify it has the --reason flag
-			if cmd.Flags().Lookup("reason") == nil {
-				t.Error("task update command missing --reason flag")
-			}
-
-			break
-		}
-	}
-
-	if !found {
-		t.Fatal("task update command not found in task subcommands")
 	}
 }

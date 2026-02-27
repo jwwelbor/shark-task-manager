@@ -14,7 +14,7 @@ import (
 var contextCmd = &cobra.Command{
 	Use:     "context <key>",
 	Short:   "Get or manage entity context data",
-	GroupID: "details",
+	GroupID: "manage",
 	Long: `Get or manage structured resume context data for any entity.
 Entity type is auto-detected from the key format.
 

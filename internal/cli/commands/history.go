@@ -27,7 +27,7 @@ var (
 var historyCmd = &cobra.Command{
 	Use:     "history [EPIC] [FEATURE]",
 	Short:   "View project-wide task history",
-	GroupID: "status",
+	GroupID: "manage",
 	Long: `View project-wide task activity log with optional filtering.
 
 Displays recent status changes, agent assignments, and task transitions across all tasks in the project.
