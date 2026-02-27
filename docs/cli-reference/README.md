@@ -36,11 +36,13 @@ shark progress E07                         # Epic progress
 
 ---
 
-## Command Categories
+## Command Groups (E17)
 
-### Quick Commands
+The CLI is organized into 4 groups. Commands are categorized by purpose, not by entity type.
 
-Shorthand aliases for the most common task operations.
+### Workflow
+
+Commands for day-to-day task lifecycle operations.
 
 | Command | Description | Standard Equivalent |
 |---------|-------------|---------------------|
@@ -49,68 +51,79 @@ Shorthand aliases for the most common task operations.
 | `shark done <key>` | Complete a task | `shark task complete` |
 | `shark block <key>` | Block a task | `shark task block` |
 | `shark unblock <key>` | Unblock a task | `shark task unblock` |
+| `shark status [key]` | Project dashboard or entity status | - |
+| `shark status set <key> <status>` | Set entity status directly | - |
+| `shark status advance <key>` | Advance to next status | - |
+| `shark status options <key>` | Show valid next statuses | - |
+| `shark status history <key>` | View status change history | - |
 
-**Reference:** [Quick Commands](quick-commands.md)
+**Reference:** [Quick Commands](quick-commands.md) | [Status Commands](status-commands.md)
 
-### Core Commands
+### Inspect
 
-Entity-aware commands that auto-detect type from key format.
+Commands for viewing and searching project data.
 
 | Command | Description |
 |---------|-------------|
 | `shark get <key>` | Get entity details (epic/feature/task) |
 | `shark list [epic] [feature]` | List entities with smart filtering |
-| `shark create <type> [args]` | Create epic, feature, or task |
-| `shark delete <key>` | Delete an entity |
 | `shark view <key>` | View entity markdown file |
+| `shark progress <key>` | Detailed progress breakdown |
+| `shark search <query>` | Search across entities |
 
-**Reference:** [Core Commands](core-commands.md)
+**Reference:** [Core Commands](core-commands.md) | [Progress & Analytics](progress-analytics.md) | [Discovery Commands](discovery-commands.md)
 
-### Status & Analytics
+### Manage
+
+Commands for creating, updating, and organizing entities.
 
 | Command | Description |
 |---------|-------------|
-| `shark status [key]` | Project dashboard or entity status |
-| `shark status set <key> <status>` | Set entity status directly |
-| `shark status advance <key>` | Advance to next status |
-| `shark status options <key>` | Show valid next statuses |
-| `shark status history <key>` | View status change history |
-| `shark progress <key>` | Detailed progress breakdown |
+| `shark create <type> [args]` | Create epic, feature, or task |
+| `shark update <key> [flags]` | Update entity (auto-detects epic/feature/task from key) |
+| `shark delete <key>` | Delete an entity |
+| `shark idea` | Manage ideas (create, list, get, update, delete, promote) |
+| `shark context get/set/clear <key>` | Manage entity context fields |
+| `shark notes <key>` | View entity notes |
+| `shark related-docs` | Manage related documents |
+| `shark docs` | Alias for `shark related-docs` |
 | `shark analytics [key]` | Project or entity analytics |
+| `shark history <key>` | View entity history |
 
-**Reference:** [Status Commands](status-commands.md) | [Progress & Analytics](progress-analytics.md)
+**Note:** `shark update` does not accept a `--status` flag. Use `shark status set <key> <status>` instead.
 
-### Entity Management
+**Reference:** [Core Commands](core-commands.md) | [Context Commands](context-commands.md) | [Discovery Commands](discovery-commands.md)
 
-Full CRUD and lifecycle commands for each entity type.
+### Advanced
+
+Full entity-specific subcommands and administrative tools.
+
+#### Entity Commands
 
 | Entity | Subcommands | Reference |
 |--------|-------------|-----------|
 | `shark task` | 26 subcommands (create, get, list, start, complete, block, deps, note, ...) | [Task Commands](task-commands.md) |
 | `shark feature` | 13 subcommands (create, get, list, complete, context, note, ...) | [Feature Commands](feature-commands.md) |
 | `shark epic` | 14 subcommands (create, get, list, complete, context, note, status, ...) | [Epic Commands](epic-commands.md) |
-| `shark idea` | 6 subcommands (create, get, list, update, delete, promote) | [Idea Commands](idea-commands.md) |
 
-### Details & Discovery
+**Note:** `shark task update`, `shark feature update`, and `shark epic update` no longer accept `--status`. Use `shark status set <key> <status>` instead.
 
-| Command | Description |
-|---------|-------------|
-| `shark context get/set/clear <key>` | Manage entity context fields |
-| `shark search <query>` | Search across entities |
-| `shark notes <key>` | View entity notes |
-| `shark related-docs` | Manage related documents |
+#### Admin Commands (`shark admin`)
 
-**Reference:** [Context Commands](context-commands.md) | [Discovery Commands](discovery-commands.md)
-
-### Setup & Maintenance
+Setup, maintenance, and configuration commands are grouped under `shark admin`.
 
 | Command | Description |
 |---------|-------------|
-| `shark init` | Initialize project |
-| `shark validate` | Validate project structure |
-| `shark migrate` | Run database migrations |
-| `shark cloud` | Cloud database management |
-| `shark config` | Configuration management |
+| `shark admin init [--non-interactive]` | Initialize project |
+| `shark admin init update [--workflow=basic\|advanced]` | Update workflow configuration |
+| `shark admin validate` | Validate project structure |
+| `shark admin migrate slugs` | Backfill slugs for all entities |
+| `shark admin cloud init/status` | Cloud database management |
+| `shark admin config show` | Show full configuration |
+| `shark admin config validate` | Validate config file |
+| `shark admin config get-format` | Get output format |
+| `shark admin config get-status-action` | Debug workflow status actions |
+| `shark admin workflow` | Workflow management |
 
 **Reference:** [Setup Commands](setup-commands.md) | [Configuration](configuration.md)
 
@@ -190,3 +203,4 @@ shark task next     # Standard style (identical behavior)
 | `1` | Not found |
 | `2` | Database error |
 | `3` | Invalid state |
+| `4` | Field not found |

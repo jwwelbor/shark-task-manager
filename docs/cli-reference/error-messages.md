@@ -54,6 +54,7 @@ When using `--json`, errors are returned as structured JSON:
 | `1` | Not found | Entity doesn't exist |
 | `2` | Database error | Connection failed |
 | `3` | Invalid state | Bad status transition |
+| `4` | Field not found | `--field` requested a non-existent field |
 
 ### Script Usage
 
@@ -185,7 +186,7 @@ Error: failed to open database: unable to open database file
 Possible solutions:
   - Check database path in .sharkconfig.json
   - Verify file permissions
-  - Run 'shark init' to create database
+  - Run 'shark admin init' to create database
 ```
 
 **JSON:**
@@ -195,11 +196,11 @@ Possible solutions:
   "code": 2,
   "message": "failed to open database",
   "details": "unable to open database file: shark-tasks.db",
-  "suggestions": ["Check .sharkconfig.json database.url", "Run 'shark init'"]
+  "suggestions": ["Check .sharkconfig.json database.url", "Run 'shark admin init'"]
 }
 ```
 
-**Solution:** Ensure the database exists and is accessible. Run `shark init --non-interactive` to create a new database.
+**Solution:** Ensure the database exists and is accessible. Run `shark admin init --non-interactive` to create a new database.
 
 ---
 
@@ -242,8 +243,11 @@ All dependencies must be completed before starting this task.
 - Use `--json` for machine-parseable error details
 - Use `shark <command> --help` for command syntax
 - Use `shark status options <key>` to see valid status transitions
+- Use `shark update <key>` to quickly update any entity (auto-detects type)
+- Use `shark docs` as a shorthand for `shark related-docs`
 - Use `--force` to bypass validation (admin override)
 - Use `--verbose` to see debug information for troubleshooting
+- Administration commands (init, validate, config, cloud, migrate) are under `shark admin`
 
 ## Related Documentation
 

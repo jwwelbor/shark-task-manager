@@ -62,6 +62,7 @@ Shark supports two command styles that work identically:
 | `1` | Not found | Entity doesn't exist |
 | `2` | Database error | Connection failed |
 | `3` | Invalid state | Bad status transition |
+| `4` | Field not found | `--field` requested a non-existent field |
 
 ### Script Usage
 
@@ -235,6 +236,62 @@ shark task list --json | jq '.[] | select(.status == "todo")'
 # Get all tasks once
 tasks=$(shark task list E07 --json)
 echo "$tasks" | jq -r '.[] | .key'
+```
+
+---
+
+## Entity Updates
+
+### Quick Updates with `shark update`
+
+Use `shark update <KEY>` to update any entity. The command auto-detects entity type from the key format:
+
+```bash
+# Update epic
+shark update E07 --title="New Epic Title"
+
+# Update feature
+shark update E07-F01 --title="New Feature Title"
+
+# Update task
+shark update E07-F01-001 --title="New Task Title" --priority=8
+```
+
+**Note:** For status changes, use `shark status set <KEY> <status>` instead of update flags. Status transitions have workflow validation that the update command does not enforce.
+
+```bash
+# Correct: use status commands for status changes
+shark status set E07-F01-001 in_progress
+shark status advance E07-F01-001
+
+# Incorrect: don't use update for status changes
+# shark update E07-F01-001 --status=in_progress  # Use status commands instead
+```
+
+### Related Documents
+
+Use `shark docs` (alias for `shark related-docs`) to manage related documentation:
+
+```bash
+shark docs list --feature=E07-F01
+shark docs add --feature=E07-F01 --path="docs/design.md"
+```
+
+---
+
+## Administration Commands
+
+Setup and maintenance commands are grouped under `shark admin`:
+
+```bash
+shark admin init                           # Initialize project
+shark admin init update --workflow=advanced  # Apply advanced workflow
+shark admin validate                       # Validate project structure
+shark admin config show                    # Show full config
+shark admin config validate                # Validate config file
+shark admin cloud init --url="..." --auth-token="..."  # Cloud database setup
+shark admin cloud status                   # Cloud database status
+shark admin migrate slugs                  # Run slug migration
 ```
 
 ---
