@@ -1,103 +1,77 @@
 ---
-timestamp: 2026-02-14T19:00:00Z
-feature: E07-F29
-status: ready_for_qa
-context: Bug fixes completed - all compilation errors resolved and tests passing
-blocker: none
+timestamp: 2026-02-26T21:17:25-06:00
+epic: E17
+branch: E17
+status: implementation complete, needs commit + doc updates + verification
 ---
 
-# Resume: E07-F29 Template Variables Implementation
+# Continue: E17 CLI Help Reorganization — Commit & Finalize
 
-## Current State
+## What Was Done
 
-Successfully fixed all compilation errors and test failures. **All 4 draft tasks are now ready for QA.**
+The CLI help reorganization (4-group structure) is **fully implemented and passing all quality gates** (`make fmt && make lint && make test` all green). All code changes are staged but **uncommitted**.
 
-## Task Status
+### Changes Summary
 
-### Ready for QA (4 tasks)
-- `T-E07-F29-028`: Add ListRelatedTaskKeys method to TaskRelationshipRepository ✅
-- `T-E07-F29-029`: Refactor TaskPlaceholdersWithRelated to use task_relationships table ✅
-- `T-E07-F29-030`: Remove dead code ✅ (blocker resolved)
-- `T-E07-F29-031`: Update UAT guide to reflect task_relationships table architecture ✅
+**New files created:**
+- `internal/cli/commands/admin.go` — `shark admin` parent command (GroupID "advanced"), nests init/config/cloud/migrate/validate/workflow
+- `internal/cli/commands/update_dispatch.go` — `shark update <KEY>` auto-detect dispatcher (GroupID "manage"), routes to task/feature/epic update
 
-## Changes Made (2026-02-14 19:00)
+**Group restructure** (root.go): 6 groups → 4 groups
+- `"workflow"` — next, start, done, block, unblock, status
+- `"inspect"` — get, list, view, progress, search
+- `"manage"` — create, update, delete, idea, context, notes, related-docs, analytics, history
+- `"advanced"` — task, feature, epic, admin
 
-### 1. Fixed Compilation Errors (T-E07-F29-030)
-Removed all 11+ references to `ContextData.RelatedTasks` field which was removed during refactoring:
+**Flag removal** (status flags removed from update commands — use `shark status set` instead):
+- task update: removed `--status`, `--force`, `--reason`, `--reason-doc`
+- feature update: removed `--status`, `--force`
+- epic update: removed `--status`, `--force`
+- Removed unused `applyFeatureStatusUpdate()` from feature_helpers.go
 
-**Files Modified:**
-- `internal/cli/commands/task_context.go` - Removed "related_tasks" case and display section
-- `internal/cli/commands/epic_context.go` - Removed related tasks display
-- `internal/cli/commands/feature.go` - Removed RelatedTasks check
-- `internal/cli/commands/epic.go` - Removed RelatedTasks check
-- `internal/cli/commands/task_resume.go` - Removed related tasks display
-- `internal/cli/commands/task_work_session_test.go` - Removed test references
+**Files modified:** 38 files total (see `git status` for full list)
 
-### 2. Fixed Test Failures
-Updated test task keys to match validation pattern `^T-E\d{2}-F\d{2}-\d{3}$`:
+## What Needs To Be Done
 
-**Files Modified:**
-- `internal/repository/task_relationship_repository_test.go` - Fixed 5 test functions
-- `internal/config/template_helpers_integration_test.go` - Updated to use actual task_relationships
+### 1. Commit all changes
+Run `git status` to review, then commit with a descriptive message covering the reorganization.
 
-## Quality Gate Results
+### 2. Update CLI reference docs
+Three doc files show as modified from a prior commit but need review for alignment with the new structure:
+- `docs/cli-reference/README.md` — update command categories to match new 4-group structure
+- `docs/cli-reference/best-practices.md` — update any references to old group names or `shark init` (now `shark admin init`)
+- `docs/cli-reference/error-messages.md` — check for stale command references
 
-✅ **All checks pass:**
-- `make fmt` - 0 formatting issues
-- `make lint` - 0 linting issues
-- `make test` - All tests pass (0 failures)
+### 3. Verify `shark admin init` works end-to-end
+The `init` command moved under `admin`. Run `shark admin init --help` and verify it matches expectations. Also verify `shark admin --help` lists all 6 subcommands.
 
-## Next Steps
+### 4. Verify `shark update` works end-to-end
+Test: `shark update E17 --title="test"` (epic), `shark update E17-F01 --title="test"` (feature). Confirm auto-detection routes correctly.
 
-### 1. Run QA on All 4 Tasks
+### 5. Verify `shark docs` alias
+Test: `shark docs --help` should show related-docs help.
 
-Spawn QA agents in parallel:
+## Execution Optimization
 
-```bash
-# Use single message with multiple Task tool calls for parallel execution
-/run E07-F29
-```
+**Parallel agents (Task tool):**
 
-Or manually spawn QA agents:
+1. **Agent 1 (developer, background):** Commit the changes — run `git status`, `git diff`, `git log` to understand state, then create a commit with all 38 modified + 2 new files.
 
-```
-Spawn 4 parallel QA agents (use haiku for speed):
-- qa agent for T-E07-F29-028
-- qa agent for T-E07-F29-029
-- qa agent for T-E07-F29-030 (now unblocked)
-- qa agent for T-E07-F29-031
+2. **Agent 2 (developer, background):** Update `docs/cli-reference/README.md` to reflect the new 4-group structure (Workflow/Inspect/Manage/Advanced), update references to `shark admin init` instead of `shark init`, and add `shark update` and `shark docs` to the command tables.
 
-Each agent: Read task spec, run tests, verify acceptance criteria, advance status.
-```
+3. **Agent 3 (developer, background):** Update `docs/cli-reference/best-practices.md` and `docs/cli-reference/error-messages.md` — replace any `shark init` references with `shark admin init`, update command group names, add `shark update` examples where relevant.
 
-### 2. Continue Orchestration Loop
+4. **Main thread:** After agents complete, run final `make fmt && make lint && make test` quality gate, then commit doc updates separately.
 
-After QA completes, check feature status:
-```bash
-./bin/shark feature get E07-F29 --json | jq .orchestrator_action
-```
+## Key Files for Context
 
-Continue running `/run E07-F29` to drive remaining tasks through workflow.
-
-## Key Files
-
-**Task Specs:**
-- `docs/plan/E07-enhancements/E07-F29-template-variables-for-related-docs-and-tasks/tasks/T-E07-F29-028.md`
-- `docs/plan/E07-enhancements/E07-F29-template-variables-for-related-docs-and-tasks/tasks/T-E07-F29-029.md`
-- `docs/plan/E07-enhancements/E07-F29-template-variables-for-related-docs-and-tasks/tasks/T-E07-F29-030.md`
-- `docs/plan/E07-enhancements/E07-F29-template-variables-for-related-docs-and-tasks/tasks/T-E07-F29-031.md`
-
-**Implementation Files:**
-- `internal/repository/task_relationship_repository.go` (T-E07-F29-028)
-- `internal/config/template_helpers.go` (T-E07-F29-029, T-E07-F29-030)
-- `docs/uat/E07-shark-task-manager/UAT-E07-F29-2026-02-14.md` (T-E07-F29-031)
-
-## Command to Resume
-
-```bash
-/run E07-F29
-```
-
----
-
-**Estimated time to completion**: 20-40 minutes (QA + remaining tasks)
+| Purpose | File |
+|---------|------|
+| Group definitions | `internal/cli/root.go` (lines 85-110) |
+| Admin parent cmd | `internal/cli/commands/admin.go` |
+| Update dispatcher | `internal/cli/commands/update_dispatch.go` |
+| Flag removal (task) | `internal/cli/commands/task_helpers.go` (registerUpdateFlags) |
+| Flag removal (feature) | `internal/cli/commands/feature.go` + `feature_helpers.go` |
+| Flag removal (epic) | `internal/cli/commands/epic.go` + `epic_helpers.go` |
+| Test fixes | `aliases_test.go`, `create_test.go`, `delete_dispatch_test.go`, `init_test.go`, `epic_update_test.go`, `feature_update_test.go`, `task_update_test.go` |
+| CLI reference docs | `docs/cli-reference/README.md`, `best-practices.md`, `error-messages.md` |

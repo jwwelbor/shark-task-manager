@@ -1,130 +1,36 @@
 package commands
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"time"
-
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
-	"github.com/jwwelbor/shark-task-manager/internal/services"
-	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/spf13/cobra"
 )
 
 // statusCmd represents the status command
 var statusCmd = &cobra.Command{
-	Use:     "status [EPIC] [FEATURE]",
-	Short:   "Show project status dashboard",
+	Use:     "status",
+	Short:   "Manage entity statuses (set, advance, transitions, history)",
 	GroupID: "workflow",
-	Long: `Display a comprehensive status dashboard showing project progress, active tasks, and blocked items.
+	Long: `Commands for managing entity statuses: set a status directly, advance through the
+workflow, view available transitions, or inspect status change history.
 
-Positional Arguments:
-  (no args)       Show full project dashboard
-  EPIC            Show status for specific epic (e.g., E04)
-  EPIC FEATURE    Show status for specific feature (e.g., E04 F01 or E04-F01)
+Subcommands:
+  set <key> <status>     Set entity to a specific status
+  advance <key>          Advance entity to next workflow status
+  transitions <key>      Show available status transitions
+  history <key>          Show task status change history
 
 Examples:
-  shark status                       Show full project dashboard
-  shark status E05                   Show status for epic E05
-  shark status E05 F02               Show status for feature E05-F02
-  shark status E05-F02               Show status for feature E05-F02 (combined format)
-  shark status --epic=E05            Flag syntax (still supported)
-  shark status --recent=7d           Include recent completions (7 days)
-  shark status --json                Output as JSON`,
-	RunE: runStatus,
+  shark status set E07-F01-001 in_development          Set task status
+  shark status set E07-F01-001 todo --reason="Rework"   Force backward transition
+  shark status advance E07-F01-001                      Advance to next status
+  shark status transitions E07-F01-001                  Show valid transitions
+  shark status history E07-F01-001                      View change history
+
+Use 'shark progress' for project/entity progress dashboards.
+Use 'shark get <key>' for entity details.`,
 }
 
 func init() {
 	// Register status command with root
 	cli.RootCmd.AddCommand(statusCmd)
-
-	// Add flags
-	statusCmd.Flags().String("epic", "", "Filter by epic key")
-	statusCmd.Flags().String("recent", "", "Recent completion window (24h, 7d, 30d, 90d)")
-	statusCmd.Flags().Bool("include-archived", false, "Include archived epics/features")
-
-	// TODO(E17-F06/Phase2): Uncomment after E17-F07 is complete and tested.
-	// statusCmd.Deprecated = "Use 'shark progress' to view progress. Use 'shark status set/advance' for status transitions."
-}
-
-// runStatus executes the status command
-func runStatus(cmd *cobra.Command, args []string) error {
-	req, err := parseStatusRequest(cmd, args)
-	if err != nil {
-		return err
-	}
-
-	ctx := cmd.Context()
-	if ctx == nil {
-		var cancel func()
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-	}
-
-	dashboard, err := cli.GetStatusService().GetDashboard(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to get dashboard: %w", err)
-	}
-
-	enrichEpicSummaries(dashboard.Epics, cli.GetDisplayService())
-
-	if cli.GlobalConfig.JSON {
-		return outputStatusJSON(dashboard)
-	}
-	return outputStatusTerminal(dashboard)
-}
-
-// parseStatusRequest builds a StatusRequest from command arguments and flags.
-func parseStatusRequest(cmd *cobra.Command, args []string) (*status.StatusRequest, error) {
-	_, positionalEpic, _, err := ParseListArgs(args)
-	if err != nil {
-		return nil, err
-	}
-	epicKeyFlag, _ := cmd.Flags().GetString("epic")
-	recentWindow, _ := cmd.Flags().GetString("recent")
-	includeArchived, _ := cmd.Flags().GetBool("include-archived")
-
-	epicKey := epicKeyFlag
-	if positionalEpic != nil {
-		epicKey = *positionalEpic
-	}
-	return &status.StatusRequest{
-		EpicKey:         epicKey,
-		RecentWindow:    recentWindow,
-		IncludeArchived: includeArchived,
-	}, nil
-}
-
-// enrichEpicSummaries populates DisplayMode, IsPlanning, and Phase fields
-// on each EpicSummary using the DisplayService to determine planning vs aggregation mode.
-// Uses in-memory workflow config lookup (no additional DB queries).
-func enrichEpicSummaries(epics []*status.EpicSummary, displaySvc *services.DisplayService) {
-	for _, epic := range epics {
-		mode := displaySvc.DetermineEpicDisplayModeByStatus(epic.Status)
-		epic.DisplayMode = string(mode)
-		if mode == services.DisplayModePlanning {
-			epic.IsPlanning = true
-			epic.Phase = displaySvc.GetEpicPhase(epic.Status)
-		}
-	}
-}
-
-// outputStatusJSON outputs the dashboard as JSON
-func outputStatusJSON(dashboard *status.StatusDashboard) error {
-	data, err := json.MarshalIndent(dashboard, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal dashboard: %w", err)
-	}
-
-	fmt.Println(string(data))
-	return nil
-}
-
-// outputStatusTerminal outputs the dashboard with rich terminal formatting
-func outputStatusTerminal(dashboard *status.StatusDashboard) error {
-	// Use the formatter from the status package
-	output := status.FormatDashboard(dashboard, cli.GlobalConfig.NoColor)
-	fmt.Print(output)
-	return nil
 }

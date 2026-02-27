@@ -105,9 +105,9 @@ Examples:
 	RunE: runStatusAdvance,
 }
 
-// statusOptionsCmd shows available transitions for an entity (read-only).
-var statusOptionsCmd = &cobra.Command{
-	Use:   "options <key>",
+// statusTransitionsCmd shows available transitions for an entity (read-only).
+var statusTransitionsCmd = &cobra.Command{
+	Use:   "transitions <key>",
 	Short: "Show available status transitions",
 	Long: `Show the available status transitions for an epic, feature, or task without making any changes.
 
@@ -119,11 +119,11 @@ Key Formats:
   E07-F01-001        Task
 
 Examples:
-  shark status options E07-F01-001              Show transitions for task
-  shark status options E07                      Show transitions for epic
-  shark status options E07-F01 --json           JSON output`,
+  shark status transitions E07-F01-001          Show transitions for task
+  shark status transitions E07                  Show transitions for epic
+  shark status transitions E07-F01 --json       JSON output`,
 	Args: cobra.ExactArgs(1),
-	RunE: runStatusOptions,
+	RunE: runStatusTransitions,
 }
 
 // statusHistoryCmd shows task status change history.
@@ -165,7 +165,7 @@ func init() {
 	// Register subcommands under statusCmd (defined in status.go)
 	statusCmd.AddCommand(statusSetCmd)
 	statusCmd.AddCommand(statusAdvanceCmd)
-	statusCmd.AddCommand(statusOptionsCmd)
+	statusCmd.AddCommand(statusTransitionsCmd)
 	statusCmd.AddCommand(statusHistoryCmd)
 }
 
@@ -438,8 +438,8 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	return performEntityTransition(ctx, svc, info.EntityKey, autoTarget, opts, result)
 }
 
-// runStatusOptions implements the `shark status options <key>` command.
-func runStatusOptions(cmd *cobra.Command, args []string) error {
+// runStatusTransitions implements the `shark status transitions <key>` command.
+func runStatusTransitions(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -512,7 +512,7 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 	// Step 2: Validate entity type - only tasks have history
 	if entityType != "task" {
 		cli.Error(fmt.Sprintf("Status history is only available for tasks, not %ss", entityType))
-		cli.Info("Use 'shark status options <key>' to see available transitions for any entity type")
+		cli.Info("Use 'shark status transitions <key>' to see available transitions for any entity type")
 		os.Exit(3)
 	}
 
