@@ -1,103 +1,263 @@
 # Feature Commands
 
-Commands for managing features.
+Complete reference for feature management commands in Shark Task Manager.
 
-## `shark feature create`
+## Overview
 
-Create a new feature within an epic.
+Features are mid-level organizational units in Shark's hierarchy: **Epic > Feature > Task**. They represent user-facing capabilities or technical improvements that contain one or more tasks.
 
-**Positional Syntax (Recommended):**
+Features follow a complexity-adaptive workflow. Depending on the configured workflow profile, features may pass through simple linear statuses (basic profile) or a multi-phase lifecycle including scope validation, triage, refinement, test planning, task generation, and execution (advanced profile).
+
+## Quick Reference
+
+| Subcommand | Category | Description |
+|------------|----------|-------------|
+| `create` | CRUD | Create a new feature in an epic |
+| `get` | CRUD | Get detailed feature information |
+| `list` | CRUD | List features with optional filtering |
+| `update` | CRUD | Update feature properties |
+| `delete` | CRUD | Delete a feature (cascade deletes tasks) |
+| `complete` | Lifecycle | Complete all tasks in a feature |
+| `next-status` | Lifecycle | Advance feature to next workflow status |
+| `set-status` | Lifecycle | Set feature to a specific workflow status |
+| `context` | Context & Notes | Manage structured context data (set/get/clear) |
+| `note` | Context & Notes | Add typed notes to a feature |
+| `notes` | Context & Notes | List notes for a feature |
+| `criteria` | Context & Notes | Show aggregated acceptance criteria |
+| `resume` | Context & Notes | Get comprehensive context for resuming work |
+
+## Global Flags
+
+All feature subcommands support these global flags:
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output in JSON format (machine-readable) |
+| `--field <name>` | Extract a single field from JSON output |
+| `--db <path>` | Database file path (default: `shark-tasks.db`) |
+| `--config <path>` | Config file path (default: `.sharkconfig.json`) |
+| `--no-color` | Disable colored output |
+| `-v, --verbose` | Enable verbose/debug output |
+
+## Key Format Support
+
+All feature commands accept keys in multiple formats (case-insensitive):
+
+- Full key: `E07-F01`
+- Short key: `F01`
+- Slugged key: `E07-F01-authentication` or `F01-authentication`
+- Case variants: `e07-f01`, `E07-f01`
+
+---
+
+## CRUD Commands
+
+### `shark feature create`
+
+Create a new feature with auto-assigned key and folder structure.
+
+**Usage:**
+
 ```bash
+# Positional syntax (recommended)
 shark feature create <epic-key> "<title>" [flags]
+
+# Flag syntax (legacy, still supported)
+shark feature create --epic=<epic-key> "<title>" [flags]
 ```
 
-**Flag Syntax (Legacy, still supported):**
-```bash
-shark feature create --epic=<epic-key> --title="<title>" [flags]
-```
+**Flags:**
 
-**Optional Flags:**
-- `--file <path>`: Custom file path (relative to root, must include .md)
-- `--force`: Reassign file if already claimed by another feature or epic
-- `--execution-order <number>`: Execution order within epic
-- `--json`: Output in JSON format
+| Flag | Description |
+|------|-------------|
+| `--epic <key>` | Epic key (alternative to positional argument) |
+| `--description <text>` | Feature description |
+| `--file <path>` | Custom file path (relative to root, must end in `.md`) |
+| `--force` | Force reassignment if file already claimed |
+| `--key <key>` | Custom key for the feature |
+| `--order <n>` | Execution order within epic (lower runs first) |
+| `--status <status>` | Initial status (default: `draft`) |
 
 **Examples:**
 
 ```bash
-# Create feature with positional syntax (recommended)
-shark feature create E07 "Authentication"
-shark feature create e07 "Authentication"  # Case insensitive
-# Creates: docs/plan/E07-user-management-system/E07-F01-authentication/feature.md
+# Create feature with positional syntax
+shark feature create E07 "JWT Token Management"
 
-# Create feature with flag syntax (legacy)
-shark feature create --epic=E07 --title="Authentication"
-
-# Create feature with custom file path
+# Create with custom file path
 shark feature create E07 "User Profiles" --file="docs/features/profiles/feature.md"
 
-# Create feature with execution order
-shark feature create E07 "Authorization" --execution-order=2 --json
+# Create with execution order and description
+shark feature create E07 "OAuth Integration" --order=2 --description="Add OAuth 2.0 support"
+```
 
-# Force reassign file
-shark feature create E07 "Legacy Auth" --file="docs/legacy/auth.md" --force
+**JSON Output:**
+
+```json
+{
+  "id": 201,
+  "key": "E07-F01",
+  "slug": "jwt-token-management",
+  "title": "JWT Token Management",
+  "epic_id": 7,
+  "epic_key": "E07",
+  "status": "draft",
+  "execution_order": 1,
+  "file_path": "docs/plan/E07-user-authentication-system/E07-F01-jwt-token-management/feature.md",
+  "created_at": "2026-02-16T10:30:00Z",
+  "updated_at": "2026-02-16T10:30:00Z"
+}
 ```
 
 ---
 
-## `shark feature list`
+### `shark feature get`
 
-List features, optionally filtered by epic.
+Display detailed information about a specific feature including progress, work breakdown, action items, and task status.
 
 **Usage:**
+
 ```bash
-shark feature list [EPIC] [--json]
-# OR (flag syntax, backward compatible)
-shark feature list [--epic=<epic-key>] [--json]
+shark feature get <feature-key> [flags]
 ```
 
 **Examples:**
 
 ```bash
-# List all features
+# Get feature details
+shark feature get E07-F01
+
+# Get by short key
+shark feature get F01
+
+# JSON output
+shark feature get E07-F01 --json
+```
+
+**Output includes:**
+
+- Feature metadata (title, status, progress, file path)
+- Progress breakdown (weighted and completion percentages)
+- Work summary (tasks by responsibility: agent, human, QA, blocked)
+- Action items (tasks in actionable statuses grouped by status)
+- Task status breakdown ordered by workflow phase
+
+**Table Output Example:**
+
+```
+Feature: E07-F01 - JWT Token Management
+Status: active
+Progress: 80.0% (weighted) | 73.3% (completion)
+Total Tasks: 15
+
+Work Breakdown
+  Agent Work:     8 tasks
+  Human Work:     2 tasks
+  QA Work:        1 task
+  Blocked:        0 tasks
+
+Action Items (3 tasks require attention)
+  ready_for_qa (1):
+    T-E07-F01-012 - Token refresh endpoint tests
+  ready_for_approval (2):
+    T-E07-F01-013 - Token validation middleware
+    T-E07-F01-014 - JWT secret rotation
+```
+
+**JSON Output:**
+
+```json
+{
+  "feature": {
+    "id": 201,
+    "key": "E07-F01",
+    "slug": "jwt-token-management",
+    "title": "JWT Token Management",
+    "epic_id": 7,
+    "epic_key": "E07",
+    "status": "active"
+  },
+  "progress": {
+    "weighted_pct": 80.0,
+    "completion_pct": 73.3,
+    "total_tasks": 15
+  },
+  "work_breakdown": {
+    "agent": 8,
+    "human": 2,
+    "qa_team": 1,
+    "none": 1,
+    "blocked": 0
+  },
+  "action_items": {
+    "ready_for_qa": [{"key": "T-E07-F01-012", "title": "Token refresh endpoint tests"}],
+    "ready_for_approval": [{"key": "T-E07-F01-013", "title": "Token validation middleware"}]
+  },
+  "health": "healthy",
+  "status_breakdown": [
+    {"status": "completed", "count": 11, "phase": "done", "color": "green"},
+    {"status": "ready_for_approval", "count": 2, "phase": "review", "color": "magenta"}
+  ]
+}
+```
+
+---
+
+### `shark feature list`
+
+List features with optional filtering by epic, status, or sort order.
+
+**Usage:**
+
+```bash
+# Positional syntax (recommended)
+shark feature list [EPIC] [flags]
+
+# Flag syntax (legacy)
+shark feature list [--epic=<epic-key>] [flags]
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `-e, --epic <key>` | Filter by epic key |
+| `--status <status>` | Filter by status |
+| `--all` | Show all features including completed |
+| `--sort-by <field>` | Sort by: `key`, `progress`, `status` |
+
+**Examples:**
+
+```bash
+# List all non-completed features
 shark feature list
 
-# List features in specific epic (positional argument)
+# List features in epic E07
 shark feature list E07
+
+# List all features including completed, sorted by progress
+shark feature list --all --sort-by=progress
+
+# JSON output filtered by epic
 shark feature list E07 --json
-
-# List features in specific epic (flag syntax)
-shark feature list --epic=E07 --json
-
-# Using slugged epic key
-shark feature list E07-user-management-system --json
 ```
 
-### Health Indicators
+**Health Indicators:**
 
-Feature list displays health indicators in table format:
+The table output includes health indicators:
 
-- **🔴 Red**: Feature has blocked tasks
-- **🟡 Yellow**: Feature has tasks in `ready_for_approval` status for more than 3 days
-- **🟢 Green**: No issues detected
+| Indicator | Meaning |
+|-----------|---------|
+| Green | Healthy - no blockers, progressing normally |
+| Yellow | Warning - minor issues, some blocked or stalled tasks |
+| Red | Critical - multiple blockers, approval tasks overdue |
 
-**Progress Format:** Shows both weighted and completion progress:
-- `70.5% | 50%` = 70.5% weighted progress, 50% completion progress
-- Helps identify tasks with high weight that impact overall progress
+**Progress Format:** Shows dual progress as `weighted% | completion%`. Weighted progress accounts for configured `progress_weight` per status. Completion progress is the raw ratio of completed tasks.
 
-**Notes Column:** Shows count of action items:
-- Number of tasks awaiting action (in ready_for_* statuses)
-- Quick indicator of workload needing attention
+**Notes Column:** Shows count of tasks in actionable statuses (`ready_for_*`).
 
-**Example Table Output:**
-```
-Epic    Feature                     Progress         Status  Notes
-E07     Authentication              70.5% | 50%      🟡      4 awaiting
-E07     User Management             100% | 100%      🟢      0 awaiting
-E07     Permission System           45.0% | 20%      🔴      2 blocked
-```
+**JSON Output:**
 
-**JSON Output:** Enhanced with health indicators:
 ```json
 {
   "id": 1,
@@ -109,206 +269,210 @@ E07     Permission System           45.0% | 20%      🔴      2 blocked
   "completion_progress": 50.0,
   "health_status": "warning",
   "action_items_count": 4,
-  "blocked_count": 0,
-  "ready_for_approval_count": 4
+  "blocked_count": 0
 }
 ```
 
 ---
 
-## `shark feature get`
+### `shark feature update`
 
-Get detailed information about a specific feature.
+Update a feature's properties such as title, description, status, or execution order.
 
 **Usage:**
+
 ```bash
-shark feature get <feature-key> [--json]
+shark feature update <feature-key> [flags]
 ```
 
-**Supports:**
-- Numeric keys: `E07-F01`, `F01`
-- Slugged keys: `E07-F01-authentication`, `F01-authentication`
-- Case insensitive: `e07-f01`, `f01`
+**Flags:**
 
-**Features:**
-- **Workflow-aware status display**: Task statuses are colored according to workflow config
-- **Phase information**: Status breakdown includes workflow phase (planning, development, review, etc.)
-- **Completion message**: Shows "All tasks completed!" when progress reaches 100%
+| Flag | Description |
+|------|-------------|
+| `--title <text>` | New title |
+| `--description <text>` | New description |
+| `--status <status>` | New status |
+| `--order <n>` | New execution order (`-1` = no change) |
+| `--key <key>` | New key (must be unique, no spaces) |
+| `--file <path>` | New file path |
+| `--force` | Force reassignment if file already claimed |
 
 **Examples:**
 
 ```bash
-# Get feature details
-shark feature get E07-F01
+# Update title
+shark feature update E07-F01 --title="JWT Token Generation and Validation"
 
-# Get feature details (JSON)
-shark feature get E07-F01 --json
+# Update execution order
+shark feature update E07-F01 --order=1
 
-# Using partial key
-shark feature get F01
-
-# Using slugged key
-shark feature get E07-F01-authentication --json
+# Update multiple fields
+shark feature update E07-F01 --status=active --description="Updated scope" --json
 ```
 
-**Output includes:**
-- Feature metadata (title, status, progress, path)
-- Task status breakdown (status, count, phase) - ordered by workflow phase
-- Task list with colored statuses
-- Completion message if all tasks are done
+---
 
-### Enhanced Status Information
+### `shark feature delete`
 
-The feature get command includes three additional sections for improved visibility:
+Delete a feature from the database. This CASCADE deletes all tasks belonging to the feature.
 
-**Progress Breakdown:**
-Shows weighted and completion progress metrics:
-- **Weighted Progress**: Calculated based on configured `progress_weight` for each status
-- **Completion Progress**: Raw percentage of completed tasks
-- **Total Tasks**: Count of all tasks in feature
-
-**Work Summary:**
-Categorizes tasks by responsibility:
-- **Completed**: Finished and approved tasks
-- **Agent Work**: Tasks assigned to AI agents
-- **Human Work**: Tasks requiring human engineers
-- **QA Work**: Tasks for quality assurance team
-- **Blocked Work**: Tasks blocked by dependencies
-- **Not Started**: Todo tasks
-
-**Action Items:**
-Lists tasks awaiting action, grouped by status:
-- Tasks in `ready_for_approval` status
-- Tasks in `ready_for_qa` status
-- Other actionable statuses from workflow config
-
-**Example Output (Table Format):**
-```
-Progress Breakdown
-  Weighted: 70.5% | Completion: 9.1% | Total: 11 tasks
-
-Work Summary
-  Completed: 1 | Agent Work: 0 | Human Work: 7 | QA Work: 0 | Blocked: 0 | Not Started: 3
-
-Action Items
-  Ready for Approval (4 tasks)
-    - T-E07-F23-001
-    - T-E07-F23-002
-    - T-E07-F23-003
-    - T-E07-F23-004
-```
-
-**JSON Output:**
-```json
-{
-  "id": 1,
-  "epic_id": 7,
-  "key": "E07-F01",
-  "title": "Authentication",
-  "status": "active",
-  "progress_pct": 75.0,
-  "progress_info": {
-    "weighted_progress_pct": 70.5,
-    "completion_progress_pct": 9.1,
-    "total_tasks": 11
-  },
-  "work_summary": {
-    "total_tasks": 11,
-    "completed_tasks": 1,
-    "agent_work": 0,
-    "human_work": 7,
-    "qa_work": 0,
-    "blocked_work": 0,
-    "not_started": 3
-  },
-  "action_items": {
-    "ready_for_approval": ["T-E07-F23-001", "T-E07-F23-002"],
-    "ready_for_qa": []
-  },
-  "tasks": [...],
-  "status_breakdown": [
-    {"status": "completed", "count": 3, "phase": "done", "color": "green"},
-    {"status": "in_progress", "count": 1, "phase": "development", "color": "blue"}
-  ]
-}
-```
-
-## `shark feature next-status`
-
-Progress a feature to its next workflow status.
+**WARNING:** This action cannot be undone.
 
 **Usage:**
+
+```bash
+shark feature delete <feature-key> [flags]
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Force deletion even if feature has tasks |
+
+**Examples:**
+
+```bash
+# Delete feature with no tasks
+shark feature delete E04-F02
+
+# Force delete feature and all its tasks
+shark feature delete E04-F02 --force
+
+# JSON output
+shark feature delete E04-F02 --force --json
+```
+
+---
+
+## Lifecycle Commands
+
+### `shark feature complete`
+
+Mark all tasks in a feature as completed.
+
+Without `--force`, the command fails if any tasks are not already completed. With `--force`, all tasks are completed regardless of their current status.
+
+**Usage:**
+
+```bash
+shark feature complete <feature-key> [flags]
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--force` | Force completion of all tasks regardless of status |
+
+**Examples:**
+
+```bash
+# Complete feature (fails if incomplete tasks exist)
+shark feature complete E04-F02
+
+# Force complete all tasks
+shark feature complete E04-F02 --force
+
+# JSON output
+shark feature complete E04-F02 --json
+```
+
+---
+
+### `shark feature next-status`
+
+Progress a feature through its configured workflow by selecting from available transitions.
+
+When a feature has multiple valid next statuses, this command auto-selects the first one. For automation and scripting, use `--status` to specify the target directly. Use `--preview` to inspect available transitions without making changes.
+
+**Usage:**
+
 ```bash
 shark feature next-status <feature-key> [flags]
 ```
 
 **Flags:**
-- `--status <name>`: Transition directly to this status (non-interactive)
-- `--preview`: Show available transitions without making changes
-- `--force`: Bypass workflow validation (administrative override, requires `--reason`)
-- `--reason <text>`: Reason for backward or forced transitions
-- `--agent <name>`: Agent or user performing the transition
-- `--json`: Output in JSON format
+
+| Flag | Description |
+|------|-------------|
+| `--status <name>` | Transition directly to this status (non-interactive) |
+| `--preview` | Show available transitions without making changes |
+| `--force` | Bypass workflow validation (administrative override) |
+| `--reason <text>` | Reason for backward or forced transitions |
+| `--agent <name>` | Agent or user performing the transition |
 
 **Examples:**
 
 ```bash
 # Auto-advance to next status
-shark feature next-status E16-F01
+shark feature next-status E07-F01
 
-# Show available transitions
-shark feature next-status E16-F01 --preview
+# Preview available transitions
+shark feature next-status E07-F01 --preview
 
-# Direct transition
-shark feature next-status E16-F01 --status=active
+# Direct transition to specific status
+shark feature next-status E07-F01 --status=active
 
 # Backward transition with reason
-shark feature next-status E16-F01 --status=draft --reason="Scope change"
+shark feature next-status E07-F01 --status=draft --reason="Scope change detected"
+```
+
+**JSON Output:**
+
+```json
+{
+  "entity_type": "feature",
+  "entity_key": "E07-F01",
+  "from_status": "draft",
+  "to_status": "ready_for_scope_validation",
+  "transitioned": true,
+  "is_backward": false,
+  "child_count": 15
+}
 ```
 
 ---
 
-## `shark feature set-status`
+### `shark feature set-status`
 
 Set a feature to a specific workflow status with validation and backward transition guards.
 
+Backward transitions (moving to an earlier workflow phase) require `--reason`. Using `--force` bypasses workflow validation entirely but also requires `--reason` to document the override. Forward transitions do not require `--reason`.
+
 **Usage:**
+
 ```bash
 shark feature set-status <feature-key> <status> [flags]
 ```
 
 **Flags:**
-- `--reason <text>`: Reason for backward or forced transitions (required for backward transitions)
-- `--force`: Bypass workflow validation (administrative override, requires `--reason`)
-- `--agent <name>`: Agent or user performing the transition
-- `--json`: Output in JSON format
 
-**Backward Transition Rules:**
-- Moving to an earlier workflow phase (e.g., active -> draft) requires `--reason`
-- Using `--force` always requires `--reason` to document the override
-- Forward transitions do not require `--reason`
+| Flag | Description |
+|------|-------------|
+| `--reason <text>` | Reason for backward or forced transitions (required for backward) |
+| `--force` | Bypass workflow validation (requires `--reason`) |
+| `--agent <name>` | Agent or user performing the transition |
 
 **Examples:**
 
 ```bash
 # Forward transition
-shark feature set-status E16-F01 active
+shark feature set-status E07-F01 active
 
-# Backward transition (requires --reason)
-shark feature set-status E16-F01 draft --reason="Requirements changed"
+# Backward transition (requires reason)
+shark feature set-status E07-F01 draft --reason="Requirements changed"
 
-# Force transition (bypasses validation, requires --reason)
-shark feature set-status E16-F01 custom --force --reason="Administrative override"
-
-# JSON output
-shark feature set-status E16-F01 active --json
+# Force transition (bypasses validation, requires reason)
+shark feature set-status E07-F01 custom --force --reason="Administrative override"
 ```
 
 **JSON Output:**
+
 ```json
 {
   "entity_type": "feature",
-  "entity_key": "E16-F01",
+  "entity_key": "E07-F01",
   "from_status": "draft",
   "to_status": "active",
   "transitioned": true,
@@ -319,6 +483,371 @@ shark feature set-status E16-F01 active --json
 
 ---
 
+## Context & Notes Commands
+
+### `shark feature context`
+
+Manage structured resume context data for features. Context data tracks progress, implementation decisions, open questions, blockers, acceptance criteria status, and related tasks.
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `set` | Set or update a context field |
+| `get` | Display current context data |
+| `clear` | Remove all context data |
+
+#### `shark feature context set`
+
+Set or update a specific field in feature context data.
+
+**Usage:**
+
+```bash
+shark feature context set <feature-key> --field <field-name> --value <value>
+```
+
+**Supported Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `current_step` | String | Current work step description |
+| `completed_steps` | JSON array | List of completed steps |
+| `remaining_steps` | JSON array | List of remaining steps |
+| `implementation_decisions` | JSON object | Key-value pairs of decisions |
+| `open_questions` | JSON array | Unanswered questions |
+| `blockers` | JSON array | Blocker objects |
+| `acceptance_criteria_status` | JSON array | Criterion status objects |
+| `related_tasks` | JSON array | Related task keys |
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--field <name>` | Context field to update (required) |
+| `--value <value>` | Field value (required) |
+
+**Examples:**
+
+```bash
+# Set current step
+shark feature context set E07-F01 --field current_step --value "Implementing auth endpoint"
+
+# Set completed steps (JSON array)
+shark feature context set E07-F01 --field completed_steps --value '["Design","DB Schema","API Contract"]'
+
+# Set open questions
+shark feature context set E07-F01 --field open_questions --value '["Should we support refresh tokens?"]'
+```
+
+#### `shark feature context get`
+
+Display the current context data for a feature.
+
+**Usage:**
+
+```bash
+shark feature context get <feature-key>
+```
+
+**Examples:**
+
+```bash
+# View context data
+shark feature context get E07-F01
+
+# JSON output
+shark feature context get E07-F01 --json
+```
+
+#### `shark feature context clear`
+
+Remove all context data from a feature.
+
+**Usage:**
+
+```bash
+shark feature context clear <feature-key>
+```
+
+**Examples:**
+
+```bash
+# Clear all context
+shark feature context clear E07-F01
+
+# Clear with JSON confirmation
+shark feature context clear E07-F01 --json
+```
+
+---
+
+### `shark feature note`
+
+Parent command for managing typed notes on features. Notes provide structured documentation for decisions, blockers, solutions, and other context.
+
+#### `shark feature note add`
+
+Add a typed note to a feature for context, decisions, and documentation.
+
+**Usage:**
+
+```bash
+shark feature note add <feature-key> --type <type> "<content>" [flags]
+```
+
+**Note Types:**
+
+| Type | Description |
+|------|-------------|
+| `comment` | General observation |
+| `decision` | Why we chose X over Y |
+| `blocker` | What is blocking progress |
+| `solution` | How we solved a problem |
+| `reference` | External links, documentation |
+| `implementation` | What we actually built |
+| `testing` | Test results, coverage |
+| `future` | Future improvements, TODO items |
+| `question` | Unanswered questions |
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `-t, --type <type>` | Note type (required) |
+| `-c, --created-by <name>` | Creator name (optional) |
+
+**Examples:**
+
+```bash
+# Add a decision note
+shark feature note add E07-F01 --type decision "Using JWT for stateless auth"
+
+# Add a blocker note with creator
+shark feature note add E07-F01 --type blocker "API spec incomplete" --created-by architect
+
+# Add a reference note
+shark feature note add E07-F01 --type reference "https://jwt.io/introduction"
+```
+
+---
+
+### `shark feature notes`
+
+List all notes for a feature, optionally filtered by type.
+
+**Usage:**
+
+```bash
+shark feature notes <feature-key> [flags]
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `-t, --type <types>` | Filter by note type (comma-separated for multiple) |
+
+**Examples:**
+
+```bash
+# List all notes
+shark feature notes E07-F01
+
+# List decision notes only
+shark feature notes E07-F01 --type decision
+
+# List multiple types
+shark feature notes E07-F01 --type decision,solution
+
+# JSON output
+shark feature notes E07-F01 --json
+```
+
+---
+
+### `shark feature criteria`
+
+Show aggregated acceptance criteria across all tasks in a feature.
+
+Displays total criteria count, breakdown by status (pending, in_progress, complete, failed, na), overall completion percentage, and optional per-task breakdown.
+
+**Usage:**
+
+```bash
+shark feature criteria <feature-key> [flags]
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `-t, --by-task` | Show per-task breakdown |
+
+**Examples:**
+
+```bash
+# Show aggregated criteria
+shark feature criteria E10-F04
+
+# Show per-task breakdown
+shark feature criteria E10-F04 --by-task
+
+# JSON output
+shark feature criteria E10-F04 --json
+```
+
+---
+
+### `shark feature resume`
+
+Get all context needed to resume work on a feature in a single command. This is the recommended entry point when returning to a feature after a break.
+
+**Includes:**
+- Feature details (title, description, status, progress)
+- Context data (current step, decisions, questions, blockers)
+- Feature notes (chronologically ordered)
+- Task summaries (with status and priority)
+- Task rollup (aggregate counts by status)
+
+**Usage:**
+
+```bash
+shark feature resume <feature-key> [flags]
+```
+
+**Examples:**
+
+```bash
+# Resume work on a feature
+shark feature resume E07-F01
+
+# JSON output for programmatic consumption
+shark feature resume E07-F01 --json
+```
+
+---
+
+## Workflow Guidance
+
+### Complexity-Adaptive Workflow
+
+In the advanced workflow profile, features follow different paths based on their complexity tier:
+
+**SIMPLE tier (complexity score 0-3):**
+```
+draft > scope_validation > triage > task_generation > ready_to_build > active > completed
+```
+
+**STANDARD tier (score 4-7):**
+```
+draft > scope_validation > triage > refinement_ba > refinement_tech >
+test_planning > task_generation > ready_to_build > active > completed
+```
+
+**COMPLEX tier (score 8+):**
+```
+draft > scope_validation > triage > research > refinement_ba > refinement_tech >
+test_planning > task_generation > ready_to_build > active > completed
+```
+
+### Complexity Scoring
+
+Features are scored across 6 dimensions (0-3 each, max 18):
+
+1. **File Impact**: 1-3 files=0, 4-10=2, 10+=3
+2. **Pattern Novelty**: existing=0, adapt=1, minor new=2, major new=3
+3. **Data Model**: no change=0, modify tables=2, new tables=3
+4. **API Surface**: no change=0, modify endpoints=2, new endpoints=3
+5. **Cross-Feature Deps**: isolated=0, 1-2 deps=1, 3+ deps=2, circular=3
+6. **UI Complexity**: modify=0, new simple=1, new complex=2, interactive=3
+
+### Agent Routing (Advanced Profile)
+
+Features spawn different agents based on their current status:
+
+| Status | Agent | Responsibility |
+|--------|-------|----------------|
+| `ready_for_scope_validation` | business-analyst | Validate feature scope |
+| `ready_for_triage` | researcher | Complexity assessment |
+| `ready_for_research` | researcher | Codebase research |
+| `ready_for_refinement_ba` | business-analyst | Write PRD |
+| `ready_for_refinement_tech` | architect | Design architecture |
+| `ready_for_test_planning` | qa | Create test strategy |
+| `ready_for_task_generation` | product-manager | Generate tasks |
+| `ready_to_build` | tech-director | Autonomous build |
+
+### Progress Calculation
+
+**Planning statuses:** Progress equals the configured `progress_weight` for the current status.
+
+**Active status:** Progress is aggregated from child tasks:
+- **Weighted**: `sum(task_weight * task_count) / total_tasks`
+- **Completion**: `completed_tasks / total_tasks`
+
+### Health Status
+
+| Health | Criteria |
+|--------|----------|
+| Healthy | No blocked tasks, all approval tasks < 3 days old |
+| Warning | 1-2 blocked tasks, or approval tasks 3-7 days old |
+| Critical | 3+ blocked tasks, or approval tasks > 7 days old, or no progress in 7+ days |
+
+### Common Workflows
+
+**Create and validate a feature:**
+
+```bash
+# 1. Create the feature
+shark feature create E07 "JWT Token Management"
+
+# 2. Advance to scope validation
+shark feature next-status E07-F01
+
+# 3. Check status after agent validates
+shark feature get E07-F01
+```
+
+**Monitor feature progress:**
+
+```bash
+# View detailed progress and action items
+shark feature get E07-F01
+
+# Check acceptance criteria completion
+shark feature criteria E07-F01
+
+# List all features in an epic
+shark feature list E07
+```
+
+**Resume work on a feature:**
+
+```bash
+# Get full context
+shark feature resume E07-F01
+
+# Check recent notes and decisions
+shark feature notes E07-F01 --type decision
+
+# Update progress context
+shark feature context set E07-F01 --field current_step --value "Implementing refresh tokens"
+```
+
+---
+
+## JSON Output Notes
+
+All feature commands support `--json` for machine-readable output. Key considerations:
+
+- Use `--json` when integrating with scripts or AI agent workflows.
+- Use `--field <name>` to extract a single field from JSON output (e.g., `--field status`).
+- List commands return JSON arrays; get/resume commands return JSON objects.
+- The `complete`, `next-status`, and `set-status` commands return transition result objects.
+- Error responses in JSON mode include structured error information.
+
+---
+
 ## Related Documentation
 
 - [Epic Commands](epic-commands.md)
@@ -326,3 +855,4 @@ shark feature set-status E16-F01 active --json
 - [Key Formats](key-formats.md) - Case insensitive and slugged keys
 - [File Paths](file-paths.md) - Custom file path organization
 - [JSON API Fields](json-api-fields.md) - Enhanced JSON response fields
+- [Workflow Profiles](../guides/workflow-profiles.md) - Basic and advanced workflow profiles

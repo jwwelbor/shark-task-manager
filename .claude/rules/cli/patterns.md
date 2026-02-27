@@ -47,6 +47,7 @@ return cli.OutputTable(headers, rows)
 ### Global Flags
 Available to all commands:
 - `--json`: Machine-readable JSON output (required for AI agents)
+- `--field <name>`: Extract single field from JSON output (implies `--json`)
 - `--no-color`: Disable colored output
 - `--verbose` / `-v`: Enable debug logging
 - `--db`: Override database path (default: `shark-tasks.db`)
@@ -101,6 +102,18 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 - Use `E07-F20-001` instead of `T-E07-F20-001`
 - The `T-` prefix is optional and automatically normalized
 - Both formats work identically in all commands
+
+**Dual command style:**
+Quick commands and standard commands work identically:
+- `shark next` = `shark task next`
+- `shark start E07-F01-001` = `shark task start E07-F01-001`
+- `shark done E07-F01-001` = `shark task complete E07-F01-001`
+
+**Core commands auto-detect entity type from key format:**
+- `shark get E07` → epic get
+- `shark get E07-F01` → feature get
+- `shark get E07-F01-001` → task get
+- `shark create epic "Title"` / `shark create feature E07 "Title"` / `shark create task E07 F01 "Title"`
 
 **Positional argument syntax:**
 - Feature create: `shark feature create E07 "Feature Title"`

@@ -26,7 +26,7 @@ var taskCmd = &cobra.Command{Use: "task", Short: "Manage tasks", GroupID: "entit
 
 var taskListCmd = &cobra.Command{
 	Use: "list [EPIC] [FEATURE]", Short: "List tasks",
-	Long: "List tasks filtered by status, epic, feature, or agent. Completed tasks hidden by default (use --show-all).",
+	Long: "List tasks filtered by status, epic, feature, or agent. Completed tasks hidden by default (use --all).",
 	RunE: runTaskList,
 }
 
@@ -103,6 +103,8 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	status, _ := cmd.Flags().GetString("status")
 	agentType, _ := cmd.Flags().GetString("agent")
 	showAll, _ := cmd.Flags().GetBool("show-all")
+	allFlag, _ := cmd.Flags().GetBool("all")
+	showAll = showAll || allFlag
 	blocked, _ := cmd.Flags().GetBool("blocked")
 	minPriority, _ := cmd.Flags().GetInt("priority-min")
 	maxPriority, _ := cmd.Flags().GetInt("priority-max")
@@ -144,10 +146,6 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
-	}
-
 	// Gather related data (errors non-fatal — display is best-effort)
 	relatedDocs, _ := svc.ListRelatedDocuments(ctx, taskKey)
 	blockedBy, _ := svc.GetTaskBlockedBy(ctx, taskKey)
@@ -167,6 +165,11 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	var contextData *models.ContextData
 	if ctxSvc, err := cli.GetContextService(ctx); err == nil && ctxSvc != nil {
 		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeTask, taskKey)
+	}
+
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(buildTaskGetJSON(task, deps, blockedBy, blocks,
+			relatedDocs, validTransitions, orchestratorAction, notes, contextData))
 	}
 
 	RenderEntity(EntityDisplayOptions{

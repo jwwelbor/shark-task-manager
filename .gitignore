@@ -47,3 +47,5 @@ dev-artifacts/
 shark-tasks.*
 .sharkconfig.json.backup*
 .claude/settings.local.json
+
+docs/workflow/activity.jsonl

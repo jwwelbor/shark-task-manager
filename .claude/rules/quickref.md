@@ -26,145 +26,173 @@ make vet               # Run go vet for static analysis
 make lint              # Run golangci-lint (auto-installs if needed)
 ```
 
-## Common Shark Commands
+## Quick Commands (Task Shortcuts)
 
-### Smart Dispatchers (Recommended)
-
-Smart dispatchers automatically detect entity type from key format. Use these for most operations:
+Quick commands are shorthand aliases for common task operations:
 
 ```bash
-# List entities (auto-detects based on args)
-./bin/shark list                 # List epics
-./bin/shark list E07             # List features in epic E07
-./bin/shark list E04 F01         # List tasks in feature E04-F01
-./bin/shark list --json          # JSON output
-
-# Get entity details (auto-detects from key format)
-./bin/shark get E07              # Get epic E07
-./bin/shark get E07-F01          # Get feature E07-F01
-./bin/shark get E07-F20-001      # Get task E07-F20-001
-./bin/shark get E07-F01 --json   # JSON output
-
-# Get entity status and progress
-./bin/shark status E07           # Epic status and feature rollups
-./bin/shark status E07-F01       # Feature status and progress
-./bin/shark status E07-F01-001   # Task status
-
-# Get entity change history
-./bin/shark history E07-F01-001  # Task change history
-./bin/shark history E07-F01      # Feature change history
+shark next                                 # Get next available task
+shark start E07-F01-001                    # Start task (→ in_progress/in_development)
+shark done E07-F01-001 --notes="Done"      # Complete task (→ ready_for_review)
+shark block E07-F01-001 --reason="..."     # Block task
+shark unblock E07-F01-001                  # Unblock task
 ```
 
-### Task Management (Alternative noun-first syntax)
+These are identical to `shark task next`, `shark task start`, `shark task complete`, `shark task block`, `shark task unblock`.
 
-For backwards compatibility, noun-first commands also work:
+## Core Commands (Entity Auto-Detection)
+
+Core commands auto-detect entity type from key format:
 
 ```bash
-# List tasks (also available as: shark list [EPIC] [FEATURE])
-./bin/shark task list
-./bin/shark task list E04        # Filter by epic
-./bin/shark task list E04 F01    # Filter by epic and feature
+# Get entity details
+shark get E07                              # Get epic
+shark get E07-F01                          # Get feature
+shark get E07-F01-001                      # Get task
+shark get E07-F01-001 --field status       # Extract single field
 
-# Get next available task
-./bin/shark task next
-./bin/shark task next --agent=backend           # Standard agent type
-./bin/shark task next --agent=architect         # Custom agent type
+# List entities
+shark list                                 # List all epics
+shark list E07                             # List features in epic E07
+shark list E07 F01                         # List tasks in feature E07-F01
 
-# Get task details (also available as: shark get E07-F20-001)
-./bin/shark task get E07-F20-001
+# Create entities
+shark create epic "Epic Title"             # Create epic
+shark create feature E07 "Feature Title"   # Create feature in epic
+shark create task E07 F01 "Task Title"     # Create task in feature
 
-# Task lifecycle
-./bin/shark task start E07-F20-001
-./bin/shark task complete E07-F20-001 --notes="Implementation done"
-./bin/shark task approve E07-F20-001
-./bin/shark task block E07-F20-001 --reason="Waiting on API"
-./bin/shark task unblock E07-F20-001
+# Delete entities
+shark delete E07-F01-001                   # Delete task
+shark delete E07-F01                       # Delete feature
+
+# View entity markdown
+shark view E07-F01-001                     # View task file
 ```
 
-### Feature Management (also available via smart dispatchers)
+## Status & Analytics
 
 ```bash
-# Create feature (positional syntax recommended)
-./bin/shark feature create E07 "Feature Title"
+# Status dashboard
+shark status                               # Project dashboard
+shark status E07                           # Epic status with feature rollups
+shark status E07-F01                       # Feature status with task breakdown
 
-# Create feature with custom file path
-./bin/shark feature create E07 "Feature Title" --file="docs/custom/path.md"
+# Status management
+shark status set E07-F01-001 in_development   # Set status directly
+shark status advance E07-F01-001              # Advance to next status
+shark status options E07-F01-001              # Show valid next statuses
+shark status history E07-F01-001              # Status change history
 
-# List features (also available as: shark list E07)
-./bin/shark feature list
-./bin/shark feature list E07     # Filter by epic
-
-# Get feature details (also available as: shark get E07-F01)
-./bin/shark feature get E07-F01
-./bin/shark feature get F01      # Short format also works
+# Progress & analytics
+shark progress E07                         # Epic progress breakdown
+shark analytics                            # Project-wide analytics
+shark analytics E07                        # Epic analytics
 ```
 
-### Epic Management (also available via smart dispatchers)
+## Entity Management
+
+### Task Commands (26 subcommands)
 
 ```bash
-# Create epic
-./bin/shark epic create --title="Epic Title"
+# CRUD
+shark task create E07 F01 "Task Title" --order=1 --agent=backend
+shark task get E07-F01-001 --json
+shark task list --status=todo --agent=backend
+shark task update E07-F01-001 --title="New Title"
+shark task delete E07-F01-001
 
-# Create epic with custom file path
-./bin/shark epic create --title="Epic Title" --file="docs/custom/epic.md"
+# Lifecycle
+shark task start E07-F01-001
+shark task complete E07-F01-001 --notes="Done"
+shark task approve E07-F01-001
+shark task block E07-F01-001 --reason="..."
+shark task unblock E07-F01-001
+shark task next-status E07-F01-001         # Advance to next workflow status
+shark task set-status E07-F01-001 blocked  # Set status directly
 
-# List epics (also available as: shark list)
-./bin/shark epic list
+# Dependencies
+shark task deps E07-F01-001                # Show dependency tree
+shark task link E07-F01-001 E07-F01-002 --type=depends_on
+shark task unlink E07-F01-001 E07-F01-002
 
-# Get epic details (also available as: shark get E07)
-./bin/shark epic get E07
+# Context & Notes
+shark task context set E07-F01-001 --field current_step --value "Implementing API"
+shark task note add E07-F01-001 --content="Progress update" --type=progress
+shark task notes E07-F01-001
+shark task resume E07-F01-001              # Resume with full context
 ```
 
-### Task Creation
+### Feature Commands (13 subcommands)
+
 ```bash
-# Positional syntax (recommended)
-./bin/shark task create E07 F01 "Task Title"                    # 3-arg format
-./bin/shark task create E07-F01 "Task Title"                    # 2-arg format
-
-# With execution order (primary sequencing - lower runs first)
-./bin/shark task create E07 F01 "Task Title" --order=1
-./bin/shark task create E07 F01 "Task Title" --order=2 --agent=backend
-
-# With priority (secondary to execution order)
-./bin/shark task create E07 F01 "Task Title" --order=1 --priority=3
-
-# With custom agent type
-./bin/shark task create E07 F01 "Task Title" --agent=architect --order=1
-./bin/shark task create E07 F01 "Task Title" --agent=business-analyst --order=2
-
-# With custom file path
-./bin/shark task create E07 F01 "Task Title" --file="docs/custom/task.md"
-
-# Legacy flag syntax (still supported)
-./bin/shark task create --epic=E07 --feature=F01 --title="Task Title"
+shark feature create E07 "Feature Title"
+shark feature get E07-F01 --json
+shark feature list E07
+shark feature complete E07-F01
+shark feature next-status E07-F01
+shark feature context set E07-F01 --field complexity --value "standard"
+shark feature note add E07-F01 --content="Design decision" --type=decision
 ```
 
-## Configuration & Initialization
+### Epic Commands (14 subcommands)
 
 ```bash
-# View configuration
-./bin/shark config get <key>
-
-# Set configuration
-./bin/shark config set <key> <value>
-
-# Update Shark configuration with workflow profiles
-./bin/shark init update                           # Add missing fields
-./bin/shark init update --workflow=basic          # Apply basic workflow
-./bin/shark init update --workflow=advanced       # Apply advanced workflow
-./bin/shark init update --workflow=advanced --dry-run  # Preview changes
-./bin/shark init update --workflow=basic --force  # Force overwrite
+shark epic create "Epic Title"
+shark epic get E07 --json
+shark epic list
+shark epic complete E07
+shark epic next-status E07
+shark epic status E07                      # Epic-level status with rollups
+shark epic context set E07 --field phase --value "development"
+shark epic note add E07 --content="Kickoff notes" --type=progress
 ```
 
-## Cloud Database (Turso)
+### Idea Commands (6 subcommands)
 
 ```bash
-# Initialize cloud database
-./bin/shark cloud init --url="libsql://..." --auth-token="..." --non-interactive
+shark idea create "Idea Title" --description="..."
+shark idea list
+shark idea get 1
+shark idea update 1 --status=approved
+shark idea delete 1
+shark idea promote 1 --epic=E07            # Promote to task/feature
+```
 
-# Check cloud status
-./bin/shark cloud status
-./bin/shark cloud status --json
+## Discovery Commands
+
+```bash
+shark search "authentication"              # Search across entities
+shark notes E07-F01-001                    # View entity notes
+shark related-docs list --feature=E07-F01  # List related documents
+shark related-docs add --feature=E07-F01 --path="docs/design.md"
+```
+
+## Configuration & Setup
+
+```bash
+# Initialize
+shark init --non-interactive
+shark init update --workflow=advanced      # Apply advanced workflow
+
+# Configuration
+shark config show                          # Show full config
+shark config validate                      # Validate config file
+shark config get-status-action ready_for_development  # Debug workflow
+
+# Cloud database
+shark cloud init --url="libsql://..." --auth-token="..." --non-interactive
+shark cloud status
+```
+
+## Global Flags
+
+```bash
+--json              # Machine-readable JSON output
+--field <name>      # Extract single field (implies --json)
+--no-color          # Disable colored output
+--verbose / -v      # Debug logging
+--db <path>         # Override database path
+--config <path>     # Override config path
 ```
 
 ## Key Format Notes
@@ -172,4 +200,5 @@ For backwards compatibility, noun-first commands also work:
 - **Case insensitive**: `E07`, `e07`, `E07-user-management` all work
 - **Short format**: `E07-F20-001` (recommended) or `T-E07-F20-001` (traditional)
 - **Slugged keys**: `E07-F20-001-task-name` also works
-- **Feature keys**: `E07-F01`, `F01`, `E07-F01-feature-name`, `F01-feature-name`
+- **Feature keys**: `E07-F01`, `F01`, `E07-F01-feature-name`
+- **Auto-detection**: Key format determines entity type (E## = epic, E##-F## = feature, E##-F##-### = task)

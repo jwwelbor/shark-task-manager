@@ -25,23 +25,33 @@ make shark             # Build only shark CLI
 make test              # Run all tests
 make test-coverage     # Run tests with HTML coverage report
 
-# Smart Dispatchers (Recommended - auto-detect entity type from key)
-./bin/shark list                # List epics
-./bin/shark list E07            # List features in epic E07
-./bin/shark list E07 F01        # List tasks in feature E07-F01
-./bin/shark get E07             # Get epic details
-./bin/shark get E07-F01         # Get feature details
-./bin/shark get E07-F01-001     # Get task details
-./bin/shark status E07-F01      # Get feature progress and status
-./bin/shark history E07-F01-001 # Get task change history
+# Quick Commands (task shortcuts)
+./bin/shark next                                       # Get next available task
+./bin/shark start E07-F01-001                          # Start task
+./bin/shark done E07-F01-001 --notes="Done"            # Complete task
+./bin/shark block E07-F01-001 --reason="..."           # Block task
+./bin/shark unblock E07-F01-001                        # Unblock task
 
-# Task Lifecycle
-./bin/shark task next                                  # Get next available task
-./bin/shark task start E07-F01-001                     # Start task
-./bin/shark task complete E07-F01-001 --notes="Done"   # Mark for review
-./bin/shark task approve E07-F01-001                   # Approve/complete
+# Core Commands (auto-detect entity type from key)
+./bin/shark get E07                                    # Get epic details
+./bin/shark get E07-F01                                # Get feature details
+./bin/shark get E07-F01-001                            # Get task details
+./bin/shark get E07-F01-001 --field status             # Extract single field
+./bin/shark list                                       # List epics
+./bin/shark list E07                                   # List features in epic
+./bin/shark list E07 F01                               # List tasks in feature
+
+# Status & Analytics
+./bin/shark status                                     # Project dashboard
+./bin/shark status E07-F01                             # Feature status
+./bin/shark status history E07-F01-001                 # Status change history
+./bin/shark status advance E07-F01-001                 # Advance to next status
+./bin/shark progress E07                               # Epic progress
+
+# Entity Management
 ./bin/shark task create E07 F01 "Task Title"           # Create task
 ./bin/shark feature create E07 "Feature Title"         # Create feature
+./bin/shark task next-status E07-F01-001               # Advance task workflow
 ```
 
 ---
@@ -140,13 +150,15 @@ todo → in_progress → ready_for_review → completed
 **Advanced Profile (TDD Workflow):**
 Comprehensive multi-stage workflow covering planning, development, review, QA, and approval phases. See [Workflow Profiles Guide](docs/guides/workflow-profiles.md) for details.
 
-Commands:
-- `shark task start <task>` - Start task (transitions based on profile)
-- `shark task complete <task>` - Mark ready for next review phase
+Commands (quick aliases shown first):
+- `shark start <task>` / `shark task start <task>` - Start task
+- `shark done <task>` / `shark task complete <task>` - Complete task
 - `shark task approve <task>` - Final approval/completion
 - `shark task reopen <task>` - Move back to in-progress
-- `shark task block <task> --reason="..."` - Block on dependency
-- `shark task unblock <task>` - Remove block
+- `shark block <task> --reason="..."` / `shark task block <task>` - Block on dependency
+- `shark unblock <task>` / `shark task unblock <task>` - Remove block
+- `shark task next-status <task>` - Advance to next workflow status
+- `shark status set <task> <status>` / `shark task set-status <task> <status>` - Set status directly
 
 ### Workflow Profiles & Agent Routing
 
@@ -197,11 +209,10 @@ You can run shark commands from any subdirectory.
 ## Documentation References
 
 - **Architecture Details**: @.claude/rules/architecture.md
-- **Complete CLI Reference**: @docs/CLI_REFERENCE.md
+- **CLI Reference (Unified)**: @docs/cli-reference/README.md
 - **Workflow Profiles Guide**: @docs/guides/workflow-profiles.md
 - **Turso Cloud Setup**: @docs/TURSO_QUICKSTART.md
 - **Turso Migration Guide**: @docs/TURSO_MIGRATION.md
-- **Original Full Documentation**: @CLAUDE.md.backup (if needed)
 
 ---
 

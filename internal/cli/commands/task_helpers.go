@@ -6,10 +6,109 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
+
+// buildTaskGetJSON builds the enriched JSON response for task get output,
+// matching the data shown in the human-readable view.
+func buildTaskGetJSON(
+	task *models.Task,
+	deps []*models.Task,
+	blockedBy []services.RelationshipWithTask,
+	blocks []services.RelationshipWithTask,
+	relatedDocs []*models.Document,
+	validTransitions []string,
+	orchestratorAction *config.PopulatedAction,
+	notes []*models.EntityNote,
+	contextData *models.ContextData,
+) map[string]interface{} {
+	result := map[string]interface{}{
+		"id":              task.ID,
+		"feature_id":      task.FeatureID,
+		"key":             task.Key,
+		"title":           task.Title,
+		"status":          task.Status,
+		"priority":        task.Priority,
+		"created_at":      task.CreatedAt,
+		"updated_at":      task.UpdatedAt,
+		"tests_passed":    task.TestsPassed,
+		"rejection_count": task.RejectionCount,
+	}
+
+	// Optional scalar fields
+	if task.Slug != nil {
+		result["slug"] = *task.Slug
+	}
+	if task.Description != nil {
+		result["description"] = *task.Description
+	}
+	if task.AgentType != nil {
+		result["agent_type"] = *task.AgentType
+	}
+	if task.DependsOn != nil {
+		result["depends_on"] = *task.DependsOn
+	}
+	if task.AssignedAgent != nil {
+		result["assigned_agent"] = *task.AssignedAgent
+	}
+	if task.FilePath != nil {
+		result["file_path"] = *task.FilePath
+	}
+	if task.BlockedReason != nil {
+		result["blocked_reason"] = *task.BlockedReason
+	}
+	if task.ExecutionOrder != nil {
+		result["execution_order"] = *task.ExecutionOrder
+	}
+	if task.StartedAt.Valid {
+		result["started_at"] = task.StartedAt.Time
+	}
+	if task.CompletedAt.Valid {
+		result["completed_at"] = task.CompletedAt.Time
+	}
+	if task.BlockedAt.Valid {
+		result["blocked_at"] = task.BlockedAt.Time
+	}
+	if task.CompletedBy != nil {
+		result["completed_by"] = *task.CompletedBy
+	}
+	if task.CompletionNotes != nil {
+		result["completion_notes"] = *task.CompletionNotes
+	}
+	if task.FilesChanged != nil {
+		result["files_changed"] = *task.FilesChanged
+	}
+	if task.VerificationStatus != nil {
+		result["verification_status"] = *task.VerificationStatus
+	}
+	if task.TimeSpentMinutes != nil {
+		result["time_spent_minutes"] = *task.TimeSpentMinutes
+	}
+	if task.ContextData != nil {
+		result["task_context_data"] = *task.ContextData
+	}
+	if task.LastRejectionAt != nil {
+		result["last_rejection_at"] = *task.LastRejectionAt
+	}
+	if len(task.Metadata) > 0 {
+		result["metadata"] = task.Metadata
+	}
+
+	// Enrichment fields (matching human-readable view)
+	result["dependencies"] = deps
+	result["blocked_by"] = blockedBy
+	result["blocks"] = blocks
+	result["related_documents"] = relatedDocs
+	result["valid_transitions"] = validTransitions
+	result["orchestrator_action"] = orchestratorAction
+	result["notes"] = notes
+	result["context_data"] = contextData
+
+	return result
+}
 
 // filterTasksByCompletedStatus filters out completed tasks unless showAll is true
 // or an explicit status filter is set (in which case, pass through as-is).
@@ -206,6 +305,8 @@ func registerListFlags(cmd *cobra.Command) {
 	cmd.Flags().IntP("priority-max", "", 0, "Maximum priority (10=lowest priority)")
 	cmd.Flags().BoolP("blocked", "b", false, "Show only blocked tasks")
 	cmd.Flags().Bool("show-all", false, "Show all tasks including completed")
+	_ = cmd.Flags().MarkDeprecated("show-all", "use --all instead")
+	cmd.Flags().Bool("all", false, "Show all tasks including completed")
 	cmd.Flags().Bool("with-actions", false, "Include orchestrator actions with each task")
 	cmd.Flags().Bool("has-rejections", false, "Filter tasks that have rejections")
 }
@@ -218,6 +319,7 @@ func registerCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("description", "d", "", "Detailed description")
 	cmd.Flags().Int("order", 0, "Execution order (lower runs first)")
 	cmd.Flags().Int("execution-order", 0, "Execution order (alias for --order)")
+	_ = cmd.Flags().MarkDeprecated("execution-order", "use --order instead")
 	cmd.Flags().IntP("priority", "p", 5, "Priority level 1-10 (default: 5)")
 	cmd.Flags().String("depends-on", "", "Comma-separated dependency task keys")
 	cmd.Flags().String("key", "", "Custom task key")

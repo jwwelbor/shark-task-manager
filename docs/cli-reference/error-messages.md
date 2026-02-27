@@ -1,18 +1,96 @@
 # Error Messages
 
-Shark CLI provides user-friendly error messages with context and examples.
+Shark CLI provides clear error messages with context and suggestions for resolution.
 
-## Enhanced Error Format
+---
 
-When an error occurs, you'll see:
-1. **Clear description** of what went wrong
-2. **Context** about why it happened
-3. **Example** showing the correct syntax
-4. **Suggestions** for resolution
+## Error Format
 
-## Common Errors and Solutions
+### Human-Readable (Default)
 
-### Invalid Epic Key Format
+```
+Error: <brief description>
+
+<detailed explanation>
+
+<valid examples or solutions>
+```
+
+### JSON Error Format (`--json`)
+
+When using `--json`, errors are returned as structured JSON:
+
+```json
+{
+  "error": true,
+  "code": 1,
+  "message": "task not found: E07-F20-999",
+  "details": "The task key was not found in the database.",
+  "suggestions": [
+    "Check the task key spelling",
+    "List tasks: shark task list E07 F20",
+    "Verify epic and feature exist"
+  ]
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `error` | bool | Always `true` for errors |
+| `code` | int | Exit code (1=not found, 2=DB error, 3=invalid state) |
+| `message` | string | Brief error description |
+| `details` | string | Extended context (optional) |
+| `suggestions` | string[] | Possible fixes (optional) |
+
+---
+
+## Exit Codes
+
+| Code | Meaning | Example |
+|------|---------|---------|
+| `0` | Success | Task started |
+| `1` | Not found | Entity doesn't exist |
+| `2` | Database error | Connection failed |
+| `3` | Invalid state | Bad status transition |
+
+### Script Usage
+
+```bash
+#!/bin/bash
+shark start E07-F01-001 --json
+case $? in
+  0) echo "Task started" ;;
+  1) echo "Task not found" ;;
+  2) echo "Database error" ;;
+  3) echo "Invalid status transition" ;;
+esac
+```
+
+### Python Usage
+
+```python
+import subprocess, json
+
+result = subprocess.run(
+    ["shark", "start", "E07-F01-001", "--json"],
+    capture_output=True, text=True
+)
+
+if result.returncode == 0:
+    task = json.loads(result.stdout)
+    print(f"Started: {task['key']}")
+else:
+    error = json.loads(result.stdout)
+    print(f"Error ({error['code']}): {error['message']}")
+```
+
+---
+
+## Common Errors
+
+### Invalid Key Format
 
 **Error:**
 ```
@@ -24,58 +102,29 @@ Valid examples:
   - E07
   - e07 (case insensitive)
   - E07-user-management
-  - e07-user-management (case insensitive)
 ```
 
-**Solution:** Use the correct epic key format with `E` prefix followed by a number.
+**JSON:**
+```json
+{
+  "error": true,
+  "code": 1,
+  "message": "invalid epic key format: \"invalid\"",
+  "suggestions": ["Use format: E{number}", "Keys are case insensitive"]
+}
+```
+
+**Solution:** Use the correct key format. See [Key Formats](key-formats.md).
+
+| Entity | Valid Formats |
+|--------|-------------|
+| Epic | `E07`, `e07`, `E07-user-management` |
+| Feature | `E07-F01`, `F01`, `E07-F01-authentication` |
+| Task | `E07-F01-001`, `T-E07-F01-001`, `E07-F01-001-implement-jwt` |
 
 ---
 
-### Invalid Feature Key Format
-
-**Error:**
-```
-Error: invalid feature key format: "invalid"
-
-Feature keys must follow one of these formats:
-  - E{epic}-F{feature} (full format)
-  - F{feature} (short format)
-  - With optional slug suffix
-
-Valid examples:
-  - E07-F01, e07-f01 (case insensitive)
-  - F01, f01 (case insensitive)
-  - E07-F01-authentication
-  - F01-authentication
-```
-
-**Solution:** Use the correct feature key format.
-
----
-
-### Invalid Task Key Format
-
-**Error:**
-```
-Error: invalid task key format: "invalid"
-
-Task keys must follow one of these formats:
-  - E{epic}-F{feature}-{number} (short format, recommended)
-  - T-E{epic}-F{feature}-{number} (traditional format)
-  - With optional slug suffix
-
-Valid examples:
-  - E07-F20-001, e07-f20-001 (case insensitive)
-  - T-E07-F20-001, t-e07-f20-001
-  - E07-F20-001-implement-jwt
-  - T-E07-F20-001-implement-jwt
-```
-
-**Solution:** Use the correct task key format. The `T-` prefix is optional.
-
----
-
-### Task Not Found
+### Entity Not Found
 
 **Error:**
 ```
@@ -89,7 +138,7 @@ Possible solutions:
   - Verify epic and feature exist
 ```
 
-**Solution:** Verify the task exists using `shark task list` or check for typos.
+**Solution:** Verify the entity exists with `shark list` or `shark get`.
 
 ---
 
@@ -102,13 +151,10 @@ Error: cannot transition from 'completed' to 'in_progress'
 Valid transitions from 'completed':
   - No valid transitions (task is completed)
 
-Task lifecycle:
-  todo → in_progress → ready_for_review → completed
-           ↓              ↓
-        blocked ←────────┘
+Use --force to bypass transition validation.
 ```
 
-**Solution:** Follow the valid task lifecycle transitions. Use `shark task reopen` to return a task from review to in-progress.
+**Solution:** Follow valid lifecycle transitions. Use `shark status options <key>` to see valid next statuses. Use `--force` as admin override if needed.
 
 ---
 
@@ -120,39 +166,88 @@ Error: missing required arguments
 
 Usage: shark task create <epic-key> <feature-key> "<title>" [flags]
    OR: shark task create <epic-feature-key> "<title>" [flags]
-   OR: shark task create --epic=<key> --feature=<key> --title="<title>" [flags]
 
 Examples:
   shark task create E07 F20 "Task Title"
   shark task create E07-F20 "Task Title"
-  shark task create --epic=E07 --feature=F20 --title="Task Title"
 ```
 
-**Solution:** Provide all required arguments in one of the supported syntaxes.
+**Solution:** Provide all required arguments. Run `shark <command> --help` for usage.
 
 ---
 
-## Interpreting Error Messages
+### Database Connection Error
 
-All error messages follow this structure:
-
+**Error:**
 ```
-Error: <brief description>
+Error: failed to open database: unable to open database file
 
-<detailed explanation>
-
-<valid examples or solutions>
+Possible solutions:
+  - Check database path in .sharkconfig.json
+  - Verify file permissions
+  - Run 'shark init' to create database
 ```
 
-**Tips:**
-- Read the entire error message for context
-- Check the examples provided
-- Verify your syntax matches one of the valid formats
-- Use case insensitive keys (e07 works same as E07)
-- Try the short format (E07-F20-001 instead of T-E07-F20-001)
+**JSON:**
+```json
+{
+  "error": true,
+  "code": 2,
+  "message": "failed to open database",
+  "details": "unable to open database file: shark-tasks.db",
+  "suggestions": ["Check .sharkconfig.json database.url", "Run 'shark init'"]
+}
+```
+
+**Solution:** Ensure the database exists and is accessible. Run `shark init --non-interactive` to create a new database.
+
+---
+
+### Blocked Task
+
+**Error:**
+```
+Error: cannot start task E07-F01-002: task is blocked
+
+Reason: Waiting for API design approval
+
+Unblock with: shark unblock E07-F01-002
+```
+
+**Solution:** Resolve the blocking issue, then run `shark unblock <key>`.
+
+---
+
+### Dependency Not Met
+
+**Error:**
+```
+Error: cannot start task E07-F01-003: dependencies not met
+
+Unresolved dependencies:
+  - E07-F01-001 (status: in_progress)
+  - E07-F01-002 (status: todo)
+
+All dependencies must be completed before starting this task.
+```
+
+**Solution:** Complete dependency tasks first, or use `--force` to bypass dependency checks.
+
+---
+
+## Tips
+
+- Read the full error message including examples and suggestions
+- All keys are **case insensitive** (`E07` = `e07`)
+- Use `--json` for machine-parseable error details
+- Use `shark <command> --help` for command syntax
+- Use `shark status options <key>` to see valid status transitions
+- Use `--force` to bypass validation (admin override)
+- Use `--verbose` to see debug information for troubleshooting
 
 ## Related Documentation
 
 - [Key Formats](key-formats.md) - Valid key formats
+- [Global Flags](global-flags.md) - `--json`, `--verbose`, `--force`
 - [Best Practices](best-practices.md) - Error handling in scripts
-- [Task Commands](task-commands.md) - Task lifecycle
+- [Status Commands](status-commands.md) - Status transitions

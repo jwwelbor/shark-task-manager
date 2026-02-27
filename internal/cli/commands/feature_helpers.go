@@ -1017,10 +1017,20 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 		}
 	}
 
-	if execOrder, _ := cmd.Flags().GetInt("execution-order"); execOrder != -1 {
-		updates.ExecutionOrder = &execOrder
-		changed = true
-	}
+    var execOrder int
+    var execOrderSet bool
+    if cmd.Flags().Changed("order") {
+        execOrder, _ = cmd.Flags().GetInt("order")
+        execOrderSet = true
+    } else if cmd.Flags().Changed("execution-order") {
+        execOrder, _ = cmd.Flags().GetInt("execution-order")
+        execOrderSet = true
+    }
+
+    if execOrderSet && execOrder != -1 {
+        updates.ExecutionOrder = &execOrder
+        changed = true
+    }
 
 	if changed {
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
@@ -1104,6 +1114,8 @@ func parseFeatureListFlags(cmd *cobra.Command, args []string) (epicFilter, statu
 	statusFilter, _ = cmd.Flags().GetString("status")
 	sortBy, _ = cmd.Flags().GetString("sort-by")
 	showAll, _ = cmd.Flags().GetBool("show-all")
+	allFlag, _ := cmd.Flags().GetBool("all")
+	showAll = showAll || allFlag
 	if positionalEpic != nil {
 		epicFilter = *positionalEpic
 	}

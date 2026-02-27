@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -31,6 +32,29 @@ func main() {
 	cli.SetVersion(version)
 
 	if err := cli.RootCmd.Execute(); err != nil {
+		// Check for FieldNotFoundError (exit code 4)
+		var fieldErr *cli.FieldNotFoundError
+		if errors.As(err, &fieldErr) {
+			if cli.GlobalConfig.JSON {
+				cli.ErrorJSON(cli.CLIError{
+					Code:    cli.ErrCodeNotFound,
+					Message: fieldErr.Error(),
+				})
+			} else {
+				fmt.Fprintln(os.Stderr, "Error:", fieldErr.Error())
+			}
+			os.Exit(4)
+		}
+
+		// In JSON mode, output structured error to stdout
+		if cli.GlobalConfig.JSON {
+			cli.ErrorJSON(cli.CLIError{
+				Code:    cli.ErrCodeCommandError,
+				Message: err.Error(),
+			})
+		} else {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+		}
 		os.Exit(1)
 	}
 }

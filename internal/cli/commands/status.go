@@ -43,6 +43,9 @@ func init() {
 	statusCmd.Flags().String("epic", "", "Filter by epic key")
 	statusCmd.Flags().String("recent", "", "Recent completion window (24h, 7d, 30d, 90d)")
 	statusCmd.Flags().Bool("include-archived", false, "Include archived epics/features")
+
+	// TODO(E17-F06/Phase2): Uncomment after E17-F07 is complete and tested.
+	// statusCmd.Deprecated = "Use 'shark progress' to view progress. Use 'shark status set/advance' for status transitions."
 }
 
 // runStatus executes the status command

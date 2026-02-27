@@ -32,7 +32,7 @@ var featureListCmd = &cobra.Command{
 
 Examples:
   shark feature list              List all non-completed features
-  shark feature list --show-all   List all features including completed
+  shark feature list --all        List all features including completed
   shark feature list E04          List features in epic E04
   shark feature list --json       Output as JSON
   shark feature list --sort-by=progress  Sort by progress`,
@@ -138,11 +138,15 @@ func init() {
 	featureListCmd.Flags().String("status", "", "Filter by status")
 	featureListCmd.Flags().String("sort-by", "", "Sort by: key, progress, status")
 	featureListCmd.Flags().Bool("show-all", false, "Show all features including completed")
+	_ = featureListCmd.Flags().MarkDeprecated("show-all", "use --all instead")
+	featureListCmd.Flags().Bool("all", false, "Show all features including completed")
 
 	// Create flags
 	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01)")
 	featureCreateCmd.Flags().StringVar(&featureCreateDescription, "description", "", "Feature description")
 	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "execution-order", 0, "Execution order")
+	_ = featureCreateCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
+	featureCreateCmd.Flags().IntVar(&featureCreateExecutionOrder, "order", 0, "Execution order (lower runs first)")
 	featureCreateCmd.Flags().StringVar(&featureCreateKey, "key", "", "Custom key for the feature")
 	featureCreateCmd.Flags().BoolVar(&featureCreateForce, "force", false, "Force reassignment if file already claimed")
 	featureCreateCmd.Flags().String("status", "draft", "Status (default: draft)")
@@ -163,6 +167,8 @@ func init() {
 	featureUpdateCmd.Flags().String("description", "", "New description")
 	featureUpdateCmd.Flags().String("status", "", "New status")
 	featureUpdateCmd.Flags().Int("execution-order", -1, "New execution order (-1 = no change)")
+	_ = featureUpdateCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
+	featureUpdateCmd.Flags().Int("order", -1, "New execution order (-1 = no change)")
 	featureUpdateCmd.Flags().String("key", "", "New key (must be unique, no spaces)")
 	featureUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
 	featureUpdateCmd.Flags().String("file", "", "New file path")

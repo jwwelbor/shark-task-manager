@@ -18,6 +18,7 @@ type Config struct {
 	Verbose    bool
 	ConfigFile string
 	DBPath     string
+	Field      string
 }
 
 // GlobalConfig is the shared configuration instance
@@ -108,12 +109,17 @@ func init() {
 		},
 	)
 
+	// Silence Cobra's default error and usage printing so we handle errors ourselves
+	RootCmd.SilenceErrors = true
+	RootCmd.SilenceUsage = true
+
 	// Global flags available to all commands
 	RootCmd.PersistentFlags().BoolVar(&GlobalConfig.JSON, "json", false, "Output in JSON format (machine-readable)")
 	RootCmd.PersistentFlags().BoolVar(&GlobalConfig.NoColor, "no-color", false, "Disable colored output")
 	RootCmd.PersistentFlags().BoolVarP(&GlobalConfig.Verbose, "verbose", "v", false, "Enable verbose/debug output")
 	RootCmd.PersistentFlags().StringVar(&GlobalConfig.ConfigFile, "config", "", "Config file path (default: .sharkconfig.json)")
 	RootCmd.PersistentFlags().StringVar(&GlobalConfig.DBPath, "db", "shark-tasks.db", "Database file path")
+	RootCmd.PersistentFlags().StringVar(&GlobalConfig.Field, "field", "", "Extract a single field from JSON output (e.g., --field status)")
 
 	// Bind flags to viper for config file support
 	if err := viper.BindPFlag("json", RootCmd.PersistentFlags().Lookup("json")); err != nil {
@@ -278,6 +284,14 @@ func initConfig() error {
 	GlobalConfig.NoColor = viper.GetBool("no-color")
 	GlobalConfig.Verbose = viper.GetBool("verbose")
 
+	// Check SHARK_OUTPUT environment variable for session-wide JSON mode
+	applySharkOutputEnv()
+
+	// --field implies JSON mode
+	if GlobalConfig.Field != "" {
+		GlobalConfig.JSON = true
+	}
+
 	// Only override DBPath from viper if it was explicitly set (not default)
 	if viper.IsSet("db") {
 		GlobalConfig.DBPath = viper.GetString("db")
@@ -286,8 +300,39 @@ func initConfig() error {
 	return nil
 }
 
-// OutputJSON outputs data in JSON format
+// applySharkOutputEnv checks the SHARK_OUTPUT environment variable.
+// If SHARK_OUTPUT=json (case-sensitive, lowercase only), it enables JSON output
+// unless the --json flag was already set.
+func applySharkOutputEnv() {
+	if !GlobalConfig.JSON {
+		if os.Getenv("SHARK_OUTPUT") == "json" {
+			GlobalConfig.JSON = true
+		}
+	}
+}
+
+// OutputJSON outputs data in JSON format. If --field is set, it extracts
+// and prints only the specified field value. CLIError values bypass field
+// extraction and are always output as full JSON.
 func OutputJSON(data interface{}) error {
+	// CLIError bypass: always output full struct
+	if _, ok := data.(*CLIError); ok {
+		return outputJSONRaw(data)
+	}
+	if _, ok := data.(CLIError); ok {
+		return outputJSONRaw(data)
+	}
+
+	// If --field is set, extract and print the field
+	if GlobalConfig.Field != "" {
+		return OutputField(data, GlobalConfig.Field)
+	}
+
+	return outputJSONRaw(data)
+}
+
+// outputJSONRaw outputs data as indented JSON to stdout.
+func outputJSONRaw(data interface{}) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(data)
@@ -321,8 +366,16 @@ func Success(message string) {
 	}
 }
 
-// Error prints an error message
+// Error prints an error message. In JSON mode, it outputs a structured
+// CLIError JSON object to stdout. In human mode, it prints to stderr.
 func Error(message string) {
+	if GlobalConfig.JSON {
+		ErrorJSON(CLIError{
+			Code:    ErrCodeCommandError,
+			Message: message,
+		})
+		return
+	}
 	if !GlobalConfig.NoColor {
 		pterm.Error.Println(message)
 	} else {

@@ -124,7 +124,7 @@ CLI commands access services via global accessor functions in `internal/cli/serv
 ```go
 // Usage in CLI commands
 func runTaskStart(cmd *cobra.Command, args []string) error {
-    svc := cli.GetTaskService()  // Lazy-initialized singleton
+    svc := cli.GetTaskService()  // New instance per call; dependencies are lazy-initialized
     task, err := svc.StartTask(cmd.Context(), args[0], agentID)
     if err != nil {
         return err

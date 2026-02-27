@@ -352,6 +352,84 @@ func TestFindProjectRoot_NestedGitWithParentConfig(t *testing.T) {
 	}
 }
 
+func TestSharkOutputEnvVar(t *testing.T) {
+	// Save and restore original state
+	origJSON := GlobalConfig.JSON
+	origEnv := os.Getenv("SHARK_OUTPUT")
+	defer func() {
+		GlobalConfig.JSON = origJSON
+		os.Unsetenv("SHARK_OUTPUT")
+		if origEnv != "" {
+			os.Setenv("SHARK_OUTPUT", origEnv)
+		}
+	}()
+
+	tests := []struct {
+		name     string
+		envValue string
+		flagJSON bool
+		wantJSON bool
+	}{
+		{
+			name:     "SHARK_OUTPUT=json enables JSON mode",
+			envValue: "json",
+			flagJSON: false,
+			wantJSON: true,
+		},
+		{
+			name:     "SHARK_OUTPUT=JSON does not enable (case sensitive)",
+			envValue: "JSON",
+			flagJSON: false,
+			wantJSON: false,
+		},
+		{
+			name:     "SHARK_OUTPUT=text does not enable JSON",
+			envValue: "text",
+			flagJSON: false,
+			wantJSON: false,
+		},
+		{
+			name:     "SHARK_OUTPUT empty does not enable JSON",
+			envValue: "",
+			flagJSON: false,
+			wantJSON: false,
+		},
+		{
+			name:     "flag --json takes precedence (already true)",
+			envValue: "",
+			flagJSON: true,
+			wantJSON: true,
+		},
+		{
+			name:     "flag --json true with SHARK_OUTPUT=json both work",
+			envValue: "json",
+			flagJSON: true,
+			wantJSON: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset state
+			GlobalConfig.JSON = tt.flagJSON
+
+			// Set env var
+			if tt.envValue != "" {
+				os.Setenv("SHARK_OUTPUT", tt.envValue)
+			} else {
+				os.Unsetenv("SHARK_OUTPUT")
+			}
+
+			// Apply SHARK_OUTPUT logic (same as in initConfig)
+			applySharkOutputEnv()
+
+			if GlobalConfig.JSON != tt.wantJSON {
+				t.Errorf("GlobalConfig.JSON = %v, want %v", GlobalConfig.JSON, tt.wantJSON)
+			}
+		})
+	}
+}
+
 func TestFindProjectRoot_NestedGitWithoutParentConfig(t *testing.T) {
 	// Skip test if /tmp has project markers (shark-tasks.db, .git, .sharkconfig.json)
 	// This prevents test failures when running on systems where /tmp contains these files
