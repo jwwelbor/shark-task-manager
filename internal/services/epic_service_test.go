@@ -28,6 +28,7 @@ type mockEpicRepo struct {
 	createFn                          func(ctx context.Context, epic *models.Epic) error
 	deleteFn                          func(ctx context.Context, id int64) error
 	cascadeStatusToFeaturesAndTasksFn func(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error
+	getEpicDisplayDataRawFn           func(ctx context.Context, epicID int64) (*repository.EpicDisplayDataRaw, error)
 }
 
 func (m *mockEpicRepo) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
@@ -122,6 +123,19 @@ func (m *mockEpicRepo) CascadeStatusToFeaturesAndTasks(ctx context.Context, epic
 		return m.cascadeStatusToFeaturesAndTasksFn(ctx, epicID, targetFeatureStatus, targetTaskStatus)
 	}
 	return nil
+}
+
+func (m *mockEpicRepo) GetEpicDisplayDataRaw(ctx context.Context, epicID int64) (*repository.EpicDisplayDataRaw, error) {
+	if m.getEpicDisplayDataRawFn != nil {
+		return m.getEpicDisplayDataRawFn(ctx, epicID)
+	}
+	return &repository.EpicDisplayDataRaw{
+		FeaturesJSON:      "[]",
+		TaskBreakdownJSON: "[]",
+		BlockedTasksJSON:  "[]",
+		DocumentsJSON:     "[]",
+		NotesJSON:         "[]",
+	}, nil
 }
 
 // newTestEpicWorkflowService creates a workflow.Service with default config for testing.
@@ -514,9 +528,11 @@ func TestNextStatusInfo_JSONSerialization(t *testing.T) {
 // --- mockEpicTaskLister implements EpicTaskLister for testing ---
 
 type mockEpicTaskLister struct {
-	listBlockedTasksByEpicFn func(ctx context.Context, epicKey string) ([]*models.Task, error)
-	listByFeatureFn          func(ctx context.Context, featureID int64) ([]*models.Task, error)
-	updateStatusForcedFn     func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
+	listBlockedTasksByEpicFn     func(ctx context.Context, epicKey string) ([]*models.Task, error)
+	listByFeatureFn              func(ctx context.Context, featureID int64) ([]*models.Task, error)
+	updateStatusForcedFn         func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
+	getStatusBreakdownMapBatchFn func(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error)
+	getTaskCountsForFeaturesFn   func(ctx context.Context, featureIDs []int64) (map[int64]int, error)
 }
 
 func (m *mockEpicTaskLister) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
@@ -538,6 +554,20 @@ func (m *mockEpicTaskLister) UpdateStatusForced(ctx context.Context, taskID int6
 		return m.updateStatusForcedFn(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
 	}
 	return nil
+}
+
+func (m *mockEpicTaskLister) GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error) {
+	if m.getStatusBreakdownMapBatchFn != nil {
+		return m.getStatusBreakdownMapBatchFn(ctx, featureIDs)
+	}
+	return make(map[int64]map[models.TaskStatus]int), nil
+}
+
+func (m *mockEpicTaskLister) GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error) {
+	if m.getTaskCountsForFeaturesFn != nil {
+		return m.getTaskCountsForFeaturesFn(ctx, featureIDs)
+	}
+	return make(map[int64]int), nil
 }
 
 // --- Tests for GetEpic ---

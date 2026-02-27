@@ -691,3 +691,35 @@ func (r *EpicRepository) GetTaskStatusRollup(ctx context.Context, epicID int64) 
 
 	return counts, nil
 }
+
+// EpicDisplayDataRaw holds the raw JSON strings from the epic_display_data view.
+// The service layer is responsible for unmarshaling these into domain types.
+type EpicDisplayDataRaw struct {
+	FeaturesJSON      string
+	TaskBreakdownJSON string
+	BlockedTasksJSON  string
+	DocumentsJSON     string
+	NotesJSON         string
+}
+
+// GetEpicDisplayDataRaw fetches all display data for an epic in a single query
+// using the epic_display_data view. Returns raw JSON strings that the service
+// layer unmarshals into domain types.
+func (r *EpicRepository) GetEpicDisplayDataRaw(ctx context.Context, epicID int64) (*EpicDisplayDataRaw, error) {
+	query := `SELECT features_json, task_breakdown_json, blocked_tasks_json, documents_json, notes_json
+		FROM epic_display_data WHERE id = ?`
+
+	raw := &EpicDisplayDataRaw{}
+	err := r.db.QueryRowContext(ctx, query, epicID).Scan(
+		&raw.FeaturesJSON,
+		&raw.TaskBreakdownJSON,
+		&raw.BlockedTasksJSON,
+		&raw.DocumentsJSON,
+		&raw.NotesJSON,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query epic_display_data for epic %d: %w", epicID, err)
+	}
+
+	return raw, nil
+}

@@ -635,6 +635,11 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate relationship tables: %w", err)
 	}
 
+	// Create epic_display_data view for single-query epic detail retrieval
+	if err := migrateEpicDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to create epic_display_data view: %w", err)
+	}
+
 	return nil
 }
 
@@ -1637,4 +1642,64 @@ func migrateRelationshipTables(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// migrateEpicDisplayDataView creates the epic_display_data SQL view that aggregates
+// all epic-related data (features, task breakdown, blocked tasks, documents, notes)
+// into a single queryable view for efficient epic detail retrieval.
+func migrateEpicDisplayDataView(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE VIEW IF NOT EXISTS epic_display_data AS
+SELECT
+  e.*,
+
+  -- Features (includes progress_pct from write-through cache)
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', f.id, 'key', f.key, 'title', f.title, 'slug', f.slug,
+    'description', f.description,
+    'status', f.status, 'status_override', COALESCE(f.status_override, 0),
+    'progress_pct', f.progress_pct, 'execution_order', f.execution_order,
+    'file_path', f.file_path, 'context_data', f.context_data,
+    'created_at', f.created_at, 'updated_at', f.updated_at
+  )), '[]') FROM features f WHERE f.epic_id = e.id
+  ) AS features_json,
+
+  -- Task status breakdown: [{feature_id, status, cnt}, ...]
+  (SELECT COALESCE(json_group_array(json_object(
+    'feature_id', sub.feature_id, 'status', sub.status, 'cnt', sub.cnt
+  )), '[]') FROM (
+    SELECT t.feature_id, t.status, COUNT(*) as cnt
+    FROM tasks t JOIN features f2 ON t.feature_id = f2.id
+    WHERE f2.epic_id = e.id
+    GROUP BY t.feature_id, t.status
+  ) sub
+  ) AS task_breakdown_json,
+
+  -- Blocked tasks with details
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', t.id, 'feature_id', t.feature_id, 'key', t.key, 'title', t.title,
+    'status', t.status, 'blocked_reason', t.blocked_reason,
+    'blocked_at', t.blocked_at
+  )), '[]') FROM tasks t JOIN features f3 ON t.feature_id = f3.id
+  WHERE f3.epic_id = e.id AND t.status = 'blocked'
+  ) AS blocked_tasks_json,
+
+  -- Related documents
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', d.id, 'title', d.title, 'file_path', d.file_path
+  )), '[]') FROM documents d JOIN epic_documents ed ON d.id = ed.document_id
+  WHERE ed.epic_id = e.id
+  ) AS documents_json,
+
+  -- Entity notes
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', n.id, 'note_type', n.note_type, 'content', n.content,
+    'created_by', n.created_by, 'metadata', n.metadata, 'created_at', n.created_at
+  )), '[]') FROM entity_notes n
+  WHERE n.entity_type = 'epic' AND n.entity_id = e.id
+  ) AS notes_json
+
+FROM epics e;
+`)
+	return err
 }

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -34,6 +35,7 @@ type EpicRepository interface {
 	GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
 	UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error
 	CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error
+	GetEpicDisplayDataRaw(ctx context.Context, epicID int64) (*repository.EpicDisplayDataRaw, error)
 }
 
 // EpicTaskLister defines the task repository interface needed by EpicService
@@ -42,6 +44,8 @@ type EpicTaskLister interface {
 	ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 	UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
+	GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error)
+	GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error)
 }
 
 // EpicNoteRepository defines the note repo interface needed by EpicService
@@ -1082,6 +1086,251 @@ func (s *EpicService) ResolveEpicPath(ctx context.Context, epicKey string, proje
 
 	defaultPath := filepath.Join("docs", "plan", epic.Key+"-"+slug, "epic.md")
 	return defaultPath, nil
+}
+
+// EpicDisplayData bundles all data needed to display an epic's details.
+// Fetched via a single SQL view query (epic_display_data) for optimal Turso performance.
+type EpicDisplayData struct {
+	Epic              *models.Epic
+	Features          []*models.Feature
+	FeatureTaskCounts map[int64]int
+	StatusBreakdowns  map[int64]map[models.TaskStatus]int
+	FeatureRollup     map[string]int
+	TaskStatusRollup  map[string]int
+	BlockedTasks      []*models.Task
+	RelatedDocs       []*models.Document
+	Notes             []*models.EntityNote
+	Progress          float64
+	RelPath           string
+}
+
+// JSON helper types for unmarshaling the epic_display_data view columns.
+
+type featureJSON struct {
+	ID             int64   `json:"id"`
+	Key            string  `json:"key"`
+	Title          string  `json:"title"`
+	Slug           *string `json:"slug"`
+	Description    *string `json:"description"`
+	Status         string  `json:"status"`
+	StatusOverride int     `json:"status_override"`
+	ProgressPct    float64 `json:"progress_pct"`
+	ExecutionOrder *int    `json:"execution_order"`
+	FilePath       *string `json:"file_path"`
+	ContextData    *string `json:"context_data"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+type taskBreakdownJSON struct {
+	FeatureID int64  `json:"feature_id"`
+	Status    string `json:"status"`
+	Count     int    `json:"cnt"`
+}
+
+type blockedTaskJSON struct {
+	ID            int64   `json:"id"`
+	FeatureID     int64   `json:"feature_id"`
+	Key           string  `json:"key"`
+	Title         string  `json:"title"`
+	Status        string  `json:"status"`
+	BlockedReason *string `json:"blocked_reason"`
+	BlockedAt     *string `json:"blocked_at"`
+}
+
+type documentJSON struct {
+	ID       int64  `json:"id"`
+	Title    string `json:"title"`
+	FilePath string `json:"file_path"`
+}
+
+type noteJSON struct {
+	ID        int64   `json:"id"`
+	NoteType  string  `json:"note_type"`
+	Content   string  `json:"content"`
+	CreatedBy *string `json:"created_by"`
+	Metadata  *string `json:"metadata"`
+	CreatedAt string  `json:"created_at"`
+}
+
+// unmarshalJSONArray is a generic helper to unmarshal a JSON array string into a slice of T.
+func unmarshalJSONArray[T any](raw string) ([]T, error) {
+	if raw == "" || raw == "null" || raw == "[]" {
+		return []T{}, nil
+	}
+	var result []T
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetEpicDisplayData fetches all data needed to display an epic in a single SQL query
+// via the epic_display_data view. This reduces round-trips from ~8 to 1, critical for
+// Turso cloud databases where each round-trip costs ~150-200ms.
+func (s *EpicService) GetEpicDisplayData(ctx context.Context, epic *models.Epic, projectRoot string) (*EpicDisplayData, error) {
+	result := &EpicDisplayData{
+		Epic:              epic,
+		FeatureTaskCounts: make(map[int64]int),
+		StatusBreakdowns:  make(map[int64]map[models.TaskStatus]int),
+		FeatureRollup:     make(map[string]int),
+		TaskStatusRollup:  make(map[string]int),
+		BlockedTasks:      make([]*models.Task, 0),
+		RelatedDocs:       make([]*models.Document, 0),
+		Notes:             make([]*models.EntityNote, 0),
+	}
+
+	// Resolve epic path without re-fetching the epic (non-fetching version)
+	result.RelPath = s.resolveEpicPathFromLoaded(epic, projectRoot)
+
+	// Single query via the epic_display_data view — 1 round-trip
+	raw, err := s.repo.GetEpicDisplayDataRaw(ctx, epic.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get display data for epic %s: %w", epic.Key, err)
+	}
+
+	// Unmarshal features
+	featuresRaw, err := unmarshalJSONArray[featureJSON](raw.FeaturesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal features for epic %s: %w", epic.Key, err)
+	}
+	features := make([]*models.Feature, 0, len(featuresRaw))
+	for _, fj := range featuresRaw {
+		statusOverride := fj.StatusOverride != 0
+		f := &models.Feature{
+			ID:             fj.ID,
+			Key:            fj.Key,
+			Title:          fj.Title,
+			Slug:           fj.Slug,
+			Description:    fj.Description,
+			Status:         models.FeatureStatus(fj.Status),
+			StatusOverride: statusOverride,
+			ProgressPct:    fj.ProgressPct,
+			EpicID:         epic.ID,
+			FilePath:       fj.FilePath,
+			ContextData:    fj.ContextData,
+		}
+		if fj.ExecutionOrder != nil {
+			f.ExecutionOrder = fj.ExecutionOrder
+		}
+		features = append(features, f)
+	}
+	result.Features = features
+
+	// Unmarshal task status breakdowns
+	breakdownsRaw, err := unmarshalJSONArray[taskBreakdownJSON](raw.TaskBreakdownJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal task breakdowns for epic %s: %w", epic.Key, err)
+	}
+	for _, b := range breakdownsRaw {
+		if _, ok := result.StatusBreakdowns[b.FeatureID]; !ok {
+			result.StatusBreakdowns[b.FeatureID] = make(map[models.TaskStatus]int)
+		}
+		result.StatusBreakdowns[b.FeatureID][models.TaskStatus(b.Status)] = b.Count
+	}
+
+	// Derive task counts per feature from breakdowns (no separate query needed)
+	for featureID, breakdown := range result.StatusBreakdowns {
+		total := 0
+		for _, count := range breakdown {
+			total += count
+		}
+		result.FeatureTaskCounts[featureID] = total
+	}
+
+	// Unmarshal blocked tasks
+	blockedRaw, err := unmarshalJSONArray[blockedTaskJSON](raw.BlockedTasksJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal blocked tasks for epic %s: %w", epic.Key, err)
+	}
+	for _, bt := range blockedRaw {
+		task := &models.Task{
+			ID:            bt.ID,
+			FeatureID:     bt.FeatureID,
+			Key:           bt.Key,
+			Title:         bt.Title,
+			Status:        models.TaskStatus(bt.Status),
+			BlockedReason: bt.BlockedReason,
+		}
+		result.BlockedTasks = append(result.BlockedTasks, task)
+	}
+
+	// Unmarshal related documents
+	docsRaw, err := unmarshalJSONArray[documentJSON](raw.DocumentsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal documents for epic %s: %w", epic.Key, err)
+	}
+	for _, d := range docsRaw {
+		doc := &models.Document{
+			ID:       d.ID,
+			Title:    d.Title,
+			FilePath: d.FilePath,
+		}
+		result.RelatedDocs = append(result.RelatedDocs, doc)
+	}
+
+	// Unmarshal notes
+	notesRaw, err := unmarshalJSONArray[noteJSON](raw.NotesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal notes for epic %s: %w", epic.Key, err)
+	}
+	for _, n := range notesRaw {
+		note := &models.EntityNote{
+			ID:         n.ID,
+			EntityType: models.EntityTypeEpic,
+			EntityID:   epic.ID,
+			NoteType:   models.NoteType(n.NoteType),
+			Content:    n.Content,
+			CreatedBy:  n.CreatedBy,
+			Metadata:   n.Metadata,
+		}
+		result.Notes = append(result.Notes, note)
+	}
+
+	// Compute feature rollup in-memory
+	for _, f := range features {
+		result.FeatureRollup[string(f.Status)]++
+	}
+
+	// Compute task status rollup in-memory
+	for _, breakdown := range result.StatusBreakdowns {
+		for status, count := range breakdown {
+			result.TaskStatusRollup[string(status)] += count
+		}
+	}
+
+	// Compute epic progress from stored feature ProgressPct values
+	if len(features) > 0 {
+		var totalProgress float64
+		for _, f := range features {
+			if f.Status == models.FeatureStatusCompleted || f.Status == models.FeatureStatusArchived {
+				totalProgress += 100.0
+			} else {
+				totalProgress += f.ProgressPct
+			}
+		}
+		result.Progress = math.Round(totalProgress/float64(len(features))*100) / 100
+	}
+
+	return result, nil
+}
+
+// resolveEpicPathFromLoaded returns the relative file path for an epic without
+// re-fetching the epic from the database. This is used by GetEpicDisplayData
+// to avoid the extra query that ResolveEpicPath performs.
+func (s *EpicService) resolveEpicPathFromLoaded(epic *models.Epic, projectRoot string) string {
+	if epic.FilePath != nil && *epic.FilePath != "" {
+		return *epic.FilePath
+	}
+
+	slug := ""
+	if epic.Slug != nil && *epic.Slug != "" {
+		slug = *epic.Slug
+	} else {
+		slug = strings.ToLower(epic.Key)
+	}
+
+	return filepath.Join("docs", "plan", epic.Key+"-"+slug, "epic.md")
 }
 
 // nextEpicKey generates the next available epic key (E##) by inspecting existing epics.
