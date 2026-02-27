@@ -644,19 +644,17 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 
 	featureSvc := cli.GetFeatureService()
 
-	// Update progress
-	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
-	}
-	feature, _ = featureSvc.GetFeature(ctx, feature.Key)
+	// Trust stored progress_pct from write-through cache — no recalculation needed.
+	// Progress is kept current via write-through updates on task status changes,
+	// matching the pattern used by fetchFeaturesWithTaskCount.
 
 	tasks, _ := featureSvc.ListTasksForFeature(ctx, feature.ID)
-	statusBreakdown, _ := featureSvc.GetEnrichedTaskStatusBreakdown(ctx, feature.Key)
+	statusBreakdown, _ := featureSvc.GetTaskStatusBreakdownByFeatureID(ctx, feature.ID)
 
 	// Resolve path via service (uses stored FilePath or constructs default)
 	var dirPath, filename string
 	if projectRoot != "" {
-		relPath := featureSvc.ResolveFeaturePath(ctx, feature.Key, projectRoot)
+		relPath := featureSvc.ResolveFeaturePathFromFeature(feature, projectRoot)
 		if relPath != "" {
 			dirPath = filepath.Dir(relPath) + "/"
 			filename = filepath.Base(relPath)

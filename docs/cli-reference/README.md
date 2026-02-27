@@ -68,7 +68,6 @@ Commands for viewing and searching project data.
 | `shark get <key>` | Get entity details (epic/feature/task) |
 | `shark list [epic] [feature]` | List entities with smart filtering |
 | `shark view <key>` | View entity markdown file |
-| `shark progress <key>` | Detailed progress breakdown |
 | `shark search <query>` | Search across entities |
 
 **Reference:** [Core Commands](core-commands.md) | [Progress & Analytics](progress-analytics.md) | [Discovery Commands](discovery-commands.md)
@@ -82,12 +81,10 @@ Commands for creating, updating, and organizing entities.
 | `shark create <type> [args]` | Create epic, feature, or task |
 | `shark update <key> [flags]` | Update entity (auto-detects epic/feature/task from key) |
 | `shark delete <key>` | Delete an entity |
-| `shark idea` | Manage ideas (create, list, get, update, delete, promote) |
 | `shark context get/set/clear <key>` | Manage entity context fields |
 | `shark notes <key>` | View entity notes |
 | `shark related-docs` | Manage related documents |
 | `shark docs` | Alias for `shark related-docs` |
-| `shark analytics [key]` | Project or entity analytics |
 | `shark history <key>` | View entity history |
 
 **Note:** `shark update` does not accept a `--status` flag. Use `shark status set <key> <status>` instead.
@@ -96,7 +93,13 @@ Commands for creating, updating, and organizing entities.
 
 ### Advanced
 
-Full entity-specific subcommands and administrative tools.
+Full entity-specific subcommands, analytics, and administrative tools.
+
+| Command | Description |
+|---------|-------------|
+| `shark idea` | Manage ideas (create, list, get, update, delete, promote) |
+| `shark analytics [key]` | Project or entity analytics |
+| `shark progress <key>` | Detailed progress breakdown |
 
 #### Entity Commands
 

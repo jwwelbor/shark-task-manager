@@ -989,6 +989,45 @@ func (s *FeatureService) GetEnrichedTaskStatusBreakdown(ctx context.Context, key
 	return breakdown.Counts, nil
 }
 
+// GetTaskStatusBreakdownByFeatureID returns the enriched task status breakdown for a feature
+// using its database ID directly, avoiding a redundant key-based lookup when the caller
+// already has the feature loaded.
+func (s *FeatureService) GetTaskStatusBreakdownByFeatureID(ctx context.Context, featureID int64) ([]workflow.StatusCount, error) {
+	rawBreakdown, err := s.repo.GetTaskStatusBreakdown(ctx, featureID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task status breakdown for feature ID %d: %w", featureID, err)
+	}
+
+	// Convert to map[string]int for NewStatusBreakdown
+	counts := make(map[string]int, len(rawBreakdown))
+	for k, v := range rawBreakdown {
+		counts[string(k)] = v
+	}
+
+	// Use task-level workflow service to enrich with phase/color/order metadata
+	taskWorkflowSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
+	breakdown := workflow.NewStatusBreakdown(counts, taskWorkflowSvc)
+	return breakdown.Counts, nil
+}
+
+// ResolveFeaturePathFromFeature resolves the file path for a feature using an already-loaded
+// feature model, avoiding a redundant key-based lookup when the caller already has the feature.
+func (s *FeatureService) ResolveFeaturePathFromFeature(feature *models.Feature, projectRoot string) string {
+	if feature == nil {
+		return ""
+	}
+	if feature.FilePath != nil && *feature.FilePath != "" {
+		return *feature.FilePath
+	}
+	// Construct default relative path using feature key
+	// Feature key format: E07-F01, path: docs/plan/E07/E07-F01/feature.md
+	parts := strings.SplitN(feature.Key, "-", 2)
+	if len(parts) == 2 {
+		return fmt.Sprintf("docs/plan/%s/%s/feature.md", parts[0], feature.Key)
+	}
+	return fmt.Sprintf("docs/plan/%s/feature.md", feature.Key)
+}
+
 // GetTaskStatusBreakdown returns the count of tasks per status for a feature.
 func (s *FeatureService) GetTaskStatusBreakdown(ctx context.Context, key string) (map[string]int, error) {
 	feature, err := s.repo.GetByKey(ctx, key)
