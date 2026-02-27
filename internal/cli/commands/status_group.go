@@ -145,11 +145,9 @@ func init() {
 	// statusSetCmd flags
 	statusSetCmd.Flags().String("reason", "", "Reason for backward or forced transitions")
 	statusSetCmd.Flags().Bool("force", false, "Bypass workflow validation")
-	statusSetCmd.Flags().String("agent", "", "Agent performing the transition")
 	statusSetCmd.Flags().String("notes", "", "Transition notes")
 
-	// statusAdvanceCmd flags
-	statusAdvanceCmd.Flags().String("agent", "", "Agent or user performing the transition")
+	// statusAdvanceCmd has no flags — just advances to the default next status.
 
 	// statusHistoryCmd flags
 	statusHistoryCmd.Flags().Int("limit", 50, "Maximum number of history entries to show")
@@ -234,12 +232,10 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 	// Parse flags
 	reason, _ := cmd.Flags().GetString("reason")
 	force, _ := cmd.Flags().GetBool("force")
-	agent, _ := cmd.Flags().GetString("agent")
 
 	opts := services.TransitionOptions{
 		Force:  force,
 		Reason: reason,
-		Agent:  agent,
 	}
 
 	// Step 2: Check idempotency - if already at target status, return success with changed=false
@@ -316,8 +312,6 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid key format: %w", err)
 	}
 
-	agent, _ := cmd.Flags().GetString("agent")
-
 	// Step 2: Get current status info
 	info, err := dispatchNextStatus(ctx, entityType, key)
 	if err != nil {
@@ -360,7 +354,7 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return dispatchTransition(ctx, entityType, k, ts, opts)
 	})
 
-	opts := services.TransitionOptions{Agent: agent}
+	opts := services.TransitionOptions{}
 	return performEntityTransition(ctx, svc, info.EntityKey, autoTarget, opts, result)
 }
 
