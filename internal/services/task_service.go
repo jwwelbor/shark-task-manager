@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"encoding/json"
-
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -1931,21 +1929,21 @@ func (s *TaskService) GetTaskDisplayData(ctx context.Context, task *models.Task)
 	}
 
 	// Unmarshal blocked-by relationships
-	blockedByRaw, err := unmarshalTaskJSONArray[RelationshipWithTask](raw.BlockedByJSON)
+	blockedByRaw, err := unmarshalJSONArray[RelationshipWithTask](raw.BlockedByJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal blocked_by for task %s: %w", task.Key, err)
 	}
 	result.BlockedBy = blockedByRaw
 
 	// Unmarshal blocks relationships
-	blocksRaw, err := unmarshalTaskJSONArray[RelationshipWithTask](raw.BlocksJSON)
+	blocksRaw, err := unmarshalJSONArray[RelationshipWithTask](raw.BlocksJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal blocks for task %s: %w", task.Key, err)
 	}
 	result.Blocks = blocksRaw
 
 	// Unmarshal dependencies
-	depsRaw, err := unmarshalTaskJSONArray[taskDependencyJSON](raw.DependenciesJSON)
+	depsRaw, err := unmarshalJSONArray[taskDependencyJSON](raw.DependenciesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal dependencies for task %s: %w", task.Key, err)
 	}
@@ -1958,7 +1956,7 @@ func (s *TaskService) GetTaskDisplayData(ctx context.Context, task *models.Task)
 	}
 
 	// Unmarshal related documents (reuse documentJSON from epic_service.go — same package)
-	docsRaw, err := unmarshalTaskJSONArray[documentJSON](raw.DocumentsJSON)
+	docsRaw, err := unmarshalJSONArray[documentJSON](raw.DocumentsJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal documents for task %s: %w", task.Key, err)
 	}
@@ -1971,7 +1969,7 @@ func (s *TaskService) GetTaskDisplayData(ctx context.Context, task *models.Task)
 	}
 
 	// Unmarshal notes (reuse noteJSON from epic_service.go — same package)
-	notesRaw, err := unmarshalTaskJSONArray[noteJSON](raw.NotesJSON)
+	notesRaw, err := unmarshalJSONArray[noteJSON](raw.NotesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal notes for task %s: %w", task.Key, err)
 	}
@@ -1987,19 +1985,6 @@ func (s *TaskService) GetTaskDisplayData(ctx context.Context, task *models.Task)
 		})
 	}
 
-	return result, nil
-}
-
-// unmarshalTaskJSONArray is a local helper to unmarshal a JSON array string into a slice of T.
-// This avoids import cycles with the generic unmarshalJSONArray in epic_service.go.
-func unmarshalTaskJSONArray[T any](raw string) ([]T, error) {
-	if raw == "" || raw == "null" || raw == "[]" {
-		return []T{}, nil
-	}
-	var result []T
-	if err := json.Unmarshal([]byte(raw), &result); err != nil {
-		return nil, err
-	}
 	return result, nil
 }
 

@@ -160,9 +160,18 @@ func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
 		fmt.Println()
 	}
 
-	// Planning mode message about tasks
+	// Planning mode tasks
 	if len(info.Tasks) == 0 {
 		pterm.Info.Println("No tasks yet (feature is still being refined)")
+	} else {
+		fmt.Println()
+		pterm.DefaultSection.Printf("Tasks (%d total)", len(info.Tasks))
+
+		// Use centralized task table formatter
+		workflowService := cli.GetWorkflowService()
+		tableConfig := formatters.FeatureGetTaskTableConfig()
+		tableConfig.ColorEnabled = !cli.GlobalConfig.NoColor
+		_ = formatters.RenderTaskTable(info.Tasks, workflowService, tableConfig)
 	}
 
 	// Display orchestrator action

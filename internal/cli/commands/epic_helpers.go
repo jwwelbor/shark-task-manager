@@ -179,12 +179,35 @@ func renderEpicPlanning(info *services.EpicDisplayInfo) {
 		fmt.Println()
 	}
 
-	displayOrchestratorAction(info.OrchestratorAction)
-	renderRelatedDocuments(info.RelatedDocs)
-
+	// Planning mode features
 	if len(info.Features) == 0 {
 		pterm.Info.Println("No features yet (epic is still being refined)")
+	} else {
+		fmt.Println()
+		pterm.DefaultSection.Printf("Features (%d total)", len(info.Features))
+		fmt.Println()
+
+		tableData := pterm.TableData{
+			{"Key", "Title", "Status", "Tasks", "Phase"},
+		}
+		for _, fi := range info.Features {
+			phase := fi.Phase
+			if phase == "" {
+				phase = "-"
+			}
+			tableData = append(tableData, []string{
+				fi.Feature.Key,
+				fi.Feature.Title,
+				string(fi.Feature.Status),
+				fmt.Sprintf("%d", fi.TaskCount),
+				phase,
+			})
+		}
+		_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 	}
+
+	displayOrchestratorAction(info.OrchestratorAction)
+	renderRelatedDocuments(info.RelatedDocs)
 }
 
 // renderEpicDetails renders epic details with features table and rollup information
