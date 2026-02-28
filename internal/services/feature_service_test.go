@@ -11,6 +11,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -31,6 +32,7 @@ type mockFeatureRepo struct {
 	updateStatusIfNotOverriddenFn func(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error)
 	updateFilePathFn              func(ctx context.Context, featureKey string, newFilePath *string) error
 	getByFilePathFn               func(ctx context.Context, filePath string) (*models.Feature, error)
+	getFeatureDisplayDataRawFn    func(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error)
 }
 
 // mockFeatureEpicLookup implements FeatureEpicLookup for testing.
@@ -168,6 +170,13 @@ func (m *mockFeatureRepo) CascadeStatusToTasks(ctx context.Context, featureID in
 		return m.cascadeStatusToTasksFn(ctx, featureID, targetTaskStatus)
 	}
 	return nil
+}
+
+func (m *mockFeatureRepo) GetFeatureDisplayDataRaw(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error) {
+	if m.getFeatureDisplayDataRawFn != nil {
+		return m.getFeatureDisplayDataRawFn(ctx, featureID)
+	}
+	return nil, nil
 }
 
 // Suppress unused import warnings
@@ -3137,6 +3146,173 @@ func TestFeatureService_UpdateFeatureStatusIfNotOverridden(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "does not exist") {
 			t.Errorf("expected 'does not exist' in error, got: %v", err)
+		}
+	})
+}
+
+func TestFeatureService_GetFeatureDisplayData(t *testing.T) {
+	t.Run("valid JSON returns populated data", func(t *testing.T) {
+		repo := &mockFeatureRepo{
+			getFeatureDisplayDataRawFn: func(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error) {
+				return &repository.FeatureDisplayDataRaw{
+					TasksJSON:         `[{"id":1,"key":"T-E01-F01-001","title":"Task One","status":"todo","created_at":"2026-01-01","updated_at":"2026-01-01"},{"id":2,"key":"T-E01-F01-002","title":"Task Two","status":"in_progress","agent_type":"developer","priority":5,"execution_order":2,"created_at":"2026-01-01","updated_at":"2026-01-01"}]`,
+					TaskBreakdownJSON: `[{"status":"todo","cnt":1},{"status":"in_progress","cnt":1}]`,
+					DocumentsJSON:     `[{"id":10,"title":"Design Doc","file_path":"docs/design.md"}]`,
+					NotesJSON:         `[{"id":20,"note_type":"progress","content":"Started work","created_by":"dev1"}]`,
+				}, nil
+			},
+		}
+
+		feature := &models.Feature{
+			ID:     1,
+			Key:    "E01-F01",
+			EpicID: 1,
+		}
+
+		svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+		data, err := svc.GetFeatureDisplayData(context.Background(), feature, "/tmp/project")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Verify tasks
+		if len(data.Tasks) != 2 {
+			t.Fatalf("expected 2 tasks, got %d", len(data.Tasks))
+		}
+		if data.Tasks[0].Key != "T-E01-F01-001" {
+			t.Errorf("expected task key T-E01-F01-001, got %s", data.Tasks[0].Key)
+		}
+		if string(data.Tasks[1].Status) != "in_progress" {
+			t.Errorf("expected status in_progress, got %s", data.Tasks[1].Status)
+		}
+		if data.Tasks[1].AgentType == nil || *data.Tasks[1].AgentType != "developer" {
+			t.Errorf("expected agent_type developer, got %v", data.Tasks[1].AgentType)
+		}
+		if data.Tasks[1].Priority != 5 {
+			t.Errorf("expected priority 5, got %d", data.Tasks[1].Priority)
+		}
+
+		// Verify breakdown
+		if data.StatusBreakdown["todo"] != 1 {
+			t.Errorf("expected todo=1, got %d", data.StatusBreakdown["todo"])
+		}
+		if data.StatusBreakdown["in_progress"] != 1 {
+			t.Errorf("expected in_progress=1, got %d", data.StatusBreakdown["in_progress"])
+		}
+
+		// Verify documents
+		if len(data.RelatedDocs) != 1 {
+			t.Fatalf("expected 1 document, got %d", len(data.RelatedDocs))
+		}
+		if data.RelatedDocs[0].Title != "Design Doc" {
+			t.Errorf("expected doc title 'Design Doc', got %s", data.RelatedDocs[0].Title)
+		}
+
+		// Verify notes
+		if len(data.Notes) != 1 {
+			t.Fatalf("expected 1 note, got %d", len(data.Notes))
+		}
+		if data.Notes[0].Content != "Started work" {
+			t.Errorf("expected note content 'Started work', got %s", data.Notes[0].Content)
+		}
+	})
+
+	t.Run("empty arrays return empty results", func(t *testing.T) {
+		repo := &mockFeatureRepo{
+			getFeatureDisplayDataRawFn: func(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error) {
+				return &repository.FeatureDisplayDataRaw{
+					TasksJSON:         "[]",
+					TaskBreakdownJSON: "[]",
+					DocumentsJSON:     "[]",
+					NotesJSON:         "[]",
+				}, nil
+			},
+		}
+
+		feature := &models.Feature{ID: 1, Key: "E01-F01", EpicID: 1}
+		svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+		data, err := svc.GetFeatureDisplayData(context.Background(), feature, "/tmp/project")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(data.Tasks) != 0 {
+			t.Errorf("expected 0 tasks, got %d", len(data.Tasks))
+		}
+		if len(data.StatusBreakdown) != 0 {
+			t.Errorf("expected empty breakdown, got %v", data.StatusBreakdown)
+		}
+		if len(data.RelatedDocs) != 0 {
+			t.Errorf("expected 0 docs, got %d", len(data.RelatedDocs))
+		}
+		if len(data.Notes) != 0 {
+			t.Errorf("expected 0 notes, got %d", len(data.Notes))
+		}
+	})
+
+	t.Run("malformed tasks JSON returns error", func(t *testing.T) {
+		repo := &mockFeatureRepo{
+			getFeatureDisplayDataRawFn: func(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error) {
+				return &repository.FeatureDisplayDataRaw{
+					TasksJSON:         `{invalid json`,
+					TaskBreakdownJSON: "[]",
+					DocumentsJSON:     "[]",
+					NotesJSON:         "[]",
+				}, nil
+			},
+		}
+
+		feature := &models.Feature{ID: 1, Key: "E01-F01", EpicID: 1}
+		svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+		_, err := svc.GetFeatureDisplayData(context.Background(), feature, "/tmp/project")
+		if err == nil {
+			t.Fatal("expected error for malformed JSON, got nil")
+		}
+		if !strings.Contains(err.Error(), "unmarshal tasks") {
+			t.Errorf("expected 'unmarshal tasks' in error, got: %v", err)
+		}
+	})
+
+	t.Run("repository error propagates", func(t *testing.T) {
+		repo := &mockFeatureRepo{
+			getFeatureDisplayDataRawFn: func(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error) {
+				return nil, fmt.Errorf("database connection failed")
+			},
+		}
+
+		feature := &models.Feature{ID: 1, Key: "E01-F01", EpicID: 1}
+		svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+		_, err := svc.GetFeatureDisplayData(context.Background(), feature, "/tmp/project")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "database connection failed") {
+			t.Errorf("expected 'database connection failed' in error, got: %v", err)
+		}
+	})
+
+	t.Run("context data parsed from feature", func(t *testing.T) {
+		repo := &mockFeatureRepo{
+			getFeatureDisplayDataRawFn: func(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error) {
+				return &repository.FeatureDisplayDataRaw{
+					TasksJSON:         "[]",
+					TaskBreakdownJSON: "[]",
+					DocumentsJSON:     "[]",
+					NotesJSON:         "[]",
+				}, nil
+			},
+		}
+
+		contextJSON := `{"current_step":"designing","complexity":"standard"}`
+		feature := &models.Feature{ID: 1, Key: "E01-F01", EpicID: 1, ContextData: &contextJSON}
+		svc := NewFeatureService(repo, newTestFeatureWorkflowService(), nil, nil, nil)
+		data, err := svc.GetFeatureDisplayData(context.Background(), feature, "/tmp/project")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if data.ContextData == nil {
+			t.Fatal("expected context data, got nil")
 		}
 	})
 }

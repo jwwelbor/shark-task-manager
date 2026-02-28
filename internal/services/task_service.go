@@ -6,8 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"encoding/json"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -128,6 +131,9 @@ type TaskRepository interface {
 	// Key prefix search - returns all tasks whose key starts with the given prefix.
 	// Used for key generation to avoid UNIQUE constraint collisions.
 	ListByKeyPrefix(ctx context.Context, prefix string) ([]*models.Task, error)
+
+	// Display data - single-query aggregation via task_display_data view
+	GetTaskDisplayDataRaw(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error)
 }
 
 // TaskNoteRepository defines the note repository interface for rejection notes.
@@ -1888,6 +1894,113 @@ type RelationshipWithTask struct {
 	TaskKey          string `json:"task_key"`
 	TaskTitle        string `json:"task_title"`
 	TaskStatus       string `json:"task_status"`
+}
+
+// TaskDisplayData holds all supplementary data needed to render a task detail view.
+// This is returned by GetTaskDisplayData which fetches everything in a single SQL query.
+type TaskDisplayData struct {
+	BlockedBy    []RelationshipWithTask
+	Blocks       []RelationshipWithTask
+	Dependencies []*models.Task
+	RelatedDocs  []*models.Document
+	Notes        []*models.EntityNote
+}
+
+// taskDependencyJSON is the JSON helper for dependency rows from the task_display_data view.
+type taskDependencyJSON struct {
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
+// GetTaskDisplayData fetches all data needed to display a task in a single SQL query
+// via the task_display_data view. This reduces round-trips from ~5 to 1, critical for
+// Turso cloud databases where each round-trip costs ~150-200ms.
+func (s *TaskService) GetTaskDisplayData(ctx context.Context, task *models.Task) (*TaskDisplayData, error) {
+	result := &TaskDisplayData{
+		BlockedBy:    make([]RelationshipWithTask, 0),
+		Blocks:       make([]RelationshipWithTask, 0),
+		Dependencies: make([]*models.Task, 0),
+		RelatedDocs:  make([]*models.Document, 0),
+		Notes:        make([]*models.EntityNote, 0),
+	}
+
+	raw, err := s.repo.GetTaskDisplayDataRaw(ctx, task.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get display data for task %s: %w", task.Key, err)
+	}
+
+	// Unmarshal blocked-by relationships
+	blockedByRaw, err := unmarshalTaskJSONArray[RelationshipWithTask](raw.BlockedByJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal blocked_by for task %s: %w", task.Key, err)
+	}
+	result.BlockedBy = blockedByRaw
+
+	// Unmarshal blocks relationships
+	blocksRaw, err := unmarshalTaskJSONArray[RelationshipWithTask](raw.BlocksJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal blocks for task %s: %w", task.Key, err)
+	}
+	result.Blocks = blocksRaw
+
+	// Unmarshal dependencies
+	depsRaw, err := unmarshalTaskJSONArray[taskDependencyJSON](raw.DependenciesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal dependencies for task %s: %w", task.Key, err)
+	}
+	for _, d := range depsRaw {
+		result.Dependencies = append(result.Dependencies, &models.Task{
+			Key:    d.Key,
+			Title:  d.Title,
+			Status: models.TaskStatus(d.Status),
+		})
+	}
+
+	// Unmarshal related documents (reuse documentJSON from epic_service.go — same package)
+	docsRaw, err := unmarshalTaskJSONArray[documentJSON](raw.DocumentsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal documents for task %s: %w", task.Key, err)
+	}
+	for _, d := range docsRaw {
+		result.RelatedDocs = append(result.RelatedDocs, &models.Document{
+			ID:       d.ID,
+			Title:    d.Title,
+			FilePath: d.FilePath,
+		})
+	}
+
+	// Unmarshal notes (reuse noteJSON from epic_service.go — same package)
+	notesRaw, err := unmarshalTaskJSONArray[noteJSON](raw.NotesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal notes for task %s: %w", task.Key, err)
+	}
+	for _, n := range notesRaw {
+		result.Notes = append(result.Notes, &models.EntityNote{
+			ID:         n.ID,
+			EntityType: models.EntityTypeTask,
+			EntityID:   task.ID,
+			NoteType:   models.NoteType(n.NoteType),
+			Content:    n.Content,
+			CreatedBy:  n.CreatedBy,
+			Metadata:   n.Metadata,
+		})
+	}
+
+	return result, nil
+}
+
+// unmarshalTaskJSONArray is a local helper to unmarshal a JSON array string into a slice of T.
+// This avoids import cycles with the generic unmarshalJSONArray in epic_service.go.
+func unmarshalTaskJSONArray[T any](raw string) ([]T, error) {
+	if raw == "" || raw == "null" || raw == "[]" {
+		return []T{}, nil
+	}
+	var result []T
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // GetWorkSessions retrieves work sessions and statistics for a task.

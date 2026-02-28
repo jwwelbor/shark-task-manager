@@ -67,6 +67,10 @@ func GetDatabaseConfig(configPath string) (db.DatabaseConfig, error) {
 		dbConfig.EmbeddedReplica = embeddedReplica
 	}
 
+	if skipMigrations, ok := dbConfigMap["skip_migrations"].(bool); ok {
+		dbConfig.SkipMigrations = skipMigrations
+	}
+
 	// Fall back to local if backend/URL not specified
 	if dbConfig.Backend == "" {
 		dbConfig.Backend = "sqlite"

@@ -22,6 +22,11 @@ type DatabaseConfig struct {
 	// EmbeddedReplica enables offline mode with local replica that syncs to cloud
 	// Only valid for turso backend
 	EmbeddedReplica bool `json:"embedded_replica,omitempty"`
+
+	// SkipMigrations skips schema creation and migrations on startup.
+	// Set to true after initial setup to avoid ~2s overhead on cloud databases.
+	// Run "shark admin migrate" to apply migrations manually when needed.
+	SkipMigrations bool `json:"skip_migrations,omitempty"`
 }
 
 // Validate checks if the DatabaseConfig is valid

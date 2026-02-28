@@ -639,29 +639,21 @@ type FeatureGetData struct {
 }
 
 // buildFeatureGetData gathers all enriched data needed to display a feature.
+// Uses a single SQL view query for all data (tasks, breakdown, docs, notes, context)
+// instead of multiple round-trips, critical for Turso cloud latency.
 func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*FeatureGetData, error) {
 	projectRoot, _ := os.Getwd()
 
 	featureSvc := cli.GetFeatureService()
 
-	// Trust stored progress_pct from write-through cache — no recalculation needed.
-	// Progress is kept current via write-through updates on task status changes,
-	// matching the pattern used by fetchFeaturesWithTaskCount.
-
-	tasks, _ := featureSvc.ListTasksForFeature(ctx, feature.ID)
-	statusBreakdown, _ := featureSvc.GetTaskStatusBreakdownByFeatureID(ctx, feature.ID)
-
-	// Resolve path via service (uses stored FilePath or constructs default)
-	var dirPath, filename string
-	if projectRoot != "" {
-		relPath := featureSvc.ResolveFeaturePathFromFeature(feature, projectRoot)
-		if relPath != "" {
-			dirPath = filepath.Dir(relPath) + "/"
-			filename = filepath.Base(relPath)
-		}
+	// Single query via feature_display_data SQL view
+	displayData, err := featureSvc.GetFeatureDisplayData(ctx, feature, projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature display data: %w", err)
 	}
 
-	relatedDocs, _ := featureSvc.ListRelatedDocuments(ctx, feature.ID)
+	tasks := displayData.Tasks
+	relatedDocs := displayData.RelatedDocs
 	if relatedDocs == nil {
 		relatedDocs = []*models.Document{}
 	}
@@ -673,18 +665,17 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 		workflowCfg, _ = config.LoadWorkflowConfig(configPath)
 	}
 
-	// Convert statusBreakdown to map for calculations
-	statusCountsMap := make(map[string]int)
-	for _, sc := range statusBreakdown {
-		statusCountsMap[sc.Status] = sc.Count
-	}
+	// Convert breakdown map to []workflow.StatusCount (enriched with color/phase)
+	workflowService := workflow.NewService(projectRoot)
+	taskWorkflowSvc := workflowService.ForLevel(workflow.LevelTask)
+	statusBreakdown := workflow.NewStatusBreakdown(displayData.StatusBreakdown, taskWorkflowSvc).Counts
 
 	var progressInfo *status.ProgressInfo
 	var workSummary *status.WorkSummary
 	var actionItems *status.ActionItems
 	if workflowCfg != nil {
-		progressInfo = status.CalculateProgress(statusCountsMap, workflowCfg)
-		workSummary = status.CalculateWorkRemaining(statusCountsMap, workflowCfg)
+		progressInfo = status.CalculateProgress(displayData.StatusBreakdown, workflowCfg)
+		workSummary = status.CalculateWorkRemaining(displayData.StatusBreakdown, workflowCfg)
 		actionItems = status.GetActionItems(tasks, workflowCfg)
 	} else {
 		progressInfo = &status.ProgressInfo{
@@ -699,31 +690,19 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 		}
 	}
 
-	// Fetch notes and context (graceful degradation)
-	var featureNotes []*models.EntityNote
-	if noteSvc, noteErr := cli.GetNoteService(ctx); noteErr == nil {
-		featureNotes, _ = noteSvc.ListNotes(ctx, models.EntityTypeFeature, feature.Key, nil)
-	}
-	var featureContext *models.ContextData
-	if ctxSvc, ctxErr := cli.GetContextService(ctx); ctxErr == nil {
-		featureContext, _ = ctxSvc.GetContext(ctx, models.EntityTypeFeature, feature.Key)
-	}
-
-	workflowService := workflow.NewService(projectRoot)
-
 	return &FeatureGetData{
 		Tasks:           tasks,
 		StatusBreakdown: statusBreakdown,
-		DirPath:         dirPath,
-		Filename:        filename,
+		DirPath:         displayData.DirPath,
+		Filename:        displayData.Filename,
 		RelatedDocs:     relatedDocs,
 		WorkflowService: workflowService,
 		WorkflowCfg:     workflowCfg,
 		ProgressInfo:    progressInfo,
 		WorkSummary:     workSummary,
 		ActionItems:     actionItems,
-		Notes:           featureNotes,
-		ContextData:     featureContext,
+		Notes:           displayData.Notes,
+		ContextData:     displayData.ContextData,
 	}, nil
 }
 

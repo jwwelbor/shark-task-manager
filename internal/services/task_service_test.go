@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
 )
@@ -32,6 +33,7 @@ type MockTaskRepository struct {
 	UpdateStatusForcedWithUnblockFunc func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error)
 	StatusUpdateRawFunc               func(ctx context.Context, params models.StatusUpdateParams) ([]string, error)
 	ListByKeyPrefixFunc               func(ctx context.Context, prefix string) ([]*models.Task, error)
+	GetTaskDisplayDataRawFunc         func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error)
 }
 
 func (m *MockTaskRepository) Create(ctx context.Context, task *models.Task) error {
@@ -141,6 +143,13 @@ func (m *MockTaskRepository) ListByKeyPrefix(ctx context.Context, prefix string)
 		return m.ListByKeyPrefixFunc(ctx, prefix)
 	}
 	return []*models.Task{}, nil
+}
+
+func (m *MockTaskRepository) GetTaskDisplayDataRaw(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
+	if m.GetTaskDisplayDataRawFunc != nil {
+		return m.GetTaskDisplayDataRawFunc(ctx, taskID)
+	}
+	return nil, fmt.Errorf("GetTaskDisplayDataRaw not implemented in mock")
 }
 
 // Helper function to create a minimal workflow service for testing
@@ -3062,4 +3071,107 @@ func TestTaskService_ReopenTask_UsesStatusUpdateRaw(t *testing.T) {
 	// Reopen passes notes as reason for potential backward check
 	assert.NotNil(t, capturedParams.RejectionReason)
 	assert.Equal(t, "needs more work", *capturedParams.RejectionReason)
+}
+
+// ============================================================================
+// GetTaskDisplayData Tests
+// ============================================================================
+
+func TestTaskService_GetTaskDisplayData_ValidJSON(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetTaskDisplayDataRawFunc: func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
+			assert.Equal(t, int64(42), taskID)
+			return &repository.TaskDisplayDataRaw{
+				BlockedByJSON:    `[{"relationship_type":"depends_on","direction":"outgoing","task_key":"E01-F01-001","task_title":"Setup DB","task_status":"completed"}]`,
+				BlocksJSON:       `[{"relationship_type":"depends_on","direction":"incoming","task_key":"E01-F01-003","task_title":"Write tests","task_status":"todo"}]`,
+				DependenciesJSON: `[{"key":"E01-F01-001","title":"Setup DB","status":"completed"},{"key":"E01-F01-003","title":"Write tests","status":"todo"}]`,
+				DocumentsJSON:    `[{"id":10,"title":"Design Doc","file_path":"docs/design.md"}]`,
+				NotesJSON:        `[{"id":1,"note_type":"progress","content":"halfway done","created_by":null,"metadata":null,"created_at":"2026-01-01T00:00:00Z"}]`,
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	task := &models.Task{ID: 42, Key: "E01-F01-002"}
+
+	data, err := svc.GetTaskDisplayData(context.Background(), task)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, data)
+
+	// Blocked by
+	assert.Len(t, data.BlockedBy, 1)
+	assert.Equal(t, "E01-F01-001", data.BlockedBy[0].TaskKey)
+	assert.Equal(t, "depends_on", data.BlockedBy[0].RelationshipType)
+
+	// Blocks
+	assert.Len(t, data.Blocks, 1)
+	assert.Equal(t, "E01-F01-003", data.Blocks[0].TaskKey)
+	assert.Equal(t, "incoming", data.Blocks[0].Direction)
+
+	// Dependencies
+	assert.Len(t, data.Dependencies, 2)
+	assert.Equal(t, "E01-F01-001", data.Dependencies[0].Key)
+	assert.Equal(t, models.TaskStatus("completed"), data.Dependencies[0].Status)
+
+	// Documents
+	assert.Len(t, data.RelatedDocs, 1)
+	assert.Equal(t, "Design Doc", data.RelatedDocs[0].Title)
+	assert.Equal(t, "docs/design.md", data.RelatedDocs[0].FilePath)
+
+	// Notes
+	assert.Len(t, data.Notes, 1)
+	assert.Equal(t, "halfway done", data.Notes[0].Content)
+	assert.Equal(t, models.NoteType("progress"), data.Notes[0].NoteType)
+}
+
+func TestTaskService_GetTaskDisplayData_EmptyArrays(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetTaskDisplayDataRawFunc: func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
+			return &repository.TaskDisplayDataRaw{
+				BlockedByJSON:    "[]",
+				BlocksJSON:       "[]",
+				DependenciesJSON: "[]",
+				DocumentsJSON:    "[]",
+				NotesJSON:        "[]",
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	task := &models.Task{ID: 1, Key: "E01-F01-001"}
+
+	data, err := svc.GetTaskDisplayData(context.Background(), task)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, data)
+	assert.Empty(t, data.BlockedBy)
+	assert.Empty(t, data.Blocks)
+	assert.Empty(t, data.Dependencies)
+	assert.Empty(t, data.RelatedDocs)
+	assert.Empty(t, data.Notes)
+	// Verify non-nil (empty slices, not nil)
+	assert.NotNil(t, data.BlockedBy)
+	assert.NotNil(t, data.Blocks)
+	assert.NotNil(t, data.Dependencies)
+	assert.NotNil(t, data.RelatedDocs)
+	assert.NotNil(t, data.Notes)
+}
+
+func TestTaskService_GetTaskDisplayData_RepoError(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetTaskDisplayDataRawFunc: func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
+			return nil, fmt.Errorf("database connection lost")
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	task := &models.Task{ID: 1, Key: "E01-F01-001"}
+
+	data, err := svc.GetTaskDisplayData(context.Background(), task)
+
+	assert.Error(t, err)
+	assert.Nil(t, data)
+	assert.Contains(t, err.Error(), "failed to get display data for task E01-F01-001")
+	assert.Contains(t, err.Error(), "database connection lost")
 }

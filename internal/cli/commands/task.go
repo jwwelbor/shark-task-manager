@@ -146,21 +146,24 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Gather related data (errors non-fatal — display is best-effort)
-	relatedDocs, _ := svc.ListRelatedDocuments(ctx, taskKey)
-	blockedBy, _ := svc.GetTaskBlockedBy(ctx, taskKey)
-	blocks, _ := svc.GetTaskBlocks(ctx, taskKey)
-	deps, _ := svc.ListDependencies(ctx, taskKey)
+	// Gather related data via single-query view (errors non-fatal — display is best-effort)
+	displayData, _ := svc.GetTaskDisplayData(ctx, task)
+	var relatedDocs []*models.Document
+	var blockedBy, blocks []services.RelationshipWithTask
+	var deps []*models.Task
+	var notes []*models.EntityNote
+	if displayData != nil {
+		relatedDocs = displayData.RelatedDocs
+		blockedBy = displayData.BlockedBy
+		blocks = displayData.Blocks
+		deps = displayData.Dependencies
+		notes = displayData.Notes
+	}
 
 	orchestratorAction := cli.GetDisplayService().ResolveTaskAction(ctx, task)
 
 	workflowCfg := cli.GetWorkflowService().ForLevel("task").GetWorkflow()
 	validTransitions := GetValidTransitions(string(task.Status), workflowCfg)
-
-	var notes []*models.EntityNote
-	if noteSvc, err := cli.GetNoteService(ctx); err == nil && noteSvc != nil {
-		notes, _ = noteSvc.ListNotes(ctx, models.EntityTypeTask, taskKey, nil)
-	}
 
 	var contextData *models.ContextData
 	if ctxSvc, err := cli.GetContextService(ctx); err == nil && ctxSvc != nil {

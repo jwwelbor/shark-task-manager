@@ -3,7 +3,8 @@
   "database": {
     "backend": "$SHARK_DB_BACKEND",
     "url": "$SHARK_DB_URL",
-    "auth_token_file": "$SHARK_AUTH_TOKEN_FILE"
+    "auth_token_file": "$SHARK_AUTH_TOKEN_FILE",
+    "skip_migrations": true
   },
   "default_agent": null,
   "default_epic": null,

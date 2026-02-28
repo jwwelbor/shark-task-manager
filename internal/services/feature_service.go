@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/progress"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -33,6 +35,7 @@ type FeatureRepository interface {
 	SetStatusOverride(ctx context.Context, featureID int64, override bool) error
 	UpdateStatusIfNotOverridden(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error)
 	CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error
+	GetFeatureDisplayDataRaw(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error)
 }
 
 // FeatureEpicLookup defines the minimal epic repository interface needed by FeatureService
@@ -1257,4 +1260,141 @@ func (s *FeatureService) resolveFeatureFilePath(ctx context.Context, filePath *s
 	}
 
 	return nil
+}
+
+// FeatureDisplayData holds all data needed to display a feature detail view.
+// Populated by GetFeatureDisplayData from a single SQL query.
+type FeatureDisplayData struct {
+	Tasks           []*models.Task
+	StatusBreakdown map[string]int
+	RelatedDocs     []*models.Document
+	Notes           []*models.EntityNote
+	ContextData     *models.ContextData
+	DirPath         string
+	Filename        string
+}
+
+// featureTaskJSON is the JSON helper type for tasks in the feature_display_data view.
+type featureTaskJSON struct {
+	ID             int64   `json:"id"`
+	Key            string  `json:"key"`
+	Title          string  `json:"title"`
+	Slug           *string `json:"slug"`
+	Description    *string `json:"description"`
+	Status         string  `json:"status"`
+	AgentType      *string `json:"agent_type"`
+	Priority       *int    `json:"priority"`
+	ExecutionOrder *int    `json:"execution_order"`
+	FilePath       *string `json:"file_path"`
+	ContextData    *string `json:"context_data"`
+	BlockedReason  *string `json:"blocked_reason"`
+	BlockedAt      *string `json:"blocked_at"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+// featureTaskBreakdownJSON is the JSON helper for task status breakdown rows.
+type featureTaskBreakdownJSON struct {
+	Status string `json:"status"`
+	Count  int    `json:"cnt"`
+}
+
+// GetFeatureDisplayData fetches all data needed to display a feature in a single SQL query
+// via the feature_display_data view. This reduces round-trips from ~5 to 1, critical for
+// Turso cloud databases where each round-trip costs ~150-200ms.
+func (s *FeatureService) GetFeatureDisplayData(ctx context.Context, feature *models.Feature, projectRoot string) (*FeatureDisplayData, error) {
+	result := &FeatureDisplayData{
+		Tasks:           make([]*models.Task, 0),
+		StatusBreakdown: make(map[string]int),
+		RelatedDocs:     make([]*models.Document, 0),
+		Notes:           make([]*models.EntityNote, 0),
+	}
+
+	// Resolve feature path without re-fetching
+	relPath := s.ResolveFeaturePathFromFeature(feature, projectRoot)
+	if relPath != "" {
+		result.DirPath = filepath.Dir(relPath) + "/"
+		result.Filename = filepath.Base(relPath)
+	}
+
+	// Single query via the feature_display_data view
+	raw, err := s.repo.GetFeatureDisplayDataRaw(ctx, feature.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get display data for feature %s: %w", feature.Key, err)
+	}
+
+	// Unmarshal tasks
+	tasksRaw, err := unmarshalJSONArray[featureTaskJSON](raw.TasksJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tasks for feature %s: %w", feature.Key, err)
+	}
+	for _, tj := range tasksRaw {
+		task := &models.Task{
+			ID:             tj.ID,
+			Key:            tj.Key,
+			Title:          tj.Title,
+			Status:         models.TaskStatus(tj.Status),
+			FeatureID:      feature.ID,
+			Slug:           tj.Slug,
+			Description:    tj.Description,
+			AgentType:      tj.AgentType,
+			FilePath:       tj.FilePath,
+			BlockedReason:  tj.BlockedReason,
+			ExecutionOrder: tj.ExecutionOrder,
+			ContextData:    tj.ContextData,
+		}
+		if tj.Priority != nil {
+			task.Priority = *tj.Priority
+		}
+		result.Tasks = append(result.Tasks, task)
+	}
+
+	// Unmarshal task status breakdown
+	breakdownRaw, err := unmarshalJSONArray[featureTaskBreakdownJSON](raw.TaskBreakdownJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal task breakdown for feature %s: %w", feature.Key, err)
+	}
+	for _, b := range breakdownRaw {
+		result.StatusBreakdown[b.Status] = b.Count
+	}
+
+	// Unmarshal related documents (reuse documentJSON from epic_service.go — same package)
+	docsRaw, err := unmarshalJSONArray[documentJSON](raw.DocumentsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal documents for feature %s: %w", feature.Key, err)
+	}
+	for _, d := range docsRaw {
+		result.RelatedDocs = append(result.RelatedDocs, &models.Document{
+			ID:       d.ID,
+			Title:    d.Title,
+			FilePath: d.FilePath,
+		})
+	}
+
+	// Unmarshal notes (reuse noteJSON from epic_service.go — same package)
+	notesRaw, err := unmarshalJSONArray[noteJSON](raw.NotesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal notes for feature %s: %w", feature.Key, err)
+	}
+	for _, n := range notesRaw {
+		result.Notes = append(result.Notes, &models.EntityNote{
+			ID:         n.ID,
+			EntityType: models.EntityTypeFeature,
+			EntityID:   feature.ID,
+			NoteType:   models.NoteType(n.NoteType),
+			Content:    n.Content,
+			CreatedBy:  n.CreatedBy,
+			Metadata:   n.Metadata,
+		})
+	}
+
+	// Parse context data from feature's stored context_data column
+	if feature.ContextData != nil && *feature.ContextData != "" {
+		cd, parseErr := models.FromJSON(*feature.ContextData)
+		if parseErr == nil {
+			result.ContextData = cd
+		}
+	}
+
+	return result, nil
 }
