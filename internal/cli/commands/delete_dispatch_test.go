@@ -27,8 +27,8 @@ func TestDeleteDispatcherHasCorrectGroupID(t *testing.T) {
 		t.Fatal("delete command is nil")
 	}
 
-	if cmd.GroupID != "essentials" {
-		t.Errorf("delete command has GroupID %q, expected 'essentials'", cmd.GroupID)
+	if cmd.GroupID != "manage" {
+		t.Errorf("delete command has GroupID %q, expected 'manage'", cmd.GroupID)
 	}
 }
 

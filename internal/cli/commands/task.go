@@ -21,7 +21,7 @@ func displayAutoUnblockedTasks(unblockedKeys []string) {
 	}
 }
 
-var taskCmd = &cobra.Command{Use: "task", Short: "Manage tasks", GroupID: "entities",
+var taskCmd = &cobra.Command{Use: "task", Short: "Manage tasks", GroupID: "advanced",
 	Long: "Task lifecycle operations: list, create, update, and manage task status."}
 
 var taskListCmd = &cobra.Command{
@@ -40,34 +40,6 @@ var taskCreateCmd = &cobra.Command{
 	Long:  "Create a task with auto key generation.\n\nExamples:\n  shark task create E07 F20 \"Implement auth\"\n  shark task create E07-F20 \"User Service\" --agent=backend --order=2",
 	Args:  cobra.RangeArgs(1, 3),
 	RunE:  runTaskCreate,
-}
-
-var taskStartCmd = &cobra.Command{
-	Use: "start <task-key>", Short: "Start working on a task", Args: cobra.ExactArgs(1), RunE: runTaskStart,
-}
-
-var taskCompleteCmd = &cobra.Command{
-	Use: "complete <task-key>", Short: "Mark task as complete (ready for review)", Args: cobra.ExactArgs(1), RunE: runTaskComplete,
-}
-
-var taskApproveCmd = &cobra.Command{
-	Use: "approve <task-key>", Short: "Approve task for completion", Args: cobra.ExactArgs(1), RunE: runTaskApprove,
-}
-
-var taskBlockCmd = &cobra.Command{
-	Use: "block <task-key>", Short: "Block a task", Args: cobra.ExactArgs(1), RunE: runTaskBlock,
-}
-
-var taskUnblockCmd = &cobra.Command{
-	Use: "unblock <task-key>", Short: "Unblock a task", Args: cobra.ExactArgs(1), RunE: runTaskUnblock,
-}
-
-var taskReopenCmd = &cobra.Command{
-	Use: "reopen <task-key>", Short: "Reopen a task for rework", Args: cobra.ExactArgs(1), RunE: runTaskReopen,
-}
-
-var taskNextCmd = &cobra.Command{
-	Use: "next", Short: "Get next available task", RunE: runTaskNext,
 }
 
 var taskDeleteCmd = &cobra.Command{
@@ -146,21 +118,24 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Gather related data (errors non-fatal — display is best-effort)
-	relatedDocs, _ := svc.ListRelatedDocuments(ctx, taskKey)
-	blockedBy, _ := svc.GetTaskBlockedBy(ctx, taskKey)
-	blocks, _ := svc.GetTaskBlocks(ctx, taskKey)
-	deps, _ := svc.ListDependencies(ctx, taskKey)
+	// Gather related data via single-query view (errors non-fatal — display is best-effort)
+	displayData, _ := svc.GetTaskDisplayData(ctx, task)
+	var relatedDocs []*models.Document
+	var blockedBy, blocks []services.RelationshipWithTask
+	var deps []*models.Task
+	var notes []*models.EntityNote
+	if displayData != nil {
+		relatedDocs = displayData.RelatedDocs
+		blockedBy = displayData.BlockedBy
+		blocks = displayData.Blocks
+		deps = displayData.Dependencies
+		notes = displayData.Notes
+	}
 
 	orchestratorAction := cli.GetDisplayService().ResolveTaskAction(ctx, task)
 
 	workflowCfg := cli.GetWorkflowService().ForLevel("task").GetWorkflow()
 	validTransitions := GetValidTransitions(string(task.Status), workflowCfg)
-
-	var notes []*models.EntityNote
-	if noteSvc, err := cli.GetNoteService(ctx); err == nil && noteSvc != nil {
-		notes, _ = noteSvc.ListNotes(ctx, models.EntityTypeTask, taskKey, nil)
-	}
 
 	var contextData *models.ContextData
 	if ctxSvc, err := cli.GetContextService(ctx); err == nil && ctxSvc != nil {
@@ -253,145 +228,6 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runTaskNext finds the next available task.
-func runTaskNext(cmd *cobra.Command, args []string) error {
-	agentType, _ := cmd.Flags().GetString("agent")
-	epicKey, _ := cmd.Flags().GetString("epic")
-	svc := cli.GetTaskService()
-	task, err := svc.GetNextTask(cmd.Context(), services.NextTaskFilters{AgentType: agentType, EpicKey: epicKey})
-	if err != nil {
-		return err
-	}
-	if task == nil {
-		cli.Info("No available tasks found")
-		return nil
-	}
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
-	}
-	cli.Success(fmt.Sprintf("Next task: %s", task.Key))
-	cli.Info(fmt.Sprintf("Title: %s", task.Title))
-	cli.Info(fmt.Sprintf("Status: %s", task.Status))
-	if agent := derefString(task.AgentType); agent != "" {
-		cli.Info(fmt.Sprintf("Agent: %s", agent))
-	}
-	return nil
-}
-
-// runTaskStart starts a task.
-func runTaskStart(cmd *cobra.Command, args []string) error {
-	taskKey, err := NormalizeTaskKey(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid task key: %w", err)
-	}
-	agentID, _ := cmd.Flags().GetString("agent")
-	svc := cli.GetTaskService()
-	task, err := svc.StartTask(cmd.Context(), taskKey, agentID)
-	if err != nil {
-		return err
-	}
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
-	}
-	cli.Success(fmt.Sprintf("Started task %s (status: %s)", task.Key, task.Status))
-	return nil
-}
-
-// runTaskComplete marks a task as complete (ready for review).
-func runTaskComplete(cmd *cobra.Command, args []string) error {
-	taskKey, err := NormalizeTaskKey(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid task key: %w", err)
-	}
-	notes, _ := cmd.Flags().GetString("notes")
-	svc := cli.GetTaskService()
-	task, err := svc.CompleteTask(cmd.Context(), taskKey, notes)
-	if err != nil {
-		return err
-	}
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
-	}
-	cli.Success(fmt.Sprintf("Completed task %s (status: %s)", task.Key, task.Status))
-	return nil
-}
-
-// runTaskApprove approves a task for completion.
-func runTaskApprove(cmd *cobra.Command, args []string) error {
-	taskKey, err := NormalizeTaskKey(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid task key: %w", err)
-	}
-	notes, _ := cmd.Flags().GetString("notes")
-	svc := cli.GetTaskService()
-	task, err := svc.ApproveTask(cmd.Context(), taskKey, notes)
-	if err != nil {
-		return err
-	}
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
-	}
-	cli.Success(fmt.Sprintf("Approved task %s (status: %s)", task.Key, task.Status))
-	return nil
-}
-
-// runTaskBlock blocks a task with a reason.
-func runTaskBlock(cmd *cobra.Command, args []string) error {
-	taskKey, err := NormalizeTaskKey(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid task key: %w", err)
-	}
-	reason, _ := cmd.Flags().GetString("reason")
-	svc := cli.GetTaskService()
-	task, err := svc.BlockTask(cmd.Context(), taskKey, reason)
-	if err != nil {
-		return err
-	}
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
-	}
-	cli.Success(fmt.Sprintf("Blocked task %s", task.Key))
-	return nil
-}
-
-// runTaskUnblock unblocks a task.
-func runTaskUnblock(cmd *cobra.Command, args []string) error {
-	taskKey, err := NormalizeTaskKey(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid task key: %w", err)
-	}
-	svc := cli.GetTaskService()
-	task, unblockedKeys, err := svc.UnblockTask(cmd.Context(), taskKey)
-	if err != nil {
-		return err
-	}
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
-	}
-	cli.Success(fmt.Sprintf("Unblocked task %s (status: %s)", task.Key, task.Status))
-	displayAutoUnblockedTasks(unblockedKeys)
-	return nil
-}
-
-// runTaskReopen reopens a task for rework.
-func runTaskReopen(cmd *cobra.Command, args []string) error {
-	taskKey, err := NormalizeTaskKey(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid task key: %w", err)
-	}
-	notes, _ := cmd.Flags().GetString("notes")
-	svc := cli.GetTaskService()
-	task, err := svc.ReopenTask(cmd.Context(), taskKey, notes)
-	if err != nil {
-		return err
-	}
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(task)
-	}
-	cli.Success(fmt.Sprintf("Reopened task %s (status: %s)", task.Key, task.Status))
-	return nil
-}
-
 // runTaskDelete deletes a task.
 func runTaskDelete(cmd *cobra.Command, args []string) error {
 	taskKey, err := NormalizeTaskKey(args[0])
@@ -452,30 +288,19 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
+	taskCmd.Hidden = true // Hidden from top-level help; accessible via 'shark task'
 	cli.RootCmd.AddCommand(taskCmd)
 	taskCmd.AddCommand(taskListCmd)
 	taskCmd.AddCommand(taskGetCmd)
 	taskGetCmd.Flags().Bool("completion-details", false, "Display completion metadata details")
 	taskCmd.AddCommand(taskCreateCmd)
-	taskCmd.AddCommand(taskStartCmd)
-	taskCmd.AddCommand(taskCompleteCmd)
-	taskCmd.AddCommand(taskApproveCmd)
-	taskCmd.AddCommand(taskBlockCmd)
-	taskCmd.AddCommand(taskUnblockCmd)
-	taskCmd.AddCommand(taskReopenCmd)
-	taskCmd.AddCommand(taskNextCmd)
 	taskCmd.AddCommand(taskNextStatusCmd)
 	taskCmd.AddCommand(taskDeleteCmd)
 	taskCmd.AddCommand(taskUpdateCmd)
 	taskCmd.AddCommand(taskSetStatusCmd)
 	registerListFlags(taskListCmd)
 	registerCreateFlags(taskCreateCmd)
-	registerTransitionFlags()
 	registerUpdateFlags(taskUpdateCmd)
-	taskNextCmd.Flags().StringP("agent", "a", "", "Agent type to match")
-	taskNextCmd.Flags().StringP("epic", "e", "", "Filter by epic key")
-	defaultStatus := cli.GetWorkflowService().GetDefaultStatus()
-	taskUnblockCmd.Long = fmt.Sprintf("Unblock a task and return it to %s status.", defaultStatus)
 	taskSetStatusCmd.Flags().Bool("force", false, "Force status change bypassing workflow validation")
 	taskSetStatusCmd.Flags().String("notes", "", "Notes to record with status transition")
 }

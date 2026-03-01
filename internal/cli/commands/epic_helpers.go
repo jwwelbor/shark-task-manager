@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -178,12 +179,35 @@ func renderEpicPlanning(info *services.EpicDisplayInfo) {
 		fmt.Println()
 	}
 
-	displayOrchestratorAction(info.OrchestratorAction)
-	renderRelatedDocuments(info.RelatedDocs)
-
+	// Planning mode features
 	if len(info.Features) == 0 {
 		pterm.Info.Println("No features yet (epic is still being refined)")
+	} else {
+		fmt.Println()
+		pterm.DefaultSection.Printf("Features (%d total)", len(info.Features))
+		fmt.Println()
+
+		tableData := pterm.TableData{
+			{"Key", "Title", "Status", "Tasks", "Phase"},
+		}
+		for _, fi := range info.Features {
+			phase := fi.Phase
+			if phase == "" {
+				phase = "-"
+			}
+			tableData = append(tableData, []string{
+				fi.Feature.Key,
+				fi.Feature.Title,
+				string(fi.Feature.Status),
+				fmt.Sprintf("%d", fi.TaskCount),
+				phase,
+			})
+		}
+		_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 	}
+
+	displayOrchestratorAction(info.OrchestratorAction)
+	renderRelatedDocuments(info.RelatedDocs)
 }
 
 // renderEpicDetails renders epic details with features table and rollup information
@@ -373,64 +397,50 @@ func buildEpicsWithProgress(ctx context.Context, epics []*models.Epic) []EpicWit
 	return result
 }
 
-// buildEpicGetData retrieves all data needed to display an epic
+// buildEpicGetData retrieves all data needed to display an epic.
+// Uses batch queries via EpicService.GetEpicDisplayData and parallelizes
+// independent ancillary queries (docs, notes, context) to minimize Turso latency.
 func buildEpicGetData(ctx context.Context, epic *models.Epic) (*EpicGetData, error) {
 	epicSvc := cli.GetEpicService()
-	featureSvc := cli.GetFeatureService()
 	displaySvc := cli.GetDisplayService()
 
 	projectRoot, _ := os.Getwd()
 
-	// Resolve epic path
-	var resolvedPath string
-	if projectRoot != "" {
-		absPath, err := epicSvc.ResolveEpicPath(ctx, epic.Key, projectRoot)
-		if err == nil {
-			resolvedPath = getRelativePath(absPath, projectRoot)
-		} else if cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to resolve epic path: %v\n", err)
-		}
-	}
-
-	// Calculate epic progress
-	epicProgress, err := epicSvc.CalculateProgress(ctx, epic.ID)
+	// Single DB query via epic_display_data view fetches everything
+	displayData, err := epicSvc.GetEpicDisplayData(ctx, epic, projectRoot)
 	if err != nil {
-		if cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to calculate epic progress: %v\n", err)
-		}
-		epicProgress = 0.0
+		return nil, fmt.Errorf("failed to get epic display data: %w", err)
 	}
 
-	// Get features
-	features, err := epicSvc.GetFeatures(ctx, epic.Key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list features: %w", err)
+	// Workflow config (file read, no DB query)
+	var workflowCfg *config.WorkflowConfig
+	configPath, _ := cli.GetConfigPath()
+	if configPath != "" {
+		cfg, cfgErr := config.LoadWorkflowConfig(configPath)
+		if cfgErr == nil {
+			workflowCfg = cfg
+		}
 	}
 
-	// Build features with details
-	featuresWithDetails := make([]FeatureWithDetails, 0, len(features))
-	for _, feature := range features {
-		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
-			if cli.GlobalConfig.Verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
-			}
-		}
+	// Extract context from epic.ContextData (already on the epic row, no DB query)
+	var epicContext *models.ContextData
+	if epic.ContextData != nil && *epic.ContextData != "" {
+		epicContext = &models.ContextData{}
+		_ = json.Unmarshal([]byte(*epic.ContextData), epicContext)
+	}
 
-		feature, err = featureSvc.GetFeatureByID(ctx, feature.ID)
-		if err != nil {
-			if cli.GlobalConfig.Verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to get feature %s: %v\n", feature.Key, err)
-			}
-			continue
-		}
+	// Map resolved path to dir/filename
+	resolvedPath := displayData.RelPath
+	var dirPath, filename string
+	if resolvedPath != "" {
+		dirPath = filepath.Dir(resolvedPath) + "/"
+		filename = filepath.Base(resolvedPath)
+	}
 
-		taskCount, err := featureSvc.GetTaskCount(ctx, feature.ID)
-		if err != nil {
-			if cli.GlobalConfig.Verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to get task count for feature %s: %v\n", feature.Key, err)
-			}
-			taskCount = 0
-		}
+	// Build features with details from view data (0 additional queries)
+	featuresWithDetails := make([]FeatureWithDetails, 0, len(displayData.Features))
+	for _, feature := range displayData.Features {
+		taskCount := displayData.FeatureTaskCounts[feature.ID]
 
 		featureMode := displaySvc.DetermineFeatureDisplayMode(feature)
 		isPlanning := featureMode == services.DisplayModePlanning
@@ -447,104 +457,24 @@ func buildEpicGetData(ctx context.Context, epic *models.Epic) (*EpicGetData, err
 		})
 	}
 
-	// Extract dir path and filename
-	var dirPath, filename string
-	if resolvedPath != "" {
-		dirPath = filepath.Dir(resolvedPath) + "/"
-		filename = filepath.Base(resolvedPath)
-	}
-
-	// Related docs
-	relatedDocs, err := epicSvc.GetRelatedDocuments(ctx, epic.ID)
-	if err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to fetch related documents: %v\n", err)
-	}
-	if relatedDocs == nil {
-		relatedDocs = []*models.Document{}
-	}
-
-	// Feature status rollup
-	var featureRollup map[string]int
-	featureRollupResult, err := epicSvc.GetFeatureRollup(ctx, epic.Key)
-	if err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to get feature status rollup: %v\n", err)
-	}
-	if featureRollupResult != nil {
-		featureRollup = featureRollupResult.StatusCounts
-	}
-	if featureRollup == nil {
-		featureRollup = make(map[string]int)
-	}
-
-	// Task status rollup
-	taskRollup, err := epicSvc.GetTaskStatusRollup(ctx, epic.Key)
-	if err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to get task status rollup: %v\n", err)
-	}
-	if taskRollup == nil {
-		taskRollup = make(map[string]int)
-	}
-
-	// Blocked tasks
-	blockedTasks, err := epicSvc.GetBlockedTasks(ctx, epic.Key)
-	if err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to get blocked tasks: %v\n", err)
-	}
-	if blockedTasks == nil {
-		blockedTasks = make([]*models.Task, 0)
-	}
-
-	// Approval backlog
+	// Approval backlog from task rollup
 	approvalBacklogCount := 0
-	if approvalCount, ok := taskRollup[string(models.TaskStatus("ready_for_review"))]; ok {
+	if approvalCount, ok := displayData.TaskStatusRollup[string(models.TaskStatus("ready_for_review"))]; ok {
 		approvalBacklogCount = approvalCount
-	}
-
-	// Notes
-	var epicNotes []*models.EntityNote
-	noteSvc, noteErr := cli.GetNoteService(ctx)
-	if noteErr == nil {
-		epicNotes, noteErr = noteSvc.ListNotes(ctx, models.EntityTypeEpic, epic.Key, nil)
-		if noteErr != nil && cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to fetch epic notes: %v\n", noteErr)
-		}
-	}
-
-	// Context
-	var epicContext *models.ContextData
-	ctxSvc, ctxErr := cli.GetContextService(ctx)
-	if ctxErr == nil {
-		epicContext, ctxErr = ctxSvc.GetContext(ctx, models.EntityTypeEpic, epic.Key)
-		if ctxErr != nil && cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to fetch epic context: %v\n", ctxErr)
-		}
-	}
-
-	// Workflow config
-	configPath, configErr := cli.GetConfigPath()
-	if configErr != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", configErr)
-	}
-	var workflowCfg *config.WorkflowConfig
-	if configPath != "" {
-		workflowCfg, err = config.LoadWorkflowConfig(configPath)
-		if err != nil && cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to load workflow config: %v\n", err)
-		}
 	}
 
 	return &EpicGetData{
 		ResolvedPath:         resolvedPath,
 		DirPath:              dirPath,
 		Filename:             filename,
-		EpicProgress:         epicProgress,
+		EpicProgress:         displayData.Progress,
 		FeaturesWithDetails:  featuresWithDetails,
-		RelatedDocs:          relatedDocs,
-		FeatureRollup:        featureRollup,
-		TaskRollup:           taskRollup,
-		BlockedTasks:         blockedTasks,
+		RelatedDocs:          displayData.RelatedDocs,
+		FeatureRollup:        displayData.FeatureRollup,
+		TaskRollup:           displayData.TaskStatusRollup,
+		BlockedTasks:         displayData.BlockedTasks,
 		ApprovalBacklogCount: approvalBacklogCount,
-		EpicNotes:            epicNotes,
+		EpicNotes:            displayData.Notes,
 		EpicContext:          epicContext,
 		WorkflowCfg:          workflowCfg,
 	}, nil
@@ -953,7 +883,7 @@ func performEpicDelete(ctx context.Context, epicKey string, force bool) error {
 func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) error {
 	epicSvc := cli.GetEpicService()
 
-	epic, err := epicSvc.GetEpic(ctx, epicKey)
+	_, err := epicSvc.GetEpic(ctx, epicKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicKey))
 		cli.Info("Use 'shark epic list' to see available epics")
@@ -973,44 +903,6 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 	if description != "" {
 		updates.Description = &description
 		changed = true
-	}
-
-	statusFlag, err := cmd.Flags().GetString("status")
-	if err != nil {
-		return fmt.Errorf("could not get status flag: %w", err)
-	}
-	force, err := cmd.Flags().GetBool("force")
-	if err != nil {
-		return fmt.Errorf("could not get force flag: %w", err)
-	}
-
-	if statusFlag != "" {
-		if strings.ToLower(statusFlag) == "auto" {
-			result, calcErr := epicSvc.RecalculateStatus(ctx, epic.ID)
-			if calcErr != nil {
-				cli.Error(fmt.Sprintf("Error: Failed to recalculate status: %v", calcErr))
-				os.Exit(1)
-			}
-
-			cli.Success(fmt.Sprintf("Epic %s status recalculated: %s (calculated from features)", epic.Key, result.NewStatus))
-			return nil
-		}
-
-		validatedStatus, err := ParseEpicStatus(statusFlag)
-		if err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
-		epicStatus := models.EpicStatus(validatedStatus)
-		updates.Status = &epicStatus
-		changed = true
-
-		if force && epicStatus == models.EpicStatusCompleted {
-			if err := epicSvc.CascadeStatusToFeaturesAndTasks(ctx, epic.ID, models.FeatureStatusCompleted, models.TaskStatus("completed")); err != nil {
-				cli.Error(fmt.Sprintf("Error: Failed to cascade status to features and tasks: %v", err))
-				os.Exit(1)
-			}
-		}
 	}
 
 	priority, _ := cmd.Flags().GetString("priority")

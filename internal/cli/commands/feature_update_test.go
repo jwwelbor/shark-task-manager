@@ -25,9 +25,6 @@ func TestFeatureUpdateCommand_Exists(t *testing.T) {
 			if cmd.Flags().Lookup("description") == nil {
 				t.Error("feature update command missing --description flag")
 			}
-			if cmd.Flags().Lookup("status") == nil {
-				t.Error("feature update command missing --status flag")
-			}
 			if cmd.Flags().Lookup("execution-order") == nil {
 				t.Error("feature update command missing --execution-order flag")
 			}
@@ -40,10 +37,6 @@ func TestFeatureUpdateCommand_Exists(t *testing.T) {
 			if cmd.Flags().Lookup("key") == nil {
 				t.Error("feature update command missing --key flag")
 			}
-			if cmd.Flags().Lookup("force") == nil {
-				t.Error("feature update command missing --force flag")
-			}
-
 			break
 		}
 	}

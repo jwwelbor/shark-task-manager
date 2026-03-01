@@ -3,7 +3,6 @@ package commands
 import (
 	"fmt"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -22,13 +21,12 @@ Examples:
   shark delete E07-F01                Delete feature E07-F01
   shark delete E07-F01-001            Delete task E07-F01-001
   shark delete E07-F01 --force        Force delete (cascade children)`,
-	GroupID: "essentials",
+	GroupID: "manage",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runDelete,
 }
 
 func init() {
-	cli.RootCmd.AddCommand(deleteCmd)
 	deleteCmd.Flags().Bool("force", false, "Force deletion (cascade delete children)")
 }
 

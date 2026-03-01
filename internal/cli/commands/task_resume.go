@@ -302,12 +302,12 @@ func printResumeContext(ctx *ResumeContext) {
 	} else {
 		switch ctx.Task.Status {
 		case models.TaskStatus("todo"):
-			fmt.Printf("│ Run: shark task start %s\n", ctx.Task.Key)
+			fmt.Printf("│ Run: shark task next-status %s\n", ctx.Task.Key)
 		case models.TaskStatus("in_progress"):
 			fmt.Printf("│ Continue implementation\n")
-			fmt.Printf("│ When done: shark task complete %s\n", ctx.Task.Key)
+			fmt.Printf("│ When done: shark task next-status %s\n", ctx.Task.Key)
 		case models.TaskStatus("ready_for_review"):
-			fmt.Printf("│ Awaiting review\n│ To approve: shark task approve %s\n", ctx.Task.Key)
+			fmt.Printf("│ Awaiting review\n│ To approve: shark task next-status %s\n", ctx.Task.Key)
 		case models.TaskStatus("completed"):
 			fmt.Printf("│ Task completed\n")
 		case models.TaskStatus("blocked"):

@@ -50,14 +50,6 @@ type TaskFilters struct {
 	MaxPriority int      `json:"max_priority,omitempty"` // Maximum priority (1-10)
 }
 
-// NextTaskFilters contains criteria for selecting the next task to work on.
-type NextTaskFilters struct {
-	AgentType  string   `json:"agent_type,omitempty"`  // Prefer tasks for this agent type
-	EpicKey    string   `json:"epic_key,omitempty"`    // Limit to specific epic
-	FeatureKey string   `json:"feature_key,omitempty"` // Limit to specific feature
-	Statuses   []string `json:"statuses,omitempty"`    // Limit to these statuses (default: todo, in_progress)
-}
-
 // DependencyTree represents the hierarchical dependency structure for a task.
 type DependencyTree struct {
 	Task         *TaskNode   `json:"task"`                   // The root task

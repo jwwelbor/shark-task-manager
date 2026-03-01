@@ -13,7 +13,7 @@ import (
 var analyticsCmd = &cobra.Command{
 	Use:     "analytics",
 	Short:   "Analyze work session patterns and metrics",
-	GroupID: "status",
+	GroupID: "advanced",
 	Long: `Analyze work session patterns across epics, features, and tasks.
 
 Provides insights into:

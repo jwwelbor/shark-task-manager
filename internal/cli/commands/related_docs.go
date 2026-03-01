@@ -13,7 +13,8 @@ import (
 var relatedDocsCmd = &cobra.Command{
 	Use:     "related-docs",
 	Short:   "Manage related documents",
-	GroupID: "details",
+	GroupID: "manage",
+	Aliases: []string{"docs"},
 	Long: `Manage related documents linked to epics, features, or tasks.
 
 Examples:
@@ -229,9 +230,6 @@ func printRelatedDocs(docs []*models.Document, useJSON bool) error {
 }
 
 func init() {
-	// Register related-docs command with root
-	cli.RootCmd.AddCommand(relatedDocsCmd)
-
 	// Add subcommands
 	relatedDocsCmd.AddCommand(relatedDocsAddCmd)
 	relatedDocsCmd.AddCommand(relatedDocsDeleteCmd)

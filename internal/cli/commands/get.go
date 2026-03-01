@@ -9,7 +9,7 @@ import (
 var getCmd = &cobra.Command{
 	Use:     "get <KEY>",
 	Short:   "Get epic, feature, or task details",
-	GroupID: "essentials",
+	GroupID: "inspect",
 	Long: `Smart get command that dispatches to the appropriate subcommand based on arguments.
 
 Positional Arguments:

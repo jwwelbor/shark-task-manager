@@ -54,27 +54,6 @@ func TestDTOJSONSerialization(t *testing.T) {
 		}
 	})
 
-	t.Run("NextTaskFilters", func(t *testing.T) {
-		filters := NextTaskFilters{
-			AgentType: "backend",
-			EpicKey:   "E07",
-		}
-
-		data, err := json.Marshal(filters)
-		if err != nil {
-			t.Fatalf("Failed to marshal NextTaskFilters: %v", err)
-		}
-
-		var unmarshaled NextTaskFilters
-		if err := json.Unmarshal(data, &unmarshaled); err != nil {
-			t.Fatalf("Failed to unmarshal NextTaskFilters: %v", err)
-		}
-
-		if unmarshaled.AgentType != filters.AgentType {
-			t.Errorf("Expected agent type %s, got %s", filters.AgentType, unmarshaled.AgentType)
-		}
-	})
-
 	t.Run("DependencyTree", func(t *testing.T) {
 		tree := DependencyTree{
 			Task: &TaskNode{

@@ -17,13 +17,6 @@ Tasks flow through a configurable workflow. The basic profile uses 5 statuses, w
 
 | Command | Description | Category |
 |---------|-------------|----------|
-| `shark task start` | Start working on a task | Lifecycle |
-| `shark task complete` | Mark task as ready for review | Lifecycle |
-| `shark task approve` | Approve task for completion | Lifecycle |
-| `shark task reopen` | Reopen a task for rework | Lifecycle |
-| `shark task block` | Block a task with a reason | Lifecycle |
-| `shark task unblock` | Unblock a task | Lifecycle |
-| `shark task next` | Get next available task | Lifecycle |
 | `shark task next-status` | Advance to next workflow status | Lifecycle |
 | `shark task set-status` | Set task to a specific status | Lifecycle |
 | `shark task create` | Create a new task | CRUD |
@@ -50,249 +43,6 @@ Tasks flow through a configurable workflow. The basic profile uses 5 statuses, w
 ## Lifecycle Commands
 
 Commands for transitioning tasks through the workflow.
-
-### `shark task start`
-
-Start working on a task. Transitions from a ready status to an active development status.
-
-**Usage:**
-```bash
-shark task start <task-key> [flags]
-```
-
-**Flags:**
-- `--agent <string>` - Agent identifier (defaults to USER env var)
-- `--force` - Force status change bypassing validation
-- `--json` - Output in JSON format
-
-**Examples:**
-```bash
-# Start a task
-shark task start E07-F01-001
-
-# Start with agent tracking
-shark task start E07-F01-001 --agent=dev-agent-001
-
-# Force start from any status (administrative override)
-shark task start E07-F01-001 --force
-```
-
-**Behavior:**
-1. Validates current status allows starting
-2. Updates status to `in_development` (or appropriate active status)
-3. Records transition in task history
-4. Sets `started_at` timestamp
-
----
-
-### `shark task complete`
-
-Mark a task as complete (ready for review). Records completion metadata including files changed, test status, and time spent.
-
-**Usage:**
-```bash
-shark task complete <task-key> [flags]
-```
-
-**Flags:**
-- `-n, --notes <string>` - Completion notes
-- `--summary <string>` - Completion summary describing what was delivered
-- `--agent <string>` - Agent identifier
-- `--agent-id <string>` - Agent execution ID for traceability
-- `--files-created <strings>` - Files created during task (repeatable)
-- `--files-modified <strings>` - Files modified during task (repeatable)
-- `--tests <string>` - Test status summary (e.g., "16/16 passing")
-- `--time-spent <int>` - Time spent in minutes
-- `--verified` - Mark task as verified
-- `--force` - Force status change bypassing validation
-- `--json` - Output in JSON format
-
-**Examples:**
-```bash
-# Mark complete with notes
-shark task complete E07-F01-001 --notes="Implementation complete, all tests passing"
-
-# Complete with full metadata
-shark task complete E07-F01-001 \
-  --summary="Added JWT token validation endpoint" \
-  --tests="24/24 passing" \
-  --files-modified=internal/auth/jwt.go,internal/auth/jwt_test.go \
-  --time-spent=120
-
-# Complete with JSON output
-shark task complete E07-F01-001 --notes="Done" --json
-```
-
-**Behavior:**
-1. Validates task is in an active development status
-2. Advances to the next review status (e.g., `ready_for_code_review`)
-3. Stores completion metadata (files, tests, time spent)
-4. Records notes in task history
-
----
-
-### `shark task approve`
-
-Approve a task for completion. Transitions from a review status to `completed`.
-
-**Usage:**
-```bash
-shark task approve <task-key> [flags]
-```
-
-**Flags:**
-- `-n, --notes <string>` - Approval notes
-- `--agent <string>` - Agent identifier
-- `--rejection-reason <string>` - Reason for rejection (if rejecting instead)
-- `--reason-doc <string>` - Path to rejection reason document
-- `--force` - Force status change bypassing validation
-- `--json` - Output in JSON format
-
-**Examples:**
-```bash
-# Approve a task
-shark task approve E07-F01-001
-
-# Approve with notes
-shark task approve E07-F01-001 --notes="LGTM, code review passed"
-
-# Approve with JSON output
-shark task approve E07-F01-001 --notes="Approved" --json
-```
-
----
-
-### `shark task reopen`
-
-Reopen a task for rework. Sends a task backward in the workflow, typically from a review status back to development.
-
-**Usage:**
-```bash
-shark task reopen <task-key> [flags]
-```
-
-**Flags:**
-- `-n, --notes <string>` - Rework notes
-- `--rejection-reason <string>` - Reason for rejection (required for backward transitions)
-- `--reason-doc <string>` - Path to rejection reason document
-- `--agent <string>` - Agent identifier
-- `--force` - Force status change bypassing validation
-- `--json` - Output in JSON format
-
-**Examples:**
-```bash
-# Reopen with rejection reason
-shark task reopen E07-F01-001 \
-  --rejection-reason="Missing error handling on line 67"
-
-# Reopen with linked review document
-shark task reopen E07-F01-001 \
-  --rejection-reason="Found 3 issues in review" \
-  --reason-doc="docs/reviews/E07-F01-001-review.md"
-
-# Force reopen without rejection reason (not recommended)
-shark task reopen E07-F01-001 --force
-```
-
-**About Rejection Reasons:**
-- Required for backward transitions in the workflow
-- Stored as rejection history and visible in `shark task get`
-- Helps developers understand exactly what needs fixing
-- See [Rejection Reasons](rejection-reasons.md) for detailed documentation
-
----
-
-### `shark task block`
-
-Block a task due to an external dependency or impediment.
-
-**Usage:**
-```bash
-shark task block <task-key> [flags]
-```
-
-**Flags:**
-- `-r, --reason <string>` - Reason for blocking (required)
-- `--agent <string>` - Agent identifier
-- `--force` - Force status change bypassing validation
-- `--json` - Output in JSON format
-
-**Examples:**
-```bash
-# Block with reason
-shark task block E07-F01-001 --reason="Waiting for API spec from E07-F02"
-
-# Block with short flag
-shark task block E07-F01-001 -r "Dependencies not ready"
-
-# Block with JSON output
-shark task block E07-F01-001 --reason="Blocked by external dependency" --json
-```
-
----
-
-### `shark task unblock`
-
-Unblock a task and return it to its previous status (typically `draft` or the prior active status).
-
-**Usage:**
-```bash
-shark task unblock <task-key> [flags]
-```
-
-**Flags:**
-- `--agent <string>` - Agent identifier
-- `--force` - Force status change bypassing validation
-- `--json` - Output in JSON format
-
-**Examples:**
-```bash
-# Unblock a task
-shark task unblock E07-F01-001
-
-# Unblock with JSON output
-shark task unblock E07-F01-001 --json
-```
-
----
-
-### `shark task next`
-
-Find the next available task to work on based on dependencies, priority, and agent type.
-
-**Usage:**
-```bash
-shark task next [flags]
-```
-
-**Flags:**
-- `-a, --agent <string>` - Agent type to match (e.g., backend, frontend, qa)
-- `-e, --epic <string>` - Filter by epic key
-- `--json` - Output in JSON format
-
-**Examples:**
-```bash
-# Get next available task
-shark task next
-
-# Next task for a specific agent type
-shark task next --agent=backend
-
-# Next task in a specific epic
-shark task next --epic=E07
-
-# Combine filters with JSON
-shark task next --agent=backend --epic=E07 --json
-```
-
-**Selection Logic:**
-1. Filter by agent type (if specified)
-2. Filter by epic (if specified)
-3. Filter by status: only "ready_for_*" statuses
-4. Sort by execution order (ascending), then priority (descending), then created date (oldest first)
-5. Return first match
-
----
 
 ### `shark task next-status`
 
@@ -1058,14 +808,14 @@ shark task timeline E07-F01-001 --json
 ### Pick Up Next Task (Agent Workflow)
 
 ```bash
-# 1. Get next task for your agent type
-shark task next --agent=backend --json
+# 1. Find tasks available for your agent type
+shark task list --agent=backend --status=todo --json
 
 # 2. Resume context (if previously worked on)
 shark task resume E07-F01-002
 
-# 3. Start the task
-shark task start E07-F01-002 --agent=dev-agent-001
+# 3. Advance task to active status
+shark task next-status E07-F01-002
 
 # 4. Track progress with context
 shark task context set E07-F01-002 --field current_step --value "Writing unit tests"
@@ -1073,41 +823,38 @@ shark task context set E07-F01-002 --field current_step --value "Writing unit te
 # 5. Add notes as you work
 shark task note add E07-F01-002 --type decision "Used bcrypt for password hashing"
 
-# 6. Mark complete when done
-shark task complete E07-F01-002 --notes="All tests passing" --tests="24/24 passing"
-
-# 7. Advance to next status
+# 6. Advance to next status when done
 shark task next-status E07-F01-002
 ```
 
 ### Complete Task Through Review
 
 ```bash
-# 1. Developer marks complete
-shark task complete E07-F01-001 --notes="Implementation complete"
+# 1. Developer advances task to review status
+shark task next-status E07-F01-001
 
-# 2. Code reviewer approves
-shark task approve E07-F01-001 --notes="LGTM"
+# 2. Code reviewer advances to next status (approve)
+shark task next-status E07-F01-001
 
-# 3. Or reviewer requests changes
-shark task reopen E07-F01-001 \
-  --rejection-reason="Missing error handling on line 67"
+# 3. Or reviewer sends task backward with a rejection reason
+shark task set-status E07-F01-001 in_development \
+  --notes="Missing error handling on line 67"
 ```
 
 ### Handle Blocked Task
 
 ```bash
-# 1. Block the task
-shark task block E07-F01-003 --reason="Waiting for API spec from E07-F02"
+# 1. Set the task to blocked status
+shark task set-status E07-F01-003 blocked --notes="Waiting for API spec from E07-F02"
 
 # 2. Check blocked tasks
 shark task list --blocked
 
-# 3. Unblock when ready
-shark task unblock E07-F01-003
+# 3. Move back to active status when ready
+shark task set-status E07-F01-003 todo
 
-# 4. Resume work
-shark task start E07-F01-003
+# 4. Advance to next status
+shark task next-status E07-F01-003
 ```
 
 ### Manage Dependencies
@@ -1137,7 +884,7 @@ shark task blocked-by E07-F01-003
 **Execution Order (Primary):**
 - Determines sequence of implementation within a feature
 - Lower values run first
-- Used by `shark task next` as primary sort
+- Used by `shark task list` as primary sort
 - Example: Setup (order=1) then Implementation (order=2) then Tests (order=3)
 
 **Priority (Secondary):**
@@ -1158,7 +905,7 @@ Shark supports flexible agent type assignment. Any non-empty string works.
 ```bash
 # Query by agent type
 shark task list --agent=architect
-shark task next --agent=business-analyst --json
+shark task list --agent=business-analyst --json
 ```
 
 ### Progress Weight
@@ -1176,7 +923,7 @@ All task commands support `--json` for machine-readable output. Additionally, th
 shark task get E07-F01-001 --json --field status
 
 # Get just the key
-shark task next --agent=backend --json --field key
+shark task get E07-F01-001 --json --field key
 ```
 
 ---

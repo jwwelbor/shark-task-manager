@@ -85,29 +85,25 @@ Examples:
 var statusAdvanceCmd = &cobra.Command{
 	Use:   "advance <key>",
 	Short: "Advance entity to next workflow status",
-	Long: `Advance an epic, feature, or task through its configured workflow by selecting from available transitions.
+	Long: `Advance an epic, feature, or task to its next workflow status.
 
-When an entity has multiple valid next statuses, this command auto-selects the first one.
-For automation/scripting, use --status to specify the target directly.
+Auto-selects the default next status. If the entity is in a terminal status
+or has no valid transitions, reports that and exits.
 
-Flags:
-  --status=<name>   Transition directly to this status (non-interactive)
-  --preview         Show available transitions without making changes
-  --force           Bypass workflow validation (administrative override)
-  --reason=<text>   Reason for backward or forced transitions
+For choosing a specific target status, use 'shark status set'.
+For viewing available transitions, use 'shark status transitions'.
 
 Examples:
-  shark status advance E07-F01-001              Auto-advance to next status
-  shark status advance E07-F01-001 --preview    Show available transitions
-  shark status advance E07-F01-001 --status=in_development  Direct transition
-  shark status advance E07 --json               JSON output (for scripting)`,
+  shark status advance E07-F01-001              Advance to next status
+  shark status advance E07                      Advance epic
+  shark status advance E07-F01-001 --json       JSON output`,
 	Args: cobra.ExactArgs(1),
 	RunE: runStatusAdvance,
 }
 
-// statusOptionsCmd shows available transitions for an entity (read-only).
-var statusOptionsCmd = &cobra.Command{
-	Use:   "options <key>",
+// statusTransitionsCmd shows available transitions for an entity (read-only).
+var statusTransitionsCmd = &cobra.Command{
+	Use:   "transitions <key>",
 	Short: "Show available status transitions",
 	Long: `Show the available status transitions for an epic, feature, or task without making any changes.
 
@@ -119,11 +115,11 @@ Key Formats:
   E07-F01-001        Task
 
 Examples:
-  shark status options E07-F01-001              Show transitions for task
-  shark status options E07                      Show transitions for epic
-  shark status options E07-F01 --json           JSON output`,
+  shark status transitions E07-F01-001          Show transitions for task
+  shark status transitions E07                  Show transitions for epic
+  shark status transitions E07-F01 --json       JSON output`,
 	Args: cobra.ExactArgs(1),
-	RunE: runStatusOptions,
+	RunE: runStatusTransitions,
 }
 
 // statusHistoryCmd shows task status change history.
@@ -149,15 +145,9 @@ func init() {
 	// statusSetCmd flags
 	statusSetCmd.Flags().String("reason", "", "Reason for backward or forced transitions")
 	statusSetCmd.Flags().Bool("force", false, "Bypass workflow validation")
-	statusSetCmd.Flags().String("agent", "", "Agent performing the transition")
 	statusSetCmd.Flags().String("notes", "", "Transition notes")
 
-	// statusAdvanceCmd flags
-	statusAdvanceCmd.Flags().String("status", "", "Target status for direct transition (non-interactive)")
-	statusAdvanceCmd.Flags().Bool("preview", false, "Show available transitions without making changes")
-	statusAdvanceCmd.Flags().Bool("force", false, "Bypass workflow validation")
-	statusAdvanceCmd.Flags().String("reason", "", "Reason for backward or forced transitions")
-	statusAdvanceCmd.Flags().String("agent", "", "Agent or user performing the transition")
+	// statusAdvanceCmd has no flags — just advances to the default next status.
 
 	// statusHistoryCmd flags
 	statusHistoryCmd.Flags().Int("limit", 50, "Maximum number of history entries to show")
@@ -165,7 +155,7 @@ func init() {
 	// Register subcommands under statusCmd (defined in status.go)
 	statusCmd.AddCommand(statusSetCmd)
 	statusCmd.AddCommand(statusAdvanceCmd)
-	statusCmd.AddCommand(statusOptionsCmd)
+	statusCmd.AddCommand(statusTransitionsCmd)
 	statusCmd.AddCommand(statusHistoryCmd)
 }
 
@@ -242,12 +232,10 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 	// Parse flags
 	reason, _ := cmd.Flags().GetString("reason")
 	force, _ := cmd.Flags().GetBool("force")
-	agent, _ := cmd.Flags().GetString("agent")
 
 	opts := services.TransitionOptions{
 		Force:  force,
 		Reason: reason,
-		Agent:  agent,
 	}
 
 	// Step 2: Check idempotency - if already at target status, return success with changed=false
@@ -324,13 +312,6 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid key format: %w", err)
 	}
 
-	// Parse flags
-	targetStatus, _ := cmd.Flags().GetString("status")
-	preview, _ := cmd.Flags().GetBool("preview")
-	force, _ := cmd.Flags().GetBool("force")
-	reason, _ := cmd.Flags().GetString("reason")
-	agent, _ := cmd.Flags().GetString("agent")
-
 	// Step 2: Get current status info
 	info, err := dispatchNextStatus(ctx, entityType, key)
 	if err != nil {
@@ -365,81 +346,20 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Preview mode
-	if preview {
-		result.Message = "Preview mode - no changes made"
-
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(result)
-		}
-
-		fmt.Printf("\n%s: %s\n", capitalizeEntityType(entityType), info.EntityKey)
-		fmt.Printf("Current status: %s", info.CurrentStatus)
-		if info.CurrentPhase != "" {
-			fmt.Printf(" (phase: %s)", info.CurrentPhase)
-		}
-		fmt.Println()
-		fmt.Println()
-		fmt.Println("Available transitions:")
-		printEntityTransitions(result.AvailableTransitions)
-		fmt.Println()
-		fmt.Printf("Use 'shark status advance %s --status=<name>' to transition\n", info.EntityKey)
-		return nil
-	}
+	// Auto-select first (default) transition
+	autoTarget := info.AvailableTransitions[0].TargetStatus
 
 	// Create adapter to satisfy entityTransitioner interface
 	svc := entityTransitionerFunc(func(ctx context.Context, k string, ts string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 		return dispatchTransition(ctx, entityType, k, ts, opts)
 	})
 
-	// Direct transition mode (--status flag)
-	if targetStatus != "" {
-		targetStatus = strings.TrimSpace(strings.ToLower(targetStatus))
-
-		// Validate target against available transitions (unless force)
-		if !force {
-			valid := false
-			for _, t := range info.AvailableTransitions {
-				if strings.EqualFold(t.TargetStatus, targetStatus) {
-					valid = true
-					targetStatus = t.TargetStatus // Use canonical case
-					break
-				}
-			}
-
-			if !valid {
-				cli.Error(fmt.Sprintf("Invalid transition: '%s' -> '%s'", info.CurrentStatus, targetStatus))
-				fmt.Println()
-				fmt.Println("Valid transitions from current status:")
-				for _, t := range info.AvailableTransitions {
-					fmt.Printf("  - %s\n", t.TargetStatus)
-				}
-				fmt.Println()
-				fmt.Println("Use --force to bypass workflow validation")
-				return fmt.Errorf("invalid transition")
-			}
-		}
-
-		opts := services.TransitionOptions{Force: force, Reason: reason, Agent: agent}
-		return performEntityTransition(ctx, svc, info.EntityKey, targetStatus, opts, result)
-	}
-
-	// Auto-select first transition
-	autoTarget := info.AvailableTransitions[0].TargetStatus
-
-	if cli.GlobalConfig.JSON {
-		// JSON mode - return available transitions for scripting
-		result.Message = "Use --status=<name> to specify target status for JSON output"
-		return cli.OutputJSON(result)
-	}
-
-	cli.Info(fmt.Sprintf("Auto-selected next status: %s (from %d options)", autoTarget, len(info.AvailableTransitions)))
-	opts := services.TransitionOptions{Force: force, Reason: reason, Agent: agent}
+	opts := services.TransitionOptions{}
 	return performEntityTransition(ctx, svc, info.EntityKey, autoTarget, opts, result)
 }
 
-// runStatusOptions implements the `shark status options <key>` command.
-func runStatusOptions(cmd *cobra.Command, args []string) error {
+// runStatusTransitions implements the `shark status transitions <key>` command.
+func runStatusTransitions(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -512,7 +432,7 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 	// Step 2: Validate entity type - only tasks have history
 	if entityType != "task" {
 		cli.Error(fmt.Sprintf("Status history is only available for tasks, not %ss", entityType))
-		cli.Info("Use 'shark status options <key>' to see available transitions for any entity type")
+		cli.Info("Use 'shark status transitions <key>' to see available transitions for any entity type")
 		os.Exit(3)
 	}
 

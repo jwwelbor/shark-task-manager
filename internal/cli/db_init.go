@@ -64,10 +64,18 @@ func initDatabase(ctx context.Context) (*repository.DB, error) {
 		return nil, fmt.Errorf("failed to get sql.DB from Turso driver: %w", err)
 	}
 
-	// Apply schema and migrations to the Turso database
-	// This ensures tables like 'ideas' are created on cloud databases
-	if err := db.ApplySchemaAndMigrations(sqlDB); err != nil {
-		return nil, fmt.Errorf("failed to apply schema and migrations: %w", err)
+	// Apply schema and migrations to the Turso database.
+	// If skip_migrations is set in config, use version check to avoid ~2s DDL overhead.
+	if dbConfig.SkipMigrations {
+		// Fast path: only apply if schema version is behind
+		if _, err := db.ApplySchemaIfNeeded(sqlDB); err != nil {
+			return nil, fmt.Errorf("failed to apply schema: %w", err)
+		}
+	} else {
+		// Default path: always apply (safe for first-time setup)
+		if err := db.ApplySchemaAndMigrations(sqlDB); err != nil {
+			return nil, fmt.Errorf("failed to apply schema and migrations: %w", err)
+		}
 	}
 
 	return repository.NewDB(sqlDB), nil

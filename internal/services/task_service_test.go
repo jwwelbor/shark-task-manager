@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
 )
@@ -32,6 +33,7 @@ type MockTaskRepository struct {
 	UpdateStatusForcedWithUnblockFunc func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error)
 	StatusUpdateRawFunc               func(ctx context.Context, params models.StatusUpdateParams) ([]string, error)
 	ListByKeyPrefixFunc               func(ctx context.Context, prefix string) ([]*models.Task, error)
+	GetTaskDisplayDataRawFunc         func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error)
 }
 
 func (m *MockTaskRepository) Create(ctx context.Context, task *models.Task) error {
@@ -141,6 +143,13 @@ func (m *MockTaskRepository) ListByKeyPrefix(ctx context.Context, prefix string)
 		return m.ListByKeyPrefixFunc(ctx, prefix)
 	}
 	return []*models.Task{}, nil
+}
+
+func (m *MockTaskRepository) GetTaskDisplayDataRaw(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
+	if m.GetTaskDisplayDataRawFunc != nil {
+		return m.GetTaskDisplayDataRawFunc(ctx, taskID)
+	}
+	return nil, fmt.Errorf("GetTaskDisplayDataRaw not implemented in mock")
 }
 
 // Helper function to create a minimal workflow service for testing
@@ -621,432 +630,6 @@ func TestTaskService_ListTasks_Sorting(t *testing.T) {
 }
 
 // ============================================================================
-// StartTask Tests (Lifecycle)
-// ============================================================================
-
-func TestTaskService_StartTask_Happy_Path_From_Todo(t *testing.T) {
-	// Arrange: Task in "todo" status
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			assert.Equal(t, "E07-F01-001", key)
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Title:  "Test Task",
-				Status: models.TaskStatus("todo"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			assert.Equal(t, int64(1), params.TaskID)
-			assert.Equal(t, models.TaskStatus("in_progress"), params.NewStatus)
-			assert.NotNil(t, params.Agent)
-			assert.Equal(t, "agent123", *params.Agent)
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Start task
-	task, err := svc.StartTask(context.Background(), "E07-F01-001", "agent123")
-
-	// Assert: Task started successfully
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("in_progress"), task.Status)
-}
-
-func TestTaskService_StartTask_Happy_Path_From_Blocked(t *testing.T) {
-	// Arrange: Task in "blocked" status can be started
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("blocked"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			assert.Equal(t, models.TaskStatus("in_progress"), params.NewStatus)
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	task, err := svc.StartTask(context.Background(), "E07-F01-001", "agent123")
-
-	assert.NoError(t, err)
-	assert.Equal(t, models.TaskStatus("in_progress"), task.Status)
-}
-
-func TestTaskService_StartTask_Not_Found(t *testing.T) {
-	// Arrange: Task doesn't exist
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return nil, fmt.Errorf("task not found")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to start non-existent task
-	task, err := svc.StartTask(context.Background(), "E07-F01-999", "agent123")
-
-	// Assert: Error returned (task not found)
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "failed to start task")
-}
-
-func TestTaskService_StartTask_Already_In_Progress(t *testing.T) {
-	// Arrange: Task already in_progress
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to start task that's already in progress
-	task, err := svc.StartTask(context.Background(), "E07-F01-001", "agent123")
-
-	// Assert: Error returned (workflow validation should reject)
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "cannot start task")
-}
-
-func TestTaskService_StartTask_From_Completed(t *testing.T) {
-	// Arrange: Task already completed
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("completed"),
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to start completed task
-	task, err := svc.StartTask(context.Background(), "E07-F01-001", "agent123")
-
-	// Assert: Error returned (can't restart completed task)
-	assert.Error(t, err)
-	assert.Nil(t, task)
-}
-
-// ============================================================================
-// CompleteTask Tests (Lifecycle)
-// ============================================================================
-
-func TestTaskService_CompleteTask_Happy_Path(t *testing.T) {
-	// Arrange: Task in "in_progress" status
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			assert.Equal(t, int64(1), params.TaskID)
-			assert.Equal(t, models.TaskStatus("ready_for_review"), params.NewStatus)
-			assert.NotNil(t, params.Notes)
-			assert.Equal(t, "Implementation completed", *params.Notes)
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Complete task
-	task, err := svc.CompleteTask(context.Background(), "E07-F01-001", "Implementation completed")
-
-	// Assert: Task marked ready for review
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("ready_for_review"), task.Status)
-}
-
-func TestTaskService_CompleteTask_Not_In_Progress(t *testing.T) {
-	// Arrange: Task in "todo" status (can't complete without starting)
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("todo"),
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to complete task that's not in progress
-	task, err := svc.CompleteTask(context.Background(), "E07-F01-001", "Done")
-
-	// Assert: Error returned
-	assert.Error(t, err)
-	assert.Nil(t, task)
-}
-
-func TestTaskService_CompleteTask_Empty_Notes(t *testing.T) {
-	// Arrange: Task in progress but notes are empty
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			// Notes can be empty or nil
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Complete task with empty notes
-	task, err := svc.CompleteTask(context.Background(), "E07-F01-001", "")
-
-	// Assert: Success (empty notes allowed)
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-}
-
-// ============================================================================
-// ApproveTask Tests (Lifecycle)
-// ============================================================================
-
-func TestTaskService_ApproveTask_Happy_Path(t *testing.T) {
-	// Arrange: Task in "ready_for_review" status
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("ready_for_review"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			assert.Equal(t, models.TaskStatus("completed"), params.NewStatus)
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Approve task
-	task, err := svc.ApproveTask(context.Background(), "E07-F01-001", "Looks good")
-
-	// Assert: Task marked completed
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("completed"), task.Status)
-}
-
-func TestTaskService_ApproveTask_Not_Ready(t *testing.T) {
-	// Arrange: Task still in progress
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to approve task that's not ready
-	task, err := svc.ApproveTask(context.Background(), "E07-F01-001", "")
-
-	// Assert: Error returned
-	assert.Error(t, err)
-	assert.Nil(t, task)
-}
-
-// ============================================================================
-// ReopenTask Tests (Lifecycle)
-// ============================================================================
-
-func TestTaskService_ReopenTask_Happy_Path(t *testing.T) {
-	// Arrange: Task in "ready_for_review" status
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("ready_for_review"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			assert.Equal(t, models.TaskStatus("in_progress"), params.NewStatus)
-			assert.NotNil(t, params.Notes)
-			assert.Contains(t, *params.Notes, "fixes needed")
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Reopen task
-	task, err := svc.ReopenTask(context.Background(), "E07-F01-001", "Some fixes needed")
-
-	// Assert: Task back to in_progress
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("in_progress"), task.Status)
-}
-
-func TestTaskService_ReopenTask_Already_In_Progress(t *testing.T) {
-	// Arrange: Task already in progress
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to reopen task that's already in progress
-	task, err := svc.ReopenTask(context.Background(), "E07-F01-001", "")
-
-	// Assert: Error returned (already open)
-	assert.Error(t, err)
-	assert.Nil(t, task)
-}
-
-// ============================================================================
-// BlockTask Tests (Lifecycle)
-// ============================================================================
-
-func TestTaskService_BlockTask_Happy_Path(t *testing.T) {
-	// Arrange: Task in any status can be blocked
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			assert.Equal(t, models.TaskStatus("blocked"), params.NewStatus)
-			assert.NotNil(t, params.Notes)
-			assert.Contains(t, *params.Notes, "API")
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Block task
-	task, err := svc.BlockTask(context.Background(), "E07-F01-001", "Waiting on external API")
-
-	// Assert: Task marked blocked
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("blocked"), task.Status)
-}
-
-func TestTaskService_BlockTask_Empty_Reason(t *testing.T) {
-	// Arrange: Attempt to block without reason
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Block task without reason
-	task, err := svc.BlockTask(context.Background(), "E07-F01-001", "")
-
-	// Assert: Error returned (reason required)
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "empty")
-}
-
-// ============================================================================
-// UnblockTask Tests (Lifecycle)
-// ============================================================================
-
-func TestTaskService_UnblockTask_Happy_Path(t *testing.T) {
-	// Arrange: Task in "blocked" status
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("blocked"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			assert.Equal(t, models.TaskStatus("todo"), params.NewStatus)
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Unblock task
-	task, suggestions, err := svc.UnblockTask(context.Background(), "E07-F01-001")
-
-	// Assert: Task unblocked (back to todo)
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("todo"), task.Status)
-	// Suggestions can be empty or contain next actions
-	_ = suggestions
-}
-
-func TestTaskService_UnblockTask_Not_Blocked(t *testing.T) {
-	// Arrange: Task not in blocked status
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to unblock task that's not blocked
-	task, suggestions, err := svc.UnblockTask(context.Background(), "E07-F01-001")
-
-	// Assert: Error returned (not blocked)
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Nil(t, suggestions)
-}
-
-// ============================================================================
 // ValidateStatus Tests
 // ============================================================================
 
@@ -1102,163 +685,6 @@ func TestNewTaskService_Optional_Dependencies(t *testing.T) {
 // ============================================================================
 // Additional Lifecycle Edge Cases
 // ============================================================================
-
-func TestTaskService_StartTask_UpdateStatus_Error(t *testing.T) {
-	// Arrange: StatusUpdateRaw fails
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("todo"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			return nil, fmt.Errorf("database error")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to start task
-	task, err := svc.StartTask(context.Background(), "E07-F01-001", "agent123")
-
-	// Assert: Database error returned
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "database error")
-}
-
-func TestTaskService_CompleteTask_UpdateStatus_Error(t *testing.T) {
-	// Arrange: StatusUpdateRaw fails
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			return nil, fmt.Errorf("database error")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to complete task
-	task, err := svc.CompleteTask(context.Background(), "E07-F01-001", "Done")
-
-	// Assert: Database error returned
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "database error")
-}
-
-func TestTaskService_ApproveTask_UpdateStatus_Error(t *testing.T) {
-	// Arrange: StatusUpdateRaw fails
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("ready_for_review"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			return nil, fmt.Errorf("database error")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to approve task
-	task, err := svc.ApproveTask(context.Background(), "E07-F01-001", "")
-
-	// Assert: Database error returned
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "database error")
-}
-
-func TestTaskService_ReopenTask_UpdateStatus_Error(t *testing.T) {
-	// Arrange: StatusUpdateRaw fails
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("ready_for_review"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			return nil, fmt.Errorf("database error")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to reopen task
-	task, err := svc.ReopenTask(context.Background(), "E07-F01-001", "Needs fixes")
-
-	// Assert: Database error returned
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "database error")
-}
-
-func TestTaskService_BlockTask_UpdateStatus_Error(t *testing.T) {
-	// Arrange: StatusUpdateRaw fails
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("in_progress"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			return nil, fmt.Errorf("database error")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to block task
-	task, err := svc.BlockTask(context.Background(), "E07-F01-001", "Waiting on API")
-
-	// Assert: Database error returned
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "database error")
-}
-
-func TestTaskService_UnblockTask_UpdateStatus_Error(t *testing.T) {
-	// Arrange: StatusUpdateRaw fails
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Status: models.TaskStatus("blocked"),
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			return nil, fmt.Errorf("database error")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Attempt to unblock task
-	task, suggestions, err := svc.UnblockTask(context.Background(), "E07-F01-001")
-
-	// Assert: Database error returned
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Nil(t, suggestions)
-	assert.Contains(t, err.Error(), "database error")
-}
 
 // ============================================================================
 // Update and Delete Edge Cases
@@ -2708,154 +2134,6 @@ func TestTaskService_GetTaskHistory_Empty_History(t *testing.T) {
 // executeStatusTransition Tests (via lifecycle methods that now use it)
 // ============================================================================
 
-func TestTaskService_StartTask_UsesStatusUpdateRaw(t *testing.T) {
-	// Verify that StartTask now calls StatusUpdateRaw instead of UpdateStatus
-	var capturedParams models.StatusUpdateParams
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        1,
-				Key:       "T-E07-F01-001",
-				Status:    "todo",
-				FeatureID: 10,
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			capturedParams = params
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task, err := svc.StartTask(context.Background(), "T-E07-F01-001", "agent-dev")
-
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("in_progress"), task.Status)
-
-	// Verify params passed to StatusUpdateRaw
-	assert.Equal(t, int64(1), capturedParams.TaskID)
-	assert.Equal(t, models.TaskStatus("in_progress"), capturedParams.NewStatus)
-	assert.Equal(t, "todo", capturedParams.OldStatus)
-	assert.Equal(t, "T-E07-F01-001", capturedParams.TaskKey)
-	assert.NotNil(t, capturedParams.Agent)
-	assert.Equal(t, "agent-dev", *capturedParams.Agent)
-	assert.False(t, capturedParams.Force)
-}
-
-func TestTaskService_CompleteTask_UsesStatusUpdateRaw(t *testing.T) {
-	var capturedParams models.StatusUpdateParams
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        2,
-				Key:       "T-E07-F01-002",
-				Status:    "in_progress",
-				FeatureID: 10,
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			capturedParams = params
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task, err := svc.CompleteTask(context.Background(), "T-E07-F01-002", "all done")
-
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("ready_for_review"), task.Status)
-	assert.Equal(t, int64(2), capturedParams.TaskID)
-	assert.Equal(t, "in_progress", capturedParams.OldStatus)
-	assert.NotNil(t, capturedParams.Notes)
-	assert.Equal(t, "all done", *capturedParams.Notes)
-}
-
-func TestTaskService_ApproveTask_UsesStatusUpdateRaw(t *testing.T) {
-	var capturedParams models.StatusUpdateParams
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        3,
-				Key:       "T-E07-F01-003",
-				Status:    "ready_for_review",
-				FeatureID: 10,
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			capturedParams = params
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task, err := svc.ApproveTask(context.Background(), "T-E07-F01-003", "looks good")
-
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("completed"), task.Status)
-	assert.Equal(t, int64(3), capturedParams.TaskID)
-	assert.Equal(t, "ready_for_review", capturedParams.OldStatus)
-}
-
-func TestTaskService_BlockTask_UsesStatusUpdateRaw(t *testing.T) {
-	var capturedParams models.StatusUpdateParams
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        4,
-				Key:       "T-E07-F01-004",
-				Status:    "in_progress",
-				FeatureID: 10,
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			capturedParams = params
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task, err := svc.BlockTask(context.Background(), "T-E07-F01-004", "waiting on API")
-
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("blocked"), task.Status)
-	assert.Equal(t, int64(4), capturedParams.TaskID)
-	assert.Equal(t, "in_progress", capturedParams.OldStatus)
-	assert.NotNil(t, capturedParams.Notes)
-	assert.Equal(t, "waiting on API", *capturedParams.Notes)
-}
-
-func TestTaskService_UnblockTask_UsesStatusUpdateRaw(t *testing.T) {
-	var capturedParams models.StatusUpdateParams
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        5,
-				Key:       "T-E07-F01-005",
-				Status:    "blocked",
-				FeatureID: 10,
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			capturedParams = params
-			return []string{"T-E07-F01-006"}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task, unblockedKeys, err := svc.UnblockTask(context.Background(), "T-E07-F01-005")
-
-	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("todo"), task.Status)
-	assert.Equal(t, int64(5), capturedParams.TaskID)
-	assert.Equal(t, "blocked", capturedParams.OldStatus)
-	assert.Equal(t, []string{"T-E07-F01-006"}, unblockedKeys)
-}
-
 func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	var capturedParams models.StatusUpdateParams
 	mockRepo := &MockTaskRepository{
@@ -2957,55 +2235,6 @@ func TestTaskService_TransitionStatus_BackwardRequiresReason(t *testing.T) {
 	}
 }
 
-func TestTaskService_StatusUpdateRaw_ErrorPropagated(t *testing.T) {
-	// Verify that errors from StatusUpdateRaw are properly propagated
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        9,
-				Key:       "T-E07-F01-009",
-				Status:    "todo",
-				FeatureID: 10,
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			return nil, fmt.Errorf("database connection lost")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task, err := svc.StartTask(context.Background(), "T-E07-F01-009", "agent")
-
-	assert.Error(t, err)
-	assert.Nil(t, task)
-	assert.Contains(t, err.Error(), "database connection lost")
-}
-
-func TestTaskService_StartTask_ValidationError_DoesNotCallStatusUpdateRaw(t *testing.T) {
-	// Verify that validation errors prevent StatusUpdateRaw from being called
-	statusUpdateRawCalled := false
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        10,
-				Key:       "T-E07-F01-010",
-				Status:    "completed", // can't start from completed
-				FeatureID: 10,
-			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			statusUpdateRawCalled = true
-			return nil, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	_, err := svc.StartTask(context.Background(), "T-E07-F01-010", "agent")
-
-	assert.Error(t, err)
-	assert.False(t, statusUpdateRawCalled, "StatusUpdateRaw should not be called when validation fails")
-}
-
 func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 	// Verify that auto-unblocked keys are included in the TransitionResult message
 	mockRepo := &MockTaskRepository{
@@ -3032,34 +2261,105 @@ func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 	assert.Contains(t, result.Message, "T-E07-F01-013")
 }
 
-func TestTaskService_ReopenTask_UsesStatusUpdateRaw(t *testing.T) {
-	var capturedParams models.StatusUpdateParams
+// ============================================================================
+// GetTaskDisplayData Tests
+// ============================================================================
+
+func TestTaskService_GetTaskDisplayData_ValidJSON(t *testing.T) {
 	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        12,
-				Key:       "T-E07-F01-012",
-				Status:    "ready_for_review",
-				FeatureID: 10,
+		GetTaskDisplayDataRawFunc: func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
+			assert.Equal(t, int64(42), taskID)
+			return &repository.TaskDisplayDataRaw{
+				BlockedByJSON:    `[{"relationship_type":"depends_on","direction":"outgoing","task_key":"E01-F01-001","task_title":"Setup DB","task_status":"completed"}]`,
+				BlocksJSON:       `[{"relationship_type":"depends_on","direction":"incoming","task_key":"E01-F01-003","task_title":"Write tests","task_status":"todo"}]`,
+				DependenciesJSON: `[{"key":"E01-F01-001","title":"Setup DB","status":"completed"},{"key":"E01-F01-003","title":"Write tests","status":"todo"}]`,
+				DocumentsJSON:    `[{"id":10,"title":"Design Doc","file_path":"docs/design.md"}]`,
+				NotesJSON:        `[{"id":1,"note_type":"progress","content":"halfway done","created_by":null,"metadata":null,"created_at":"2026-01-01T00:00:00Z"}]`,
 			}, nil
-		},
-		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
-			capturedParams = params
-			return nil, nil
 		},
 	}
 
 	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task, err := svc.ReopenTask(context.Background(), "T-E07-F01-012", "needs more work")
+	task := &models.Task{ID: 42, Key: "E01-F01-002"}
+
+	data, err := svc.GetTaskDisplayData(context.Background(), task)
 
 	assert.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, models.TaskStatus("in_progress"), task.Status)
-	assert.Equal(t, int64(12), capturedParams.TaskID)
-	assert.Equal(t, "ready_for_review", capturedParams.OldStatus)
-	assert.NotNil(t, capturedParams.Notes)
-	assert.Equal(t, "needs more work", *capturedParams.Notes)
-	// Reopen passes notes as reason for potential backward check
-	assert.NotNil(t, capturedParams.RejectionReason)
-	assert.Equal(t, "needs more work", *capturedParams.RejectionReason)
+	assert.NotNil(t, data)
+
+	// Blocked by
+	assert.Len(t, data.BlockedBy, 1)
+	assert.Equal(t, "E01-F01-001", data.BlockedBy[0].TaskKey)
+	assert.Equal(t, "depends_on", data.BlockedBy[0].RelationshipType)
+
+	// Blocks
+	assert.Len(t, data.Blocks, 1)
+	assert.Equal(t, "E01-F01-003", data.Blocks[0].TaskKey)
+	assert.Equal(t, "incoming", data.Blocks[0].Direction)
+
+	// Dependencies
+	assert.Len(t, data.Dependencies, 2)
+	assert.Equal(t, "E01-F01-001", data.Dependencies[0].Key)
+	assert.Equal(t, models.TaskStatus("completed"), data.Dependencies[0].Status)
+
+	// Documents
+	assert.Len(t, data.RelatedDocs, 1)
+	assert.Equal(t, "Design Doc", data.RelatedDocs[0].Title)
+	assert.Equal(t, "docs/design.md", data.RelatedDocs[0].FilePath)
+
+	// Notes
+	assert.Len(t, data.Notes, 1)
+	assert.Equal(t, "halfway done", data.Notes[0].Content)
+	assert.Equal(t, models.NoteType("progress"), data.Notes[0].NoteType)
+}
+
+func TestTaskService_GetTaskDisplayData_EmptyArrays(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetTaskDisplayDataRawFunc: func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
+			return &repository.TaskDisplayDataRaw{
+				BlockedByJSON:    "[]",
+				BlocksJSON:       "[]",
+				DependenciesJSON: "[]",
+				DocumentsJSON:    "[]",
+				NotesJSON:        "[]",
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	task := &models.Task{ID: 1, Key: "E01-F01-001"}
+
+	data, err := svc.GetTaskDisplayData(context.Background(), task)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, data)
+	assert.Empty(t, data.BlockedBy)
+	assert.Empty(t, data.Blocks)
+	assert.Empty(t, data.Dependencies)
+	assert.Empty(t, data.RelatedDocs)
+	assert.Empty(t, data.Notes)
+	// Verify non-nil (empty slices, not nil)
+	assert.NotNil(t, data.BlockedBy)
+	assert.NotNil(t, data.Blocks)
+	assert.NotNil(t, data.Dependencies)
+	assert.NotNil(t, data.RelatedDocs)
+	assert.NotNil(t, data.Notes)
+}
+
+func TestTaskService_GetTaskDisplayData_RepoError(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetTaskDisplayDataRawFunc: func(ctx context.Context, taskID int64) (*repository.TaskDisplayDataRaw, error) {
+			return nil, fmt.Errorf("database connection lost")
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	task := &models.Task{ID: 1, Key: "E01-F01-001"}
+
+	data, err := svc.GetTaskDisplayData(context.Background(), task)
+
+	assert.Error(t, err)
+	assert.Nil(t, data)
+	assert.Contains(t, err.Error(), "failed to get display data for task E01-F01-001")
+	assert.Contains(t, err.Error(), "database connection lost")
 }

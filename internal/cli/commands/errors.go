@@ -167,5 +167,5 @@ Current status: %s
 Target status: %s%s
 
 Note: Use --force flag to bypass validation (use with caution).
-      Example: shark task start <key> --force`, currentStatus, targetStatus, transitionStr)
+      Example: shark task next-status <key> --force`, currentStatus, targetStatus, transitionStr)
 }

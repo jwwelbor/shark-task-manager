@@ -353,7 +353,7 @@ Whether tasks in this status block feature completion.
 Agent types that can work on tasks in this status.
 
 **Usage:**
-- Agent routing for `shark task next --agent=<type>`
+- Agent routing for `shark task list --agent=<type>`
 - Orchestrator knows which agent to spawn
 - Multi-agent type support (e.g., tech-lead or code-reviewer)
 

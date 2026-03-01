@@ -105,7 +105,7 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 **Actions**:
 1. Choose service file (`task_service.go`, `feature_service.go`, etc.)
 2. Design method signature:
-   - Name: `StartTask`, `CompleteTask`, `ListTasks`, etc.
+   - Name: `AdvanceTaskStatus`, `ListTasks`, etc.
    - Inputs: Business-level parameters (task key, not ID)
    - Outputs: Domain model (`*models.Task`), error
 3. Identify dependencies (repositories, other services)
@@ -115,23 +115,23 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
 
 ```go
 // Service method signature
-func (s *TaskService) StartTask(ctx context.Context, key string, agentID string) (*models.Task, error) {
+func (s *TaskService) AdvanceTaskStatus(ctx context.Context, key string) (*models.Task, error) {
     // Implementation steps:
     // 1. Get task from repository
-    // 2. Validate current status allows starting
-    // 3. Check dependencies are met
-    // 4. Update status to in_progress
-    // 5. Trigger status cascade (if needed)
+    // 2. Determine next status via workflow service
+    // 3. Validate transition is allowed
+    // 4. Check dependencies are met
+    // 5. Update status to next status
     // 6. Return updated task
 }
 ```
 
 **Document design**:
-- Method name: `StartTask`
-- Inputs: `ctx context.Context, key string, agentID string`
+- Method name: `AdvanceTaskStatus`
+- Inputs: `ctx context.Context, key string`
 - Outputs: `*models.Task, error`
 - Dependencies: TaskRepository, workflow.Service
-- Business rules: Status must be todo/blocked, dependencies must be completed
+- Business rules: Workflow profile determines valid next status; dependencies must be met
 
 ### Step 3: Create or Update Service Method
 
@@ -151,41 +151,41 @@ func (s *TaskService) StartTask(ctx context.Context, key string, agentID string)
 **Example Implementation:**
 
 ```go
-// StartTask transitions a task to in_progress (or appropriate start status).
+// AdvanceTaskStatus advances a task to the next status defined by the workflow profile.
 //
 // Parameters:
 //   - ctx: context for cancellation and timeout
-//   - key: task key to start
-//   - agentID: optional agent identifier for tracking who started the task
+//   - key: task key to advance
 //
 // Returns:
-//   - *models.Task: the updated task
+//   - *models.Task: the updated task with new status
 //   - error: validation errors, workflow errors, or repository errors
 //
 // Errors:
 //   - NotFoundError: task not found
-//   - WorkflowError: invalid transition (task not in a startable status)
+//   - WorkflowError: no valid next status (task may already be in a terminal state)
 //   - DependencyError: task dependencies not met
 //   - RepositoryError: database update failed
-func (s *TaskService) StartTask(ctx context.Context, key string, agentID string) (*models.Task, error) {
+func (s *TaskService) AdvanceTaskStatus(ctx context.Context, key string) (*models.Task, error) {
     // Step 1: Get task
     task, err := s.repo.GetByKey(ctx, key)
     if err != nil {
-        return nil, fmt.Errorf("failed to start task %s: %w", key, err)
+        return nil, fmt.Errorf("failed to advance task %s: %w", key, err)
     }
 
-    // Step 2: Validate workflow transition
-    if err := s.workflowSvc.ValidateTransition(string(task.Status), "in_progress"); err != nil {
-        return nil, fmt.Errorf("cannot start task %s in status %s: %w", key, task.Status, err)
+    // Step 2: Determine next status from workflow profile
+    nextStatus, err := s.workflowSvc.GetNextStatus(string(task.Status))
+    if err != nil {
+        return nil, fmt.Errorf("cannot advance task %s from status %s: %w", key, task.Status, err)
     }
 
     // Step 3: Validate dependencies
-    if err := s.ValidateDependencies(ctx, key, "in_progress"); err != nil {
+    if err := s.ValidateDependencies(ctx, key, nextStatus); err != nil {
         return nil, fmt.Errorf("dependencies not met for task %s: %w", key, err)
     }
 
     // Step 4: Update status
-    if err := s.repo.UpdateStatus(ctx, task.ID, models.TaskStatus("in_progress"), &agentID, nil); err != nil {
+    if err := s.repo.UpdateStatus(ctx, task.ID, models.TaskStatus(nextStatus), nil, nil); err != nil {
         return nil, fmt.Errorf("failed to update task %s status: %w", key, err)
     }
 
@@ -194,9 +194,6 @@ func (s *TaskService) StartTask(ctx context.Context, key string, agentID string)
     if err != nil {
         return nil, err
     }
-
-    // Step 6: Trigger cascade (future: move to separate method or event)
-    // TODO: Implement cascade logic
 
     return task, nil
 }
@@ -255,7 +252,7 @@ type CreateTaskInput struct {
 
 **Before (65 lines):**
 ```go
-func runTaskStart(cmd *cobra.Command, args []string) error {
+func runTaskNextStatus(cmd *cobra.Command, args []string) error {
     ctx := cmd.Context()
     taskKey := args[0]
 
@@ -263,26 +260,22 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
     repo := repository.NewTaskRepository(repoDb)
 
     task, _ := repo.GetByKey(ctx, taskKey)
-    if task.Status != "todo" && task.Status != "blocked" {
-        return fmt.Errorf("cannot start")
-    }
-    // ... 50 more lines of business logic ...
+    // ... 50 more lines of workflow logic and status transitions ...
 
-    cli.Success("Task started")
+    cli.Success("Task advanced")
     return nil
 }
 ```
 
 **After (15 lines):**
 ```go
-func runTaskStart(cmd *cobra.Command, args []string) error {
+func runTaskNextStatus(cmd *cobra.Command, args []string) error {
     // Step 1: Parse arguments
     taskKey := args[0]
-    agentID, _ := cmd.Flags().GetString("agent")
 
     // Step 2: Call service
     svc := cli.GetTaskService()
-    task, err := svc.StartTask(cmd.Context(), taskKey, agentID)
+    task, err := svc.AdvanceTaskStatus(cmd.Context(), taskKey)
     if err != nil {
         return err
     }
@@ -292,7 +285,7 @@ func runTaskStart(cmd *cobra.Command, args []string) error {
         return cli.OutputJSON(task)
     }
 
-    cli.Success(fmt.Sprintf("Started task %s", task.Key))
+    cli.Success(fmt.Sprintf("Advanced task %s to %s", task.Key, task.Status))
     return nil
 }
 ```
@@ -460,13 +453,12 @@ import (
 
 **Commit Message Example:**
 ```
-refactor(cli): migrate task start command to service layer
+refactor(cli): migrate task next-status command to service layer
 
-Extracts business logic from runTaskStart into TaskService.StartTask:
-- Workflow validation (status checks)
+Extracts business logic from runTaskNextStatus into TaskService.AdvanceTaskStatus:
+- Workflow profile-driven next status determination
 - Dependency validation
 - Status update orchestration
-- Status cascade triggering
 
 Command is now a thin wrapper: parse → call → format.
 

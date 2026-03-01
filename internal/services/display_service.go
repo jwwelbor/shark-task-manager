@@ -285,7 +285,9 @@ func (s *DisplayService) GetEpicDisplayInfo(ctx context.Context, epicKey string)
 	}
 
 	if mode == DisplayModePlanning {
-		s.populateEpicPlanningInfo(info)
+		if err := s.populateEpicPlanningInfo(ctx, info); err != nil {
+			return nil, err
+		}
 	} else {
 		if err := s.populateEpicAggregationInfo(ctx, info); err != nil {
 			return nil, err
@@ -319,7 +321,9 @@ func (s *DisplayService) GetFeatureDisplayInfo(ctx context.Context, featureKey s
 	}
 
 	if mode == DisplayModePlanning {
-		s.populateFeaturePlanningInfo(info)
+		if err := s.populateFeaturePlanningInfo(ctx, info); err != nil {
+			return nil, err
+		}
 	} else {
 		if err := s.populateFeatureAggregationInfo(ctx, info); err != nil {
 			return nil, err
@@ -339,7 +343,8 @@ func (s *DisplayService) GetFeatureDisplayInfo(ctx context.Context, featureKey s
 }
 
 // populateEpicPlanningInfo fills in planning-mode fields for an epic.
-func (s *DisplayService) populateEpicPlanningInfo(info *EpicDisplayInfo) {
+// It also fetches features so they are visible even in planning mode.
+func (s *DisplayService) populateEpicPlanningInfo(ctx context.Context, info *EpicDisplayInfo) error {
 	status := string(info.Epic.Status)
 	meta, found := s.epicWorkflow.GetStatusMetadata(status)
 
@@ -351,6 +356,37 @@ func (s *DisplayService) populateEpicPlanningInfo(info *EpicDisplayInfo) {
 	}
 
 	info.WorkflowPosition = s.BuildWorkflowPosition(status, s.epicWorkflow)
+
+	// Always fetch features so they're visible even in planning mode
+	features, err := s.deps.FeatureRepo.ListByEpic(ctx, info.Epic.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list features: %w", err)
+	}
+
+	info.Features = make([]FeatureDisplayItem, 0, len(features))
+	for _, feature := range features {
+		taskCount, err := s.deps.TaskRepo.GetTaskCountForFeature(ctx, feature.ID)
+		if err != nil {
+			taskCount = 0
+		}
+
+		featureMode := s.DetermineFeatureDisplayMode(feature)
+		featurePhase := ""
+		if featureMode == DisplayModePlanning {
+			if meta, found := s.featureWorkflow.GetStatusMetadata(string(feature.Status)); found {
+				featurePhase = meta.Phase
+			}
+		}
+
+		info.Features = append(info.Features, FeatureDisplayItem{
+			Feature:   feature,
+			TaskCount: taskCount,
+			Mode:      featureMode,
+			Phase:     featurePhase,
+		})
+	}
+
+	return nil
 }
 
 // ResolveEpicAction looks up the orchestrator action for an epic's current status.
@@ -480,7 +516,8 @@ func (s *DisplayService) populateEpicAggregationInfo(ctx context.Context, info *
 }
 
 // populateFeaturePlanningInfo fills in planning-mode fields for a feature.
-func (s *DisplayService) populateFeaturePlanningInfo(info *FeatureDisplayInfo) {
+// It also fetches tasks so they are visible even in planning mode.
+func (s *DisplayService) populateFeaturePlanningInfo(ctx context.Context, info *FeatureDisplayInfo) error {
 	status := string(info.Feature.Status)
 	meta, found := s.featureWorkflow.GetStatusMetadata(status)
 
@@ -492,6 +529,15 @@ func (s *DisplayService) populateFeaturePlanningInfo(info *FeatureDisplayInfo) {
 	}
 
 	info.WorkflowPosition = s.BuildWorkflowPosition(status, s.featureWorkflow)
+
+	// Always fetch tasks so they're visible even in planning mode
+	tasks, err := s.deps.TaskRepo.ListByFeature(ctx, info.Feature.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list tasks: %w", err)
+	}
+	info.Tasks = tasks
+
+	return nil
 }
 
 // ResolveFeatureAction looks up the orchestrator action for a feature's current status.

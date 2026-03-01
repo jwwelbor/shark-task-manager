@@ -153,12 +153,17 @@ func buildTaskServiceDeps() taskServiceDeps {
 // Usage:
 //
 //	svc := cli.GetTaskService()
-//	task, err := svc.StartTask(ctx, "E07-F01-001", "agent123")
+//	task, err := svc.AdvanceTaskStatus(ctx, "E07-F01-001")
 func GetTaskService() *services.TaskService {
 	d := buildTaskServiceDeps()
 	svc := services.NewTaskService(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo)
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
+
+	// Wire sub-services for query delegation.
+	querySvc := services.NewTaskQueryService(d.taskRepo)
+	svc.SetQueryService(querySvc)
+
 	return svc
 }
 
@@ -176,6 +181,19 @@ func GetTaskServiceWithHistory() *services.TaskService {
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 	svc.SetFeatureService(GetFeatureService())
+
+	// Wire sub-services for query and history delegation.
+	querySvc := services.NewTaskQueryService(d.taskRepo)
+	svc.SetQueryService(querySvc)
+
+	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(d.db)}
+	epicRepo := repository.NewEpicRepository(d.db)
+	historySvc := services.NewTaskHistoryService(&taskHistoryAdapter{repo: d.historyRepo})
+	historySvc.SetSessionRepo(sessionRepo)
+	historySvc.SetFeatureRepo(d.featureRepo)
+	historySvc.SetEpicRepo(epicRepo)
+	svc.SetHistoryService(historySvc)
+
 	return svc
 }
 
@@ -201,6 +219,17 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	svc.SetDepRepo(relRepo)
 	svc.SetRelQueryRepo(relRepo)
 	svc.SetWritableDocRepo(docRepo)
+
+	// Wire sub-services for query and dependency delegation.
+	querySvc := services.NewTaskQueryService(d.taskRepo)
+	svc.SetQueryService(querySvc)
+
+	depSvc := services.NewTaskDependencyService(d.taskRepo)
+	depSvc.SetDepRepo(relRepo)
+	depSvc.SetRelQueryRepo(relRepo)
+	depSvc.SetWritableDocRepo(docRepo)
+	svc.SetDependencyService(depSvc)
+
 	return svc
 }
 

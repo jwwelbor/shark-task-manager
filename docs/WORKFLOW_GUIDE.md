@@ -270,23 +270,24 @@ Tasks flow through a series of states from creation to completion. Understanding
 │ todo │ ──────────────────────┐
 └──────┘                       │
    │                           │
-   │ shark task start          │
+   │ shark status advance      │
    ▼                           │
 ┌─────────────┐                │
 │ in_progress │ ◄──────────────┤
 └─────────────┘                │
    │                           │
-   │ shark task complete       │
+   │ shark status advance      │
    ▼                           │
 ┌──────────────────┐           │
 │ ready_for_review │           │
 └──────────────────┘           │
    │           │               │
-   │           │ shark task    │
-   │           │ reopen        │
+   │           │ shark status  │
+   │           │ set <key>     │
+   │           │ in_progress   │
    │           └───────────────┘
    │
-   │ shark task approve
+   │ shark status advance
    ▼
 ┌───────────┐
 │ completed │
@@ -300,15 +301,15 @@ Tasks flow through a series of states from creation to completion. Understanding
 ### 1. Starting Work (todo → in_progress)
 
 ```bash
-# Start working on a task
-shark task start T-E01-F01-001
+# Advance task to next status (todo → in_progress)
+shark status advance T-E01-F01-001
 
 # Output:
 # Task T-E01-F01-001 status updated: todo → in_progress
 # Started at: 2025-12-24 20:50:15
 
 # Optionally specify the agent working on it
-shark task start T-E01-F01-002 --agent="frontend-agent-1"
+shark status advance T-E01-F01-002 --agent="frontend-agent-1"
 ```
 
 **What happens:**
@@ -319,9 +320,9 @@ shark task start T-E01-F01-002 --agent="frontend-agent-1"
 ### 2. Completing Work (in_progress → ready_for_review)
 
 ```bash
-# Mark task as complete (ready for review)
-shark task complete T-E01-F01-001 \
-  --notes="Implemented login endpoint with email/password validation"
+# Advance task to next status (in_progress → ready_for_review)
+shark task next-status T-E01-F01-001 \
+  --reason="Implemented login endpoint with email/password validation"
 
 # Output:
 # Task T-E01-F01-001 status updated: in_progress → ready_for_review
@@ -338,9 +339,9 @@ shark task complete T-E01-F01-001 \
 After code review, testing, or quality gates:
 
 ```bash
-# Approve the completed work
-shark task approve T-E01-F01-001 \
-  --notes="Code reviewed, tests passing, merged to main"
+# Advance task to next status (ready_for_review → completed)
+shark task next-status T-E01-F01-001 \
+  --reason="Code reviewed, tests passing, merged to main"
 
 # Output:
 # Task T-E01-F01-001 status updated: ready_for_review → completed
@@ -357,9 +358,9 @@ shark task approve T-E01-F01-001 \
 If issues are found during review:
 
 ```bash
-# Reopen a task for additional work
-shark task reopen T-E01-F01-002 \
-  --notes="Needs additional validation for email format"
+# Set status back to in_progress for additional work
+shark status set T-E01-F01-002 in_progress \
+  --reason="Needs additional validation for email format"
 
 # Output:
 # Task T-E01-F01-002 status updated: ready_for_review → in_progress
@@ -395,8 +396,8 @@ shark task unblock T-E01-F01-003
 For administrative overrides (use with caution):
 
 ```bash
-# Force a task to any status
-shark task start T-E01-F01-004 --force
+# Force advance a task to next status
+shark status advance T-E01-F01-004 --force
 
 # This bypasses normal state transition validation
 # Useful for recovering from incorrect states
@@ -646,10 +647,10 @@ shark task create --epic=E03 --feature=F01 \
 # Created: T-E03-F01-002
 
 # 4. Work the tasks
-shark task start T-E03-F01-001
+shark status advance T-E03-F01-001
 # ... do the work ...
-shark task complete T-E03-F01-001 --notes="Stripe API configured in staging"
-shark task approve T-E03-F01-001 --notes="Verified in staging environment"
+shark task next-status T-E03-F01-001 --reason="Stripe API configured in staging"
+shark task next-status T-E03-F01-001 --reason="Verified in staging environment"
 
 # 5. Check progress
 shark feature get E03-F01
@@ -674,8 +675,8 @@ An AI agent is implementing a user authentication system that will span multiple
 shark task next --agent=backend --json
 # Returns: T-E01-F01-001 "Implement login API endpoint"
 
-# Start the task (automatically creates work session)
-shark task start T-E01-F01-001 --agent="claude-sonnet-001"
+# Advance to next status / start the task (automatically creates work session)
+shark status advance T-E01-F01-001 --agent="claude-sonnet-001"
 #  SUCCESS  Task started
 # Work session #1 created
 
@@ -782,7 +783,7 @@ shark task unblock T-E01-F01-001
 #  SUCCESS  Task unblocked (blocked → todo)
 
 # Resume work (creates new work session)
-shark task start T-E01-F01-001 --agent="claude-sonnet-002"
+shark status advance T-E01-F01-001 --agent="claude-sonnet-002"
 #  SUCCESS  Task started
 # Work session #2 created
 
@@ -802,13 +803,13 @@ shark task context set T-E01-F01-001 \
   --progress="All functionality complete, tests passing" \
   --acceptance-criteria="5 of 5 criteria passing"
 
-# Mark complete with metadata
-shark task complete T-E01-F01-001 \
+# Advance to next status with metadata
+shark task next-status T-E01-F01-001 \
   --files-created="internal/api/login.go,internal/api/login_test.go,internal/middleware/rate_limit.go" \
   --files-modified="internal/router/routes.go,docs/api/auth.md" \
   --tests \
   --verified \
-  --notes="Login API complete with JWT auth, rate limiting, and session management"
+  --reason="Login API complete with JWT auth, rate limiting, and session management"
 #  SUCCESS  Task ready for review
 # Work session #2 ended (Duration: 1h 45m, Outcome: completed)
 ```
@@ -830,10 +831,10 @@ shark task resume T-E01-F01-001 --json | jq '{
   tests_written: .completion_metadata.tests_written
 }'
 
-# Review passes, approve task
-shark task approve T-E01-F01-001 \
+# Review passes, advance to completed
+shark task next-status T-E01-F01-001 \
   --agent="reviewer-001" \
-  --notes="Code review passed. Tests comprehensive, security reviewed."
+  --reason="Code review passed. Tests comprehensive, security reviewed."
 #  SUCCESS  Task approved and completed
 ```
 
@@ -855,7 +856,7 @@ shark task next --epic=E01 --json
 # Returns only tasks with all dependencies completed
 
 # Start task
-shark task start T-E01-F01-003 --agent="backend-agent"
+shark status advance T-E01-F01-003 --agent="backend-agent"
 
 # Check what dependencies were required
 shark task deps T-E01-F01-003
@@ -870,7 +871,7 @@ shark task blocks T-E01-F01-003
 
 ```bash
 # Session 1: Start complex multi-file refactoring
-shark task start T-E04-F02-001 --agent="refactor-agent"
+shark status advance T-E04-F02-001 --agent="refactor-agent"
 
 # Add progress notes after each file
 shark task note add T-E04-F02-001 "Refactored user.go - extracted validation" --category=progress
@@ -899,7 +900,7 @@ shark task resume T-E04-F02-001
 # Continue work...
 # Complete remaining 8 files...
 
-shark task complete T-E04-F02-001 \
+shark task next-status T-E04-F02-001 \
   --files-modified="internal/user/*.go,internal/auth/*.go,internal/validation/*.go" \
   --tests \
   --verified
@@ -909,7 +910,7 @@ shark task complete T-E04-F02-001 \
 
 ```bash
 # Working on Task A
-shark task start T-E01-F01-006 --agent="agent-001"
+shark status advance T-E01-F01-006 --agent="agent-001"
 
 # 30 minutes in, urgent Task B needs attention
 # Save context for Task A first
@@ -918,9 +919,9 @@ shark task context set T-E01-F01-006 \
   --questions='["Should we add rollback procedure?"]'
 
 # Switch to urgent task (Task A work session auto-paused)
-shark task start T-E01-F02-001 --agent="agent-001"
+shark status advance T-E01-F02-001 --agent="agent-001"
 # ... complete urgent work ...
-shark task complete T-E01-F02-001
+shark task next-status T-E01-F02-001
 
 # Return to Task A
 shark task resume T-E01-F01-006
@@ -928,14 +929,14 @@ shark task resume T-E01-F01-006
 # Question: "Should we add rollback procedure?"
 
 # Continue Task A (new work session created)
-shark task start T-E01-F01-006 --agent="agent-001"
+shark status advance T-E01-F01-006 --agent="agent-001"
 ```
 
 ### Pattern: Team Handoff
 
 ```bash
 # Agent A starts task, does initial research
-shark task start T-E03-F01-001 --agent="research-agent"
+shark status advance T-E03-F01-001 --agent="research-agent"
 
 shark task note add T-E03-F01-001 \
   "Researched 3 payment providers: Stripe (best fit), Square, PayPal" \
@@ -963,7 +964,7 @@ shark task resume T-E03-F01-001
 # Shows all research, decisions, and questions
 
 # Agent B starts implementation with full context
-shark task start T-E03-F01-001 --agent="backend-agent"
+shark status advance T-E03-F01-001 --agent="backend-agent"
 ```
 
 ### Best Practices for AI Agents
@@ -973,12 +974,12 @@ shark task start T-E03-F01-001 --agent="backend-agent"
 ```bash
 # ❌ BAD: Starting without context
 shark task get T-E01-F01-001 --json  # Missing context, notes, sessions
-shark task start T-E01-F01-001
+shark status advance T-E01-F01-001
 
 # ✅ GOOD: Get full resume context first
 shark task resume T-E01-F01-001 --json
 # Review context, then start
-shark task start T-E01-F01-001 --agent="agent-id"
+shark status advance T-E01-F01-001 --agent="agent-id"
 ```
 
 #### 2. Capture Context Continuously
@@ -1000,15 +1001,15 @@ shark task context set T-E01-F01-001 \
 
 ```bash
 # ❌ BAD: Missing valuable tracking data
-shark task complete T-E01-F01-001
+shark task next-status T-E01-F01-001
 
 # ✅ GOOD: Full metadata for future reference
-shark task complete T-E01-F01-001 \
+shark task next-status T-E01-F01-001 \
   --files-created="internal/auth/service.go,internal/auth/service_test.go" \
   --files-modified="cmd/server/main.go,go.mod" \
   --tests \
   --verified \
-  --notes="Auth service complete with Redis sessions"
+  --reason="Auth service complete with Redis sessions"
 ```
 
 #### 4. Leverage Analytics for Planning
@@ -1044,7 +1045,7 @@ shark task deps T-E01-F01-005 --json
 shark task next --epic=E01 --json
 # Returns: T-E01-F01-001 "Implement OAuth integration"
 
-shark task start T-E01-F01-001 --agent="agent-monday-am"
+shark status advance T-E01-F01-001 --agent="agent-monday-am"
 
 # Import acceptance criteria from task file
 shark task criteria import T-E01-F01-001
@@ -1069,7 +1070,7 @@ shark task block T-E01-F01-001 --reason="Waiting for Auth0 account setup"
 shark task unblock T-E01-F01-001
 shark task resume T-E01-F01-001 --json  # Review context from Monday
 
-shark task start T-E01-F01-001 --agent="agent-wed-pm"
+shark status advance T-E01-F01-001 --agent="agent-wed-pm"
 
 # Implement OAuth callback
 shark task note add T-E01-F01-001 "OAuth callback endpoint implemented" --category=progress
@@ -1081,7 +1082,7 @@ shark task context set T-E01-F01-001 \
 
 # Work session continues...
 
-shark task complete T-E01-F01-001 \
+shark task next-status T-E01-F01-001 \
   --files-created="internal/oauth/auth0.go,internal/oauth/auth0_test.go" \
   --files-modified="internal/router/routes.go" \
   --tests \
@@ -1095,7 +1096,7 @@ shark task complete T-E01-F01-001 \
 shark task resume T-E01-F01-001 --json
 # Reviewer sees all context, notes, decisions, files
 
-shark task approve T-E01-F01-001 --notes="OAuth integration approved"
+shark task next-status T-E01-F01-001 --reason="OAuth integration approved"
 
 # ═══════════════════════════════════════════════════════════
 # ANALYTICS: Review time spent
@@ -1132,10 +1133,9 @@ shark task get <task-key> [--json]
 shark task next [--epic=<key>] [--agent=<type>]
 
 # Task lifecycle
-shark task start <task-key> [--agent=<id>]
-shark task complete <task-key> [--notes="<notes>"]
-shark task approve <task-key> [--notes="<notes>"]
-shark task reopen <task-key> [--notes="<notes>"]
+shark status advance <task-key> [--agent=<id>] [--force]
+shark task next-status <task-key> [--reason="<notes>"]
+shark status set <task-key> <status> [--reason="<reason>"]
 shark task block <task-key> --reason="<reason>"
 shark task unblock <task-key>
 

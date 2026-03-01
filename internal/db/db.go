@@ -38,6 +38,11 @@ func InitDB(filepath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	// Record schema version
+	if err := setSchemaVersion(db, CurrentSchemaVersion); err != nil {
+		return nil, fmt.Errorf("failed to set schema version: %w", err)
+	}
+
 	return db, nil
 }
 
@@ -386,6 +391,70 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	// Record schema version after successful apply
+	if err := setSchemaVersion(db, CurrentSchemaVersion); err != nil {
+		return fmt.Errorf("failed to set schema version: %w", err)
+	}
+
+	return nil
+}
+
+// CurrentSchemaVersion is incremented whenever schema or migrations change.
+// Bump this when adding new tables, columns, indexes, or migrations.
+const CurrentSchemaVersion = 1
+
+// ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
+// if the database is not at the current version. This avoids ~2s of DDL overhead
+// on cloud databases (Turso) where each statement is a network round trip.
+// Returns true if schema was applied, false if skipped.
+func ApplySchemaIfNeeded(db *sql.DB) (bool, error) {
+	version, err := getSchemaVersion(db)
+	if err != nil {
+		// If we can't read the version (table doesn't exist yet), apply everything
+		if err2 := ApplySchemaAndMigrations(db); err2 != nil {
+			return false, err2
+		}
+		return true, nil
+	}
+
+	if version >= CurrentSchemaVersion {
+		return false, nil // Already up to date
+	}
+
+	// Version is behind, apply schema and migrations
+	if err := ApplySchemaAndMigrations(db); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// getSchemaVersion reads the current schema version from the database.
+// Returns an error if the schema_version table doesn't exist.
+func getSchemaVersion(db *sql.DB) (int, error) {
+	var version int
+	err := db.QueryRow(`SELECT version FROM schema_version ORDER BY version DESC LIMIT 1`).Scan(&version)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read schema version: %w", err)
+	}
+	return version, nil
+}
+
+// setSchemaVersion records the current schema version in the database.
+// Creates the schema_version table if it doesn't exist.
+func setSchemaVersion(db *sql.DB, version int) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (
+		version INTEGER NOT NULL,
+		applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		return fmt.Errorf("failed to create schema_version table: %w", err)
+	}
+
+	_, err = db.Exec(`INSERT INTO schema_version (version) VALUES (?)`, version)
+	if err != nil {
+		return fmt.Errorf("failed to insert schema version: %w", err)
+	}
+
 	return nil
 }
 
@@ -633,6 +702,21 @@ func runMigrations(db *sql.DB) error {
 	// Run feature_relationships and epic_relationships table migrations (E07-F29)
 	if err := migrateRelationshipTables(db); err != nil {
 		return fmt.Errorf("failed to migrate relationship tables: %w", err)
+	}
+
+	// Create epic_display_data view for single-query epic detail retrieval
+	if err := migrateEpicDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to create epic_display_data view: %w", err)
+	}
+
+	// Create feature_display_data view for single-query feature detail retrieval
+	if err := migrateFeatureDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to create feature_display_data view: %w", err)
+	}
+
+	// Create task_display_data view for single-query task detail retrieval
+	if err := migrateTaskDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to create task_display_data view: %w", err)
 	}
 
 	return nil
@@ -1637,4 +1721,192 @@ func migrateRelationshipTables(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// migrateEpicDisplayDataView creates the epic_display_data SQL view that aggregates
+// all epic-related data (features, task breakdown, blocked tasks, documents, notes)
+// into a single queryable view for efficient epic detail retrieval.
+func migrateEpicDisplayDataView(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE VIEW IF NOT EXISTS epic_display_data AS
+SELECT
+  e.*,
+
+  -- Features (includes progress_pct from write-through cache)
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', f.id, 'key', f.key, 'title', f.title, 'slug', f.slug,
+    'description', f.description,
+    'status', f.status, 'status_override', COALESCE(f.status_override, 0),
+    'progress_pct', f.progress_pct, 'execution_order', f.execution_order,
+    'file_path', f.file_path, 'context_data', f.context_data,
+    'created_at', f.created_at, 'updated_at', f.updated_at
+  )), '[]') FROM features f WHERE f.epic_id = e.id
+  ) AS features_json,
+
+  -- Task status breakdown: [{feature_id, status, cnt}, ...]
+  (SELECT COALESCE(json_group_array(json_object(
+    'feature_id', sub.feature_id, 'status', sub.status, 'cnt', sub.cnt
+  )), '[]') FROM (
+    SELECT t.feature_id, t.status, COUNT(*) as cnt
+    FROM tasks t JOIN features f2 ON t.feature_id = f2.id
+    WHERE f2.epic_id = e.id
+    GROUP BY t.feature_id, t.status
+  ) sub
+  ) AS task_breakdown_json,
+
+  -- Blocked tasks with details
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', t.id, 'feature_id', t.feature_id, 'key', t.key, 'title', t.title,
+    'status', t.status, 'blocked_reason', t.blocked_reason,
+    'blocked_at', t.blocked_at
+  )), '[]') FROM tasks t JOIN features f3 ON t.feature_id = f3.id
+  WHERE f3.epic_id = e.id AND t.status = 'blocked'
+  ) AS blocked_tasks_json,
+
+  -- Related documents
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', d.id, 'title', d.title, 'file_path', d.file_path
+  )), '[]') FROM documents d JOIN epic_documents ed ON d.id = ed.document_id
+  WHERE ed.epic_id = e.id
+  ) AS documents_json,
+
+  -- Entity notes
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', n.id, 'note_type', n.note_type, 'content', n.content,
+    'created_by', n.created_by, 'metadata', n.metadata, 'created_at', n.created_at
+  )), '[]') FROM entity_notes n
+  WHERE n.entity_type = 'epic' AND n.entity_id = e.id
+  ) AS notes_json
+
+FROM epics e;
+`)
+	return err
+}
+
+// migrateFeatureDisplayDataView creates the feature_display_data SQL view that aggregates
+// all feature-related data (tasks, task breakdown, documents, notes) into a single
+// queryable view for efficient feature detail retrieval.
+func migrateFeatureDisplayDataView(db *sql.DB) error {
+	_, err := db.Exec(`DROP VIEW IF EXISTS feature_display_data`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old feature_display_data view: %w", err)
+	}
+
+	_, err = db.Exec(`
+CREATE VIEW IF NOT EXISTS feature_display_data AS
+SELECT
+  f.*,
+
+  -- Tasks (includes all task details needed for display)
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', t.id, 'key', t.key, 'title', t.title, 'slug', t.slug,
+    'description', t.description,
+    'status', t.status, 'agent_type', t.agent_type,
+    'priority', t.priority, 'execution_order', t.execution_order,
+    'file_path', t.file_path, 'context_data', t.context_data,
+    'blocked_reason', t.blocked_reason, 'blocked_at', t.blocked_at,
+    'created_at', t.created_at, 'updated_at', t.updated_at
+  )), '[]') FROM tasks t WHERE t.feature_id = f.id
+  ) AS tasks_json,
+
+  -- Task status breakdown: [{status, cnt}, ...]
+  (SELECT COALESCE(json_group_array(json_object(
+    'status', sub.status, 'cnt', sub.cnt
+  )), '[]') FROM (
+    SELECT t.status, COUNT(*) as cnt
+    FROM tasks t
+    WHERE t.feature_id = f.id
+    GROUP BY t.status
+  ) sub
+  ) AS task_breakdown_json,
+
+  -- Related documents
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', d.id, 'title', d.title, 'file_path', d.file_path
+  )), '[]') FROM documents d JOIN feature_documents fd ON d.id = fd.document_id
+  WHERE fd.feature_id = f.id
+  ) AS documents_json,
+
+  -- Entity notes
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', n.id, 'note_type', n.note_type, 'content', n.content,
+    'created_by', n.created_by, 'metadata', n.metadata, 'created_at', n.created_at
+  )), '[]') FROM entity_notes n
+  WHERE n.entity_type = 'feature' AND n.entity_id = f.id
+  ) AS notes_json
+
+FROM features f;
+`)
+	return err
+}
+
+// migrateTaskDisplayDataView creates the task_display_data SQL view that aggregates
+// all task-related data (blocked_by, blocks, dependencies, documents, notes) into a single
+// queryable view for efficient task detail retrieval.
+func migrateTaskDisplayDataView(db *sql.DB) error {
+	_, err := db.Exec(`DROP VIEW IF EXISTS task_display_data`)
+	if err != nil {
+		return fmt.Errorf("failed to drop old task_display_data view: %w", err)
+	}
+
+	_, err = db.Exec(`
+CREATE VIEW IF NOT EXISTS task_display_data AS
+SELECT
+  t.*,
+
+  -- Blocked-by: outgoing depends_on relationships (tasks this task depends on)
+  (SELECT COALESCE(json_group_array(json_object(
+    'relationship_type', 'depends_on', 'direction', 'outgoing',
+    'task_key', t2.key, 'task_title', t2.title, 'task_status', t2.status
+  )), '[]') FROM task_relationships tr JOIN tasks t2 ON t2.id = tr.to_task_id
+  WHERE tr.from_task_id = t.id AND tr.relationship_type = 'depends_on'
+  ) AS blocked_by_json,
+
+  -- Blocks: incoming depends_on + outgoing blocks (tasks blocked by this task)
+  (SELECT COALESCE(json_group_array(json_object(
+    'relationship_type', sub.rt, 'direction', sub.dir,
+    'task_key', sub.key, 'task_title', sub.title, 'task_status', sub.status
+  )), '[]') FROM (
+    SELECT 'depends_on' as rt, 'incoming' as dir, t2.key, t2.title, t2.status
+    FROM task_relationships tr JOIN tasks t2 ON t2.id = tr.from_task_id
+    WHERE tr.to_task_id = t.id AND tr.relationship_type = 'depends_on'
+    UNION ALL
+    SELECT 'blocks' as rt, 'outgoing' as dir, t2.key, t2.title, t2.status
+    FROM task_relationships tr JOIN tasks t2 ON t2.id = tr.to_task_id
+    WHERE tr.from_task_id = t.id AND tr.relationship_type = 'blocks'
+  ) sub
+  ) AS blocks_json,
+
+  -- Dependencies: all related tasks (both directions, distinct)
+  (SELECT COALESCE(json_group_array(json_object(
+    'key', sub2.key, 'title', sub2.title, 'status', sub2.status
+  )), '[]') FROM (
+    SELECT DISTINCT t2.key, t2.title, t2.status
+    FROM task_relationships tr
+    JOIN tasks t2 ON (
+      (tr.from_task_id = t.id AND tr.to_task_id = t2.id) OR
+      (tr.to_task_id = t.id AND tr.from_task_id = t2.id)
+    )
+    WHERE t2.id != t.id
+  ) sub2
+  ) AS dependencies_json,
+
+  -- Related documents
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', d.id, 'title', d.title, 'file_path', d.file_path
+  )), '[]') FROM documents d JOIN task_documents td ON d.id = td.document_id
+  WHERE td.task_id = t.id
+  ) AS documents_json,
+
+  -- Entity notes
+  (SELECT COALESCE(json_group_array(json_object(
+    'id', n.id, 'note_type', n.note_type, 'content', n.content,
+    'created_by', n.created_by, 'metadata', n.metadata, 'created_at', n.created_at
+  )), '[]') FROM entity_notes n
+  WHERE n.entity_type = 'task' AND n.entity_id = t.id
+  ) AS notes_json
+
+FROM tasks t;
+`)
+	return err
 }

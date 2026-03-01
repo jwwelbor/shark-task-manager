@@ -8,27 +8,12 @@ This rule is loaded when working with CLI command implementations.
 
 ## Command Architecture (E17)
 
-The CLI is organized into categories, not by entity type. Two command styles work identically:
-
-- **Quick Commands**: `shark next`, `shark start`, `shark done`, `shark block`, `shark unblock`
-- **Standard Commands**: `shark task next`, `shark task start`, `shark task complete`, `shark task block`, `shark task unblock`
-
-Entity type is auto-detected from key format:
+The CLI is organized into categories, not by entity type. Entity type is auto-detected from key format:
 - `E##` → Epic
 - `E##-F##` or `F##` → Feature
 - `E##-F##-###` or `T-E##-F##-###` → Task
 
 ## Command Categories
-
-### Quick Commands (Task Shortcuts)
-
-| Command | Standard Equivalent | Description |
-|---------|---------------------|-------------|
-| `shark next` | `shark task next` | Get next available task |
-| `shark start <key>` | `shark task start` | Start a task |
-| `shark done <key>` | `shark task complete` | Complete a task |
-| `shark block <key>` | `shark task block` | Block a task |
-| `shark unblock <key>` | `shark task unblock` | Unblock a task |
 
 ### Core Commands (Entity Auto-Detection)
 
@@ -50,7 +35,7 @@ Entity type is auto-detected from key format:
 
 ### Entity Management
 
-#### Task Commands (26 subcommands)
+#### Task Commands (18 subcommands)
 
 **CRUD:**
 - `shark task create <epic> <feature> "<title>" [--order=N] [--agent=TYPE] [--priority=N]`
@@ -60,13 +45,8 @@ Entity type is auto-detected from key format:
 - `shark task delete <key>`
 
 **Lifecycle:**
-- `shark task start <key> [--agent=ID]`
-- `shark task complete <key> [--notes="..."] [--summary="..."] [--files-modified=...] [--tests="..."]`
 - `shark task approve <key> [--notes="..."]`
 - `shark task reopen <key> [--notes="..."]`
-- `shark task block <key> --reason="..." [--json]`
-- `shark task unblock <key> [--json]`
-- `shark task next [--agent=TYPE] [--epic=KEY]`
 - `shark task next-status <key> [--force]`
 - `shark task set-status <key> <status> [--reason="..."] [--force]`
 

@@ -3,10 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"math"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -34,6 +31,7 @@ type EpicRepository interface {
 	GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
 	UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error
 	CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error
+	GetEpicDisplayDataRaw(ctx context.Context, epicID int64) (*repository.EpicDisplayDataRaw, error)
 }
 
 // EpicTaskLister defines the task repository interface needed by EpicService
@@ -42,6 +40,8 @@ type EpicTaskLister interface {
 	ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 	UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error
+	GetStatusBreakdownMapBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error)
+	GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error)
 }
 
 // EpicNoteRepository defines the note repo interface needed by EpicService
@@ -73,14 +73,15 @@ type EpicFeatureCounter interface {
 
 // EpicService provides business logic for epic operations.
 type EpicService struct {
-	repo            EpicRepository
-	workflowSvc     *workflow.Service
-	noteRepo        EpicNoteRepository
-	featureRepo     EpicFeatureCounter
-	taskRepo        EpicTaskLister
-	docRepo         config.DocumentRepository
-	relRepo         config.EpicRelationshipRepository
-	writableDocRepo EpicWritableDocumentRepository
+	repo             EpicRepository
+	workflowSvc      *workflow.Service
+	noteRepo         EpicNoteRepository
+	featureRepo      EpicFeatureCounter
+	taskRepo         EpicTaskLister
+	docRepo          config.DocumentRepository
+	relRepo          config.EpicRelationshipRepository
+	writableDocRepo  EpicWritableDocumentRepository
+	analyticsService *EpicAnalyticsService // optional; lazy-initialized if nil
 }
 
 // NewEpicService creates a new EpicService.
@@ -122,6 +123,25 @@ func (s *EpicService) SetDocRepo(docRepo config.DocumentRepository) {
 // The *repository.DocumentRepository type satisfies the EpicWritableDocumentRepository interface.
 func (s *EpicService) SetWritableDocRepo(docRepo EpicWritableDocumentRepository) {
 	s.writableDocRepo = docRepo
+}
+
+// SetAnalyticsService sets the analytics sub-service on EpicService.
+// When set, analytics methods (CalculateProgress, GetProgress, GetFeatureRollup,
+// GetTaskStatusRollup, GetImpediments, GetBlockedTasks, GetHealth, GetEpicDisplayData)
+// delegate to this service instead of being computed inline.
+//
+// If not set, a default EpicAnalyticsService is lazily created from s.repo and s.taskRepo
+// on first analytics method call.
+func (s *EpicService) SetAnalyticsService(svc *EpicAnalyticsService) {
+	s.analyticsService = svc
+}
+
+// getAnalyticsService returns the analytics sub-service, creating one lazily if nil.
+func (s *EpicService) getAnalyticsService() *EpicAnalyticsService {
+	if s.analyticsService == nil {
+		s.analyticsService = NewEpicAnalyticsService(s.repo, s.taskRepo)
+	}
+	return s.analyticsService
 }
 
 // LinkDocument creates or retrieves a document by its title and file path, then links it to an epic.
@@ -377,159 +397,52 @@ func (s *EpicService) ListEpics(ctx context.Context, filters EpicFilters) ([]*mo
 }
 
 // CalculateProgress computes epic progress from raw feature data.
-// Business rule: completed/archived features count as 100% progress regardless
-// of their stored progress_pct value. All other features use their stored
-// progress_pct. Epic progress is the average across all features.
-// Returns 0 if the epic has no features.
+// Delegates to EpicAnalyticsService (lazily initialized if not set via SetAnalyticsService).
 func (s *EpicService) CalculateProgress(ctx context.Context, epicID int64) (float64, error) {
-	data, err := s.repo.GetFeatureProgressDataByEpic(ctx, epicID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get feature progress data: %w", err)
-	}
-
-	if len(data) == 0 {
-		return 0, nil
-	}
-
-	var totalProgress float64
-	for _, d := range data {
-		if d.Status == "completed" || d.Status == "archived" {
-			totalProgress += 100.0
-		} else {
-			totalProgress += d.ProgressPct
-		}
-	}
-
-	return totalProgress / float64(len(data)), nil
+	return s.getAnalyticsService().CalculateProgress(ctx, epicID)
 }
 
 // GetProgress retrieves progress metrics for an epic.
+// Delegates to EpicAnalyticsService (lazily initialized if not set via SetAnalyticsService).
 func (s *EpicService) GetProgress(ctx context.Context, key string) (*EpicProgressInfo, error) {
-	epic, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
-	}
-	if epic == nil {
-		return nil, fmt.Errorf("epic not found: %s", key)
-	}
-
-	progressPct, err := s.CalculateProgress(ctx, epic.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to calculate progress for epic %s: %w", key, err)
-	}
-
-	featureRollup, err := s.repo.GetFeatureStatusRollup(ctx, epic.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature rollup for epic %s: %w", key, err)
-	}
-
-	taskRollup, err := s.repo.GetTaskStatusRollup(ctx, epic.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task rollup for epic %s: %w", key, err)
-	}
-
-	totalFeatures := 0
-	for _, count := range featureRollup {
-		totalFeatures += count
-	}
-
-	return &EpicProgressInfo{
-		EpicKey:       key,
-		ProgressPct:   math.Round(progressPct*100) / 100,
-		TotalFeatures: totalFeatures,
-		TaskRollup:    taskRollup,
-	}, nil
+	return s.getAnalyticsService().GetProgress(ctx, key)
 }
 
 // GetFeatureRollup aggregates feature statuses for an epic.
+// Delegates to EpicAnalyticsService (lazily initialized if not set via SetAnalyticsService).
 func (s *EpicService) GetFeatureRollup(ctx context.Context, key string) (*FeatureRollup, error) {
-	epic, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
-	}
-	if epic == nil {
-		return nil, fmt.Errorf("epic not found: %s", key)
-	}
-
-	statusCounts, err := s.repo.GetFeatureStatusRollup(ctx, epic.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature rollup for epic %s: %w", key, err)
-	}
-
-	totalFeatures := 0
-	for _, count := range statusCounts {
-		totalFeatures += count
-	}
-
-	return &FeatureRollup{
-		EpicKey:       key,
-		TotalFeatures: totalFeatures,
-		StatusCounts:  statusCounts,
-	}, nil
+	return s.getAnalyticsService().GetFeatureRollup(ctx, key)
 }
 
 // GetTaskStatusRollup aggregates task statuses across all features in an epic.
+// Delegates to EpicAnalyticsService (lazily initialized if not set via SetAnalyticsService).
 func (s *EpicService) GetTaskStatusRollup(ctx context.Context, key string) (map[string]int, error) {
-	epic, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
-	}
-	if epic == nil {
-		return nil, fmt.Errorf("epic not found: %s", key)
-	}
-
-	rollup, err := s.repo.GetTaskStatusRollup(ctx, epic.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task status rollup for epic %s: %w", key, err)
-	}
-	return rollup, nil
+	return s.getAnalyticsService().GetTaskStatusRollup(ctx, key)
 }
 
 // GetImpediments returns blocked tasks that impede epic progress.
-// Degrades gracefully if taskRepo is nil (returns empty slice).
+// Delegates to EpicAnalyticsService (lazily initialized if not set via SetAnalyticsService).
 func (s *EpicService) GetImpediments(ctx context.Context, key string) ([]*Impediment, error) {
-	if s.taskRepo == nil {
-		return []*Impediment{}, nil
-	}
-
-	blockedTasks, err := s.taskRepo.ListBlockedTasksByEpic(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get impediments for epic %s: %w", key, err)
-	}
-
-	impediments := make([]*Impediment, 0, len(blockedTasks))
-	now := time.Now()
-	for _, task := range blockedTasks {
-		ageDays := 0
-		if task.BlockedAt.Valid {
-			ageDays = int(now.Sub(task.BlockedAt.Time).Hours() / 24)
-		} else {
-			ageDays = int(now.Sub(task.UpdatedAt).Hours() / 24)
-		}
-		impediments = append(impediments, &Impediment{
-			TaskKey:  task.Key,
-			Title:    task.Title,
-			Status:   string(task.Status),
-			Priority: task.Priority,
-			AgeDays:  ageDays,
-		})
-	}
-
-	return impediments, nil
+	return s.getAnalyticsService().GetImpediments(ctx, key)
 }
 
 // GetBlockedTasks returns the raw blocked tasks that impede epic progress.
-// Unlike GetImpediments which returns DTO objects, this returns the full model objects.
-// Degrades gracefully if taskRepo is nil (returns empty slice).
+// Delegates to EpicAnalyticsService (lazily initialized if not set via SetAnalyticsService).
 func (s *EpicService) GetBlockedTasks(ctx context.Context, key string) ([]*models.Task, error) {
-	if s.taskRepo == nil {
-		return []*models.Task{}, nil
-	}
-	blockedTasks, err := s.taskRepo.ListBlockedTasksByEpic(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get blocked tasks for epic %s: %w", key, err)
-	}
-	return blockedTasks, nil
+	return s.getAnalyticsService().GetBlockedTasks(ctx, key)
+}
+
+// GetHealth analyzes the health of an epic based on blocked tasks and feature status.
+// Delegates to EpicAnalyticsService (lazily initialized if not set via SetAnalyticsService).
+func (s *EpicService) GetHealth(ctx context.Context, key string) (*EpicHealthInfo, error) {
+	return s.getAnalyticsService().GetHealth(ctx, key)
+}
+
+// GetEpicDisplayData fetches all data needed to display an epic in a single SQL query
+// via the epic_display_data view.
+// Delegates to EpicAnalyticsService (lazily initialized if not set via SetAnalyticsService).
+func (s *EpicService) GetEpicDisplayData(ctx context.Context, epic *models.Epic, projectRoot string) (*EpicDisplayData, error) {
+	return s.getAnalyticsService().GetEpicDisplayData(ctx, epic, projectRoot)
 }
 
 // GetRelatedDocuments returns the documents associated with an epic.
@@ -556,47 +469,6 @@ func (s *EpicService) ListRelatedDocumentsByKey(ctx context.Context, epicKey str
 		return nil, fmt.Errorf("epic not found: %w", err)
 	}
 	return s.GetRelatedDocuments(ctx, epic.ID)
-}
-
-// GetHealth analyzes the health of an epic based on blocked tasks and feature status.
-// Degrades gracefully if taskRepo is nil (returns healthy).
-func (s *EpicService) GetHealth(ctx context.Context, key string) (*EpicHealthInfo, error) {
-	epic, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
-	}
-	if epic == nil {
-		return nil, fmt.Errorf("epic not found: %s", key)
-	}
-
-	health := &EpicHealthInfo{
-		EpicKey: key,
-		Status:  "healthy",
-	}
-
-	// Check for blocked tasks
-	impediments, err := s.GetImpediments(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to analyze health for epic %s: %w", key, err)
-	}
-
-	if len(impediments) >= 2 {
-		health.Status = "critical"
-		health.Reasons = append(health.Reasons, fmt.Sprintf("%d blocked tasks", len(impediments)))
-	} else if len(impediments) == 1 {
-		health.Status = "warning"
-		health.Reasons = append(health.Reasons, "1 blocked task")
-	}
-
-	// Check for high-priority blocked tasks
-	for _, imp := range impediments {
-		if imp.Priority <= 3 && health.Status != "critical" {
-			health.Status = "critical"
-			health.Reasons = append(health.Reasons, fmt.Sprintf("high-priority task %s is blocked", imp.TaskKey))
-		}
-	}
-
-	return health, nil
 }
 
 // CreateEpic creates a new epic.
@@ -996,37 +868,6 @@ func (s *EpicService) RecalculateStatus(ctx context.Context, epicID int64) (*Epi
 	return result, nil
 }
 
-// deriveEpicStatusFromFeatures determines the appropriate epic status based on
-// the breakdown of child feature statuses. This mirrors the logic used by the
-// status.CalculationService but operates without that package dependency.
-//
-// Rules:
-//   - No features → keep current status
-//   - All completed/archived → completed
-//   - Any active → active
-//   - Otherwise → draft
-func deriveEpicStatusFromFeatures(featureCounts map[models.FeatureStatus]int, current models.EpicStatus) models.EpicStatus {
-	total := 0
-	for _, count := range featureCounts {
-		total += count
-	}
-	if total == 0 {
-		return current
-	}
-
-	completed := featureCounts[models.FeatureStatusCompleted] + featureCounts[models.FeatureStatusArchived]
-	if completed == total {
-		return models.EpicStatusCompleted
-	}
-
-	active := featureCounts[models.FeatureStatusActive]
-	if active > 0 {
-		return models.EpicStatusActive
-	}
-
-	return models.EpicStatusDraft
-}
-
 // CascadeStatusToFeaturesAndTasks cascades a status change from this epic to all
 // child features and their tasks. This is used when force-completing an epic via
 // the --status=completed --force flags.
@@ -1069,19 +910,7 @@ func (s *EpicService) ResolveEpicPath(ctx context.Context, epicKey string, proje
 		return "", fmt.Errorf("epic not found: %s", epicKey)
 	}
 
-	if epic.FilePath != nil && *epic.FilePath != "" {
-		return *epic.FilePath, nil
-	}
-
-	slug := ""
-	if epic.Slug != nil && *epic.Slug != "" {
-		slug = *epic.Slug
-	} else {
-		slug = strings.ToLower(epic.Key)
-	}
-
-	defaultPath := filepath.Join("docs", "plan", epic.Key+"-"+slug, "epic.md")
-	return defaultPath, nil
+	return resolveEpicPathFromLoaded(epic, projectRoot), nil
 }
 
 // nextEpicKey generates the next available epic key (E##) by inspecting existing epics.

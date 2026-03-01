@@ -13,7 +13,7 @@ import (
 var notesCmd = &cobra.Command{
 	Use:     "notes",
 	Short:   "Search notes across all tasks",
-	GroupID: "details",
+	GroupID: "manage",
 	Long:    `Search for notes across all tasks with optional filtering.`,
 }
 
@@ -176,9 +176,6 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	// Add notes command to root
-	cli.RootCmd.AddCommand(notesCmd)
-
 	// Add search subcommand
 	notesCmd.AddCommand(notesSearchCmd)
 

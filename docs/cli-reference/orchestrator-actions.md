@@ -4,7 +4,7 @@ Enhanced API response format that includes `orchestrator_action` metadata for AI
 
 ## Overview
 
-When entities transition status (via `shark task start`, `shark task complete`, `shark task approve`, etc.), the API response includes optional `orchestrator_action` metadata. This metadata tells orchestrators what action to take next and which agent should be spawned (if applicable).
+When entities transition status (via `shark task next-status`, `shark status advance`, `shark task set-status`, etc.), the API response includes optional `orchestrator_action` metadata. This metadata tells orchestrators what action to take next and which agent should be spawned (if applicable).
 
 **Key Features:**
 - Atomic response: Entity state + action metadata in single API call
@@ -212,17 +212,17 @@ The `instruction` field is generated from `instruction_template` by replacing pl
 
 ## Response Examples by Command
 
-### Task Start Command
+### Task Next-Status Command
 ```bash
-$ shark task start E01-F03-002 --json
+$ shark task next-status E01-F03-002 --json
 ```
 
-Response (task transitions to `in_progress`):
+Response (task transitions to `in_development`):
 ```json
 {
   "id": 123,
   "key": "T-E01-F03-002",
-  "status": "in_progress",
+  "status": "in_development",
   "title": "Implement feature X",
   "orchestrator_action": {
     "action": "spawn_agent",
@@ -233,17 +233,17 @@ Response (task transitions to `in_progress`):
 }
 ```
 
-### Task Complete Command
+### Task Next-Status (Advance to Review)
 ```bash
-$ shark task complete E01-F03-002 --json
+$ shark task next-status E01-F03-002 --json
 ```
 
-Response (task transitions to `ready_for_review`):
+Response (task transitions to `ready_for_code_review`):
 ```json
 {
   "id": 123,
   "key": "T-E01-F03-002",
-  "status": "ready_for_review",
+  "status": "ready_for_code_review",
   "title": "Implement feature X",
   "orchestrator_action": {
     "action": "spawn_agent",
@@ -254,9 +254,9 @@ Response (task transitions to `ready_for_review`):
 }
 ```
 
-### Task Approve Command
+### Task Next-Status (Complete)
 ```bash
-$ shark task approve E01-F03-002 --json
+$ shark task next-status E01-F03-002 --json
 ```
 
 Response (task transitions to `completed`):
@@ -273,9 +273,9 @@ Response (task transitions to `completed`):
 }
 ```
 
-### Task Block Command
+### Task Set to Blocked
 ```bash
-$ shark task block E01-F03-002 --reason="Waiting for API design" --json
+$ shark task set-status E01-F03-002 blocked --notes="Waiting for API design" --json
 ```
 
 Response (task transitions to `blocked`):

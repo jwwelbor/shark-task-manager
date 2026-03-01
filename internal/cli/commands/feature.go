@@ -15,7 +15,7 @@ import (
 var featureCmd = &cobra.Command{
 	Use:     "feature",
 	Short:   "Manage features",
-	GroupID: "entities",
+	GroupID: "advanced",
 	Long: `Query and manage features within epics.
 
 Examples:
@@ -105,12 +105,13 @@ Examples:
 var featureUpdateCmd = &cobra.Command{
 	Use:   "update <feature-key>",
 	Short: "Update a feature",
-	Long: `Update a feature's properties such as title, description, status, or execution order.
+	Long: `Update a feature's properties such as title, description, or execution order.
+
+Use 'shark status set' to change status.
 
 Examples:
   shark feature update E04-F02 --title "New Title"
-  shark feature update F02 --status active
-  shark feature update E04-F02 --execution-order 2`,
+  shark feature update E04-F02 --order 2`,
 	Args: cobra.ExactArgs(1),
 	RunE: runFeatureUpdate,
 }
@@ -124,6 +125,7 @@ var (
 )
 
 func init() {
+	featureCmd.Hidden = true // Hidden from top-level help; accessible via 'shark feature'
 	cli.RootCmd.AddCommand(featureCmd)
 
 	featureCmd.AddCommand(featureListCmd)
@@ -165,12 +167,10 @@ func init() {
 	// Update flags
 	featureUpdateCmd.Flags().String("title", "", "New title")
 	featureUpdateCmd.Flags().String("description", "", "New description")
-	featureUpdateCmd.Flags().String("status", "", "New status")
 	featureUpdateCmd.Flags().Int("execution-order", -1, "New execution order (-1 = no change)")
 	_ = featureUpdateCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
 	featureUpdateCmd.Flags().Int("order", -1, "New execution order (-1 = no change)")
 	featureUpdateCmd.Flags().String("key", "", "New key (must be unique, no spaces)")
-	featureUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
 	featureUpdateCmd.Flags().String("file", "", "New file path")
 	featureUpdateCmd.Flags().String("filename", "", "Alias for --file")
 	featureUpdateCmd.Flags().String("path", "", "Alias for --file")

@@ -963,3 +963,33 @@ func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID 
 func isNumeric(s string) bool {
 	return IsNumeric(s)
 }
+
+// FeatureDisplayDataRaw holds the raw JSON strings from the feature_display_data view.
+// The service layer is responsible for unmarshaling these into domain types.
+type FeatureDisplayDataRaw struct {
+	TasksJSON         string
+	TaskBreakdownJSON string
+	DocumentsJSON     string
+	NotesJSON         string
+}
+
+// GetFeatureDisplayDataRaw fetches all display data for a feature in a single query
+// using the feature_display_data view. Returns raw JSON strings that the service
+// layer unmarshals into domain types.
+func (r *FeatureRepository) GetFeatureDisplayDataRaw(ctx context.Context, featureID int64) (*FeatureDisplayDataRaw, error) {
+	query := `SELECT tasks_json, task_breakdown_json, documents_json, notes_json
+		FROM feature_display_data WHERE id = ?`
+
+	raw := &FeatureDisplayDataRaw{}
+	err := r.db.QueryRowContext(ctx, query, featureID).Scan(
+		&raw.TasksJSON,
+		&raw.TaskBreakdownJSON,
+		&raw.DocumentsJSON,
+		&raw.NotesJSON,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query feature_display_data for feature %d: %w", featureID, err)
+	}
+
+	return raw, nil
+}

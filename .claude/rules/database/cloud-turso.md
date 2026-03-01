@@ -57,7 +57,7 @@ Once configured, all machines sharing the same Turso URL access the same databas
 ```bash
 # Machine 1
 shark task create E01 F01 "Implement API" --agent=backend
-shark task start E01-F01-001
+shark status advance E01-F01-001
 
 # Machine 2 (sees changes immediately)
 shark task list E01 F01

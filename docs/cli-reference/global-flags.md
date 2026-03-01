@@ -34,9 +34,9 @@ Extract a single field from JSON output. Implicitly enables `--json`. Useful for
 shark get E07-F01-001 --field status
 # Output: "in_progress"
 
-# Get just the key of the next task
-shark next --field key
-# Output: "E17-F11-001"
+# Get just the key of a task
+shark get E07-F01-001 --field key
+# Output: "E07-F01-001"
 
 # Get progress percentage
 shark progress E07 --field weighted_progress
@@ -56,7 +56,7 @@ shark list E07 --no-color | tee output.txt
 Enable verbose/debug logging. Shows internal operations, database queries, and timing information.
 
 ```bash
-shark task start E07-F01-001 -v
+shark status advance E07-F01-001 -v
 shark validate --verbose
 ```
 
@@ -97,9 +97,9 @@ shark task list  # Now outputs JSON without --json flag
 AI agents should always use `--json` for reliable parsing:
 
 ```bash
-shark next --json
+shark get E07-F01-001 --json
 shark get E07-F01-001 --json --field status
-shark task start E07-F01-001 --json
+shark status advance E07-F01-001 --json
 ```
 
 ### CI/CD Pipelines

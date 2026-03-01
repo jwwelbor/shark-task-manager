@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +19,7 @@ import (
 var progressCmd = &cobra.Command{
 	Use:     "progress [EPIC] [FEATURE]",
 	Short:   "Show progress, health indicators, and task breakdown",
-	GroupID: "status",
+	GroupID: "advanced",
 	Long: `Display a progress dashboard showing project progress, health indicators,
 active tasks, and blocked items.
 
@@ -119,4 +120,18 @@ func outputProgressTerminal(dashboard *status.StatusDashboard) error {
 	output := status.FormatDashboard(dashboard, cli.GlobalConfig.NoColor)
 	fmt.Print(output)
 	return nil
+}
+
+// enrichEpicSummaries populates DisplayMode, IsPlanning, and Phase fields
+// on each EpicSummary using the DisplayService to determine planning vs aggregation mode.
+// Uses in-memory workflow config lookup (no additional DB queries).
+func enrichEpicSummaries(epics []*status.EpicSummary, displaySvc *services.DisplayService) {
+	for _, epic := range epics {
+		mode := displaySvc.DetermineEpicDisplayModeByStatus(epic.Status)
+		epic.DisplayMode = string(mode)
+		if mode == services.DisplayModePlanning {
+			epic.IsPlanning = true
+			epic.Phase = displaySvc.GetEpicPhase(epic.Status)
+		}
+	}
 }

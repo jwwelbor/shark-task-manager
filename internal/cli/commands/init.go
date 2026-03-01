@@ -25,9 +25,9 @@ var (
 )
 
 var initCmd = &cobra.Command{
-	Use:     "init",
-	Short:   "Initialize Shark CLI infrastructure",
-	GroupID: "setup",
+	Use:   "init",
+	Short: "Initialize Shark CLI infrastructure",
+
 	Long: `Initialize Shark CLI infrastructure by creating database schema,
 folder structure, configuration file, and task templates.
 
@@ -97,7 +97,7 @@ Replaced fields (overwritten from profile): status_metadata, status_flow,
 }
 
 func init() {
-	cli.RootCmd.AddCommand(initCmd)
+	adminCmd.AddCommand(initCmd)
 	initCmd.AddCommand(initUpdateCmd)
 	initCmd.AddCommand(initMergeCmd)
 

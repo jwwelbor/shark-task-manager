@@ -14,7 +14,7 @@ import (
 var epicCmd = &cobra.Command{
 	Use:     "epic",
 	Short:   "Manage epics",
-	GroupID: "entities",
+	GroupID: "advanced",
 	Long: `Query and manage epics with automatic progress calculation.
 
 Examples:
@@ -100,11 +100,13 @@ Examples:
 var epicUpdateCmd = &cobra.Command{
 	Use:   "update <epic-key>",
 	Short: "Update an epic",
-	Long: `Update an epic's properties: title, description, status, priority, or file path.
+	Long: `Update an epic's properties: title, description, priority, or file path.
+
+Use 'shark status set' to change status.
 
 Examples:
   shark epic update E01 --title "New Title"
-  shark epic update E01 --status active
+  shark epic update E01 --priority high
   shark epic update E01 --file "docs/roadmap/2025.md"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runEpicUpdate,
@@ -116,6 +118,7 @@ var (
 )
 
 func init() {
+	epicCmd.Hidden = true // Hidden from top-level help; accessible via 'shark epic'
 	cli.RootCmd.AddCommand(epicCmd)
 	epicCmd.AddCommand(epicListCmd, epicGetCmd, epicStatusCmd, epicCompleteCmd, epicCreateCmd, epicDeleteCmd, epicUpdateCmd)
 
@@ -140,7 +143,6 @@ func init() {
 
 	epicUpdateCmd.Flags().String("title", "", "New title for the epic")
 	epicUpdateCmd.Flags().String("description", "", "New description for the epic")
-	epicUpdateCmd.Flags().String("status", "", "New status: draft, active, completed, archived")
 	epicUpdateCmd.Flags().String("priority", "", "New priority: low, medium, high")
 	epicUpdateCmd.Flags().String("business-value", "", "New business value: low, medium, high")
 	epicUpdateCmd.Flags().String("key", "", "New key for the epic (must be unique, cannot contain spaces)")
@@ -149,7 +151,6 @@ func init() {
 	epicUpdateCmd.Flags().String("path", "", "Alias for --file")
 	_ = epicUpdateCmd.Flags().MarkHidden("filename")
 	_ = epicUpdateCmd.Flags().MarkHidden("path")
-	epicUpdateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
 }
 
 // runEpicList lists all epics with progress information.

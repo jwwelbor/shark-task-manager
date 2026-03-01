@@ -332,42 +332,6 @@ func registerCreateFlags(cmd *cobra.Command) {
 	_ = cmd.Flags().MarkHidden("path")
 }
 
-// registerTransitionFlags adds flags for task lifecycle transition commands.
-func registerTransitionFlags() {
-	taskStartCmd.Flags().StringP("agent", "", "", "Agent identifier")
-	taskStartCmd.Flags().Bool("force", false, "Force status change bypassing validation")
-
-	taskCompleteCmd.Flags().StringP("agent", "", "", "Agent identifier")
-	taskCompleteCmd.Flags().StringP("notes", "n", "", "Completion notes")
-	taskCompleteCmd.Flags().Bool("force", false, "Force status change bypassing validation")
-	taskCompleteCmd.Flags().StringSlice("files-created", []string{}, "Files created during task")
-	taskCompleteCmd.Flags().StringSlice("files-modified", []string{}, "Files modified during task")
-	taskCompleteCmd.Flags().String("tests", "", "Test status summary")
-	taskCompleteCmd.Flags().String("summary", "", "Completion summary")
-	taskCompleteCmd.Flags().Bool("verified", false, "Mark task as verified")
-	taskCompleteCmd.Flags().String("agent-id", "", "Agent execution ID for traceability")
-	taskCompleteCmd.Flags().Int("time-spent", 0, "Time spent in minutes")
-
-	taskApproveCmd.Flags().StringP("agent", "", "", "Agent identifier")
-	taskApproveCmd.Flags().StringP("notes", "n", "", "Approval notes")
-	taskApproveCmd.Flags().String("rejection-reason", "", "Reason for rejection")
-	taskApproveCmd.Flags().String("reason-doc", "", "Path to rejection reason document")
-	taskApproveCmd.Flags().Bool("force", false, "Force status change bypassing validation")
-
-	taskBlockCmd.Flags().StringP("reason", "r", "", "Reason for blocking (required)")
-	taskBlockCmd.Flags().StringP("agent", "", "", "Agent identifier")
-	taskBlockCmd.Flags().Bool("force", false, "Force status change bypassing validation")
-
-	taskUnblockCmd.Flags().StringP("agent", "", "", "Agent identifier")
-	taskUnblockCmd.Flags().Bool("force", false, "Force status change bypassing validation")
-
-	taskReopenCmd.Flags().StringP("agent", "", "", "Agent identifier")
-	taskReopenCmd.Flags().StringP("notes", "n", "", "Rework notes")
-	taskReopenCmd.Flags().String("rejection-reason", "", "Reason for rejection")
-	taskReopenCmd.Flags().String("reason-doc", "", "Path to rejection reason document")
-	taskReopenCmd.Flags().Bool("force", false, "Force status change bypassing validation")
-}
-
 // registerUpdateFlags adds flags for the task update command.
 func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("title", "", "New title")
@@ -378,8 +342,4 @@ func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("filename", "", "New file path (relative to project root)")
 	cmd.Flags().String("depends-on", "", "New comma-separated dependency task keys")
 	cmd.Flags().Int("order", -1, "New execution order (-1=no change)")
-	cmd.Flags().String("status", "", "New status (uses workflow validation)")
-	cmd.Flags().Bool("force", false, "Force reassignment or bypass workflow validation")
-	cmd.Flags().String("reason", "", "Reason for backward status transitions")
-	cmd.Flags().String("reason-doc", "", "Path to rejection reason document")
 }

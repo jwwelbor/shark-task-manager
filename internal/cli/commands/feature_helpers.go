@@ -160,9 +160,18 @@ func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
 		fmt.Println()
 	}
 
-	// Planning mode message about tasks
+	// Planning mode tasks
 	if len(info.Tasks) == 0 {
 		pterm.Info.Println("No tasks yet (feature is still being refined)")
+	} else {
+		fmt.Println()
+		pterm.DefaultSection.Printf("Tasks (%d total)", len(info.Tasks))
+
+		// Use centralized task table formatter
+		workflowService := cli.GetWorkflowService()
+		tableConfig := formatters.FeatureGetTaskTableConfig()
+		tableConfig.ColorEnabled = !cli.GlobalConfig.NoColor
+		_ = formatters.RenderTaskTable(info.Tasks, workflowService, tableConfig)
 	}
 
 	// Display orchestrator action
@@ -639,31 +648,21 @@ type FeatureGetData struct {
 }
 
 // buildFeatureGetData gathers all enriched data needed to display a feature.
+// Uses a single SQL view query for all data (tasks, breakdown, docs, notes, context)
+// instead of multiple round-trips, critical for Turso cloud latency.
 func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*FeatureGetData, error) {
 	projectRoot, _ := os.Getwd()
 
 	featureSvc := cli.GetFeatureService()
 
-	// Update progress
-	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", feature.Key, err)
-	}
-	feature, _ = featureSvc.GetFeature(ctx, feature.Key)
-
-	tasks, _ := featureSvc.ListTasksForFeature(ctx, feature.ID)
-	statusBreakdown, _ := featureSvc.GetEnrichedTaskStatusBreakdown(ctx, feature.Key)
-
-	// Resolve path via service (uses stored FilePath or constructs default)
-	var dirPath, filename string
-	if projectRoot != "" {
-		relPath := featureSvc.ResolveFeaturePath(ctx, feature.Key, projectRoot)
-		if relPath != "" {
-			dirPath = filepath.Dir(relPath) + "/"
-			filename = filepath.Base(relPath)
-		}
+	// Single query via feature_display_data SQL view
+	displayData, err := featureSvc.GetFeatureDisplayData(ctx, feature, projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature display data: %w", err)
 	}
 
-	relatedDocs, _ := featureSvc.ListRelatedDocuments(ctx, feature.ID)
+	tasks := displayData.Tasks
+	relatedDocs := displayData.RelatedDocs
 	if relatedDocs == nil {
 		relatedDocs = []*models.Document{}
 	}
@@ -675,18 +674,17 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 		workflowCfg, _ = config.LoadWorkflowConfig(configPath)
 	}
 
-	// Convert statusBreakdown to map for calculations
-	statusCountsMap := make(map[string]int)
-	for _, sc := range statusBreakdown {
-		statusCountsMap[sc.Status] = sc.Count
-	}
+	// Convert breakdown map to []workflow.StatusCount (enriched with color/phase)
+	workflowService := workflow.NewService(projectRoot)
+	taskWorkflowSvc := workflowService.ForLevel(workflow.LevelTask)
+	statusBreakdown := workflow.NewStatusBreakdown(displayData.StatusBreakdown, taskWorkflowSvc).Counts
 
 	var progressInfo *status.ProgressInfo
 	var workSummary *status.WorkSummary
 	var actionItems *status.ActionItems
 	if workflowCfg != nil {
-		progressInfo = status.CalculateProgress(statusCountsMap, workflowCfg)
-		workSummary = status.CalculateWorkRemaining(statusCountsMap, workflowCfg)
+		progressInfo = status.CalculateProgress(displayData.StatusBreakdown, workflowCfg)
+		workSummary = status.CalculateWorkRemaining(displayData.StatusBreakdown, workflowCfg)
 		actionItems = status.GetActionItems(tasks, workflowCfg)
 	} else {
 		progressInfo = &status.ProgressInfo{
@@ -701,31 +699,19 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 		}
 	}
 
-	// Fetch notes and context (graceful degradation)
-	var featureNotes []*models.EntityNote
-	if noteSvc, noteErr := cli.GetNoteService(ctx); noteErr == nil {
-		featureNotes, _ = noteSvc.ListNotes(ctx, models.EntityTypeFeature, feature.Key, nil)
-	}
-	var featureContext *models.ContextData
-	if ctxSvc, ctxErr := cli.GetContextService(ctx); ctxErr == nil {
-		featureContext, _ = ctxSvc.GetContext(ctx, models.EntityTypeFeature, feature.Key)
-	}
-
-	workflowService := workflow.NewService(projectRoot)
-
 	return &FeatureGetData{
 		Tasks:           tasks,
 		StatusBreakdown: statusBreakdown,
-		DirPath:         dirPath,
-		Filename:        filename,
+		DirPath:         displayData.DirPath,
+		Filename:        displayData.Filename,
 		RelatedDocs:     relatedDocs,
 		WorkflowService: workflowService,
 		WorkflowCfg:     workflowCfg,
 		ProgressInfo:    progressInfo,
 		WorkSummary:     workSummary,
 		ActionItems:     actionItems,
-		Notes:           featureNotes,
-		ContextData:     featureContext,
+		Notes:           displayData.Notes,
+		ContextData:     displayData.ContextData,
 	}, nil
 }
 
@@ -1007,30 +993,20 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 		changed = true
 	}
 
-	statusFlag, _ := cmd.Flags().GetString("status")
-	force, _ := cmd.Flags().GetBool("force")
-
-	if statusFlag != "" {
-		if err := applyFeatureStatusUpdate(ctx, featureSvc, featureKey, statusFlag, force, &updates, &changed); err != nil {
-			cli.Error(fmt.Sprintf("Error: %v", err))
-			os.Exit(1)
-		}
+	var execOrder int
+	var execOrderSet bool
+	if cmd.Flags().Changed("order") {
+		execOrder, _ = cmd.Flags().GetInt("order")
+		execOrderSet = true
+	} else if cmd.Flags().Changed("execution-order") {
+		execOrder, _ = cmd.Flags().GetInt("execution-order")
+		execOrderSet = true
 	}
 
-    var execOrder int
-    var execOrderSet bool
-    if cmd.Flags().Changed("order") {
-        execOrder, _ = cmd.Flags().GetInt("order")
-        execOrderSet = true
-    } else if cmd.Flags().Changed("execution-order") {
-        execOrder, _ = cmd.Flags().GetInt("execution-order")
-        execOrderSet = true
-    }
-
-    if execOrderSet && execOrder != -1 {
-        updates.ExecutionOrder = &execOrder
-        changed = true
-    }
+	if execOrderSet && execOrder != -1 {
+		updates.ExecutionOrder = &execOrder
+		changed = true
+	}
 
 	if changed {
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
@@ -1068,38 +1044,6 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 	}
 
 	cli.Success(fmt.Sprintf("Feature %s updated successfully", featureKey))
-	return nil
-}
-
-// applyFeatureStatusUpdate handles status-related logic for feature update.
-func applyFeatureStatusUpdate(ctx context.Context, featureSvc *services.FeatureService, featureKey, statusFlag string, force bool, updates *services.FeatureUpdates, changed *bool) error {
-	if strings.ToLower(statusFlag) == "auto" {
-		if err := featureSvc.SetFeatureStatusOverride(ctx, featureKey, false); err != nil {
-			return fmt.Errorf("feature %s does not exist or override clear failed: %w", featureKey, err)
-		}
-		if err := featureSvc.RecalculateAndSetProgressByKey(ctx, featureKey); err != nil {
-			return fmt.Errorf("failed to recalculate status: %w", err)
-		}
-		cli.Success(fmt.Sprintf("Feature %s status recalculated from tasks", featureKey))
-		os.Exit(0)
-	}
-
-	validatedStatus, err := ParseFeatureStatus(statusFlag)
-	if err != nil {
-		return err
-	}
-	s := models.FeatureStatus(validatedStatus)
-	updates.Status = &s
-	*changed = true
-
-	if err := featureSvc.SetFeatureStatusOverride(ctx, featureKey, true); err != nil {
-		return fmt.Errorf("feature %s does not exist or override set failed: %w", featureKey, err)
-	}
-	if force && s == models.FeatureStatusCompleted {
-		if err := featureSvc.CascadeFeatureStatusToTasks(ctx, featureKey, models.TaskStatus("completed")); err != nil {
-			return fmt.Errorf("failed to cascade status to tasks: %w", err)
-		}
-	}
 	return nil
 }
 

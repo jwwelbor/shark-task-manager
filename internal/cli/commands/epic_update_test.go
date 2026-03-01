@@ -25,9 +25,6 @@ func TestEpicUpdateCommand_Exists(t *testing.T) {
 			if cmd.Flags().Lookup("description") == nil {
 				t.Error("epic update command missing --description flag")
 			}
-			if cmd.Flags().Lookup("status") == nil {
-				t.Error("epic update command missing --status flag")
-			}
 			if cmd.Flags().Lookup("priority") == nil {
 				t.Error("epic update command missing --priority flag")
 			}
@@ -40,10 +37,6 @@ func TestEpicUpdateCommand_Exists(t *testing.T) {
 			if cmd.Flags().Lookup("key") == nil {
 				t.Error("epic update command missing --key flag")
 			}
-			if cmd.Flags().Lookup("force") == nil {
-				t.Error("epic update command missing --force flag")
-			}
-
 			break
 		}
 	}

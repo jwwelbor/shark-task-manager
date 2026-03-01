@@ -66,15 +66,13 @@ shark epic get e07-f01    # ✓ Works (feature, not epic)
 **Before (traditional format):**
 ```bash
 shark task get T-E07-F20-001
-shark task start T-E07-F20-001
-shark task complete T-E07-F20-001
+shark task next-status T-E07-F20-001
 ```
 
 **After (short format, recommended):**
 ```bash
 shark task get E07-F20-001
-shark task start E07-F20-001
-shark task complete E07-F20-001
+shark task next-status E07-F20-001
 ```
 
 **Both formats work identically.** The `T-` prefix is optional and automatically normalized internally.
@@ -84,9 +82,7 @@ shark task complete E07-F20-001
 | Command | Old Format | New Format (Recommended) |
 |---------|------------|--------------------------|
 | **Get Task** | `shark task get T-E07-F20-001` | `shark task get E07-F20-001` |
-| **Start Task** | `shark task start T-E07-F20-001` | `shark task start E07-F20-001` |
-| **Complete Task** | `shark task complete T-E07-F20-001` | `shark task complete E07-F20-001` |
-| **Approve Task** | `shark task approve T-E07-F20-001` | `shark task approve E07-F20-001` |
+| **Advance Status** | `shark task next-status T-E07-F20-001` | `shark task next-status E07-F20-001` |
 | **Block Task** | `shark task block T-E07-F20-001 --reason="..."` | `shark task block E07-F20-001 --reason="..."` |
 | **Unblock Task** | `shark task unblock T-E07-F20-001` | `shark task unblock E07-F20-001` |
 
@@ -226,12 +222,12 @@ Possible solutions:
 # These all work (old syntax)
 shark feature create --epic=E07 --title="Feature Title"
 shark task create --epic=E07 --feature=F20 --title="Task Title"
-shark task start T-E07-F20-001
+shark task next-status T-E07-F20-001
 
 # These also work (new syntax)
 shark feature create E07 "Feature Title"
 shark task create E07 F20 "Task Title"
-shark task start E07-F20-001
+shark task next-status E07-F20-001
 ```
 
 ### Do I need to update my scripts?
@@ -338,22 +334,19 @@ shark task create e07 f20 "Update CLI documentation" --agent=backend
 
 **Before:**
 ```bash
-shark task start T-E07-F20-001
-shark task complete T-E07-F20-001
-shark task approve T-E07-F20-001
+shark task next-status T-E07-F20-001
 ```
 
 **After:**
 ```bash
 # Short format (recommended)
-shark task start E07-F20-001
-shark task complete E07-F20-001
-shark task approve E07-F20-001
+shark task next-status E07-F20-001
 
 # Case insensitive
-shark task start e07-f20-001
-shark task complete e07-f20-001
-shark task approve e07-f20-001
+shark task next-status e07-f20-001
+
+# Or using the status advance alias
+shark status advance E07-F20-001
 ```
 
 ---
@@ -377,19 +370,17 @@ shark task create E07 F20 "Fix bug"
 **Before:**
 ```bash
 export TASK=T-E07-F20-001
-shark task start $TASK
+shark task next-status $TASK
 # ... do work ...
-shark task complete $TASK
-shark task approve $TASK
+shark task next-status $TASK
 ```
 
 **After:**
 ```bash
 export TASK=e07-f20-001  # Shorter, lowercase
-shark task start $TASK
+shark status advance $TASK
 # ... do work ...
-shark task complete $TASK
-shark task approve $TASK
+shark status advance $TASK
 ```
 
 #### Use Case 3: Listing Tasks in Epic/Feature
@@ -436,8 +427,8 @@ result = subprocess.run([
 task = json.loads(result.stdout)
 task_key = task["key"]  # "T-E07-F20-003"
 
-# Start task
-subprocess.run(["shark", "task", "start", task_key, "--json"])
+# Advance task to next status
+subprocess.run(["shark", "task", "next-status", task_key, "--json"])
 ```
 
 #### Example 2: Python Script (New Syntax)
@@ -459,10 +450,10 @@ result = subprocess.run([
 task = json.loads(result.stdout)
 task_key = task["key"]  # "T-E07-F20-003"
 
-# Start task (short format, case insensitive)
-subprocess.run(["shark", "task", "start", task_key.lower().replace("t-", ""), "--json"])
+# Advance task to next status (short format, case insensitive)
+subprocess.run(["shark", "task", "next-status", task_key.lower().replace("t-", ""), "--json"])
 # Or just use the key as-is
-subprocess.run(["shark", "task", "start", task_key, "--json"])
+subprocess.run(["shark", "task", "next-status", task_key, "--json"])
 ```
 
 #### Example 3: Shell Script

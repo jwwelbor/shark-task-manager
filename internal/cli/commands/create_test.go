@@ -28,8 +28,8 @@ func TestCreateDispatcherHasCorrectGroupID(t *testing.T) {
 		t.Fatal("create command is nil")
 	}
 
-	if cmd.GroupID != "essentials" {
-		t.Errorf("create command has GroupID %q, expected 'essentials'", cmd.GroupID)
+	if cmd.GroupID != "manage" {
+		t.Errorf("create command has GroupID %q, expected 'manage'", cmd.GroupID)
 	}
 }
 

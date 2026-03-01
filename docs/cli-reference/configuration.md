@@ -74,7 +74,7 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `default_agent` | string/null | `null` | Default agent type for `shark next` and task creation |
+| `default_agent` | string/null | `null` | Default agent type for task creation and filtering |
 | `default_epic` | string/null | `null` | Default epic for task/feature creation |
 
 ### Environment Variables

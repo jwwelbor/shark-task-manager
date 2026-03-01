@@ -119,11 +119,11 @@ shark feature get E01-F01  # Check feature progress calculation
 # Create new task
 shark task create E01 F01 "Test task" --agent=backend
 
-# Update task status
-shark task start E01-F01-001
+# Advance task to next workflow status
+shark status advance E01-F01-001
 
-# Complete task
-shark task complete E01-F01-001
+# Continue advancing through the workflow
+shark status advance E01-F01-001
 
 # Verify from another machine (if multi-machine setup)
 ```

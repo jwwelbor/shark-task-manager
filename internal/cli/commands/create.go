@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -9,7 +8,7 @@ import (
 var createCmd = &cobra.Command{
 	Use:     "create <type> [args]",
 	Short:   "Create an epic, feature, or task",
-	GroupID: "essentials",
+	GroupID: "manage",
 	Long: `Create a new entity. Dispatches to the appropriate create handler based on type.
 
 Examples:
@@ -70,9 +69,6 @@ Examples:
 }
 
 func init() {
-	// Register parent command
-	cli.RootCmd.AddCommand(createCmd)
-
 	// Register subcommands
 	createCmd.AddCommand(createEpicCmd)
 	createCmd.AddCommand(createFeatureCmd)

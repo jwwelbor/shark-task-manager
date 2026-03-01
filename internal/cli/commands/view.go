@@ -14,7 +14,7 @@ import (
 var viewCmd = &cobra.Command{
 	Use:     "view <KEY>",
 	Short:   "View epic, feature, or task specification in external viewer",
-	GroupID: "essentials",
+	GroupID: "inspect",
 	Long: `View specification files in an external viewer (glow, nano, cat, etc.)
 
 The viewer can be configured in .sharkconfig.json:
