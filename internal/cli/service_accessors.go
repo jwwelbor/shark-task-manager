@@ -147,6 +147,11 @@ func GetEpicService() *services.EpicService {
 	svc := services.NewEpicService(epicRepo, workflowSvc, noteRepo, featureRepo, taskRepo)
 	svc.SetDocRepo(docRepo)
 	svc.SetWritableDocRepo(docRepo)
+
+	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
+	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
+	svc.SetAnalyticsService(analyticsSvc)
+
 	return svc
 }
 
@@ -178,6 +183,11 @@ func GetFeatureService() *services.FeatureService {
 	svc := services.NewFeatureService(featureRepo, workflowSvc, noteRepo, taskRepo, epicRepo)
 	svc.SetDocRepo(docRepo)
 	svc.SetWritableDocRepo(docRepo)
+
+	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
+	progressSvc := services.NewFeatureProgressService(featureRepo, taskRepo, workflowSvc)
+	svc.SetProgressService(progressSvc)
+
 	return svc
 }
 

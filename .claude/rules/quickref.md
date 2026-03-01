@@ -26,20 +26,6 @@ make vet               # Run go vet for static analysis
 make lint              # Run golangci-lint (auto-installs if needed)
 ```
 
-## Quick Commands (Task Shortcuts)
-
-Quick commands are shorthand aliases for common task operations:
-
-```bash
-shark next                                 # Get next available task
-shark start E07-F01-001                    # Start task (→ in_progress/in_development)
-shark done E07-F01-001 --notes="Done"      # Complete task (→ ready_for_review)
-shark block E07-F01-001 --reason="..."     # Block task
-shark unblock E07-F01-001                  # Unblock task
-```
-
-These are identical to `shark task next`, `shark task start`, `shark task complete`, `shark task block`, `shark task unblock`.
-
 ## Core Commands (Entity Auto-Detection)
 
 Core commands auto-detect entity type from key format:
@@ -91,7 +77,7 @@ shark analytics E07                        # Epic analytics
 
 ## Entity Management
 
-### Task Commands (26 subcommands)
+### Task Commands (18 subcommands)
 
 ```bash
 # CRUD
@@ -102,11 +88,8 @@ shark task update E07-F01-001 --title="New Title"
 shark task delete E07-F01-001
 
 # Lifecycle
-shark task start E07-F01-001
-shark task complete E07-F01-001 --notes="Done"
 shark task approve E07-F01-001
-shark task block E07-F01-001 --reason="..."
-shark task unblock E07-F01-001
+shark task reopen E07-F01-001
 shark task next-status E07-F01-001         # Advance to next workflow status
 shark task set-status E07-F01-001 blocked  # Set status directly
 

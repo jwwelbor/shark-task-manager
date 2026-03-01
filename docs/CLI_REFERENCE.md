@@ -5,10 +5,9 @@
 ## Quick Start
 
 ```bash
-# Quick Commands (task shortcuts)
-shark next                                 # Get next available task
-shark start E07-F01-001                    # Start task
-shark done E07-F01-001 --notes="Done"      # Complete task
+# Workflow Commands
+shark status advance E07-F01-001                 # Advance to next status
+shark task next-status E07-F01-001               # Advance to next status (equivalent)
 
 # Core Commands (auto-detect entity type)
 shark get E07                              # Get epic

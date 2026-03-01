@@ -21,6 +21,7 @@ Manage:
   create       Create an epic, feature, or task
   update       Update an epic, feature, or task
   delete       Delete an epic, feature, or task
+  status       Change status for epic, feature, or task
   notes        Search notes across all tasks
   context      Get or manage entity context data
   related-docs Manage related documents

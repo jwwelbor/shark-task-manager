@@ -34,22 +34,22 @@ shark init --non-interactive
 
 # 2. Query available work
 shark epic list --json
-shark task next --agent=backend --json
+shark task list --status=todo --agent=backend --json
 
-# 3. Start working on a task (short format, recommended)
-shark task start E04-F06-001
+# 3. Advance task to next workflow status (short format, recommended)
+shark task next-status E04-F06-001
 # Case insensitive
-shark task start e04-f06-001
+shark task next-status e04-f06-001
 # OR traditional format (still supported)
-shark task start T-E04-F06-001
+shark task next-status T-E04-F06-001
 # OR using human-readable slugged key
-shark task start E04-F06-001-implement-user-authentication
+shark task next-status E04-F06-001-implement-user-authentication
 
-# 4. Mark task ready for review
-shark task complete E04-F06-001
+# 4. Advance again to next status
+shark task next-status E04-F06-001
 
-# 5. Approve and complete
-shark task approve E04-F06-001
+# 5. Continue advancing through workflow
+shark task next-status E04-F06-001
 ```
 
 ### Core Workflows for AI Agents
@@ -114,29 +114,6 @@ shark feature get e04-f06 --json
 shark feature get E04-F06-authentication --json
 shark feature get e04-f06-authentication --json
 ```
-
-**Find the next available task:**
-```bash
-# Get next task for any agent
-shark task next --json
-
-# Get next task for specific agent type (standard types)
-shark task next --agent=backend --json
-shark task next --agent=frontend --json
-
-# Get next task for specific agent type (custom types)
-shark task next --agent=architect --json
-shark task next --agent=business-analyst --json
-
-# Get next task in specific epic
-shark task next --epic=E04 --json
-```
-
-The `task next` command:
-- Returns tasks in `todo` status
-- Checks all dependencies are completed
-- Sorts by priority (1 = highest)
-- Returns task key, title, file path, and dependencies
 
 #### 3. Querying Tasks
 
@@ -244,60 +221,58 @@ Shark supports flexible agent type assignment for diverse team structures and mu
 - **Standard agent types** (`frontend`, `backend`, `api`, `testing`, `devops`, `general`) have role-specific templates
 - **Custom agent types** (`architect`, `business-analyst`, `qa`, `tech-lead`, `product-manager`, `ux-designer`, etc.) use the general template
 - Any non-empty string is supported as an agent type
-- Custom types enable multi-agent orchestration: each agent can query their work with `shark task next --agent=<type> --json`
+- Custom types enable multi-agent orchestration: each agent can query their work with `shark task list --agent=<type> --status=todo --json`
 
 #### 5. Task Lifecycle Management
 
 **Standard workflow:**
 
 ```bash
-# 1. Start task (todo → in_progress)
+# 1. Advance task to next workflow status
 # Short format (recommended)
-shark task start E04-F06-001 --json
+shark status advance E04-F06-001 --json
 # Case insensitive
-shark task start e04-f06-001 --json
+shark status advance e04-f06-001 --json
 # Traditional format (still supported)
-shark task start T-E04-F06-001 --json
+shark status advance T-E04-F06-001 --json
 
-# 2. Mark ready for review (in_progress → ready_for_review)
-shark task complete E04-F06-001 --json
+# 2. Continue advancing through the workflow
+shark status advance E04-F06-001 --json
 
-# 3. Approve and mark completed (ready_for_review → completed)
-shark task approve E04-F06-001 --json
+# 3. Advance again to reach completion
+shark status advance E04-F06-001 --json
 ```
 
 **State Transitions:**
 
-| Command | From Status | To Status | Notes |
-|---------|-------------|-----------|-------|
-| `start` | `todo` | `in_progress` | Begin work on task |
-| `complete` | `in_progress` | `ready_for_review` | Implementation done, needs review |
-| `approve` | `ready_for_review` | `completed` | Review passed, task complete |
-| `reopen` | `ready_for_review` | `in_progress` | Review failed, rework needed |
-| `block` | `todo`, `in_progress` | `blocked` | Cannot proceed, needs resolution |
-| `unblock` | `blocked` | `todo` | Blocker resolved, ready to start |
+| Command | Description | Notes |
+|---------|-------------|-------|
+| `shark status advance <key>` | Advance to next workflow status | Determined by workflow profile |
+| `shark task next-status <key>` | Advance to next workflow status | Equivalent to `status advance` |
+| `shark status set <key> <status>` | Set status directly | Use when skipping steps or correcting state |
+| `shark status set <key> blocked --reason="..."` | Block task | Cannot proceed, needs resolution |
 
 **Handling blocked tasks:**
 
 ```bash
 # Block a task with reason
-shark task block T-E04-F06-001 --reason="Waiting for API design approval" --json
+shark status set E04-F06-001 blocked --reason="Waiting for API design approval" --json
 
 # List all blocked tasks
 shark task list --blocked --json
 
-# Unblock when resolved
-shark task unblock T-E04-F06-001 --json
+# Unblock by advancing to next status
+shark status advance E04-F06-001 --json
 ```
 
 **Handling review feedback:**
 
 ```bash
-# Reopen for rework
-shark task reopen T-E04-F06-001 --notes="Need to add error handling" --json
+# Set back to in-progress for rework
+shark status set E04-F06-001 in_progress --reason="Need to add error handling" --json
 
-# Fix issues and mark ready again
-shark task complete T-E04-F06-001 --json
+# Fix issues and advance to review status again
+shark status advance E04-F06-001 --json
 ```
 
 **Important:** Status is managed exclusively in the database and is NOT from files. This ensures atomic status transitions and audit trails.
@@ -326,9 +301,9 @@ Returns:
 ### AI Agent Best Practices
 
 1. **Always use `--json` flag** for machine-readable output
-2. **Check dependencies** before starting tasks via `shark task next --json`
+2. **Check dependencies** before starting tasks via `shark task list --status=todo --json`
 3. **Use atomic operations** - each command is a single transaction
-4. **Handle blocked tasks** - use `block` command with reasons
+4. **Handle blocked tasks** - use `shark status set <key> blocked --reason="..."` with reasons
 5. **Track work with agent identifier** - use `--agent` flag for audit trail
 6. **Use priority effectively** - 1=highest, 10=lowest for task ordering
 7. **Check exit codes** - Non-zero indicates errors (1=not found, 2=db error, 3=invalid state)

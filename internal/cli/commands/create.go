@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -70,9 +69,6 @@ Examples:
 }
 
 func init() {
-	// Register parent command
-	cli.RootCmd.AddCommand(createCmd)
-
 	// Register subcommands
 	createCmd.AddCommand(createEpicCmd)
 	createCmd.AddCommand(createFeatureCmd)

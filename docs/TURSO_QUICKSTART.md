@@ -131,7 +131,7 @@ To access your tasks from multiple machines:
 ```bash
 # Machine 1
 shark task create E01 F01 "Implement login" --agent=backend
-shark task start E01-F01-001
+shark status advance E01-F01-001
 
 # Machine 2 (automatically sees the task)
 shark task list E01 F01

@@ -28,10 +28,10 @@ shark feature get f01            # Short format (lowercase)
 ### Tasks
 
 ```bash
-shark task start E07-F20-001     # Short format
-shark task start e07-f20-001     # Lowercase
-shark task start T-E07-F20-001   # Traditional format
-shark task start t-e07-f20-001   # Traditional lowercase
+shark task next-status E07-F20-001     # Short format
+shark task next-status e07-f20-001     # Lowercase
+shark task next-status T-E07-F20-001   # Traditional format
+shark task next-status t-e07-f20-001   # Traditional lowercase
 ```
 
 ## Short Task Key Format
@@ -42,16 +42,16 @@ Task keys can now be referenced without the `T-` prefix:
 
 ```bash
 shark task get T-E07-F20-001
-shark task start T-E07-F20-001
-shark task complete T-E07-F20-001
+shark task next-status T-E07-F20-001
+shark status advance T-E07-F20-001
 ```
 
 ### Short Format (Recommended)
 
 ```bash
 shark task get E07-F20-001
-shark task start E07-F20-001
-shark task complete E07-F20-001
+shark task next-status E07-F20-001
+shark status advance E07-F20-001
 ```
 
 Both formats work identically. The CLI automatically normalizes keys internally.
@@ -98,7 +98,7 @@ shark task create --epic=E07 --feature=F20 --title="Task Title"
 
 ## Dual Key Format Support
 
-All `get`, `start`, `complete`, `approve`, `reopen`, `block`, and `unblock` commands support both numeric and slugged keys:
+All `get`, `next-status`, `set-status`, `block`, and `unblock` commands support both numeric and slugged keys:
 
 ### Numeric Keys
 
@@ -118,12 +118,12 @@ All `get`, `start`, `complete`, `approve`, `reopen`, `block`, and `unblock` comm
 # Using numeric keys
 shark epic get E07
 shark feature get E07-F01
-shark task start E07-F01-001
+shark task next-status E07-F01-001
 
 # Using slugged keys (same entities)
 shark epic get E07-user-management-system
 shark feature get E07-F01-authentication
-shark task start E07-F01-001-implement-jwt-validation
+shark task next-status E07-F01-001-implement-jwt-validation
 ```
 
 ## Related Documentation

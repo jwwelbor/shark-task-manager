@@ -3,7 +3,6 @@ package commands
 import (
 	"fmt"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +27,6 @@ Examples:
 }
 
 func init() {
-	cli.RootCmd.AddCommand(deleteCmd)
 	deleteCmd.Flags().Bool("force", false, "Force deletion (cascade delete children)")
 }
 

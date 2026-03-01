@@ -56,6 +56,65 @@ type entityNoteAdapter struct {
 	repo *repository.EntityNoteRepository
 }
 
+// workSessionAdapter adapts *repository.WorkSessionRepository to the services.WorkSessionRepository interface.
+// The repository returns *repository.SessionStats but the service interface expects *services.WorkSessionStats.
+type workSessionAdapter struct {
+	repo *repository.WorkSessionRepository
+}
+
+func (a *workSessionAdapter) GetByTaskID(ctx context.Context, taskID int64) ([]*models.WorkSession, error) {
+	return a.repo.GetByTaskID(ctx, taskID)
+}
+
+func (a *workSessionAdapter) GetSessionStatsByTaskID(ctx context.Context, taskID int64) (*services.WorkSessionStats, error) {
+	stats, err := a.repo.GetSessionStatsByTaskID(ctx, taskID)
+	if err != nil || stats == nil {
+		return nil, err
+	}
+	return &services.WorkSessionStats{
+		TotalSessions:   stats.TotalSessions,
+		TotalDuration:   stats.TotalDuration,
+		AverageDuration: stats.AverageDuration,
+		MedianDuration:  stats.MedianDuration,
+		ActiveSession:   stats.ActiveSession,
+	}, nil
+}
+
+func (a *workSessionAdapter) GetActiveSessionByTaskID(ctx context.Context, taskID int64) (*models.WorkSession, error) {
+	return a.repo.GetActiveSessionByTaskID(ctx, taskID)
+}
+
+func (a *workSessionAdapter) GetSessionAnalyticsByFeature(ctx context.Context, featureID int64, agentType *string) (*services.SessionAnalytics, error) {
+	return a.repo.GetSessionAnalyticsByFeature(ctx, featureID, agentType)
+}
+
+func (a *workSessionAdapter) GetSessionAnalyticsByEpic(ctx context.Context, epicID int64, agentType *string) (*services.SessionAnalytics, error) {
+	return a.repo.GetSessionAnalyticsByEpic(ctx, epicID, agentType)
+}
+
+// taskHistoryAdapter adapts *repository.TaskHistoryRepository to the services.TaskHistoryRepository interface.
+// The two HistoryFilters types have identical fields but different package paths, so an adapter is needed.
+type taskHistoryAdapter struct {
+	repo *repository.TaskHistoryRepository
+}
+
+func (a *taskHistoryAdapter) GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
+	return a.repo.GetHistoryByTaskKey(ctx, taskKey)
+}
+
+func (a *taskHistoryAdapter) ListWithFilters(ctx context.Context, filters services.HistoryFilters) ([]*models.TaskHistory, error) {
+	return a.repo.ListWithFilters(ctx, repository.HistoryFilters{
+		Agent:      filters.Agent,
+		Since:      filters.Since,
+		EpicKey:    filters.EpicKey,
+		FeatureKey: filters.FeatureKey,
+		OldStatus:  filters.OldStatus,
+		NewStatus:  filters.NewStatus,
+		Limit:      filters.Limit,
+		Offset:     filters.Offset,
+	})
+}
+
 func (a *entityNoteAdapter) CreateRejectionNote(
 	ctx context.Context,
 	entityType string,
@@ -133,8 +192,31 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		epicRepo,    // Epic lookup for CreateFeature
 	)
 
+	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
+	progressSvc := services.NewFeatureProgressService(featureRepo, taskRepo, workflowSvc)
+	featureService.SetProgressService(progressSvc)
+
 	// Wire featureService into taskService so status mutations trigger progress recalculation.
 	taskService.SetFeatureService(featureService)
+
+	// Wire sub-services for delegation (query, dependency, history).
+	querySvc := services.NewTaskQueryService(taskRepo)
+	taskService.SetQueryService(querySvc)
+
+	relRepo := repository.NewTaskRelationshipRepository(db)
+	docRepo := repository.NewDocumentRepository(db)
+	depSvc := services.NewTaskDependencyService(taskRepo)
+	depSvc.SetDepRepo(relRepo)
+	depSvc.SetRelQueryRepo(relRepo)
+	depSvc.SetWritableDocRepo(docRepo)
+	taskService.SetDependencyService(depSvc)
+
+	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(db)}
+	historySvc := services.NewTaskHistoryService(&taskHistoryAdapter{repo: historyRepo})
+	historySvc.SetSessionRepo(sessionRepo)
+	historySvc.SetFeatureRepo(featureRepo)
+	historySvc.SetEpicRepo(epicRepo)
+	taskService.SetHistoryService(historySvc)
 
 	epicService := services.NewEpicService(
 		epicRepo,    // Epic data access
@@ -143,6 +225,10 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		featureRepo, // Child feature counting for warnings
 		taskRepo,    // Task repository for impediment tracking
 	)
+
+	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
+	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
+	epicService.SetAnalyticsService(analyticsSvc)
 
 	// Step 4: Construct supporting services
 	noteService := services.NewNoteService(noteRepo, epicRepo, featureRepo, taskRepo)
@@ -185,7 +271,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 //     }
 //
 //     // 2. Call service (all business logic in service layer)
-//     task, err := h.taskService.StartTask(r.Context(), req.TaskKey, req.AgentID)
+//     task, err := h.taskService.AdvanceTaskStatus(r.Context(), req.TaskKey)
 //     if err != nil {
 //         http.Error(w, err.Error(), http.StatusInternalServerError)
 //         return

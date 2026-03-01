@@ -3,14 +3,11 @@ package services
 import (
 	"context"
 	"fmt"
-	"math"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/progress"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -92,6 +89,7 @@ type FeatureService struct {
 	relRepo         FeatureRelationshipRepository
 	epicLookupRepo  FeatureEpicLookup
 	writableDocRepo FeatureWritableDocumentRepository
+	progressService *FeatureProgressService
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -132,6 +130,23 @@ func (s *FeatureService) SetRelRepo(relRepo FeatureRelationshipRepository) {
 // The *repository.DocumentRepository type satisfies the FeatureWritableDocumentRepository interface.
 func (s *FeatureService) SetWritableDocRepo(docRepo FeatureWritableDocumentRepository) {
 	s.writableDocRepo = docRepo
+}
+
+// SetProgressService sets the progress sub-service on the feature service.
+// When nil, progress methods fall back to lazy initialization using the stored repos.
+func (s *FeatureService) SetProgressService(progressService *FeatureProgressService) {
+	s.progressService = progressService
+}
+
+// getProgressService returns the configured progress sub-service, or lazily creates
+// one from the stored repository fields if none has been set.
+func (s *FeatureService) getProgressService() *FeatureProgressService {
+	if s.progressService != nil {
+		return s.progressService
+	}
+	// Lazy initialization: build from stored repositories.
+	// workflowSvc is passed unscoped; FeatureProgressService uses ForLevel(LevelTask) internally.
+	return NewFeatureProgressService(s.repo, s.taskRepo, s.workflowSvc)
 }
 
 // LinkDocument creates or retrieves a document by its title and file path, then links it to a feature.
@@ -442,10 +457,7 @@ func (s *FeatureService) GetTaskCount(ctx context.Context, featureID int64) (int
 // Returns a map of featureID -> (taskStatus -> count).
 // Returns nil, nil if taskRepo is not available (graceful degradation).
 func (s *FeatureService) GetStatusBreakdownBatch(ctx context.Context, featureIDs []int64) (map[int64]map[models.TaskStatus]int, error) {
-	if s.taskRepo == nil {
-		return nil, nil
-	}
-	return s.taskRepo.GetStatusBreakdownMapBatch(ctx, featureIDs)
+	return s.getProgressService().GetStatusBreakdownBatch(ctx, featureIDs)
 }
 
 // UpdateFeatureKey renames a feature key. Returns an error if the new key is already in use.
@@ -664,114 +676,19 @@ func (s *FeatureService) CompleteFeature(ctx context.Context, featureKey string,
 // and completion progress (raw task completion percentage).
 // All progress calculation is done in the service layer using the progress package.
 func (s *FeatureService) GetProgress(ctx context.Context, key string) (*FeatureProgressInfo, error) {
-	feature, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature %s: %w", key, err)
-	}
-	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", key)
-	}
-
-	return s.calculateProgressForFeature(ctx, key, feature.ID)
-}
-
-// calculateProgressForFeature computes progress metrics for a feature by its ID.
-// This is the single source of truth for feature progress calculation.
-// Uses GetTaskStatusBreakdown from the repository and progress.CalculateProgress
-// with workflow config weights.
-func (s *FeatureService) calculateProgressForFeature(ctx context.Context, key string, featureID int64) (*FeatureProgressInfo, error) {
-	statusBreakdown, err := s.repo.GetTaskStatusBreakdown(ctx, featureID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task status breakdown for feature %s: %w", key, err)
-	}
-
-	// Convert map[models.TaskStatus]int to map[string]int for progress package
-	statusCounts := make(map[string]int, len(statusBreakdown))
-	for k, v := range statusBreakdown {
-		statusCounts[string(k)] = v
-	}
-
-	// Calculate progress using the progress package with task-level workflow config.
-	// We must use the task-level workflow (not feature-level) because statusCounts
-	// contains task statuses, and task status weights are defined in the task workflow.
-	taskWorkflowSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
-	wf := taskWorkflowSvc.GetWorkflow()
-	progressInfo := progress.CalculateProgress(statusCounts, wf)
-
-	// Count completed tasks using terminal status check (task-level)
-	totalTasks := 0
-	completedTasks := 0
-	for status, count := range statusBreakdown {
-		totalTasks += count
-		if taskWorkflowSvc.IsTerminalStatus(string(status)) {
-			completedTasks += count
-		}
-	}
-
-	completionPct := 0.0
-	if totalTasks > 0 {
-		completionPct = (float64(completedTasks) / float64(totalTasks)) * 100.0
-	}
-
-	// Build ratio strings
-	completionRatio := fmt.Sprintf("%d/%d", completedTasks, totalTasks)
-
-	return &FeatureProgressInfo{
-		FeatureKey:         key,
-		WeightedProgress:   math.Round(progressInfo.WeightedPct*100) / 100,
-		CompletionProgress: math.Round(completionPct*100) / 100,
-		TotalTasks:         totalTasks,
-		CompletedTasks:     completedTasks,
-		WeightedRatio:      progressInfo.WeightedRatio,
-		CompletionRatio:    completionRatio,
-	}, nil
+	return s.getProgressService().GetProgress(ctx, key)
 }
 
 // RecalculateAndSetProgress recalculates the cached progress_pct for a feature
 // and persists it. Automatically sets feature status to "completed" when weighted
 // progress reaches 100% (all tasks completed).
-//
-// This method replaces the former FeatureRepository.UpdateProgress business logic
-// that was incorrectly placed in the repository layer.
 func (s *FeatureService) RecalculateAndSetProgress(ctx context.Context, featureID int64) error {
-	feature, err := s.repo.GetByID(ctx, featureID)
-	if err != nil {
-		return fmt.Errorf("failed to get feature by ID %d: %w", featureID, err)
-	}
-	if feature == nil {
-		return fmt.Errorf("feature not found with id %d", featureID)
-	}
-
-	progressInfo, err := s.calculateProgressForFeature(ctx, feature.Key, featureID)
-	if err != nil {
-		return fmt.Errorf("failed to calculate progress for feature %d: %w", featureID, err)
-	}
-
-	feature.ProgressPct = progressInfo.WeightedProgress
-
-	// Auto-complete feature when all tasks are completed (weighted progress >= 100%)
-	if progressInfo.WeightedProgress >= 100.0 {
-		feature.Status = models.FeatureStatusCompleted
-	}
-
-	if err := s.repo.Update(ctx, feature); err != nil {
-		return fmt.Errorf("failed to update feature progress: %w", err)
-	}
-
-	return nil
+	return s.getProgressService().RecalculateAndSetProgress(ctx, featureID)
 }
 
 // RecalculateAndSetProgressByKey recalculates progress for a feature identified by key.
 func (s *FeatureService) RecalculateAndSetProgressByKey(ctx context.Context, key string) error {
-	feature, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return fmt.Errorf("failed to get feature %s: %w", key, err)
-	}
-	if feature == nil {
-		return fmt.Errorf("feature not found: %s", key)
-	}
-
-	return s.RecalculateAndSetProgress(ctx, feature.ID)
+	return s.getProgressService().RecalculateAndSetProgressByKey(ctx, key)
 }
 
 // GetTaskCounts returns the total task count for each of the given feature IDs in a
@@ -781,236 +698,39 @@ func (s *FeatureService) RecalculateAndSetProgressByKey(ctx context.Context, key
 // of zero (not included in the map; callers should treat missing keys as zero).
 // Degrades gracefully if taskRepo is nil (returns empty map).
 func (s *FeatureService) GetTaskCounts(ctx context.Context, featureIDs []int64) (map[int64]int, error) {
-	if s.taskRepo == nil || len(featureIDs) == 0 {
-		return map[int64]int{}, nil
-	}
-	return s.taskRepo.GetTaskCountsForFeatures(ctx, featureIDs)
+	return s.getProgressService().GetTaskCounts(ctx, featureIDs)
 }
 
 // GetHealth analyzes the health of a feature based on blocked tasks and approval age.
 // Degrades gracefully if taskRepo is nil (returns healthy).
 func (s *FeatureService) GetHealth(ctx context.Context, key string) (*FeatureHealthInfo, error) {
-	feature, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature %s: %w", key, err)
-	}
-	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", key)
-	}
-
-	health := &FeatureHealthInfo{
-		FeatureKey: key,
-		Status:     "healthy",
-	}
-
-	if s.taskRepo == nil {
-		return health, nil
-	}
-
-	tasks, err := s.taskRepo.ListByFeature(ctx, feature.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tasks for feature %s: %w", key, err)
-	}
-
-	// Count blocked tasks
-	var blockedTasks []*models.Task
-	for _, t := range tasks {
-		if string(t.Status) == "blocked" {
-			blockedTasks = append(blockedTasks, t)
-		}
-	}
-
-	if len(blockedTasks) >= 2 {
-		health.Status = "critical"
-		health.Reasons = append(health.Reasons, fmt.Sprintf("%d blocked tasks", len(blockedTasks)))
-	} else if len(blockedTasks) == 1 {
-		health.Status = "warning"
-		health.Reasons = append(health.Reasons, "1 blocked task")
-	}
-
-	// Check for high-priority blocked tasks (priority 1-3 is high)
-	for _, t := range blockedTasks {
-		if t.Priority <= 3 && health.Status != "critical" {
-			health.Status = "critical"
-			health.Reasons = append(health.Reasons, fmt.Sprintf("high-priority task %s is blocked", t.Key))
-		}
-	}
-
-	// Check for old approval tasks
-	now := time.Now()
-	for _, t := range tasks {
-		meta := s.workflowSvc.GetStatusMetadata(string(t.Status))
-		if meta.Phase == "approval" || meta.Phase == "review" {
-			ageDays := int(now.Sub(t.UpdatedAt).Hours() / 24)
-			if ageDays > 3 && health.Status == "healthy" {
-				health.Status = "warning"
-				health.Reasons = append(health.Reasons, fmt.Sprintf("task %s awaiting approval for %d days", t.Key, ageDays))
-			}
-		}
-	}
-
-	return health, nil
+	return s.getProgressService().GetHealth(ctx, key)
 }
 
 // GetWorkBreakdown categorizes remaining work by responsibility using workflow config.
 func (s *FeatureService) GetWorkBreakdown(ctx context.Context, key string) (*WorkBreakdown, error) {
-	feature, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature %s: %w", key, err)
-	}
-	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", key)
-	}
-
-	statusBreakdown, err := s.repo.GetTaskStatusBreakdown(ctx, feature.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task status breakdown for feature %s: %w", key, err)
-	}
-
-	wf := s.workflowSvc.GetWorkflow()
-
-	wb := &WorkBreakdown{FeatureKey: key}
-
-	for status, count := range statusBreakdown {
-		statusStr := string(status)
-		wb.TotalTasks += count
-
-		// Determine responsibility from workflow config
-		responsibility := "none"
-		if wf != nil && wf.StatusMetadata != nil {
-			if meta, found := wf.StatusMetadata[statusStr]; found {
-				if meta.Responsibility != "" {
-					responsibility = meta.Responsibility
-				}
-			}
-		}
-
-		// Check if terminal (completed)
-		if s.workflowSvc.IsTerminalStatus(statusStr) {
-			wb.CompletedTasks += count
-			continue
-		}
-
-		// Check if blocked
-		if statusStr == "blocked" {
-			wb.BlockedWork += count
-			continue
-		}
-
-		// Categorize by responsibility
-		switch responsibility {
-		case "agent":
-			wb.AgentWork += count
-		case "human", "qa_team":
-			wb.HumanWork += count
-		default:
-			wb.NotStarted += count
-		}
-	}
-
-	return wb, nil
+	return s.getProgressService().GetWorkBreakdown(ctx, key)
 }
 
 // GetActionItems returns tasks requiring immediate attention for a feature.
 // Groups tasks into awaiting_approval, blocked, and in_progress categories.
 // Degrades gracefully if taskRepo is nil (returns empty result).
 func (s *FeatureService) GetActionItems(ctx context.Context, key string) (*FeatureActionItems, error) {
-	feature, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature %s: %w", key, err)
-	}
-	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", key)
-	}
-
-	result := &FeatureActionItems{FeatureKey: key}
-
-	if s.taskRepo == nil {
-		return result, nil
-	}
-
-	tasks, err := s.taskRepo.ListByFeature(ctx, feature.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tasks for feature %s: %w", key, err)
-	}
-
-	now := time.Now()
-	for _, t := range tasks {
-		statusStr := string(t.Status)
-		meta := s.workflowSvc.GetStatusMetadata(statusStr)
-
-		item := &ActionTaskItem{
-			TaskKey:   t.Key,
-			Title:     t.Title,
-			Status:    statusStr,
-			UpdatedAt: t.UpdatedAt,
-		}
-
-		// Categorize by status phase and characteristics
-		if statusStr == "blocked" {
-			ageDays := int(now.Sub(t.UpdatedAt).Hours() / 24)
-			item.AgeDays = &ageDays
-			result.Blocked = append(result.Blocked, item)
-		} else if meta.Phase == "approval" || meta.Phase == "review" {
-			ageDays := int(now.Sub(t.UpdatedAt).Hours() / 24)
-			item.AgeDays = &ageDays
-			result.AwaitingApproval = append(result.AwaitingApproval, item)
-		} else if meta.Phase == "development" || meta.Phase == "execution" {
-			result.InProgress = append(result.InProgress, item)
-		}
-	}
-
-	return result, nil
+	return s.getProgressService().GetActionItems(ctx, key)
 }
 
 // GetEnrichedTaskStatusBreakdown returns task status counts for a feature,
 // enriched with workflow metadata (phase, color, order) from the task-level workflow.
 // Returns a []workflow.StatusCount ordered by workflow phase.
 func (s *FeatureService) GetEnrichedTaskStatusBreakdown(ctx context.Context, key string) ([]workflow.StatusCount, error) {
-	feature, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature %s: %w", key, err)
-	}
-	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", key)
-	}
-
-	rawBreakdown, err := s.repo.GetTaskStatusBreakdown(ctx, feature.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task status breakdown for feature %s: %w", key, err)
-	}
-
-	// Convert to map[string]int for NewStatusBreakdown
-	counts := make(map[string]int, len(rawBreakdown))
-	for k, v := range rawBreakdown {
-		counts[string(k)] = v
-	}
-
-	// Use task-level workflow service to enrich with phase/color/order metadata
-	taskWorkflowSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
-	breakdown := workflow.NewStatusBreakdown(counts, taskWorkflowSvc)
-	return breakdown.Counts, nil
+	return s.getProgressService().GetEnrichedTaskStatusBreakdown(ctx, key)
 }
 
 // GetTaskStatusBreakdownByFeatureID returns the enriched task status breakdown for a feature
 // using its database ID directly, avoiding a redundant key-based lookup when the caller
 // already has the feature loaded.
 func (s *FeatureService) GetTaskStatusBreakdownByFeatureID(ctx context.Context, featureID int64) ([]workflow.StatusCount, error) {
-	rawBreakdown, err := s.repo.GetTaskStatusBreakdown(ctx, featureID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task status breakdown for feature ID %d: %w", featureID, err)
-	}
-
-	// Convert to map[string]int for NewStatusBreakdown
-	counts := make(map[string]int, len(rawBreakdown))
-	for k, v := range rawBreakdown {
-		counts[string(k)] = v
-	}
-
-	// Use task-level workflow service to enrich with phase/color/order metadata
-	taskWorkflowSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
-	breakdown := workflow.NewStatusBreakdown(counts, taskWorkflowSvc)
-	return breakdown.Counts, nil
+	return s.getProgressService().GetTaskStatusBreakdownByFeatureID(ctx, featureID)
 }
 
 // ResolveFeaturePathFromFeature resolves the file path for a feature using an already-loaded
@@ -1033,25 +753,7 @@ func (s *FeatureService) ResolveFeaturePathFromFeature(feature *models.Feature, 
 
 // GetTaskStatusBreakdown returns the count of tasks per status for a feature.
 func (s *FeatureService) GetTaskStatusBreakdown(ctx context.Context, key string) (map[string]int, error) {
-	feature, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature %s: %w", key, err)
-	}
-	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", key)
-	}
-
-	breakdown, err := s.repo.GetTaskStatusBreakdown(ctx, feature.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task status breakdown for feature %s: %w", key, err)
-	}
-
-	// Convert map[models.TaskStatus]int to map[string]int
-	result := make(map[string]int, len(breakdown))
-	for k, v := range breakdown {
-		result[string(k)] = v
-	}
-	return result, nil
+	return s.getProgressService().GetTaskStatusBreakdown(ctx, key)
 }
 
 // CreateFeature creates a new feature under the specified epic.

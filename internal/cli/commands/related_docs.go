@@ -230,9 +230,6 @@ func printRelatedDocs(docs []*models.Document, useJSON bool) error {
 }
 
 func init() {
-	// Register related-docs command with root
-	cli.RootCmd.AddCommand(relatedDocsCmd)
-
 	// Add subcommands
 	relatedDocsCmd.AddCommand(relatedDocsAddCmd)
 	relatedDocsCmd.AddCommand(relatedDocsDeleteCmd)

@@ -95,9 +95,6 @@ Examples:
 }
 
 func init() {
-	// Register context command with root
-	cli.RootCmd.AddCommand(contextCmd)
-
 	// Add subcommands
 	contextCmd.AddCommand(contextGetCmd)
 	contextCmd.AddCommand(contextSetCmd)

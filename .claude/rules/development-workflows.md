@@ -86,19 +86,17 @@ State descriptions:
 
 Update status with:
 ```bash
-# Short format (recommended)
-./bin/shark task start E07-F20-001
-./bin/shark task complete E07-F20-001
+# Advance to next workflow status
+./bin/shark task next-status E07-F20-001
+./bin/shark status advance E07-F20-001
+
+# Set status directly
+./bin/shark status set E07-F20-001 in_progress
+./bin/shark task set-status E07-F20-001 in_progress
+
+# Approve / reopen
 ./bin/shark task approve E07-F20-001
-./bin/shark task block E07-F20-001 --reason="..."
-./bin/shark task unblock E07-F20-001
-
-# Traditional format (still supported)
-./bin/shark task start T-E07-F20-001
-./bin/shark task complete T-E07-F20-001
-
-# Case insensitive
-./bin/shark task start e07-f20-001
+./bin/shark task reopen E07-F20-001
 ```
 
 ## Development Workspace Structure

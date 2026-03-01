@@ -174,8 +174,7 @@ func TestTaskReopenCommand_HardcodedStatusValidation(t *testing.T) {
 				}
 
 				// Success: workflow config allows this transition
-				// The actual implementation in runTaskReopen (lines 1589-1617) correctly
-				// uses workflow config to validate transitions
+				// The workflow config is used to validate transitions
 				t.Logf("SUCCESS: Workflow config allows reopening from %s", tt.currentStatus)
 			}
 		})

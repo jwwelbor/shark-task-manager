@@ -6,22 +6,6 @@ import (
 	"testing"
 )
 
-// TestTaskReopen_RejectionReasonDocFlag tests that task reopen command accepts --reason-doc flag
-func TestTaskReopen_RejectionReasonDocFlag(t *testing.T) {
-	// Verify the task reopen command has the --reason-doc flag
-	if taskReopenCmd.Flags().Lookup("reason-doc") == nil {
-		t.Error("task reopen command missing --reason-doc flag")
-	}
-}
-
-// TestTaskApprove_RejectionReasonDocFlag tests that task approve command accepts --reason-doc flag
-func TestTaskApprove_RejectionReasonDocFlag(t *testing.T) {
-	// Verify the task approve command has the --reason-doc flag
-	if taskApproveCmd.Flags().Lookup("reason-doc") == nil {
-		t.Error("task approve command missing --reason-doc flag")
-	}
-}
-
 // TestValidateRejectionReasonDocPath tests path validation for --reason-doc flag
 func TestValidateRejectionReasonDocPath(t *testing.T) {
 	tests := []struct {

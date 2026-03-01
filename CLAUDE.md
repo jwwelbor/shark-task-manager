@@ -25,13 +25,6 @@ make shark             # Build only shark CLI
 make test              # Run all tests
 make test-coverage     # Run tests with HTML coverage report
 
-# Quick Commands (task shortcuts)
-./bin/shark next                                       # Get next available task
-./bin/shark start E07-F01-001                          # Start task
-./bin/shark done E07-F01-001 --notes="Done"            # Complete task
-./bin/shark block E07-F01-001 --reason="..."           # Block task
-./bin/shark unblock E07-F01-001                        # Unblock task
-
 # Core Commands (auto-detect entity type from key)
 ./bin/shark get E07                                    # Get epic details
 ./bin/shark get E07-F01                                # Get feature details
@@ -150,15 +143,11 @@ todo → in_progress → ready_for_review → completed
 **Advanced Profile (TDD Workflow):**
 Comprehensive multi-stage workflow covering planning, development, review, QA, and approval phases. See [Workflow Profiles Guide](docs/guides/workflow-profiles.md) for details.
 
-Commands (quick aliases shown first):
-- `shark start <task>` / `shark task start <task>` - Start task
-- `shark done <task>` / `shark task complete <task>` - Complete task
+Commands:
+- `shark task next-status <task>` / `shark status advance <task>` - Advance to next workflow status
+- `shark status set <task> <status>` / `shark task set-status <task> <status>` - Set status directly
 - `shark task approve <task>` - Final approval/completion
 - `shark task reopen <task>` - Move back to in-progress
-- `shark block <task> --reason="..."` / `shark task block <task>` - Block on dependency
-- `shark unblock <task>` / `shark task unblock <task>` - Remove block
-- `shark task next-status <task>` - Advance to next workflow status
-- `shark status set <task> <status>` / `shark task set-status <task> <status>` - Set status directly
 
 ### Workflow Profiles & Agent Routing
 

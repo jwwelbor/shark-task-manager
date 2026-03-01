@@ -84,7 +84,6 @@ func init() {
 	historyCmd.Flags().StringVar(&historyFormat, "format", "", "Output format (csv, json)")
 
 	historyCmd.Hidden = true
-	cli.RootCmd.AddCommand(historyCmd)
 }
 
 func runHistory(cmd *cobra.Command, args []string) error {

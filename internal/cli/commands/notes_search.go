@@ -176,9 +176,6 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	// Add notes command to root
-	cli.RootCmd.AddCommand(notesCmd)
-
 	// Add search subcommand
 	notesCmd.AddCommand(notesSearchCmd)
 

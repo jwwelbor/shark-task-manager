@@ -9,14 +9,13 @@ Complete command reference for the Shark Task Manager CLI.
 ### For AI Agents (DevAgent)
 
 ```bash
-# Get next task and start working
-shark next --json                          # Get next task (machine-readable)
-shark start E07-F01-001 --json             # Start task
-shark done E07-F01-001 --notes="Done" --json  # Complete task
+# Advance workflow and set status
+shark status advance E07-F01-001 --json             # Advance to next workflow status
+shark status set E07-F01-001 in_development --json  # Set status directly
 
 # Extract specific fields
-shark next --field key                     # Just the task key
 shark get E07-F01-001 --field status       # Just the status
+shark get E07-F01-001 --field key          # Just the key
 ```
 
 ### For Human Developers
@@ -24,9 +23,8 @@ shark get E07-F01-001 --field status       # Just the status
 ```bash
 # Daily workflow
 shark status                               # Project dashboard
-shark next                                 # What should I work on?
-shark start E07-F01-001                    # Start working
-shark done E07-F01-001 --notes="Finished"  # Mark complete
+shark status advance E07-F01-001           # Advance to next workflow status
+shark status set E07-F01-001 completed     # Set status directly
 
 # Browse project
 shark list                                 # List epics
@@ -46,18 +44,13 @@ Commands for day-to-day task lifecycle operations.
 
 | Command | Description | Standard Equivalent |
 |---------|-------------|---------------------|
-| `shark next` | Get next available task | `shark task next` |
-| `shark start <key>` | Start a task | `shark task start` |
-| `shark done <key>` | Complete a task | `shark task complete` |
-| `shark block <key>` | Block a task | `shark task block` |
-| `shark unblock <key>` | Unblock a task | `shark task unblock` |
 | `shark status [key]` | Project dashboard or entity status | - |
-| `shark status set <key> <status>` | Set entity status directly | - |
-| `shark status advance <key>` | Advance to next status | - |
+| `shark status set <key> <status>` | Set entity status directly | `shark task set-status` |
+| `shark status advance <key>` | Advance to next workflow status | `shark task next-status` |
 | `shark status options <key>` | Show valid next statuses | - |
 | `shark status history <key>` | View status change history | - |
 
-**Reference:** [Quick Commands](quick-commands.md) | [Status Commands](status-commands.md)
+**Reference:** [Status Commands](status-commands.md)
 
 ### Inspect
 
@@ -105,7 +98,7 @@ Full entity-specific subcommands, analytics, and administrative tools.
 
 | Entity | Subcommands | Reference |
 |--------|-------------|-----------|
-| `shark task` | 26 subcommands (create, get, list, start, complete, block, deps, note, ...) | [Task Commands](task-commands.md) |
+| `shark task` | 19 subcommands (create, get, list, update, delete, next-status, set-status, approve, reopen, deps, note, ...) | [Task Commands](task-commands.md) |
 | `shark feature` | 13 subcommands (create, get, list, complete, context, note, ...) | [Feature Commands](feature-commands.md) |
 | `shark epic` | 14 subcommands (create, get, list, complete, context, note, status, ...) | [Epic Commands](epic-commands.md) |
 
@@ -188,15 +181,6 @@ Shark detects entity type from key format:
 | `E##-F##-###` | Task | `E07-F01-001`, `T-E07-F01-001` |
 
 All keys are **case insensitive**.
-
-### Dual Command Style
-
-Every quick command has a standard equivalent:
-
-```bash
-shark next          # Quick style
-shark task next     # Standard style (identical behavior)
-```
 
 ### Exit Codes
 

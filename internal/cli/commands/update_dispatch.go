@@ -3,7 +3,6 @@ package commands
 import (
 	"fmt"
 
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +29,6 @@ Examples:
 }
 
 func init() {
-	cli.RootCmd.AddCommand(updateCmd)
 	updateCmd.Flags().String("title", "", "New title")
 	updateCmd.Flags().StringP("description", "d", "", "New description")
 	updateCmd.Flags().IntP("priority", "p", -1, "New priority (1-10, -1=no change)")

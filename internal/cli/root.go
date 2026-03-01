@@ -78,6 +78,9 @@ func Execute() error {
 }
 
 func init() {
+	// Disable alphabetical sorting so commands appear in registration order
+	cobra.EnableCommandSorting = false
+
 	// Define command groups for better organization in help output
 	RootCmd.AddGroup(
 		&cobra.Group{
@@ -87,10 +90,6 @@ func init() {
 		&cobra.Group{
 			ID:    "manage",
 			Title: "Manage:",
-		},
-		&cobra.Group{
-			ID:    "workflow",
-			Title: "Workflow:",
 		},
 		&cobra.Group{
 			ID:    "advanced",

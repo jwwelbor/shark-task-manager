@@ -60,9 +60,9 @@ When using `--json`, errors are returned as structured JSON:
 
 ```bash
 #!/bin/bash
-shark start E07-F01-001 --json
+shark status advance E07-F01-001 --json
 case $? in
-  0) echo "Task started" ;;
+  0) echo "Task advanced" ;;
   1) echo "Task not found" ;;
   2) echo "Database error" ;;
   3) echo "Invalid status transition" ;;
@@ -75,13 +75,13 @@ esac
 import subprocess, json
 
 result = subprocess.run(
-    ["shark", "start", "E07-F01-001", "--json"],
+    ["shark", "status", "advance", "E07-F01-001", "--json"],
     capture_output=True, text=True
 )
 
 if result.returncode == 0:
     task = json.loads(result.stdout)
-    print(f"Started: {task['key']}")
+    print(f"Advanced: {task['key']}")
 else:
     error = json.loads(result.stdout)
     print(f"Error ({error['code']}): {error['message']}")
@@ -208,14 +208,14 @@ Possible solutions:
 
 **Error:**
 ```
-Error: cannot start task E07-F01-002: task is blocked
+Error: cannot advance task E07-F01-002: task is blocked
 
 Reason: Waiting for API design approval
 
-Unblock with: shark unblock E07-F01-002
+Unblock with: shark status set E07-F01-002 todo
 ```
 
-**Solution:** Resolve the blocking issue, then run `shark unblock <key>`.
+**Solution:** Resolve the blocking issue, then use `shark status set <key> <status>` to move the task back to an active status.
 
 ---
 

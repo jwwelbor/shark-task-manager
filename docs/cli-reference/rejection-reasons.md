@@ -182,26 +182,27 @@ shark task get E07-F01-003 --json | jq '.rejection_history'
 
 ```bash
 # Simple rejection reason
-shark task reopen E07-F01-003 \
-  --rejection-reason="Missing error handling for database.Query() on line 67. Add null check."
+shark task set-status E07-F01-003 in_development \
+  --notes="Missing error handling for database.Query() on line 67. Add null check."
 
 # Complex rejection with linked document
-shark task reopen E07-F01-003 \
-  --rejection-reason="Found 3 critical issues. See code review document." \
-  --reason-doc="docs/reviews/E07-F01-003-code-review.md"
+shark task set-status E07-F01-003 in_development \
+  --notes="Found 3 critical issues. See code review document."
+# Then attach the review document as a related doc or note:
+shark task note add E07-F01-003 --type reference "docs/reviews/E07-F01-003-code-review.md"
 ```
 
 ### QA Engineer Rejecting Tests
 
 ```bash
 # Test failure with specific steps
-shark task reopen E07-F01-005 \
-  --rejection-reason="TestUserRepository_GetByID fails when input is empty. Add input validation."
+shark task set-status E07-F01-005 in_development \
+  --notes="TestUserRepository_GetByID fails when input is empty. Add input validation."
 
-# With detailed bug report
-shark task reopen E07-F01-005 \
-  --rejection-reason="Critical bug: Memory leak in connection pool. See detailed analysis." \
-  --reason-doc="docs/qa/E07-F01-005-memory-leak-analysis.md"
+# With detailed bug report reference
+shark task set-status E07-F01-005 in_development \
+  --notes="Critical bug: Memory leak in connection pool. See detailed analysis."
+shark task note add E07-F01-005 --type reference "docs/qa/E07-F01-005-memory-leak-analysis.md"
 ```
 
 ### Developer Reading Rejection
@@ -231,14 +232,14 @@ Task E07-F01-003 is moving from 'ready_for_code_review' to 'in_development'.
 Backward transitions require a rejection reason to provide feedback to developers.
 
 Usage:
-  shark task reopen E07-F01-003 --rejection-reason="<specific reason>"
+  shark task set-status E07-F01-003 in_development --notes="<specific reason>"
 
 Example:
-  shark task reopen E07-F01-003 \
-    --rejection-reason="Missing error handling on line 67. Add null check."
+  shark task set-status E07-F01-003 in_development \
+    --notes="Missing error handling on line 67. Add null check."
 
 To bypass (not recommended):
-  shark task reopen E07-F01-003 --force
+  shark task set-status E07-F01-003 in_development --force
 ```
 
 ### Invalid Document Path
@@ -294,8 +295,8 @@ Verify the file exists at:
 
 5. **Fix issues and note what was addressed:**
    ```bash
-   shark task complete E07-F01-003 \
-     --notes="Fixed error handling on line 67. Added null check and test case."
+   shark task next-status E07-F01-003
+   shark task note add E07-F01-003 --type solution "Fixed error handling on line 67. Added null check and test case."
    ```
 
 ## Related Documentation

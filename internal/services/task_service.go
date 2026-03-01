@@ -190,6 +190,13 @@ type TaskService struct {
 	epicRepo        AnalyticsEpicRepository
 	featureRepo     AnalyticsFeatureRepository
 	featureService  *FeatureService // optional: triggers progress recalc on status change
+
+	// Sub-services for delegating extracted functionality.
+	// When non-nil, method calls are delegated to the sub-service instead of
+	// using the inline implementations in this file.
+	queryService      *TaskQueryService
+	dependencyService *TaskDependencyService
+	historyService    *TaskHistoryService
 }
 
 // NewTaskService creates a new TaskService with the required dependencies.
@@ -231,6 +238,57 @@ func (s *TaskService) SetDocRepo(docRepo config.DocumentRepository) {
 // This enables related task lookups.
 func (s *TaskService) SetRelRepo(relRepo config.TaskRelationshipRepository) {
 	s.relRepo = relRepo
+}
+
+// SetQueryService sets the query sub-service for delegating list/query/display operations.
+// When set, calls to ListTasks, GetTasksByStatus, GetTasksByAgent, GetBlockedTasks,
+// SearchByFile, and GetTaskDisplayData are delegated to the sub-service.
+func (s *TaskService) SetQueryService(svc *TaskQueryService) {
+	s.queryService = svc
+}
+
+// SetDependencyService sets the dependency sub-service for delegating dependency/relationship operations.
+// When set, calls to ValidateDependencies, AddDependency, RemoveDependency, ListDependencies,
+// CreateTypedRelationship, UnlinkFile, UnlinkRelationships, GetTaskRelationships,
+// GetTaskBlockedBy, GetTaskBlocks, LinkDocument, and UnlinkDocument are delegated to the sub-service.
+func (s *TaskService) SetDependencyService(svc *TaskDependencyService) {
+	s.dependencyService = svc
+}
+
+// SetHistoryService sets the history sub-service for delegating history/analytics operations.
+// When set, calls to GetTaskHistory, ListHistory, GetWorkSessions, and GetSessionAnalytics
+// are delegated to the sub-service.
+func (s *TaskService) SetHistoryService(svc *TaskHistoryService) {
+	s.historyService = svc
+}
+
+// getOrInitQueryService returns the query sub-service, lazily initializing it from
+// the task repo if it has not been set via SetQueryService.
+func (s *TaskService) getOrInitQueryService() *TaskQueryService {
+	if s.queryService == nil {
+		s.queryService = NewTaskQueryService(s.repo)
+	}
+	return s.queryService
+}
+
+// getOrInitDependencyService returns the dependency sub-service, lazily initializing
+// it from the task repo if it has not been set via SetDependencyService.
+// Any previously configured depRepo, relQueryRepo, or writableDocRepo fields are
+// forwarded to the newly created sub-service.
+func (s *TaskService) getOrInitDependencyService() *TaskDependencyService {
+	if s.dependencyService == nil {
+		s.dependencyService = NewTaskDependencyService(s.repo)
+		if s.depRepo != nil {
+			s.dependencyService.SetDepRepo(s.depRepo)
+		}
+		if s.relQueryRepo != nil {
+			s.dependencyService.SetRelQueryRepo(s.relQueryRepo)
+		}
+		if s.writableDocRepo != nil {
+			s.dependencyService.SetWritableDocRepo(s.writableDocRepo)
+		}
+	}
+	return s.dependencyService
 }
 
 // CreateTask creates a new task with automatic key generation and file creation.
@@ -487,76 +545,7 @@ func (s *TaskService) DeleteTask(ctx context.Context, key string) error {
 // Errors:
 //   - RepositoryError: database query failed
 func (s *TaskService) ListTasks(ctx context.Context, filters TaskFilters) ([]*models.Task, error) {
-	// Scope the DB query to the requested epic/feature for efficiency.
-	var tasks []*models.Task
-	var err error
-
-	switch {
-	case filters.FeatureKey != "":
-		// Query tasks directly by feature key via JOIN - avoids a separate feature lookup round-trip.
-		tasks, err = s.repo.ListByFeatureKey(ctx, filters.FeatureKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list tasks for feature %s: %w", filters.FeatureKey, err)
-		}
-	case filters.EpicKey != "":
-		tasks, err = s.repo.ListByEpic(ctx, filters.EpicKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list tasks for epic %s: %w", filters.EpicKey, err)
-		}
-	default:
-		tasks, err = s.repo.List(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list tasks: %w", err)
-		}
-	}
-
-	// Apply filters
-	var filtered []*models.Task
-	for _, task := range tasks {
-		// Filter by status
-		if filters.Status != "" && string(task.Status) != filters.Status {
-			continue
-		}
-
-		// Filter by agent type
-		if filters.AgentType != "" {
-			if task.AgentType == nil || *task.AgentType != filters.AgentType {
-				continue
-			}
-		}
-
-		// Filter by blocked
-		if filters.Blocked && string(task.Status) != "blocked" {
-			continue
-		}
-
-		// Exclude completed unless show_all
-		if !filters.ShowAll && string(task.Status) == "completed" {
-			continue
-		}
-
-		// Filter by title search (case-insensitive substring)
-		if filters.TitleSearch != "" {
-			if !strings.Contains(strings.ToLower(task.Title), strings.ToLower(filters.TitleSearch)) {
-				continue
-			}
-		}
-
-		// Filter by priority range
-		if filters.MinPriority > 0 && task.Priority < filters.MinPriority {
-			continue
-		}
-		if filters.MaxPriority > 0 && task.Priority > filters.MaxPriority {
-			continue
-		}
-
-		filtered = append(filtered, task)
-	}
-
-	// Sort by execution order (ascending), then priority (descending)
-	sortTasks(filtered)
-
-	return filtered, nil
+	return s.getOrInitQueryService().ListTasks(ctx, filters)
 }
 
 // sortTasks sorts tasks by execution order ascending, then priority descending
@@ -584,257 +573,6 @@ func sortTasks(tasks []*models.Task) {
 			}
 		}
 	}
-}
-
-// GetNextTask retrieves the next available task for the given agent/filters.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - filters: criteria for task selection (agent type, epic, priority, etc.)
-//
-// Returns:
-//   - *models.Task: the next task to work on, or nil if no tasks available
-//   - error: repository errors
-//
-// Errors:
-//   - RepositoryError: database query failed
-func (s *TaskService) GetNextTask(ctx context.Context, filters NextTaskFilters) (*models.Task, error) {
-	// TODO: Implementation in F02-F07
-	return nil, fmt.Errorf("not implemented")
-}
-
-// StartTask transitions a task to in_progress (or appropriate start status).
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - key: task key to start
-//   - agentID: optional agent identifier for tracking who started the task
-//
-// Returns:
-//   - *models.Task: the updated task
-//   - error: validation errors, workflow errors, or repository errors
-//
-// Errors:
-//   - NotFoundError: task not found
-//   - WorkflowError: invalid transition (task not in a startable status)
-//   - DependencyError: task dependencies not met
-//   - RepositoryError: database update failed
-func (s *TaskService) StartTask(ctx context.Context, key string, agentID string) (*models.Task, error) {
-	// Step 1: Get task
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start task %s: %w", key, err)
-	}
-
-	// Step 2: Execute transition via orchestrator
-	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
-		targetStatus:      "in_progress",
-		agent:             &agentID,
-		skipBackwardCheck: true, // start is always forward
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cannot start task %s in status %s: %w", key, task.Status, err)
-	}
-
-	return result.task, nil
-}
-
-// CompleteTask marks a task as complete (transitions to ready_for_review or similar).
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - key: task key to complete
-//   - notes: optional completion notes
-//
-// Returns:
-//   - *models.Task: the updated task
-//   - error: validation errors, workflow errors, or repository errors
-//
-// Errors:
-//   - NotFoundError: task not found
-//   - WorkflowError: invalid transition (task not in a completable status)
-//   - RepositoryError: database update failed
-func (s *TaskService) CompleteTask(ctx context.Context, key string, notes string) (*models.Task, error) {
-	// Step 1: Get task
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to complete task %s: %w", key, err)
-	}
-
-	// Step 2: Execute transition via orchestrator
-	var notesPtr *string
-	if notes != "" {
-		notesPtr = &notes
-	}
-	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
-		targetStatus:      "ready_for_review",
-		notes:             notesPtr,
-		skipBackwardCheck: true, // complete is always forward
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cannot complete task %s in status %s: %w", key, task.Status, err)
-	}
-
-	return result.task, nil
-}
-
-// ApproveTask approves a completed task (final completion).
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - key: task key to approve
-//   - notes: optional approval notes
-//
-// Returns:
-//   - *models.Task: the updated task
-//   - error: validation errors, workflow errors, or repository errors
-//
-// Errors:
-//   - NotFoundError: task not found
-//   - WorkflowError: invalid transition (task not in an approvable status)
-//   - RepositoryError: database update failed
-func (s *TaskService) ApproveTask(ctx context.Context, key string, notes string) (*models.Task, error) {
-	// Step 1: Get task
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to approve task %s: %w", key, err)
-	}
-
-	// Step 2: Execute transition via orchestrator
-	var notesPtr *string
-	if notes != "" {
-		notesPtr = &notes
-	}
-	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
-		targetStatus:      "completed",
-		notes:             notesPtr,
-		skipBackwardCheck: true, // approve is always forward
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cannot approve task %s in status %s: %w", key, task.Status, err)
-	}
-
-	return result.task, nil
-}
-
-// ReopenTask moves a task back to in_progress.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - key: task key to reopen
-//   - notes: optional notes explaining why task was reopened
-//
-// Returns:
-//   - *models.Task: the updated task
-//   - error: validation errors, workflow errors, or repository errors
-//
-// Errors:
-//   - NotFoundError: task not found
-//   - WorkflowError: invalid transition
-//   - RepositoryError: database update failed
-func (s *TaskService) ReopenTask(ctx context.Context, key string, notes string) (*models.Task, error) {
-	// Step 1: Get task
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reopen task %s: %w", key, err)
-	}
-
-	// Step 2: Execute transition via orchestrator
-	// Reopen may be backward (e.g., ready_for_review -> in_progress) so we let
-	// the backward check run. Notes serve as the reason for backward transitions.
-	var notesPtr *string
-	if notes != "" {
-		notesPtr = &notes
-	}
-	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
-		targetStatus: "in_progress",
-		notes:        notesPtr,
-		reason:       notesPtr, // reopen notes double as backward-transition reason
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cannot reopen task %s in status %s: %w", key, task.Status, err)
-	}
-
-	return result.task, nil
-}
-
-// BlockTask marks a task as blocked with a reason.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - key: task key to block
-//   - reason: explanation of what is blocking the task (required)
-//
-// Returns:
-//   - *models.Task: the updated task
-//   - error: validation errors, workflow errors, or repository errors
-//
-// Errors:
-//   - NotFoundError: task not found
-//   - ValidationError: missing or empty reason
-//   - RepositoryError: database update failed
-func (s *TaskService) BlockTask(ctx context.Context, key string, reason string) (*models.Task, error) {
-	// Step 1: Validate reason is provided
-	if strings.TrimSpace(reason) == "" {
-		return nil, fmt.Errorf("block reason cannot be empty")
-	}
-
-	// Step 2: Get task
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to block task %s: %w", key, err)
-	}
-
-	// Step 3: Execute transition via orchestrator
-	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
-		targetStatus:      "blocked",
-		notes:             &reason,
-		skipBackwardCheck: true, // block has its own reason validation above
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cannot block task %s in status %s: %w", key, task.Status, err)
-	}
-
-	return result.task, nil
-}
-
-// UnblockTask removes the blocked status from a task.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - key: task key to unblock
-//
-// Returns:
-//   - *models.Task: the updated task
-//   - []string: list of dependent task keys that were also auto-unblocked
-//   - error: validation errors, workflow errors, or repository errors
-//
-// Errors:
-//   - NotFoundError: task not found
-//   - WorkflowError: task is not currently blocked
-//   - RepositoryError: database update failed
-func (s *TaskService) UnblockTask(ctx context.Context, key string) (*models.Task, []string, error) {
-	// Step 1: Get task
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to unblock task %s: %w", key, err)
-	}
-
-	// Step 2: Validate task is currently blocked
-	if task.Status != models.TaskStatus("blocked") {
-		return nil, nil, fmt.Errorf("cannot unblock task %s: task is not blocked (current status: %s)", key, task.Status)
-	}
-
-	// Step 3: Execute transition via orchestrator
-	result, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
-		targetStatus:      "todo",
-		skipBackwardCheck: true, // unblock is a special case, not a backward transition
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("cannot unblock task %s: %w", key, err)
-	}
-
-	return result.task, result.unblockedKeys, nil
 }
 
 // TransitionStatus validates and performs a status transition on a task.
@@ -984,53 +722,7 @@ func (s *TaskService) ValidateStatus(status string) error {
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) ValidateDependencies(ctx context.Context, key string, targetStatus string) error {
-	// Get task dependencies
-	dependents, err := s.repo.GetTaskDependents(ctx, key)
-	if err != nil {
-		return fmt.Errorf("failed to get dependencies for task %s: %w", key, err)
-	}
-
-	if len(dependents) == 0 {
-		return nil // No dependencies to validate
-	}
-
-	// Check each dependency is completed
-	for _, dep := range dependents {
-		if dep.Status != models.TaskStatus("completed") {
-			return fmt.Errorf("dependency not met: task %s depends on %s which is in status %s (must be completed)", key, dep.Key, dep.Status)
-		}
-	}
-
-	// Detect circular dependencies using DFS
-	if err := s.detectCircularDependency(ctx, key, make(map[string]bool), make(map[string]bool)); err != nil {
-		return fmt.Errorf("circular dependency detected: %w", err)
-	}
-
-	return nil
-}
-
-// detectCircularDependency uses depth-first search to detect cycles in the dependency graph.
-func (s *TaskService) detectCircularDependency(ctx context.Context, taskKey string, visited map[string]bool, recStack map[string]bool) error {
-	visited[taskKey] = true
-	recStack[taskKey] = true
-
-	dependents, err := s.repo.GetTaskDependents(ctx, taskKey)
-	if err != nil {
-		return err
-	}
-
-	for _, dep := range dependents {
-		if !visited[dep.Key] {
-			if err := s.detectCircularDependency(ctx, dep.Key, visited, recStack); err != nil {
-				return err
-			}
-		} else if recStack[dep.Key] {
-			return fmt.Errorf("cycle detected: %s → %s", taskKey, dep.Key)
-		}
-	}
-
-	recStack[taskKey] = false
-	return nil
+	return s.getOrInitDependencyService().ValidateDependencies(ctx, key, targetStatus)
 }
 
 // GetDependencyTree retrieves the full dependency tree for a task.
@@ -1047,58 +739,7 @@ func (s *TaskService) detectCircularDependency(ctx context.Context, taskKey stri
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) GetDependencyTree(ctx context.Context, key string) (*DependencyTree, error) {
-	// Get root task
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dependency tree for task %s: %w", key, err)
-	}
-
-	// Build dependency tree
-	tree := &DependencyTree{
-		Task: &TaskNode{
-			Key:         task.Key,
-			Title:       task.Title,
-			Status:      string(task.Status),
-			Priority:    task.Priority,
-			IsCompleted: task.Status == models.TaskStatus("completed"),
-			IsBlocked:   task.Status == models.TaskStatus("blocked"),
-			UpdatedAt:   task.UpdatedAt,
-		},
-		Dependencies: []*TaskNode{},
-		Dependents:   []*TaskNode{},
-		Blocked:      false,
-		BlockedBy:    []string{},
-		CanStart:     true,
-		Depth:        0,
-	}
-
-	// Get dependencies (tasks this task depends on)
-	dependents, err := s.repo.GetTaskDependents(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dependencies: %w", err)
-	}
-
-	for _, dep := range dependents {
-		depNode := &TaskNode{
-			Key:         dep.Key,
-			Title:       dep.Title,
-			Status:      string(dep.Status),
-			Priority:    dep.Priority,
-			IsCompleted: dep.Status == models.TaskStatus("completed"),
-			IsBlocked:   dep.Status == models.TaskStatus("blocked"),
-			UpdatedAt:   dep.UpdatedAt,
-		}
-		tree.Dependencies = append(tree.Dependencies, depNode)
-
-		// Check if dependency blocks starting
-		if dep.Status != models.TaskStatus("completed") {
-			tree.Blocked = true
-			tree.BlockedBy = append(tree.BlockedBy, dep.Key)
-			tree.CanStart = false
-		}
-	}
-
-	return tree, nil
+	return s.getOrInitDependencyService().GetDependencyTree(ctx, key)
 }
 
 // resolveAction looks up the orchestrator action for a given status.
@@ -1150,31 +791,7 @@ func (s *TaskService) resolveAction(ctx context.Context, task *models.Task, stat
 // Errors:
 //   - RepositoryError: database query failed
 func (s *TaskService) ListTasksWithPagination(ctx context.Context, filters TaskFilters) ([]*models.Task, int, error) {
-	// Get filtered tasks using existing ListTasks
-	allTasks, err := s.ListTasks(ctx, filters)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	total := len(allTasks)
-
-	// Apply pagination
-	start := filters.Offset
-	if start > total {
-		return []*models.Task{}, total, nil
-	}
-
-	// If limit is 0, return all tasks after offset
-	if filters.Limit == 0 {
-		return allTasks[start:], total, nil
-	}
-
-	end := start + filters.Limit
-	if end > total {
-		end = total
-	}
-
-	return allTasks[start:end], total, nil
+	return s.getOrInitQueryService().ListTasksWithPagination(ctx, filters)
 }
 
 // GetTasksByStatus groups tasks by status and returns count per status.
@@ -1190,22 +807,7 @@ func (s *TaskService) ListTasksWithPagination(ctx context.Context, filters TaskF
 // Errors:
 //   - RepositoryError: database query failed
 func (s *TaskService) GetTasksByStatus(ctx context.Context, filters TaskFilters) (map[string]int, error) {
-	// Always show all statuses for aggregation
-	filters.ShowAll = true
-
-	// Get filtered tasks
-	tasks, err := s.ListTasks(ctx, filters)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tasks by status: %w", err)
-	}
-
-	// Group by status
-	statusMap := make(map[string]int)
-	for _, task := range tasks {
-		statusMap[string(task.Status)]++
-	}
-
-	return statusMap, nil
+	return s.getOrInitQueryService().GetTasksByStatus(ctx, filters)
 }
 
 // GetTasksByAgent groups tasks by agent type and returns count per agent.
@@ -1222,21 +824,7 @@ func (s *TaskService) GetTasksByStatus(ctx context.Context, filters TaskFilters)
 // Errors:
 //   - RepositoryError: database query failed
 func (s *TaskService) GetTasksByAgent(ctx context.Context, filters TaskFilters) (map[string]int, error) {
-	// Get filtered tasks
-	tasks, err := s.ListTasks(ctx, filters)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tasks by agent: %w", err)
-	}
-
-	// Group by agent type
-	agentMap := make(map[string]int)
-	for _, task := range tasks {
-		if task.AgentType != nil {
-			agentMap[*task.AgentType]++
-		}
-	}
-
-	return agentMap, nil
+	return s.getOrInitQueryService().GetTasksByAgent(ctx, filters)
 }
 
 // SetDepRepo sets the dependency repository on the service.
@@ -1244,6 +832,9 @@ func (s *TaskService) GetTasksByAgent(ctx context.Context, filters TaskFilters) 
 // but the caller needs dependency management functionality (e.g., AddDependency, RemoveDependency).
 func (s *TaskService) SetDepRepo(depRepo TaskDependencyRepository) {
 	s.depRepo = depRepo
+	if s.dependencyService != nil {
+		s.dependencyService.SetDepRepo(depRepo)
+	}
 }
 
 // AddDependency creates a dependency relationship between two tasks.
@@ -1263,35 +854,7 @@ func (s *TaskService) SetDepRepo(depRepo TaskDependencyRepository) {
 //   - ValidationError: task cannot depend on itself
 //   - RepositoryError: database operation failed
 func (s *TaskService) AddDependency(ctx context.Context, taskKey, depKey string) error {
-	if s.depRepo == nil {
-		return fmt.Errorf("dependency repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task not found: %w", err)
-	}
-
-	dep, err := s.repo.GetByKey(ctx, depKey)
-	if err != nil {
-		return fmt.Errorf("dependency task not found: %w", err)
-	}
-
-	if task.ID == dep.ID {
-		return fmt.Errorf("task cannot depend on itself")
-	}
-
-	rel := &models.TaskRelationship{
-		FromTaskID:       task.ID,
-		ToTaskID:         dep.ID,
-		RelationshipType: "depends_on",
-	}
-
-	if err := s.depRepo.Create(ctx, rel); err != nil {
-		return fmt.Errorf("failed to add dependency from %s to %s: %w", taskKey, depKey, err)
-	}
-
-	return nil
+	return s.getOrInitDependencyService().AddDependency(ctx, taskKey, depKey)
 }
 
 // RemoveDependency removes a dependency relationship between two tasks.
@@ -1309,25 +872,7 @@ func (s *TaskService) AddDependency(ctx context.Context, taskKey, depKey string)
 //   - NotFoundError: task or dependency task not found
 //   - RepositoryError: database operation failed or dependency does not exist
 func (s *TaskService) RemoveDependency(ctx context.Context, taskKey, depKey string) error {
-	if s.depRepo == nil {
-		return fmt.Errorf("dependency repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task not found: %w", err)
-	}
-
-	dep, err := s.repo.GetByKey(ctx, depKey)
-	if err != nil {
-		return fmt.Errorf("dependency task not found: %w", err)
-	}
-
-	if err := s.depRepo.DeleteByTasksAndType(ctx, task.ID, dep.ID, "depends_on"); err != nil {
-		return fmt.Errorf("failed to remove dependency from %s to %s: %w", taskKey, depKey, err)
-	}
-
-	return nil
+	return s.getOrInitDependencyService().RemoveDependency(ctx, taskKey, depKey)
 }
 
 // ListDependencies returns all tasks that the given task depends on.
@@ -1344,33 +889,7 @@ func (s *TaskService) RemoveDependency(ctx context.Context, taskKey, depKey stri
 //   - NotFoundError: task not found
 //   - RepositoryError: database operation failed
 func (s *TaskService) ListDependencies(ctx context.Context, taskKey string) ([]*models.Task, error) {
-	if s.depRepo == nil {
-		return nil, fmt.Errorf("dependency repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return nil, fmt.Errorf("task not found: %w", err)
-	}
-
-	// Get all outgoing "depends_on" relationships (tasks that this task depends on)
-	rels, err := s.depRepo.GetOutgoing(ctx, task.ID, []string{"depends_on"})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list dependencies for %s: %w", taskKey, err)
-	}
-
-	// Resolve each relationship to its target task
-	tasks := make([]*models.Task, 0, len(rels))
-	for _, rel := range rels {
-		depTask, err := s.repo.GetByID(ctx, rel.ToTaskID)
-		if err != nil {
-			// Log warning but continue — dependency may have been deleted
-			continue
-		}
-		tasks = append(tasks, depTask)
-	}
-
-	return tasks, nil
+	return s.getOrInitDependencyService().ListDependencies(ctx, taskKey)
 }
 
 // UnlinkFile removes all outgoing typed relationships from the given task.
@@ -1389,25 +908,7 @@ func (s *TaskService) ListDependencies(ctx context.Context, taskKey string) ([]*
 //   - NotFoundError: task or target task not found
 //   - RepositoryError: database operation failed
 func (s *TaskService) UnlinkFile(ctx context.Context, taskKey, relType, targetKey string) error {
-	if s.depRepo == nil {
-		return fmt.Errorf("dependency repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task not found: %w", err)
-	}
-
-	target, err := s.repo.GetByKey(ctx, targetKey)
-	if err != nil {
-		return fmt.Errorf("target task not found: %w", err)
-	}
-
-	if err := s.depRepo.DeleteByTasksAndType(ctx, task.ID, target.ID, relType); err != nil {
-		return fmt.Errorf("failed to unlink %s from %s (%s): %w", taskKey, targetKey, relType, err)
-	}
-
-	return nil
+	return s.getOrInitDependencyService().UnlinkFile(ctx, taskKey, relType, targetKey)
 }
 
 // GetBlockedTasks returns all blocked tasks matching the given filters.
@@ -1423,17 +924,7 @@ func (s *TaskService) UnlinkFile(ctx context.Context, taskKey, relType, targetKe
 // Errors:
 //   - RepositoryError: database query failed
 func (s *TaskService) GetBlockedTasks(ctx context.Context, filters TaskFilters) ([]*models.Task, error) {
-	// Set blocked filter
-	filters.Blocked = true
-	filters.ShowAll = true // Include all blocked tasks regardless of completion
-
-	// Get filtered tasks
-	tasks, err := s.ListTasks(ctx, filters)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get blocked tasks: %w", err)
-	}
-
-	return tasks, nil
+	return s.getOrInitQueryService().GetBlockedTasks(ctx, filters)
 }
 
 // UnlinkRelationships removes relationship links between tasks.
@@ -1450,47 +941,7 @@ func (s *TaskService) GetBlockedTasks(ctx context.Context, filters TaskFilters) 
 //   - int: number of relationships removed
 //   - error: if task not found, dependency repo not configured, or database operation fails
 func (s *TaskService) UnlinkRelationships(ctx context.Context, taskKey, relType string, targetKeys []string) (int, error) {
-	if s.depRepo == nil {
-		return 0, fmt.Errorf("dependency repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return 0, fmt.Errorf("task not found: %w", err)
-	}
-
-	if len(targetKeys) == 0 {
-		// Remove all relationships of this type
-		rels, err := s.depRepo.GetOutgoing(ctx, task.ID, []string{relType})
-		if err != nil {
-			return 0, fmt.Errorf("failed to get relationships for %s: %w", taskKey, err)
-		}
-
-		count := 0
-		for _, rel := range rels {
-			if err := s.depRepo.Delete(ctx, rel.ID); err != nil {
-				return count, fmt.Errorf("failed to delete relationship %d: %w", rel.ID, err)
-			}
-			count++
-		}
-		return count, nil
-	}
-
-	// Remove specific target relationships
-	count := 0
-	for _, targetKey := range targetKeys {
-		target, err := s.repo.GetByKey(ctx, targetKey)
-		if err != nil {
-			return count, fmt.Errorf("target task not found: %w", err)
-		}
-
-		if err := s.depRepo.DeleteByTasksAndType(ctx, task.ID, target.ID, relType); err != nil {
-			return count, fmt.Errorf("failed to unlink %s from %s (%s): %w", taskKey, targetKey, relType, err)
-		}
-		count++
-	}
-
-	return count, nil
+	return s.getOrInitDependencyService().UnlinkRelationships(ctx, taskKey, relType, targetKeys)
 }
 
 // CreateTypedRelationship creates a typed relationship between two tasks.
@@ -1506,38 +957,7 @@ func (s *TaskService) UnlinkRelationships(ctx context.Context, taskKey, relType 
 //   - *models.Task: the resolved target task (for display purposes)
 //   - error: task not found, circular dependency, or repository errors
 func (s *TaskService) CreateTypedRelationship(ctx context.Context, taskKey, targetKey, relType string) (*models.Task, error) {
-	if s.depRepo == nil {
-		return nil, fmt.Errorf("relationship repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return nil, fmt.Errorf("task %s not found: %w", taskKey, err)
-	}
-
-	targetTask, err := s.repo.GetByKey(ctx, targetKey)
-	if err != nil {
-		return nil, fmt.Errorf("target task %s not found: %w", targetKey, err)
-	}
-
-	// Check for cycles on directed relationship types
-	if relType == "depends_on" || relType == "blocks" {
-		if err := s.depRepo.DetectCycle(ctx, task.ID, targetTask.ID, relType); err != nil {
-			return nil, fmt.Errorf("circular dependency detected: %w", err)
-		}
-	}
-
-	rel := &models.TaskRelationship{
-		FromTaskID:       task.ID,
-		ToTaskID:         targetTask.ID,
-		RelationshipType: models.RelationshipType(relType),
-	}
-
-	if err := s.depRepo.Create(ctx, rel); err != nil {
-		return nil, fmt.Errorf("failed to create %s relationship from %s to %s: %w", relType, taskKey, targetKey, err)
-	}
-
-	return targetTask, nil
+	return s.getOrInitDependencyService().CreateTypedRelationship(ctx, taskKey, targetKey, relType)
 }
 
 // SearchByFile finds tasks that reference or are related to the given file path,
@@ -1552,46 +972,25 @@ func (s *TaskService) CreateTypedRelationship(ctx context.Context, taskKey, targ
 //   - []*models.Task: tasks that reference the given file matching the filters
 //   - error: repository errors
 func (s *TaskService) SearchByFile(ctx context.Context, filePath string, filters TaskFilters) ([]*models.Task, error) {
-	tasks, err := s.repo.FindByFileChanged(ctx, filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to search tasks by file %s: %w", filePath, err)
-	}
-
-	// Apply filters
-	if filters.Status != "" || filters.EpicKey != "" || filters.FeatureKey != "" {
-		filtered := make([]*models.Task, 0, len(tasks))
-		epicKeyUpper := strings.ToUpper(filters.EpicKey)
-		featureKeyUpper := strings.ToUpper(filters.FeatureKey)
-		for _, t := range tasks {
-			if filters.Status != "" && string(t.Status) != filters.Status {
-				continue
-			}
-			// Filter by epic: task key contains the epic key (e.g., T-E10-F03-001 contains "E10")
-			if epicKeyUpper != "" && !strings.Contains(strings.ToUpper(t.Key), epicKeyUpper) {
-				continue
-			}
-			// Filter by feature: task key contains the feature key portion (e.g., "F03" or "E10-F03")
-			if featureKeyUpper != "" && !strings.Contains(strings.ToUpper(t.Key), featureKeyUpper) {
-				continue
-			}
-			filtered = append(filtered, t)
-		}
-		return filtered, nil
-	}
-
-	return tasks, nil
+	return s.getOrInitQueryService().SearchByFile(ctx, filePath, filters)
 }
 
 // SetRelQueryRepo sets the relationship query repository for dep/blocked-by/blocks commands.
 // This is optional; commands needing relationship queries must call this before use.
 func (s *TaskService) SetRelQueryRepo(relQueryRepo TaskRelationshipQueryRepository) {
 	s.relQueryRepo = relQueryRepo
+	if s.dependencyService != nil {
+		s.dependencyService.SetRelQueryRepo(relQueryRepo)
+	}
 }
 
 // SetWritableDocRepo sets the writable document repository for link/unlink operations.
 // This is optional; commands needing document write operations must call this before use.
 func (s *TaskService) SetWritableDocRepo(writableDocRepo TaskWritableDocumentRepository) {
 	s.writableDocRepo = writableDocRepo
+	if s.dependencyService != nil {
+		s.dependencyService.SetWritableDocRepo(writableDocRepo)
+	}
 }
 
 // GetTaskRepository returns the task repository for use by tree traversal functions.
@@ -1637,58 +1036,7 @@ func (s *TaskService) GetRelQueryRepo() TaskRelationshipQueryRepository {
 //   - []RelationshipWithTask: relationship records with related task info
 //   - error: if task not found, relQueryRepo not configured, or database operation fails
 func (s *TaskService) GetTaskRelationships(ctx context.Context, taskKey string, typeFilter []string) ([]RelationshipWithTask, error) {
-	if s.relQueryRepo == nil {
-		return nil, fmt.Errorf("relationship query repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return nil, fmt.Errorf("task not found: %w", err)
-	}
-
-	allRels, err := s.relQueryRepo.GetByTaskID(ctx, task.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get relationships for %s: %w", taskKey, err)
-	}
-
-	var result []RelationshipWithTask
-	for _, rel := range allRels {
-		// Filter by type if specified
-		if len(typeFilter) > 0 {
-			found := false
-			for _, ft := range typeFilter {
-				if string(rel.RelationshipType) == ft {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
-		}
-
-		direction := "outgoing"
-		relatedTaskID := rel.ToTaskID
-		if rel.FromTaskID != task.ID {
-			direction = "incoming"
-			relatedTaskID = rel.FromTaskID
-		}
-
-		relatedTask, err := s.repo.GetByID(ctx, relatedTaskID)
-		if err != nil {
-			continue // Skip if related task not found
-		}
-
-		result = append(result, RelationshipWithTask{
-			RelationshipType: string(rel.RelationshipType),
-			Direction:        direction,
-			TaskKey:          relatedTask.Key,
-			TaskTitle:        relatedTask.Title,
-			TaskStatus:       string(relatedTask.Status),
-		})
-	}
-
-	return result, nil
+	return s.getOrInitDependencyService().GetTaskRelationships(ctx, taskKey, typeFilter)
 }
 
 // GetTaskBlockedBy retrieves tasks that this task depends on (incoming dependencies).
@@ -1702,36 +1050,7 @@ func (s *TaskService) GetTaskRelationships(ctx context.Context, taskKey string, 
 //   - []RelationshipWithTask: tasks this task depends on
 //   - error: if task not found, relQueryRepo not configured, or database operation fails
 func (s *TaskService) GetTaskBlockedBy(ctx context.Context, taskKey string) ([]RelationshipWithTask, error) {
-	if s.relQueryRepo == nil {
-		return nil, fmt.Errorf("relationship query repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return nil, fmt.Errorf("task not found: %w", err)
-	}
-
-	deps, err := s.relQueryRepo.GetOutgoing(ctx, task.ID, []string{"depends_on"})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dependencies for %s: %w", taskKey, err)
-	}
-
-	var result []RelationshipWithTask
-	for _, rel := range deps {
-		depTask, err := s.repo.GetByID(ctx, rel.ToTaskID)
-		if err != nil {
-			continue
-		}
-		result = append(result, RelationshipWithTask{
-			RelationshipType: "depends_on",
-			Direction:        "outgoing",
-			TaskKey:          depTask.Key,
-			TaskTitle:        depTask.Title,
-			TaskStatus:       string(depTask.Status),
-		})
-	}
-
-	return result, nil
+	return s.getOrInitDependencyService().GetTaskBlockedBy(ctx, taskKey)
 }
 
 // GetTaskBlocks retrieves tasks that depend on this task completing.
@@ -1745,57 +1064,7 @@ func (s *TaskService) GetTaskBlockedBy(ctx context.Context, taskKey string) ([]R
 //   - []RelationshipWithTask: tasks blocked by this task
 //   - error: if task not found, relQueryRepo not configured, or database operation fails
 func (s *TaskService) GetTaskBlocks(ctx context.Context, taskKey string) ([]RelationshipWithTask, error) {
-	if s.relQueryRepo == nil {
-		return nil, fmt.Errorf("relationship query repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return nil, fmt.Errorf("task not found: %w", err)
-	}
-
-	// Get incoming depends_on (others depend on this task)
-	incoming, err := s.relQueryRepo.GetIncoming(ctx, task.ID, []string{"depends_on"})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get incoming dependencies for %s: %w", taskKey, err)
-	}
-
-	// Get outgoing blocks relationships (this task explicitly blocks others)
-	outgoing, err := s.relQueryRepo.GetOutgoing(ctx, task.ID, []string{"blocks"})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get explicit blocks for %s: %w", taskKey, err)
-	}
-
-	allBlocked := append(incoming, outgoing...)
-
-	var result []RelationshipWithTask
-	for _, rel := range allBlocked {
-		var blockedTaskID int64
-		var direction string
-		if rel.FromTaskID != task.ID {
-			// incoming depends_on: the blocking task is rel.FromTaskID
-			blockedTaskID = rel.FromTaskID
-			direction = "incoming"
-		} else {
-			// outgoing blocks: the blocked task is rel.ToTaskID
-			blockedTaskID = rel.ToTaskID
-			direction = "outgoing"
-		}
-
-		blockedTask, err := s.repo.GetByID(ctx, blockedTaskID)
-		if err != nil {
-			continue
-		}
-		result = append(result, RelationshipWithTask{
-			RelationshipType: string(rel.RelationshipType),
-			Direction:        direction,
-			TaskKey:          blockedTask.Key,
-			TaskTitle:        blockedTask.Title,
-			TaskStatus:       string(blockedTask.Status),
-		})
-	}
-
-	return result, nil
+	return s.getOrInitDependencyService().GetTaskBlocks(ctx, taskKey)
 }
 
 // LinkDocument links a document to a task, creating the document record if it doesn't exist.
@@ -1810,17 +1079,7 @@ func (s *TaskService) GetTaskBlocks(ctx context.Context, taskKey string) ([]Rela
 //   - *models.Document: the created or retrieved document
 //   - error: if task not found, writableDocRepo not configured, or database operation fails
 func (s *TaskService) LinkDocument(ctx context.Context, taskKey, title, path string) (*models.Document, error) {
-	if s.writableDocRepo == nil {
-		return nil, fmt.Errorf("writable document repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return nil, fmt.Errorf("task not found: %w", err)
-	}
-
-	return linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToTask,
-		task.ID, title, path, "task", taskKey)
+	return s.getOrInitDependencyService().LinkDocument(ctx, taskKey, title, path)
 }
 
 // UnlinkDocument removes the link between a document and a task.
@@ -1834,27 +1093,7 @@ func (s *TaskService) LinkDocument(ctx context.Context, taskKey, title, path str
 // Returns:
 //   - error: if task not found, writableDocRepo not configured, or database operation fails
 func (s *TaskService) UnlinkDocument(ctx context.Context, taskKey, title string) error {
-	if s.writableDocRepo == nil {
-		return fmt.Errorf("writable document repository not configured")
-	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		// Task doesn't exist - idempotent, treat as success
-		return nil
-	}
-
-	doc, err := s.writableDocRepo.GetByTitle(ctx, title)
-	if err != nil {
-		// Document doesn't exist - idempotent, treat as success
-		return nil
-	}
-
-	if err := s.writableDocRepo.UnlinkFromTask(ctx, task.ID, doc.ID); err != nil {
-		return fmt.Errorf("failed to unlink document from task %s: %w", taskKey, err)
-	}
-
-	return nil
+	return s.getOrInitDependencyService().UnlinkDocument(ctx, taskKey, title)
 }
 
 // ListRelatedDocuments retrieves all documents linked to a task.
@@ -1915,77 +1154,7 @@ type taskDependencyJSON struct {
 // via the task_display_data view. This reduces round-trips from ~5 to 1, critical for
 // Turso cloud databases where each round-trip costs ~150-200ms.
 func (s *TaskService) GetTaskDisplayData(ctx context.Context, task *models.Task) (*TaskDisplayData, error) {
-	result := &TaskDisplayData{
-		BlockedBy:    make([]RelationshipWithTask, 0),
-		Blocks:       make([]RelationshipWithTask, 0),
-		Dependencies: make([]*models.Task, 0),
-		RelatedDocs:  make([]*models.Document, 0),
-		Notes:        make([]*models.EntityNote, 0),
-	}
-
-	raw, err := s.repo.GetTaskDisplayDataRaw(ctx, task.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get display data for task %s: %w", task.Key, err)
-	}
-
-	// Unmarshal blocked-by relationships
-	blockedByRaw, err := unmarshalJSONArray[RelationshipWithTask](raw.BlockedByJSON)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal blocked_by for task %s: %w", task.Key, err)
-	}
-	result.BlockedBy = blockedByRaw
-
-	// Unmarshal blocks relationships
-	blocksRaw, err := unmarshalJSONArray[RelationshipWithTask](raw.BlocksJSON)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal blocks for task %s: %w", task.Key, err)
-	}
-	result.Blocks = blocksRaw
-
-	// Unmarshal dependencies
-	depsRaw, err := unmarshalJSONArray[taskDependencyJSON](raw.DependenciesJSON)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal dependencies for task %s: %w", task.Key, err)
-	}
-	for _, d := range depsRaw {
-		result.Dependencies = append(result.Dependencies, &models.Task{
-			Key:    d.Key,
-			Title:  d.Title,
-			Status: models.TaskStatus(d.Status),
-		})
-	}
-
-	// Unmarshal related documents (reuse documentJSON from epic_service.go — same package)
-	docsRaw, err := unmarshalJSONArray[documentJSON](raw.DocumentsJSON)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal documents for task %s: %w", task.Key, err)
-	}
-	for _, d := range docsRaw {
-		result.RelatedDocs = append(result.RelatedDocs, &models.Document{
-			ID:       d.ID,
-			Title:    d.Title,
-			FilePath: d.FilePath,
-		})
-	}
-
-	// Unmarshal notes (reuse noteJSON from epic_service.go — same package)
-	notesRaw, err := unmarshalJSONArray[noteJSON](raw.NotesJSON)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal notes for task %s: %w", task.Key, err)
-	}
-	for _, n := range notesRaw {
-		result.Notes = append(result.Notes, &models.EntityNote{
-			ID:         n.ID,
-			EntityType: models.EntityTypeTask,
-			EntityID:   task.ID,
-			NoteType:   models.NoteType(n.NoteType),
-			Content:    n.Content,
-			CreatedBy:  n.CreatedBy,
-			Metadata:   n.Metadata,
-		})
-	}
-
-	return result, nil
+	return s.getOrInitQueryService().GetTaskDisplayData(ctx, task)
 }
 
 // GetWorkSessions retrieves work sessions and statistics for a task.
@@ -1998,31 +1167,15 @@ func (s *TaskService) GetTaskDisplayData(ctx context.Context, task *models.Task)
 //   - *TaskWorkSessions: work sessions and aggregated statistics
 //   - error: if task not found, session repo not configured, or database operation fails
 func (s *TaskService) GetWorkSessions(ctx context.Context, taskKey string) (*TaskWorkSessions, error) {
-	if s.sessionRepo == nil {
+	if s.historyService == nil {
 		return nil, fmt.Errorf("work session repository not configured")
 	}
-
+	// historyService.GetWorkSessions requires taskID and taskTitle; look up task first.
 	task, err := s.repo.GetByKey(ctx, taskKey)
 	if err != nil {
 		return nil, fmt.Errorf("task not found: %w", err)
 	}
-
-	sessions, err := s.sessionRepo.GetByTaskID(ctx, task.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get work sessions for %s: %w", taskKey, err)
-	}
-
-	stats, err := s.sessionRepo.GetSessionStatsByTaskID(ctx, task.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session stats for %s: %w", taskKey, err)
-	}
-
-	return &TaskWorkSessions{
-		TaskKey:   task.Key,
-		TaskTitle: task.Title,
-		Sessions:  sessions,
-		Stats:     stats,
-	}, nil
+	return s.historyService.GetWorkSessions(ctx, taskKey, task.ID, task.Title)
 }
 
 // SetHistoryRepo sets the task history repository for this service.
@@ -2030,6 +1183,11 @@ func (s *TaskService) GetWorkSessions(ctx context.Context, taskKey string) (*Tas
 // after initial construction via NewTaskService.
 func (s *TaskService) SetHistoryRepo(repo TaskHistoryRepository) {
 	s.historyRepo = repo
+	if s.historyService == nil {
+		s.historyService = &TaskHistoryService{historyRepo: repo}
+	} else {
+		s.historyService.historyRepo = repo
+	}
 }
 
 // SetSessionRepo sets the work session repository for analytics.
@@ -2037,6 +1195,11 @@ func (s *TaskService) SetHistoryRepo(repo TaskHistoryRepository) {
 // after initial construction via NewTaskService.
 func (s *TaskService) SetSessionRepo(repo WorkSessionRepository) {
 	s.sessionRepo = repo
+	if s.historyService == nil {
+		s.historyService = &TaskHistoryService{sessionRepo: repo}
+	} else {
+		s.historyService.sessionRepo = repo
+	}
 }
 
 // SetEpicRepo sets the analytics epic repository for scope resolution.
@@ -2197,16 +1360,10 @@ func (s *TaskService) executeStatusTransition(ctx context.Context, task *models.
 //   - []*models.TaskHistory: all history records in chronological order
 //   - error: if history repo not configured, or database operation fails
 func (s *TaskService) GetTaskHistory(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
-	if s.historyRepo == nil {
+	if s.historyService == nil {
 		return nil, fmt.Errorf("history repository not configured")
 	}
-
-	histories, err := s.historyRepo.GetHistoryByTaskKey(ctx, taskKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task history for %s: %w", taskKey, err)
-	}
-
-	return histories, nil
+	return s.historyService.GetTaskHistory(ctx, taskKey)
 }
 
 // ListHistory retrieves task history records with optional filters.
@@ -2219,16 +1376,10 @@ func (s *TaskService) GetTaskHistory(ctx context.Context, taskKey string) ([]*mo
 //   - []*models.TaskHistory: matching history records
 //   - error: if history repo not configured, or database operation fails
 func (s *TaskService) ListHistory(ctx context.Context, filters HistoryFilters) ([]*models.TaskHistory, error) {
-	if s.historyRepo == nil {
+	if s.historyService == nil {
 		return nil, fmt.Errorf("history repository not configured")
 	}
-
-	histories, err := s.historyRepo.ListWithFilters(ctx, filters)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list task history: %w", err)
-	}
-
-	return histories, nil
+	return s.historyService.ListHistory(ctx, filters)
 }
 
 // GetSessionAnalytics retrieves aggregated work session analytics for a feature or epic.
@@ -2241,39 +1392,8 @@ func (s *TaskService) ListHistory(ctx context.Context, filters HistoryFilters) (
 //   - *SessionAnalytics: aggregated analytics data
 //   - error: if session repo not configured, entity not found, or database operation fails
 func (s *TaskService) GetSessionAnalytics(ctx context.Context, input SessionAnalyticsInput) (*SessionAnalytics, error) {
-	if s.sessionRepo == nil {
+	if s.historyService == nil {
 		return nil, fmt.Errorf("work session repository not configured")
 	}
-
-	// Convert AgentType string to *string for repo methods (nil means no filter)
-	var agentTypePtr *string
-	if input.AgentType != "" {
-		agentTypePtr = &input.AgentType
-	}
-
-	if input.FeatureKey != "" {
-		if s.featureRepo == nil {
-			return nil, fmt.Errorf("feature repository not configured")
-		}
-		// Get feature to resolve ID
-		feature, err := s.featureRepo.GetByKey(ctx, input.FeatureKey)
-		if err != nil {
-			return nil, fmt.Errorf("feature not found: %s: %w", input.FeatureKey, err)
-		}
-		return s.sessionRepo.GetSessionAnalyticsByFeature(ctx, feature.ID, agentTypePtr)
-	}
-
-	if input.EpicKey != "" {
-		if s.epicRepo == nil {
-			return nil, fmt.Errorf("epic repository not configured")
-		}
-		// Get epic to resolve ID
-		epic, err := s.epicRepo.GetByKey(ctx, input.EpicKey)
-		if err != nil {
-			return nil, fmt.Errorf("epic not found: %s: %w", input.EpicKey, err)
-		}
-		return s.sessionRepo.GetSessionAnalyticsByEpic(ctx, epic.ID, agentTypePtr)
-	}
-
-	return nil, fmt.Errorf("either EpicKey or FeatureKey must be specified")
+	return s.historyService.GetSessionAnalytics(ctx, input)
 }

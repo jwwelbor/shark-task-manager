@@ -86,7 +86,7 @@ func FormatEntityCreationJSON(entityType, entityKey, entityTitle, filePath, proj
 		}
 	case "task":
 		nextCommands = []string{
-			fmt.Sprintf("shark task start %s", entityKey),
+			fmt.Sprintf("shark task next-status %s", entityKey),
 		}
 	}
 	result["next_commands"] = nextCommands

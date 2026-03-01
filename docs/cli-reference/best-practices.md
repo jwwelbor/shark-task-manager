@@ -8,18 +8,16 @@ Guidelines for using Shark CLI effectively, for both AI agents and human develop
 
 ```bash
 # Always use --json for machine-readable output
-shark next --json                          # Get next task
-shark start E07-F01-001 --json             # Start task
-shark done E07-F01-001 --notes="Done" --json  # Complete task
+shark status advance E07-F01-001 --json                # Advance to next status
+shark task next-status E07-F01-001 --json              # Same as above (standard form)
 
 # Use --field for specific values
-shark get E07-F01-001 --field status       # Just the status
-shark next --field key                     # Just the key
+shark get E07-F01-001 --field status                   # Just the status
+shark get E07-F01-001 --field key                      # Just the key
 
-# Use quick commands for speed
-shark next                                 # Instead of: shark task next
-shark start E07-F01-001                    # Instead of: shark task start
-shark done E07-F01-001                     # Instead of: shark task complete
+# Use status commands for workflow
+shark status advance E07-F01-001                       # Advance workflow status
+shark status set E07-F01-001 in_development            # Set status directly
 ```
 
 ### Human Developer
@@ -30,10 +28,10 @@ shark status                               # Project dashboard
 shark progress E07                         # Epic progress
 shark list E07                             # Features in epic
 
-# Use quick commands for common operations
-shark next                                 # What should I work on?
-shark start E07-F01-001                    # I'm starting this
-shark done E07-F01-001 --notes="Finished"  # I'm done
+# Use status commands for workflow
+shark status advance E07-F01-001           # Advance to next status
+shark status set E07-F01-001 in_progress   # Set a specific status
+shark task list --status=todo              # Find tasks to work on
 ```
 
 ---
@@ -44,13 +42,10 @@ Shark supports two command styles that work identically:
 
 | Quick Style | Standard Style | Description |
 |-------------|----------------|-------------|
-| `shark next` | `shark task next` | Get next task |
-| `shark start` | `shark task start` | Start a task |
-| `shark done` | `shark task complete` | Complete a task |
-| `shark block` | `shark task block` | Block a task |
-| `shark unblock` | `shark task unblock` | Unblock a task |
+| `shark status advance <key>` | `shark task next-status <key>` | Advance to next status |
+| `shark status set <key> <status>` | `shark task set-status <key> <status>` | Set a specific status |
 
-**Recommendation**: Use quick commands for daily workflow, standard commands for scripts and documentation.
+**Recommendation**: Use status commands for daily workflow, standard entity commands for scripts and documentation.
 
 ---
 
@@ -68,9 +63,9 @@ Shark supports two command styles that work identically:
 
 ```bash
 #!/bin/bash
-shark start E07-F01-001 --json
+shark status advance E07-F01-001 --json
 if [ $? -eq 0 ]; then
-  echo "Task started"
+  echo "Task advanced"
 elif [ $? -eq 1 ]; then
   echo "Task not found"
 elif [ $? -eq 3 ]; then
@@ -84,13 +79,13 @@ fi
 import subprocess, json
 
 result = subprocess.run(
-    ["shark", "start", "E07-F01-001", "--json"],
+    ["shark", "status", "advance", "E07-F01-001", "--json"],
     capture_output=True, text=True
 )
 
 if result.returncode == 0:
     task = json.loads(result.stdout)
-    print(f"Started: {task['key']}")
+    print(f"Advanced: {task['key']}")
 else:
     print(f"Error (code {result.returncode}): {result.stderr}")
 ```
@@ -102,9 +97,9 @@ else:
 ### 1. Always Use `--json`
 
 ```bash
-shark next --json
 shark get E07-F01-001 --json
-shark start E07-F01-001 --json
+shark status advance E07-F01-001 --json
+shark task list --json
 ```
 
 ### 2. Use `--field` for Quick Extraction
@@ -113,34 +108,28 @@ shark start E07-F01-001 --json
 # Get just the status
 shark get E07-F01-001 --field status
 
-# Get just the key of next task
-shark next --field key
+# Get just the key
+shark get E07-F01-001 --field key
 ```
 
-### 3. Check Dependencies via `shark next`
+### 3. Use Task List for Finding Work
 
 ```bash
-# shark next respects dependencies and ordering
-shark next --agent=backend --json
+# Find tasks by status and agent type
+shark task list --status=todo --agent=backend --json
 ```
 
 ### 4. Track Agent Identity
 
 ```bash
-shark start E07-F01-001 --agent="backend-agent-001"
-shark done E07-F01-001 --agent="backend-agent-001" --notes="Implemented API"
+shark task next-status E07-F01-001 --json
 ```
 
-### 5. Use Completion Metadata
+### 5. Use Completion Notes
 
 ```bash
-shark done E07-F01-001 \
-  --notes="Implemented JWT auth" \
-  --summary="Added JWT token validation" \
-  --files-modified=internal/auth/jwt.go \
-  --files-created=internal/auth/jwt_test.go \
-  --tests="16/16 passing" \
-  --time-spent=45
+shark task next-status E07-F01-001 --json
+shark task note add E07-F01-001 --type implementation "Added JWT token validation"
 ```
 
 ### 6. Check Status Transitions
@@ -150,7 +139,7 @@ shark done E07-F01-001 \
 shark status options E07-F01-001 --json
 
 # Use --force only as admin override
-shark start E07-F01-001 --force  # Bypasses validation
+shark status advance E07-F01-001 --force  # Bypasses validation
 ```
 
 ---
@@ -161,10 +150,10 @@ shark start E07-F01-001 --force  # Bypasses validation
 
 ```bash
 # Block with clear reason
-shark block E07-F01-002 --reason="Waiting for API design approval"
+shark status set E07-F01-002 blocked --reason="Waiting for API design approval"
 
 # Unblock when ready
-shark unblock E07-F01-002
+shark status set E07-F01-002 todo
 ```
 
 ### Use Task Context
@@ -210,10 +199,10 @@ shark task create E07 F01 "Design API" --agent=architect --order=1
 shark task create E07 F01 "Implement API" --agent=backend --order=2
 shark task create E07 F01 "Build UI" --agent=frontend --order=3
 
-# Each agent gets their work
-shark next --agent=architect --json
-shark next --agent=backend --json
-shark next --agent=frontend --json
+# Each agent finds their work
+shark task list --agent=architect --status=todo --json
+shark task list --agent=backend --status=todo --json
+shark task list --agent=frontend --status=todo --json
 ```
 
 ---
@@ -315,4 +304,4 @@ fi
 - [Global Flags](global-flags.md) - Flags available to all commands
 - [Error Messages](error-messages.md) - Error handling
 - [JSON Output](json-output.md) - JSON response format
-- [Quick Commands](quick-commands.md) - Quick command aliases
+- [Status Commands](status-commands.md) - Status workflow commands

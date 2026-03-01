@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -9,7 +8,7 @@ import (
 var statusCmd = &cobra.Command{
 	Use:     "status",
 	Short:   "Change status for epic, feature, or task",
-	GroupID: "workflow",
+	GroupID: "manage",
 	Long: `Commands for managing entity statuses: set a status directly, advance through the
 workflow, view available transitions, or inspect status change history.
 
@@ -31,6 +30,5 @@ Use 'shark get <key>' for entity details.`,
 }
 
 func init() {
-	// Register status command with root
-	cli.RootCmd.AddCommand(statusCmd)
+	// Status command is registered in zzz_manage_register.go for ordering
 }

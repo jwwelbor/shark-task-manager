@@ -103,12 +103,6 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 - The `T-` prefix is optional and automatically normalized
 - Both formats work identically in all commands
 
-**Dual command style:**
-Quick commands and standard commands work identically:
-- `shark next` = `shark task next`
-- `shark start E07-F01-001` = `shark task start E07-F01-001`
-- `shark done E07-F01-001` = `shark task complete E07-F01-001`
-
 **Core commands auto-detect entity type from key format:**
 - `shark get E07` → epic get
 - `shark get E07-F01` → feature get
