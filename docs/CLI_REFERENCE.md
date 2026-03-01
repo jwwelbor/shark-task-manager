@@ -15,6 +15,7 @@ shark get E07-F01                          # Get feature
 shark get E07-F01-001                      # Get task
 shark list                                 # List epics
 shark list E07                             # List features
+shark list E07-F01                         # List tasks
 
 # Status & Analytics
 shark status                               # Project dashboard
@@ -26,7 +27,6 @@ shark status history E07-F01-001           # Change history
 
 | Topic | Link |
 |-------|------|
-| Quick Commands | [quick-commands.md](cli-reference/quick-commands.md) |
 | Core Commands | [core-commands.md](cli-reference/core-commands.md) |
 | Task Commands (26 subcmds) | [task-commands.md](cli-reference/task-commands.md) |
 | Feature Commands (13 subcmds) | [feature-commands.md](cli-reference/feature-commands.md) |
@@ -40,6 +40,5 @@ shark status history E07-F01-001           # Change history
 
 ## Related
 
-- [CLAUDE.md](../CLAUDE.md) - Development guidelines
 - [README.md](../README.md) - Project introduction
 - [Turso Setup](TURSO_QUICKSTART.md) - Cloud database

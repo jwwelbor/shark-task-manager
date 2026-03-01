@@ -26,14 +26,6 @@ Manage:
   context      Get or manage entity context data
   related-docs Manage related documents
 
-Workflow:
-  status       Change status for epic, feature, or task
-  start        Start working on a task (alias for 'task start')
-  next         Get next available task (alias for 'task next')
-  block        Block a task (alias for 'task block')
-  done         Mark task as complete (alias for 'task complete')
-  unblock      Unblock a task (alias for 'task unblock')
-
 Advanced:
   admin        Setup, configuration, and maintenance
   idea         Manage ideas
