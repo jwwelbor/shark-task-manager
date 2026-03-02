@@ -24,6 +24,8 @@ IF MISCLASSIFIED:
 
 IF PROPERLY SCOPED:
 (1) Add validation note: shark feature note {{.id}} 'Scope validated as feature: {reasoning}'
-(2) Advance: shark feature next-status {{.id}}
+(2) ---
+## EXIT — REQUIRED
+    shark status advance {{.id}}
 
 See docs/complexity-adaptive-workflow-proposal.md for full criteria.

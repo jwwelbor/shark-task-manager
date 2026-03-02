@@ -184,7 +184,16 @@
         "color": "purple",
         "progress_weight": 0.3,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "skills": [
+            "discovery",
+            "research"
+          ],
+          "instruction_template": "epic/in_research.tmpl"
+        }
       },
       "ready_for_feasibility_review_ba": {
         "description": "Research complete, ready for BA feasibility review",
@@ -212,7 +221,16 @@
         "color": "teal",
         "progress_weight": 0.38,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "discovery"
+          ],
+          "instruction_template": "epic/in_feasibility_review_ba.tmpl"
+        }
       },
       "ready_for_feasibility_review_tech": {
         "description": "BA feasibility approved, ready for technical feasibility review",
@@ -240,7 +258,16 @@
         "color": "teal",
         "progress_weight": 0.43,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "research"
+          ],
+          "instruction_template": "epic/in_feasibility_review_tech.tmpl"
+        }
       },
       "intervention_required": {
         "description": "Feasibility review raised concerns requiring human decision",
@@ -279,7 +306,15 @@
         "color": "orange",
         "progress_weight": 0.15,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing"
+          ],
+          "instruction_template": "epic/in_refinement.tmpl"
+        }
       },
       "ready_for_test_planning": {
         "description": "Feasibility approved, ready for UAT acceptance plan",
@@ -307,7 +342,16 @@
         "color": "lime",
         "progress_weight": 0.55,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "skills": [
+            "quality",
+            "shark"
+          ],
+          "instruction_template": "epic/in_test_planning.tmpl"
+        }
       },
       "ready_for_decomposition": {
         "description": "Epic PRD, feasibility reviews, and UAT plan complete, ready to decompose into features",
@@ -334,7 +378,15 @@
         "color": "yellow",
         "progress_weight": 0.7,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "product-manager",
+          "skills": [
+            "specification-writing"
+          ],
+          "instruction_template": "epic/in_decomposition.tmpl"
+        }
       },
       "active": {
         "description": "Features exist, progress aggregated from children",
@@ -419,7 +471,16 @@
         "color": "yellow",
         "progress_weight": 0.19,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "epic/in_ba_check.tmpl"
+        }
       },
       "ready_for_tech_check": {
         "description": "Epic tech docs complete, ready for tech quality check",
@@ -448,7 +509,17 @@
         "color": "lime",
         "progress_weight": 0.48,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "epic/in_tech_check.tmpl"
+        }
       }
     },
     "special_statuses": {
@@ -653,7 +724,16 @@
         "color": "orange",
         "progress_weight": 0.02,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_scope_validation.tmpl"
+        }
       },
       "ready_for_triage": {
         "description": "Scope validated, ready for complexity assessment",
@@ -681,7 +761,16 @@
         "color": "purple",
         "progress_weight": 0.05,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "feature/in_triage.tmpl"
+        }
       },
       "ready_for_research": {
         "description": "Ready for tactical codebase and integration research",
@@ -709,7 +798,16 @@
         "color": "purple",
         "progress_weight": 0.2,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "feature/in_research.tmpl"
+        }
       },
       "ready_for_refinement_ba": {
         "description": "Ready for business analysis and requirements specification",
@@ -737,7 +835,16 @@
         "color": "blue",
         "progress_weight": 0.12,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_refinement_ba.tmpl"
+        }
       },
       "ready_for_refinement_tech": {
         "description": "Requirements complete, ready for technical architecture",
@@ -766,7 +873,17 @@
         "color": "blue",
         "progress_weight": 0.4,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_refinement_tech.tmpl"
+        }
       },
       "ready_for_test_planning": {
         "description": "Architecture complete, ready for feature test strategy",
@@ -794,7 +911,16 @@
         "color": "lime",
         "progress_weight": 0.5,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "skills": [
+            "quality",
+            "shark"
+          ],
+          "instruction_template": "feature/in_test_planning.tmpl"
+        }
       },
       "ready_for_task_generation": {
         "description": "Ready to generate implementation tasks (may have limited or full design docs)",
@@ -822,7 +948,16 @@
         "color": "yellow",
         "progress_weight": 0.7,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "product-manager",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_task_generation.tmpl"
+        }
       },
       "ready_to_build": {
         "description": "All tasks generated and specified, ready for autonomous build",
@@ -928,7 +1063,16 @@
         "color": "yellow",
         "progress_weight": 0.18,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_ba_check.tmpl"
+        }
       },
       "ready_for_tech_check": {
         "description": "Feature tech docs complete, ready for tech quality check",
@@ -957,7 +1101,17 @@
         "color": "lime",
         "progress_weight": 0.45,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_tech_check.tmpl"
+        }
       }
     },
     "special_statuses": {
