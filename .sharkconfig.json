@@ -26,6 +26,7 @@
         "on_hold"
       ],
       "in_refinement": [
+        "ready_for_ba_check",
         "ready_for_research",
         "blocked",
         "on_hold"
@@ -57,6 +58,7 @@
         "on_hold"
       ],
       "in_feasibility_review_tech": [
+        "ready_for_tech_check",
         "ready_for_test_planning",
         "intervention_required",
         "blocked",
@@ -106,7 +108,9 @@
         "ready_for_test_planning",
         "ready_for_decomposition",
         "active",
-        "cancelled"
+        "cancelled",
+        "ready_for_ba_check",
+        "ready_for_tech_check"
       ],
       "blocked": [
         "ready_for_research",
@@ -114,7 +118,31 @@
         "ready_for_feasibility_review_ba",
         "ready_for_feasibility_review_tech",
         "ready_for_test_planning",
-        "ready_for_decomposition"
+        "ready_for_decomposition",
+        "ready_for_ba_check",
+        "ready_for_tech_check"
+      ],
+      "ready_for_ba_check": [
+        "in_ba_check",
+        "blocked",
+        "on_hold"
+      ],
+      "in_ba_check": [
+        "in_research",
+        "in_refinement",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_tech_check": [
+        "in_tech_check",
+        "blocked",
+        "on_hold"
+      ],
+      "in_tech_check": [
+        "in_test_planning",
+        "in_feasibility_review_tech",
+        "blocked",
+        "on_hold"
       ]
     },
     "status_metadata": {
@@ -242,7 +270,7 @@
           "skills": [
             "specification-writing"
           ],
-          "instruction_template": "Write epic PRD for {id}: \"{title}\". LOAD: specification-writing workflow write-epic.md -- follow multi-file architecture. READ: (1) Draft epic document at {file_path} and any vision notes, (2) Other epic PRDs under docs/plan/ for consistency and overlap awareness. PRODUCE: 6 PRD files per write-epic.md (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md). Define clear scope boundaries to guide research. Success metrics must be measurable. EXIT GATE: All 6 files created and cross-referenced. Write-epic.md checklist passes. No vague language or TBDs. Advance: shark epic next-status {id}."
+          "instruction_template": "Write epic PRD for {id}: \"{title}\". LOAD: specification-writing workflows write-epic.md, plan/epic-ba-plan.md. PLAN GATE \u2014 run before creating any document: (1) READ: shark epic context get {id} --json. (2) IF context_data.remaining_steps non-empty: RESUME MODE \u2014 skip to ACT with remaining_steps list. Log: shark epic note {id} 'Resuming session. Plan from {plan_created_at}. Remaining: {remaining_steps}. Completed: {completed_steps}.' (3) IF context_data.remaining_steps empty: PLAN MODE \u2014 run epic-ba-plan.md decision tree. For each optional doc state INCLUDE or EXCLUDE with specific reason for THIS epic. Default to INCLUDE when uncertain. Store: shark epic context set {id} --field remaining_steps '[...]' --field implementation_decisions '{...}' --field plan_created_at 'TIMESTAMP'. Log: shark epic note {id} 'PLAN: Will create N docs. Excluded: [list with reasons].' --type=decision READ: (1) Draft epic document at {file_path} and any vision notes. (2) Other epic PRDs under docs/plan/ for consistency and overlap awareness. ACT: Create only documents in remaining_steps. After each doc: update completed_steps via shark epic context set {id} --field completed_steps '[...]'. Register each: shark related-docs add \"...\" <path> --epic={id}. EXIT GATE: All remaining_steps completed. No vague language or TBDs. Advance: shark epic update {id} --status=ready_for_ba_check."
         }
       },
       "in_refinement": {
@@ -364,6 +392,63 @@
           "action": "pause",
           "instruction_template": "Epic {id} is blocked. Do not spawn agent. Wait for blocker resolution."
         }
+      },
+      "ready_for_ba_check": {
+        "description": "Epic BA docs complete, ready for BA quality check",
+        "phase": "refinement",
+        "color": "yellow",
+        "progress_weight": 0.17,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "business-analyst"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "epic/ready_for_ba_check.tmpl"
+        }
+      },
+      "in_ba_check": {
+        "description": "BA validator checking epic docs for completeness and depth",
+        "phase": "refinement",
+        "color": "yellow",
+        "progress_weight": 0.19,
+        "is_planning": true,
+        "responsibility": "agent"
+      },
+      "ready_for_tech_check": {
+        "description": "Epic tech docs complete, ready for tech quality check",
+        "phase": "feasibility",
+        "color": "lime",
+        "progress_weight": 0.46,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "architect"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "epic/ready_for_tech_check.tmpl"
+        }
+      },
+      "in_tech_check": {
+        "description": "Architect validator checking epic tech docs for completeness and depth",
+        "phase": "feasibility",
+        "color": "lime",
+        "progress_weight": 0.48,
+        "is_planning": true,
+        "responsibility": "agent"
       }
     },
     "special_statuses": {
@@ -427,6 +512,7 @@
         "on_hold"
       ],
       "in_refinement_ba": [
+        "ready_for_ba_check",
         "ready_for_research",
         "ready_for_refinement_tech",
         "draft",
@@ -439,6 +525,7 @@
         "on_hold"
       ],
       "in_refinement_tech": [
+        "ready_for_tech_check",
         "ready_for_test_planning",
         "ready_for_refinement_ba",
         "blocked",
@@ -487,7 +574,9 @@
         "ready_for_task_generation",
         "ready_to_build",
         "active",
-        "cancelled"
+        "cancelled",
+        "ready_for_ba_check",
+        "ready_for_tech_check"
       ],
       "blocked": [
         "ready_for_scope_validation",
@@ -498,7 +587,31 @@
         "ready_for_test_planning",
         "ready_for_task_generation",
         "ready_to_build",
-        "draft"
+        "draft",
+        "ready_for_ba_check",
+        "ready_for_tech_check"
+      ],
+      "ready_for_ba_check": [
+        "in_ba_check",
+        "blocked",
+        "on_hold"
+      ],
+      "in_ba_check": [
+        "ready_for_refinement_tech",
+        "in_refinement_ba",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_tech_check": [
+        "in_tech_check",
+        "blocked",
+        "on_hold"
+      ],
+      "in_tech_check": [
+        "ready_for_test_planning",
+        "in_refinement_tech",
+        "blocked",
+        "on_hold"
       ]
     },
     "status_metadata": {
@@ -594,7 +707,7 @@
         "description": "Research in progress",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.20,
+        "progress_weight": 0.2,
         "is_planning": true,
         "responsibility": "agent"
       },
@@ -788,6 +901,63 @@
           "action": "pause",
           "instruction_template": "Feature {id} is blocked. Do not spawn agent. Wait for blocker resolution."
         }
+      },
+      "ready_for_ba_check": {
+        "description": "Feature BA docs complete, ready for BA quality check",
+        "phase": "refinement",
+        "color": "yellow",
+        "progress_weight": 0.15,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "business-analyst"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_ba_check.tmpl"
+        }
+      },
+      "in_ba_check": {
+        "description": "BA validator checking feature docs for completeness and depth",
+        "phase": "refinement",
+        "color": "yellow",
+        "progress_weight": 0.18,
+        "is_planning": true,
+        "responsibility": "agent"
+      },
+      "ready_for_tech_check": {
+        "description": "Feature tech docs complete, ready for tech quality check",
+        "phase": "refinement",
+        "color": "lime",
+        "progress_weight": 0.43,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "architect"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_tech_check.tmpl"
+        }
+      },
+      "in_tech_check": {
+        "description": "Architect validator checking feature tech docs for completeness and depth",
+        "phase": "refinement",
+        "color": "lime",
+        "progress_weight": 0.45,
+        "is_planning": true,
+        "responsibility": "agent"
       }
     },
     "special_statuses": {
