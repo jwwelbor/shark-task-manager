@@ -718,5 +718,140 @@
       "_complete_": ["completed", "cancelled"],
       "_aggregation_": ["active"]
     }
+  },
+  "bug_workflow": {
+    "status_flow": {
+      "reported": ["triaged", "duplicate", "wont_fix"],
+      "triaged": ["in_fix", "wont_fix", "duplicate"],
+      "in_fix": ["in_verification", "triaged"],
+      "in_verification": ["resolved", "in_fix"],
+      "resolved": [],
+      "wont_fix": ["triaged"],
+      "duplicate": []
+    },
+    "status_metadata": {
+      "reported": {
+        "color": "red",
+        "description": "Bug reported, awaiting triage",
+        "phase": "planning",
+        "progress_weight": 0,
+        "responsibility": "agent",
+        "agent_types": ["qa", "developer"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "qa",
+          "instruction_template": "Triage bug {id}: assess severity, reproduce, and advance status."
+        }
+      },
+      "triaged": {
+        "color": "yellow",
+        "description": "Bug triaged, ready for fix",
+        "phase": "planning",
+        "progress_weight": 0.2,
+        "responsibility": "agent",
+        "agent_types": ["tech-lead", "developer"]
+      },
+      "in_fix": {
+        "color": "blue",
+        "description": "Fix in progress",
+        "phase": "development",
+        "progress_weight": 0.5,
+        "responsibility": "agent",
+        "agent_types": ["developer", "backend", "frontend"]
+      },
+      "in_verification": {
+        "color": "cyan",
+        "description": "Fix applied, awaiting verification",
+        "phase": "review",
+        "progress_weight": 0.8,
+        "responsibility": "agent",
+        "agent_types": ["qa"]
+      },
+      "resolved": {
+        "color": "green",
+        "description": "Bug verified as fixed",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none"
+      },
+      "wont_fix": {
+        "color": "gray",
+        "description": "Bug will not be fixed",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none"
+      },
+      "duplicate": {
+        "color": "gray",
+        "description": "Bug is a duplicate of another",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none"
+      }
+    },
+    "special_statuses": {
+      "_start_": ["reported"],
+      "_complete_": ["resolved", "wont_fix", "duplicate"]
+    },
+    "require_rejection_reason": true
+  },
+  "change_workflow": {
+    "status_flow": {
+      "proposed": ["approved", "declined"],
+      "approved": ["in_progress", "declined"],
+      "in_progress": ["completed", "approved"],
+      "completed": [],
+      "declined": ["proposed"]
+    },
+    "status_metadata": {
+      "proposed": {
+        "color": "yellow",
+        "description": "Change proposed, awaiting approval",
+        "phase": "planning",
+        "progress_weight": 0,
+        "responsibility": "human",
+        "agent_types": ["project-manager", "tech-lead"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "project-manager",
+          "instruction_template": "Review change proposal {id}: assess impact, approve or decline."
+        }
+      },
+      "approved": {
+        "color": "cyan",
+        "description": "Change approved, ready to implement",
+        "phase": "planning",
+        "progress_weight": 0.2,
+        "responsibility": "agent",
+        "agent_types": ["developer", "tech-lead"]
+      },
+      "in_progress": {
+        "color": "blue",
+        "description": "Change implementation in progress",
+        "phase": "development",
+        "progress_weight": 0.5,
+        "responsibility": "agent",
+        "agent_types": ["developer", "backend", "frontend"]
+      },
+      "completed": {
+        "color": "green",
+        "description": "Change completed and verified",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none"
+      },
+      "declined": {
+        "color": "red",
+        "description": "Change declined",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none"
+      }
+    },
+    "special_statuses": {
+      "_start_": ["proposed"],
+      "_complete_": ["completed", "declined"]
+    },
+    "require_rejection_reason": true
   }
 }

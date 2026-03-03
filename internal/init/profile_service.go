@@ -74,6 +74,8 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 			"status_flow_version",
 			"epic_workflow",
 			"feature_workflow",
+			"bug_workflow",
+			"change_workflow",
 		},
 		Force: opts.Force,
 	}
@@ -161,6 +163,8 @@ func (s *ProfileService) GetChangePreview(opts UpdateOptions) (*ChangeReport, er
 			"status_flow_version",
 			"epic_workflow",
 			"feature_workflow",
+			"bug_workflow",
+			"change_workflow",
 		},
 		Force: opts.Force,
 	}

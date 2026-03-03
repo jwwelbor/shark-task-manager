@@ -194,6 +194,199 @@ func TestStatusMetadata_IsPlanningJSONParsing(t *testing.T) {
 	}
 }
 
+func TestGetWorkflowForLevel_BugWithNil(t *testing.T) {
+	m := &MultiLevelWorkflow{}
+	wf := m.GetWorkflowForLevel("bug")
+	if wf == nil {
+		t.Fatal("expected non-nil workflow for bug level with nil Bug")
+	}
+	// Should return default bug workflow with 7 statuses
+	if len(wf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default bug workflow, got %d", len(wf.StatusFlow))
+	}
+	if _, ok := wf.StatusFlow["reported"]; !ok {
+		t.Error("expected 'reported' status in default bug workflow")
+	}
+	if _, ok := wf.StatusFlow["triaged"]; !ok {
+		t.Error("expected 'triaged' status in default bug workflow")
+	}
+	if _, ok := wf.StatusFlow["in_fix"]; !ok {
+		t.Error("expected 'in_fix' status in default bug workflow")
+	}
+	if _, ok := wf.StatusFlow["resolved"]; !ok {
+		t.Error("expected 'resolved' status in default bug workflow")
+	}
+}
+
+func TestGetWorkflowForLevel_ChangeWithNil(t *testing.T) {
+	m := &MultiLevelWorkflow{}
+	wf := m.GetWorkflowForLevel("change")
+	if wf == nil {
+		t.Fatal("expected non-nil workflow for change level with nil Change")
+	}
+	// Should return default change-card workflow with 5 statuses
+	if len(wf.StatusFlow) != 5 {
+		t.Errorf("expected 5 statuses in default change-card workflow, got %d", len(wf.StatusFlow))
+	}
+	if _, ok := wf.StatusFlow["proposed"]; !ok {
+		t.Error("expected 'proposed' status in default change-card workflow")
+	}
+	if _, ok := wf.StatusFlow["approved"]; !ok {
+		t.Error("expected 'approved' status in default change-card workflow")
+	}
+	if _, ok := wf.StatusFlow["completed"]; !ok {
+		t.Error("expected 'completed' status in default change-card workflow")
+	}
+}
+
+func TestGetWorkflowForLevel_CustomBug(t *testing.T) {
+	customBug := &WorkflowConfig{
+		Version: "1.0",
+		StatusFlow: map[string][]string{
+			"new":           {"investigating"},
+			"investigating": {"fixed"},
+			"fixed":         {},
+		},
+	}
+	m := &MultiLevelWorkflow{Bug: customBug}
+	wf := m.GetWorkflowForLevel("bug")
+	if wf != customBug {
+		t.Error("expected custom bug workflow to be returned")
+	}
+	if _, ok := wf.StatusFlow["investigating"]; !ok {
+		t.Error("expected custom status 'investigating' in bug workflow")
+	}
+}
+
+func TestGetWorkflowForLevel_CustomChange(t *testing.T) {
+	customChange := &WorkflowConfig{
+		Version: "1.0",
+		StatusFlow: map[string][]string{
+			"draft":     {"submitted"},
+			"submitted": {"done"},
+			"done":      {},
+		},
+	}
+	m := &MultiLevelWorkflow{Change: customChange}
+	wf := m.GetWorkflowForLevel("change")
+	if wf != customChange {
+		t.Error("expected custom change workflow to be returned")
+	}
+	if _, ok := wf.StatusFlow["submitted"]; !ok {
+		t.Error("expected custom status 'submitted' in change workflow")
+	}
+}
+
+func TestDefaultBugWorkflow_PassesValidation(t *testing.T) {
+	wf := DefaultBugWorkflow()
+	if err := ValidateWorkflow(wf); err != nil {
+		t.Errorf("default bug workflow should pass validation: %v", err)
+	}
+}
+
+func TestDefaultChangeCardWorkflow_PassesValidation(t *testing.T) {
+	wf := DefaultChangeCardWorkflow()
+	if err := ValidateWorkflow(wf); err != nil {
+		t.Errorf("default change-card workflow should pass validation: %v", err)
+	}
+}
+
+func TestDefaultBugWorkflow_HasCorrectMetadata(t *testing.T) {
+	wf := DefaultBugWorkflow()
+
+	// Check start status
+	startStatuses, ok := wf.SpecialStatuses[StartStatusKey]
+	if !ok {
+		t.Fatal("expected _start_ in special statuses")
+	}
+	if len(startStatuses) != 1 || startStatuses[0] != "reported" {
+		t.Errorf("expected _start_ = ['reported'], got %v", startStatuses)
+	}
+
+	// Check complete statuses
+	completeStatuses, ok := wf.SpecialStatuses[CompleteStatusKey]
+	if !ok {
+		t.Fatal("expected _complete_ in special statuses")
+	}
+	if len(completeStatuses) != 3 {
+		t.Errorf("expected 3 complete statuses, got %d", len(completeStatuses))
+	}
+
+	// Check reported metadata
+	reportedMeta, ok := wf.StatusMetadata["reported"]
+	if !ok {
+		t.Fatal("expected 'reported' in status metadata")
+	}
+	if reportedMeta.Color != "red" {
+		t.Errorf("expected reported color 'red', got %q", reportedMeta.Color)
+	}
+	if reportedMeta.Phase != "planning" {
+		t.Errorf("expected reported phase 'planning', got %q", reportedMeta.Phase)
+	}
+}
+
+func TestDefaultChangeCardWorkflow_HasCorrectMetadata(t *testing.T) {
+	wf := DefaultChangeCardWorkflow()
+
+	// Check start status
+	startStatuses, ok := wf.SpecialStatuses[StartStatusKey]
+	if !ok {
+		t.Fatal("expected _start_ in special statuses")
+	}
+	if len(startStatuses) != 1 || startStatuses[0] != "proposed" {
+		t.Errorf("expected _start_ = ['proposed'], got %v", startStatuses)
+	}
+
+	// Check complete statuses
+	completeStatuses, ok := wf.SpecialStatuses[CompleteStatusKey]
+	if !ok {
+		t.Fatal("expected _complete_ in special statuses")
+	}
+	if len(completeStatuses) != 2 {
+		t.Errorf("expected 2 complete statuses, got %d", len(completeStatuses))
+	}
+
+	// Check proposed metadata
+	proposedMeta, ok := wf.StatusMetadata["proposed"]
+	if !ok {
+		t.Fatal("expected 'proposed' in status metadata")
+	}
+	if proposedMeta.Color != "yellow" {
+		t.Errorf("expected proposed color 'yellow', got %q", proposedMeta.Color)
+	}
+}
+
+func TestGetWorkflowForLevel_BugChangeIsolation(t *testing.T) {
+	m := &MultiLevelWorkflow{}
+
+	bugWf := m.GetWorkflowForLevel("bug")
+	changeWf := m.GetWorkflowForLevel("change")
+	taskWf := m.GetWorkflowForLevel("task")
+
+	// Bug workflow should have 7 statuses
+	if len(bugWf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
+	}
+
+	// Change workflow should have 5 statuses
+	if len(changeWf.StatusFlow) != 5 {
+		t.Errorf("expected 5 statuses in default change workflow, got %d", len(changeWf.StatusFlow))
+	}
+
+	// Task workflow should still have 5 statuses
+	if len(taskWf.StatusFlow) != 5 {
+		t.Errorf("expected 5 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	}
+
+	// Verify no cross-contamination
+	if _, ok := bugWf.StatusFlow["proposed"]; ok {
+		t.Error("bug workflow should not contain 'proposed' from change workflow")
+	}
+	if _, ok := changeWf.StatusFlow["reported"]; ok {
+		t.Error("change workflow should not contain 'reported' from bug workflow")
+	}
+}
+
 func TestStatusMetadata_IsPlanningOmittedDefaults(t *testing.T) {
 	jsonStr := `{"color": "blue", "description": "test"}`
 
