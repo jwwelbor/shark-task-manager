@@ -240,6 +240,7 @@ func TestValidActionTypes(t *testing.T) {
 		ActionWaitForTriage: true,
 		ActionArchive:       true,
 		ActionAdvanceStatus: true,
+		ActionCheckOrResume: true,
 	}
 
 	for _, actionType := range ValidActionTypes {
@@ -871,7 +872,7 @@ func TestOrchestratorAction_PopulateTemplate_LegacyPathKeptIntact(t *testing.T) 
 
 // === NEW TESTS FOR PHASE 2 TEMPLATE REFERENCES (T-E07-F30-008) ===
 
-// TestPhase2TemplateReferenceCountInConfig verifies exactly 12 .tmpl references in config
+// TestPhase2TemplateReferenceCountInConfig verifies .tmpl references in config
 func TestPhase2TemplateReferenceCountInConfig(t *testing.T) {
 	// Find the config file
 	projectRoot := getProjectRoot()
@@ -891,9 +892,9 @@ func TestPhase2TemplateReferenceCountInConfig(t *testing.T) {
 		}
 	}
 
-	// Should have exactly 12 .tmpl references (5 task + 4 feature + 3 epic)
-	if count != 12 {
-		t.Errorf("Config has %d .tmpl references, want 12", count)
+	// Should have at least 12 .tmpl references (expanded in E18-F01 to include all entity statuses)
+	if count < 12 {
+		t.Errorf("Config has %d .tmpl references, want at least 12", count)
 	}
 }
 
@@ -1120,7 +1121,9 @@ func TestPhase2AllEpicTemplateFilesExist(t *testing.T) {
 	}
 }
 
-// TestPhase2NonPhase2StatusesRemainInline verifies backward compatibility
+// TestPhase2NonPhase2StatusesRemainInline verifies template system is consistent
+// Note: E18-F01 expanded the template system to cover all entity statuses.
+// All statuses now use .tmpl files for consistent orchestration instructions.
 func TestPhase2NonPhase2StatusesRemainInline(t *testing.T) {
 	projectRoot := getProjectRoot()
 	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
@@ -1130,25 +1133,16 @@ func TestPhase2NonPhase2StatusesRemainInline(t *testing.T) {
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Sample of non-Phase2 statuses that should still use inline strings
-	inlineOnlyStatuses := []string{
-		"todo",
-		"draft",
-		"completed",
-		"blocked",
-		"on_hold",
-	}
-
 	statusMetadata, ok := config.RawData["status_metadata"].(map[string]interface{})
 	if !ok {
 		// No status_metadata, that's fine
 		return
 	}
 
-	for _, status := range inlineOnlyStatuses {
-		statusData, ok := statusMetadata[status].(map[string]interface{})
+	// Verify all orchestrator_action entries have non-empty instruction_template
+	for status, v := range statusMetadata {
+		statusData, ok := v.(map[string]interface{})
 		if !ok {
-			// Status might not be in metadata, that's OK
 			continue
 		}
 
@@ -1158,14 +1152,8 @@ func TestPhase2NonPhase2StatusesRemainInline(t *testing.T) {
 		}
 
 		template, ok := orchestratorAction["instruction_template"].(string)
-		if !ok {
-			continue
-		}
-
-		// Should NOT end with .tmpl
-		if len(template) > 5 && template[len(template)-5:] == ".tmpl" {
-			t.Errorf("Non-Phase2 status %q should have inline template, got %q",
-				status, template)
+		if !ok || template == "" {
+			t.Errorf("Status %q has orchestrator_action with empty instruction_template", status)
 		}
 	}
 }

@@ -34,6 +34,12 @@ type NoteTaskRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
 }
 
+// NoteChangeCardRepository defines the change-card repository interface needed by NoteService.
+type NoteChangeCardRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
+	GetByID(ctx context.Context, id int64) (*models.ChangeCard, error)
+}
+
 // NoteEntityDetails contains the key and name of an entity referenced by a note.
 type NoteEntityDetails struct {
 	Key  string
@@ -62,6 +68,15 @@ func (s *NoteService) GetEntityDetails(ctx context.Context, entityType models.En
 			return nil
 		}
 		return &NoteEntityDetails{Key: feature.Key, Name: feature.Title}
+	case models.EntityTypeChange:
+		if s.changeCardRepo == nil {
+			return nil
+		}
+		card, err := s.changeCardRepo.GetByID(ctx, entityID)
+		if err != nil {
+			return nil
+		}
+		return &NoteEntityDetails{Key: card.Key, Name: card.Title}
 	default:
 		return nil
 	}
@@ -69,10 +84,16 @@ func (s *NoteService) GetEntityDetails(ctx context.Context, entityType models.En
 
 // NoteService provides business logic for note operations across all entity types.
 type NoteService struct {
-	noteRepo    NoteEntityNoteRepository
-	epicRepo    NoteEpicRepository
-	featureRepo NoteFeatureRepository
-	taskRepo    NoteTaskRepository
+	noteRepo       NoteEntityNoteRepository
+	epicRepo       NoteEpicRepository
+	featureRepo    NoteFeatureRepository
+	taskRepo       NoteTaskRepository
+	changeCardRepo NoteChangeCardRepository
+}
+
+// SetChangeCardRepo sets the optional change-card repository for change entity support.
+func (s *NoteService) SetChangeCardRepo(repo NoteChangeCardRepository) {
+	s.changeCardRepo = repo
 }
 
 // NewNoteService creates a new NoteService with injected dependencies.
@@ -161,6 +182,15 @@ func (s *NoteService) resolveEntityID(ctx context.Context, entityType models.Ent
 			return 0, fmt.Errorf("task not found: %s: %w", key, err)
 		}
 		return task.ID, nil
+	case models.EntityTypeChange:
+		if s.changeCardRepo == nil {
+			return 0, fmt.Errorf("change-card support not configured")
+		}
+		card, err := s.changeCardRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("change-card not found: %s: %w", key, err)
+		}
+		return card.ID, nil
 	default:
 		return 0, fmt.Errorf("unsupported entity type: %s", entityType)
 	}

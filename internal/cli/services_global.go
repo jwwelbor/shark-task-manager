@@ -42,7 +42,10 @@ func GetNoteService(ctx context.Context) (*services.NoteService, error) {
 		featureRepo := repository.NewFeatureRepository(db)
 		taskRepo := repository.NewTaskRepository(db)
 
-		globalNoteService = services.NewNoteService(noteRepo, epicRepo, featureRepo, taskRepo)
+		svc := services.NewNoteService(noteRepo, epicRepo, featureRepo, taskRepo)
+		changeCardRepo := repository.NewChangeCardRepository(db)
+		svc.SetChangeCardRepo(changeCardRepo)
+		globalNoteService = svc
 	})
 
 	if noteServiceErr != nil {
@@ -289,6 +292,32 @@ func GetValidationRunner() *validation.Validator {
 	taskRepo := repository.NewTaskRepository(db)
 	repoAdapter := validation.NewRepositoryAdapter(epicRepo, featureRepo, taskRepo)
 	return validation.NewValidator(repoAdapter)
+}
+
+// GetChangeCardService returns a ChangeCardService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetChangeCardService()
+//	card, err := svc.CreateChangeCard(ctx, input)
+func GetChangeCardService() *services.ChangeCardService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	workflowSvc := GetWorkflowService()
+	changeCardRepo := repository.NewChangeCardRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+
+	return services.NewChangeCardService(changeCardRepo, workflowSvc, epicRepo, featureRepo, projectRoot)
 }
 
 // ResetServices clears global service state. For testing only.

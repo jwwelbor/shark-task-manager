@@ -28,11 +28,21 @@ type ContextTaskRepository interface {
 	Update(ctx context.Context, task *models.Task) error
 }
 
+// ContextBugRepository defines the bug repository interface needed by ContextService.
+type ContextBugRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Bug, error)
+	Update(ctx context.Context, bug *models.Bug) error
+}
+
+// Bug is an alias to avoid import issues - the actual type comes from models.
+type Bug = models.Bug
+
 // ContextService provides business logic for context data operations across all entity types.
 type ContextService struct {
 	epicRepo    ContextEpicRepository
 	featureRepo ContextFeatureRepository
 	taskRepo    ContextTaskRepository
+	bugRepo     ContextBugRepository
 }
 
 // NewContextService creates a new ContextService with injected dependencies.
@@ -42,6 +52,11 @@ func NewContextService(epicRepo ContextEpicRepository, featureRepo ContextFeatur
 		featureRepo: featureRepo,
 		taskRepo:    taskRepo,
 	}
+}
+
+// SetBugRepo sets the optional bug repository for context operations on bugs.
+func (s *ContextService) SetBugRepo(repo ContextBugRepository) {
+	s.bugRepo = repo
 }
 
 // GetContext returns the parsed context data for an entity.
