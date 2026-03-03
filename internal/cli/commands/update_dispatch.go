@@ -18,21 +18,64 @@ Key format detection:
 
 Use 'shark status set' to change entity status.
 
+Common flags (all entities):
+  --title          New title
+  --description    New description
+  --order          New execution order
+  --key            Rename entity key
+  --file           New file path
+  --force          Force file reassignment
+
+Priority & agent flags:
+  --priority       New priority (1-10 for tasks; low/medium/high for epics)
+  --agent          New agent type (task only)
+  --depends-on     New dependency keys, comma-separated (task only)
+
+Epic-specific flags:
+  --business-value New business value: low, medium, high
+
 Examples:
   shark update E07 --title="New Epic Title"
-  shark update E07-F01 --title="New Feature Title"
-  shark update E07-F01-001 --title="New Task Title"
-  shark update E07-F01-001 --priority=8`,
+  shark update E07 --business-value=high
+  shark update E07-F01 --title="New Feature Title" --file=docs/custom/feature.md
+  shark update E07-F01 --key=E07-F02
+  shark update E07-F01-001 --title="New Task Title" --priority=8
+  shark update E07-F01-001 --agent=backend`,
 	GroupID: "manage",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runUpdate,
 }
 
 func init() {
+	// Common flags (all entities)
 	updateCmd.Flags().String("title", "", "New title")
 	updateCmd.Flags().StringP("description", "d", "", "New description")
-	updateCmd.Flags().IntP("priority", "p", -1, "New priority (1-10, -1=no change)")
 	updateCmd.Flags().Int("order", -1, "New execution order (-1=no change)")
+
+	// Key rename
+	updateCmd.Flags().String("key", "", "New key (must be unique, no spaces)")
+
+	// File path flags
+	updateCmd.Flags().String("file", "", "New file path (e.g., docs/custom/feature.md)")
+	updateCmd.Flags().String("filename", "", "Alias for --file")
+	updateCmd.Flags().String("path", "", "Alias for --file")
+	_ = updateCmd.Flags().MarkHidden("filename")
+	_ = updateCmd.Flags().MarkHidden("path")
+	updateCmd.Flags().Bool("force", false, "Force reassignment if file already claimed")
+
+	// Priority (string: "1"-"10" for tasks, "low"/"medium"/"high" for epics)
+	updateCmd.Flags().StringP("priority", "p", "", "New priority (1-10 for tasks; low/medium/high for epics)")
+
+	// Task-specific flags
+	updateCmd.Flags().StringP("agent", "a", "", "New agent type (task only)")
+	updateCmd.Flags().String("depends-on", "", "New dependency keys, comma-separated (task only)")
+
+	// Epic-specific flags
+	updateCmd.Flags().String("business-value", "", "New business value: low, medium, high (epic only)")
+
+	// Deprecated aliases
+	updateCmd.Flags().Int("execution-order", -1, "New execution order (-1=no change)")
+	_ = updateCmd.Flags().MarkDeprecated("execution-order", "use --order instead")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {

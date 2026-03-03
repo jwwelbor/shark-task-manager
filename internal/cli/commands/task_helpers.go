@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -273,7 +274,7 @@ func parseTaskUpdates(cmd *cobra.Command) services.TaskUpdates {
 		updates.Description = &v
 	}
 	if cmd.Flags().Changed("priority") {
-		v, _ := cmd.Flags().GetInt("priority")
+		v := parsePriorityFlag(cmd)
 		if v >= 0 {
 			updates.Priority = &v
 		}
@@ -293,6 +294,22 @@ func parseTaskUpdates(cmd *cobra.Command) services.TaskUpdates {
 		updates.FilePath = &v
 	}
 	return updates
+}
+
+// parsePriorityFlag reads the priority flag as either int or string type,
+// depending on which command registered it. Returns -1 if not parseable.
+func parsePriorityFlag(cmd *cobra.Command) int {
+	// Try int first (entity-specific task update command registers as int)
+	if v, err := cmd.Flags().GetInt("priority"); err == nil {
+		return v
+	}
+	// Fall back to string (unified update command registers as string)
+	if s, err := cmd.Flags().GetString("priority"); err == nil && s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			return v
+		}
+	}
+	return -1
 }
 
 // registerListFlags adds flags for the task list command.
