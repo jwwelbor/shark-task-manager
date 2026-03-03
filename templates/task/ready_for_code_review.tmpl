@@ -24,7 +24,7 @@ REVIEW:
 ON PASS (all acceptance criteria met, no blockers):
 - Write code review report to code_review/ directory
 - Add note: shark note add --task={{.task_id}} --type=review "Code review approved - see report"
-- Advance: shark task next-status {{.task_id}}
+- Advance: {{template "advance" .}}
 
 ON FAIL (blockers found, spec drift, or missing acceptance criteria):
 - Write code review report with detailed findings and required changes

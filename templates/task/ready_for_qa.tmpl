@@ -22,7 +22,7 @@ VALIDATE:
 
 ON PASS (all test cases pass, acceptance criteria met):
 - Add note: shark note add --task={{.task_id}} --type=review "QA passed - all test cases validated"
-- Advance: shark task next-status {{.task_id}}
+- Advance: {{template "advance" .}}
 
 ON FAIL (test cases fail, acceptance criteria not met, regressions found):
 - Add note with specific failures: shark note add --task={{.task_id}} --type=blocker "QA failed - [describe failures]"

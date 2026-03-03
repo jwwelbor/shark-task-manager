@@ -155,7 +155,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "advance_status",
-          "instruction_template": "Epic {id} is in draft. Execute `shark epic next-status {id}` to advance to refinement."
+          "instruction_template": "epic/draft.tmpl"
         }
       },
       "ready_for_research": {
@@ -278,7 +278,7 @@
         "responsibility": "human",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Epic {id} requires human intervention. A feasibility review agent found concerns that need a human decision. Read the intervention report in the epic directory. Options: (1) Back to ready_for_refinement to revise scope, (2) Back to ready_for_research for more data, (3) Back to ready_for_feasibility_review_ba or ready_for_feasibility_review_tech to re-review, (4) Forward to ready_for_test_planning if concerns are accepted/addressed, (5) cancelled. Human must set status manually via shark epic update {id} --status=<chosen_status>."
+          "instruction_template": "epic/intervention_required.tmpl"
         }
       },
       "ready_for_refinement": {
@@ -297,7 +297,7 @@
           "skills": [
             "specification-writing"
           ],
-          "instruction_template": "Write epic PRD for {id}: \"{title}\". LOAD: specification-writing workflows write-epic.md, plan/epic-ba-plan.md. PLAN GATE \u2014 run before creating any document: (1) READ: shark epic context get {id} --json. (2) IF context_data.remaining_steps non-empty: RESUME MODE \u2014 skip to ACT with remaining_steps list. Log: shark epic note {id} 'Resuming session. Plan from {plan_created_at}. Remaining: {remaining_steps}. Completed: {completed_steps}.' (3) IF context_data.remaining_steps empty: PLAN MODE \u2014 run epic-ba-plan.md decision tree. For each optional doc state INCLUDE or EXCLUDE with specific reason for THIS epic. Default to INCLUDE when uncertain. Store: shark epic context set {id} --field remaining_steps '[...]' --field implementation_decisions '{...}' --field plan_created_at 'TIMESTAMP'. Log: shark epic note {id} 'PLAN: Will create N docs. Excluded: [list with reasons].' --type=decision READ: (1) Draft epic document at {file_path} and any vision notes. (2) Other epic PRDs under docs/plan/ for consistency and overlap awareness. ACT: Create only documents in remaining_steps. After each doc: update completed_steps via shark epic context set {id} --field completed_steps '[...]'. Register each: shark related-docs add \"...\" <path> --epic={id}. EXIT GATE: All remaining_steps completed. No vague language or TBDs. Advance: shark epic update {id} --status=ready_for_ba_check."
+          "instruction_template": "epic/ready_for_refinement.tmpl"
         }
       },
       "in_refinement": {
@@ -333,7 +333,7 @@
             "quality",
             "shark"
           ],
-          "instruction_template": "Create UAT acceptance plan for epic {id}: \"{title}\". STRATEGIC TEST PLANNING -- define how we know this epic delivers what it promises. READ: (1) Epic PRD at {file_path} -- all 6 files (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md), (2) Research report for feasibility constraints and risk areas, (3) BA feasibility review report for business viability assessment and cross-epic conflict analysis, (4) Technical feasibility review report for architectural concerns and dependency risks, (5) Other epic UAT plans under docs/plan/ for cross-epic test coverage. PRODUCE: Epic UAT plan containing: (1) Acceptance scenarios derived from each user journey -- concrete end-to-end scenarios with preconditions, steps, expected outcomes that prove the journey works, (2) Success metrics validation plan -- how each metric from success-metrics.md will be measured and what constitutes pass/fail, (3) Cross-epic integration test scenarios -- where this epic's capabilities interact with other epics, (4) Risk-based test priorities -- which scenarios must pass first based on research risk assessment and feasibility review findings, (5) Persona-based acceptance matrix -- for each persona, which scenarios validate their needs are met. EXIT GATE: Every user journey has at least one acceptance scenario. Every success metric has a validation method. Risk areas from research and feasibility reviews have targeted scenarios. Plan is actionable for feature-level decomposition into test strategies. Advance: shark epic next-status {id}."
+          "instruction_template": "epic/ready_for_test_planning.tmpl"
         }
       },
       "in_test_planning": {
@@ -369,7 +369,7 @@
           "skills": [
             "specification-writing"
           ],
-          "instruction_template": "Decompose epic {id}: \"{title}\" into features. LOAD: specification-writing workflow decompose-epic.md. READ: (1) Full epic PRD at {file_path} (all 6 files), (2) Research report for system interactions and technical landscape, (3) BA feasibility review report for business viability and cross-epic conflicts, (4) Technical feasibility review report for architectural concerns and dependency risks, (5) Success metrics to ensure features trace to outcomes, (6) Existing features (shark feature list --epic={id}). PRODUCE: For each feature: create in shark (shark feature create --epic={id} --title=\"Name\"), write scope description, define execution order and dependencies, map to epic requirements. Output decomposition summary with feature tree and dependency graph. EXIT GATE: Every epic requirement traces to a feature. No scope overlap. Acyclic dependencies. Each feature sized for 1-3 sprints. Reviewed with user. Advance: shark epic next-status {id}."
+          "instruction_template": "epic/ready_for_decomposition.tmpl"
         }
       },
       "in_decomposition": {
@@ -406,7 +406,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
-          "instruction_template": "Epic {id} is completed. No agent action needed."
+          "instruction_template": "epic/completed.tmpl"
         }
       },
       "cancelled": {
@@ -418,7 +418,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
-          "instruction_template": "Epic {id} is cancelled. No agent action needed."
+          "instruction_template": "epic/cancelled.tmpl"
         }
       },
       "on_hold": {
@@ -430,7 +430,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Epic {id} is on hold. Do not spawn agent. Wait for product decision to resume."
+          "instruction_template": "epic/on_hold.tmpl"
         }
       },
       "blocked": {
@@ -442,7 +442,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Epic {id} is blocked. Do not spawn agent. Wait for blocker resolution."
+          "instruction_template": "epic/blocked.tmpl"
         }
       },
       "ready_for_ba_check": {
@@ -695,7 +695,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "advance_status",
-          "instruction_template": "Feature {id} is in draft. Execute `shark feature next-status {id}` to begin scope validation."
+          "instruction_template": "feature/draft.tmpl"
         }
       },
       "ready_for_scope_validation": {
@@ -715,7 +715,7 @@
             "specification-writing",
             "shark"
           ],
-          "instruction_template": "Validate scope for feature {id}: \"{title}\". ASSESS: Is this properly scoped as a feature or misclassified task? READ: (1) Feature description at {file_path}, (2) Parent epic PRD for context. CRITERIA: FEATURE = multi-capability (4+ user-facing capabilities), user journey focus (maps to persona needs), 4+ files typically, multi-sprint scope, requires architecture decisions. TASK = single atomic change (e.g., 'update button', 'fix typo', 'change color'), implementation detail, 1-3 files, days of work, applies existing patterns. IF MISCLASSIFIED: (1) Find or create enhancement feature: shark feature list --title='Enhancements' --epic={epic_id} OR shark feature create --epic={epic_id} --title='Enhancements and Maintenance', (2) Convert to task under enhancement feature: shark task create --feature={enhancement_feature_id} --title='{title}' --description='{description}', (3) Cancel this feature: shark feature update {id} --status=cancelled --note='Converted to task {task_id} under feature {enhancement_feature_id}', (4) Report to user with task ID and feature ID. IF PROPERLY SCOPED: (1) Add validation note: shark feature note {id} 'Scope validated as feature: {reasoning}', (2) Advance: shark feature next-status {id}. See docs/complexity-adaptive-workflow-proposal.md for full criteria."
+          "instruction_template": "feature/ready_for_scope_validation.tmpl"
         }
       },
       "in_scope_validation": {
@@ -752,7 +752,7 @@
             "research",
             "shark"
           ],
-          "instruction_template": "Assess complexity for feature {id}: \"{title}\" using assessment skill (complexity-triage workflow). LOAD: assessment skill - Use Workflow 1: Complexity Triage. READ: (1) Feature description at {file_path}, (2) Parent epic PRD for context, (3) Codebase via research skill for file impact estimation, (4) Existing tasks via shark task list --feature={id} for task count. SCORE: Use 9-dimension scoring from assessment skill (max 27 points) - Technical Complexity (6 dimensions: File Impact, Pattern Novelty, Data Model, API Surface, Cross-Feature Dependencies, UI Complexity) + Execution Complexity (3 dimensions: Task Estimation, Regression Risk, Execution Effort). TIER ASSIGNMENT: 0-6=SIMPLE, 7-15=STANDARD, 16+=COMPLEX per assessment skill tier thresholds. PRODUCE: Triage report following assessment skill template with dimension scores, total score, tier assignment, file impact estimate, autonomous build feasibility. STORE METADATA: shark feature note {id} 'COMPLEXITY_TIER: {tier} (score: {score}/27) - {rationale}' --metadata complexity_tier={tier} complexity_score={score}. ROUTE: SIMPLE->ready_for_task_generation, STANDARD->ready_for_refinement_ba, COMPLEX->ready_for_refinement_ba. Execute routing via shark feature update {id} --status={target_status}."
+          "instruction_template": "feature/ready_for_triage.tmpl"
         }
       },
       "in_triage": {
@@ -939,7 +939,7 @@
             "specification-writing",
             "shark"
           ],
-          "instruction_template": "Generate tasks for feature {id}: \"{title}\". CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {id} --json | jq -r '.metadata.complexity_tier'. LOAD: specification-writing workflow write-task.md. READ AVAILABLE DOCS: (1) Feature description and triage report at {file_path}, (2) Feature PRD if exists (prd.md), (3) Architecture docs if exist (02-08 series), (4) Test plan if exists (09-test-plan.md), (5) Parent epic context. Run write-task.md Step 0 (documentation detection). ADAPT TO TIER: SIMPLE (typically no PRD/arch/test docs -- create 1-3 focused tasks directly from triage report and feature description, include acceptance criteria in task spec, reference existing patterns from triage), STANDARD (PRD + focused arch + test plan available -- create tasks per normal write-task.md process, typically 3-8 tasks), COMPLEX (full doc suite -- create comprehensive task breakdown per write-task.md, typically 8+ tasks with detailed dependency graph). PRODUCE: Tasks via shark task create. Each task: goal, success criteria, design doc references if available, test cases if test plan exists, validation gates, agent assignment, dependencies. For SIMPLE tier, embed test cases directly in task spec. EXIT GATE varies by tier: SIMPLE (feature requirements covered by 1-3 tasks, AC clear), STANDARD (PRD requirements map to tasks, test cases mapped), COMPLEX (full write-task.md checklist, contract validation task if applicable). Verify: shark task list --feature={id}. Advance: shark feature next-status {id}."
+          "instruction_template": "feature/ready_for_task_generation.tmpl"
         }
       },
       "in_task_generation": {
@@ -977,7 +977,7 @@
             "build",
             "shark"
           ],
-          "instruction_template": "Execute autonomous build for feature {id}: \"{title}\". LOAD: build skill. READ: (1) Feature PRD and architecture docs, (2) All tasks via shark task list --feature={id}, (3) Task dependency graph, (4) Feature research report for codebase conventions. Drive all tasks through: development -> code review -> QA -> approval. Spawn appropriate agents per task status. Code review must check implementation against feature PRD intent, not just task spec. EXIT GATE: All tasks completed or in approval. No blocked tasks. Integration tests pass. Advance: shark feature next-status {id}."
+          "instruction_template": "feature/ready_to_build.tmpl"
         }
       },
       "active": {
@@ -998,7 +998,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
-          "instruction_template": "Feature {id} is completed. No agent action needed."
+          "instruction_template": "feature/completed.tmpl"
         }
       },
       "cancelled": {
@@ -1010,7 +1010,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
-          "instruction_template": "Feature {id} is cancelled. No agent action needed."
+          "instruction_template": "feature/cancelled.tmpl"
         }
       },
       "on_hold": {
@@ -1022,7 +1022,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Feature {id} is on hold. Do not spawn agent. Wait for product decision to resume."
+          "instruction_template": "feature/on_hold.tmpl"
         }
       },
       "blocked": {
@@ -1034,7 +1034,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Feature {id} is blocked. Do not spawn agent. Wait for blocker resolution."
+          "instruction_template": "feature/blocked.tmpl"
         }
       },
       "ready_for_ba_check": {
@@ -1258,7 +1258,7 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "pause",
-        "instruction_template": "Task {task_id} is blocked. Do not spawn agent. Wait for blocker resolution. Notify the user that the task was blocked and report the reason."
+        "instruction_template": "task/blocked.tmpl"
       }
     },
     "cancelled": {
@@ -1270,7 +1270,7 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "archive",
-        "instruction_template": "Task {task_id} is cancelled. No agent action needed."
+        "instruction_template": "task/cancelled.tmpl"
       }
     },
     "completed": {
@@ -1282,7 +1282,7 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "archive",
-        "instruction_template": "Task {task_id} is completed. No agent action needed."
+        "instruction_template": "task/completed.tmpl"
       }
     },
     "draft": {
@@ -1294,7 +1294,7 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "advance_status",
-        "instruction_template": "Task {task_id} is in draft status. Execute `shark task {task_id} next-status` to begin planning."
+        "instruction_template": "task/draft.tmpl"
       }
     },
     "in_approval": {
@@ -1354,7 +1354,7 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "pause",
-        "instruction_template": "Task {task_id} is on hold. Do not spawn agent. Wait for product decision to resume."
+        "instruction_template": "task/on_hold.tmpl"
       }
     },
     "ready_for_approval": {
@@ -1375,7 +1375,7 @@
           "shark",
           "uat"
         ],
-        "instruction_template": "Launch UAT agent to include {task_id} in the UAT documentation."
+        "instruction_template": "task/ready_for_approval.tmpl"
       }
     },
     "ready_for_code_review": {
@@ -1488,7 +1488,7 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "wait_for_triage",
-        "instruction_template": "Task {task_id} is in todo status. Update with next-status to begin planning."
+        "instruction_template": "task/todo.tmpl"
       }
     }
   }

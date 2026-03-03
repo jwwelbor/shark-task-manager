@@ -18,5 +18,5 @@ Prepare UAT documentation showing:
 - Any deviations or notes for reviewer
 
 This task requires human review. Present the UAT documentation and await human decision:
-- APPROVED → shark task next-status {{.task_id}} (completes the task)
+- APPROVED → {{template "advance" .}} (completes the task)
 - REJECTED → route back to appropriate status with rejection reason

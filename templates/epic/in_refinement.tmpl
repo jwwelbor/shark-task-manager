@@ -1,7 +1,7 @@
 {{template "_resume_preamble" .}}RESUME epic refinement for {{.id}}: "{{.title}}".
 
 Check context_data: shark epic context get {{.id}} --json
-- If remaining_steps non-empty AND completed_steps contains all items in remaining_steps → all docs done → advance to ready_for_ba_check: shark status advance {{.id}}.
+- If remaining_steps non-empty AND completed_steps contains all items in remaining_steps → all docs done → advance to ready_for_ba_check: {{template "advance" .}}.
 - If remaining_steps non-empty AND completed_steps ≠ remaining_steps → continue with items in remaining_steps not yet in completed_steps.
 - If remaining_steps empty → full re-run needed, proceed with ready_for_refinement instructions below (re-run the PLAN gate).
 
@@ -24,4 +24,4 @@ EXIT GATE:
 
 ---
 ## EXIT — REQUIRED
-    shark status advance {{.id}}
+    {{template "advance" .}}

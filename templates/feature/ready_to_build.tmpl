@@ -1,0 +1,17 @@
+Execute autonomous build for feature {{.id}}: "{{.title}}".
+
+LOAD: build skill.
+
+READ:
+(1) Feature PRD and architecture docs
+(2) All tasks via shark task list --feature={{.id}}
+(3) Task dependency graph
+(4) Feature research report for codebase conventions
+
+Drive all tasks through: development -> code review -> QA -> approval. Spawn appropriate agents per task status. Code review must check implementation against feature PRD intent, not just task spec.
+
+EXIT GATE: All tasks completed or in approval. No blocked tasks. Integration tests pass.
+
+---
+## EXIT — REQUIRED
+    {{template "advance" .}}

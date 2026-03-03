@@ -21,6 +21,6 @@ EVALUATE:
 
 PRODUCE: BA feasibility review report with findings for each area, overall assessment (APPROVED or CONCERNS_FOUND), and recommended actions.
 
-IF APPROVED: Advance via shark status advance {{.id}}.
+IF APPROVED: Advance via {{template "advance" .}}.
 
 IF CONCERNS FOUND: Set intervention_required via shark epic update {{.id}} --status=intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action.
