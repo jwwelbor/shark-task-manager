@@ -354,6 +354,24 @@ func GetBugService() *services.BugService {
 	return services.NewBugService(bugRepo, workflowSvc, epicRepo, featureRepo, taskRepo)
 }
 
+// GetDashboardAnalyticsService returns a DashboardAnalyticsService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetDashboardAnalyticsService()
+//	result, err := svc.GetBugAnalytics(ctx)
+func GetDashboardAnalyticsService() *services.DashboardAnalyticsService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	bugRepo := repository.NewBugRepository(db)
+	ccRepo := repository.NewChangeCardRepository(db)
+	return services.NewDashboardAnalyticsService(bugRepo, ccRepo)
+}
+
 // ResetServices clears global service state. For testing only.
 func ResetServices() {
 	globalNoteService = nil
