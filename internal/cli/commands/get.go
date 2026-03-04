@@ -62,6 +62,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 	case "bug":
 		return runBugGet(cmd, []string{key})
 
+	case "change":
+		return runChangeGet(cmd, []string{key})
+
 	case "change_card":
 		return runChangeCardGet(cmd, []string{key})
 

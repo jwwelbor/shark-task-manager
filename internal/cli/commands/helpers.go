@@ -56,6 +56,13 @@ func IsBugKey(s string) bool {
 	return keys.IsBugKey(s)
 }
 
+// IsChangeKey validates if a string is a valid change key format (C###).
+// Case insensitive: c001 is normalized to C001 before validation.
+// Delegates to keys.IsChangeKey for implementation.
+func IsChangeKey(s string) bool {
+	return keys.IsChangeKey(s)
+}
+
 // IsChangeCardKey validates if a string is a valid change-card key format (CC-###).
 // Case insensitive: cc-001 is normalized to CC-001 before validation.
 // Delegates to keys.IsChangeCardKey for implementation.
@@ -305,6 +312,7 @@ const (
 	scopeFeature    scopeType = "feature"
 	scopeTask       scopeType = "task"
 	scopeBug        scopeType = "bug"
+	scopeChange     scopeType = "change"
 	scopeChangeCard scopeType = "change_card"
 )
 
@@ -327,6 +335,11 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 		// Check if it's a bug key (B###)
 		if IsBugKey(normalized) {
 			return &parsedScope{Type: scopeBug, Key: normalized}, nil
+		}
+
+		// Check if it's a change key (C###)
+		if IsChangeKey(normalized) {
+			return &parsedScope{Type: scopeChange, Key: normalized}, nil
 		}
 
 		// Check if it's a change-card key (CC-###)
@@ -370,13 +383,37 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 			return nil, InvalidFeatureKeyError(args[0])
 		}
 
+		// Check if it looks like it was trying to be a bug key (starts with B but no digits)
+		if len(normalized) > 0 && normalized[0] == 'B' {
+			return nil, InvalidPositionalArgsError("get",
+				fmt.Sprintf("invalid bug key format %q - expected B### (e.g., B001)", args[0]),
+				[]string{
+					"shark get B001",
+					"shark get B042",
+					"shark bug get B001",
+				})
+		}
+
+		// Check if it looks like it was trying to be a change-card key (starts with C but no digits)
+		if len(normalized) > 0 && normalized[0] == 'C' {
+			return nil, InvalidPositionalArgsError("get",
+				fmt.Sprintf("invalid change card key format %q - expected C### (e.g., C001)", args[0]),
+				[]string{
+					"shark get C001",
+					"shark get C042",
+					"shark change get C001",
+				})
+		}
+
 		// Generic invalid format
 		return nil, InvalidPositionalArgsError("get",
-			fmt.Sprintf("invalid key format %q - expected E##, E##-F##, or T-E##-F##-###", args[0]),
+			fmt.Sprintf("invalid key format %q - expected E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), or C### (change card)", args[0]),
 			[]string{
 				"shark get E07",
 				"shark get E07-F01",
 				"shark get T-E07-F01-001",
+				"shark get B001",
+				"shark get C001",
 			})
 	}
 
@@ -576,12 +613,13 @@ func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
 }
 
 // DetectEntityType detects the entity type from a key string.
-// Returns "epic", "feature", "task", "bug", "change_card", or "unknown" based on the key format.
+// Returns "epic", "feature", "task", "bug", "change", "change_card", or "unknown" based on the key format.
 // Case insensitive: e07, E07, E07-enhancements all return "epic"
 //
 // Examples:
 //
 //	B001 -> "bug"
+//	C001 -> "change"
 //	CC-001 -> "change_card"
 //	E07 -> "epic"
 //	E07-user-management -> "epic"
@@ -605,6 +643,11 @@ func DetectEntityType(key string) string {
 	// Check bug key (B###) before task patterns to avoid false matches
 	if IsBugKey(normalized) {
 		return "bug"
+	}
+
+	// Check change key (C###) before task patterns
+	if IsChangeKey(normalized) {
+		return "change"
 	}
 
 	// Check change-card key (CC-###) before task patterns
