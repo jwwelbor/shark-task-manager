@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -267,69 +266,6 @@ func (s *BugService) SetBugStatus(ctx context.Context, key string, status string
 	}
 
 	bug.Status = models.BugStatus(status)
-	return bug, nil
-}
-
-// TriageBug applies triage updates to a bug: severity, assignee, and linked entity.
-// All fields in TriageBugInput are optional; only non-nil fields are applied.
-// The AssignedTo value is persisted in the bug's ContextData as a JSON object.
-func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugInput) (*models.Bug, error) {
-	bug, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to triage bug %s: %w", key, err)
-	}
-
-	if input.Severity != nil {
-		if !models.ValidBugSeverities[*input.Severity] {
-			return nil, fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", *input.Severity)
-		}
-		bug.Severity = *input.Severity
-	}
-
-	if input.AssignedTo != nil {
-		// Merge assignee into ContextData JSON.
-		contextMap := map[string]interface{}{}
-		if bug.ContextData != nil && *bug.ContextData != "" {
-			if err := json.Unmarshal([]byte(*bug.ContextData), &contextMap); err != nil {
-				// If existing ContextData is not valid JSON, start fresh.
-				contextMap = map[string]interface{}{}
-			}
-		}
-		contextMap["assigned_to"] = *input.AssignedTo
-		encoded, err := json.Marshal(contextMap)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode context_data for bug %s: %w", key, err)
-		}
-		contextStr := string(encoded)
-		bug.ContextData = &contextStr
-	}
-
-	if input.LinkedEntityType != nil || input.LinkedEntityKey != nil {
-		entityType := ""
-		entityKey := ""
-		if input.LinkedEntityType != nil {
-			entityType = *input.LinkedEntityType
-		}
-		if input.LinkedEntityKey != nil {
-			entityKey = *input.LinkedEntityKey
-		}
-
-		if entityType != "" || entityKey != "" {
-			if entityType == "" || entityKey == "" {
-				return nil, fmt.Errorf("both linked_entity_type and linked_entity_key must be provided together")
-			}
-			if err := s.validateLinkedEntity(ctx, entityType, entityKey); err != nil {
-				return nil, fmt.Errorf("linked entity validation failed: %w", err)
-			}
-			bug.LinkedEntityType = &entityType
-			bug.LinkedEntityKey = &entityKey
-		}
-	}
-
-	if err := s.repo.Update(ctx, bug); err != nil {
-		return nil, fmt.Errorf("failed to save triage updates for bug %s: %w", key, err)
-	}
-
 	return bug, nil
 }
 

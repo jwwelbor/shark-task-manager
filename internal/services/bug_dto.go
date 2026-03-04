@@ -25,14 +25,3 @@ type BugFilters struct {
 	Status   *models.BugStatus   `json:"status,omitempty"`
 	Severity *models.BugSeverity `json:"severity,omitempty"`
 }
-
-// TriageBugInput contains the parameters for triaging a bug.
-// Triage may update severity, assign the bug to an agent, and optionally
-// update the linked entity.  All fields are optional; only non-nil fields
-// are applied.
-type TriageBugInput struct {
-	Severity         *models.BugSeverity `json:"severity,omitempty"`
-	AssignedTo       *string             `json:"assigned_to,omitempty"`
-	LinkedEntityType *string             `json:"linked_entity_type,omitempty"`
-	LinkedEntityKey  *string             `json:"linked_entity_key,omitempty"`
-}
