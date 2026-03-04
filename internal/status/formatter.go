@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pterm/pterm"
 	"golang.org/x/term"
@@ -384,6 +385,103 @@ func formatRecentCompletions(completions []*CompletionInfo, noColor bool) string
 	return sb.String()
 }
 
+// formatDurationFromSecs converts a duration in seconds to a human-readable string.
+// Durations of 24 hours or more are formatted as "Xd Yh"; shorter durations as "Xh Ym".
+func formatDurationFromSecs(secs float64) string {
+	d := time.Duration(secs * float64(time.Second))
+	hours := int(d.Hours())
+	if hours >= 24 {
+		days := hours / 24
+		remainingHours := hours % 24
+		return fmt.Sprintf("%dd %dh", days, remainingHours)
+	}
+	minutes := int(d.Minutes()) % 60
+	return fmt.Sprintf("%dh %dm", hours, minutes)
+}
+
+// formatBugSummary renders the BUGS section of the status dashboard.
+// Returns an empty string when bugs is nil (conditional display).
+func formatBugSummary(bugs *BugDashboardSummary, noColor bool) string {
+	if bugs == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Header
+	if noColor {
+		sb.WriteString("\n=== BUGS ===\n\n")
+	} else {
+		sb.WriteString("\n")
+		sb.WriteString(pterm.DefaultHeader.WithFullWidth().Sprint("BUGS"))
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("Total: %d\n\n", bugs.Total))
+
+	// Status breakdown in defined order
+	sb.WriteString("By Status:\n")
+	statusOrder := []string{"reported", "triaged", "in_fix", "in_verification", "resolved", "wont_fix", "duplicate"}
+	for _, status := range statusOrder {
+		if count, ok := bugs.ByStatus[status]; ok && count > 0 {
+			sb.WriteString(fmt.Sprintf("  %-18s %d\n", status+":", count))
+		}
+	}
+
+	// Severity breakdown (open bugs only) -- omit section when all counts are zero
+	if len(bugs.OpenBySeverity) > 0 {
+		hasOpen := false
+		for _, count := range bugs.OpenBySeverity {
+			if count > 0 {
+				hasOpen = true
+				break
+			}
+		}
+		if hasOpen {
+			sb.WriteString("\nOpen Bug Severity:\n")
+			severityOrder := []string{"critical", "high", "medium", "low"}
+			for _, sev := range severityOrder {
+				count := bugs.OpenBySeverity[sev]
+				sb.WriteString(fmt.Sprintf("  %-18s %d\n", sev+":", count))
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+// formatChangeCardSummary renders the CHANGE CARDS section of the status dashboard.
+// Returns an empty string when cards is nil (conditional display).
+func formatChangeCardSummary(cards *ChangeCardDashboardSummary, noColor bool) string {
+	if cards == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Header
+	if noColor {
+		sb.WriteString("\n=== CHANGE CARDS ===\n\n")
+	} else {
+		sb.WriteString("\n")
+		sb.WriteString(pterm.DefaultHeader.WithFullWidth().Sprint("CHANGE CARDS"))
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("Total: %d\n\n", cards.Total))
+
+	// Status breakdown in defined order
+	sb.WriteString("By Status:\n")
+	statusOrder := []string{"proposed", "approved", "in_progress", "completed", "declined"}
+	for _, status := range statusOrder {
+		if count, ok := cards.ByStatus[status]; ok && count > 0 {
+			sb.WriteString(fmt.Sprintf("  %-18s %d\n", status+":", count))
+		}
+	}
+
+	return sb.String()
+}
+
 // FormatLinkedBugs formats the linked bug summary for feature-level status output.
 // Returns an empty string when bugs is nil (no bugs linked to the feature).
 // Terminal output format: "Linked Bugs: N (M open -- sev1: X, sev2: Y)"
@@ -451,6 +549,16 @@ func FormatDashboard(dashboard *StatusDashboard, noColor bool) string {
 	if len(dashboard.RecentCompletions) > 0 {
 		sb.WriteString(formatRecentCompletions(dashboard.RecentCompletions, noColor))
 		sb.WriteString("\n")
+	}
+
+	// Bug summary (conditional: rendered only when BugSummary is non-nil)
+	if bugSection := formatBugSummary(dashboard.BugSummary, noColor); bugSection != "" {
+		sb.WriteString(bugSection)
+	}
+
+	// Change-card summary (conditional: rendered only when ChangeCardSummary is non-nil)
+	if ccSection := formatChangeCardSummary(dashboard.ChangeCardSummary, noColor); ccSection != "" {
+		sb.WriteString(ccSection)
 	}
 
 	return sb.String()
