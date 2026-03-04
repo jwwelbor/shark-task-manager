@@ -20,10 +20,8 @@ type InitResult struct {
 
 // ConfigDefaults contains default configuration values
 type ConfigDefaults struct {
-	DefaultEpic  *string `json:"default_epic"`
-	DefaultAgent *string `json:"default_agent"`
-	ColorEnabled bool    `json:"color_enabled"`
-	JSONOutput   bool    `json:"json_output"`
+	ColorEnabled bool `json:"color_enabled"`
+	JSONOutput   bool `json:"json_output"`
 }
 
 // WorkflowProfile represents a predefined workflow configuration

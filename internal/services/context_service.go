@@ -142,6 +142,15 @@ func (s *ContextService) getContextJSON(ctx context.Context, entityType models.E
 			return nil, fmt.Errorf("task not found: %s: %w", entityKey, err)
 		}
 		return task.ContextData, nil
+	case models.EntityTypeBug:
+		if s.bugRepo == nil {
+			return nil, fmt.Errorf("bug repository not configured for context operations")
+		}
+		bug, err := s.bugRepo.GetByKey(ctx, entityKey)
+		if err != nil {
+			return nil, fmt.Errorf("bug not found: %s: %w", entityKey, err)
+		}
+		return bug.ContextData, nil
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -169,6 +178,16 @@ func (s *ContextService) setContextJSON(ctx context.Context, entityType models.E
 		}
 		task.ContextData = contextJSON
 		return s.taskRepo.Update(ctx, task)
+	case models.EntityTypeBug:
+		if s.bugRepo == nil {
+			return fmt.Errorf("bug repository not configured for context operations")
+		}
+		bug, err := s.bugRepo.GetByKey(ctx, entityKey)
+		if err != nil {
+			return fmt.Errorf("bug not found: %s: %w", entityKey, err)
+		}
+		bug.ContextData = contextJSON
+		return s.bugRepo.Update(ctx, bug)
 	default:
 		return fmt.Errorf("unsupported entity type: %s", entityType)
 	}

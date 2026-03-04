@@ -402,7 +402,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 4
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -728,6 +728,22 @@ func runMigrations(db *sql.DB) error {
 	// Expand entity_notes entity_type CHECK constraint for bug/change (E18-F01)
 	if err := migrateEntityNotesExpandEntityTypes(db); err != nil {
 		return fmt.Errorf("failed to expand entity_notes entity_type constraint: %w", err)
+	}
+
+	// Recreate display views dropped by migrateEntityNotesExpandEntityTypes (E18-F02 fix)
+	if err := migrateEpicDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate epic_display_data view: %w", err)
+	}
+	if err := migrateFeatureDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate feature_display_data view: %w", err)
+	}
+	if err := migrateTaskDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate task_display_data view: %w", err)
+	}
+
+	// Migrate bugs table to use linked_entity_type/linked_entity_key/context_data (E18-F02)
+	if err := migrateBugsLinkedEntityColumns(db); err != nil {
+		return fmt.Errorf("failed to migrate bugs linked entity columns: %w", err)
 	}
 
 	return nil
@@ -1939,20 +1955,13 @@ func migrateBugAndChangeCardTables(db *sql.DB) error {
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				key TEXT NOT NULL UNIQUE,
 				title TEXT NOT NULL,
+				slug TEXT,
 				description TEXT,
 				status TEXT NOT NULL DEFAULT 'reported',
 				severity TEXT NOT NULL CHECK (severity IN ('critical', 'high', 'medium', 'low')) DEFAULT 'medium',
-				priority INTEGER CHECK (priority >= 1 AND priority <= 10) DEFAULT 5,
-				reported_by TEXT,
-				assigned_to TEXT,
-				epic_id INTEGER REFERENCES epics(id),
-				feature_id INTEGER REFERENCES features(id),
-				related_task_id INTEGER REFERENCES tasks(id),
-				steps_to_reproduce TEXT,
-				expected_behavior TEXT,
-				actual_behavior TEXT,
-				environment TEXT,
-				slug TEXT,
+				linked_entity_type TEXT,
+				linked_entity_key TEXT,
+				context_data TEXT,
 				file_path TEXT,
 				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 				updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1967,8 +1976,7 @@ func migrateBugAndChangeCardTables(db *sql.DB) error {
 			`CREATE UNIQUE INDEX IF NOT EXISTS idx_bugs_key ON bugs(key);`,
 			`CREATE INDEX IF NOT EXISTS idx_bugs_status ON bugs(status);`,
 			`CREATE INDEX IF NOT EXISTS idx_bugs_severity ON bugs(severity);`,
-			`CREATE INDEX IF NOT EXISTS idx_bugs_epic_id ON bugs(epic_id);`,
-			`CREATE INDEX IF NOT EXISTS idx_bugs_feature_id ON bugs(feature_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_bugs_linked_entity_type ON bugs(linked_entity_type);`,
 			`CREATE INDEX IF NOT EXISTS idx_bugs_slug ON bugs(slug);`,
 		}
 		for _, idx := range bugIndexes {
@@ -2173,6 +2181,66 @@ func migrateEntityNotesExpandEntityTypes(db *sql.DB) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit entity_notes migration: %w", err)
+	}
+
+	return nil
+}
+
+// migrateBugsLinkedEntityColumns adds linked_entity_type, linked_entity_key, and context_data
+// columns to an existing bugs table. The original schema used epic_id/feature_id/related_task_id
+// FK columns, but the repository uses the more flexible linked_entity_type/key/context_data
+// pattern (E18-F02).
+func migrateBugsLinkedEntityColumns(db *sql.DB) error {
+	// Only run if bugs table exists
+	var bugsExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='bugs'
+	`).Scan(&bugsExists)
+	if err != nil {
+		return fmt.Errorf("failed to check bugs table: %w", err)
+	}
+	if bugsExists == 0 {
+		// Table doesn't exist yet; migrateBugAndChangeCardTables will create it with correct schema
+		return nil
+	}
+
+	// Add linked_entity_type if missing
+	var hasLinkedEntityType int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('bugs') WHERE name = 'linked_entity_type'
+	`).Scan(&hasLinkedEntityType); err != nil {
+		return fmt.Errorf("failed to check bugs linked_entity_type column: %w", err)
+	}
+	if hasLinkedEntityType == 0 {
+		if _, err := db.Exec(`ALTER TABLE bugs ADD COLUMN linked_entity_type TEXT;`); err != nil {
+			return fmt.Errorf("failed to add linked_entity_type to bugs: %w", err)
+		}
+	}
+
+	// Add linked_entity_key if missing
+	var hasLinkedEntityKey int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('bugs') WHERE name = 'linked_entity_key'
+	`).Scan(&hasLinkedEntityKey); err != nil {
+		return fmt.Errorf("failed to check bugs linked_entity_key column: %w", err)
+	}
+	if hasLinkedEntityKey == 0 {
+		if _, err := db.Exec(`ALTER TABLE bugs ADD COLUMN linked_entity_key TEXT;`); err != nil {
+			return fmt.Errorf("failed to add linked_entity_key to bugs: %w", err)
+		}
+	}
+
+	// Add context_data if missing
+	var hasContextData int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('bugs') WHERE name = 'context_data'
+	`).Scan(&hasContextData); err != nil {
+		return fmt.Errorf("failed to check bugs context_data column: %w", err)
+	}
+	if hasContextData == 0 {
+		if _, err := db.Exec(`ALTER TABLE bugs ADD COLUMN context_data TEXT;`); err != nil {
+			return fmt.Errorf("failed to add context_data to bugs: %w", err)
+		}
 	}
 
 	return nil

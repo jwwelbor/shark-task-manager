@@ -1,0 +1,31 @@
+---
+key: {{.Key}}
+title: "{{.Title}}"
+status: {{.Status}}
+severity: {{.Severity}}
+{{- if .LinkedEntityKey}}
+linked_entity: {{.LinkedEntityKey}}
+{{- end}}
+---
+
+# {{.Title}}
+
+## Reproduction Steps
+
+1. <!-- Describe the steps to reproduce the issue -->
+
+## Expected Behavior
+
+<!-- Describe what should happen -->
+
+## Actual Behavior
+
+<!-- Describe what actually happens -->
+
+## Environment
+
+<!-- Browser, OS, device, version, or other relevant environment details -->
+
+## Additional Context
+
+<!-- Screenshots, logs, error messages, or any other relevant information -->

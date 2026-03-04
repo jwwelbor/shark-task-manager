@@ -4,8 +4,6 @@
     "url": "./shark-tasks.db"
   },
   "color_enabled": true,
-  "default_epic": null,
-  "default_agent": null,
   "special_statuses": {
     "_complete_": [
       "completed",

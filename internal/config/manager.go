@@ -67,14 +67,6 @@ func (m *Manager) Load() (*Config, error) {
 		config.ColorEnabled = &colorEnabled
 	}
 
-	if defaultEpic, ok := rawData["default_epic"].(string); ok {
-		config.DefaultEpic = &defaultEpic
-	}
-
-	if defaultAgent, ok := rawData["default_agent"].(string); ok {
-		config.DefaultAgent = &defaultAgent
-	}
-
 	if jsonOutput, ok := rawData["json_output"].(bool); ok {
 		config.JSONOutput = &jsonOutput
 	}

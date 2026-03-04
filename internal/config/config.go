@@ -17,8 +17,6 @@ type Config struct {
 
 	// Other config fields (can be extended as needed)
 	ColorEnabled           *bool                  `json:"color_enabled,omitempty"`
-	DefaultEpic            *string                `json:"default_epic,omitempty"`
-	DefaultAgent           *string                `json:"default_agent,omitempty"`
 	JSONOutput             *bool                  `json:"json_output,omitempty"`
 	InteractiveMode        *bool                  `json:"interactive_mode,omitempty"`         // Enable interactive prompts (default: false for automation)
 	RequireRejectionReason bool                   `json:"require_rejection_reason,omitempty"` // NEW: Require rejection reason for backward transitions (default: false)

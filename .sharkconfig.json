@@ -4,10 +4,8 @@
     "backend": "$SHARK_DB_BACKEND",
     "url": "$SHARK_DB_URL",
     "auth_token_file": "$SHARK_AUTH_TOKEN_FILE",
-    "skip_migrations": true
+    "skip_migrations": false
   },
-  "default_agent": null,
-  "default_epic": null,
   "interactive_mode": false,
   "json_output": false,
   "last_sync_time": "2026-01-16T23:22:45-06:00",

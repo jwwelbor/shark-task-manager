@@ -35,8 +35,6 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 
 	// Create default config (workflow profile will be applied after init)
 	config := ConfigDefaults{
-		DefaultEpic:  nil,
-		DefaultAgent: nil,
 		ColorEnabled: true,
 		JSONOutput:   false,
 	}

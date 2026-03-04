@@ -8,8 +8,6 @@ import (
 
 // Config represents the full configuration with patterns
 type Config struct {
-	DefaultEpic  *string        `json:"default_epic"`
-	DefaultAgent *string        `json:"default_agent"`
 	ColorEnabled bool           `json:"color_enabled"`
 	JSONOutput   bool           `json:"json_output"`
 	Patterns     *PatternConfig `json:"patterns,omitempty"`

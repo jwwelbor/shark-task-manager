@@ -45,6 +45,8 @@ func GetNoteService(ctx context.Context) (*services.NoteService, error) {
 		svc := services.NewNoteService(noteRepo, epicRepo, featureRepo, taskRepo)
 		changeCardRepo := repository.NewChangeCardRepository(db)
 		svc.SetChangeCardRepo(changeCardRepo)
+		bugRepo := repository.NewBugRepository(db)
+		svc.SetBugRepo(bugRepo)
 		globalNoteService = svc
 	})
 
@@ -67,7 +69,10 @@ func GetContextService(ctx context.Context) (*services.ContextService, error) {
 		featureRepo := repository.NewFeatureRepository(db)
 		taskRepo := repository.NewTaskRepository(db)
 
-		globalContextService = services.NewContextService(epicRepo, featureRepo, taskRepo)
+		svc := services.NewContextService(epicRepo, featureRepo, taskRepo)
+		bugRepo := repository.NewBugRepository(db)
+		svc.SetBugRepo(bugRepo)
+		globalContextService = svc
 	})
 
 	if contextServiceErr != nil {
@@ -318,6 +323,28 @@ func GetChangeCardService() *services.ChangeCardService {
 	}
 
 	return services.NewChangeCardService(changeCardRepo, workflowSvc, epicRepo, featureRepo, projectRoot)
+}
+
+// GetBugService returns a BugService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetBugService()
+//	bug, err := svc.CreateBug(ctx, input)
+func GetBugService() *services.BugService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	workflowSvc := GetWorkflowService()
+	bugRepo := repository.NewBugRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+
+	return services.NewBugService(bugRepo, workflowSvc, epicRepo, featureRepo, taskRepo)
 }
 
 // ResetServices clears global service state. For testing only.
