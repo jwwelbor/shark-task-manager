@@ -8,7 +8,7 @@ import (
 // getCmd represents the unified get command
 var getCmd = &cobra.Command{
 	Use:     "get <KEY>",
-	Short:   "Get epic, feature, or task details",
+	Short:   "Get epic, feature, task, bug, or change-card details",
 	GroupID: "inspect",
 	Long: `Smart get command that dispatches to the appropriate subcommand based on arguments.
 
@@ -17,6 +17,8 @@ Positional Arguments:
   EPIC FEATURE          Get feature details (e.g., E04 F01 or E04-F01)
   EPIC FEATURE TASKNUM  Get task details (e.g., E04 F01 001 or E04 F01 1)
   FULL_TASK_KEY         Get task details (e.g., T-E04-F01-001)
+  BUG_KEY               Get bug details (e.g., B001)
+  CHANGE_CARD_KEY       Get change-card details (e.g., CC-001)
 
 Examples:
   shark get E10                    Get epic E10 details
@@ -25,6 +27,8 @@ Examples:
   shark get E10 F01 001            Get task T-E10-F01-001 details
   shark get E10 F01 1              Get task T-E10-F01-001 details (short form)
   shark get T-E10-F01-001          Get task T-E10-F01-001 details (full key)
+  shark get B001                   Get bug B001 details
+  shark get CC-001                 Get change-card CC-001 details
   shark get E10 --json             Output as JSON`,
 	RunE: runGet,
 }
@@ -54,6 +58,12 @@ func runGet(cmd *cobra.Command, args []string) error {
 
 	case "task":
 		return runTaskGet(cmd, []string{key})
+
+	case "bug":
+		return runBugGet(cmd, []string{key})
+
+	case "change_card":
+		return runChangeCardGet(cmd, []string{key})
 
 	default:
 		// Should never happen

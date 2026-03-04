@@ -270,14 +270,15 @@ func (s *BugService) SetBugStatus(ctx context.Context, key string, status string
 	return bug, nil
 }
 
-// TriageBug updates a bug during triage and advances it to the triaged status.
+// TriageBug applies triage updates to a bug: severity, assignee, and linked entity.
+// All fields in TriageBugInput are optional; only non-nil fields are applied.
+// The AssignedTo value is persisted in the bug's ContextData as a JSON object.
 func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugInput) (*models.Bug, error) {
 	bug, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bug %s: %w", key, err)
+		return nil, fmt.Errorf("failed to triage bug %s: %w", key, err)
 	}
 
-	// Apply triage updates
 	if input.Severity != nil {
 		if !models.ValidBugSeverities[*input.Severity] {
 			return nil, fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", *input.Severity)
@@ -285,10 +286,38 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 		bug.Severity = *input.Severity
 	}
 
-	if input.LinkedEntityType != nil && input.LinkedEntityKey != nil {
-		entityType := *input.LinkedEntityType
-		entityKey := *input.LinkedEntityKey
-		if entityType != "" && entityKey != "" {
+	if input.AssignedTo != nil {
+		// Merge assignee into ContextData JSON.
+		contextMap := map[string]interface{}{}
+		if bug.ContextData != nil && *bug.ContextData != "" {
+			if err := json.Unmarshal([]byte(*bug.ContextData), &contextMap); err != nil {
+				// If existing ContextData is not valid JSON, start fresh.
+				contextMap = map[string]interface{}{}
+			}
+		}
+		contextMap["assigned_to"] = *input.AssignedTo
+		encoded, err := json.Marshal(contextMap)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode context_data for bug %s: %w", key, err)
+		}
+		contextStr := string(encoded)
+		bug.ContextData = &contextStr
+	}
+
+	if input.LinkedEntityType != nil || input.LinkedEntityKey != nil {
+		entityType := ""
+		entityKey := ""
+		if input.LinkedEntityType != nil {
+			entityType = *input.LinkedEntityType
+		}
+		if input.LinkedEntityKey != nil {
+			entityKey = *input.LinkedEntityKey
+		}
+
+		if entityType != "" || entityKey != "" {
+			if entityType == "" || entityKey == "" {
+				return nil, fmt.Errorf("both linked_entity_type and linked_entity_key must be provided together")
+			}
 			if err := s.validateLinkedEntity(ctx, entityType, entityKey); err != nil {
 				return nil, fmt.Errorf("linked entity validation failed: %w", err)
 			}
@@ -297,37 +326,8 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 		}
 	}
 
-	// Handle assigned_to via context_data
-	if input.AssignedTo != nil {
-		contextData := make(map[string]interface{})
-		if bug.ContextData != nil && *bug.ContextData != "" {
-			if err := json.Unmarshal([]byte(*bug.ContextData), &contextData); err != nil {
-				// If existing context_data is invalid, start fresh
-				contextData = make(map[string]interface{})
-			}
-		}
-		contextData["assigned_to"] = *input.AssignedTo
-		jsonBytes, err := json.Marshal(contextData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal context data: %w", err)
-		}
-		jsonStr := string(jsonBytes)
-		bug.ContextData = &jsonStr
-	}
-
-	// Update the bug first
 	if err := s.repo.Update(ctx, bug); err != nil {
-		return nil, fmt.Errorf("failed to update bug %s during triage: %w", key, err)
-	}
-
-	// Advance status to next (should be triaged from reported)
-	validTransitions := s.workflowSvc.GetValidTransitions(string(bug.Status))
-	if len(validTransitions) > 0 {
-		nextStatus := validTransitions[0]
-		if err := s.repo.UpdateStatus(ctx, bug.ID, models.BugStatus(nextStatus)); err != nil {
-			return nil, fmt.Errorf("failed to advance bug %s during triage: %w", key, err)
-		}
-		bug.Status = models.BugStatus(nextStatus)
+		return nil, fmt.Errorf("failed to save triage updates for bug %s: %w", key, err)
 	}
 
 	return bug, nil

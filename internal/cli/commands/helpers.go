@@ -49,6 +49,20 @@ func IsFeatureKeySuffix(s string) bool {
 	return keys.IsFeatureKeySuffix(s)
 }
 
+// IsBugKey validates if a string is a valid bug key format (B###).
+// Case insensitive: b001 is normalized to B001 before validation.
+// Delegates to keys.IsBugKey for implementation.
+func IsBugKey(s string) bool {
+	return keys.IsBugKey(s)
+}
+
+// IsChangeCardKey validates if a string is a valid change-card key format (CC-###).
+// Case insensitive: cc-001 is normalized to CC-001 before validation.
+// Delegates to keys.IsChangeCardKey for implementation.
+func IsChangeCardKey(s string) bool {
+	return keys.IsChangeCardKey(s)
+}
+
 // ParseFeatureKey parses a combined feature key format (E##-F##) into epic and feature parts
 // Case insensitive: normalizes input to uppercase before parsing
 // Returns (epic, feature, nil) for valid input like "E04-F01" or "e04-f01"
@@ -287,9 +301,11 @@ type parsedScope struct {
 type scopeType string
 
 const (
-	scopeEpic    scopeType = "epic"
-	scopeFeature scopeType = "feature"
-	scopeTask    scopeType = "task"
+	scopeEpic       scopeType = "epic"
+	scopeFeature    scopeType = "feature"
+	scopeTask       scopeType = "task"
+	scopeBug        scopeType = "bug"
+	scopeChangeCard scopeType = "change_card"
 )
 
 // scopeInterpreterImpl implements scopeInterpreter using existing helper functions
@@ -307,6 +323,16 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 	// Single argument case
 	if len(args) == 1 {
 		normalized := NormalizeKey(args[0])
+
+		// Check if it's a bug key (B###)
+		if IsBugKey(normalized) {
+			return &parsedScope{Type: scopeBug, Key: normalized}, nil
+		}
+
+		// Check if it's a change-card key (CC-###)
+		if IsChangeCardKey(normalized) {
+			return &parsedScope{Type: scopeChangeCard, Key: normalized}, nil
+		}
 
 		// Check if it's a task key (T-E##-F##-###)
 		if isTaskKey(normalized) {
@@ -550,11 +576,13 @@ func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
 }
 
 // DetectEntityType detects the entity type from a key string.
-// Returns "epic", "feature", "task", or "unknown" based on the key format.
+// Returns "epic", "feature", "task", "bug", "change_card", or "unknown" based on the key format.
 // Case insensitive: e07, E07, E07-enhancements all return "epic"
 //
 // Examples:
 //
+//	B001 -> "bug"
+//	CC-001 -> "change_card"
 //	E07 -> "epic"
 //	E07-user-management -> "epic"
 //	E07-F01 -> "feature"
@@ -573,6 +601,16 @@ func DetectEntityType(key string) string {
 
 	// Normalize to uppercase for case-insensitive matching
 	normalized := NormalizeKey(key)
+
+	// Check bug key (B###) before task patterns to avoid false matches
+	if IsBugKey(normalized) {
+		return "bug"
+	}
+
+	// Check change-card key (CC-###) before task patterns
+	if IsChangeCardKey(normalized) {
+		return "change_card"
+	}
 
 	// Check task patterns first (most specific)
 	// Full format: T-E##-F##-###

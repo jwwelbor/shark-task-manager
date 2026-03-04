@@ -7,14 +7,16 @@ import (
 // createCmd is the parent command for creating entities
 var createCmd = &cobra.Command{
 	Use:     "create <type> [args]",
-	Short:   "Create an epic, feature, or task",
+	Short:   "Create an epic, feature, task, bug, or change-card",
 	GroupID: "manage",
 	Long: `Create a new entity. Dispatches to the appropriate create handler based on type.
 
 Examples:
   shark create epic "Q1 2025 Roadmap"
   shark create feature E07 "User Authentication"
-  shark create task E07 F01 "Implement login" --agent=backend --priority=5`,
+  shark create task E07 F01 "Implement login" --agent=backend --priority=5
+  shark create bug "Login page crashes on Safari" --severity=high
+  shark create change "Migrate auth to OAuth2" --justification="Security requirement"`,
 }
 
 // createEpicCmd delegates to runEpicCreate
@@ -68,11 +70,41 @@ Examples:
 	RunE: runTaskCreate,
 }
 
+// createBugCmd delegates to runBugCreate
+var createBugCmd = &cobra.Command{
+	Use:   "bug <title> [flags]",
+	Short: "Create a new bug report",
+	Long: `Create a new bug report with auto-generated key (B###).
+
+Examples:
+  shark create bug "Login page crashes on Safari"
+  shark create bug "Payment fails" --severity=critical --description="Card is declined unexpectedly"
+  shark create bug "Slow query" --severity=low --linked-type=feature --linked-key=E07-F01`,
+	Args: cobra.ExactArgs(1),
+	RunE: runBugCreate,
+}
+
+// createChangeCmd delegates to runChangeCardCreate (accepts "change" or "change-card")
+var createChangeCmd = &cobra.Command{
+	Use:   "change <title> [flags]",
+	Short: "Create a new change-card",
+	Long: `Create a new change-card with auto-generated key (CC-###).
+
+Examples:
+  shark create change "Migrate auth to OAuth2"
+  shark create change "Update dependencies" --justification="Security patches"
+  shark create change "Refactor DB layer" --requested-by="Product Team" --epic=E07`,
+	Args: cobra.ExactArgs(1),
+	RunE: runChangeCardCreate,
+}
+
 func init() {
 	// Register subcommands
 	createCmd.AddCommand(createEpicCmd)
 	createCmd.AddCommand(createFeatureCmd)
 	createCmd.AddCommand(createTaskCmd)
+	createCmd.AddCommand(createBugCmd)
+	createCmd.AddCommand(createChangeCmd)
 
 	// ======================================================================
 	// Epic Create Flags
@@ -138,4 +170,21 @@ func init() {
 	createTaskCmd.Flags().String("path", "", "Alias for --file")
 	_ = createTaskCmd.Flags().MarkHidden("filename")
 	_ = createTaskCmd.Flags().MarkHidden("path")
+
+	// ======================================================================
+	// Bug Create Flags
+	// ======================================================================
+	createBugCmd.Flags().String("severity", "medium", "Severity: critical, high, medium, low (default: medium)")
+	createBugCmd.Flags().String("description", "", "Bug description (optional)")
+	createBugCmd.Flags().String("linked-type", "", "Linked entity type: epic, feature, or task (optional)")
+	createBugCmd.Flags().String("linked-key", "", "Linked entity key (e.g., E07-F01-001) - requires --linked-type")
+
+	// ======================================================================
+	// Change-Card Create Flags
+	// ======================================================================
+	createChangeCmd.Flags().String("description", "", "Change-card description (optional)")
+	createChangeCmd.Flags().String("justification", "", "Business justification for the change (optional)")
+	createChangeCmd.Flags().String("requested-by", "", "Name or team requesting the change (optional)")
+	createChangeCmd.Flags().String("epic", "", "Link to epic key (e.g., E07) (optional)")
+	createChangeCmd.Flags().String("feature", "", "Link to feature key (e.g., E07-F01) (optional)")
 }

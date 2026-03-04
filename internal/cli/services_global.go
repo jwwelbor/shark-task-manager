@@ -278,7 +278,12 @@ func GetViewService() *view.Service {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
-	return view.NewService(epicRepo, featureRepo, taskRepo)
+	svc := view.NewService(epicRepo, featureRepo, taskRepo)
+	changeCardRepo := repository.NewChangeCardRepository(db)
+	svc.SetChangeCardRepo(changeCardRepo)
+	bugRepo := repository.NewBugRepository(db)
+	svc.SetBugRepo(bugRepo)
+	return svc
 }
 
 // GetValidationRunner returns a validation.Validator configured with all repositories.

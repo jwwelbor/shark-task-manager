@@ -12,6 +12,12 @@ const (
 
 	// ScopeTask indicates the command operates on a task
 	ScopeTask ScopeType = "task"
+
+	// ScopeChangeCard indicates the command operates on a change-card
+	ScopeChangeCard ScopeType = "change_card"
+
+	// ScopeBug indicates the command operates on a bug
+	ScopeBug ScopeType = "bug"
 )
 
 // Scope represents a parsed scope from CLI arguments
