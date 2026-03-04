@@ -384,6 +384,45 @@ func formatRecentCompletions(completions []*CompletionInfo, noColor bool) string
 	return sb.String()
 }
 
+// FormatLinkedBugs formats the linked bug summary for feature-level status output.
+// Returns an empty string when bugs is nil (no bugs linked to the feature).
+// Terminal output format: "Linked Bugs: N (M open -- sev1: X, sev2: Y)"
+func FormatLinkedBugs(bugs *BugFeatureSummary, noColor bool) string {
+	if bugs == nil {
+		return ""
+	}
+
+	// Build severity breakdown string from open bugs only
+	// Sort severity names for deterministic output
+	severities := make([]string, 0, len(bugs.OpenBySeverity))
+	for sev := range bugs.OpenBySeverity {
+		severities = append(severities, sev)
+	}
+	sort.Strings(severities)
+
+	var sevParts []string
+	for _, sev := range severities {
+		count := bugs.OpenBySeverity[sev]
+		if count > 0 {
+			sevParts = append(sevParts, fmt.Sprintf("%s: %d", sev, count))
+		}
+	}
+
+	var openDetail string
+	if len(sevParts) > 0 {
+		openDetail = fmt.Sprintf("%d open -- %s", bugs.OpenCount, strings.Join(sevParts, ", "))
+	} else {
+		openDetail = fmt.Sprintf("%d open", bugs.OpenCount)
+	}
+
+	line := fmt.Sprintf("Linked Bugs: %d (%s)", bugs.TotalLinked, openDetail)
+
+	if noColor {
+		return line
+	}
+	return pterm.Yellow(line)
+}
+
 // FormatDashboard formats the complete dashboard for terminal output
 func FormatDashboard(dashboard *StatusDashboard, noColor bool) string {
 	var sb strings.Builder

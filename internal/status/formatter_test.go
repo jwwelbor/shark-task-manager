@@ -390,6 +390,117 @@ func TestFormatRecentCompletions(t *testing.T) {
 	})
 }
 
+// TestFormatLinkedBugs tests the linked bug summary renderer for feature-level status.
+// Covers TC-F07-009 (bugs present) and TC-F07-010 (nil bugs → empty string).
+func TestFormatLinkedBugs(t *testing.T) {
+	tests := []struct {
+		name           string
+		bugs           *BugFeatureSummary
+		noColor        bool
+		expectEmpty    bool
+		expectContains []string
+	}{
+		{
+			name:        "nil bugs returns empty string (TC-F07-010)",
+			bugs:        nil,
+			noColor:     true,
+			expectEmpty: true,
+		},
+		{
+			name: "bugs with severity breakdown (TC-F07-009)",
+			bugs: &BugFeatureSummary{
+				TotalLinked: 3,
+				OpenCount:   2,
+				OpenBySeverity: map[string]int{
+					"high":   1,
+					"medium": 1,
+				},
+			},
+			noColor:     true,
+			expectEmpty: false,
+			expectContains: []string{
+				"Linked Bugs: 3",
+				"2 open",
+				"high: 1",
+				"medium: 1",
+			},
+		},
+		{
+			name: "all bugs resolved - open count zero",
+			bugs: &BugFeatureSummary{
+				TotalLinked:    2,
+				OpenCount:      0,
+				OpenBySeverity: map[string]int{},
+			},
+			noColor:     true,
+			expectEmpty: false,
+			expectContains: []string{
+				"Linked Bugs: 2",
+				"0 open",
+			},
+		},
+		{
+			name: "single open bug",
+			bugs: &BugFeatureSummary{
+				TotalLinked: 1,
+				OpenCount:   1,
+				OpenBySeverity: map[string]int{
+					"critical": 1,
+				},
+			},
+			noColor:     true,
+			expectEmpty: false,
+			expectContains: []string{
+				"Linked Bugs: 1",
+				"1 open",
+				"critical: 1",
+			},
+		},
+		{
+			name: "with color flag - still contains bug info",
+			bugs: &BugFeatureSummary{
+				TotalLinked: 3,
+				OpenCount:   2,
+				OpenBySeverity: map[string]int{
+					"high":   1,
+					"medium": 1,
+				},
+			},
+			noColor:     false,
+			expectEmpty: false,
+			expectContains: []string{
+				"Linked Bugs: 3",
+				"2 open",
+				"high: 1",
+				"medium: 1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatLinkedBugs(tt.bugs, tt.noColor)
+
+			if tt.expectEmpty {
+				if result != "" {
+					t.Errorf("expected empty string, got: %q", result)
+				}
+				return
+			}
+
+			if result == "" {
+				t.Fatal("expected non-empty result, got empty string")
+			}
+
+			for _, expected := range tt.expectContains {
+				if !strings.Contains(result, expected) {
+					t.Errorf("output missing %q: got %q", expected, result)
+				}
+			}
+		})
+	}
+}
+
 // TestFormatDashboard tests complete dashboard formatting
 func TestFormatDashboard(t *testing.T) {
 	dashboard := &StatusDashboard{

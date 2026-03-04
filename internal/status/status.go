@@ -9,6 +9,41 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
 
+// BugDashboardRepository is the narrow interface required by StatusService
+// to populate the bug section of the dashboard and feature-level bug context.
+// Only the methods needed for dashboard aggregation are declared here.
+type BugDashboardRepository interface {
+	GetStatusSummary(ctx context.Context) (*repository.BugStatusSummary, error)
+	GetFeatureBugSummary(ctx context.Context, featureKey string) (*repository.BugFeatureSummary, error)
+}
+
+// ChangeCardDashboardRepository is the narrow interface required by StatusService
+// to populate the change-card section of the dashboard.
+type ChangeCardDashboardRepository interface {
+	GetStatusSummary(ctx context.Context) (*repository.ChangeCardStatusSummary, error)
+}
+
+// StatusServiceOption is a functional option for configuring StatusService
+// with optional dependencies after the required database argument.
+type StatusServiceOption func(*StatusService)
+
+// WithBugRepository injects a BugDashboardRepository into StatusService.
+// When set, GetDashboard will populate BugSummary if bugs exist.
+// Feature-level status queries will also include linked bug context.
+func WithBugRepository(repo BugDashboardRepository) StatusServiceOption {
+	return func(s *StatusService) {
+		s.bugRepo = repo
+	}
+}
+
+// WithChangeCardRepository injects a ChangeCardDashboardRepository into StatusService.
+// When set, GetDashboard will populate ChangeCardSummary if change-cards exist.
+func WithChangeCardRepository(repo ChangeCardDashboardRepository) StatusServiceOption {
+	return func(s *StatusService) {
+		s.changeCardRepo = repo
+	}
+}
+
 // StatusService provides dashboard and reporting functionality
 type StatusService struct {
 	db              *repository.DB
@@ -16,17 +51,52 @@ type StatusService struct {
 	featureRepo     *repository.FeatureRepository
 	taskRepo        *repository.TaskRepository
 	taskHistoryRepo *repository.TaskHistoryRepository
+	bugRepo         BugDashboardRepository        // optional: nil when not configured
+	changeCardRepo  ChangeCardDashboardRepository // optional: nil when not configured
 }
 
-// NewStatusService creates a new StatusService instance
-func NewStatusService(database *repository.DB) *StatusService {
-	return &StatusService{
+// NewStatusService creates a new StatusService instance.
+// Accepts optional StatusServiceOption values for backward-compatible extension.
+func NewStatusService(database *repository.DB, opts ...StatusServiceOption) *StatusService {
+	s := &StatusService{
 		db:              database,
 		epicRepo:        repository.NewEpicRepository(database),
 		featureRepo:     repository.NewFeatureRepository(database),
 		taskRepo:        repository.NewTaskRepository(database),
 		taskHistoryRepo: repository.NewTaskHistoryRepository(database),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// GetFeatureStatus returns linked bug context for a feature.
+// Returns a FeatureStatusInfo with LinkedBugs populated when bugs are linked.
+// LinkedBugs is nil when no bugs are linked or bug repo is unavailable.
+func (s *StatusService) GetFeatureStatus(ctx context.Context, featureKey string) (*FeatureStatusInfo, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	info := &FeatureStatusInfo{}
+
+	// Populate linked bug context when bug repo is configured
+	if s.bugRepo != nil {
+		bugSummary, err := s.bugRepo.GetFeatureBugSummary(ctx, featureKey)
+		if err != nil {
+			// Degrade gracefully: bug table may not exist yet
+			// Do not fail the feature status query due to missing bug data
+		} else if bugSummary != nil && bugSummary.TotalLinked > 0 {
+			info.LinkedBugs = &BugFeatureSummary{
+				TotalLinked:    bugSummary.TotalLinked,
+				OpenCount:      bugSummary.OpenCount,
+				OpenBySeverity: bugSummary.OpenBySeverity,
+			}
+		}
+	}
+
+	return info, nil
 }
 
 // GetDashboard generates a complete status dashboard based on the request
@@ -93,6 +163,29 @@ func (s *StatusService) GetDashboard(ctx context.Context, req *StatusRequest) (*
 		if req.RecentWindow != "" {
 			dashboard.Filter.RecentWindow = &req.RecentWindow
 		}
+	}
+
+	// Conditionally populate bug summary (graceful degradation on error)
+	if s.bugRepo != nil {
+		if bugSummary, bugErr := s.bugRepo.GetStatusSummary(ctx); bugErr == nil && bugSummary != nil && bugSummary.Total > 0 {
+			dashboard.BugSummary = &BugDashboardSummary{
+				Total:          bugSummary.Total,
+				ByStatus:       bugSummary.ByStatus,
+				OpenBySeverity: bugSummary.OpenBySeverity,
+			}
+		}
+		// If bugErr != nil or Total == 0, BugSummary remains nil (omitted from JSON)
+	}
+
+	// Conditionally populate change-card summary (graceful degradation on error)
+	if s.changeCardRepo != nil {
+		if ccSummary, ccErr := s.changeCardRepo.GetStatusSummary(ctx); ccErr == nil && ccSummary != nil && ccSummary.Total > 0 {
+			dashboard.ChangeCardSummary = &ChangeCardDashboardSummary{
+				Total:    ccSummary.Total,
+				ByStatus: ccSummary.ByStatus,
+			}
+		}
+		// If ccErr != nil or Total == 0, ChangeCardSummary remains nil (omitted from JSON)
 	}
 
 	return dashboard, nil

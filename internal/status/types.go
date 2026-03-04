@@ -43,14 +43,23 @@ type TaskActionItem struct {
 	BlockedReason *string // Reason for blocking (if blocked)
 }
 
+// BugFeatureSummary contains bug data linked to a specific feature.
+// Used for the feature-level status view to show linked bug context.
+type BugFeatureSummary struct {
+	TotalLinked    int            `json:"total_linked"`
+	OpenCount      int            `json:"open_count"`
+	OpenBySeverity map[string]int `json:"open_by_severity"`
+}
+
 // FeatureStatusInfo contains comprehensive status information for a feature
 // Returned by repository layer, used by CLI for display
 type FeatureStatusInfo struct {
-	Feature         interface{}    // *models.Feature (avoid import cycle)
-	StatusBreakdown map[string]int // Status -> count
-	Tasks           []interface{}  // []*models.Task (avoid import cycle)
-	Progress        *ProgressInfo  // Calculated progress metrics
-	WorkSummary     *WorkSummary   // Work breakdown
-	StatusContext   string         // "active (waiting)", "active (blocked)"
-	ActionItems     *ActionItems   // Tasks needing attention
+	Feature         interface{}        // *models.Feature (avoid import cycle)
+	StatusBreakdown map[string]int     // Status -> count
+	Tasks           []interface{}      // []*models.Task (avoid import cycle)
+	Progress        *ProgressInfo      // Calculated progress metrics
+	WorkSummary     *WorkSummary       // Work breakdown
+	StatusContext   string             // "active (waiting)", "active (blocked)"
+	ActionItems     *ActionItems       // Tasks needing attention
+	LinkedBugs      *BugFeatureSummary `json:"linked_bugs,omitempty"` // Optional: nil when no bugs linked
 }
