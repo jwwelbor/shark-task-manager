@@ -269,6 +269,37 @@ func (s *BugService) SetBugStatus(ctx context.Context, key string, status string
 	return bug, nil
 }
 
+// TriageBug triages a bug by setting its severity and optionally assigning an agent.
+// It advances the bug status from "reported" to "triaged" (if currently in "reported" status).
+func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugInput) (*models.Bug, error) {
+	if !models.ValidBugSeverities[models.BugSeverity(input.Severity)] {
+		return nil, fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", input.Severity)
+	}
+
+	bug, err := s.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bug %s: %w", key, err)
+	}
+
+	// Update severity
+	bug.Severity = models.BugSeverity(input.Severity)
+
+	// Advance to triaged status if currently reported
+	validTransitions := s.workflowSvc.GetValidTransitions(string(bug.Status))
+	for _, t := range validTransitions {
+		if t == "triaged" {
+			bug.Status = "triaged"
+			break
+		}
+	}
+
+	if err := s.repo.Update(ctx, bug); err != nil {
+		return nil, fmt.Errorf("failed to triage bug %s: %w", key, err)
+	}
+
+	return bug, nil
+}
+
 // validateLinkedEntity validates that a linked entity exists.
 func (s *BugService) validateLinkedEntity(ctx context.Context, entityType, entityKey string) error {
 	switch entityType {
