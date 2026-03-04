@@ -72,6 +72,8 @@ func GetContextService(ctx context.Context) (*services.ContextService, error) {
 		svc := services.NewContextService(epicRepo, featureRepo, taskRepo)
 		bugRepo := repository.NewBugRepository(db)
 		svc.SetBugRepo(bugRepo)
+		changeCardRepo := repository.NewChangeCardRepository(db)
+		svc.SetChangeCardRepo(changeCardRepo)
 		globalContextService = svc
 	})
 

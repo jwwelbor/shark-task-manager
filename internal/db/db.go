@@ -402,7 +402,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 4
+const CurrentSchemaVersion = 5
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -744,6 +744,11 @@ func runMigrations(db *sql.DB) error {
 	// Migrate bugs table to use linked_entity_type/linked_entity_key/context_data (E18-F02)
 	if err := migrateBugsLinkedEntityColumns(db); err != nil {
 		return fmt.Errorf("failed to migrate bugs linked entity columns: %w", err)
+	}
+
+	// Add context_data column to change_cards table (E18-F03)
+	if err := migrateChangeCardContextData(db); err != nil {
+		return fmt.Errorf("failed to migrate change_cards context_data column: %w", err)
 	}
 
 	return nil
@@ -2240,6 +2245,38 @@ func migrateBugsLinkedEntityColumns(db *sql.DB) error {
 	if hasContextData == 0 {
 		if _, err := db.Exec(`ALTER TABLE bugs ADD COLUMN context_data TEXT;`); err != nil {
 			return fmt.Errorf("failed to add context_data to bugs: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateChangeCardContextData adds context_data column to change_cards table (E18-F03).
+// This column stores JSON context data for AI agent session management on change-cards.
+func migrateChangeCardContextData(db *sql.DB) error {
+	// Only run if change_cards table exists
+	var tableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='change_cards'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check change_cards table: %w", err)
+	}
+	if tableExists == 0 {
+		// Table doesn't exist yet; migrateBugAndChangeCardTables will create it with correct schema
+		return nil
+	}
+
+	// Add context_data if missing
+	var hasContextData int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('change_cards') WHERE name = 'context_data'
+	`).Scan(&hasContextData); err != nil {
+		return fmt.Errorf("failed to check change_cards context_data column: %w", err)
+	}
+	if hasContextData == 0 {
+		if _, err := db.Exec(`ALTER TABLE change_cards ADD COLUMN context_data TEXT;`); err != nil {
+			return fmt.Errorf("failed to add context_data to change_cards: %w", err)
 		}
 	}
 

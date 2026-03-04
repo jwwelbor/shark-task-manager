@@ -28,8 +28,8 @@ func NewChangeCardRepository(db *DB) *ChangeCardRepository {
 	return &ChangeCardRepository{db: db}
 }
 
-// scanColumns defines the column list used by all SELECT queries.
-const changeCardSelectColumns = `id, key, title, description, status, priority, requested_by, assigned_to, epic_id, feature_id, related_task_id, justification, impact_analysis, rollback_plan, slug, file_path, created_at, updated_at`
+// changeCardSelectColumns defines the column list used by all SELECT queries.
+const changeCardSelectColumns = `id, key, title, description, status, priority, requested_by, assigned_to, epic_id, feature_id, related_task_id, justification, impact_analysis, rollback_plan, slug, file_path, context_data, created_at, updated_at`
 
 // scanCard scans a row into a ChangeCard model.
 func scanCard(scanner interface {
@@ -40,7 +40,7 @@ func scanCard(scanner interface {
 		&card.ID, &card.Key, &card.Title, &card.Description, &card.Status, &card.Priority,
 		&card.RequestedBy, &card.AssignedTo, &card.EpicID, &card.FeatureID, &card.RelatedTaskID,
 		&card.Justification, &card.ImpactAnalysis, &card.RollbackPlan,
-		&card.Slug, &card.FilePath, &card.CreatedAt, &card.UpdatedAt,
+		&card.Slug, &card.FilePath, &card.ContextData, &card.CreatedAt, &card.UpdatedAt,
 	)
 	return card, err
 }
@@ -194,6 +194,27 @@ func (r *ChangeCardRepository) UpdateStatus(ctx context.Context, id int64, statu
 	result, err := r.db.ExecContext(ctx, query, status, id)
 	if err != nil {
 		return fmt.Errorf("failed to update change-card status: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("change-card not found with id %d", id)
+	}
+
+	return nil
+}
+
+// UpdateContextData updates only the context_data field of a change-card.
+func (r *ChangeCardRepository) UpdateContextData(ctx context.Context, id int64, contextData *string) error {
+	query := `UPDATE change_cards SET context_data = ? WHERE id = ?`
+
+	result, err := r.db.ExecContext(ctx, query, contextData, id)
+	if err != nil {
+		return fmt.Errorf("failed to update change-card context data: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
