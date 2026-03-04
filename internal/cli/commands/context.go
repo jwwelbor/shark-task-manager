@@ -239,6 +239,10 @@ func toModelEntityType(entityType string) (models.EntityType, error) {
 		return models.EntityTypeFeature, nil
 	case "task":
 		return models.EntityTypeTask, nil
+	case "change_card", "change":
+		return models.EntityTypeChange, nil
+	case "bug":
+		return models.EntityTypeBug, nil
 	default:
 		return "", fmt.Errorf("unsupported entity type: %s", entityType)
 	}
