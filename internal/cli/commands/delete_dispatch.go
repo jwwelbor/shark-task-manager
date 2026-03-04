@@ -47,9 +47,11 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return runTaskDelete(cmd, args)
 	case "bug":
 		return runBugDelete(cmd, args)
+	case "change":
+		return runChangeCardDelete(cmd, args)
 	case "change_card":
 		return runChangeCardDelete(cmd, args)
 	default:
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), or CC-### (change-card)", key)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), or CC-### (change-card)", key)
 	}
 }

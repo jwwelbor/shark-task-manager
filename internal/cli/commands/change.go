@@ -22,6 +22,8 @@ type changeCardServicer interface {
 	UpdateChangeCard(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
 	DeleteChangeCard(ctx context.Context, key string) error
 	ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
+	SetChangeCardStatus(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error)
+	AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error)
 }
 
 // changeCardSvcOverride is non-nil only during tests.

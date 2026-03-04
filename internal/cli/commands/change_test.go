@@ -22,12 +22,14 @@ import (
 // Each method delegates to the corresponding Func field if set, otherwise
 // returns a sensible default so callers don't panic on unimplemented methods.
 type MockChangeCardService struct {
-	CreateChangeCardFunc  func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
-	GetChangeCardFunc     func(ctx context.Context, key string) (*models.ChangeCard, error)
-	ListChangeCardsFunc   func(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
-	UpdateChangeCardFunc  func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
-	DeleteChangeCardFunc  func(ctx context.Context, key string) error
-	ApproveChangeCardFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
+	CreateChangeCardFunc        func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
+	GetChangeCardFunc           func(ctx context.Context, key string) (*models.ChangeCard, error)
+	ListChangeCardsFunc         func(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
+	UpdateChangeCardFunc        func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
+	DeleteChangeCardFunc        func(ctx context.Context, key string) error
+	ApproveChangeCardFunc       func(ctx context.Context, key string) (*models.ChangeCard, error)
+	SetChangeCardStatusFunc     func(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error)
+	AdvanceChangeCardStatusFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
 }
 
 func (m *MockChangeCardService) CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
@@ -70,6 +72,20 @@ func (m *MockChangeCardService) ApproveChangeCard(ctx context.Context, key strin
 		return m.ApproveChangeCardFunc(ctx, key)
 	}
 	return nil, fmt.Errorf("ApproveChangeCard not implemented in mock")
+}
+
+func (m *MockChangeCardService) SetChangeCardStatus(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error) {
+	if m.SetChangeCardStatusFunc != nil {
+		return m.SetChangeCardStatusFunc(ctx, key, targetStatus)
+	}
+	return nil, fmt.Errorf("SetChangeCardStatus not implemented in mock")
+}
+
+func (m *MockChangeCardService) AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error) {
+	if m.AdvanceChangeCardStatusFunc != nil {
+		return m.AdvanceChangeCardStatusFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("AdvanceChangeCardStatus not implemented in mock")
 }
 
 // ---------------------------------------------------------------------------

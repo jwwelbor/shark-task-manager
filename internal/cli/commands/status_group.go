@@ -192,6 +192,17 @@ func dispatchTransition(ctx context.Context, entityType, key, targetStatus strin
 			IsForced:     opts.Force,
 			Reason:       opts.Reason,
 		}, nil
+	case "change":
+		card, err := getChangeCardService().SetChangeCardStatus(ctx, key, targetStatus)
+		if err != nil {
+			return nil, err
+		}
+		return &services.TransitionResult{
+			EntityType:   "change",
+			EntityKey:    card.Key,
+			ToStatus:     string(card.Status),
+			Transitioned: true,
+		}, nil
 	case "change_card":
 		card, err := cli.GetChangeCardService().SetChangeCardStatus(ctx, key, targetStatus)
 		if err != nil {
@@ -226,6 +237,17 @@ func dispatchNextStatus(ctx context.Context, entityType, key string) (*services.
 			EntityType:           "bug",
 			EntityKey:            bug.Key,
 			CurrentStatus:        string(bug.Status),
+			AvailableTransitions: nil,
+		}, nil
+	case "change":
+		card, err := getChangeCardService().GetChangeCard(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return &services.NextStatusInfo{
+			EntityType:           "change",
+			EntityKey:            card.Key,
+			CurrentStatus:        string(card.Status),
 			AvailableTransitions: nil,
 		}, nil
 	case "change_card":
@@ -361,6 +383,17 @@ func dispatchAdvance(ctx context.Context, entityType, key string) (*services.Tra
 			EntityType:   "bug",
 			EntityKey:    bug.Key,
 			ToStatus:     string(bug.Status),
+			Transitioned: true,
+		}, nil
+	case "change":
+		card, err := getChangeCardService().AdvanceChangeCardStatus(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return &services.TransitionResult{
+			EntityType:   "change",
+			EntityKey:    card.Key,
+			ToStatus:     string(card.Status),
 			Transitioned: true,
 		}, nil
 	case "change_card":
