@@ -220,8 +220,9 @@ func (r *BugRepository) GetNextKey(ctx context.Context) (string, error) {
 
 // BugListFilters defines filter options for listing bugs.
 type BugListFilters struct {
-	Status   *models.BugStatus
-	Severity *models.BugSeverity
+	Status          *models.BugStatus
+	Severity        *models.BugSeverity
+	LinkedEntityKey *string
 }
 
 // List retrieves all bugs, optionally filtered.
@@ -239,6 +240,10 @@ func (r *BugRepository) List(ctx context.Context, filters *BugListFilters) ([]*m
 		if filters.Severity != nil {
 			conditions = append(conditions, "severity = ?")
 			args = append(args, *filters.Severity)
+		}
+		if filters.LinkedEntityKey != nil {
+			conditions = append(conditions, "linked_entity_key = ?")
+			args = append(args, *filters.LinkedEntityKey)
 		}
 	}
 

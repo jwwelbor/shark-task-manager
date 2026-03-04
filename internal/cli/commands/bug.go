@@ -106,14 +106,12 @@ Examples:
 
 // bugTriageCmd triages a bug.
 var bugTriageCmd = &cobra.Command{
-	Use:   "triage <key> --severity=S [--assign=AGENT]",
+	Use:   "triage <key> --severity=S",
 	Short: "Triage a bug",
-	Long: `Triage a bug by setting severity and optionally assigning an agent.
-Advances bug status from 'reported' to 'triaged'.
+	Long: `Triage a bug by setting severity, advancing status from 'reported' to 'triaged'.
 
 Examples:
   shark bug triage B001 --severity=high
-  shark bug triage B001 --severity=medium --assign=developer
   shark bug triage B001 --severity=critical --json`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBugTriage,
@@ -190,7 +188,6 @@ var (
 	bugSeverity string
 	bugLink     string
 	bugTitle    string
-	bugAssign   string
 	bugStatus   string
 	bugForce    bool
 	bugField    string
@@ -238,7 +235,6 @@ func init() {
 	// Triage flags
 	bugTriageCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (required)")
 	_ = bugTriageCmd.MarkFlagRequired("severity")
-	bugTriageCmd.Flags().StringVar(&bugAssign, "assign", "", "Agent to assign")
 
 	// Note add flags
 	bugNoteAddCmd.Flags().StringVar(&bugNoteType, "type", "", "Note type (comment, decision, progress, blocker, reference, implementation, future)")
@@ -312,6 +308,7 @@ func runBugList(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	statusStr, _ := cmd.Flags().GetString("status")
 	severityStr, _ := cmd.Flags().GetString("severity")
+	linkStr, _ := cmd.Flags().GetString("link")
 
 	filters := services.BugFilters{}
 	if statusStr != "" {
@@ -321,6 +318,9 @@ func runBugList(cmd *cobra.Command, args []string) error {
 	if severityStr != "" {
 		sv := models.BugSeverity(severityStr)
 		filters.Severity = &sv
+	}
+	if linkStr != "" {
+		filters.LinkedEntityKey = &linkStr
 	}
 
 	// Step 2: Call service
@@ -418,10 +418,6 @@ func runBugTriage(cmd *cobra.Command, args []string) error {
 
 	input := services.TriageBugInput{
 		Severity: severity,
-	}
-	if cmd.Flags().Changed("assign") {
-		assign, _ := cmd.Flags().GetString("assign")
-		input.Assign = &assign
 	}
 
 	// Step 2: Call service

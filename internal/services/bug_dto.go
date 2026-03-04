@@ -22,13 +22,13 @@ type BugUpdates struct {
 
 // BugFilters defines filter options for listing bugs via the service layer.
 type BugFilters struct {
-	Status   *models.BugStatus   `json:"status,omitempty"`
-	Severity *models.BugSeverity `json:"severity,omitempty"`
+	Status          *models.BugStatus   `json:"status,omitempty"`
+	Severity        *models.BugSeverity `json:"severity,omitempty"`
+	LinkedEntityKey *string             `json:"linked_entity_key,omitempty"`
 }
 
 // TriageBugInput contains the parameters for triaging a bug.
-// Triage sets severity and optionally assigns an agent, advancing status from "reported" to "triaged".
+// Triage sets severity, advancing status from "reported" to "triaged".
 type TriageBugInput struct {
-	Severity string  `json:"severity"`         // Required. Must be a valid severity value.
-	Assign   *string `json:"assign,omitempty"` // Optional. Agent identifier to assign.
+	Severity string `json:"severity"` // Required. Must be a valid severity value.
 }

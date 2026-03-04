@@ -208,8 +208,9 @@ func (s *BugService) DeleteBug(ctx context.Context, key string) error {
 // ListBugs retrieves bugs with optional filters.
 func (s *BugService) ListBugs(ctx context.Context, filters BugFilters) ([]*models.Bug, error) {
 	repoFilters := &repository.BugListFilters{
-		Status:   filters.Status,
-		Severity: filters.Severity,
+		Status:          filters.Status,
+		Severity:        filters.Severity,
+		LinkedEntityKey: filters.LinkedEntityKey,
 	}
 
 	bugs, err := s.repo.List(ctx, repoFilters)
