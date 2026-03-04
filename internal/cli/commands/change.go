@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -10,6 +12,28 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
+
+// changeCardServicer is the interface used by change-card CLI commands.
+// Defined here so tests can inject a mock without touching the global CLI layer.
+type changeCardServicer interface {
+	CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
+	GetChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
+	ListChangeCards(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
+	UpdateChangeCard(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
+	DeleteChangeCard(ctx context.Context, key string) error
+	ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
+}
+
+// changeCardSvcOverride is non-nil only during tests.
+var changeCardSvcOverride changeCardServicer
+
+// getChangeCardService returns the service to use, preferring the test override.
+func getChangeCardService() changeCardServicer {
+	if changeCardSvcOverride != nil {
+		return changeCardSvcOverride
+	}
+	return cli.GetChangeCardService()
+}
 
 // changeCmd is the parent command group for change-card management.
 var changeCmd = &cobra.Command{
@@ -287,7 +311,7 @@ func runChangeCreate(cmd *cobra.Command, args []string) error {
 	input := buildCreateChangeCardInput(title)
 
 	// Step 2: Call service
-	svc := cli.GetChangeCardService()
+	svc := getChangeCardService()
 	card, err := svc.CreateChangeCard(cmd.Context(), input)
 	if err != nil {
 		return fmt.Errorf("failed to create change-card: %w", err)
@@ -307,7 +331,7 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
 	// Step 2: Call service
-	svc := cli.GetChangeCardService()
+	svc := getChangeCardService()
 	card, err := svc.GetChangeCard(cmd.Context(), key)
 	if err != nil {
 		return fmt.Errorf("change-card %s not found: %w", key, err)
@@ -326,12 +350,19 @@ func runChangeList(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse filters
 	filters := services.ChangeCardFilters{
 		Status:  changeStatusFilter,
-		EpicKey: changeLinkFilter,
 		ShowAll: changeStatusFilter != "",
+	}
+	// Route --link to FeatureKey when format is E##-F## (feature), otherwise EpicKey
+	if changeLinkFilter != "" {
+		if strings.Contains(changeLinkFilter, "-F") {
+			filters.FeatureKey = changeLinkFilter
+		} else {
+			filters.EpicKey = changeLinkFilter
+		}
 	}
 
 	// Step 2: Call service
-	svc := cli.GetChangeCardService()
+	svc := getChangeCardService()
 	cards, err := svc.ListChangeCards(cmd.Context(), filters)
 	if err != nil {
 		return fmt.Errorf("failed to list change-cards: %w", err)
@@ -351,7 +382,7 @@ func runChangeUpdate(cmd *cobra.Command, args []string) error {
 	updates := buildChangeCardUpdates(cmd)
 
 	// Step 2: Call service
-	svc := cli.GetChangeCardService()
+	svc := getChangeCardService()
 	card, err := svc.UpdateChangeCard(cmd.Context(), key, updates)
 	if err != nil {
 		return fmt.Errorf("failed to update change-card %s: %w", key, err)
@@ -371,7 +402,7 @@ func runChangeDelete(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
 	// Step 2: Optionally confirm
-	svc := cli.GetChangeCardService()
+	svc := getChangeCardService()
 	if !changeForce {
 		card, err := svc.GetChangeCard(cmd.Context(), key)
 		if err != nil {
@@ -401,10 +432,21 @@ func runChangeApprove(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
 	// Step 2: Call service
-	svc := cli.GetChangeCardService()
+	svc := getChangeCardService()
 	card, err := svc.ApproveChangeCard(cmd.Context(), key)
 	if err != nil {
-		return fmt.Errorf("failed to approve change-card %s: %w", key, err)
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not found") {
+			cli.Error(fmt.Sprintf("Change-card not found: %s", key))
+			os.Exit(1)
+		}
+		if strings.Contains(errMsg, "cannot approve") || strings.Contains(errMsg, "invalid transition") ||
+			strings.Contains(errMsg, "invalid status") || strings.Contains(errMsg, "cannot transition") {
+			cli.Error(fmt.Sprintf("Cannot approve change-card %s: %s", key, errMsg))
+			os.Exit(3)
+		}
+		cli.Error(fmt.Sprintf("Failed to approve change-card %s: %s", key, errMsg))
+		os.Exit(2)
 	}
 
 	// Step 3: Format output
@@ -565,6 +607,7 @@ func runChangeContextGet(cmd *cobra.Command, args []string) error {
 func runChangeContextClear(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	key := args[0]
+	field, _ := cmd.Flags().GetString("field")
 
 	// Step 2: Call service
 	ctxSvc, err := cli.GetContextService(cmd.Context())
@@ -572,8 +615,15 @@ func runChangeContextClear(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize context service: %w", err)
 	}
 
-	if err := ctxSvc.ClearContext(cmd.Context(), models.EntityTypeChange, key); err != nil {
-		return fmt.Errorf("failed to clear context for change-card %s: %w", key, err)
+	// Clear specific field or all context depending on --field flag
+	if field != "" {
+		if err := ctxSvc.SetContextField(cmd.Context(), models.EntityTypeChange, key, field, ""); err != nil {
+			return fmt.Errorf("failed to clear context field for change-card %s: %w", key, err)
+		}
+	} else {
+		if err := ctxSvc.ClearContext(cmd.Context(), models.EntityTypeChange, key); err != nil {
+			return fmt.Errorf("failed to clear context for change-card %s: %w", key, err)
+		}
 	}
 
 	// Step 3: Format output
@@ -582,10 +632,13 @@ func runChangeContextClear(cmd *cobra.Command, args []string) error {
 			"entity_type": "change",
 			"entity_key":  key,
 			"success":     true,
-			"message":     "Context data cleared",
 		})
 	}
-	cli.Success(fmt.Sprintf("Cleared context data for change-card %s", key))
+	if field != "" {
+		cli.Success(fmt.Sprintf("Cleared context field '%s' for change-card %s", field, key))
+	} else {
+		cli.Success(fmt.Sprintf("Cleared context data for change-card %s", key))
+	}
 	return nil
 }
 
@@ -648,14 +701,20 @@ func printChangeCardList(cards []*models.ChangeCard) error {
 		return nil
 	}
 
-	headers := []string{"Key", "Title", "Status", "Priority", "Created"}
+	headers := []string{"Key", "Title", "Status", "Linked Entity", "Created"}
 	rows := make([][]string, len(cards))
 	for i, c := range cards {
+		linkedEntity := "--"
+		if c.FeatureID != nil {
+			linkedEntity = fmt.Sprintf("F#%d", *c.FeatureID)
+		} else if c.EpicID != nil {
+			linkedEntity = fmt.Sprintf("E#%d", *c.EpicID)
+		}
 		rows[i] = []string{
 			c.Key,
 			c.Title,
 			string(c.Status),
-			fmt.Sprintf("%d", c.Priority),
+			linkedEntity,
 			c.CreatedAt.Format("2006-01-02"),
 		}
 	}

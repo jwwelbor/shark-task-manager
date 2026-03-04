@@ -13,9 +13,10 @@ type CreateChangeCardInput struct {
 
 // ChangeCardFilters contains filtering options for listing change-cards.
 type ChangeCardFilters struct {
-	Status  string `json:"status,omitempty"`
-	EpicKey string `json:"epic_key,omitempty"`
-	ShowAll bool   `json:"show_all,omitempty"` // include terminal statuses
+	Status     string `json:"status,omitempty"`
+	EpicKey    string `json:"epic_key,omitempty"`
+	FeatureKey string `json:"feature_key,omitempty"`
+	ShowAll    bool   `json:"show_all,omitempty"` // include terminal statuses
 }
 
 // ChangeCardUpdates contains optional fields for updating a change-card.

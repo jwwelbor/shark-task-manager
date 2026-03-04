@@ -191,6 +191,15 @@ func (s *ChangeCardService) ListChangeCards(ctx context.Context, filters ChangeC
 		repoFilter.EpicID = &epic.ID
 	}
 
+	// Resolve feature key to ID for filtering
+	if filters.FeatureKey != "" && s.featureRepo != nil {
+		feature, err := s.featureRepo.GetByKey(ctx, filters.FeatureKey)
+		if err != nil {
+			return nil, fmt.Errorf("feature %s not found: %w", filters.FeatureKey, err)
+		}
+		repoFilter.FeatureID = &feature.ID
+	}
+
 	cards, err := s.repo.List(ctx, repoFilter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list change-cards: %w", err)
