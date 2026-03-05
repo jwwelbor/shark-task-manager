@@ -136,7 +136,7 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	}
 
 	// Set file path
-	filePath := filepath.Join("docs", "changes", nextKey+".md")
+	filePath := filepath.Join("docs", "plan", "changes", nextKey+".md")
 	card.FilePath = filePath
 
 	// Create in database

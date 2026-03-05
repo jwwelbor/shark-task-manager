@@ -1,22 +1,38 @@
 package commands
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
 )
 
 // createCmd is the parent command for creating entities
 var createCmd = &cobra.Command{
 	Use:     "create <type> [args]",
-	Short:   "Create an epic, feature, task, bug, or change-card",
+	Short:   "Create an epic, feature, task, bug, change, idea, or note",
 	GroupID: "manage",
 	Long: `Create a new entity. Dispatches to the appropriate create handler based on type.
+
+Entity types:
+  epic        Create a new epic
+  feature     Create a feature in an epic
+  task        Create a task in a feature
+  bug         Create a bug report
+  change      Create a change card (also: change-card)
+  idea        Create a new idea
+  note        Add a note to any entity (auto-detects type from key)
 
 Examples:
   shark create epic "Q1 2025 Roadmap"
   shark create feature E07 "User Authentication"
   shark create task E07 F01 "Implement login" --agent=backend --priority=5
   shark create bug "Login page crashes on Safari" --severity=high
-  shark create change "Migrate auth to OAuth2" --justification="Security requirement"`,
+  shark create change "Migrate auth to OAuth2" --justification="Security requirement"
+  shark create note E07-F01-001 "Decided to use JWT for stateless auth" --type=decision`,
 }
 
 // createEpicCmd delegates to runEpicCreate
@@ -84,11 +100,11 @@ Examples:
 	RunE: runBugCreate,
 }
 
-// createChangeCmd delegates to runChangeCardCreate (accepts "change" or "change-card")
+// createChangeCmd delegates to runChangeCardCreate
 var createChangeCmd = &cobra.Command{
 	Use:   "change <title> [flags]",
-	Short: "Create a new change-card",
-	Long: `Create a new change-card with auto-generated key (CC-###).
+	Short: "Create a new change card",
+	Long: `Create a new change card with auto-generated key (CC-###).
 
 Examples:
   shark create change "Migrate auth to OAuth2"
@@ -98,6 +114,122 @@ Examples:
 	RunE: runChangeCardCreate,
 }
 
+// createIdeaCmd delegates to runIdeaCreate
+var createIdeaCmd = &cobra.Command{
+	Use:   "idea <title> [flags]",
+	Short: "Create a new idea",
+	Long: `Create a new idea with auto-generated key (I-YYYY-MM-DD-## format).
+
+Examples:
+  shark create idea "New feature idea"
+  shark create idea "Backend optimization" --description="Improve query performance" --priority=8
+  shark create idea "UI redesign" --status=on_hold --notes="Waiting for design review"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runIdeaCreate,
+}
+
+// createChangeCardCmd is an alias for createChangeCmd (accepts "change-card")
+var createChangeCardCmd = &cobra.Command{
+	Use:   "change-card <title> [flags]",
+	Short: "Create a new change card (alias for 'change')",
+	Long: `Create a new change card with auto-generated key (CC-###).
+Alias for 'shark create change'.
+
+Examples:
+  shark create change-card "Migrate auth to OAuth2"
+  shark create change-card "Update dependencies" --justification="Security patches"`,
+	Args:   cobra.ExactArgs(1),
+	RunE:   runChangeCardCreate,
+	Hidden: false,
+}
+
+// createNoteCmd adds a note to any entity, auto-detecting type from key
+var createNoteCmd = &cobra.Command{
+	Use:   "note <entity-key> <content>",
+	Short: "Add a note to any entity (auto-detects type from key)",
+	Long: `Add a typed note to an entity. The entity type is auto-detected from the key format.
+
+Key format detection:
+  E##                        Epic
+  E##-F## or F##             Feature
+  E##-F##-### or T-E##-F##-### Task
+  B###                       Bug
+  C### or CC-###             Change card
+
+Note Types:
+  comment        General observation (default)
+  decision       Why we chose X over Y
+  blocker        What's blocking progress
+  solution       How we solved a problem
+  reference      External links, documentation
+  implementation What we actually built
+  testing        Test results, coverage
+  future         Future improvements / TODO
+  question       Unanswered questions
+
+Examples:
+  shark create note E07 "Kicked off Q1 planning"
+  shark create note E07-F01 "Decided to use JWT for stateless auth" --type=decision
+  shark create note E07-F01-001 "Waiting for API spec" --type=blocker --created-by=alice
+  shark create note B001 "Reproduced on Safari 17.2" --type=comment`,
+	Args: cobra.ExactArgs(2),
+	RunE: runCreateNote,
+}
+
+// entityTypeMap maps DetectEntityType strings to models.EntityType values
+var entityTypeMap = map[string]models.EntityType{
+	"epic":        models.EntityTypeEpic,
+	"feature":     models.EntityTypeFeature,
+	"task":        models.EntityTypeTask,
+	"bug":         models.EntityTypeBug,
+	"change":      models.EntityTypeChange,
+	"change_card": models.EntityTypeChange,
+}
+
+func runCreateNote(cmd *cobra.Command, args []string) error {
+	entityKey := args[0]
+	content := args[1]
+
+	noteTypeStr, _ := cmd.Flags().GetString("type")
+	createdBy, _ := cmd.Flags().GetString("created-by")
+
+	// Auto-detect entity type from key
+	detected := DetectEntityType(entityKey)
+	entityType, ok := entityTypeMap[detected]
+	if !ok {
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### or CC-### (change card)", entityKey)
+	}
+
+	noteSvc, err := cli.GetNoteService(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("failed to get note service: %w", err)
+	}
+
+	note, err := noteSvc.AddNote(cmd.Context(), entityType, entityKey, noteTypeStr, content, createdBy)
+	if err != nil {
+		return fmt.Errorf("failed to add note: %w", err)
+	}
+
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(note)
+	}
+
+	creator := "unknown"
+	if note.CreatedBy != nil {
+		creator = *note.CreatedBy
+	}
+	ts := note.CreatedAt
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+
+	fmt.Printf("Note added to %s\n\n", entityKey)
+	fmt.Printf("[%s] %s (%s)\n", strings.ToUpper(noteTypeStr), ts.Format("2006-01-02 15:04"), creator)
+	fmt.Println(content)
+
+	return nil
+}
+
 func init() {
 	// Register subcommands
 	createCmd.AddCommand(createEpicCmd)
@@ -105,6 +237,15 @@ func init() {
 	createCmd.AddCommand(createTaskCmd)
 	createCmd.AddCommand(createBugCmd)
 	createCmd.AddCommand(createChangeCmd)
+	createCmd.AddCommand(createChangeCardCmd)
+	createCmd.AddCommand(createIdeaCmd)
+	createCmd.AddCommand(createNoteCmd)
+
+	// ======================================================================
+	// Note Create Flags
+	// ======================================================================
+	createNoteCmd.Flags().String("type", "comment", "Note type: comment, decision, blocker, solution, reference, implementation, testing, future, question")
+	createNoteCmd.Flags().String("created-by", "", "Author name (optional)")
 
 	// ======================================================================
 	// Epic Create Flags
@@ -180,11 +321,24 @@ func init() {
 	createBugCmd.Flags().String("linked-key", "", "Linked entity key (e.g., E07-F01-001) - requires --linked-type")
 
 	// ======================================================================
-	// Change-Card Create Flags
+	// Idea Create Flags
 	// ======================================================================
-	createChangeCmd.Flags().String("description", "", "Change-card description (optional)")
-	createChangeCmd.Flags().String("justification", "", "Business justification for the change (optional)")
-	createChangeCmd.Flags().String("requested-by", "", "Name or team requesting the change (optional)")
-	createChangeCmd.Flags().String("epic", "", "Link to epic key (e.g., E07) (optional)")
-	createChangeCmd.Flags().String("feature", "", "Link to feature key (e.g., E07-F01) (optional)")
+	createIdeaCmd.Flags().StringVar(&ideaDescription, "description", "", "Idea description (optional)")
+	createIdeaCmd.Flags().IntVar(&ideaPriority, "priority", 0, "Priority (1-10, optional)")
+	createIdeaCmd.Flags().IntVar(&ideaOrder, "order", 0, "Order for sorting (optional)")
+	createIdeaCmd.Flags().StringVar(&ideaNotes, "notes", "", "Additional notes (optional)")
+	createIdeaCmd.Flags().StringSliceVar(&ideaRelatedDocs, "related-docs", []string{}, "Related document paths (optional)")
+	createIdeaCmd.Flags().StringSliceVar(&ideaDependencies, "depends-on", []string{}, "Dependent idea keys (optional)")
+	createIdeaCmd.Flags().StringVar(&ideaStatus, "status", "new", "Initial status (new, on_hold, converted, archived)")
+
+	// ======================================================================
+	// Change-Card Create Flags (applied to both 'change' and 'change-card')
+	// ======================================================================
+	for _, cmd := range []*cobra.Command{createChangeCmd, createChangeCardCmd} {
+		cmd.Flags().String("description", "", "Change card description (optional)")
+		cmd.Flags().String("justification", "", "Business justification for the change (optional)")
+		cmd.Flags().String("requested-by", "", "Name or team requesting the change (optional)")
+		cmd.Flags().String("epic", "", "Link to epic key (e.g., E07) (optional)")
+		cmd.Flags().String("feature", "", "Link to feature key (e.g., E07-F01) (optional)")
+	}
 }

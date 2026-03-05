@@ -102,13 +102,39 @@ type TaskSummary struct {
 	Priority int    `json:"priority"`
 }
 
+// ResumeBugRepository defines the bug repository interface needed by ResumeService.
+type ResumeBugRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Bug, error)
+}
+
+// ResumeChangeCardRepository defines the change-card repository interface needed by ResumeService.
+type ResumeChangeCardRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
+}
+
+// BugResumeContext aggregates all context needed to resume work on a bug.
+type BugResumeContext struct {
+	Bug         *models.Bug          `json:"bug"`
+	ContextData *models.ContextData  `json:"context_data,omitempty"`
+	Notes       []*models.EntityNote `json:"notes,omitempty"`
+}
+
+// ChangeResumeContext aggregates all context needed to resume work on a change-card.
+type ChangeResumeContext struct {
+	ChangeCard  *models.ChangeCard   `json:"change_card"`
+	ContextData *models.ContextData  `json:"context_data,omitempty"`
+	Notes       []*models.EntityNote `json:"notes,omitempty"`
+}
+
 // ResumeService provides context aggregation for resuming work on entities.
 type ResumeService struct {
-	epicRepo    ResumeEpicRepository
-	featureRepo ResumeFeatureRepository
-	taskRepo    ResumeTaskRepository
-	noteRepo    ResumeEntityNoteRepository
-	sessionRepo ResumeWorkSessionRepository
+	epicRepo       ResumeEpicRepository
+	featureRepo    ResumeFeatureRepository
+	taskRepo       ResumeTaskRepository
+	noteRepo       ResumeEntityNoteRepository
+	sessionRepo    ResumeWorkSessionRepository
+	bugRepo        ResumeBugRepository
+	changeCardRepo ResumeChangeCardRepository
 }
 
 // NewResumeService creates a new ResumeService with injected dependencies.
@@ -124,6 +150,64 @@ func NewResumeService(epicRepo ResumeEpicRepository, featureRepo ResumeFeatureRe
 // SetSessionRepo sets the optional work session repository for task resume support.
 func (s *ResumeService) SetSessionRepo(repo ResumeWorkSessionRepository) {
 	s.sessionRepo = repo
+}
+
+// SetBugRepo sets the optional bug repository for bug resume support.
+func (s *ResumeService) SetBugRepo(repo ResumeBugRepository) {
+	s.bugRepo = repo
+}
+
+// SetChangeCardRepo sets the optional change-card repository for change resume support.
+func (s *ResumeService) SetChangeCardRepo(repo ResumeChangeCardRepository) {
+	s.changeCardRepo = repo
+}
+
+// GetBugResume aggregates all context needed to resume work on a bug.
+func (s *ResumeService) GetBugResume(ctx context.Context, bugKey string) (*BugResumeContext, error) {
+	if s.bugRepo == nil {
+		return nil, fmt.Errorf("bug repository not configured")
+	}
+
+	bug, err := s.bugRepo.GetByKey(ctx, bugKey)
+	if err != nil {
+		return nil, fmt.Errorf("bug not found: %s: %w", bugKey, err)
+	}
+
+	resumeCtx := &BugResumeContext{
+		Bug: bug,
+	}
+
+	// Get notes
+	notes, err := s.noteRepo.GetByEntity(ctx, models.EntityTypeBug, bug.ID)
+	if err == nil {
+		resumeCtx.Notes = notes
+	}
+
+	return resumeCtx, nil
+}
+
+// GetChangeResume aggregates all context needed to resume work on a change-card.
+func (s *ResumeService) GetChangeResume(ctx context.Context, changeKey string) (*ChangeResumeContext, error) {
+	if s.changeCardRepo == nil {
+		return nil, fmt.Errorf("change repository not configured")
+	}
+
+	changeCard, err := s.changeCardRepo.GetByKey(ctx, changeKey)
+	if err != nil {
+		return nil, fmt.Errorf("change not found: %s: %w", changeKey, err)
+	}
+
+	resumeCtx := &ChangeResumeContext{
+		ChangeCard: changeCard,
+	}
+
+	// Get notes
+	notes, err := s.noteRepo.GetByEntity(ctx, models.EntityTypeChange, changeCard.ID)
+	if err == nil {
+		resumeCtx.Notes = notes
+	}
+
+	return resumeCtx, nil
 }
 
 // GetEpicResume aggregates all context needed to resume work on an epic.

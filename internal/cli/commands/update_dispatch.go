@@ -8,13 +8,16 @@ import (
 
 var updateCmd = &cobra.Command{
 	Use:   "update <KEY> [flags]",
-	Short: "Update an epic, feature, or task",
+	Short: "Update an epic, feature, task, bug, change, or idea",
 	Long: `Update an entity by key. The entity type is auto-detected from the key format.
 
 Key format detection:
   E##                        Epic
   E##-F## or F##             Feature
   E##-F##-### or T-E##-F##-### Task
+  B###                       Bug
+  C###                       Change card
+  I-YYYY-MM-DD-##            Idea
 
 Use 'shark status set' to change entity status.
 
@@ -93,7 +96,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return runBugUpdate(cmd, args)
 	case "change", "change_card":
 		return runChangeUpdate(cmd, args)
+	case "idea":
+		return runIdeaUpdate(cmd, args)
 	default:
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), or C-### (change-card)", key)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), or I-YYYY-MM-DD-## (idea)", key)
 	}
 }

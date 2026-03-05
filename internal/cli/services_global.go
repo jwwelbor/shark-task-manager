@@ -351,7 +351,12 @@ func GetBugService() *services.BugService {
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 
-	return services.NewBugService(bugRepo, workflowSvc, epicRepo, featureRepo, taskRepo)
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+
+	return services.NewBugService(bugRepo, workflowSvc, epicRepo, featureRepo, taskRepo, projectRoot)
 }
 
 // GetDashboardAnalyticsService returns a DashboardAnalyticsService instance.

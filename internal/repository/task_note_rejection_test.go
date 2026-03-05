@@ -141,7 +141,7 @@ func TestCreateRejectionNoteWithDocumentPath(t *testing.T) {
 	toStatus := "in_development"
 	rejectedBy := "qa-agent"
 	reason := "Tests fail on edge case"
-	documentPath := "docs/bugs/BUG-2026-046.md"
+	documentPath := "docs/plan/bugs/BUG-2026-046.md"
 
 	note, err := noteRepo.CreateRejectionNote(
 		ctx,
@@ -738,9 +738,9 @@ func TestCreateRejectionNoteDocumentPathValidation(t *testing.T) {
 		},
 		{
 			name:             "relative document path",
-			documentPath:     toStringPtr("docs/bugs/BUG-001.md"),
+			documentPath:     toStringPtr("docs/plan/bugs/BUG-001.md"),
 			expectInMetadata: true,
-			expectedValue:    "docs/bugs/BUG-001.md",
+			expectedValue:    "docs/plan/bugs/BUG-001.md",
 			description:      "Relative document path should be preserved",
 		},
 		{

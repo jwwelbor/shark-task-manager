@@ -23,7 +23,7 @@ var (
 	ErrInvalidDependsOn        = errors.New("invalid depends_on: must be a valid JSON array of strings")
 	ErrEmptyTitle              = errors.New("title cannot be empty")
 	ErrEmptyNewStatus          = errors.New("new_status cannot be empty")
-	ErrInvalidNoteType         = errors.New("invalid note type: must be comment, decision, blocker, solution, reference, implementation, testing, future, question, or rejection")
+	ErrInvalidNoteType         = errors.New("invalid note type: must be comment, decision, blocker, solution, reference, implementation, testing, future, question, rejection, or requirement")
 	ErrInvalidTaskID           = errors.New("task_id must be greater than 0")
 	ErrEmptyContent            = errors.New("content cannot be empty")
 	ErrInvalidCriteriaStatus   = errors.New("invalid criteria status: must be pending, in_progress, complete, failed, or na")
@@ -182,6 +182,7 @@ func ValidateNoteType(noteType string) error {
 		"future":         true,
 		"question":       true,
 		"rejection":      true,
+		"requirement":    true,
 	}
 	if !validTypes[noteType] {
 		return fmt.Errorf("%w: got %q", ErrInvalidNoteType, noteType)

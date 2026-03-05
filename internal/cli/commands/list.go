@@ -8,7 +8,7 @@ import (
 // listCmd represents the unified list command
 var listCmd = &cobra.Command{
 	Use:     "list [EPIC] [FEATURE]",
-	Short:   "List epics, features, or tasks",
+	Short:   "List epics, features, tasks, or ideas",
 	GroupID: "inspect",
 	Long: `Smart list command that dispatches to the appropriate subcommand based on arguments.
 
@@ -16,12 +16,15 @@ Positional Arguments:
   (no args)       List all epics
   EPIC            List features in epic (e.g., E04)
   EPIC FEATURE    List tasks in feature (e.g., E04 F01 or E04-F01)
+  idea / ideas    List all ideas
 
 Examples:
   shark list                      List all epics
   shark list E10                  List features in epic E10
   shark list E10 F01              List tasks in epic E10, feature F01
   shark list E10-F01              List tasks in feature E10-F01 (combined format)
+  shark list idea                 List all ideas
+  shark list ideas                List all ideas (alias)
   shark list --json               Output as JSON`,
 	RunE: runList,
 }
@@ -36,6 +39,8 @@ func init() {
 	listCmd.Flags().Bool("show-all", false, "Show all items including completed (by default, completed items are hidden)")
 	_ = listCmd.Flags().MarkDeprecated("show-all", "use --all instead")
 	listCmd.Flags().Bool("all", false, "Show all items including completed (by default, completed items are hidden)")
+	// Idea-specific flags (only used when 'idea' or 'ideas' keyword is provided)
+	listCmd.Flags().Int("priority", 0, "Filter ideas by priority (1-10)")
 }
 
 // runList executes the list command dispatcher
@@ -66,6 +71,16 @@ func runList(cmd *cobra.Command, args []string) error {
 	case "task":
 		// Call task list command with epic and feature filter
 		return runTaskListWithFlags(cmd, *epicKey, *featureKey, statusFlag, sortByFlag, showAllFlag)
+
+	case "idea":
+		// Wire idea-specific flags from listCmd into package-level idea vars
+		ideaStatus, _ = cmd.Flags().GetString("status")
+		if p, err := cmd.Flags().GetInt("priority"); err == nil {
+			ideaPriority = p
+		}
+		// Propagate context and delegate to idea list handler
+		ideaListCmd.SetContext(cmd.Context())
+		return runIdeaList(ideaListCmd, []string{})
 
 	default:
 		// Should never happen

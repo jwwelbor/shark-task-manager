@@ -63,6 +63,8 @@ func (i *Interpreter) ParseScope(args []string) (*Scope, error) {
 		scopeType = ScopeTask
 	case "change_card":
 		scopeType = ScopeChangeCard
+	case "change":
+		scopeType = ScopeChange
 	case "bug":
 		scopeType = ScopeBug
 	default:
@@ -85,6 +87,11 @@ func parseGetArgsLogic(args []string) (command string, key string, err error) {
 		// Check if it's a bug key (B###)
 		if keys.IsBugKey(normalized) {
 			return "bug", normalized, nil
+		}
+
+		// Check if it's a change key (C###)
+		if keys.IsChangeKey(normalized) {
+			return "change", normalized, nil
 		}
 
 		// Check if it's a change-card key (CC-###)

@@ -4,7 +4,7 @@
     "backend": "$SHARK_DB_BACKEND",
     "url": "$SHARK_DB_URL",
     "auth_token_file": "$SHARK_AUTH_TOKEN_FILE",
-    "skip_migrations": false
+    "skip_migrations": true
   },
   "interactive_mode": false,
   "json_output": false,

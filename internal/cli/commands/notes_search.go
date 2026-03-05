@@ -96,7 +96,7 @@ func runNotesSearch(cmd *cobra.Command, args []string) error {
 	} else {
 		// Validate entity type before passing to service
 		if entityType != nil && !models.ValidEntityTypes[*entityType] {
-			return fmt.Errorf("invalid entity-type: %s (must be one of: epic, feature, task)", entityTypeStr)
+			return fmt.Errorf("invalid entity-type: %s (must be one of: epic, feature, task, bug, change)", entityTypeStr)
 		}
 		// Validate note types before passing to service
 		for _, nt := range noteTypes {

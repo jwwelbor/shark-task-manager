@@ -3,8 +3,11 @@ package services
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
@@ -47,6 +50,7 @@ type BugService struct {
 	epicRepo    LinkValidatorEpicRepo
 	featureRepo LinkValidatorFeatureRepo
 	taskRepo    LinkValidatorTaskRepo
+	projectRoot string
 }
 
 // NewBugService creates a new BugService with injected dependencies.
@@ -56,6 +60,7 @@ func NewBugService(
 	epicRepo LinkValidatorEpicRepo,
 	featureRepo LinkValidatorFeatureRepo,
 	taskRepo LinkValidatorTaskRepo,
+	projectRoot string,
 ) *BugService {
 	return &BugService{
 		repo:        repo,
@@ -63,6 +68,7 @@ func NewBugService(
 		epicRepo:    epicRepo,
 		featureRepo: featureRepo,
 		taskRepo:    taskRepo,
+		projectRoot: projectRoot,
 	}
 }
 
@@ -115,11 +121,70 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 		bug.LinkedEntityKey = &input.LinkedEntityKey
 	}
 
+	// Resolve file path: use caller-supplied path or compute default
+	var filePath string
+	if input.FilePath != nil && *input.FilePath != "" {
+		filePath = *input.FilePath
+	} else {
+		filePath = filepath.Join("docs", "plan", "bugs", key+".md")
+	}
+	bug.FilePath = &filePath
+
 	if err := s.repo.Create(ctx, bug); err != nil {
 		return nil, fmt.Errorf("failed to create bug: %w", err)
 	}
 
+	// Generate and write markdown file (best-effort)
+	content := s.generateMarkdown(bug)
+	writer := fileops.NewEntityFileWriter()
+	_, writeErr := writer.WriteEntityFile(fileops.WriteOptions{
+		Content:        []byte(content),
+		ProjectRoot:    s.projectRoot,
+		FilePath:       filePath,
+		EntityType:     "bug",
+		UseAtomicWrite: !input.Force,
+		Force:          input.Force,
+	})
+	if writeErr != nil {
+		// Log warning but don't fail -- DB record is the source of truth
+		fmt.Fprintf(os.Stderr, "warning: failed to write bug file %s: %v\n", filePath, writeErr)
+	}
+
 	return bug, nil
+}
+
+// generateMarkdown produces a markdown document for a newly created bug.
+func (s *BugService) generateMarkdown(bug *models.Bug) string {
+	var sb strings.Builder
+
+	sb.WriteString("---\n")
+	sb.WriteString(fmt.Sprintf("bug_key: %s\n", bug.Key))
+	sb.WriteString(fmt.Sprintf("title: %s\n", bug.Title))
+	sb.WriteString(fmt.Sprintf("status: %s\n", bug.Status))
+	sb.WriteString(fmt.Sprintf("severity: %s\n", bug.Severity))
+	if bug.Slug != nil {
+		sb.WriteString(fmt.Sprintf("slug: %s\n", *bug.Slug))
+	}
+	sb.WriteString("---\n\n")
+	sb.WriteString(fmt.Sprintf("# %s\n\n", bug.Title))
+	sb.WriteString("## Description\n\n")
+
+	if bug.Description != nil {
+		sb.WriteString(*bug.Description + "\n\n")
+	} else {
+		sb.WriteString("[Describe the bug and how to reproduce it]\n\n")
+	}
+
+	sb.WriteString("## Expected Behavior\n\n")
+	sb.WriteString("[What should happen?]\n\n")
+	sb.WriteString("## Actual Behavior\n\n")
+	sb.WriteString("[What actually happens?]\n\n")
+	sb.WriteString("## Steps to Reproduce\n\n")
+	sb.WriteString("1. \n\n")
+	sb.WriteString("## Fix Notes\n\n")
+	sb.WriteString("[Notes on the fix once resolved]\n")
+
+	return sb.String()
 }
 
 // GetBug retrieves a bug by its key.

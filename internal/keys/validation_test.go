@@ -210,6 +210,69 @@ func TestNormalizeTaskKey(t *testing.T) {
 	}
 }
 
+func TestIsBugKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		// Valid bug keys - variable digit count
+		{"valid 3 digits uppercase", "B001", true},
+		{"valid 3 digits lowercase", "b001", true},
+		{"valid 1 digit", "B1", true},
+		{"valid 2 digits", "B42", true},
+		{"valid 4 digits", "B1000", true},
+		{"valid zero", "B0", true},
+		// Invalid bug keys
+		{"invalid no digits", "B", false},
+		{"invalid alpha", "BABC", false},
+		{"invalid wrong prefix", "E01", false},
+		{"invalid change key", "C001", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsBugKey(tt.input)
+			if got != tt.want {
+				t.Errorf("IsBugKey(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsChangeKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		// Valid change keys - variable digit count, C### format
+		{"valid 3 digits uppercase", "C001", true},
+		{"valid 3 digits lowercase", "c001", true},
+		{"valid 2 digits lowercase", "c015", true},
+		{"valid 1 digit", "C1", true},
+		{"valid 4 digits", "C1000", true},
+		{"valid zero", "C0", true},
+		// Invalid change keys
+		{"invalid no digits", "C", false},
+		{"invalid alpha", "CABC", false},
+		{"invalid wrong prefix", "E01", false},
+		{"invalid bug key", "B001", false},
+		{"invalid old CC format", "CC-001", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsChangeKey(tt.input)
+			if got != tt.want {
+				t.Errorf("IsChangeKey(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseTaskNumber(t *testing.T) {
 	tests := []struct {
 		name    string

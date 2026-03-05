@@ -19,6 +19,12 @@ const (
 	// EntityTypeTask identifies a task key (e.g., T-E07-F01-001, E07-F01-001)
 	EntityTypeTask EntityType = "task"
 
+	// EntityTypeBug identifies a bug key (e.g., B001, B42, B1)
+	EntityTypeBug EntityType = "bug"
+
+	// EntityTypeChange identifies a change key (e.g., C001, C15, C1)
+	EntityTypeChange EntityType = "change"
+
 	// EntityTypeUnknown indicates the key format could not be recognized
 	EntityTypeUnknown EntityType = "unknown"
 )
@@ -48,6 +54,14 @@ type ParsedKey struct {
 	// Empty for non-task keys.
 	TaskNum string
 
+	// BugNum is the numeric part of the bug key (e.g., "001" from B001).
+	// Empty for non-bug keys.
+	BugNum string
+
+	// ChangeNum is the numeric part of the change key (e.g., "001" from C001).
+	// Empty for non-change keys.
+	ChangeNum string
+
 	// Slug is the optional human-readable suffix (e.g., "user-management" from E07-user-management).
 	// Empty if no slug is present. Stored in lowercase.
 	Slug string
@@ -70,6 +84,12 @@ var (
 
 	// taskShortSlugPattern matches E##-F##-### with optional slug: E07-F01-001, E07-F01-001-impl-jwt
 	taskShortSlugPattern = regexp.MustCompile(`^E(\d{2})-F(\d{2})-(\d{3})(?:-([A-Z](?:[A-Z0-9-]*[A-Z0-9])?))?$`)
+
+	// bugVariablePattern matches B followed by 1+ digits (variable): B1, B42, B001, B1000
+	bugVariablePattern = regexp.MustCompile(`^B(\d+)$`)
+
+	// changeVariablePattern matches C followed by 1+ digits (variable): C1, C15, C001
+	changeVariablePattern = regexp.MustCompile(`^C(\d+)$`)
 )
 
 // KeyService provides centralized entity key parsing and normalization.
@@ -159,6 +179,22 @@ func (ks *KeyService) Parse(key string) ParsedKey {
 		return result
 	}
 
+	// Bug key: B followed by 1+ digits (variable): B1, B42, B001, B1000
+	if m := bugVariablePattern.FindStringSubmatch(upper); m != nil {
+		result.EntityType = EntityTypeBug
+		result.BugNum = m[1]
+		result.Normalized = fmt.Sprintf("B%s", m[1])
+		return result
+	}
+
+	// Change key: C followed by 1+ digits (variable): C1, C15, C001
+	if m := changeVariablePattern.FindStringSubmatch(upper); m != nil {
+		result.EntityType = EntityTypeChange
+		result.ChangeNum = m[1]
+		result.Normalized = fmt.Sprintf("C%s", m[1])
+		return result
+	}
+
 	return result
 }
 
@@ -225,6 +261,12 @@ func (ks *KeyService) Format(parsed ParsedKey) string {
 
 	case EntityTypeTask:
 		return fmt.Sprintf("T-E%s-F%s-%s", parsed.EpicNum, parsed.FeatureNum, parsed.TaskNum)
+
+	case EntityTypeBug:
+		return fmt.Sprintf("B%s", parsed.BugNum)
+
+	case EntityTypeChange:
+		return fmt.Sprintf("C%s", parsed.ChangeNum)
 
 	default:
 		return ""

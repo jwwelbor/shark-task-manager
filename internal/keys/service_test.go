@@ -592,3 +592,244 @@ func TestKeyService_DetectEntityType_AmbiguousCases(t *testing.T) {
 		})
 	}
 }
+
+func TestKeyService_DetectEntityType_BugAndChange(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name string
+		key  string
+		want EntityType
+	}{
+		// Bug keys: B followed by 1+ digits (variable digit count)
+		{"bug 3 digits uppercase", "B001", EntityTypeBug},
+		{"bug 3 digits lowercase", "b001", EntityTypeBug},
+		{"bug 1 digit", "B1", EntityTypeBug},
+		{"bug 2 digits", "B42", EntityTypeBug},
+		{"bug 4 digits", "B1000", EntityTypeBug},
+		{"bug zero is valid", "B0", EntityTypeBug},
+
+		// Change keys: C followed by 1+ digits (variable digit count)
+		{"change 3 digits uppercase", "C001", EntityTypeChange},
+		{"change 3 digits lowercase", "c001", EntityTypeChange},
+		{"change 2 digits lowercase", "c015", EntityTypeChange},
+		{"change 1 digit", "C1", EntityTypeChange},
+
+		// Invalid bug/change keys
+		{"bug no digits", "B", EntityTypeUnknown},
+		{"change no digits", "C", EntityTypeUnknown},
+		{"bug alpha chars", "BABC", EntityTypeUnknown},
+
+		// Must not interfere with existing entity types
+		{"epic still works", "E07", EntityTypeEpic},
+		{"feature still works", "F01", EntityTypeFeature},
+		{"task still works", "T-E07-F01-001", EntityTypeTask},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.DetectEntityType(tt.key)
+			if got != tt.want {
+				t.Errorf("DetectEntityType(%q) = %q, want %q", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestKeyService_Parse_Bug(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name           string
+		key            string
+		wantEntityType EntityType
+		wantNormalized string
+		wantNum        string
+	}{
+		{
+			name:           "bug 3 digits uppercase",
+			key:            "B001",
+			wantEntityType: EntityTypeBug,
+			wantNormalized: "B001",
+			wantNum:        "001",
+		},
+		{
+			name:           "bug 3 digits lowercase",
+			key:            "b001",
+			wantEntityType: EntityTypeBug,
+			wantNormalized: "B001",
+			wantNum:        "001",
+		},
+		{
+			name:           "bug 1 digit",
+			key:            "B1",
+			wantEntityType: EntityTypeBug,
+			wantNormalized: "B1",
+			wantNum:        "1",
+		},
+		{
+			name:           "bug 4 digits",
+			key:            "B1000",
+			wantEntityType: EntityTypeBug,
+			wantNormalized: "B1000",
+			wantNum:        "1000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.Parse(tt.key)
+			if got.EntityType != tt.wantEntityType {
+				t.Errorf("Parse(%q).EntityType = %q, want %q", tt.key, got.EntityType, tt.wantEntityType)
+			}
+			if got.Normalized != tt.wantNormalized {
+				t.Errorf("Parse(%q).Normalized = %q, want %q", tt.key, got.Normalized, tt.wantNormalized)
+			}
+			if got.BugNum != tt.wantNum {
+				t.Errorf("Parse(%q).BugNum = %q, want %q", tt.key, got.BugNum, tt.wantNum)
+			}
+			if got.Raw != tt.key {
+				t.Errorf("Parse(%q).Raw = %q, want %q", tt.key, got.Raw, tt.key)
+			}
+		})
+	}
+}
+
+func TestKeyService_Parse_Change(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name           string
+		key            string
+		wantEntityType EntityType
+		wantNormalized string
+		wantNum        string
+	}{
+		{
+			name:           "change 3 digits uppercase",
+			key:            "C001",
+			wantEntityType: EntityTypeChange,
+			wantNormalized: "C001",
+			wantNum:        "001",
+		},
+		{
+			name:           "change 3 digits lowercase",
+			key:            "c001",
+			wantEntityType: EntityTypeChange,
+			wantNormalized: "C001",
+			wantNum:        "001",
+		},
+		{
+			name:           "change 2 digits lowercase",
+			key:            "c015",
+			wantEntityType: EntityTypeChange,
+			wantNormalized: "C015",
+			wantNum:        "015",
+		},
+		{
+			name:           "change 1 digit",
+			key:            "C1",
+			wantEntityType: EntityTypeChange,
+			wantNormalized: "C1",
+			wantNum:        "1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.Parse(tt.key)
+			if got.EntityType != tt.wantEntityType {
+				t.Errorf("Parse(%q).EntityType = %q, want %q", tt.key, got.EntityType, tt.wantEntityType)
+			}
+			if got.Normalized != tt.wantNormalized {
+				t.Errorf("Parse(%q).Normalized = %q, want %q", tt.key, got.Normalized, tt.wantNormalized)
+			}
+			if got.ChangeNum != tt.wantNum {
+				t.Errorf("Parse(%q).ChangeNum = %q, want %q", tt.key, got.ChangeNum, tt.wantNum)
+			}
+			if got.Raw != tt.key {
+				t.Errorf("Parse(%q).Raw = %q, want %q", tt.key, got.Raw, tt.key)
+			}
+		})
+	}
+}
+
+func TestKeyService_Format_BugAndChange(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name   string
+		parsed ParsedKey
+		want   string
+	}{
+		{
+			name: "format bug",
+			parsed: ParsedKey{
+				EntityType: EntityTypeBug,
+				BugNum:     "001",
+			},
+			want: "B001",
+		},
+		{
+			name: "format bug 1 digit",
+			parsed: ParsedKey{
+				EntityType: EntityTypeBug,
+				BugNum:     "1",
+			},
+			want: "B1",
+		},
+		{
+			name: "format change",
+			parsed: ParsedKey{
+				EntityType: EntityTypeChange,
+				ChangeNum:  "001",
+			},
+			want: "C001",
+		},
+		{
+			name: "format change 1 digit",
+			parsed: ParsedKey{
+				EntityType: EntityTypeChange,
+				ChangeNum:  "1",
+			},
+			want: "C1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.Format(tt.parsed)
+			if got != tt.want {
+				t.Errorf("Format() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestKeyService_IsValid_BugAndChange(t *testing.T) {
+	ks := NewKeyService()
+
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{"valid bug 3 digits", "B001", true},
+		{"valid bug lowercase", "b001", true},
+		{"valid bug 1 digit", "B1", true},
+		{"valid change 3 digits", "C001", true},
+		{"valid change lowercase", "c001", true},
+		{"valid change 1 digit", "C1", true},
+		{"invalid bug no digits", "B", false},
+		{"invalid change no digits", "C", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ks.IsValid(tt.key)
+			if got != tt.want {
+				t.Errorf("IsValid(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}

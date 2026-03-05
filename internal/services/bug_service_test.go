@@ -218,7 +218,7 @@ func newBugService(repo *mockBugRepo, epicRepo *bugLinkEpicRepo, featureRepo *bu
 	if taskRepo == nil {
 		taskRepo = &bugLinkTaskRepo{}
 	}
-	return NewBugService(repo, wfSvc, epicRepo, featureRepo, taskRepo)
+	return NewBugService(repo, wfSvc, epicRepo, featureRepo, taskRepo, "")
 }
 
 // --- CreateBug tests ---

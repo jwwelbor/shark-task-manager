@@ -100,7 +100,7 @@ shark task unlink E07-F01-001 E07-F01-002
 
 # Context & Notes
 shark task context set E07-F01-001 --field current_step --value "Implementing API"
-shark task note add E07-F01-001 --content="Progress update" --type=progress
+shark task note add E07-F01-001 --content="Progress update" --type=comment
 shark task notes E07-F01-001
 shark task resume E07-F01-001              # Resume with full context
 ```
@@ -127,7 +127,7 @@ shark epic complete E07
 shark epic next-status E07
 shark epic status E07                      # Epic-level status with rollups
 shark epic context set E07 --field phase --value "development"
-shark epic note add E07 --content="Kickoff notes" --type=progress
+shark epic note add E07 --content="Kickoff notes" --type=comment
 ```
 
 ### Idea Commands (6 subcommands)

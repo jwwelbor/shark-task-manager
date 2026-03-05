@@ -364,9 +364,9 @@ func (r *ChangeCardRepository) CountByStatus(ctx context.Context) (map[string]in
 	return counts, nil
 }
 
-// GetNextKey returns the next available change-card key (e.g., C001, C002, ...).
+// GetNextKey returns the next available change-card key (e.g., CC-001, CC-002, ...).
 func (r *ChangeCardRepository) GetNextKey(ctx context.Context) (string, error) {
-	query := `SELECT COALESCE(MAX(CAST(SUBSTR(key, 2) AS INTEGER)), 0) FROM change_cards`
+	query := `SELECT COALESCE(MAX(CAST(SUBSTR(key, 4) AS INTEGER)), 0) FROM change_cards`
 
 	var maxNum int
 	err := r.db.QueryRowContext(ctx, query).Scan(&maxNum)
@@ -374,6 +374,6 @@ func (r *ChangeCardRepository) GetNextKey(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("failed to get next change-card key: %w", err)
 	}
 
-	nextKey := fmt.Sprintf("C%03d", maxNum+1)
+	nextKey := fmt.Sprintf("CC-%03d", maxNum+1)
 	return nextKey, nil
 }

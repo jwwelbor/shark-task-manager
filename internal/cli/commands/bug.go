@@ -130,7 +130,7 @@ var bugNoteAddCmd = &cobra.Command{
 	Short: "Add a note to a bug",
 	Long: `Add a note to a bug with a specified type.
 
-Note types: comment, decision, progress, blocker, reference, implementation, future
+Note types: comment, decision, blocker, solution, reference, implementation, testing, future, question, requirement
 
 Examples:
   shark bug note add B001 --type=comment "Reproduced on Safari 17.2"
@@ -193,6 +193,7 @@ var (
 	bugField    string
 	bugValue    string
 	bugNoteType string
+	bugFilePath string
 )
 
 func init() {
@@ -219,6 +220,8 @@ func init() {
 	// Create flags
 	bugCreateCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (critical, high, medium, low)")
 	bugCreateCmd.Flags().StringVar(&bugLink, "link", "", "Entity key to link (E07, E07-F01, E07-F01-001)")
+	bugCreateCmd.Flags().StringVar(&bugFilePath, "file", "", "Custom file path for bug markdown file")
+	bugCreateCmd.Flags().BoolVar(&bugForce, "force", false, "Overwrite existing file at target path")
 
 	// List flags
 	bugListCmd.Flags().StringVar(&bugStatus, "status", "", "Filter by status")
@@ -256,10 +259,17 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	severity, _ := cmd.Flags().GetString("severity")
 	link, _ := cmd.Flags().GetString("link")
+	filePath, _ := cmd.Flags().GetString("file")
+	force, _ := cmd.Flags().GetBool("force")
 
 	input := services.CreateBugInput{
 		Title:    args[0],
 		Severity: models.BugSeverity(severity),
+		Force:    force,
+	}
+
+	if filePath != "" {
+		input.FilePath = &filePath
 	}
 
 	// Parse --link into linked entity type and key

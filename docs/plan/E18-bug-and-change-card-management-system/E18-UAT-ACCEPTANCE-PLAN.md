@@ -1,9 +1,9 @@
 # E18 UAT Acceptance Plan: Bug and Change-Card Management System
 
-**Date**: 2026-03-02
+**Date**: 2026-03-02 (updated 2026-03-04)
 **Author**: QA Agent
 **Epic**: E18 -- Bug and Change-Card Management System
-**Status**: Complete
+**Status**: Updated -- T-E18-F06-007 (Fix 4 C### Dispatch Gaps) completed QA and approved; all dispatch GAPs resolved
 
 ---
 
@@ -318,7 +318,121 @@ Each user journey from `user-journeys.md` is decomposed into concrete, executabl
 | 5 | Any User | `shark status advance B001` | Advances the bug workflow. |
 | 6 | Any User | `shark status advance C001` | Advances the change-card workflow. |
 
-**Pass Criteria**: All unified commands (`get`, `status`, `search`) auto-detect B### and C### key formats without requiring entity-specific subcommands.
+**Pass Criteria**: All unified commands (`get`, `status`, `delete`, `search`) auto-detect B### and C### key formats without requiring entity-specific subcommands. Following T-E18-F06-007, C### status operations (advance, set, options) and delete are fully handled alongside B### operations.
+
+**T-E18-F06-006 and T-E18-F06-007 Dispatch Inventory Coverage** *(added 2026-03-04; updated 2026-03-04)*:
+
+T-E18-F06-006 performed a systematic dispatch inventory verification covering 37 dispatch points across the CLI. T-E18-F06-007 fixed all 4 identified C### dispatch gaps and completed QA on 2026-03-04. This directly validates the foundation that J3-UNIFIED and CE-1 depend on.
+
+**Final Dispatch Inventory (post T-E18-F06-007)**:
+
+| Inventory Result | Count | Meaning |
+|-----------------|-------|---------|
+| HANDLED | 28 | Dispatch correctly routes B### and C### keys (all gaps resolved) |
+| GAP | 0 | No remaining dispatch gaps |
+| N/A | 5 | Filesystem/slug infrastructure not applicable to bugs/changes |
+
+**Previously Known Dispatch Gaps -- All RESOLVED by T-E18-F06-007**:
+
+| Gap ID | Location | Fix Verified | QA Result |
+|--------|----------|--------------|-----------|
+| GAP-001 | `delete_dispatch.go dispatchDelete()` | `case "change":` added at line 50 | PASS (TestGAP001_Fix_DeleteDispatch_ChangeKey) |
+| GAP-002 | `status_group.go dispatchTransition()` | `case "change":` added at lines 195-205 | PASS (TestGAP002_Fix_DispatchTransition_ChangeKey) |
+| GAP-003 | `status_group.go dispatchNextStatus()` | `case "change":` added at lines 242-252 | PASS (TestGAP003_Fix_DispatchNextStatus_ChangeKey) |
+| GAP-004 | `status_group.go dispatchAdvance()` | `case "change":` added at lines 388-398 | PASS (TestGAP004_Fix_DispatchAdvance_ChangeKey) |
+
+**All C### operations are now fully handled.** `shark delete C###`, `shark status set C###`, `shark status advance C###`, and `shark status options C###` all route correctly to the change card handlers. UAT scenarios J3-UNIFIED and CE-1 should treat all C### operations as expected-to-pass.
+
+**Integration Tests Verified (INT-01 through INT-07)**:
+
+| Scenario | Coverage |
+|----------|----------|
+| INT-01 | B### and C### key detection routes to correct entity type in `get` command |
+| INT-02 | Scope interpreter routes B### to `ScopeBug`, C### to `ScopeChange` |
+| INT-03 | `ChangeCardSvc` injection for `get` command works |
+| INT-04 | `ChangeCardSvc` error propagation and update dispatch work |
+| INT-05 | Search `--type` validation accepts "bug" and "change" values |
+| INT-06 | Delete dispatch entity type detection (documents GAP-001) |
+| INT-07 | Context/notes `toModelEntityType` mapping handles bug and change |
+
+---
+
+### Journey 4: Cross-Entity Search -- Finding Bugs and Change-Cards by Content
+
+*Added 2026-03-04: T-E18-F06-004 (Search Extension for Bugs and Change-Cards) completed QA and is in_approval. These scenarios validate the acceptance criteria from that task's spec. T-E18-F06-006 integration test INT-05 confirms search `--type` validation accepts "bug" and "change" at the dispatch level.*
+
+#### Scenario J4-HP: Unfiltered Search Returns All Entity Types
+
+**Source**: T-E18-F06-004 AC1, AC8 | QA test T03-01
+
+**Preconditions**:
+- Database contains at least one each of: epic, feature, task, bug, change-card
+- Bug B001 has title containing "login"
+- Change-card C001 has title containing "login"
+- A task E07-F01-001 has title containing "login"
+
+**Steps**:
+
+| Step | Actor | Action | Expected Outcome |
+|------|-------|--------|------------------|
+| 1 | Any User | `shark search "login"` | Results list includes epics, features, tasks, bugs, and change-cards. Each result shows entity_type, key, title, status. B001 appears with `(severity: ...)` suffix. C001 appears without severity suffix. |
+| 2 | Any User | `shark search "login" --json` | JSON array returned. Bug entries contain `"severity"` field. Change-card entries omit `"severity"` field (omitempty). Each result contains `"entity_type"` field. |
+| 3 | Any User | `shark search "termthatdoesnotexist"` | Empty results returned gracefully. No error, no panic. Exit code 0. |
+
+**Pass Criteria**: Search returns all 5 entity types when query matches. JSON output structure is correct with severity present for bugs and absent for other types.
+
+---
+
+#### Scenario J4-TYPE-BUG: Type Filter Restricts to Bugs Only
+
+**Source**: T-E18-F06-004 AC2, AC4 | QA test T03-02
+
+**Preconditions**:
+- Database contains bugs, change-cards, and tasks all matching query "login"
+
+**Steps**:
+
+| Step | Actor | Action | Expected Outcome |
+|------|-------|--------|------------------|
+| 1 | Any User | `shark search "login" --type=bug` | Only bug entities returned. No tasks, features, epics, or change-cards in results. Each result shows key (B###), title, status, severity. |
+| 2 | Any User | `shark search "login" --type=bug --json` | JSON array contains only entries with `"entity_type": "bug"`. Each entry includes `"severity"` field. |
+
+**Pass Criteria**: `--type=bug` strictly limits results to the bugs table. Severity is always present in bug results.
+
+---
+
+#### Scenario J4-TYPE-CHANGE: Type Filter Restricts to Change-Cards Only
+
+**Source**: T-E18-F06-004 AC3, AC5 | QA test T03-03
+
+**Preconditions**:
+- Database contains change-cards matching query "dark mode"
+
+**Steps**:
+
+| Step | Actor | Action | Expected Outcome |
+|------|-------|--------|------------------|
+| 1 | Any User | `shark search "dark mode" --type=change` | Only change-card entities returned. No bugs, tasks, features, or epics. Each result shows key (C###), title, status. No severity field in human output. |
+| 2 | Any User | `shark search "dark mode" --type=change --json` | JSON array contains only entries with `"entity_type": "change"`. No `"severity"` key present in any entry. |
+
+**Pass Criteria**: `--type=change` (not "change-card") strictly limits results to the change_cards table. Severity is absent from all change-card results.
+
+---
+
+#### Scenario J4-ERR-TYPE: Invalid Type Filter Shows Actionable Error
+
+**Source**: T-E18-F06-004 AC6 | QA test T03-06
+
+**Preconditions**: None
+
+**Steps**:
+
+| Step | Actor | Action | Expected Outcome |
+|------|-------|--------|------------------|
+| 1 | Any User | `shark search "query" --type=invalid` | Command fails with error: `invalid type "invalid": valid types are epic, feature, task, bug, change`. Non-zero exit code. |
+| 2 | Any User | `shark search "query" --type=bugz` | Same error pattern. Valid types listed include "bug" and "change" (confirming new types are documented in error output). |
+
+**Pass Criteria**: Invalid type produces a clear, actionable error that includes all valid type values. Users can self-correct from the error message alone.
 
 ---
 
@@ -415,19 +529,24 @@ These scenarios verify that E18's capabilities work correctly with capabilities 
 
 **Preconditions**: Bug B001 and change-card C001 exist.
 
-| Step | Command | Expected | Validates |
-|------|---------|----------|-----------|
-| 1 | `shark get B001` | Returns bug details | Key auto-detection works for B prefix |
-| 2 | `shark get C001` | Returns change-card details | Key auto-detection works for C prefix |
-| 3 | `shark status advance B001` | Advances bug status | Status command dispatches to bug workflow |
-| 4 | `shark status advance C001` | Advances change-card status | Status command dispatches to change workflow |
-| 5 | `shark status set B001 wont_fix` | Sets bug status directly | Direct status set dispatches correctly |
-| 6 | `shark search "login" --type=bug` | Filters search to bugs | Search type filter includes new entity types |
-| 7 | `shark delete B001 --force` | Deletes bug | Delete dispatch includes bug entity type |
+| Step | Command | Expected | Validates | Dispatch Status |
+|------|---------|----------|-----------|-----------------|
+| 1 | `shark get B001` | Returns bug details | Key auto-detection works for B prefix | HANDLED (INT-01) |
+| 2 | `shark get C001` | Returns change-card details | Key auto-detection works for C prefix | HANDLED (INT-01) |
+| 3 | `shark status advance B001` | Advances bug status | Status command dispatches to bug workflow | HANDLED |
+| 4 | `shark status advance C001` | Advances change-card status | Status command dispatches to change workflow | HANDLED (GAP-003 RESOLVED by T-E18-F06-007) |
+| 5 | `shark status set B001 wont_fix` | Sets bug status directly | Direct status set dispatches correctly | HANDLED |
+| 6 | `shark search "login" --type=bug` | Filters search to bugs | Search type filter includes new entity types | HANDLED (INT-05) |
+| 7 | `shark delete B001 --force` | Deletes bug | Delete dispatch includes bug entity type | HANDLED (INT-06) |
+| 8 | `shark delete C001 --force` | Deletes change-card | Delete dispatch includes change entity type | HANDLED (GAP-001 RESOLVED by T-E18-F06-007) |
+| 9 | `shark status set C001 declined` | Sets change-card status directly | Direct status set dispatches to change handler | HANDLED (GAP-002 RESOLVED by T-E18-F06-007) |
+| 10 | `shark status options C001` | Returns valid next statuses for change-card | Options dispatch routes to change workflow | HANDLED (GAP-004 RESOLVED by T-E18-F06-007) |
 
 **Risk Reference**: Research Risk 1 (Cross-Cutting Entity Type Changes). This is the highest-risk integration point.
 
-**Pass Criteria**: All 7 unified commands correctly dispatch to bug/change-card handlers. No "unknown entity type" errors.
+**T-E18-F06-006 and T-E18-F06-007 Verification**: The dispatch inventory (originally 37 points, 25 HANDLED, 4 GAPs) was completed as the verification gate for E18-F06. T-E18-F06-007 fixed all 4 C### dispatch gaps, bringing the final inventory to 28 HANDLED, 0 GAPs, 5 N/A. B### and C### dispatch are both confirmed complete across all commands.
+
+**Pass Criteria**: All 10 steps pass without error. C### operations (steps 4, 8, 9, 10) are now fully routed to change card handlers following T-E18-F06-007 deployment. No known dispatch gaps remain.
 
 ---
 
@@ -516,7 +635,7 @@ These address the highest-risk areas identified in the research and feasibility 
 
 | Priority | Scenario | Risk Source | Why Critical |
 |----------|----------|-------------|--------------|
-| P1-1 | CE-1 (Unified Command Dispatch) | Research Risk 1: Cross-cutting entity type changes (HIGH probability, MEDIUM impact) | A missed dispatch point causes silent failures. Every unified command must recognize B### and C### keys. |
+| P1-1 | CE-1 (Unified Command Dispatch) | Research Risk 1: Cross-cutting entity type changes (HIGH probability, MEDIUM impact) | A missed dispatch point causes silent failures. Every unified command must recognize B### and C### keys. **T-E18-F06-006 dispatch inventory verified 37 points: initially 25 HANDLED, 4 known GAPs (GAP-001 to GAP-004). T-E18-F06-007 resolved all 4 C### dispatch gaps. Final inventory: 28 HANDLED, 0 GAPs, 5 N/A. B### and C### dispatch are both complete.** |
 | P1-2 | CE-2 (Workflow Engine Extension) | Research Risk 2: Workflow engine extension (MEDIUM probability, MEDIUM impact) | Workflow enforcement is foundational. If `ForLevel()` does not work for bugs/changes, all status operations fail. |
 | P1-3 | J1-HP (Bug Happy Path) | Core value proposition | If the basic bug lifecycle does not work end-to-end, the epic fails to deliver its primary value. |
 | P1-4 | J2-HP (Change-Card Happy Path) | Core value proposition | If the change-card lifecycle does not work end-to-end, the epic is only half-delivered. |
@@ -552,6 +671,10 @@ These validate secondary features and metrics infrastructure.
 | P3-3 | J3-HP (Linked Entity Filtering) | REQ-F-018 (Should Have) | Important for QA workflow but has CLI workarounds. |
 | P3-4 | CE-4 (Pattern Consistency) | Technical Review: E15 pattern compliance | Ensures long-term maintainability. |
 | P3-5 | J2-ALT-B (Promotion to Feature) | Manual process; Could Have for automated promotion | Validates that the manual workaround is viable. |
+| P3-6 | J4-HP (Unfiltered Cross-Entity Search) | T-E18-F06-004 AC1, AC8 | Search must return bugs and change-cards alongside existing entity types. |
+| P3-7 | J4-TYPE-BUG (Bug Type Filter) | T-E18-F06-004 AC2, AC4 | Type filter must correctly isolate bugs with severity field in output. |
+| P3-8 | J4-TYPE-CHANGE (Change-Card Type Filter) | T-E18-F06-004 AC3, AC5 | Type filter must isolate change-cards and omit severity from output. |
+| P3-9 | J4-ERR-TYPE (Invalid Type Error) | T-E18-F06-004 AC6 | Error message must self-document valid types including new "bug" and "change" values. |
 
 ---
 
@@ -593,6 +716,8 @@ For each persona defined in `personas.md`, this matrix maps which scenarios vali
 | Implement change-card | J2-HP Steps 5-6 | P1-4 | MUST |
 | Use unified commands | CE-1, J3-UNIFIED | P1-1, P2-6 | MUST |
 | JSON output for AI agents | J3-UNIFIED Step 3 (`--json`) | P2-6 | MUST |
+| Find bugs by content search | J4-HP Step 1, J4-TYPE-BUG Step 1 | P3-6, P3-7 | SHOULD |
+| JSON search output for CI/CD | J4-HP Step 2, J4-TYPE-BUG Step 2 | P3-6, P3-7 | SHOULD |
 
 **Acceptance**: Developer persona is validated when all MUST scenarios pass. Minimum: J1-HP, J2-HP, CE-1, Metric 4.
 
@@ -618,6 +743,8 @@ For each persona defined in `personas.md`, this matrix maps which scenarios vali
 | Filter bugs by linked entity | J3-HP Step 1 (`--link=E07-F01`) | P3-3 | SHOULD |
 | Feature status with bug context | J3-DASH | P2-5 | SHOULD |
 | Dashboard with bug counts | J3-DASHBOARD | P2-5 | MUST |
+| Search bugs by content | J4-HP Step 1 (`shark search "term"`) | P3-6 | SHOULD |
+| Filter search to bugs only | J4-TYPE-BUG Step 1 (`--type=bug`) | P3-7 | SHOULD |
 
 **Acceptance**: QA Engineer persona is validated when all MUST scenarios pass. Minimum: J1-HP, J1-ALT-A, J1-ALT-C, J3-ANALYTICS, J3-DASHBOARD.
 
@@ -664,10 +791,11 @@ For each persona defined in `personas.md`, this matrix maps which scenarios vali
 
 | Gate Criterion | Status | Evidence |
 |----------------|--------|----------|
-| Every user journey has at least one acceptance scenario | PASS | Journey 1: 6 scenarios (J1-HP, J1-ALT-A/B/C, J1-ERR-1/2). Journey 2: 4 scenarios (J2-HP, J2-ALT-A/B, J2-ERR-1/2). Journey 3: 4 scenarios (J3-HP, J3-DASH, J3-ANALYTICS, J3-DASHBOARD, J3-UNIFIED). |
+| Every user journey has at least one acceptance scenario | PASS | Journey 1: 6 scenarios (J1-HP, J1-ALT-A/B/C, J1-ERR-1/2). Journey 2: 4 scenarios (J2-HP, J2-ALT-A/B, J2-ERR-1/2). Journey 3: 5 scenarios (J3-HP, J3-DASH, J3-ANALYTICS, J3-DASHBOARD, J3-UNIFIED). Journey 4 (Search Extension -- added 2026-03-04): 4 scenarios (J4-HP, J4-TYPE-BUG, J4-TYPE-CHANGE, J4-ERR-TYPE) covering T-E18-F06-004 acceptance criteria AC1-AC6,AC8. |
 | Every success metric has a validation method | PASS | All 5 metrics (Adoption Rate, Resolution Time, Throughput, Creation Speed, Dashboard Visibility) have measurement method, UAT validation procedure, and pass/fail criteria defined in Section 2. |
-| Risk areas from research and feasibility reviews have targeted scenarios | PASS | Risk 1 (cross-cutting dispatch) -> CE-1, P1-1. Risk 2 (workflow extension) -> CE-2, P1-2. Risk 3 (dashboard overload) -> J3-DASHBOARD, P2-5. Risk 4 (E16 dependency) -> CE-2, CE-5. Risk 5 (key format) -> documented but LOW risk, no scenario needed. Risk 6 (test suite) -> CE-3, P4-3. |
+| Risk areas from research and feasibility reviews have targeted scenarios | PASS | Risk 1 (cross-cutting dispatch) -> CE-1, P1-1. **T-E18-F06-006 dispatch inventory (37 points) identified 4 C### gaps; T-E18-F06-007 resolved all 4. Final: 28 HANDLED, 0 GAPs, 5 N/A. B### and C### dispatch both complete.** Risk 2 (workflow extension) -> CE-2, P1-2. Risk 3 (dashboard overload) -> J3-DASHBOARD, P2-5. Risk 4 (E16 dependency) -> CE-2, CE-5. Risk 5 (key format) -> documented but LOW risk, no scenario needed. Risk 6 (test suite) -> CE-3, P4-3. |
 | Plan is actionable for feature-level decomposition | PASS | Each scenario specifies preconditions, concrete CLI commands, expected outcomes, and pass criteria. Scenarios are prioritized (P1-P4) enabling phased test execution aligned with phased implementation. |
+| Dispatch exhaustiveness verified before UAT | PASS | T-E18-F06-006 (completed 2026-03-04) performed full dispatch inventory. T-E18-F06-007 (completed 2026-03-04) fixed all 4 C### dispatch gaps. Final inventory: 28 HANDLED, 0 GAPs, 5 N/A. Integration tests INT-01 through INT-07 all pass. All C### operations (delete, status set, status advance, status options) are confirmed-working. |
 
 ---
 

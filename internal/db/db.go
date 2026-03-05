@@ -29,19 +29,11 @@ func InitDB(filepath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to configure SQLite: %w", err)
 	}
 
-	// Create all tables, indexes, and triggers
-	if err := createSchema(db); err != nil {
-		return nil, fmt.Errorf("failed to create schema: %w", err)
-	}
-
-	// Run migrations for backwards compatibility
-	if err := runMigrations(db); err != nil {
-		return nil, fmt.Errorf("failed to run migrations: %w", err)
-	}
-
-	// Record schema version
-	if err := setSchemaVersion(db, CurrentSchemaVersion); err != nil {
-		return nil, fmt.Errorf("failed to set schema version: %w", err)
+	// Use version-checked migration: skip all DDL when schema is already current.
+	// This avoids running 22+ migration checks on every command invocation.
+	// Fresh installs (no schema_version table) still apply everything automatically.
+	if _, err := ApplySchemaIfNeeded(db); err != nil {
+		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	return db, nil

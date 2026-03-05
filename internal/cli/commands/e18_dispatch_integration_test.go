@@ -227,7 +227,7 @@ func TestParseGetArgs_ChangeCardKey(t *testing.T) {
 // TestValidateSearchType_BugAndChange verifies that "bug" and "change" are valid
 // search type values (dispatch point #21-22 in the inventory).
 func TestValidateSearchType_BugAndChange(t *testing.T) {
-	validTypes := []string{"epic", "feature", "task", "bug", "change"}
+	validTypes := []string{"epic", "feature", "task", "bug", "change", "idea"}
 	for _, typ := range validTypes {
 		t.Run("valid type: "+typ, func(t *testing.T) {
 			err := validateSearchType(typ)
@@ -249,7 +249,7 @@ func TestValidateSearchType_EmptyIsValid(t *testing.T) {
 
 // TestValidateSearchType_InvalidType verifies that unsupported types are rejected.
 func TestValidateSearchType_InvalidType(t *testing.T) {
-	invalidTypes := []string{"change_card", "cc", "idea", "unknown"}
+	invalidTypes := []string{"change_card", "cc", "unknown"}
 	for _, typ := range invalidTypes {
 		t.Run("invalid type: "+typ, func(t *testing.T) {
 			err := validateSearchType(typ)

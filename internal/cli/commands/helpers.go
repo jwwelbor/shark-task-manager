@@ -70,6 +70,13 @@ func IsChangeCardKey(s string) bool {
 	return keys.IsChangeCardKey(s)
 }
 
+// IsIdeaKey validates if a string is a valid idea key format (I-YYYY-MM-DD-##).
+// Case insensitive: i-2026-01-01-01 is normalized to I-2026-01-01-01 before validation.
+// Delegates to keys.IsIdeaKey for implementation.
+func IsIdeaKey(s string) bool {
+	return keys.IsIdeaKey(s)
+}
+
 // ParseFeatureKey parses a combined feature key format (E##-F##) into epic and feature parts
 // Case insensitive: normalizes input to uppercase before parsing
 // Returns (epic, feature, nil) for valid input like "E04-F01" or "e04-f01"
@@ -206,6 +213,11 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 	if len(args) == 1 {
 		normalized := NormalizeKey(args[0])
 
+		// Check if it's "idea" or "ideas" keyword
+		if normalized == "IDEA" || normalized == "IDEAS" {
+			return "idea", nil, nil, nil
+		}
+
 		// Check if it's a combined feature key (E##-F##)
 		if IsFeatureKey(normalized) {
 			epic, feature, err := ParseFeatureKey(normalized)
@@ -314,6 +326,7 @@ const (
 	scopeBug        scopeType = "bug"
 	scopeChange     scopeType = "change"
 	scopeChangeCard scopeType = "change_card"
+	scopeIdea       scopeType = "idea"
 )
 
 // scopeInterpreterImpl implements scopeInterpreter using existing helper functions
@@ -345,6 +358,11 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 		// Check if it's a change-card key (CC-###)
 		if IsChangeCardKey(normalized) {
 			return &parsedScope{Type: scopeChangeCard, Key: normalized}, nil
+		}
+
+		// Check if it's an idea key (I-YYYY-MM-DD-##)
+		if IsIdeaKey(normalized) {
+			return &parsedScope{Type: scopeIdea, Key: normalized}, nil
 		}
 
 		// Check if it's a task key (T-E##-F##-###)
@@ -653,6 +671,11 @@ func DetectEntityType(key string) string {
 	// Check change-card key (CC-###) before task patterns
 	if IsChangeCardKey(normalized) {
 		return "change_card"
+	}
+
+	// Check idea key (I-YYYY-MM-DD-##)
+	if IsIdeaKey(normalized) {
+		return "idea"
 	}
 
 	// Check task patterns first (most specific)

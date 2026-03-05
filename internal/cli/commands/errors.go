@@ -146,6 +146,18 @@ Suggestions:
   - List tasks in feature: shark task list E07 F01
   - Check task key format (T-E##-F##-### or E##-F##-### like T-E07-F01-001)
   - Verify task exists in database`
+	case "bug":
+		suggestions = `
+Suggestions:
+  - List all bugs: shark bug list
+  - Check bug key format (must be B### like B001)
+  - Verify bug exists in database`
+	case "change card", "change":
+		suggestions = `
+Suggestions:
+  - List all change cards: shark change list
+  - Check change card key format (must be C### like C001)
+  - Verify change card exists in database`
 	}
 
 	return fmt.Errorf(`Error: %s not found: %q%s`, entityType, key, suggestions)

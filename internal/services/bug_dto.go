@@ -9,6 +9,11 @@ type CreateBugInput struct {
 	Severity         models.BugSeverity `json:"severity"`
 	LinkedEntityType string             `json:"linked_entity_type,omitempty"`
 	LinkedEntityKey  string             `json:"linked_entity_key,omitempty"`
+	// FilePath overrides the default file path for the bug markdown file.
+	// When nil, defaults to docs/plan/bugs/<key>.md.
+	FilePath *string `json:"file_path,omitempty"`
+	// Force allows overwriting an existing file at the target path.
+	Force bool `json:"force,omitempty"`
 }
 
 // BugUpdates contains optional fields for updating a bug.
