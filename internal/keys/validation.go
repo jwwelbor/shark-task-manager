@@ -14,6 +14,14 @@ var (
 	// shortTaskKeyPattern matches task keys without the T- prefix (E##-F##-###)
 	// This enables users to use "E01-F02-001" instead of "T-E01-F02-001"
 	shortTaskKeyPattern = regexp.MustCompile(`^E\d{2}-F\d{2}-\d{3}$`)
+	// changeCardKeyPattern matches change-card keys (CC-### format)
+	changeCardKeyPattern = regexp.MustCompile(`^CC-\d{3}$`)
+	// bugKeyPattern matches bug keys (B followed by 1+ digits: B1, B42, B001, B1000)
+	bugKeyPattern = regexp.MustCompile(`^B\d+$`)
+	// changeKeyPattern matches change keys (C followed by 1+ digits: C1, C15, C001)
+	changeKeyPattern = regexp.MustCompile(`^C\d+$`)
+	// ideaKeyPattern matches idea keys (I-YYYY-MM-DD-## format)
+	ideaKeyPattern = regexp.MustCompile(`^I-\d{4}-\d{2}-\d{2}-\d{2}$`)
 )
 
 // Normalize converts a key to canonical uppercase format.
@@ -158,6 +166,37 @@ func NormalizeTaskKey(input string) (string, error) {
 	}
 
 	return "", fmt.Errorf("invalid task key format: %q", input)
+}
+
+// IsChangeCardKey validates if a string is a valid change-card key format (CC-###).
+// Case insensitive: cc-001 is normalized to CC-001 before validation.
+func IsChangeCardKey(s string) bool {
+	normalized := Normalize(s)
+	return changeCardKeyPattern.MatchString(normalized)
+}
+
+// IsBugKey validates if a string is a valid bug key format.
+// Accepts B followed by one or more digits: B1, B42, B001, B1000.
+// Case insensitive: b001 is normalized to B001 before validation.
+func IsBugKey(s string) bool {
+	normalized := Normalize(s)
+	return bugKeyPattern.MatchString(normalized)
+}
+
+// IsChangeKey validates if a string is a valid change key format (C###).
+// Accepts C followed by one or more digits: C1, C15, C001, C1000.
+// Case insensitive: c001 is normalized to C001 before validation.
+// Note: This is distinct from IsChangeCardKey which validates the old CC-### format.
+func IsChangeKey(s string) bool {
+	normalized := Normalize(s)
+	return changeKeyPattern.MatchString(normalized)
+}
+
+// IsIdeaKey validates if a string is a valid idea key format (I-YYYY-MM-DD-##).
+// Case insensitive: i-2026-01-01-01 is normalized to I-2026-01-01-01 before validation.
+func IsIdeaKey(s string) bool {
+	normalized := Normalize(s)
+	return ideaKeyPattern.MatchString(normalized)
 }
 
 // ParseTaskNumber parses a task number string and validates it's in range 1-999

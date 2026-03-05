@@ -6,13 +6,15 @@ type MultiLevelWorkflow struct {
 	Epic    *WorkflowConfig
 	Feature *WorkflowConfig
 	Task    *WorkflowConfig
+	Bug     *WorkflowConfig
+	Change  *WorkflowConfig
 }
 
 // GetWorkflowForLevel returns the workflow config for the given level.
 // Falls back to the appropriate default if nil.
 //
 // Parameters:
-//   - level: one of "epic", "feature", "task"
+//   - level: one of "epic", "feature", "task", "bug", "change"
 //
 // Returns:
 //   - *WorkflowConfig: never nil (falls back to defaults)
@@ -33,6 +35,16 @@ func (m *MultiLevelWorkflow) GetWorkflowForLevel(level string) *WorkflowConfig {
 			return m.Task
 		}
 		return DefaultWorkflow()
+	case "bug":
+		if m.Bug != nil {
+			return m.Bug
+		}
+		return DefaultBugWorkflow()
+	case "change":
+		if m.Change != nil {
+			return m.Change
+		}
+		return DefaultChangeCardWorkflow()
 	default:
 		return DefaultWorkflow()
 	}

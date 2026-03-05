@@ -141,3 +141,110 @@ func TestMigration_EntityNotesNoteTypeConstraint(t *testing.T) {
 	// Verify CHECK constraint syntax
 	assert.Contains(t, tableSchema, "CHECK (note_type IN", "entity_notes should have CHECK constraint on note_type")
 }
+
+// TestMigration_DisplayViewsExistAfterEntityNotesMigration verifies that the
+// epic_display_data, feature_display_data, and task_display_data views exist
+// after all migrations complete, including migrateEntityNotesExpandEntityTypes
+// which drops them (E18-F02 regression fix).
+func TestMigration_DisplayViewsExistAfterEntityNotesMigration(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := InitDB(dbPath)
+	require.NoError(t, err, "migration failed")
+	defer db.Close()
+
+	for _, viewName := range []string{"epic_display_data", "feature_display_data", "task_display_data"} {
+		var count int
+		err := db.QueryRow(`
+			SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name=?
+		`, viewName).Scan(&count)
+		require.NoError(t, err, "failed to query sqlite_master for view %s", viewName)
+		assert.Equal(t, 1, count, "view %s should exist after all migrations complete", viewName)
+	}
+}
+
+// TestMigration_ApplySchemaAndMigrationsRestoresDroppedViews verifies that
+// ApplySchemaAndMigrations (used by the Turso/cloud path) restores display
+// views that were previously dropped by migrateEntityNotesExpandEntityTypes
+// (E18-F02 regression fix).
+func TestMigration_ApplySchemaAndMigrationsRestoresDroppedViews(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	// Initialize fresh database (creates all views)
+	db, err := InitDB(dbPath)
+	require.NoError(t, err, "initial migration failed")
+
+	// Simulate the bug: manually drop the display views as migrateEntityNotesExpandEntityTypes did
+	for _, view := range []string{"epic_display_data", "feature_display_data", "task_display_data"} {
+		_, err := db.Exec("DROP VIEW IF EXISTS " + view)
+		require.NoError(t, err, "failed to drop view %s", view)
+	}
+
+	// Verify views are gone
+	for _, viewName := range []string{"epic_display_data", "feature_display_data", "task_display_data"} {
+		var count int
+		db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name=?`, viewName).Scan(&count)
+		assert.Equal(t, 0, count, "setup: view %s should be dropped", viewName)
+	}
+
+	// ApplySchemaAndMigrations simulates what the Turso/cloud path does on re-migration
+	err = ApplySchemaAndMigrations(db)
+	require.NoError(t, err, "ApplySchemaAndMigrations failed")
+	db.Close()
+
+	// Reopen to verify views persisted
+	db2, err := InitDB(dbPath)
+	require.NoError(t, err)
+	defer db2.Close()
+
+	for _, viewName := range []string{"epic_display_data", "feature_display_data", "task_display_data"} {
+		var count int
+		err := db2.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name=?`, viewName).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "view %s should be restored by ApplySchemaAndMigrations", viewName)
+	}
+}
+
+// TestMigration_ApplySchemaIfNeeded_RestoresViewsWhenVersionBehind verifies that
+// ApplySchemaIfNeeded (the skip_migrations Turso path) restores dropped display
+// views when the recorded schema version is behind CurrentSchemaVersion.
+// This ensures that bumping CurrentSchemaVersion forces re-migration on Turso
+// databases that had views dropped by the E18-F01 bug (E18-F02 regression fix).
+func TestMigration_ApplySchemaIfNeeded_RestoresViewsWhenVersionBehind(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	// Create fully-migrated database
+	db, err := InitDB(dbPath)
+	require.NoError(t, err, "initial migration failed")
+
+	// Simulate bug state: drop display views
+	for _, view := range []string{"epic_display_data", "feature_display_data", "task_display_data"} {
+		_, err := db.Exec("DROP VIEW IF EXISTS " + view)
+		require.NoError(t, err)
+	}
+
+	// Simulate old schema version (pre-bump) so ApplySchemaIfNeeded triggers.
+	// Clear the table first since setSchemaVersion inserts and getSchemaVersion reads the max.
+	_, err = db.Exec(`DELETE FROM schema_version`)
+	require.NoError(t, err, "failed to clear schema_version")
+	err = setSchemaVersion(db, CurrentSchemaVersion-1)
+	require.NoError(t, err, "failed to set old schema version")
+
+	// ApplySchemaIfNeeded should detect version is behind and re-apply
+	applied, err := ApplySchemaIfNeeded(db)
+	require.NoError(t, err, "ApplySchemaIfNeeded failed")
+	assert.True(t, applied, "ApplySchemaIfNeeded should have applied schema since version was behind")
+
+	// Verify all display views are restored
+	for _, viewName := range []string{"epic_display_data", "feature_display_data", "task_display_data"} {
+		var count int
+		err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name=?`, viewName).Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count, "view %s should be restored after ApplySchemaIfNeeded", viewName)
+	}
+
+	db.Close()
+}

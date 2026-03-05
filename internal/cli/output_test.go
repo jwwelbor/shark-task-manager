@@ -375,6 +375,16 @@ func TestGetRequiredSectionsForEntityType(t *testing.T) {
 			want:       []string{"Implementation Plan", "Acceptance Criteria", "Test Plan"},
 		},
 		{
+			name:       "Bug sections",
+			entityType: "bug",
+			want:       []string{"Description", "Steps to Reproduce", "Expected Behavior"},
+		},
+		{
+			name:       "Change sections",
+			entityType: "change",
+			want:       []string{"Description", "Justification", "Impact Analysis"},
+		},
+		{
 			name:       "Unknown entity defaults to task sections",
 			entityType: "unknown",
 			want:       []string{"Implementation Plan", "Acceptance Criteria", "Test Plan"},
@@ -396,5 +406,77 @@ func TestGetRequiredSectionsForEntityType(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestFormatEntityCreationJSON_BugNextCommands tests that bug entity type
+// produces correct next_commands in JSON output.
+func TestFormatEntityCreationJSON_BugNextCommands(t *testing.T) {
+	projectRoot := "/home/user/projects/shark"
+	filePath := filepath.Join(projectRoot, "docs/plan/bugs/B001.md")
+
+	result := FormatEntityCreationJSON("bug", "B001", "Login page crash", filePath, projectRoot,
+		[]string{"Description", "Steps to Reproduce", "Expected Behavior"})
+
+	// Verify entity_type
+	if result["entity_type"] != "bug" {
+		t.Errorf("FormatEntityCreationJSON() entity_type = %v, want %q", result["entity_type"], "bug")
+	}
+
+	// Verify next_commands contains bug get command
+	nextCommands, ok := result["next_commands"].([]string)
+	if !ok {
+		t.Fatalf("FormatEntityCreationJSON() next_commands missing or wrong type, got %T", result["next_commands"])
+	}
+
+	if len(nextCommands) == 0 {
+		t.Fatal("FormatEntityCreationJSON() next_commands should not be empty for bug")
+	}
+
+	foundGetCmd := false
+	for _, cmd := range nextCommands {
+		if strings.Contains(cmd, "shark bug get B001") {
+			foundGetCmd = true
+			break
+		}
+	}
+	if !foundGetCmd {
+		t.Errorf("FormatEntityCreationJSON() next_commands should contain 'shark bug get B001', got %v", nextCommands)
+	}
+}
+
+// TestFormatEntityCreationJSON_ChangeNextCommands tests that change entity type
+// produces correct next_commands in JSON output.
+func TestFormatEntityCreationJSON_ChangeNextCommands(t *testing.T) {
+	projectRoot := "/home/user/projects/shark"
+	filePath := filepath.Join(projectRoot, "docs/plan/changes/C001.md")
+
+	result := FormatEntityCreationJSON("change", "C001", "Update auth flow", filePath, projectRoot,
+		[]string{"Description", "Justification", "Impact Analysis"})
+
+	// Verify entity_type
+	if result["entity_type"] != "change" {
+		t.Errorf("FormatEntityCreationJSON() entity_type = %v, want %q", result["entity_type"], "change")
+	}
+
+	// Verify next_commands contains change get command
+	nextCommands, ok := result["next_commands"].([]string)
+	if !ok {
+		t.Fatalf("FormatEntityCreationJSON() next_commands missing or wrong type, got %T", result["next_commands"])
+	}
+
+	if len(nextCommands) == 0 {
+		t.Fatal("FormatEntityCreationJSON() next_commands should not be empty for change")
+	}
+
+	foundGetCmd := false
+	for _, cmd := range nextCommands {
+		if strings.Contains(cmd, "shark change get C001") {
+			foundGetCmd = true
+			break
+		}
+	}
+	if !foundGetCmd {
+		t.Errorf("FormatEntityCreationJSON() next_commands should contain 'shark change get C001', got %v", nextCommands)
 	}
 }

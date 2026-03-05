@@ -1283,3 +1283,603 @@ func TestGetActiveTasks_EmptyAgentTypeString(t *testing.T) {
 		t.Errorf("Expected 1 unassigned task, got %d", len(unassignedTasks))
 	}
 }
+
+// ============================================================================
+// Dashboard Model Extension Tests (T-E18-F07-002)
+// ============================================================================
+
+// mockBugRepo is a test double for BugDashboardRepository.
+type mockBugRepo struct {
+	statusSummary *repository.BugStatusSummary
+	statusErr     error
+}
+
+func (m *mockBugRepo) GetStatusSummary(_ context.Context) (*repository.BugStatusSummary, error) {
+	return m.statusSummary, m.statusErr
+}
+
+func (m *mockBugRepo) GetFeatureBugSummary(_ context.Context, _ string) (*repository.BugFeatureSummary, error) {
+	return nil, nil
+}
+
+// mockChangeCardRepo is a test double for ChangeCardDashboardRepository.
+type mockChangeCardRepo struct {
+	statusSummary *repository.ChangeCardStatusSummary
+	statusErr     error
+}
+
+func (m *mockChangeCardRepo) GetStatusSummary(_ context.Context) (*repository.ChangeCardStatusSummary, error) {
+	return m.statusSummary, m.statusErr
+}
+
+// TestStatusService_BackwardCompatibility verifies that NewStatusService still compiles
+// and works when called with only the database argument (no options).
+// This is the backward-compatibility guarantee: callers that only pass `db` must not break.
+func TestStatusService_BackwardCompatibility(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+	svc := NewStatusService(db)
+	if svc == nil {
+		t.Fatal("NewStatusService(db) returned nil")
+	}
+}
+
+// TestStatusService_GetDashboard_NoBugRepo verifies that when no BugDashboardRepository
+// is injected, the dashboard is returned without a BugSummary section (nil pointer).
+func TestStatusService_GetDashboard_NoBugRepo(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+	svc := NewStatusService(db) // no WithBugRepository option
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetDashboard failed: %v", err)
+	}
+
+	if dashboard.BugSummary != nil {
+		t.Errorf("Expected BugSummary to be nil when no bug repo is injected, got %+v", dashboard.BugSummary)
+	}
+}
+
+// TestStatusService_GetDashboard_NoChangeCardRepo verifies that when no
+// ChangeCardDashboardRepository is injected, the dashboard has nil ChangeCardSummary.
+func TestStatusService_GetDashboard_NoChangeCardRepo(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+	svc := NewStatusService(db) // no WithChangeCardRepository option
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetDashboard failed: %v", err)
+	}
+
+	if dashboard.ChangeCardSummary != nil {
+		t.Errorf("Expected ChangeCardSummary to be nil when no change-card repo is injected, got %+v", dashboard.ChangeCardSummary)
+	}
+}
+
+// TestStatusService_GetDashboard_BugRepoZeroTotal verifies that when the bug repo
+// returns a summary with Total == 0, BugSummary remains nil (omitted from dashboard).
+func TestStatusService_GetDashboard_BugRepoZeroTotal(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+
+	bugRepo := &mockBugRepo{
+		statusSummary: &repository.BugStatusSummary{
+			Total:          0,
+			ByStatus:       map[string]int{},
+			BySeverity:     map[string]int{},
+			OpenBySeverity: map[string]int{},
+		},
+	}
+	svc := NewStatusService(db, WithBugRepository(bugRepo))
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetDashboard failed: %v", err)
+	}
+
+	if dashboard.BugSummary != nil {
+		t.Errorf("Expected BugSummary to be nil when Total is 0, got %+v", dashboard.BugSummary)
+	}
+}
+
+// TestStatusService_GetDashboard_BugRepoReturnsData verifies that when the bug repo
+// returns a non-zero summary, BugSummary is populated on the dashboard.
+func TestStatusService_GetDashboard_BugRepoReturnsData(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+
+	bugRepo := &mockBugRepo{
+		statusSummary: &repository.BugStatusSummary{
+			Total:          5,
+			ByStatus:       map[string]int{"open": 3, "in_progress": 2},
+			BySeverity:     map[string]int{"high": 2, "medium": 3},
+			OpenBySeverity: map[string]int{"high": 1, "medium": 2},
+		},
+	}
+	svc := NewStatusService(db, WithBugRepository(bugRepo))
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetDashboard failed: %v", err)
+	}
+
+	if dashboard.BugSummary == nil {
+		t.Fatal("Expected BugSummary to be populated when bug repo returns data")
+	}
+	if dashboard.BugSummary.Total != 5 {
+		t.Errorf("Expected BugSummary.Total=5, got %d", dashboard.BugSummary.Total)
+	}
+	if dashboard.BugSummary.ByStatus["open"] != 3 {
+		t.Errorf("Expected ByStatus[open]=3, got %d", dashboard.BugSummary.ByStatus["open"])
+	}
+	if dashboard.BugSummary.OpenBySeverity["high"] != 1 {
+		t.Errorf("Expected OpenBySeverity[high]=1, got %d", dashboard.BugSummary.OpenBySeverity["high"])
+	}
+}
+
+// TestStatusService_GetDashboard_BugRepoError verifies graceful degradation: when
+// the bug repo returns an error, the dashboard still succeeds with nil BugSummary.
+func TestStatusService_GetDashboard_BugRepoError(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+
+	bugRepo := &mockBugRepo{
+		statusSummary: nil,
+		statusErr:     fmt.Errorf("simulated bug repo error"),
+	}
+	svc := NewStatusService(db, WithBugRepository(bugRepo))
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	// Dashboard should still succeed despite bug repo error
+	if err != nil {
+		t.Fatalf("GetDashboard should not fail when bug repo errors, got: %v", err)
+	}
+
+	if dashboard.BugSummary != nil {
+		t.Errorf("Expected BugSummary to be nil when bug repo errors, got %+v", dashboard.BugSummary)
+	}
+}
+
+// TestStatusService_GetDashboard_ChangeCardRepoZeroTotal verifies that when the
+// change-card repo returns a summary with Total == 0, ChangeCardSummary remains nil.
+func TestStatusService_GetDashboard_ChangeCardRepoZeroTotal(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+
+	ccRepo := &mockChangeCardRepo{
+		statusSummary: &repository.ChangeCardStatusSummary{
+			Total:    0,
+			ByStatus: map[string]int{},
+		},
+	}
+	svc := NewStatusService(db, WithChangeCardRepository(ccRepo))
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetDashboard failed: %v", err)
+	}
+
+	if dashboard.ChangeCardSummary != nil {
+		t.Errorf("Expected ChangeCardSummary to be nil when Total is 0, got %+v", dashboard.ChangeCardSummary)
+	}
+}
+
+// TestStatusService_GetDashboard_ChangeCardRepoReturnsData verifies that when
+// the change-card repo returns a non-zero summary, ChangeCardSummary is populated.
+func TestStatusService_GetDashboard_ChangeCardRepoReturnsData(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+
+	ccRepo := &mockChangeCardRepo{
+		statusSummary: &repository.ChangeCardStatusSummary{
+			Total:    3,
+			ByStatus: map[string]int{"pending": 2, "approved": 1},
+		},
+	}
+	svc := NewStatusService(db, WithChangeCardRepository(ccRepo))
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetDashboard failed: %v", err)
+	}
+
+	if dashboard.ChangeCardSummary == nil {
+		t.Fatal("Expected ChangeCardSummary to be populated when change-card repo returns data")
+	}
+	if dashboard.ChangeCardSummary.Total != 3 {
+		t.Errorf("Expected ChangeCardSummary.Total=3, got %d", dashboard.ChangeCardSummary.Total)
+	}
+	if dashboard.ChangeCardSummary.ByStatus["pending"] != 2 {
+		t.Errorf("Expected ByStatus[pending]=2, got %d", dashboard.ChangeCardSummary.ByStatus["pending"])
+	}
+}
+
+// TestStatusService_GetDashboard_ChangeCardRepoError verifies graceful degradation: when
+// the change-card repo errors, the dashboard still succeeds with nil ChangeCardSummary.
+func TestStatusService_GetDashboard_ChangeCardRepoError(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+
+	ccRepo := &mockChangeCardRepo{
+		statusSummary: nil,
+		statusErr:     fmt.Errorf("simulated cc repo error"),
+	}
+	svc := NewStatusService(db, WithChangeCardRepository(ccRepo))
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetDashboard should not fail when change-card repo errors, got: %v", err)
+	}
+
+	if dashboard.ChangeCardSummary != nil {
+		t.Errorf("Expected ChangeCardSummary to be nil when cc repo errors, got %+v", dashboard.ChangeCardSummary)
+	}
+}
+
+// TestStatusService_GetDashboard_BothRepos verifies that both bug and change-card
+// summaries are populated when both repos are injected and return data.
+func TestStatusService_GetDashboard_BothRepos(t *testing.T) {
+	db := repository.NewDB(test.GetTestDB())
+
+	bugRepo := &mockBugRepo{
+		statusSummary: &repository.BugStatusSummary{
+			Total:          2,
+			ByStatus:       map[string]int{"open": 2},
+			BySeverity:     map[string]int{"low": 2},
+			OpenBySeverity: map[string]int{"low": 2},
+		},
+	}
+	ccRepo := &mockChangeCardRepo{
+		statusSummary: &repository.ChangeCardStatusSummary{
+			Total:    1,
+			ByStatus: map[string]int{"pending": 1},
+		},
+	}
+	svc := NewStatusService(db, WithBugRepository(bugRepo), WithChangeCardRepository(ccRepo))
+
+	req := &StatusRequest{}
+	dashboard, err := svc.GetDashboard(context.Background(), req)
+	if err != nil {
+		t.Fatalf("GetDashboard failed: %v", err)
+	}
+
+	if dashboard.BugSummary == nil {
+		t.Error("Expected BugSummary to be populated")
+	}
+	if dashboard.ChangeCardSummary == nil {
+		t.Error("Expected ChangeCardSummary to be populated")
+	}
+}
+
+// TestStatusDashboard_JSONMarshaling_WithBugAndChangeCardSummary verifies that
+// BugSummary and ChangeCardSummary marshal to JSON correctly when populated.
+func TestStatusDashboard_JSONMarshaling_WithBugAndChangeCardSummary(t *testing.T) {
+	dashboard := &StatusDashboard{
+		Summary: &ProjectSummary{
+			Epics:    &CountBreakdown{Total: 1, Active: 1},
+			Features: &CountBreakdown{Total: 1, Active: 1},
+			Tasks:    &StatusBreakdown{Total: 1},
+		},
+		Epics:        []*EpicSummary{},
+		ActiveTasks:  make(map[string][]*TaskInfo),
+		BlockedTasks: []*BlockedTaskInfo{},
+		BugSummary: &BugDashboardSummary{
+			Total:          3,
+			ByStatus:       map[string]int{"open": 3},
+			OpenBySeverity: map[string]int{"high": 1, "medium": 2},
+		},
+		ChangeCardSummary: &ChangeCardDashboardSummary{
+			Total:    2,
+			ByStatus: map[string]int{"pending": 2},
+		},
+	}
+
+	data, err := json.Marshal(dashboard)
+	if err != nil {
+		t.Fatalf("Failed to marshal StatusDashboard with bug/cc fields: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Marshaled data is not valid JSON: %v", err)
+	}
+
+	if _, ok := result["bugs"]; !ok {
+		t.Error("JSON missing 'bugs' field when BugSummary is set")
+	}
+	if _, ok := result["change_cards"]; !ok {
+		t.Error("JSON missing 'change_cards' field when ChangeCardSummary is set")
+	}
+}
+
+// TestStatusDashboard_JSONOmitsBugsWhenNil verifies that the 'bugs' and 'change_cards'
+// JSON keys are absent when BugSummary and ChangeCardSummary are nil (omitempty).
+func TestStatusDashboard_JSONOmitsBugsWhenNil(t *testing.T) {
+	dashboard := &StatusDashboard{
+		Summary: &ProjectSummary{
+			Epics:    &CountBreakdown{Total: 1, Active: 1},
+			Features: &CountBreakdown{Total: 1, Active: 1},
+			Tasks:    &StatusBreakdown{Total: 1},
+		},
+		Epics:             []*EpicSummary{},
+		ActiveTasks:       make(map[string][]*TaskInfo),
+		BlockedTasks:      []*BlockedTaskInfo{},
+		BugSummary:        nil,
+		ChangeCardSummary: nil,
+	}
+
+	data, err := json.Marshal(dashboard)
+	if err != nil {
+		t.Fatalf("Failed to marshal StatusDashboard: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Marshaled data is not valid JSON: %v", err)
+	}
+
+	if _, ok := result["bugs"]; ok {
+		t.Error("JSON should not contain 'bugs' key when BugSummary is nil (omitempty)")
+	}
+	if _, ok := result["change_cards"]; ok {
+		t.Error("JSON should not contain 'change_cards' key when ChangeCardSummary is nil (omitempty)")
+	}
+}
+
+// mockBugDashboardRepository is a test double for BugDashboardRepository.
+// It uses function fields so each test can provide its own behavior.
+type mockBugDashboardRepository struct {
+	getStatusSummaryFunc     func(ctx context.Context) (*repository.BugStatusSummary, error)
+	getFeatureBugSummaryFunc func(ctx context.Context, featureKey string) (*repository.BugFeatureSummary, error)
+}
+
+func (m *mockBugDashboardRepository) GetStatusSummary(ctx context.Context) (*repository.BugStatusSummary, error) {
+	if m.getStatusSummaryFunc != nil {
+		return m.getStatusSummaryFunc(ctx)
+	}
+	return nil, nil
+}
+
+func (m *mockBugDashboardRepository) GetFeatureBugSummary(ctx context.Context, featureKey string) (*repository.BugFeatureSummary, error) {
+	if m.getFeatureBugSummaryFunc != nil {
+		return m.getFeatureBugSummaryFunc(ctx, featureKey)
+	}
+	return nil, fmt.Errorf("GetFeatureBugSummary not implemented in mock")
+}
+
+// TestGetFeatureStatus_WithLinkedBugs verifies TC-F07-009:
+// Feature status shows linked bug summary when bugs are linked.
+func TestGetFeatureStatus_WithLinkedBugs(t *testing.T) {
+	ctx := context.Background()
+
+	// Arrange: mock repository returns 3 bugs (2 open: 1 high, 1 medium; 1 resolved)
+	mockRepo := &mockBugDashboardRepository{
+		getFeatureBugSummaryFunc: func(ctx context.Context, featureKey string) (*repository.BugFeatureSummary, error) {
+			if featureKey != "E07-F01" {
+				t.Errorf("expected featureKey E07-F01, got %s", featureKey)
+			}
+			return &repository.BugFeatureSummary{
+				TotalLinked: 3,
+				OpenCount:   2,
+				OpenBySeverity: map[string]int{
+					"high":   1,
+					"medium": 1,
+				},
+			}, nil
+		},
+	}
+
+	// Use a nil DB: GetFeatureStatus only calls bugRepo, not the DB
+	svc := NewStatusService(nil, WithBugRepository(mockRepo))
+
+	// Act
+	info, err := svc.GetFeatureStatus(ctx, "E07-F01")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("GetFeatureStatus() unexpected error: %v", err)
+	}
+	if info == nil {
+		t.Fatal("GetFeatureStatus() returned nil info")
+	}
+	if info.LinkedBugs == nil {
+		t.Fatal("Expected LinkedBugs to be populated, got nil")
+	}
+	if info.LinkedBugs.TotalLinked != 3 {
+		t.Errorf("TotalLinked: expected 3, got %d", info.LinkedBugs.TotalLinked)
+	}
+	if info.LinkedBugs.OpenCount != 2 {
+		t.Errorf("OpenCount: expected 2, got %d", info.LinkedBugs.OpenCount)
+	}
+	if info.LinkedBugs.OpenBySeverity["high"] != 1 {
+		t.Errorf("OpenBySeverity[high]: expected 1, got %d", info.LinkedBugs.OpenBySeverity["high"])
+	}
+	if info.LinkedBugs.OpenBySeverity["medium"] != 1 {
+		t.Errorf("OpenBySeverity[medium]: expected 1, got %d", info.LinkedBugs.OpenBySeverity["medium"])
+	}
+}
+
+// TestGetFeatureStatus_NoLinkedBugs verifies TC-F07-010:
+// Feature status omits bug section when no bugs are linked.
+func TestGetFeatureStatus_NoLinkedBugs(t *testing.T) {
+	ctx := context.Background()
+
+	// Arrange: mock repository returns zero bugs linked to the feature
+	mockRepo := &mockBugDashboardRepository{
+		getFeatureBugSummaryFunc: func(ctx context.Context, featureKey string) (*repository.BugFeatureSummary, error) {
+			return &repository.BugFeatureSummary{
+				TotalLinked:    0,
+				OpenCount:      0,
+				OpenBySeverity: map[string]int{},
+			}, nil
+		},
+	}
+
+	svc := NewStatusService(nil, WithBugRepository(mockRepo))
+
+	// Act
+	info, err := svc.GetFeatureStatus(ctx, "E07-F01")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("GetFeatureStatus() unexpected error: %v", err)
+	}
+	if info == nil {
+		t.Fatal("GetFeatureStatus() returned nil info")
+	}
+	// LinkedBugs must be nil when no bugs are linked (enables omitempty JSON tag)
+	if info.LinkedBugs != nil {
+		t.Errorf("Expected LinkedBugs to be nil when no bugs linked, got %+v", info.LinkedBugs)
+	}
+}
+
+// TestGetFeatureStatus_BugRepoUnavailable verifies graceful degradation:
+// When bug repo is nil, GetFeatureStatus succeeds with LinkedBugs = nil.
+func TestGetFeatureStatus_BugRepoUnavailable(t *testing.T) {
+	ctx := context.Background()
+
+	// No bug repo configured
+	svc := NewStatusService(nil)
+
+	info, err := svc.GetFeatureStatus(ctx, "E07-F01")
+
+	if err != nil {
+		t.Fatalf("GetFeatureStatus() should succeed when bug repo is nil, got error: %v", err)
+	}
+	if info == nil {
+		t.Fatal("GetFeatureStatus() returned nil info")
+	}
+	if info.LinkedBugs != nil {
+		t.Errorf("Expected LinkedBugs nil when bug repo unavailable, got %+v", info.LinkedBugs)
+	}
+}
+
+// TestGetFeatureStatus_BugRepoError verifies graceful degradation:
+// When bug repo returns an error, GetFeatureStatus succeeds with LinkedBugs = nil.
+func TestGetFeatureStatus_BugRepoError(t *testing.T) {
+	ctx := context.Background()
+
+	// Bug repo returns an error (e.g., bugs table not yet migrated)
+	mockRepo := &mockBugDashboardRepository{
+		getFeatureBugSummaryFunc: func(ctx context.Context, featureKey string) (*repository.BugFeatureSummary, error) {
+			return nil, fmt.Errorf("no such table: bugs")
+		},
+	}
+
+	svc := NewStatusService(nil, WithBugRepository(mockRepo))
+
+	info, err := svc.GetFeatureStatus(ctx, "E07-F01")
+
+	// Should not propagate error -- graceful degradation
+	if err != nil {
+		t.Fatalf("GetFeatureStatus() should degrade gracefully on bug repo error, got: %v", err)
+	}
+	if info == nil {
+		t.Fatal("GetFeatureStatus() returned nil info")
+	}
+	if info.LinkedBugs != nil {
+		t.Errorf("Expected LinkedBugs nil when bug repo errors, got %+v", info.LinkedBugs)
+	}
+}
+
+// TestGetFeatureStatus_NewStatusServiceBackwardCompatibility verifies that
+// NewStatusService(db) with no options works exactly as before (no regression).
+func TestGetFeatureStatus_NewStatusServiceBackwardCompatibility(t *testing.T) {
+	ctx := context.Background()
+
+	// Use test database (existing pattern in this file)
+	database := test.GetTestDB()
+	db := repository.NewDB(database)
+
+	// No options -- backward compatible call
+	svc := NewStatusService(db)
+
+	// bugRepo is nil, so GetFeatureStatus should return FeatureStatusInfo with no bug data
+	info, err := svc.GetFeatureStatus(ctx, "E07-F01")
+	if err != nil {
+		t.Fatalf("NewStatusService(db) backward compat: unexpected error: %v", err)
+	}
+	if info == nil {
+		t.Fatal("NewStatusService(db) backward compat: nil info returned")
+	}
+	if info.LinkedBugs != nil {
+		t.Errorf("NewStatusService(db) backward compat: expected nil LinkedBugs, got %+v", info.LinkedBugs)
+	}
+}
+
+// TestFeatureStatusInfo_LinkedBugsJSONContract verifies TC-F07-033:
+// JSON marshaling of FeatureStatusInfo includes/omits linked_bugs per omitempty.
+func TestFeatureStatusInfo_LinkedBugsJSONContract(t *testing.T) {
+	t.Run("linked_bugs present when bugs are linked", func(t *testing.T) {
+		info := &FeatureStatusInfo{
+			LinkedBugs: &BugFeatureSummary{
+				TotalLinked: 3,
+				OpenCount:   2,
+				OpenBySeverity: map[string]int{
+					"high":   1,
+					"medium": 1,
+				},
+			},
+		}
+
+		data, err := json.Marshal(info)
+		if err != nil {
+			t.Fatalf("json.Marshal error: %v", err)
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal(data, &result); err != nil {
+			t.Fatalf("json.Unmarshal error: %v", err)
+		}
+
+		// linked_bugs key must be present
+		linkedBugsRaw, ok := result["linked_bugs"]
+		if !ok {
+			t.Fatal("JSON missing 'linked_bugs' key when LinkedBugs is populated")
+		}
+
+		linkedBugs, ok := linkedBugsRaw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("'linked_bugs' is not an object, got %T", linkedBugsRaw)
+		}
+
+		// Verify structure matches contract (architecture doc section 8.4)
+		if _, ok := linkedBugs["total_linked"]; !ok {
+			t.Error("linked_bugs missing 'total_linked'")
+		}
+		if _, ok := linkedBugs["open_count"]; !ok {
+			t.Error("linked_bugs missing 'open_count'")
+		}
+		if _, ok := linkedBugs["open_by_severity"]; !ok {
+			t.Error("linked_bugs missing 'open_by_severity'")
+		}
+
+		if v, _ := linkedBugs["total_linked"].(float64); int(v) != 3 {
+			t.Errorf("total_linked: expected 3, got %v", linkedBugs["total_linked"])
+		}
+		if v, _ := linkedBugs["open_count"].(float64); int(v) != 2 {
+			t.Errorf("open_count: expected 2, got %v", linkedBugs["open_count"])
+		}
+	})
+
+	t.Run("linked_bugs absent when LinkedBugs is nil (omitempty)", func(t *testing.T) {
+		info := &FeatureStatusInfo{
+			LinkedBugs: nil,
+		}
+
+		data, err := json.Marshal(info)
+		if err != nil {
+			t.Fatalf("json.Marshal error: %v", err)
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal(data, &result); err != nil {
+			t.Fatalf("json.Unmarshal error: %v", err)
+		}
+
+		if _, ok := result["linked_bugs"]; ok {
+			t.Error("JSON should not contain 'linked_bugs' key when LinkedBugs is nil (omitempty)")
+		}
+	})
+}

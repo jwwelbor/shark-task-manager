@@ -179,6 +179,41 @@ func dispatchTransition(ctx context.Context, entityType, key, targetStatus strin
 		return cli.GetFeatureService().TransitionStatus(ctx, key, targetStatus, opts)
 	case "task":
 		return cli.GetTaskService().TransitionStatus(ctx, key, targetStatus, opts)
+	case "bug":
+		bug, err := cli.GetBugService().SetBugStatus(ctx, key, targetStatus, opts.Force)
+		if err != nil {
+			return nil, err
+		}
+		return &services.TransitionResult{
+			EntityType:   "bug",
+			EntityKey:    bug.Key,
+			ToStatus:     string(bug.Status),
+			Transitioned: true,
+			IsForced:     opts.Force,
+			Reason:       opts.Reason,
+		}, nil
+	case "change":
+		card, err := getChangeCardService().SetChangeCardStatus(ctx, key, targetStatus)
+		if err != nil {
+			return nil, err
+		}
+		return &services.TransitionResult{
+			EntityType:   "change",
+			EntityKey:    card.Key,
+			ToStatus:     string(card.Status),
+			Transitioned: true,
+		}, nil
+	case "change_card":
+		card, err := cli.GetChangeCardService().SetChangeCardStatus(ctx, key, targetStatus)
+		if err != nil {
+			return nil, err
+		}
+		return &services.TransitionResult{
+			EntityType:   "change_card",
+			EntityKey:    card.Key,
+			ToStatus:     string(card.Status),
+			Transitioned: true,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -193,6 +228,39 @@ func dispatchNextStatus(ctx context.Context, entityType, key string) (*services.
 		return cli.GetFeatureService().GetNextStatus(ctx, key)
 	case "task":
 		return cli.GetTaskService().GetNextStatus(ctx, key)
+	case "bug":
+		bug, err := cli.GetBugService().GetBug(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return &services.NextStatusInfo{
+			EntityType:           "bug",
+			EntityKey:            bug.Key,
+			CurrentStatus:        string(bug.Status),
+			AvailableTransitions: nil,
+		}, nil
+	case "change":
+		card, err := getChangeCardService().GetChangeCard(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return &services.NextStatusInfo{
+			EntityType:           "change",
+			EntityKey:            card.Key,
+			CurrentStatus:        string(card.Status),
+			AvailableTransitions: nil,
+		}, nil
+	case "change_card":
+		card, err := cli.GetChangeCardService().GetChangeCard(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return &services.NextStatusInfo{
+			EntityType:           "change_card",
+			EntityKey:            card.Key,
+			CurrentStatus:        string(card.Status),
+			AvailableTransitions: nil,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -301,6 +369,50 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// dispatchAdvance routes an advance request for entity types that have native advance methods
+// (bug, change_card). For epic/feature/task, returns (nil, nil) to fall through to the
+// generic info-based advance path.
+func dispatchAdvance(ctx context.Context, entityType, key string) (*services.TransitionResult, error) {
+	switch entityType {
+	case "bug":
+		bug, err := cli.GetBugService().AdvanceBugStatus(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return &services.TransitionResult{
+			EntityType:   "bug",
+			EntityKey:    bug.Key,
+			ToStatus:     string(bug.Status),
+			Transitioned: true,
+		}, nil
+	case "change":
+		card, err := getChangeCardService().AdvanceChangeCardStatus(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return &services.TransitionResult{
+			EntityType:   "change",
+			EntityKey:    card.Key,
+			ToStatus:     string(card.Status),
+			Transitioned: true,
+		}, nil
+	case "change_card":
+		card, err := cli.GetChangeCardService().AdvanceChangeCardStatus(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		return &services.TransitionResult{
+			EntityType:   "change_card",
+			EntityKey:    card.Key,
+			ToStatus:     string(card.Status),
+			Transitioned: true,
+		}, nil
+	default:
+		// Fall through to the generic info-based path for epic/feature/task.
+		return nil, nil
+	}
+}
+
 // runStatusAdvance implements the `shark status advance <key>` command.
 func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -312,7 +424,26 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid key format: %w", err)
 	}
 
-	// Step 2: Get current status info
+	// Step 2: For bug/change_card, use native advance methods directly.
+	if transResult, err := dispatchAdvance(ctx, entityType, key); err != nil {
+		handleStatusTransitionError(entityType, key, err)
+		return fmt.Errorf("failed to advance %s status: %w", entityType, err)
+	} else if transResult != nil {
+		if cli.GlobalConfig.JSON {
+			result := &StatusSetResult{
+				EntityType: entityType,
+				EntityKey:  transResult.EntityKey,
+				Status:     transResult.ToStatus,
+				Changed:    true,
+				Message:    fmt.Sprintf("-> %s", transResult.ToStatus),
+			}
+			return cli.OutputJSON(result)
+		}
+		cli.Success(fmt.Sprintf("%s %s advanced to %s", capitalizeEntityType(entityType), transResult.EntityKey, transResult.ToStatus))
+		return nil
+	}
+
+	// Step 3: Generic path for epic/feature/task — get current status info
 	info, err := dispatchNextStatus(ctx, entityType, key)
 	if err != nil {
 		handleStatusTransitionError(entityType, key, err)

@@ -878,6 +878,20 @@ func TestDetectEntityType(t *testing.T) {
 		{"Task short with slug E07-F01-001-implement-auth", "E07-F01-001-implement-auth", "task"},
 		{"Task short with slug E07-F25-002-add-entity-type-detection", "E07-F25-002-add-entity-type-detection", "task"},
 
+		// Bug keys (B###)
+		{"Bug B001 uppercase", "B001", "bug"},
+		{"Bug B001 lowercase", "b001", "bug"},
+		{"Bug B1 single digit", "B1", "bug"},
+		{"Bug B42 two digits", "B42", "bug"},
+		{"Bug B1000 four digits", "B1000", "bug"},
+
+		// Change keys (C###)
+		{"Change C001 uppercase", "C001", "change"},
+		{"Change C001 lowercase", "c001", "change"},
+		{"Change C1 single digit", "C1", "change"},
+		{"Change C15 two digits", "C15", "change"},
+		{"Change C1000 four digits", "C1000", "change"},
+
 		// Invalid/Unknown formats
 		{"Empty string", "", "unknown"},
 		{"Invalid E1", "E1", "unknown"},
@@ -962,9 +976,12 @@ func TestDetectEntityTypeEdgeCases(t *testing.T) {
 	}
 }
 
-// BenchmarkDetectEntityType benchmarks the DetectEntityType function
+// BenchmarkDetectEntityType benchmarks the DetectEntityType function.
+// Bug (B###) and change (C###) cases are included to verify no >5% regression
+// from the E18-F06 key detection extension (F06-REQ-NF-003).
 func BenchmarkDetectEntityType(b *testing.B) {
 	testCases := []string{
+		// Pre-existing entity types
 		"E07",
 		"E07-F01",
 		"F01",
@@ -972,6 +989,13 @@ func BenchmarkDetectEntityType(b *testing.B) {
 		"E07-F01-001",
 		"E07-user-management",
 		"invalid",
+		// E18-F06 additions: bug and change-card keys
+		"B001",
+		"B42",
+		"B1000",
+		"C001",
+		"C15",
+		"CC-001",
 	}
 
 	for _, tc := range testCases {

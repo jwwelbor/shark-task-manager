@@ -233,5 +233,10 @@ func GetStatusService() *status.StatusService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	return status.NewStatusService(db)
+	bugRepo := repository.NewBugRepository(db)
+	ccRepo := repository.NewChangeCardRepository(db)
+	return status.NewStatusService(db,
+		status.WithBugRepository(bugRepo),
+		status.WithChangeCardRepository(ccRepo),
+	)
 }

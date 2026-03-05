@@ -6,8 +6,6 @@
     "auth_token_file": "$SHARK_AUTH_TOKEN_FILE",
     "skip_migrations": true
   },
-  "default_agent": null,
-  "default_epic": null,
   "interactive_mode": false,
   "json_output": false,
   "last_sync_time": "2026-01-16T23:22:45-06:00",
@@ -967,12 +965,12 @@
         "is_planning": false,
         "responsibility": "agent",
         "agent_types": [
-          "tech-director"
+          "product-manager"
         ],
         "aggregates_from": "tasks",
         "orchestrator_action": {
           "action": "spawn_agent",
-          "agent_type": "tech-director",
+          "agent_type": "product-manager",
           "skills": [
             "build",
             "shark"

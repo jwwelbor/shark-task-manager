@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -28,19 +29,11 @@ func InitDB(filepath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to configure SQLite: %w", err)
 	}
 
-	// Create all tables, indexes, and triggers
-	if err := createSchema(db); err != nil {
-		return nil, fmt.Errorf("failed to create schema: %w", err)
-	}
-
-	// Run migrations for backwards compatibility
-	if err := runMigrations(db); err != nil {
-		return nil, fmt.Errorf("failed to run migrations: %w", err)
-	}
-
-	// Record schema version
-	if err := setSchemaVersion(db, CurrentSchemaVersion); err != nil {
-		return nil, fmt.Errorf("failed to set schema version: %w", err)
+	// Use version-checked migration: skip all DDL when schema is already current.
+	// This avoids running 22+ migration checks on every command invocation.
+	// Fresh installs (no schema_version table) still apply everything automatically.
+	if _, err := ApplySchemaIfNeeded(db); err != nil {
+		return nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	return db, nil
@@ -401,7 +394,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 5
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -717,6 +710,37 @@ func runMigrations(db *sql.DB) error {
 	// Create task_display_data view for single-query task detail retrieval
 	if err := migrateTaskDisplayDataView(db); err != nil {
 		return fmt.Errorf("failed to create task_display_data view: %w", err)
+	}
+
+	// Create bugs and change_cards tables (E18-F01)
+	if err := migrateBugAndChangeCardTables(db); err != nil {
+		return fmt.Errorf("failed to migrate bug and change_card tables: %w", err)
+	}
+
+	// Expand entity_notes entity_type CHECK constraint for bug/change (E18-F01)
+	if err := migrateEntityNotesExpandEntityTypes(db); err != nil {
+		return fmt.Errorf("failed to expand entity_notes entity_type constraint: %w", err)
+	}
+
+	// Recreate display views dropped by migrateEntityNotesExpandEntityTypes (E18-F02 fix)
+	if err := migrateEpicDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate epic_display_data view: %w", err)
+	}
+	if err := migrateFeatureDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate feature_display_data view: %w", err)
+	}
+	if err := migrateTaskDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate task_display_data view: %w", err)
+	}
+
+	// Migrate bugs table to use linked_entity_type/linked_entity_key/context_data (E18-F02)
+	if err := migrateBugsLinkedEntityColumns(db); err != nil {
+		return fmt.Errorf("failed to migrate bugs linked entity columns: %w", err)
+	}
+
+	// Add context_data column to change_cards table (E18-F03)
+	if err := migrateChangeCardContextData(db); err != nil {
+		return fmt.Errorf("failed to migrate change_cards context_data column: %w", err)
 	}
 
 	return nil
@@ -1909,4 +1933,344 @@ SELECT
 FROM tasks t;
 `)
 	return err
+}
+
+// migrateBugAndChangeCardTables creates the bugs and change_cards tables (E18-F01).
+func migrateBugAndChangeCardTables(db *sql.DB) error {
+	// Check if bugs table already exists
+	var bugsExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='bugs'
+	`).Scan(&bugsExists)
+	if err != nil {
+		return fmt.Errorf("failed to check bugs table: %w", err)
+	}
+
+	if bugsExists == 0 {
+		_, err = db.Exec(`
+			CREATE TABLE bugs (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				key TEXT NOT NULL UNIQUE,
+				title TEXT NOT NULL,
+				slug TEXT,
+				description TEXT,
+				status TEXT NOT NULL DEFAULT 'reported',
+				severity TEXT NOT NULL CHECK (severity IN ('critical', 'high', 'medium', 'low')) DEFAULT 'medium',
+				linked_entity_type TEXT,
+				linked_entity_key TEXT,
+				context_data TEXT,
+				file_path TEXT,
+				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create bugs table: %w", err)
+		}
+
+		// Create indexes for bugs
+		bugIndexes := []string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_bugs_key ON bugs(key);`,
+			`CREATE INDEX IF NOT EXISTS idx_bugs_status ON bugs(status);`,
+			`CREATE INDEX IF NOT EXISTS idx_bugs_severity ON bugs(severity);`,
+			`CREATE INDEX IF NOT EXISTS idx_bugs_linked_entity_type ON bugs(linked_entity_type);`,
+			`CREATE INDEX IF NOT EXISTS idx_bugs_slug ON bugs(slug);`,
+		}
+		for _, idx := range bugIndexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create bugs index: %w", err)
+			}
+		}
+
+		// Create updated_at trigger for bugs
+		_, err = db.Exec(`
+			CREATE TRIGGER IF NOT EXISTS bugs_updated_at
+			AFTER UPDATE ON bugs
+			FOR EACH ROW
+			BEGIN
+				UPDATE bugs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+			END;
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create bugs updated_at trigger: %w", err)
+		}
+	}
+
+	// Check if change_cards table already exists
+	var changeCardsExists int
+	err = db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='change_cards'
+	`).Scan(&changeCardsExists)
+	if err != nil {
+		return fmt.Errorf("failed to check change_cards table: %w", err)
+	}
+
+	if changeCardsExists == 0 {
+		_, err = db.Exec(`
+			CREATE TABLE change_cards (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				key TEXT NOT NULL UNIQUE,
+				title TEXT NOT NULL,
+				description TEXT,
+				status TEXT NOT NULL DEFAULT 'proposed',
+				priority INTEGER CHECK (priority >= 1 AND priority <= 10) DEFAULT 5,
+				requested_by TEXT,
+				assigned_to TEXT,
+				epic_id INTEGER REFERENCES epics(id),
+				feature_id INTEGER REFERENCES features(id),
+				related_task_id INTEGER REFERENCES tasks(id),
+				justification TEXT,
+				impact_analysis TEXT,
+				rollback_plan TEXT,
+				slug TEXT,
+				file_path TEXT,
+				created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create change_cards table: %w", err)
+		}
+
+		// Create indexes for change_cards
+		changeCardIndexes := []string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_change_cards_key ON change_cards(key);`,
+			`CREATE INDEX IF NOT EXISTS idx_change_cards_status ON change_cards(status);`,
+			`CREATE INDEX IF NOT EXISTS idx_change_cards_epic_id ON change_cards(epic_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_change_cards_feature_id ON change_cards(feature_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_change_cards_slug ON change_cards(slug);`,
+		}
+		for _, idx := range changeCardIndexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create change_cards index: %w", err)
+			}
+		}
+
+		// Create updated_at trigger for change_cards
+		_, err = db.Exec(`
+			CREATE TRIGGER IF NOT EXISTS change_cards_updated_at
+			AFTER UPDATE ON change_cards
+			FOR EACH ROW
+			BEGIN
+				UPDATE change_cards SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+			END;
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create change_cards updated_at trigger: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateEntityNotesExpandEntityTypes expands entity_notes CHECK constraint to include 'bug' and 'change' (E18-F01).
+// SQLite does not support ALTER TABLE to modify CHECK constraints, so we recreate the table.
+func migrateEntityNotesExpandEntityTypes(db *sql.DB) error {
+	// Check if entity_notes table exists
+	var tableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_notes'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check entity_notes table: %w", err)
+	}
+
+	if tableExists == 0 {
+		// Table doesn't exist yet; it will be created by migrateEntityNotes with the old constraint.
+		// That's fine -- we'll handle it on next migration run.
+		return nil
+	}
+
+	// Check current CHECK constraint by examining table SQL
+	var tableSql string
+	err = db.QueryRow(`
+		SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_notes'
+	`).Scan(&tableSql)
+	if err != nil {
+		return fmt.Errorf("failed to get entity_notes schema: %w", err)
+	}
+
+	// If the table already has 'bug' in the CHECK constraint, skip
+	if strings.Contains(tableSql, "'bug'") {
+		return nil
+	}
+
+	// Recreate the table with expanded CHECK constraint using SQLite table recreation pattern
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	steps := []string{
+		// Create new table with expanded CHECK
+		`CREATE TABLE entity_notes_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			entity_type TEXT NOT NULL CHECK (entity_type IN ('epic', 'feature', 'task', 'bug', 'change')),
+			entity_id INTEGER NOT NULL,
+			note_type TEXT CHECK (note_type IN (
+				'comment', 'decision', 'blocker', 'solution', 'reference',
+				'implementation', 'testing', 'future', 'question', 'rejection'
+			)) NOT NULL,
+			content TEXT NOT NULL,
+			created_by TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			metadata TEXT
+		);`,
+		// Copy data
+		`INSERT INTO entity_notes_new SELECT * FROM entity_notes;`,
+		// Drop views that reference entity_notes (they'll be recreated after)
+		`DROP VIEW IF EXISTS epic_display_data;`,
+		`DROP VIEW IF EXISTS feature_display_data;`,
+		`DROP VIEW IF EXISTS task_display_data;`,
+		// Drop cascade triggers that reference the old entity_notes table
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_task;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_feature;`,
+		`DROP TRIGGER IF EXISTS entity_notes_cascade_delete_epic;`,
+		// Drop old table
+		`DROP TABLE entity_notes;`,
+		// Rename new table
+		`ALTER TABLE entity_notes_new RENAME TO entity_notes;`,
+		// Recreate indexes
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type ON entity_notes(note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_created_at ON entity_notes(created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_entity_type ON entity_notes(entity_type, entity_id, note_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_entity_notes_type_entity ON entity_notes(note_type, entity_type, entity_id);`,
+		// Recreate cascade delete triggers
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_task
+			AFTER DELETE ON tasks
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'task' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_feature
+			AFTER DELETE ON features
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'feature' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_epic
+			AFTER DELETE ON epics
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'epic' AND entity_id = OLD.id;
+			END;`,
+		// Add cascade triggers for bugs and change_cards
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_bug
+			AFTER DELETE ON bugs
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'bug' AND entity_id = OLD.id;
+			END;`,
+		`CREATE TRIGGER IF NOT EXISTS entity_notes_cascade_delete_change
+			AFTER DELETE ON change_cards
+			FOR EACH ROW
+			BEGIN
+				DELETE FROM entity_notes WHERE entity_type = 'change' AND entity_id = OLD.id;
+			END;`,
+	}
+
+	for _, step := range steps {
+		if _, err := tx.Exec(step); err != nil {
+			return fmt.Errorf("failed to migrate entity_notes: %w (step: %s)", err, step[:min(len(step), 60)])
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit entity_notes migration: %w", err)
+	}
+
+	return nil
+}
+
+// migrateBugsLinkedEntityColumns adds linked_entity_type, linked_entity_key, and context_data
+// columns to an existing bugs table. The original schema used epic_id/feature_id/related_task_id
+// FK columns, but the repository uses the more flexible linked_entity_type/key/context_data
+// pattern (E18-F02).
+func migrateBugsLinkedEntityColumns(db *sql.DB) error {
+	// Only run if bugs table exists
+	var bugsExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='bugs'
+	`).Scan(&bugsExists)
+	if err != nil {
+		return fmt.Errorf("failed to check bugs table: %w", err)
+	}
+	if bugsExists == 0 {
+		// Table doesn't exist yet; migrateBugAndChangeCardTables will create it with correct schema
+		return nil
+	}
+
+	// Add linked_entity_type if missing
+	var hasLinkedEntityType int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('bugs') WHERE name = 'linked_entity_type'
+	`).Scan(&hasLinkedEntityType); err != nil {
+		return fmt.Errorf("failed to check bugs linked_entity_type column: %w", err)
+	}
+	if hasLinkedEntityType == 0 {
+		if _, err := db.Exec(`ALTER TABLE bugs ADD COLUMN linked_entity_type TEXT;`); err != nil {
+			return fmt.Errorf("failed to add linked_entity_type to bugs: %w", err)
+		}
+	}
+
+	// Add linked_entity_key if missing
+	var hasLinkedEntityKey int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('bugs') WHERE name = 'linked_entity_key'
+	`).Scan(&hasLinkedEntityKey); err != nil {
+		return fmt.Errorf("failed to check bugs linked_entity_key column: %w", err)
+	}
+	if hasLinkedEntityKey == 0 {
+		if _, err := db.Exec(`ALTER TABLE bugs ADD COLUMN linked_entity_key TEXT;`); err != nil {
+			return fmt.Errorf("failed to add linked_entity_key to bugs: %w", err)
+		}
+	}
+
+	// Add context_data if missing
+	var hasContextData int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('bugs') WHERE name = 'context_data'
+	`).Scan(&hasContextData); err != nil {
+		return fmt.Errorf("failed to check bugs context_data column: %w", err)
+	}
+	if hasContextData == 0 {
+		if _, err := db.Exec(`ALTER TABLE bugs ADD COLUMN context_data TEXT;`); err != nil {
+			return fmt.Errorf("failed to add context_data to bugs: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateChangeCardContextData adds context_data column to change_cards table (E18-F03).
+// This column stores JSON context data for AI agent session management on change-cards.
+func migrateChangeCardContextData(db *sql.DB) error {
+	// Only run if change_cards table exists
+	var tableExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='change_cards'
+	`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check change_cards table: %w", err)
+	}
+	if tableExists == 0 {
+		// Table doesn't exist yet; migrateBugAndChangeCardTables will create it with correct schema
+		return nil
+	}
+
+	// Add context_data if missing
+	var hasContextData int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('change_cards') WHERE name = 'context_data'
+	`).Scan(&hasContextData); err != nil {
+		return fmt.Errorf("failed to check change_cards context_data column: %w", err)
+	}
+	if hasContextData == 0 {
+		if _, err := db.Exec(`ALTER TABLE change_cards ADD COLUMN context_data TEXT;`); err != nil {
+			return fmt.Errorf("failed to add context_data to change_cards: %w", err)
+		}
+	}
+
+	return nil
 }

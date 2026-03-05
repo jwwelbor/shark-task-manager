@@ -721,7 +721,7 @@ func TestGetRejectionHistory(t *testing.T) {
 
 	// Create rejection notes with metadata
 	rejectedBy1 := "reviewer-agent-001"
-	docPath := "docs/bugs/BUG-2026-046.md"
+	docPath := "docs/plan/bugs/BUG-2026-046.md"
 	note1, err := noteRepo.CreateRejectionNote(
 		ctx,
 		models.EntityTypeTask,

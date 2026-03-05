@@ -93,11 +93,32 @@ func RenderEntity(opts EntityDisplayOptions) {
 // Uses pterm.DefaultSection for consistent styling.
 //
 // Parameters:
-//   - entityType: "epic", "feature", or "task"
-//   - key: entity key (e.g., "E07", "E07-F01", "E07-F01-001")
+//   - entityType: "epic", "feature", "task", "bug", or "change"
+//   - key: entity key (e.g., "E07", "E07-F01", "E07-F01-001", "B001", "C001")
 func renderHeader(entityType, key string) {
-	pterm.DefaultSection.Printf("%s: %s", capitalize(entityType), key)
+	pterm.DefaultSection.Printf("%s: %s", displayEntityTypeName(entityType), key)
 	fmt.Println()
+}
+
+// displayEntityTypeName returns the human-readable display name for an entity type.
+// Maps internal entity type strings to user-facing display names.
+//
+// Mappings:
+//   - "bug"    -> "Bug"
+//   - "change" -> "Change Card" (space, not hyphen per ADR-F06-003)
+//   - others   -> capitalize first letter (e.g., "epic" -> "Epic")
+//
+// This produces headers like "Bug: B001", "Change Card: C001",
+// matching the existing "Epic: E07" pattern.
+func displayEntityTypeName(entityType string) string {
+	switch entityType {
+	case "bug":
+		return "Bug"
+	case "change":
+		return "Change Card"
+	default:
+		return capitalize(entityType)
+	}
 }
 
 // capitalize capitalizes the first letter of a string

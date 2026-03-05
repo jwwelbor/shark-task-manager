@@ -1,7 +1,5 @@
 {
   "color_enabled": true,
-  "default_agent": null,
-  "default_epic": null,
   "description": "Simple workflow for solo developers",
   "json_output": false,
   "name": "basic",

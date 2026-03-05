@@ -34,6 +34,18 @@ type NoteTaskRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
 }
 
+// NoteChangeCardRepository defines the change-card repository interface needed by NoteService.
+type NoteChangeCardRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
+	GetByID(ctx context.Context, id int64) (*models.ChangeCard, error)
+}
+
+// NoteBugRepository defines the bug repository interface needed by NoteService.
+type NoteBugRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Bug, error)
+	GetByID(ctx context.Context, id int64) (*models.Bug, error)
+}
+
 // NoteEntityDetails contains the key and name of an entity referenced by a note.
 type NoteEntityDetails struct {
 	Key  string
@@ -62,6 +74,24 @@ func (s *NoteService) GetEntityDetails(ctx context.Context, entityType models.En
 			return nil
 		}
 		return &NoteEntityDetails{Key: feature.Key, Name: feature.Title}
+	case models.EntityTypeChange:
+		if s.changeCardRepo == nil {
+			return nil
+		}
+		card, err := s.changeCardRepo.GetByID(ctx, entityID)
+		if err != nil {
+			return nil
+		}
+		return &NoteEntityDetails{Key: card.Key, Name: card.Title}
+	case models.EntityTypeBug:
+		if s.bugRepo == nil {
+			return nil
+		}
+		bug, err := s.bugRepo.GetByID(ctx, entityID)
+		if err != nil {
+			return nil
+		}
+		return &NoteEntityDetails{Key: bug.Key, Name: bug.Title}
 	default:
 		return nil
 	}
@@ -69,10 +99,22 @@ func (s *NoteService) GetEntityDetails(ctx context.Context, entityType models.En
 
 // NoteService provides business logic for note operations across all entity types.
 type NoteService struct {
-	noteRepo    NoteEntityNoteRepository
-	epicRepo    NoteEpicRepository
-	featureRepo NoteFeatureRepository
-	taskRepo    NoteTaskRepository
+	noteRepo       NoteEntityNoteRepository
+	epicRepo       NoteEpicRepository
+	featureRepo    NoteFeatureRepository
+	taskRepo       NoteTaskRepository
+	changeCardRepo NoteChangeCardRepository
+	bugRepo        NoteBugRepository
+}
+
+// SetChangeCardRepo sets the optional change-card repository for change entity support.
+func (s *NoteService) SetChangeCardRepo(repo NoteChangeCardRepository) {
+	s.changeCardRepo = repo
+}
+
+// SetBugRepo sets the optional bug repository for bug entity note support.
+func (s *NoteService) SetBugRepo(repo NoteBugRepository) {
+	s.bugRepo = repo
 }
 
 // NewNoteService creates a new NoteService with injected dependencies.
@@ -161,6 +203,24 @@ func (s *NoteService) resolveEntityID(ctx context.Context, entityType models.Ent
 			return 0, fmt.Errorf("task not found: %s: %w", key, err)
 		}
 		return task.ID, nil
+	case models.EntityTypeChange:
+		if s.changeCardRepo == nil {
+			return 0, fmt.Errorf("change-card support not configured")
+		}
+		card, err := s.changeCardRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("change-card not found: %s: %w", key, err)
+		}
+		return card.ID, nil
+	case models.EntityTypeBug:
+		if s.bugRepo == nil {
+			return 0, fmt.Errorf("bug repository not configured for note operations")
+		}
+		bug, err := s.bugRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("bug not found: %s: %w", key, err)
+		}
+		return bug.ID, nil
 	default:
 		return 0, fmt.Errorf("unsupported entity type: %s", entityType)
 	}

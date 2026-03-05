@@ -61,6 +61,12 @@ func (i *Interpreter) ParseScope(args []string) (*Scope, error) {
 		scopeType = ScopeFeature
 	case "task":
 		scopeType = ScopeTask
+	case "change_card":
+		scopeType = ScopeChangeCard
+	case "change":
+		scopeType = ScopeChange
+	case "bug":
+		scopeType = ScopeBug
 	default:
 		return nil, fmt.Errorf("unknown scope type: %s", command)
 	}
@@ -77,6 +83,21 @@ func parseGetArgsLogic(args []string) (command string, key string, err error) {
 	// Single argument case
 	if len(args) == 1 {
 		normalized := keys.Normalize(args[0])
+
+		// Check if it's a bug key (B###)
+		if keys.IsBugKey(normalized) {
+			return "bug", normalized, nil
+		}
+
+		// Check if it's a change key (C###)
+		if keys.IsChangeKey(normalized) {
+			return "change", normalized, nil
+		}
+
+		// Check if it's a change-card key (CC-###)
+		if keys.IsChangeCardKey(normalized) {
+			return "change_card", normalized, nil
+		}
 
 		// Check if it's a task key (T-E##-F##-### or E##-F##-###)
 		if keys.IsTaskKey(normalized) {

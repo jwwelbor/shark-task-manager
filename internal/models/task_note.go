@@ -18,6 +18,7 @@ const (
 	NoteTypeFuture         NoteType = "future"         // Future improvements / TODO
 	NoteTypeQuestion       NoteType = "question"       // Unanswered questions
 	NoteTypeRejection      NoteType = "rejection"      // Rejection reason for backward transitions
+	NoteTypeRequirement    NoteType = "requirement"    // A requirement or specification note
 )
 
 // Deprecated: TaskNote is deprecated in favor of EntityNote.

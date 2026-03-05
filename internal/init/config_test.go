@@ -113,12 +113,6 @@ func TestCreateConfig(t *testing.T) {
 				}
 
 				// Verify default values
-				if config.DefaultEpic != nil {
-					t.Errorf("DefaultEpic = %v, want nil", *config.DefaultEpic)
-				}
-				if config.DefaultAgent != nil {
-					t.Errorf("DefaultAgent = %v, want nil", *config.DefaultAgent)
-				}
 				if config.ColorEnabled != true {
 					t.Errorf("ColorEnabled = %v, want true", config.ColorEnabled)
 				}
@@ -231,7 +225,7 @@ func TestCreateConfigValidJSON(t *testing.T) {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
 
-	requiredFields := []string{"default_epic", "default_agent", "color_enabled", "json_output"}
+	requiredFields := []string{"color_enabled", "json_output"}
 	for _, field := range requiredFields {
 		if _, exists := actual[field]; !exists {
 			t.Errorf("Config missing required field: %s", field)

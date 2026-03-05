@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -8,6 +9,14 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
+
+// dashboardAnalyticsServicer is the minimal interface that the analytics command
+// requires from DashboardAnalyticsService. Defined at the point of use so that
+// tests can inject lightweight mocks without depending on the concrete service type.
+type dashboardAnalyticsServicer interface {
+	GetBugAnalytics(ctx context.Context) (*services.BugAnalyticsResult, error)
+	GetChangeCardAnalytics(ctx context.Context) (*services.ChangeCardAnalyticsResult, error)
+}
 
 // analyticsCmd represents the analytics command group
 var analyticsCmd = &cobra.Command{
@@ -21,11 +30,15 @@ Provides insights into:
   - Pause frequency
   - Time investment
   - Agent productivity
+  - Bug analytics (--type=bug)
+  - Change-card analytics (--type=change)
 
 Examples:
   shark analytics --session-duration --epic E10
   shark analytics --pause-frequency --epic E10 --feature F05
-  shark analytics --session-duration --epic E10 --agent-type backend`,
+  shark analytics --type=bug
+  shark analytics --type=change
+  shark analytics`,
 	RunE: runAnalytics,
 }
 
@@ -38,22 +51,36 @@ func init() {
 	analyticsCmd.Flags().String("epic", "", "Filter by epic key")
 	analyticsCmd.Flags().String("feature", "", "Filter by feature key")
 	analyticsCmd.Flags().String("agent-type", "", "Filter by agent type")
+	analyticsCmd.Flags().String("type", "", "Entity type analytics: bug, change")
 }
 
 // runAnalytics executes the analytics command
 func runAnalytics(cmd *cobra.Command, args []string) error {
+	entityType, _ := cmd.Flags().GetString("type")
 	sessionDuration, _ := cmd.Flags().GetBool("session-duration")
 	pauseFrequency, _ := cmd.Flags().GetBool("pause-frequency")
+
+	// Route to entity-specific analytics when --type is provided
+	if entityType == "bug" || entityType == "change" {
+		return runEntityAnalytics(cmd, entityType)
+	}
+
+	// Reject unknown --type values
+	if entityType != "" {
+		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change'", entityType)
+	}
+
+	// No session flags and no --type: show combined analytics
+	if !sessionDuration && !pauseFrequency {
+		return runCombinedAnalytics(cmd)
+	}
+
+	// Session analytics path (existing behaviour)
 	epicKey, _ := cmd.Flags().GetString("epic")
 	featureKey, _ := cmd.Flags().GetString("feature")
 	agentType, _ := cmd.Flags().GetString("agent-type")
 
-	// Validate: at least one analysis type must be selected
-	if !sessionDuration && !pauseFrequency {
-		return fmt.Errorf("please specify at least one analysis type: --session-duration or --pause-frequency")
-	}
-
-	// Validate: epic or feature must be specified
+	// Validate: epic or feature must be specified for session analytics
 	if epicKey == "" && featureKey == "" {
 		return fmt.Errorf("please specify --epic or --feature for analysis scope")
 	}
@@ -101,6 +128,193 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// runEntityAnalytics handles --type=bug or --type=change by calling the
+// DashboardAnalyticsService and formatting the result.
+func runEntityAnalytics(cmd *cobra.Command, entityType string) error {
+	svc := cli.GetDashboardAnalyticsService()
+	return runEntityAnalyticsWithSvc(cmd.Context(), entityType, svc)
+}
+
+// runEntityAnalyticsWithSvc is the testable core of runEntityAnalytics.
+// It accepts the service as an interface so tests can inject a mock.
+func runEntityAnalyticsWithSvc(ctx context.Context, entityType string, svc dashboardAnalyticsServicer) error {
+	switch entityType {
+	case "bug":
+		result, err := svc.GetBugAnalytics(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get bug analytics: %w", err)
+		}
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(result)
+		}
+		printBugAnalytics(result)
+		return nil
+
+	case "change":
+		result, err := svc.GetChangeCardAnalytics(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get change-card analytics: %w", err)
+		}
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(result)
+		}
+		printChangeCardAnalytics(result)
+		return nil
+
+	default:
+		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change'", entityType)
+	}
+}
+
+// runCombinedAnalytics shows combined bug + change-card analytics when the user
+// runs `shark analytics` without --type or session flags.
+func runCombinedAnalytics(cmd *cobra.Command) error {
+	svc := cli.GetDashboardAnalyticsService()
+	return runCombinedAnalyticsWithSvc(cmd.Context(), svc)
+}
+
+// runCombinedAnalyticsWithSvc is the testable core of runCombinedAnalytics.
+// It accepts the service as an interface so tests can inject a mock.
+// Sections that fail gracefully (e.g. repo not configured) are omitted rather
+// than returning an error.
+func runCombinedAnalyticsWithSvc(ctx context.Context, svc dashboardAnalyticsServicer) error {
+	bugResult, bugErr := svc.GetBugAnalytics(ctx)
+	ccResult, ccErr := svc.GetChangeCardAnalytics(ctx)
+
+	if cli.GlobalConfig.JSON {
+		combined := &services.DashboardAnalyticsResult{}
+		if bugErr == nil {
+			combined.Bugs = bugResult
+		}
+		if ccErr == nil {
+			combined.ChangeCards = ccResult
+		}
+		return cli.OutputJSON(combined)
+	}
+
+	if bugErr == nil && bugResult != nil {
+		printBugAnalytics(bugResult)
+	}
+	if ccErr == nil && ccResult != nil {
+		printChangeCardAnalytics(ccResult)
+	}
+
+	return nil
+}
+
+// printBugAnalytics renders a human-readable bug analytics report to stdout.
+// It is nil-safe: pointer fields such as AvgResolutionTimeSecs are printed
+// as "N/A" when nil.
+func printBugAnalytics(result *services.BugAnalyticsResult) {
+	fmt.Printf("═══════════════════════════════════════════════════════════════\n")
+	fmt.Printf("Bug Analytics\n")
+	fmt.Printf("═══════════════════════════════════════════════════════════════\n\n")
+
+	fmt.Printf("Overview:\n")
+	fmt.Printf("  Total Bugs:            %d\n", result.TotalBugs)
+	fmt.Printf("  Resolved:              %d\n", result.ResolvedCount)
+
+	if result.AvgResolutionTimeSecs != nil {
+		fmt.Printf("  Avg Resolution Time:   %s\n", formatDurationFromSecs(*result.AvgResolutionTimeSecs))
+	} else {
+		fmt.Printf("  Avg Resolution Time:   N/A\n")
+	}
+
+	if len(result.BugsByStatus) > 0 {
+		fmt.Printf("\nBy Status:\n")
+		for status, count := range result.BugsByStatus {
+			fmt.Printf("  %-20s %d\n", status+":", count)
+		}
+	}
+
+	if len(result.BugsBySeverity) > 0 {
+		fmt.Printf("\nBy Severity:\n")
+		for severity, count := range result.BugsBySeverity {
+			fmt.Printf("  %-20s %d\n", severity+":", count)
+		}
+	}
+
+	fmt.Printf("\n───────────────────────────────────────────────────────────────\n\n")
+}
+
+// printChangeCardAnalytics renders a human-readable change-card analytics report
+// to stdout. It is nil-safe: pointer fields are printed as "N/A" when nil.
+func printChangeCardAnalytics(result *services.ChangeCardAnalyticsResult) {
+	fmt.Printf("═══════════════════════════════════════════════════════════════\n")
+	fmt.Printf("Change Card Analytics\n")
+	fmt.Printf("═══════════════════════════════════════════════════════════════\n\n")
+
+	fmt.Printf("Overview:\n")
+	fmt.Printf("  Total Change Cards:    %d\n", result.TotalChangeCards)
+	fmt.Printf("  Decided:               %d\n", result.DecidedCount)
+	fmt.Printf("  Completed:             %d\n", result.CompletedCount)
+
+	if result.ApprovalRate != nil {
+		fmt.Printf("  Approval Rate:         %.0f%%\n", *result.ApprovalRate*100)
+	} else {
+		fmt.Printf("  Approval Rate:         N/A\n")
+	}
+
+	if result.AvgCompletionTimeSecs != nil {
+		fmt.Printf("  Avg Completion Time:   %s\n", formatDurationFromSecs(*result.AvgCompletionTimeSecs))
+	} else {
+		fmt.Printf("  Avg Completion Time:   N/A\n")
+	}
+
+	if len(result.ChangeCardsByStatus) > 0 {
+		fmt.Printf("\nBy Status:\n")
+		for status, count := range result.ChangeCardsByStatus {
+			fmt.Printf("  %-20s %d\n", status+":", count)
+		}
+	}
+
+	fmt.Printf("\n───────────────────────────────────────────────────────────────\n\n")
+}
+
+// formatDurationFromSecs converts a duration expressed in floating-point seconds
+// into a concise human-readable string such as "2d 3h", "45m 30s", "30s".
+// It is used to display avg_resolution_time_seconds and avg_completion_time_seconds
+// from the analytics DTOs.
+func formatDurationFromSecs(secs float64) string {
+	if secs <= 0 {
+		return "0s"
+	}
+
+	totalSecs := int64(secs)
+	days := totalSecs / 86400
+	remainder := totalSecs % 86400
+	hours := remainder / 3600
+	remainder = remainder % 3600
+	mins := remainder / 60
+	sec := remainder % 60
+
+	parts := []string{}
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
+	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if mins > 0 && days == 0 { // omit minutes when days are shown
+		parts = append(parts, fmt.Sprintf("%dm", mins))
+	}
+	if sec > 0 && days == 0 && hours == 0 {
+		parts = append(parts, fmt.Sprintf("%ds", sec))
+	}
+
+	if len(parts) == 0 {
+		return "0s"
+	}
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += " "
+		}
+		result += p
+	}
+	return result
 }
 
 // printSessionDurationAnalytics prints session duration analysis

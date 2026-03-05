@@ -2,36 +2,64 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
 
-// searchCmd is the parent command for search operations
+// validSearchTypes lists all accepted values for the --type flag.
+var validSearchTypes = []string{"epic", "feature", "task", "bug", "change", "idea"}
+
+// searchCmd is the parent command for search operations.
+// It supports two modes:
+//   - Full-text query mode: `shark search "query" [--type=TYPE]`
+//   - File search mode: `shark search --file="pattern" [--epic] [--feature] [--status]`
 var searchCmd = &cobra.Command{
-	Use:     "search",
-	Short:   "Search tasks by various criteria",
+	Use:     "search [query]",
+	Short:   "Search tasks and entities by query or file",
 	GroupID: "inspect",
-	Long: `Search for tasks using completion metadata like files changed.
+	Long: `Search for entities using full-text query or file-based search.
 
-Supports partial filename matching. Results are ordered by completion date (most recent first).
+Full-text query mode (positional argument):
+  shark search "login"                     Search all entity types
+  shark search "login" --type=bug          Search only bugs
+  shark search "dark mode" --type=change   Search only change-cards
+  shark search "auth" --type=task          Search only tasks
+  shark search "auth" --json               JSON output for all types
 
-Examples:
+File search mode (--file flag):
   shark search --file="useTheme.ts"
   shark search --file="task_repository" --epic E10
   shark search --file="completion" --feature E10-F02
-  shark search --file="models/task.go" --json`,
-	RunE: runSearchFile,
+  shark search --file="models/task.go" --json
+
+Valid --type values: epic, feature, task, bug, change, idea`,
+	RunE: runSearch,
 }
 
-// runSearchFile handles the file search command
+// runSearch dispatches to query mode or file mode based on arguments/flags.
+func runSearch(cmd *cobra.Command, args []string) error {
+	filePath, _ := cmd.Flags().GetString("file")
+
+	if filePath != "" {
+		// File search mode (existing behaviour)
+		return runSearchFile(cmd, args)
+	}
+
+	// Full-text query mode
+	return runSearchQuery(cmd, args)
+}
+
+// runSearchFile handles the legacy file-based search.
 func runSearchFile(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse arguments
 	filePath, _ := cmd.Flags().GetString("file")
 	if filePath == "" {
-		return fmt.Errorf("--file parameter is required")
+		return fmt.Errorf("--file parameter is required when not providing a query argument")
 	}
 
 	epicKey, _ := cmd.Flags().GetString("epic")
@@ -52,7 +80,84 @@ func runSearchFile(cmd *cobra.Command, args []string) error {
 	return printSearchResults(tasks, filePath)
 }
 
-// printSearchResults prints human-readable search results.
+// runSearchQuery handles the new full-text query search mode.
+func runSearchQuery(cmd *cobra.Command, args []string) error {
+	// Step 1: Parse arguments
+	query, err := parseSearchQuery(args)
+	if err != nil {
+		return err
+	}
+
+	entityTypeFlag, _ := cmd.Flags().GetString("type")
+	if err := validateSearchType(entityTypeFlag); err != nil {
+		return err
+	}
+
+	// Step 2: Call repository (thin wrapper: direct repo access is acceptable here
+	// because there is no business logic — just data retrieval and formatting).
+	repoDb, err := cli.GetDB(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("failed to get database: %w", err)
+	}
+	searchRepo := repository.NewSearchRepository(repoDb)
+
+	var entityTypePtr *string
+	if entityTypeFlag != "" {
+		entityTypePtr = &entityTypeFlag
+	}
+
+	results, err := searchRepo.SearchAll(cmd.Context(), query, entityTypePtr)
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
+
+	// Step 3: Format output
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(results)
+	}
+	return printEntitySearchResults(results, query)
+}
+
+// parseSearchQuery extracts the search query from positional args.
+func parseSearchQuery(args []string) (string, error) {
+	if len(args) == 0 {
+		return "", fmt.Errorf("search query required: provide a positional argument (e.g., shark search \"login\") or use --file for file search")
+	}
+	return strings.Join(args, " "), nil
+}
+
+// validateSearchType validates the --type flag value.
+// An empty string is valid (means "all types").
+func validateSearchType(entityType string) error {
+	if entityType == "" {
+		return nil
+	}
+	for _, valid := range validSearchTypes {
+		if entityType == valid {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid type %q: valid types are %s", entityType, strings.Join(validSearchTypes, ", "))
+}
+
+// printEntitySearchResults prints human-readable cross-entity search results.
+func printEntitySearchResults(results []*repository.EntitySearchResult, query string) error {
+	if len(results) == 0 {
+		fmt.Printf("No results found for: %s\n", query)
+		return nil
+	}
+	fmt.Printf("Found %d result(s) for \"%s\":\n\n", len(results), query)
+	for _, r := range results {
+		if r.EntityType == "bug" && r.Severity != "" {
+			fmt.Printf("[%s] %s: %s (%s, severity: %s)\n", r.EntityType, r.Key, r.Title, r.Status, r.Severity)
+		} else {
+			fmt.Printf("[%s] %s: %s (%s)\n", r.EntityType, r.Key, r.Title, r.Status)
+		}
+	}
+	return nil
+}
+
+// printSearchResults prints human-readable file search results.
 func printSearchResults(tasks []*models.Task, filePath string) error {
 	if len(tasks) == 0 {
 		fmt.Printf("No tasks found matching file: %s\n", filePath)
@@ -70,7 +175,7 @@ func printSearchResults(tasks []*models.Task, filePath string) error {
 	return nil
 }
 
-// printTaskFilesChanged prints the files changed for a task if available
+// printTaskFilesChanged prints the files changed for a task if available.
 func printTaskFilesChanged(task *models.Task) {
 	if task.FilesChanged == nil || *task.FilesChanged == "" {
 		return
@@ -97,12 +202,12 @@ func init() {
 	// Add search command to root
 	cli.RootCmd.AddCommand(searchCmd)
 
-	// Add flags for file search
-	searchCmd.Flags().String("file", "", "File name or path to search for (required)")
-	searchCmd.Flags().String("epic", "", "Filter by epic key")
-	searchCmd.Flags().String("feature", "", "Filter by feature key")
-	searchCmd.Flags().String("status", "", "Filter by task status")
+	// Flags for file search mode (legacy)
+	searchCmd.Flags().String("file", "", "File name or path to search for (file search mode)")
+	searchCmd.Flags().String("epic", "", "Filter by epic key (file search mode)")
+	searchCmd.Flags().String("feature", "", "Filter by feature key (file search mode)")
+	searchCmd.Flags().String("status", "", "Filter by task status (file search mode)")
 
-	// Mark file as required
-	_ = searchCmd.MarkFlagRequired("file")
+	// Flags for full-text query mode
+	searchCmd.Flags().String("type", "", "Filter by entity type: epic, feature, task, bug, change, idea")
 }

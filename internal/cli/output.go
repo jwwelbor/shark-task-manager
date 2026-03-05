@@ -14,6 +14,10 @@ func GetRequiredSectionsForEntityType(entityType string) []string {
 		return []string{"Requirements", "Design", "Test Plan"}
 	case "task":
 		return []string{"Implementation Plan", "Acceptance Criteria", "Test Plan"}
+	case "bug":
+		return []string{"Description", "Steps to Reproduce", "Expected Behavior"}
+	case "change":
+		return []string{"Description", "Justification", "Impact Analysis"}
 	default:
 		// Default to task sections for unknown types
 		return []string{"Implementation Plan", "Acceptance Criteria", "Test Plan"}
@@ -87,6 +91,14 @@ func FormatEntityCreationJSON(entityType, entityKey, entityTitle, filePath, proj
 	case "task":
 		nextCommands = []string{
 			fmt.Sprintf("shark task next-status %s", entityKey),
+		}
+	case "bug":
+		nextCommands = []string{
+			fmt.Sprintf("shark bug get %s", entityKey),
+		}
+	case "change":
+		nextCommands = []string{
+			fmt.Sprintf("shark change get %s", entityKey),
 		}
 	}
 	result["next_commands"] = nextCommands

@@ -29,12 +29,14 @@ var AgentTypesOrder = []string{
 
 // StatusDashboard is the complete dashboard output structure
 type StatusDashboard struct {
-	Summary           *ProjectSummary        `json:"summary"`
-	Epics             []*EpicSummary         `json:"epics"`
-	ActiveTasks       map[string][]*TaskInfo `json:"active_tasks"`
-	BlockedTasks      []*BlockedTaskInfo     `json:"blocked_tasks"`
-	RecentCompletions []*CompletionInfo      `json:"recent_completions,omitempty"`
-	Filter            *DashboardFilter       `json:"filter,omitempty"`
+	Summary           *ProjectSummary             `json:"summary"`
+	Epics             []*EpicSummary              `json:"epics"`
+	ActiveTasks       map[string][]*TaskInfo      `json:"active_tasks"`
+	BlockedTasks      []*BlockedTaskInfo          `json:"blocked_tasks"`
+	RecentCompletions []*CompletionInfo           `json:"recent_completions,omitempty"`
+	Filter            *DashboardFilter            `json:"filter,omitempty"`
+	BugSummary        *BugDashboardSummary        `json:"bugs,omitempty"`
+	ChangeCardSummary *ChangeCardDashboardSummary `json:"change_cards,omitempty"`
 }
 
 // ProjectSummary contains high-level statistics about the entire project
@@ -110,6 +112,23 @@ type CompletionInfo struct {
 	CompletedAt  time.Time `json:"completed_at"`
 	CompletedAgo *string   `json:"completed_ago,omitempty"`
 	AgentType    *string   `json:"agent_type,omitempty"`
+}
+
+// BugDashboardSummary holds the bug aggregate data shown in the status dashboard.
+// It is populated only when a BugDashboardRepository is injected into StatusService
+// and only when at least one bug exists (Total > 0).
+type BugDashboardSummary struct {
+	Total          int            `json:"total"`
+	ByStatus       map[string]int `json:"by_status"`
+	OpenBySeverity map[string]int `json:"open_by_severity"`
+}
+
+// ChangeCardDashboardSummary holds the change-card aggregate data shown in the status dashboard.
+// It is populated only when a ChangeCardDashboardRepository is injected into StatusService
+// and only when at least one change-card exists (Total > 0).
+type ChangeCardDashboardSummary struct {
+	Total    int            `json:"total"`
+	ByStatus map[string]int `json:"by_status"`
 }
 
 // DashboardFilter contains the filter criteria applied to the dashboard

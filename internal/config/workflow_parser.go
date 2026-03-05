@@ -222,6 +222,24 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 		result.Feature = featureWf
 	}
 
+	// Parse bug_workflow section
+	if bugRaw, ok := rawConfig["bug_workflow"]; ok {
+		bugWf, err := parseWorkflowSection(bugRaw, "bug_workflow")
+		if err != nil {
+			return nil, fmt.Errorf("invalid bug_workflow: %w", err)
+		}
+		result.Bug = bugWf
+	}
+
+	// Parse change_workflow section
+	if changeRaw, ok := rawConfig["change_workflow"]; ok {
+		changeWf, err := parseWorkflowSection(changeRaw, "change_workflow")
+		if err != nil {
+			return nil, fmt.Errorf("invalid change_workflow: %w", err)
+		}
+		result.Change = changeWf
+	}
+
 	// Parse task workflow from top-level fields (backward compatible)
 	taskWf, err := parseTopLevelTaskWorkflow(rawConfig)
 	if err != nil {

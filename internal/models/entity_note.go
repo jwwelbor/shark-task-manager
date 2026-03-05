@@ -13,6 +13,8 @@ const (
 	EntityTypeEpic    EntityType = "epic"
 	EntityTypeFeature EntityType = "feature"
 	EntityTypeTask    EntityType = "task"
+	EntityTypeChange  EntityType = "change"
+	EntityTypeBug     EntityType = "bug"
 )
 
 // ValidEntityTypes is the set of valid entity types
@@ -20,6 +22,8 @@ var ValidEntityTypes = map[EntityType]bool{
 	EntityTypeEpic:    true,
 	EntityTypeFeature: true,
 	EntityTypeTask:    true,
+	EntityTypeChange:  true,
+	EntityTypeBug:     true,
 }
 
 // EntityNote represents a typed note attached to any entity (epic, feature, or task)

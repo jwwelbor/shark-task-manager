@@ -351,6 +351,140 @@ func TestContextService_UnsupportedEntityType(t *testing.T) {
 	}
 }
 
+// ---- Change-card context tests ----
+
+type mockContextChangeCardRepo struct {
+	getByKeyFunc          func(ctx context.Context, key string) (*models.ChangeCard, error)
+	updateContextDataFunc func(ctx context.Context, id int64, contextData *string) error
+	storedCard            *models.ChangeCard
+}
+
+func (m *mockContextChangeCardRepo) GetByKey(ctx context.Context, key string) (*models.ChangeCard, error) {
+	if m.getByKeyFunc != nil {
+		return m.getByKeyFunc(ctx, key)
+	}
+	if m.storedCard != nil {
+		return m.storedCard, nil
+	}
+	return &models.ChangeCard{ID: 10, Key: key}, nil
+}
+
+func (m *mockContextChangeCardRepo) UpdateContextData(ctx context.Context, id int64, contextData *string) error {
+	if m.updateContextDataFunc != nil {
+		return m.updateContextDataFunc(ctx, id, contextData)
+	}
+	if m.storedCard != nil {
+		m.storedCard.ContextData = contextData
+	}
+	return nil
+}
+
+func TestContextService_GetContext_ChangeCard_NoRepo(t *testing.T) {
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+	// No change-card repo wired in
+
+	_, err := svc.GetContext(context.Background(), models.EntityTypeChange, "C001")
+	if err == nil {
+		t.Fatal("expected error when change-card repo not configured")
+	}
+	if err.Error() != "change-card repository not configured for context operations" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestContextService_GetContext_ChangeCard_NotFound(t *testing.T) {
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+	ccRepo := &mockContextChangeCardRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	svc.SetChangeCardRepo(ccRepo)
+
+	_, err := svc.GetContext(context.Background(), models.EntityTypeChange, "C999")
+	if err == nil {
+		t.Fatal("expected error for non-existent change-card")
+	}
+}
+
+func TestContextService_GetContext_ChangeCard_NoContext(t *testing.T) {
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+	ccRepo := &mockContextChangeCardRepo{
+		storedCard: &models.ChangeCard{ID: 10, Key: "C001", ContextData: nil},
+	}
+	svc.SetChangeCardRepo(ccRepo)
+
+	cd, err := svc.GetContext(context.Background(), models.EntityTypeChange, "C001")
+	if err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+	if cd != nil {
+		t.Error("expected nil context data for change-card with no context")
+	}
+}
+
+func TestContextService_GetContext_ChangeCard_WithContext(t *testing.T) {
+	contextJSON := `{"progress":{"current_step":"Reviewing"},"open_questions":["Impact?"]}`
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+	ccRepo := &mockContextChangeCardRepo{
+		storedCard: &models.ChangeCard{ID: 10, Key: "C001", ContextData: &contextJSON},
+	}
+	svc.SetChangeCardRepo(ccRepo)
+
+	cd, err := svc.GetContext(context.Background(), models.EntityTypeChange, "C001")
+	if err != nil {
+		t.Fatalf("GetContext() error = %v", err)
+	}
+	if cd == nil {
+		t.Fatal("expected non-nil context data")
+	}
+	if cd.Progress == nil || cd.Progress.CurrentStep == nil || *cd.Progress.CurrentStep != "Reviewing" {
+		t.Error("expected current_step to be 'Reviewing'")
+	}
+}
+
+func TestContextService_SetContextField_ChangeCard(t *testing.T) {
+	card := &models.ChangeCard{ID: 10, Key: "C001"}
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+	ccRepo := &mockContextChangeCardRepo{storedCard: card}
+	svc.SetChangeCardRepo(ccRepo)
+
+	err := svc.SetContextField(context.Background(), models.EntityTypeChange, "C001", "current_step", "Approved")
+	if err != nil {
+		t.Fatalf("SetContextField() error = %v", err)
+	}
+
+	if card.ContextData == nil {
+		t.Fatal("expected context data to be set on change-card")
+	}
+}
+
+func TestContextService_ClearContext_ChangeCard(t *testing.T) {
+	existingJSON := `{"progress":{"current_step":"step"}}`
+	card := &models.ChangeCard{ID: 10, Key: "C001", ContextData: &existingJSON}
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+	ccRepo := &mockContextChangeCardRepo{storedCard: card}
+	svc.SetChangeCardRepo(ccRepo)
+
+	err := svc.ClearContext(context.Background(), models.EntityTypeChange, "C001")
+	if err != nil {
+		t.Fatalf("ClearContext() error = %v", err)
+	}
+	if card.ContextData != nil {
+		t.Error("expected context data to be nil after clear")
+	}
+}
+
+func TestContextService_SetContextField_ChangeCard_NoRepo(t *testing.T) {
+	svc := NewContextService(&mockContextEpicRepo{}, &mockContextFeatureRepo{}, &mockContextTaskRepo{})
+	// No change-card repo
+
+	err := svc.SetContextField(context.Background(), models.EntityTypeChange, "C001", "current_step", "Step")
+	if err == nil {
+		t.Fatal("expected error when change-card repo not configured")
+	}
+}
+
 func TestIsValidContextField(t *testing.T) {
 	validFields := []string{
 		"current_step", "completed_steps", "remaining_steps",

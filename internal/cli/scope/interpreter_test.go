@@ -138,6 +138,58 @@ func TestInterpreter_ParseScope(t *testing.T) {
 			wantKey:  "T-E01-F01-001",
 		},
 
+		// Bug scope tests (B###)
+		{
+			name:     "bug scope - uppercase B001",
+			args:     []string{"B001"},
+			wantType: ScopeBug,
+			wantKey:  "B001",
+		},
+		{
+			name:     "bug scope - lowercase b001",
+			args:     []string{"b001"},
+			wantType: ScopeBug,
+			wantKey:  "B001",
+		},
+		{
+			name:     "bug scope - B1 single digit",
+			args:     []string{"B1"},
+			wantType: ScopeBug,
+			wantKey:  "B1",
+		},
+		{
+			name:     "bug scope - B42 two digits",
+			args:     []string{"B42"},
+			wantType: ScopeBug,
+			wantKey:  "B42",
+		},
+
+		// Change scope tests (C###)
+		{
+			name:     "change scope - uppercase C001",
+			args:     []string{"C001"},
+			wantType: ScopeChange,
+			wantKey:  "C001",
+		},
+		{
+			name:     "change scope - lowercase c001",
+			args:     []string{"c001"},
+			wantType: ScopeChange,
+			wantKey:  "C001",
+		},
+		{
+			name:     "change scope - C1 single digit",
+			args:     []string{"C1"},
+			wantType: ScopeChange,
+			wantKey:  "C1",
+		},
+		{
+			name:     "change scope - C15 two digits",
+			args:     []string{"C15"},
+			wantType: ScopeChange,
+			wantKey:  "C15",
+		},
+
 		// Error cases
 		{
 			name:      "error - no args",

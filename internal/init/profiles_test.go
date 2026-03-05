@@ -552,3 +552,265 @@ func TestProfileDescription(t *testing.T) {
 		}
 	}
 }
+
+// --- E18-F01: bug_workflow and change_workflow integration tests ---
+
+// TestGetProfileMap_BasicHasBugWorkflow tests that basic profile includes bug_workflow key (TC-P1-01)
+func TestGetProfileMap_BasicHasBugWorkflow(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	if _, ok := m["bug_workflow"]; !ok {
+		t.Error("basic profile missing 'bug_workflow' key")
+	}
+}
+
+// TestGetProfileMap_BasicHasChangeWorkflow tests that basic profile includes change_workflow key (TC-P1-02)
+func TestGetProfileMap_BasicHasChangeWorkflow(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	if _, ok := m["change_workflow"]; !ok {
+		t.Error("basic profile missing 'change_workflow' key")
+	}
+}
+
+// TestGetProfileMap_AdvancedHasBugWorkflow tests that advanced profile includes bug_workflow key (TC-P1-03)
+func TestGetProfileMap_AdvancedHasBugWorkflow(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
+
+	if _, ok := m["bug_workflow"]; !ok {
+		t.Error("advanced profile missing 'bug_workflow' key")
+	}
+}
+
+// TestGetProfileMap_AdvancedHasChangeWorkflow tests that advanced profile includes change_workflow key (TC-P1-04)
+func TestGetProfileMap_AdvancedHasChangeWorkflow(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
+
+	if _, ok := m["change_workflow"]; !ok {
+		t.Error("advanced profile missing 'change_workflow' key")
+	}
+}
+
+// TestBugWorkflowStructure_Basic tests bug_workflow has expected sub-keys in basic profile (TC-P2-01)
+func TestBugWorkflowStructure_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	bugWorkflow, ok := m["bug_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("basic profile 'bug_workflow' is not a map")
+	}
+
+	if _, ok := bugWorkflow["status_flow"]; !ok {
+		t.Error("bug_workflow missing 'status_flow'")
+	}
+	if _, ok := bugWorkflow["status_metadata"]; !ok {
+		t.Error("bug_workflow missing 'status_metadata'")
+	}
+	if _, ok := bugWorkflow["special_statuses"]; !ok {
+		t.Error("bug_workflow missing 'special_statuses'")
+	}
+}
+
+// TestChangeWorkflowStructure_Basic tests change_workflow has expected sub-keys in basic profile (TC-P2-02)
+func TestChangeWorkflowStructure_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	changeWorkflow, ok := m["change_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("basic profile 'change_workflow' is not a map")
+	}
+
+	if _, ok := changeWorkflow["status_flow"]; !ok {
+		t.Error("change_workflow missing 'status_flow'")
+	}
+	if _, ok := changeWorkflow["status_metadata"]; !ok {
+		t.Error("change_workflow missing 'status_metadata'")
+	}
+	if _, ok := changeWorkflow["special_statuses"]; !ok {
+		t.Error("change_workflow missing 'special_statuses'")
+	}
+}
+
+// TestBugWorkflowStatusCount_Basic tests bug_workflow has 7 statuses in basic profile (TC-P3-01)
+func TestBugWorkflowStatusCount_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	bugWorkflow := m["bug_workflow"].(map[string]interface{})
+	statusMeta, ok := bugWorkflow["status_metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("bug_workflow.status_metadata is not a map")
+	}
+
+	if len(statusMeta) != 7 {
+		t.Errorf("bug_workflow status count = %d, want 7", len(statusMeta))
+	}
+}
+
+// TestBugWorkflowStatuses_Basic tests bug_workflow has expected statuses in basic profile (TC-P3-02)
+func TestBugWorkflowStatuses_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	bugWorkflow := m["bug_workflow"].(map[string]interface{})
+	statusMeta := bugWorkflow["status_metadata"].(map[string]interface{})
+
+	expectedStatuses := []string{"reported", "triaged", "in_fix", "in_verification", "resolved", "wont_fix", "duplicate"}
+	for _, status := range expectedStatuses {
+		if _, ok := statusMeta[status]; !ok {
+			t.Errorf("bug_workflow missing expected status: %s", status)
+		}
+	}
+}
+
+// TestBugWorkflowStartStatus_Basic tests bug_workflow starts at 'reported' (TC-P3-03)
+func TestBugWorkflowStartStatus_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	bugWorkflow := m["bug_workflow"].(map[string]interface{})
+	specialStatuses, ok := bugWorkflow["special_statuses"].(map[string]interface{})
+	if !ok {
+		t.Fatal("bug_workflow.special_statuses is not a map")
+	}
+
+	startStatuses, ok := specialStatuses["_start_"].([]interface{})
+	if !ok {
+		t.Fatal("bug_workflow._start_ is not a list")
+	}
+
+	if len(startStatuses) == 0 {
+		t.Fatal("bug_workflow._start_ is empty")
+	}
+
+	if startStatuses[0].(string) != "reported" {
+		t.Errorf("bug_workflow._start_ = %v, want ['reported']", startStatuses)
+	}
+}
+
+// TestChangeWorkflowStatusCount_Basic tests change_workflow has 5 statuses in basic profile (TC-P4-01)
+func TestChangeWorkflowStatusCount_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	changeWorkflow := m["change_workflow"].(map[string]interface{})
+	statusMeta, ok := changeWorkflow["status_metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("change_workflow.status_metadata is not a map")
+	}
+
+	if len(statusMeta) != 5 {
+		t.Errorf("change_workflow status count = %d, want 5", len(statusMeta))
+	}
+}
+
+// TestChangeWorkflowStatuses_Basic tests change_workflow has expected statuses in basic profile (TC-P4-02)
+func TestChangeWorkflowStatuses_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	changeWorkflow := m["change_workflow"].(map[string]interface{})
+	statusMeta := changeWorkflow["status_metadata"].(map[string]interface{})
+
+	expectedStatuses := []string{"proposed", "approved", "in_progress", "completed", "declined"}
+	for _, status := range expectedStatuses {
+		if _, ok := statusMeta[status]; !ok {
+			t.Errorf("change_workflow missing expected status: %s", status)
+		}
+	}
+}
+
+// TestChangeWorkflowStartStatus_Basic tests change_workflow starts at 'proposed' (TC-P4-03)
+func TestChangeWorkflowStartStatus_Basic(t *testing.T) {
+	m, err := GetProfileMap("basic")
+	if err != nil {
+		t.Fatalf("GetProfileMap('basic') error = %v", err)
+	}
+
+	changeWorkflow := m["change_workflow"].(map[string]interface{})
+	specialStatuses, ok := changeWorkflow["special_statuses"].(map[string]interface{})
+	if !ok {
+		t.Fatal("change_workflow.special_statuses is not a map")
+	}
+
+	startStatuses, ok := specialStatuses["_start_"].([]interface{})
+	if !ok {
+		t.Fatal("change_workflow._start_ is not a list")
+	}
+
+	if len(startStatuses) == 0 {
+		t.Fatal("change_workflow._start_ is empty")
+	}
+
+	if startStatuses[0].(string) != "proposed" {
+		t.Errorf("change_workflow._start_ = %v, want ['proposed']", startStatuses)
+	}
+}
+
+// TestBugWorkflowStructure_Advanced tests bug_workflow has expected sub-keys in advanced profile (TC-P5-01)
+func TestBugWorkflowStructure_Advanced(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
+
+	bugWorkflow, ok := m["bug_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("advanced profile 'bug_workflow' is not a map")
+	}
+
+	if _, ok := bugWorkflow["status_flow"]; !ok {
+		t.Error("advanced bug_workflow missing 'status_flow'")
+	}
+	if _, ok := bugWorkflow["status_metadata"]; !ok {
+		t.Error("advanced bug_workflow missing 'status_metadata'")
+	}
+}
+
+// TestChangeWorkflowStructure_Advanced tests change_workflow has expected sub-keys in advanced profile (TC-P5-02)
+func TestChangeWorkflowStructure_Advanced(t *testing.T) {
+	m, err := GetProfileMap("advanced")
+	if err != nil {
+		t.Fatalf("GetProfileMap('advanced') error = %v", err)
+	}
+
+	changeWorkflow, ok := m["change_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("advanced profile 'change_workflow' is not a map")
+	}
+
+	if _, ok := changeWorkflow["status_flow"]; !ok {
+		t.Error("advanced change_workflow missing 'status_flow'")
+	}
+	if _, ok := changeWorkflow["status_metadata"]; !ok {
+		t.Error("advanced change_workflow missing 'status_metadata'")
+	}
+}

@@ -42,7 +42,12 @@ func GetNoteService(ctx context.Context) (*services.NoteService, error) {
 		featureRepo := repository.NewFeatureRepository(db)
 		taskRepo := repository.NewTaskRepository(db)
 
-		globalNoteService = services.NewNoteService(noteRepo, epicRepo, featureRepo, taskRepo)
+		svc := services.NewNoteService(noteRepo, epicRepo, featureRepo, taskRepo)
+		changeCardRepo := repository.NewChangeCardRepository(db)
+		svc.SetChangeCardRepo(changeCardRepo)
+		bugRepo := repository.NewBugRepository(db)
+		svc.SetBugRepo(bugRepo)
+		globalNoteService = svc
 	})
 
 	if noteServiceErr != nil {
@@ -64,7 +69,12 @@ func GetContextService(ctx context.Context) (*services.ContextService, error) {
 		featureRepo := repository.NewFeatureRepository(db)
 		taskRepo := repository.NewTaskRepository(db)
 
-		globalContextService = services.NewContextService(epicRepo, featureRepo, taskRepo)
+		svc := services.NewContextService(epicRepo, featureRepo, taskRepo)
+		bugRepo := repository.NewBugRepository(db)
+		svc.SetBugRepo(bugRepo)
+		changeCardRepo := repository.NewChangeCardRepository(db)
+		svc.SetChangeCardRepo(changeCardRepo)
+		globalContextService = svc
 	})
 
 	if contextServiceErr != nil {
@@ -268,7 +278,12 @@ func GetViewService() *view.Service {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
-	return view.NewService(epicRepo, featureRepo, taskRepo)
+	svc := view.NewService(epicRepo, featureRepo, taskRepo)
+	changeCardRepo := repository.NewChangeCardRepository(db)
+	svc.SetChangeCardRepo(changeCardRepo)
+	bugRepo := repository.NewBugRepository(db)
+	svc.SetBugRepo(bugRepo)
+	return svc
 }
 
 // GetValidationRunner returns a validation.Validator configured with all repositories.
@@ -289,6 +304,77 @@ func GetValidationRunner() *validation.Validator {
 	taskRepo := repository.NewTaskRepository(db)
 	repoAdapter := validation.NewRepositoryAdapter(epicRepo, featureRepo, taskRepo)
 	return validation.NewValidator(repoAdapter)
+}
+
+// GetChangeCardService returns a ChangeCardService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetChangeCardService()
+//	card, err := svc.CreateChangeCard(ctx, input)
+func GetChangeCardService() *services.ChangeCardService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	workflowSvc := GetWorkflowService()
+	changeCardRepo := repository.NewChangeCardRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+
+	return services.NewChangeCardService(changeCardRepo, workflowSvc, epicRepo, featureRepo, projectRoot)
+}
+
+// GetBugService returns a BugService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetBugService()
+//	bug, err := svc.CreateBug(ctx, input)
+func GetBugService() *services.BugService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	workflowSvc := GetWorkflowService()
+	bugRepo := repository.NewBugRepository(db)
+	epicRepo := repository.NewEpicRepository(db)
+	featureRepo := repository.NewFeatureRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+
+	return services.NewBugService(bugRepo, workflowSvc, epicRepo, featureRepo, taskRepo, projectRoot)
+}
+
+// GetDashboardAnalyticsService returns a DashboardAnalyticsService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetDashboardAnalyticsService()
+//	result, err := svc.GetBugAnalytics(ctx)
+func GetDashboardAnalyticsService() *services.DashboardAnalyticsService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	bugRepo := repository.NewBugRepository(db)
+	ccRepo := repository.NewChangeCardRepository(db)
+	return services.NewDashboardAnalyticsService(bugRepo, ccRepo)
 }
 
 // ResetServices clears global service state. For testing only.

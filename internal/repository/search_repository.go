@@ -25,6 +25,100 @@ type SearchResult struct {
 	Snippet     string  `json:"snippet,omitempty"` // Highlighted snippet
 }
 
+// EntitySearchResult represents a cross-entity search result.
+// Severity is populated only for bugs; omitted for all other entity types.
+type EntitySearchResult struct {
+	EntityType string `json:"entity_type"`
+	Key        string `json:"key"`
+	Title      string `json:"title"`
+	Status     string `json:"status"`
+	Severity   string `json:"severity,omitempty"` // bugs only
+}
+
+// SearchAll performs a LIKE-based full-text search across epics, features, tasks,
+// bugs, and change_cards. If entityType is non-nil and non-empty, results are
+// filtered to that type only.
+// Valid entityType values: "epic", "feature", "task", "bug", "change".
+// An empty query returns an empty result set (no error).
+func (r *SearchRepository) SearchAll(ctx context.Context, query string, entityType *string) ([]*EntitySearchResult, error) {
+	if strings.TrimSpace(query) == "" {
+		return []*EntitySearchResult{}, nil
+	}
+
+	pattern := "%" + query + "%"
+
+	// UNION query across all entity tables. Column order: entity_type, key, title, status, severity.
+	unionSQL := `
+		SELECT 'epic'    AS entity_type, key, title, status, '' AS severity
+		FROM epics
+		WHERE title LIKE ? OR key LIKE ?
+
+		UNION ALL
+
+		SELECT 'feature' AS entity_type, key, title, status, '' AS severity
+		FROM features
+		WHERE title LIKE ? OR key LIKE ?
+
+		UNION ALL
+
+		SELECT 'task'    AS entity_type, key, title, status, '' AS severity
+		FROM tasks
+		WHERE title LIKE ? OR key LIKE ?
+		   OR COALESCE(description, '') LIKE ?
+
+		UNION ALL
+
+		SELECT 'bug'     AS entity_type, key, title, CAST(status AS TEXT), CAST(severity AS TEXT) AS severity
+		FROM bugs
+		WHERE title LIKE ? OR key LIKE ?
+		   OR COALESCE(description, '') LIKE ?
+
+		UNION ALL
+
+		SELECT 'change'  AS entity_type, key, title, CAST(status AS TEXT), '' AS severity
+		FROM change_cards
+		WHERE title LIKE ? OR key LIKE ?
+		   OR COALESCE(description, '') LIKE ?
+
+		ORDER BY entity_type, key
+	`
+
+	args := []interface{}{
+		pattern, pattern, // epic: title, key
+		pattern, pattern, // feature: title, key
+		pattern, pattern, pattern, // task: title, key, description
+		pattern, pattern, pattern, // bug: title, key, description
+		pattern, pattern, pattern, // change_card: title, key, description
+	}
+
+	rows, err := r.db.QueryContext(ctx, unionSQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("search query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*EntitySearchResult
+	for rows.Next() {
+		res := &EntitySearchResult{}
+		if err := rows.Scan(&res.EntityType, &res.Key, &res.Title, &res.Status, &res.Severity); err != nil {
+			return nil, fmt.Errorf("failed to scan search result: %w", err)
+		}
+
+		// Apply entity type filter if requested
+		if entityType != nil && *entityType != "" && res.EntityType != *entityType {
+			continue
+		}
+
+		results = append(results, res)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating search results: %w", err)
+	}
+
+	return results, nil
+}
+
 // RebuildIndex rebuilds the FTS5 search index from current task data
 func (r *SearchRepository) RebuildIndex(ctx context.Context) error {
 	// First, clear the existing FTS index

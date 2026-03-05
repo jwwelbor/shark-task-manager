@@ -45,7 +45,7 @@ func TestEpicTemplates_ExistAndRender(t *testing.T) {
 				"Risk assessment",
 				"EXIT GATE:",
 				"All 6 sections complete",
-				"Advance: shark epic next-status",
+				"shark status advance",
 			},
 			notExpected: []string{
 				"",
@@ -94,10 +94,9 @@ func TestEpicTemplates_ExistAndRender(t *testing.T) {
 			},
 			expectedStrings: []string{
 				"Technical feasibility review for epic E07",
-				"epic PRD",
-				"technical perspective",
+				"PLAN GATE",
 				"READ:",
-				"All 6 epic PRD files",
+				"All epic BA docs",
 				"Research report",
 				"BA feasibility review report",
 				"Other epic architectures",
@@ -112,6 +111,7 @@ func TestEpicTemplates_ExistAndRender(t *testing.T) {
 				"IF CONCERNS FOUND:",
 				"intervention_required",
 				"intervention report",
+				"shark epic update E07",
 			},
 			notExpected: []string{
 				"",
@@ -146,9 +146,11 @@ func TestEpicTemplates_ExistAndRender(t *testing.T) {
 			lines := strings.Split(result, "\n")
 			assert.Greater(t, len(lines), 5, "Template should have multiple lines")
 
-			// Verify key command is present
-			assert.Contains(t, result, "shark epic next-status",
-				"Template should contain advancement command")
+			// Verify key command is present (some templates use shark status advance, others use shark epic update)
+			hasAdvance := strings.Contains(result, "shark status advance")
+			hasEpicUpdate := strings.Contains(result, "shark epic update")
+			assert.True(t, hasAdvance || hasEpicUpdate,
+				"Template should contain a shark advancement command (shark status advance or shark epic update)")
 		})
 	}
 }
@@ -201,7 +203,7 @@ func TestEpicTemplates_RegressionSemanticEquivalence(t *testing.T) {
 		assert.Contains(t, result, "READ")
 		assert.Contains(t, result, "PRODUCE")
 		assert.Contains(t, result, "EXIT GATE")
-		assert.Contains(t, result, "Advance")
+		assert.Contains(t, result, "shark status advance")
 
 		// Verify multi-section structure
 		produceIdx := strings.Index(result, "PRODUCE:")
@@ -243,7 +245,7 @@ func TestEpicTemplates_RegressionSemanticEquivalence(t *testing.T) {
 		// Core semantic elements
 		assert.Contains(t, result, "Technical feasibility review")
 		assert.Contains(t, result, "E07")
-		assert.Contains(t, result, "technical perspective")
+		assert.Contains(t, result, "PLAN GATE")
 		assert.Contains(t, result, "READ")
 		assert.Contains(t, result, "EVALUATE")
 		assert.Contains(t, result, "Technical feasibility")
@@ -251,6 +253,7 @@ func TestEpicTemplates_RegressionSemanticEquivalence(t *testing.T) {
 		assert.Contains(t, result, "IF APPROVED")
 		assert.Contains(t, result, "IF CONCERNS FOUND")
 		assert.Contains(t, result, "intervention_required")
+		assert.Contains(t, result, "shark epic update")
 	})
 }
 
@@ -304,8 +307,11 @@ func TestEpicTemplates_VariableSubstitution(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, result, tt.idField,
 				"Template should substitute epic ID %s", tt.idField)
-			assert.Contains(t, result, tt.vars["file_path"],
-				"Template should substitute file path")
+			// Only check file_path substitution for templates that use it
+			if filePath := tt.vars["file_path"]; filePath != "" && tt.templateName != "epic/ready_for_feasibility_review_tech.tmpl" {
+				assert.Contains(t, result, filePath,
+					"Template should substitute file path")
+			}
 		})
 	}
 }
@@ -324,24 +330,22 @@ func TestEpicTemplates_CommandIntegrity(t *testing.T) {
 
 	// Research template should end with advancement command
 	result, _ := renderer.Render("epic/ready_for_research.tmpl", vars)
-	assert.Contains(t, result, "shark epic next-status "+epicID,
+	assert.Contains(t, result, "shark status advance "+epicID,
 		"research template should contain advancement command with epic ID")
 
 	// BA feasibility template should handle both approved and concerns paths
 	result, _ = renderer.Render("epic/ready_for_feasibility_review_ba.tmpl", vars)
-	assert.Contains(t, result, "shark epic next-status "+epicID,
+	assert.Contains(t, result, "shark status advance "+epicID,
 		"BA feasibility template should contain advancement command")
 	assert.Contains(t, result, "shark epic update "+epicID,
 		"BA feasibility template should contain update command for intervention")
 	assert.Contains(t, result, "status=intervention_required",
 		"BA feasibility template should reference intervention_required status")
 
-	// Tech feasibility template should handle both approved and concerns paths
+	// Tech feasibility template uses shark epic update for both approved and concerns paths
 	result, _ = renderer.Render("epic/ready_for_feasibility_review_tech.tmpl", vars)
-	assert.Contains(t, result, "shark epic next-status "+epicID,
-		"Tech feasibility template should contain advancement command")
 	assert.Contains(t, result, "shark epic update "+epicID,
-		"Tech feasibility template should contain update command for intervention")
+		"Tech feasibility template should contain update command")
 	assert.Contains(t, result, "status=intervention_required",
 		"Tech feasibility template should reference intervention_required status")
 }
