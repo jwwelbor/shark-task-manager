@@ -1065,7 +1065,7 @@ func TestPhase2EpicTemplateReferencesInConfig(t *testing.T) {
 func TestPhase2AllTaskTemplateFilesExist(t *testing.T) {
 	// Find templates directory
 	projectRoot := getProjectRoot()
-	baseDir := filepath.Join(projectRoot, "templates")
+	baseDir := filepath.Join(projectRoot, "shark-templates")
 
 	taskTemplates := []string{
 		baseDir + "/task/ready_for_development.tmpl",
@@ -1086,7 +1086,7 @@ func TestPhase2AllTaskTemplateFilesExist(t *testing.T) {
 func TestPhase2AllFeatureTemplateFilesExist(t *testing.T) {
 	// Find templates directory
 	projectRoot := getProjectRoot()
-	baseDir := filepath.Join(projectRoot, "templates")
+	baseDir := filepath.Join(projectRoot, "shark-templates")
 
 	featureTemplates := []string{
 		baseDir + "/feature/ready_for_research.tmpl",
@@ -1106,7 +1106,7 @@ func TestPhase2AllFeatureTemplateFilesExist(t *testing.T) {
 func TestPhase2AllEpicTemplateFilesExist(t *testing.T) {
 	// Find templates directory
 	projectRoot := getProjectRoot()
-	baseDir := filepath.Join(projectRoot, "templates")
+	baseDir := filepath.Join(projectRoot, "shark-templates")
 
 	epicTemplates := []string{
 		baseDir + "/epic/ready_for_research.tmpl",
@@ -1162,7 +1162,7 @@ func TestPhase2NonPhase2StatusesRemainInline(t *testing.T) {
 func TestPhase2NoEmptyTemplateFiles(t *testing.T) {
 	// Find templates directory
 	projectRoot := getProjectRoot()
-	baseDir := filepath.Join(projectRoot, "templates")
+	baseDir := filepath.Join(projectRoot, "shark-templates")
 
 	allTemplates := []string{
 		baseDir + "/task/ready_for_development.tmpl",

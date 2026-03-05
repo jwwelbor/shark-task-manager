@@ -649,7 +649,7 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 	}
 
 	// Read and render template
-	templatePath := "shark-templates/epic.md"
+	templatePath := "shark-templates/entity/epic.md"
 	templateContent, err := os.ReadFile(templatePath)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to read epic template: %v", err))

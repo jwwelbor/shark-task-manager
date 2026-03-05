@@ -18,6 +18,8 @@ type MultiLevelWorkflowDisplay struct {
 	EpicWorkflow    *LevelWorkflowDisplay `json:"epic_workflow"`
 	FeatureWorkflow *LevelWorkflowDisplay `json:"feature_workflow"`
 	TaskWorkflow    *LevelWorkflowDisplay `json:"task_workflow"`
+	BugWorkflow     *LevelWorkflowDisplay `json:"bug_workflow"`
+	ChangeWorkflow  *LevelWorkflowDisplay `json:"change_workflow"`
 	ConfigPath      string                `json:"config_path"`
 }
 
@@ -129,12 +131,14 @@ func runWorkflowList(cmd *cobra.Command, args []string) error {
 	return displayMultiLevelWorkflowHumanReadable(display)
 }
 
-// buildMultiLevelWorkflowDisplay builds display structs for all three workflow levels.
+// buildMultiLevelWorkflowDisplay builds display structs for all workflow levels.
 func buildMultiLevelWorkflowDisplay(multi *config.MultiLevelWorkflow, configPath string) *MultiLevelWorkflowDisplay {
 	return &MultiLevelWorkflowDisplay{
 		EpicWorkflow:    buildLevelWorkflowDisplay("epic", multi.Epic, multi.GetWorkflowForLevel("epic")),
 		FeatureWorkflow: buildLevelWorkflowDisplay("feature", multi.Feature, multi.GetWorkflowForLevel("feature")),
 		TaskWorkflow:    buildLevelWorkflowDisplay("task", multi.Task, multi.GetWorkflowForLevel("task")),
+		BugWorkflow:     buildLevelWorkflowDisplay("bug", multi.Bug, multi.GetWorkflowForLevel("bug")),
+		ChangeWorkflow:  buildLevelWorkflowDisplay("change", multi.Change, multi.GetWorkflowForLevel("change")),
 		ConfigPath:      configPath,
 	}
 }
@@ -206,6 +210,8 @@ func displayMultiLevelWorkflowHumanReadable(display *MultiLevelWorkflowDisplay) 
 	displayWorkflowLevelSection(display.EpicWorkflow)
 	displayWorkflowLevelSection(display.FeatureWorkflow)
 	displayWorkflowLevelSection(display.TaskWorkflow)
+	displayWorkflowLevelSection(display.BugWorkflow)
+	displayWorkflowLevelSection(display.ChangeWorkflow)
 
 	// Legend
 	fmt.Println("Legend:")
@@ -348,6 +354,8 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 		{"epic", multi.Epic, multi.GetWorkflowForLevel("epic")},
 		{"feature", multi.Feature, multi.GetWorkflowForLevel("feature")},
 		{"task", multi.Task, multi.GetWorkflowForLevel("task")},
+		{"bug", multi.Bug, multi.GetWorkflowForLevel("bug")},
+		{"change", multi.Change, multi.GetWorkflowForLevel("change")},
 	}
 
 	allValid := true

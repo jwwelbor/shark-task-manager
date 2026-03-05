@@ -861,7 +861,7 @@ func resolveCustomFeatureFilePath(cmd *cobra.Command, projectRoot string, force 
 
 // renderFeatureTemplate reads and renders the feature markdown template.
 func renderFeatureTemplate(epicKey, featureKey, featureSlug, title, description, filePath string) ([]byte, error) {
-	templatePath := "shark-templates/feature.md"
+	templatePath := "shark-templates/entity/feature.md"
 	templateContent, err := os.ReadFile(templatePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read feature template: %w (run 'shark init' to create templates)", err)

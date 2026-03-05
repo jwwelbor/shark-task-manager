@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
@@ -24,6 +25,8 @@ type changeCardServicer interface {
 	ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
 	SetChangeCardStatus(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error)
 	AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error)
+	GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction
+	GetValidTransitions(status string) []string
 }
 
 // changeCardSvcOverride is non-nil only during tests.
@@ -341,10 +344,49 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(card)
+		orchestratorAction := svc.GetOrchestratorAction(card)
+		validTransitions := svc.GetValidTransitions(string(card.Status))
+		result := buildChangeGetJSON(card, orchestratorAction, validTransitions)
+		return cli.OutputJSON(result)
 	}
 	renderChangeCardDetails(card)
 	return nil
+}
+
+// buildChangeGetJSON builds the enriched JSON response for change-card get output.
+func buildChangeGetJSON(card *models.ChangeCard, orchestratorAction *config.PopulatedAction, validTransitions []string) map[string]interface{} {
+	result := map[string]interface{}{
+		"id":         card.ID,
+		"key":        card.Key,
+		"title":      card.Title,
+		"status":     card.Status,
+		"priority":   card.Priority,
+		"slug":       card.Slug,
+		"file_path":  card.FilePath,
+		"created_at": card.CreatedAt,
+		"updated_at": card.UpdatedAt,
+	}
+	if card.Description != nil {
+		result["description"] = *card.Description
+	}
+	if card.Justification != nil {
+		result["justification"] = *card.Justification
+	}
+	if card.ImpactAnalysis != nil {
+		result["impact_analysis"] = *card.ImpactAnalysis
+	}
+	if card.RollbackPlan != nil {
+		result["rollback_plan"] = *card.RollbackPlan
+	}
+	if card.EpicID != nil {
+		result["epic_id"] = *card.EpicID
+	}
+	if card.FeatureID != nil {
+		result["feature_id"] = *card.FeatureID
+	}
+	result["valid_transitions"] = validTransitions
+	result["orchestrator_action"] = orchestratorAction
+	return result
 }
 
 // runChangeList handles the `shark change list` command.

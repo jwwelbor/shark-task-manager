@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
@@ -308,9 +309,43 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(bug)
+		orchestratorAction := svc.GetOrchestratorAction(bug)
+		validTransitions := svc.GetValidTransitions(string(bug.Status))
+		result := buildBugGetJSON(bug, orchestratorAction, validTransitions)
+		return cli.OutputJSON(result)
 	}
 	return printBugDetail(bug)
+}
+
+// buildBugGetJSON builds the enriched JSON response for bug get output.
+func buildBugGetJSON(bug *models.Bug, orchestratorAction *config.PopulatedAction, validTransitions []string) map[string]interface{} {
+	result := map[string]interface{}{
+		"id":         bug.ID,
+		"key":        bug.Key,
+		"title":      bug.Title,
+		"status":     bug.Status,
+		"severity":   bug.Severity,
+		"created_at": bug.CreatedAt,
+		"updated_at": bug.UpdatedAt,
+	}
+	if bug.Slug != nil {
+		result["slug"] = *bug.Slug
+	}
+	if bug.Description != nil {
+		result["description"] = *bug.Description
+	}
+	if bug.FilePath != nil {
+		result["file_path"] = *bug.FilePath
+	}
+	if bug.LinkedEntityType != nil {
+		result["linked_entity_type"] = *bug.LinkedEntityType
+	}
+	if bug.LinkedEntityKey != nil {
+		result["linked_entity_key"] = *bug.LinkedEntityKey
+	}
+	result["valid_transitions"] = validTransitions
+	result["orchestrator_action"] = orchestratorAction
+	return result
 }
 
 // runBugList handles the `shark bug list` command.

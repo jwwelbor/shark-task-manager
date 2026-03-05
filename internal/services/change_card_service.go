@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -380,4 +381,41 @@ func (s *ChangeCardService) generateMarkdown(card *models.ChangeCard) string {
 	sb.WriteString("[Describe how to revert this change if needed]\n")
 
 	return sb.String()
+}
+
+// resolveAction looks up the orchestrator action for a given change-card status.
+func (s *ChangeCardService) resolveAction(card *models.ChangeCard, status string) *config.PopulatedAction {
+	wf := s.workflowSvc.GetWorkflow()
+	if wf == nil || wf.StatusMetadata == nil {
+		return nil
+	}
+	meta, exists := wf.StatusMetadata[status]
+	if !exists || meta.OrchestratorAction == nil {
+		return nil
+	}
+	placeholders := config.ChangeCardPlaceholders(card)
+	return &config.PopulatedAction{
+		Action:      meta.OrchestratorAction.Action,
+		AgentType:   meta.OrchestratorAction.AgentType,
+		Skills:      meta.OrchestratorAction.Skills,
+		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+	}
+}
+
+// GetOrchestratorAction returns the orchestrator action for the change-card's current status.
+func (s *ChangeCardService) GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction {
+	return s.resolveAction(card, string(card.Status))
+}
+
+// GetValidTransitions returns the valid next statuses for the given status key.
+func (s *ChangeCardService) GetValidTransitions(status string) []string {
+	wf := s.workflowSvc.GetWorkflow()
+	if wf == nil {
+		return []string{}
+	}
+	transitions, ok := wf.StatusFlow[status]
+	if !ok {
+		return []string{}
+	}
+	return transitions
 }

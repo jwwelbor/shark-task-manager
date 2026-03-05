@@ -1,0 +1,32 @@
+{{template "_resume_preamble" .}}RESUME bug fix for {{.key}}: "{{.title}}".
+
+Check for existing fix work:
+1. Look for recent commits or staged changes related to this bug
+2. Check for failing/passing tests tied to this bug
+3. If fix is complete and tests pass → shark status advance {{.key}}
+4. If fix is partial → continue from where it left off
+
+---
+
+Fix bug {{.key}}: "{{.title}}".
+
+SEVERITY: {{.severity}}
+
+READ:
+(1) Bug report at {{.file_path}}
+(2) Reproduce the bug before fixing it
+
+IMPLEMENT the fix:
+- Write a failing test that captures the bug scenario
+- Apply the minimal targeted fix
+- Verify the test now passes
+- Run full test suite to catch regressions
+
+DOCUMENT: shark bug note {{.key}} 'FIX: {brief description of what was changed and why}'
+
+EXIT GATE:
+- Bug reproducer passes
+- No regressions in existing tests
+- Fix is minimal and does not introduce unrelated changes
+
+shark status advance {{.key}}

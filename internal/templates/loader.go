@@ -21,7 +21,7 @@ type Loader struct {
 func NewLoader(templateDir string) *Loader {
 	useEmbedded := templateDir == ""
 	if templateDir == "" {
-		templateDir = "templates"
+		templateDir = "shark-templates"
 	}
 	return &Loader{
 		templateDir: templateDir,

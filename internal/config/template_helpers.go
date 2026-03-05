@@ -128,6 +128,46 @@ func EpicPlaceholders(epic *models.Epic) map[string]string {
 	return m
 }
 
+// BugPlaceholders creates a map of template placeholders from a Bug.
+func BugPlaceholders(bug *models.Bug) map[string]string {
+	if bug == nil {
+		return make(map[string]string)
+	}
+	filePath := ""
+	if bug.FilePath != nil {
+		filePath = *bug.FilePath
+	}
+	severity := string(bug.Severity)
+	return map[string]string{
+		"id":        bug.Key,
+		"key":       bug.Key,
+		"title":     bug.Title,
+		"status":    string(bug.Status),
+		"severity":  severity,
+		"file_path": filePath,
+	}
+}
+
+// ChangeCardPlaceholders creates a map of template placeholders from a ChangeCard.
+func ChangeCardPlaceholders(card *models.ChangeCard) map[string]string {
+	if card == nil {
+		return make(map[string]string)
+	}
+	description := ""
+	if card.Description != nil {
+		description = *card.Description
+	}
+	return map[string]string{
+		"id":          card.Key,
+		"key":         card.Key,
+		"title":       card.Title,
+		"status":      string(card.Status),
+		"priority":    fmt.Sprintf("%d", card.Priority),
+		"file_path":   card.FilePath,
+		"description": description,
+	}
+}
+
 // formatDocPathsAsCSV formats a slice of documents as comma-separated file paths.
 // Returns an empty string if the slice is nil or empty.
 // Handles documents with spaces in paths without escaping.

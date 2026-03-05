@@ -10,7 +10,7 @@ import (
 
 // TestEpicTemplates_ExistAndRender validates that all 3 epic strategic templates exist and render correctly
 func TestEpicTemplates_ExistAndRender(t *testing.T) {
-	renderer, err := NewOrchestratorRenderer("../../templates")
+	renderer, err := NewOrchestratorRenderer("../../shark-templates")
 	require.NoError(t, err, "Should initialize renderer without errors")
 	require.NotNil(t, renderer, "Renderer should not be nil")
 
@@ -157,7 +157,7 @@ func TestEpicTemplates_ExistAndRender(t *testing.T) {
 
 // TestEpicTemplates_AllExist validates that all 3 epic templates exist in the file system
 func TestEpicTemplates_AllExist(t *testing.T) {
-	renderer, err := NewOrchestratorRenderer("../../templates")
+	renderer, err := NewOrchestratorRenderer("../../shark-templates")
 	require.NoError(t, err, "Should initialize renderer without errors")
 
 	templates := []string{
@@ -183,7 +183,7 @@ func TestEpicTemplates_AllExist(t *testing.T) {
 
 // TestEpicTemplates_RegressionSemanticEquivalence validates that epic templates produce semantically equivalent output to what would be expected
 func TestEpicTemplates_RegressionSemanticEquivalence(t *testing.T) {
-	renderer, err := NewOrchestratorRenderer("../../templates")
+	renderer, err := NewOrchestratorRenderer("../../shark-templates")
 	require.NoError(t, err)
 
 	// Test ready_for_research template
@@ -259,7 +259,7 @@ func TestEpicTemplates_RegressionSemanticEquivalence(t *testing.T) {
 
 // TestEpicTemplates_VariableSubstitution validates that variables are correctly substituted in templates
 func TestEpicTemplates_VariableSubstitution(t *testing.T) {
-	renderer, err := NewOrchestratorRenderer("../../templates")
+	renderer, err := NewOrchestratorRenderer("../../shark-templates")
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -318,7 +318,7 @@ func TestEpicTemplates_VariableSubstitution(t *testing.T) {
 
 // TestEpicTemplates_CommandIntegrity validates that generated commands are correct
 func TestEpicTemplates_CommandIntegrity(t *testing.T) {
-	renderer, err := NewOrchestratorRenderer("../../templates")
+	renderer, err := NewOrchestratorRenderer("../../shark-templates")
 	require.NoError(t, err)
 
 	epicID := "E07-F30-001"
