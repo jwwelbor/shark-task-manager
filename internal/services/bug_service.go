@@ -392,12 +392,12 @@ func (s *BugService) GetOrchestratorAction(bug *models.Bug) *config.PopulatedAct
 }
 
 // GetValidTransitions returns the valid next statuses for the bug's current status.
-func (s *BugService) GetValidTransitions(key string) []string {
+func (s *BugService) GetValidTransitions(status string) []string {
 	wf := s.workflowSvc.GetWorkflow()
 	if wf == nil {
 		return []string{}
 	}
-	transitions, ok := wf.StatusFlow[key]
+	transitions, ok := wf.StatusFlow[status]
 	if !ok {
 		return []string{}
 	}

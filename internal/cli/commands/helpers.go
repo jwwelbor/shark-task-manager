@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 )
 
@@ -735,6 +737,26 @@ func DetectEntityType(key string) string {
 	}
 
 	return "unknown"
+}
+
+// buildEnrichedJSON converts an entity struct to a map[string]interface{} and adds
+// valid_transitions and orchestrator_action fields. This is a shared helper used by
+// bug get and change get commands to avoid code duplication.
+func buildEnrichedJSON(entity interface{}, orchestratorAction *config.PopulatedAction, validTransitions []string) (map[string]interface{}, error) {
+	entityJSON, err := json.Marshal(entity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal entity: %w", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(entityJSON, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal entity JSON to map: %w", err)
+	}
+
+	result["valid_transitions"] = validTransitions
+	result["orchestrator_action"] = orchestratorAction
+
+	return result, nil
 }
 
 // getAgentIdentifier returns flagValue if non-empty, otherwise falls back to the USER env var.
