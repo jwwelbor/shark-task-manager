@@ -18,19 +18,19 @@ func TestPartialTemplates_Syntax(t *testing.T) {
 	}{
 		{
 			name:         "TDD process partial",
-			templateFile: "../../templates/partials/_tdd_process.tmpl",
+			templateFile: "../../shark-templates/partials/_tdd_process.tmpl",
 			templateName: "_tdd_process",
 			expectedText: "TDD PROCESS:",
 		},
 		{
 			name:         "Exit gate partial",
-			templateFile: "../../templates/partials/_exit_gate.tmpl",
+			templateFile: "../../shark-templates/partials/_exit_gate.tmpl",
 			templateName: "_exit_gate",
 			expectedText: "EXIT GATE:",
 		},
 		{
 			name:         "Read section partial",
-			templateFile: "../../templates/partials/_read_section.tmpl",
+			templateFile: "../../shark-templates/partials/_read_section.tmpl",
 			templateName: "_read_section",
 			expectedText: "READ:",
 		},
@@ -65,7 +65,7 @@ func TestPartialTemplates_Syntax(t *testing.T) {
 }
 
 func TestPartialTemplates_TDDProcess(t *testing.T) {
-	tmpl, err := template.ParseFiles("../../templates/partials/_tdd_process.tmpl")
+	tmpl, err := template.ParseFiles("../../shark-templates/partials/_tdd_process.tmpl")
 	require.NoError(t, err)
 
 	definedTemplate := tmpl.Lookup("_tdd_process")
@@ -83,7 +83,7 @@ func TestPartialTemplates_TDDProcess(t *testing.T) {
 }
 
 func TestPartialTemplates_ExitGate(t *testing.T) {
-	tmpl, err := template.ParseFiles("../../templates/partials/_exit_gate.tmpl")
+	tmpl, err := template.ParseFiles("../../shark-templates/partials/_exit_gate.tmpl")
 	require.NoError(t, err)
 
 	definedTemplate := tmpl.Lookup("_exit_gate")
@@ -101,7 +101,7 @@ func TestPartialTemplates_ExitGate(t *testing.T) {
 }
 
 func TestPartialTemplates_ReadSection_SmartNumbering(t *testing.T) {
-	tmpl, err := template.ParseFiles("../../templates/partials/_read_section.tmpl")
+	tmpl, err := template.ParseFiles("../../shark-templates/partials/_read_section.tmpl")
 	require.NoError(t, err)
 
 	definedTemplate := tmpl.Lookup("_read_section")
@@ -178,7 +178,7 @@ func TestPartialTemplates_ReadSection_SmartNumbering(t *testing.T) {
 
 func TestPartialTemplates_LoadAll(t *testing.T) {
 	// Load all partials at once to verify they can coexist
-	tmpl, err := template.ParseGlob("../../templates/partials/_*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/partials/_*.tmpl")
 	require.NoError(t, err, "All partials should parse without errors")
 
 	// Verify all three partials are defined
@@ -197,7 +197,7 @@ End of main content.`
 	require.NoError(t, err)
 
 	// Parse and add the partial
-	_, err = tmpl.ParseFiles("../../templates/partials/_tdd_process.tmpl")
+	_, err = tmpl.ParseFiles("../../shark-templates/partials/_tdd_process.tmpl")
 	require.NoError(t, err)
 
 	var buf bytes.Buffer

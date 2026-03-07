@@ -12,11 +12,11 @@ import (
 // TestPartialsDirectoryStructure validates the directory structure matches the architecture
 func TestPartialsDirectoryStructure(t *testing.T) {
 	expectedDirs := []string{
-		"../../templates",
-		"../../templates/epic",
-		"../../templates/feature",
-		"../../templates/task",
-		"../../templates/partials",
+		"../../shark-templates",
+		"../../shark-templates/epic",
+		"../../shark-templates/feature",
+		"../../shark-templates/task",
+		"../../shark-templates/partials",
 	}
 
 	for _, dir := range expectedDirs {
@@ -33,9 +33,9 @@ func TestPartialsDirectoryStructure(t *testing.T) {
 // TestPartialsExist validates all required partial templates exist
 func TestPartialsExist(t *testing.T) {
 	expectedPartials := []string{
-		"../../templates/partials/_tdd_process.tmpl",
-		"../../templates/partials/_exit_gate.tmpl",
-		"../../templates/partials/_read_section.tmpl",
+		"../../shark-templates/partials/_tdd_process.tmpl",
+		"../../shark-templates/partials/_exit_gate.tmpl",
+		"../../shark-templates/partials/_read_section.tmpl",
 	}
 
 	for _, partial := range expectedPartials {
@@ -51,7 +51,7 @@ func TestPartialsExist(t *testing.T) {
 
 // TestPartialsLoadViaParseGlob validates templates can be loaded via ParseGlob
 func TestPartialsLoadViaParseGlob(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load templates via ParseGlob: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestPartialsLoadViaParseGlob(t *testing.T) {
 
 // TestTDDProcessPartialRenders validates the TDD process partial renders correctly
 func TestTDDProcessPartialRenders(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load templates: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestTDDProcessPartialRenders(t *testing.T) {
 
 // TestExitGatePartialRenders validates the exit gate partial renders correctly
 func TestExitGatePartialRenders(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load templates: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestExitGatePartialRenders(t *testing.T) {
 
 // TestReadSectionPartialWithMinimalData validates _read_section with only primary doc
 func TestReadSectionPartialWithMinimalData(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load templates: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestReadSectionPartialWithMinimalData(t *testing.T) {
 
 // TestReadSectionPartialWithRelatedDocs validates _read_section with related docs
 func TestReadSectionPartialWithRelatedDocs(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load templates: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestReadSectionPartialWithRelatedDocs(t *testing.T) {
 
 // TestReadSectionPartialWithAllData validates _read_section with all data
 func TestReadSectionPartialWithAllData(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load templates: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestReadSectionPartialWithAllData(t *testing.T) {
 
 // TestReadSectionSmartNumbering validates smart numbering with only related_tasks
 func TestReadSectionSmartNumbering(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load templates: %v", err)
 	}
@@ -276,7 +276,7 @@ End of content.{{end}}`
 	}
 
 	// Load all partials
-	tmpl, err = tmpl.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err = tmpl.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load partials: %v", err)
 	}
@@ -300,7 +300,7 @@ End of content.{{end}}`
 
 // TestPartialNamingConvention validates partials use _prefix naming
 func TestPartialNamingConvention(t *testing.T) {
-	entries, err := os.ReadDir("../../templates/partials")
+	entries, err := os.ReadDir("../../shark-templates/partials")
 	if err != nil {
 		t.Fatalf("Failed to read partials directory: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestPartialNamingConvention(t *testing.T) {
 
 // TestReadSectionNoEmptyLines validates _read_section doesn't create empty lines
 func TestReadSectionNoEmptyLines(t *testing.T) {
-	tmpl, err := template.ParseGlob("../../templates/*/*.tmpl")
+	tmpl, err := template.ParseGlob("../../shark-templates/*/*.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to load templates: %v", err)
 	}

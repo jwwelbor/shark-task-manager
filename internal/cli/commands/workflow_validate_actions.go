@@ -83,6 +83,8 @@ type MultiLevelValidationReport struct {
 	EpicReport    *ValidationReport `json:"epic_report,omitempty"`
 	FeatureReport *ValidationReport `json:"feature_report,omitempty"`
 	TaskReport    *ValidationReport `json:"task_report,omitempty"`
+	BugReport     *ValidationReport `json:"bug_report,omitempty"`
+	ChangeReport  *ValidationReport `json:"change_report,omitempty"`
 }
 
 // runWorkflowValidateActions implements the validate-actions command
@@ -92,9 +94,9 @@ func runWorkflowValidateActions(cmd *cobra.Command, args []string) error {
 
 	// Validate --level flag
 	if validateActionsLevel != "" {
-		validLevels := map[string]bool{"epic": true, "feature": true, "task": true}
+		validLevels := map[string]bool{"epic": true, "feature": true, "task": true, "bug": true, "change": true}
 		if !validLevels[validateActionsLevel] {
-			return fmt.Errorf("invalid level %q: must be one of: epic, feature, task", validateActionsLevel)
+			return fmt.Errorf("invalid level %q: must be one of: epic, feature, task, bug, change", validateActionsLevel)
 		}
 	}
 
@@ -152,6 +154,20 @@ func runWorkflowValidateActions(cmd *cobra.Command, args []string) error {
 	taskWorkflow := multiWorkflow.GetWorkflowForLevel("task")
 	multiReport.TaskReport = validateWorkflowActions(taskWorkflow, validateActionsStrict)
 	if !multiReport.TaskReport.Valid {
+		multiReport.Valid = false
+	}
+
+	// Validate bug workflow
+	bugWorkflow := multiWorkflow.GetWorkflowForLevel("bug")
+	multiReport.BugReport = validateWorkflowActions(bugWorkflow, validateActionsStrict)
+	if !multiReport.BugReport.Valid {
+		multiReport.Valid = false
+	}
+
+	// Validate change workflow
+	changeWorkflow := multiWorkflow.GetWorkflowForLevel("change")
+	multiReport.ChangeReport = validateWorkflowActions(changeWorkflow, validateActionsStrict)
+	if !multiReport.ChangeReport.Valid {
 		multiReport.Valid = false
 	}
 
@@ -348,6 +364,24 @@ func displayMultiLevelValidationReport(report *MultiLevelValidationReport) {
 		fmt.Println()
 	}
 
+	// Display bug workflow results
+	if report.BugReport != nil {
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("--- Bug Workflow ---")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		displaySingleLevelResults(report.BugReport)
+		fmt.Println()
+	}
+
+	// Display change workflow results
+	if report.ChangeReport != nil {
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("--- Change Workflow ---")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		displaySingleLevelResults(report.ChangeReport)
+		fmt.Println()
+	}
+
 	// Display overall summary
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Overall Summary")
@@ -375,6 +409,22 @@ func displayMultiLevelValidationReport(report *MultiLevelValidationReport) {
 			taskStatus = "INVALID"
 		}
 		fmt.Printf("Task:    %s (%d actions validated)\n", taskStatus, report.TaskReport.TotalStatuses)
+	}
+
+	if report.BugReport != nil {
+		bugStatus := "VALID"
+		if !report.BugReport.Valid {
+			bugStatus = "INVALID"
+		}
+		fmt.Printf("Bug:     %s (%d actions validated)\n", bugStatus, report.BugReport.TotalStatuses)
+	}
+
+	if report.ChangeReport != nil {
+		changeStatus := "VALID"
+		if !report.ChangeReport.Valid {
+			changeStatus = "INVALID"
+		}
+		fmt.Printf("Change:  %s (%d actions validated)\n", changeStatus, report.ChangeReport.TotalStatuses)
 	}
 
 	fmt.Println()

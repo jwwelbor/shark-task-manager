@@ -8,17 +8,17 @@ import (
 	"path/filepath"
 )
 
-//go:embed shark-templates/*
+//go:embed shark-templates/entity
 var embeddedTemplates embed.FS
 
-// copyTemplates copies embedded templates to shark-templates/ folder
+// copyTemplates copies embedded templates to shark-templates/entity/ folder
 // Returns count of templates copied
 func (i *Initializer) copyTemplates(force bool) (int, error) {
-	targetDir := "shark-templates"
+	targetDir := "shark-templates/entity"
 	count := 0
 
 	// Walk embedded templates
-	err := fs.WalkDir(embeddedTemplates, "shark-templates", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(embeddedTemplates, "shark-templates/entity", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -34,7 +34,7 @@ func (i *Initializer) copyTemplates(force bool) (int, error) {
 		}
 
 		// Compute target path
-		relPath, _ := filepath.Rel("shark-templates", path)
+		relPath, _ := filepath.Rel("shark-templates/entity", path)
 		targetPath := filepath.Join(targetDir, relPath)
 
 		// Check if target exists

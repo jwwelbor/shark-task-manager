@@ -80,7 +80,7 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 func GetOrchestratorEngine() *OrchestratorRenderer {
 	engineOnce.Do(func() {
 		// Use test directory if set, otherwise default to "templates"
-		templateDir := "templates"
+		templateDir := "shark-templates"
 		if testTemplateDir != "" {
 			templateDir = testTemplateDir
 		}

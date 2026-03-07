@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
@@ -24,6 +25,8 @@ type changeCardServicer interface {
 	ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
 	SetChangeCardStatus(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error)
 	AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error)
+	GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction
+	GetValidTransitions(status string) []string
 }
 
 // changeCardSvcOverride is non-nil only during tests.
@@ -341,7 +344,13 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(card)
+		orchestratorAction := svc.GetOrchestratorAction(card)
+		validTransitions := svc.GetValidTransitions(string(card.Status))
+		result, err := buildEnrichedJSON(card, orchestratorAction, validTransitions)
+		if err != nil {
+			return err
+		}
+		return cli.OutputJSON(result)
 	}
 	renderChangeCardDetails(card)
 	return nil

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
@@ -30,6 +31,8 @@ type MockChangeCardService struct {
 	ApproveChangeCardFunc       func(ctx context.Context, key string) (*models.ChangeCard, error)
 	SetChangeCardStatusFunc     func(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error)
 	AdvanceChangeCardStatusFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
+	GetOrchestratorActionFunc   func(card *models.ChangeCard) *config.PopulatedAction
+	GetValidTransitionsFunc     func(status string) []string
 }
 
 func (m *MockChangeCardService) CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
@@ -86,6 +89,20 @@ func (m *MockChangeCardService) AdvanceChangeCardStatus(ctx context.Context, key
 		return m.AdvanceChangeCardStatusFunc(ctx, key)
 	}
 	return nil, fmt.Errorf("AdvanceChangeCardStatus not implemented in mock")
+}
+
+func (m *MockChangeCardService) GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction {
+	if m.GetOrchestratorActionFunc != nil {
+		return m.GetOrchestratorActionFunc(card)
+	}
+	return nil
+}
+
+func (m *MockChangeCardService) GetValidTransitions(status string) []string {
+	if m.GetValidTransitionsFunc != nil {
+		return m.GetValidTransitionsFunc(status)
+	}
+	return []string{}
 }
 
 // ---------------------------------------------------------------------------

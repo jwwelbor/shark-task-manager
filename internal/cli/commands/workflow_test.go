@@ -669,7 +669,7 @@ func TestWorkflowValidateMultiLevel(t *testing.T) {
 			}`,
 			jsonOutput:     true,
 			expectValid:    true,
-			expectedLevels: 3,
+			expectedLevels: 5,
 		},
 	}
 

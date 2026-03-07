@@ -1,0 +1,28 @@
+{{template "_resume_preamble" .}}RESUME verification for bug {{.key}}: "{{.title}}".
+
+Check for existing verification notes:
+1. Read bug notes: shark bug notes {{.key}}
+2. Look for 'VERIFIED' or 'VERIFICATION_FAILED' note
+3. If VERIFIED → shark status set {{.key}} resolved
+4. If VERIFICATION_FAILED → shark status set {{.key}} in_fix
+5. If no notes → proceed with verification below
+
+---
+
+Verify fix for bug {{.key}}: "{{.title}}".
+
+SEVERITY: {{.severity}}
+
+READ:
+(1) Bug report at {{.file_path}} — the original reproduction steps and expected behavior
+(2) Bug notes (shark bug notes {{.key}}) — the developer's fix description
+
+VERIFY:
+(1) Follow the original reproduction steps — confirm the bug no longer occurs
+(2) Confirm the expected behavior now works correctly
+(3) Run relevant tests: look for tests related to this bug
+(4) Check for regressions in adjacent functionality
+
+ROUTE:
+- Fix verified and working → shark bug note {{.key}} 'VERIFIED: {how it was verified}' then shark status set {{.key}} resolved
+- Fix incomplete or new issues found → shark bug note {{.key}} 'VERIFICATION_FAILED: {what still fails}' then shark status set {{.key}} in_fix

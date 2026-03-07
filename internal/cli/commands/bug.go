@@ -308,7 +308,13 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(bug)
+		orchestratorAction := svc.GetOrchestratorAction(bug)
+		validTransitions := svc.GetValidTransitions(string(bug.Status))
+		result, err := buildEnrichedJSON(bug, orchestratorAction, validTransitions)
+		if err != nil {
+			return err
+		}
+		return cli.OutputJSON(result)
 	}
 	return printBugDetail(bug)
 }

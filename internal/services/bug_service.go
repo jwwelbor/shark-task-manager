@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/fileops"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -364,6 +365,43 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 	}
 
 	return bug, nil
+}
+
+// resolveAction looks up the orchestrator action for a given bug status.
+func (s *BugService) resolveAction(bug *models.Bug, status string) *config.PopulatedAction {
+	wf := s.workflowSvc.GetWorkflow()
+	if wf == nil || wf.StatusMetadata == nil {
+		return nil
+	}
+	meta, exists := wf.StatusMetadata[status]
+	if !exists || meta.OrchestratorAction == nil {
+		return nil
+	}
+	placeholders := config.BugPlaceholders(bug)
+	return &config.PopulatedAction{
+		Action:      meta.OrchestratorAction.Action,
+		AgentType:   meta.OrchestratorAction.AgentType,
+		Skills:      meta.OrchestratorAction.Skills,
+		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+	}
+}
+
+// GetOrchestratorAction returns the orchestrator action for the bug's current status.
+func (s *BugService) GetOrchestratorAction(bug *models.Bug) *config.PopulatedAction {
+	return s.resolveAction(bug, string(bug.Status))
+}
+
+// GetValidTransitions returns the valid next statuses for the bug's current status.
+func (s *BugService) GetValidTransitions(status string) []string {
+	wf := s.workflowSvc.GetWorkflow()
+	if wf == nil {
+		return []string{}
+	}
+	transitions, ok := wf.StatusFlow[status]
+	if !ok {
+		return []string{}
+	}
+	return transitions
 }
 
 // validateLinkedEntity validates that a linked entity exists.
