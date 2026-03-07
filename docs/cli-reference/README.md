@@ -10,8 +10,10 @@ Complete command reference for the Shark Task Manager CLI.
 
 ```bash
 # Advance workflow and set status
-shark status advance E07-F01-001 --json             # Advance to next workflow status
-shark status set E07-F01-001 in_development --json  # Set status directly
+shark status advance E07-F01-001 --json             # Advance task to next workflow status
+shark status set E07-F01-001 in_development --json  # Set task status directly
+shark status advance B001 --json                    # Advance bug to next workflow status
+shark status advance CC-001 --json                  # Advance change-card to next workflow status
 
 # Extract specific fields
 shark get E07-F01-001 --field status       # Just the status
@@ -101,8 +103,10 @@ Full entity-specific subcommands, analytics, and administrative tools.
 | `shark task` | 19 subcommands (create, get, list, update, delete, next-status, set-status, approve, reopen, deps, note, ...) | [Task Commands](task-commands.md) |
 | `shark feature` | 13 subcommands (create, get, list, complete, context, note, ...) | [Feature Commands](feature-commands.md) |
 | `shark epic` | 14 subcommands (create, get, list, complete, context, note, status, ...) | [Epic Commands](epic-commands.md) |
+| `shark bug` | 10 subcommands (create, get, list, update, delete, triage, note, notes, context) | [Bug Commands](bug-commands.md) |
+| `shark change` | 10 subcommands (create, get, list, update, delete, approve, note, notes, context) | [Change Commands](change-commands.md) |
 
-**Note:** `shark task update`, `shark feature update`, and `shark epic update` no longer accept `--status`. Use `shark status set <key> <status>` instead.
+**Note:** `shark task update`, `shark feature update`, `shark epic update`, `shark bug update`, and `shark change update` do not accept `--status`. Use `shark status set <key> <status>` instead.
 
 #### Admin Commands (`shark admin`)
 
@@ -168,6 +172,9 @@ Available on all commands:
 Epic (E07)
   └── Feature (E07-F01)
         └── Task (E07-F01-001 or T-E07-F01-001)
+
+Bug (B001)           ← standalone, optionally linked to any entity
+Change-Card (CC-001) ← standalone, optionally linked to epic or feature
 ```
 
 ### Key Format Auto-Detection
@@ -179,6 +186,8 @@ Shark detects entity type from key format:
 | `E##` | Epic | `E07`, `E07-user-management` |
 | `E##-F##` | Feature | `E07-F01`, `F01` |
 | `E##-F##-###` | Task | `E07-F01-001`, `T-E07-F01-001` |
+| `B###` | Bug | `B001`, `B042` |
+| `CC-###` | Change-Card | `CC-001`, `CC-042` |
 
 All keys are **case insensitive**.
 

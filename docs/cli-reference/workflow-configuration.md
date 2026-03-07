@@ -10,7 +10,17 @@ Shark's workflow system enables AI-driven, multi-stage development workflows thr
 - **Orchestrator actions**: Auto-spawn agents, advance statuses, pause workflows
 - **Special statuses**: Mark lifecycle boundaries (start, complete, aggregation)
 
-Each entity type (epic, feature, task) has its own workflow configuration.
+Five entity types each have their own workflow configuration:
+
+| Entity | Config Key | Key Format | Description |
+|--------|-----------|------------|-------------|
+| Epic | `epic_workflow` | `E07` | Top-level organizational units |
+| Feature | `feature_workflow` | `E07-F01` | Feature areas within an epic |
+| Task | `status_flow` / `status_metadata` | `E07-F01-001` | Atomic work items |
+| Bug | `bug_workflow` | `B001` | Defect tracking (standalone) |
+| Change-Card | `change_workflow` | `CC-001` | Lightweight changes (standalone) |
+
+Bugs and change-cards are **standalone entities** — they are not nested under epics or features, though they can optionally link to them.
 
 ## Workflow Structure
 
@@ -931,8 +941,69 @@ ready_for_qa           → in_qa
    shark init update
    ```
 
+## Bug and Change-Card Workflows
+
+Bugs and change-cards use the same configuration structure as other entities, under their own top-level keys: `bug_workflow` and `change_workflow`.
+
+### Key Differences from Task Workflows
+
+| Aspect | Tasks | Bugs | Change-Cards |
+|--------|-------|------|--------------|
+| Config key | `status_flow` / `status_metadata` | `bug_workflow` | `change_workflow` |
+| Profiles | `basic` / `advanced` (via `shark admin init update`) | Custom only | Custom only |
+| Severity field | — | `critical`, `high`, `medium`, `low` | — |
+| Priority field | — | — | 1–10 |
+| Default start status | `todo` / `draft` | `reported` | `proposed` |
+| Terminal statuses | `completed`, `cancelled` | `resolved`, `wont_fix`, `duplicate` | `completed`, `declined` |
+
+### Default Bug Workflow
+
+```
+reported → triaged → in_fix → in_verification → resolved
+                  ↘ wont_fix
+         ↘ duplicate
+```
+
+Agents routed by status: `business-analyst` (reported), `developer` (triaged, in_fix), `qa` (in_verification).
+
+### Default Change-Card Workflow
+
+```
+proposed → approved → in_progress → completed
+         ↘ declined
+```
+
+Agents routed by status: `business-analyst` (proposed), `developer` (approved, in_progress).
+
+### Customizing Bug and Change-Card Workflows
+
+Add or modify statuses in `.sharkconfig.json` under `bug_workflow` or `change_workflow`. The structure is identical to `epic_workflow`:
+
+```json
+{
+  "bug_workflow": {
+    "version": "1.0",
+    "status_flow": { ... },
+    "status_metadata": { ... },
+    "special_statuses": { ... }
+  },
+  "change_workflow": {
+    "version": "1.0",
+    "status_flow": { ... },
+    "status_metadata": { ... },
+    "special_statuses": { ... }
+  }
+}
+```
+
+See [Configuration — Bug Workflow](configuration.md#bug-workflow-configuration) and [Configuration — Change-Card Workflow](configuration.md#change-card-workflow-configuration) for complete examples.
+
+---
+
 ## Related Documentation
 
-- **[configuration.md](configuration.md)** - Config file reference
+- **[configuration.md](configuration.md)** - Config file reference (includes bug/change workflow examples)
+- **[bug-commands.md](bug-commands.md)** - Bug CLI commands
+- **[change-commands.md](change-commands.md)** - Change-card CLI commands
 - **[template-system.md](template-system.md)** - Template configuration
-- **[workflow-profiles.md](../guides/workflow-profiles.md)** - Pre-configured workflows
+- **[workflow-profiles.md](../guides/workflow-profiles.md)** - Pre-configured task workflows

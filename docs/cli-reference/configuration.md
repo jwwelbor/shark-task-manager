@@ -29,9 +29,13 @@ The `.sharkconfig.json` file is automatically created by `shark init` and contai
   "status_flow": { },
   "status_metadata": { },
   "status_flow_version": "1.0",
-  "special_statuses": { }
+  "special_statuses": { },
+  "bug_workflow": { },
+  "change_workflow": { }
 }
 ```
+
+The `bug_workflow` and `change_workflow` keys configure the workflows for the two standalone defect/change entity types. See [Bug Workflow Configuration](#bug-workflow-configuration) and [Change-Card Workflow Configuration](#change-card-workflow-configuration) below.
 
 ### Database Configuration
 
@@ -97,6 +101,244 @@ Shark supports environment variable substitution in config values:
 | `SHARK_DB_URL` | Database URL or file path |
 | `SHARK_AUTH_TOKEN_FILE` | Path to Turso auth token file |
 | `SHARK_OUTPUT` | Default output format (set to `json` for JSON) |
+
+---
+
+## Bug Workflow Configuration
+
+The `bug_workflow` key configures the workflow for bug entities (`B###`). It follows the same structure as `epic_workflow` and `feature_workflow`.
+
+### Structure
+
+```json
+{
+  "bug_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "reported": ["triaged", "duplicate", "wont_fix"],
+      "triaged": ["in_fix", "wont_fix", "duplicate"],
+      "in_fix": ["in_verification", "triaged"],
+      "in_verification": ["resolved", "in_fix"],
+      "resolved": [],
+      "wont_fix": [],
+      "duplicate": []
+    },
+    "status_metadata": {
+      "reported": {
+        "color": "red",
+        "description": "Bug reported, awaiting triage",
+        "phase": "planning",
+        "progress_weight": 0.05,
+        "responsibility": "agent",
+        "agent_types": ["business-analyst"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "skills": ["research", "shark"],
+          "instruction_template": "bug/reported.tmpl"
+        }
+      },
+      "triaged": {
+        "color": "yellow",
+        "description": "Triaged, ready for fix",
+        "phase": "development",
+        "progress_weight": 0.2,
+        "responsibility": "agent",
+        "agent_types": ["developer"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "skills": ["debugging", "implementation"],
+          "instruction_template": "bug/triaged.tmpl"
+        }
+      },
+      "in_fix": {
+        "color": "blue",
+        "description": "Fix in progress",
+        "phase": "development",
+        "progress_weight": 0.5,
+        "responsibility": "agent",
+        "agent_types": ["developer"],
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "skills": ["debugging", "implementation"],
+          "instruction_template": "bug/in_fix.tmpl"
+        }
+      },
+      "in_verification": {
+        "color": "cyan",
+        "description": "Fix applied, awaiting verification",
+        "phase": "review",
+        "progress_weight": 0.8,
+        "responsibility": "agent",
+        "agent_types": ["qa"],
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "skills": ["quality"],
+          "instruction_template": "bug/in_verification.tmpl"
+        }
+      },
+      "resolved": {
+        "color": "green",
+        "description": "Bug verified as fixed",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "Bug {id} resolved."
+        }
+      },
+      "wont_fix": {
+        "color": "gray",
+        "description": "Will not be fixed",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "Bug {id} closed as wont_fix."
+        }
+      },
+      "duplicate": {
+        "color": "gray",
+        "description": "Duplicate of another bug",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "Bug {id} closed as duplicate."
+        }
+      }
+    },
+    "special_statuses": {
+      "_start_": ["reported"],
+      "_complete_": ["resolved", "wont_fix", "duplicate"]
+    }
+  }
+}
+```
+
+### Template Variables for Bugs
+
+Available in `instruction_template` for bug workflow:
+
+| Variable | Description |
+|----------|-------------|
+| `{id}` | Bug key (e.g., `B001`) |
+| `{title}` | Bug title |
+| `{severity}` | Bug severity (`critical`, `high`, `medium`, `low`) |
+| `{file_path}` | Path to bug markdown file |
+| `{linked_entity_type}` | Type of linked entity (`epic`, `feature`, `task`) |
+| `{linked_entity_key}` | Key of the linked entity |
+
+---
+
+## Change-Card Workflow Configuration
+
+The `change_workflow` key configures the workflow for change-card entities (`CC-###`).
+
+### Structure
+
+```json
+{
+  "change_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "proposed": ["approved", "declined"],
+      "approved": ["in_progress", "declined"],
+      "in_progress": ["completed", "approved"],
+      "completed": [],
+      "declined": []
+    },
+    "status_metadata": {
+      "proposed": {
+        "color": "yellow",
+        "description": "Awaiting scope assessment and approval",
+        "phase": "planning",
+        "progress_weight": 0.1,
+        "responsibility": "agent",
+        "agent_types": ["business-analyst"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "skills": ["assessment", "shark"],
+          "instruction_template": "change/proposed.tmpl"
+        }
+      },
+      "approved": {
+        "color": "cyan",
+        "description": "Approved, ready to implement",
+        "phase": "development",
+        "progress_weight": 0.2,
+        "responsibility": "agent",
+        "agent_types": ["developer"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "skills": ["implementation"],
+          "instruction_template": "change/approved.tmpl"
+        }
+      },
+      "in_progress": {
+        "color": "blue",
+        "description": "Implementation in progress",
+        "phase": "development",
+        "progress_weight": 0.6,
+        "responsibility": "agent",
+        "agent_types": ["developer"],
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "skills": ["implementation"],
+          "instruction_template": "change/in_progress.tmpl"
+        }
+      },
+      "completed": {
+        "color": "green",
+        "description": "Change implemented and verified",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "Change-card {id} completed."
+        }
+      },
+      "declined": {
+        "color": "red",
+        "description": "Change request declined",
+        "phase": "done",
+        "progress_weight": 1.0,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "Change-card {id} declined."
+        }
+      }
+    },
+    "special_statuses": {
+      "_start_": ["proposed"],
+      "_complete_": ["completed", "declined"]
+    }
+  }
+}
+```
+
+### Template Variables for Change-Cards
+
+Available in `instruction_template` for change-card workflow:
+
+| Variable | Description |
+|----------|-------------|
+| `{id}` | Change-card key (e.g., `CC-001`) |
+| `{title}` | Change-card title |
+| `{priority}` | Priority level (1–10) |
+| `{requested_by}` | Name of requester |
+| `{file_path}` | Path to change-card markdown file |
 
 ---
 

@@ -126,9 +126,50 @@ shark feature get E07-F01-authentication
 shark task next-status E07-F01-001-implement-jwt-validation
 ```
 
+## Bug and Change-Card Keys
+
+Bugs and change-cards are standalone entities with their own key formats.
+
+### Bug Keys (`B###`)
+
+```bash
+shark bug get B001
+shark bug get B042
+shark status advance B001
+shark status set B001 in_fix
+```
+
+Bug keys are auto-generated sequentially on creation. The `B` prefix identifies the entity type.
+
+### Change-Card Keys (`CC-###`)
+
+```bash
+shark change get CC-001
+shark change get CC-042
+shark status advance CC-001
+shark status set CC-001 approved
+```
+
+Change-card keys are auto-generated sequentially on creation. The `CC-` prefix identifies the entity type.
+
+### Key Summary
+
+| Key Format | Entity | Example |
+|------------|--------|---------|
+| `E##` | Epic | `E07` |
+| `E##-F##` | Feature | `E07-F01` |
+| `E##-F##-###` | Task (short) | `E07-F01-001` |
+| `T-E##-F##-###` | Task (traditional) | `T-E07-F01-001` |
+| `B###` | Bug | `B001` |
+| `CC-###` | Change-Card | `CC-001` |
+
+---
+
 ## Related Documentation
 
 - [Epic Commands](epic-commands.md)
 - [Feature Commands](feature-commands.md)
 - [Task Commands](task-commands.md)
+- [Bug Commands](bug-commands.md)
+- [Change Commands](change-commands.md)
 - [Error Messages](error-messages.md) - Invalid key format errors
