@@ -213,7 +213,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 	}
 
 	// Get project root for WorkflowService
-	projectRoot, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
 		projectRoot = ""
 	}
@@ -651,7 +651,7 @@ type FeatureGetData struct {
 // Uses a single SQL view query for all data (tasks, breakdown, docs, notes, context)
 // instead of multiple round-trips, critical for Turso cloud latency.
 func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*FeatureGetData, error) {
-	projectRoot, _ := os.Getwd()
+	projectRoot, _ := cli.FindProjectRoot()
 
 	featureSvc := cli.GetFeatureService()
 
@@ -795,9 +795,9 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		statusStr = "draft"
 	}
 
-	projectRoot, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
-		return services.CreateFeatureInput{}, "", "", fmt.Errorf("failed to get working directory: %w", err)
+		return services.CreateFeatureInput{}, "", "", fmt.Errorf("failed to find project root: %w", err)
 	}
 
 	customFile := getFileFlagValue(cmd)
@@ -909,7 +909,7 @@ func writeFeatureFile(content []byte, featureFilePath, projectRoot string) (bool
 
 // resolveFeaturePath resolves the relative path to a feature file.
 func resolveFeaturePath(ctx context.Context, feature *models.Feature) string {
-	projectRoot, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil || projectRoot == "" {
 		return ""
 	}

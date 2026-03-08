@@ -404,7 +404,7 @@ func buildEpicGetData(ctx context.Context, epic *models.Epic) (*EpicGetData, err
 	epicSvc := cli.GetEpicService()
 	displaySvc := cli.GetDisplayService()
 
-	projectRoot, _ := os.Getwd()
+	projectRoot, _ := cli.FindProjectRoot()
 
 	// Single DB query via epic_display_data view fetches everything
 	displayData, err := epicSvc.GetEpicDisplayData(ctx, epic, projectRoot)
@@ -550,9 +550,9 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 
 	force, _ := cmd.Flags().GetBool("force")
 
-	projectRoot, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
-		cli.Error(fmt.Sprintf("Failed to get working directory: %s", err.Error()))
+		cli.Error(fmt.Sprintf("Failed to find project root: %s", err.Error()))
 		os.Exit(1)
 	}
 
@@ -992,7 +992,7 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 // resolveEpicPlanningPath resolves the file path for an epic in planning mode.
 // Returns the relative path or empty string if resolution fails.
 func resolveEpicPlanningPath(ctx context.Context, epicKey string) string {
-	projectRoot, _ := os.Getwd()
+	projectRoot, _ := cli.FindProjectRoot()
 	if projectRoot == "" {
 		return ""
 	}

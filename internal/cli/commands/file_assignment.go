@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -197,16 +198,16 @@ func CreateBackupIfForce(force bool, dbPath string, operation string) (string, e
 }
 
 // GetAbsoluteFilePath converts a relative file path to an absolute path
-// Uses current working directory as the project root
+// Uses project root (not cwd) to resolve relative paths
 func GetAbsoluteFilePath(relativePath string) (string, error) {
 	if filepath.IsAbs(relativePath) {
 		return relativePath, nil
 	}
 
-	wd, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
+		return "", fmt.Errorf("failed to find project root: %w", err)
 	}
 
-	return filepath.Join(wd, relativePath), nil
+	return filepath.Join(projectRoot, relativePath), nil
 }

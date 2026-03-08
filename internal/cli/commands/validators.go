@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -27,9 +26,9 @@ func ValidateCustomPath(cmd *cobra.Command, flagName string) (*PathValidationRes
 		return nil, nil // Not provided, not an error
 	}
 
-	projectRoot, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get working directory: %w", err)
+		return nil, fmt.Errorf("failed to find project root: %w", err)
 	}
 
 	absPath, relPath, err := utils.ValidateFolderPath(customPath, projectRoot)

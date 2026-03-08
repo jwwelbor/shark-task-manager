@@ -595,16 +595,20 @@ func (s *EpicService) UpdateEpic(ctx context.Context, key string, updates EpicUp
 	if updates.BusinessValue != nil {
 		epic.BusinessValue = updates.BusinessValue
 	}
-	if updates.FilePath != nil {
-		epic.FilePath = updates.FilePath
-	}
-
 	if err := epic.Validate(); err != nil {
 		return nil, fmt.Errorf("epic validation failed: %w", err)
 	}
 
 	if err := s.repo.Update(ctx, epic); err != nil {
 		return nil, fmt.Errorf("failed to update epic %s: %w", key, err)
+	}
+
+	// Update file path separately since repo.Update doesn't include file_path
+	if updates.FilePath != nil {
+		if err := s.repo.UpdateFilePath(ctx, epic.Key, updates.FilePath); err != nil {
+			return nil, fmt.Errorf("failed to update epic %s file path: %w", key, err)
+		}
+		epic.FilePath = updates.FilePath
 	}
 
 	return epic, nil
