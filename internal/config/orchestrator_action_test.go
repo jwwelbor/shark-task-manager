@@ -663,8 +663,9 @@ func TestOrchestratorAction_PopulateTemplate_BackwardCompat_LegacyPath(t *testin
 
 // TestOrchestratorAction_PopulateTemplate_TmplPath_WithSlash validates template path with directory
 func TestOrchestratorAction_PopulateTemplate_TmplPath_WithSlash(t *testing.T) {
+	// Use a non-existent template path to test graceful degradation
 	oa := &OrchestratorAction{
-		InstructionTemplate: "task/ready_for_development.tmpl",
+		InstructionTemplate: "task/nonexistent_status.tmpl",
 	}
 
 	// Should attempt template engine (path ends with .tmpl)

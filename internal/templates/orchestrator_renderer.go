@@ -24,6 +24,34 @@ var (
 	testTemplateDir string // For testing only
 )
 
+// findTemplateDir locates the shark-templates directory by walking up from the
+// working directory. Returns the first directory containing a shark-templates/
+// subdirectory with .tmpl files, or falls back to the relative "shark-templates".
+func findTemplateDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "shark-templates"
+	}
+
+	currentDir := wd
+	for {
+		candidate := filepath.Join(currentDir, "shark-templates")
+		// Check if this directory has template files
+		matches, _ := filepath.Glob(filepath.Join(candidate, "*", "*.tmpl"))
+		if len(matches) > 0 {
+			return candidate
+		}
+
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			break
+		}
+		currentDir = parentDir
+	}
+
+	return "shark-templates"
+}
+
 // NewOrchestratorRenderer creates a new orchestrator template renderer
 // It precompiles all .tmpl files in the templateDir and its subdirectories
 func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) {
@@ -79,10 +107,12 @@ func NewOrchestratorRenderer(templateDir string) (*OrchestratorRenderer, error) 
 // It initializes the engine on first call using the default or test template directory
 func GetOrchestratorEngine() *OrchestratorRenderer {
 	engineOnce.Do(func() {
-		// Use test directory if set, otherwise default to "templates"
-		templateDir := "shark-templates"
+		// Use test directory if set, otherwise find shark-templates by walking up
+		var templateDir string
 		if testTemplateDir != "" {
 			templateDir = testTemplateDir
+		} else {
+			templateDir = findTemplateDir()
 		}
 
 		engineInstance, engineError = NewOrchestratorRenderer(templateDir)
