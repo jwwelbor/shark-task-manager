@@ -329,7 +329,10 @@ func GetChangeCardService() *services.ChangeCardService {
 		projectRoot = "."
 	}
 
-	return services.NewChangeCardService(changeCardRepo, workflowSvc, epicRepo, featureRepo, projectRoot)
+	svc := services.NewChangeCardService(changeCardRepo, workflowSvc, epicRepo, featureRepo, projectRoot)
+	docRepo := repository.NewDocumentRepository(db)
+	svc.SetWritableDocRepo(docRepo)
+	return svc
 }
 
 // GetBugService returns a BugService instance.
@@ -356,7 +359,10 @@ func GetBugService() *services.BugService {
 		projectRoot = "."
 	}
 
-	return services.NewBugService(bugRepo, workflowSvc, epicRepo, featureRepo, taskRepo, projectRoot)
+	svc := services.NewBugService(bugRepo, workflowSvc, epicRepo, featureRepo, taskRepo, projectRoot)
+	docRepo := repository.NewDocumentRepository(db)
+	svc.SetWritableDocRepo(docRepo)
+	return svc
 }
 
 // GetDashboardAnalyticsService returns a DashboardAnalyticsService instance.

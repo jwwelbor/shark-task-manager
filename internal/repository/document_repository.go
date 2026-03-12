@@ -328,3 +328,121 @@ func (r *DocumentRepository) ListForTask(ctx context.Context, taskID int64) ([]*
 
 	return docs, nil
 }
+
+// LinkToBug links a document to a bug
+func (r *DocumentRepository) LinkToBug(ctx context.Context, bugID, documentID int64) error {
+	query := `
+		INSERT OR IGNORE INTO bug_documents (bug_id, document_id)
+		VALUES (?, ?)
+	`
+
+	_, err := r.db.ExecContext(ctx, query, bugID, documentID)
+	if err != nil {
+		return fmt.Errorf("failed to link document to bug: %w", err)
+	}
+
+	return nil
+}
+
+// UnlinkFromBug removes a document link from a bug
+func (r *DocumentRepository) UnlinkFromBug(ctx context.Context, bugID, documentID int64) error {
+	query := `DELETE FROM bug_documents WHERE bug_id = ? AND document_id = ?`
+
+	_, err := r.db.ExecContext(ctx, query, bugID, documentID)
+	if err != nil {
+		return fmt.Errorf("failed to unlink document from bug: %w", err)
+	}
+
+	return nil
+}
+
+// ListForBug returns all documents linked to a bug
+func (r *DocumentRepository) ListForBug(ctx context.Context, bugID int64) ([]*models.Document, error) {
+	query := `
+		SELECT d.id, d.title, d.file_path, d.created_at
+		FROM documents d
+		INNER JOIN bug_documents bd ON d.id = bd.document_id
+		WHERE bd.bug_id = ?
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, bugID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list documents for bug: %w", err)
+	}
+	defer rows.Close()
+
+	var docs []*models.Document
+	for rows.Next() {
+		doc := &models.Document{}
+		err := rows.Scan(&doc.ID, &doc.Title, &doc.FilePath, &doc.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan document: %w", err)
+		}
+		docs = append(docs, doc)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating documents: %w", err)
+	}
+
+	return docs, nil
+}
+
+// LinkToChangeCard links a document to a change card
+func (r *DocumentRepository) LinkToChangeCard(ctx context.Context, changeCardID, documentID int64) error {
+	query := `
+		INSERT OR IGNORE INTO change_card_documents (change_card_id, document_id)
+		VALUES (?, ?)
+	`
+
+	_, err := r.db.ExecContext(ctx, query, changeCardID, documentID)
+	if err != nil {
+		return fmt.Errorf("failed to link document to change card: %w", err)
+	}
+
+	return nil
+}
+
+// UnlinkFromChangeCard removes a document link from a change card
+func (r *DocumentRepository) UnlinkFromChangeCard(ctx context.Context, changeCardID, documentID int64) error {
+	query := `DELETE FROM change_card_documents WHERE change_card_id = ? AND document_id = ?`
+
+	_, err := r.db.ExecContext(ctx, query, changeCardID, documentID)
+	if err != nil {
+		return fmt.Errorf("failed to unlink document from change card: %w", err)
+	}
+
+	return nil
+}
+
+// ListForChangeCard returns all documents linked to a change card
+func (r *DocumentRepository) ListForChangeCard(ctx context.Context, changeCardID int64) ([]*models.Document, error) {
+	query := `
+		SELECT d.id, d.title, d.file_path, d.created_at
+		FROM documents d
+		INNER JOIN change_card_documents cd ON d.id = cd.document_id
+		WHERE cd.change_card_id = ?
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, changeCardID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list documents for change card: %w", err)
+	}
+	defer rows.Close()
+
+	var docs []*models.Document
+	for rows.Next() {
+		doc := &models.Document{}
+		err := rows.Scan(&doc.ID, &doc.Title, &doc.FilePath, &doc.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan document: %w", err)
+		}
+		docs = append(docs, doc)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating documents: %w", err)
+	}
+
+	return docs, nil
+}
