@@ -44,14 +44,25 @@ type LinkValidatorTaskRepo interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
 }
 
+// BugWritableDocumentRepository defines the writable interface for document linking on bugs.
+// This interface is satisfied by *repository.DocumentRepository.
+type BugWritableDocumentRepository interface {
+	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
+	GetByTitle(ctx context.Context, title string) (*models.Document, error)
+	LinkToBug(ctx context.Context, bugID, documentID int64) error
+	UnlinkFromBug(ctx context.Context, bugID, documentID int64) error
+	ListForBug(ctx context.Context, bugID int64) ([]*models.Document, error)
+}
+
 // BugService provides business logic for bug operations.
 type BugService struct {
-	repo        BugRepository
-	workflowSvc *workflow.Service
-	epicRepo    LinkValidatorEpicRepo
-	featureRepo LinkValidatorFeatureRepo
-	taskRepo    LinkValidatorTaskRepo
-	projectRoot string
+	repo            BugRepository
+	workflowSvc     *workflow.Service
+	epicRepo        LinkValidatorEpicRepo
+	featureRepo     LinkValidatorFeatureRepo
+	taskRepo        LinkValidatorTaskRepo
+	projectRoot     string
+	writableDocRepo BugWritableDocumentRepository
 }
 
 // NewBugService creates a new BugService with injected dependencies.
@@ -435,4 +446,62 @@ func (s *BugService) validateLinkedEntity(ctx context.Context, entityType, entit
 		return fmt.Errorf("invalid linked entity type %q: must be epic, feature, or task", entityType)
 	}
 	return nil
+}
+
+// SetWritableDocRepo sets the writable document repository on the service.
+// This enables LinkDocument, UnlinkDocument, and ListRelatedDocumentsByKey operations on bugs.
+func (s *BugService) SetWritableDocRepo(docRepo BugWritableDocumentRepository) {
+	s.writableDocRepo = docRepo
+}
+
+// LinkDocument links a document to a bug identified by key.
+func (s *BugService) LinkDocument(ctx context.Context, bugKey, docTitle, docPath string) error {
+	if s.writableDocRepo == nil {
+		return fmt.Errorf("writable document repository not configured")
+	}
+
+	bug, err := s.repo.GetByKey(ctx, bugKey)
+	if err != nil {
+		return fmt.Errorf("bug not found: %w", err)
+	}
+
+	_, err = linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToBug,
+		bug.ID, docTitle, docPath, "bug", bugKey)
+	return err
+}
+
+// UnlinkDocument removes a document link from a bug by document title.
+func (s *BugService) UnlinkDocument(ctx context.Context, bugKey, docTitle string) error {
+	if s.writableDocRepo == nil {
+		return fmt.Errorf("writable document repository not configured")
+	}
+
+	bug, err := s.repo.GetByKey(ctx, bugKey)
+	if err != nil {
+		return fmt.Errorf("bug not found: %w", err)
+	}
+
+	return unlinkDocumentFromEntity(ctx, s.writableDocRepo, s.writableDocRepo.UnlinkFromBug,
+		bug.ID, docTitle, "bug", bugKey)
+}
+
+// ListRelatedDocumentsByKey returns all documents linked to a bug identified by key.
+func (s *BugService) ListRelatedDocumentsByKey(ctx context.Context, bugKey string) ([]*models.Document, error) {
+	if s.writableDocRepo == nil {
+		return []*models.Document{}, nil
+	}
+
+	bug, err := s.repo.GetByKey(ctx, bugKey)
+	if err != nil {
+		return nil, fmt.Errorf("bug not found: %w", err)
+	}
+
+	docs, err := s.writableDocRepo.ListForBug(ctx, bug.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list documents for bug %s: %w", bugKey, err)
+	}
+	if docs == nil {
+		return []*models.Document{}, nil
+	}
+	return docs, nil
 }

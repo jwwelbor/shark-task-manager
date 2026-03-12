@@ -128,7 +128,7 @@ func runContextGet(cmd *cobra.Command, args []string) error {
 
 	contextData, err := ctxSvc.GetContext(cmd.Context(), modelEntityType, key)
 	if err != nil {
-		cli.Error(fmt.Sprintf("%s %s not found", capitalizeEntityType(entityType), key))
+		cli.Error(fmt.Sprintf("%s %s not found", displayEntityTypeName(entityType), key))
 		os.Exit(1)
 	}
 
@@ -146,7 +146,7 @@ func runContextGet(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(output)
 	}
 
-	fmt.Printf("Context for %s %s\n\n", capitalizeEntityType(entityType), key)
+	fmt.Printf("Context for %s %s\n\n", displayEntityTypeName(entityType), key)
 	printContextData(contextData)
 	return nil
 }

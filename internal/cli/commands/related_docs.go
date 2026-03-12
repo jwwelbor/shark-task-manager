@@ -72,8 +72,8 @@ Examples:
 	RunE: runRelatedDocsListList,
 }
 
-// dispatchAddDoc links a document to an epic, feature, or task based on which key is set.
-func dispatchAddDoc(ctx context.Context, epic, feature, task, title, path string) error {
+// dispatchAddDoc links a document to an epic, feature, task, bug, or change-card based on which key is set.
+func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, title, path string) error {
 	if epic != "" {
 		if err := cli.GetEpicService().LinkDocument(ctx, epic, title, path); err != nil {
 			return fmt.Errorf("failed to link document to epic: %w", err)
@@ -85,6 +85,18 @@ func dispatchAddDoc(ctx context.Context, epic, feature, task, title, path string
 			return fmt.Errorf("failed to link document to feature: %w", err)
 		}
 		return printDocLinked(title, path, "feature", feature, 0)
+	}
+	if bug != "" {
+		if err := cli.GetBugService().LinkDocument(ctx, bug, title, path); err != nil {
+			return fmt.Errorf("failed to link document to bug: %w", err)
+		}
+		return printDocLinked(title, path, "bug", bug, 0)
+	}
+	if change != "" {
+		if err := cli.GetChangeCardService().LinkDocument(ctx, change, title, path); err != nil {
+			return fmt.Errorf("failed to link document to change-card: %w", err)
+		}
+		return printDocLinked(title, path, "change-card", change, 0)
 	}
 	doc, err := cli.GetTaskServiceWithDeps().LinkDocument(ctx, task, title, path)
 	if err != nil {
@@ -99,14 +111,16 @@ func runRelatedDocsAdd(cmd *cobra.Command, args []string) error {
 	epic, _ := cmd.Flags().GetString("epic")
 	feature, _ := cmd.Flags().GetString("feature")
 	task, _ := cmd.Flags().GetString("task")
+	bug, _ := cmd.Flags().GetString("bug")
+	change, _ := cmd.Flags().GetString("change")
 
-	count := boolInt(epic != "") + boolInt(feature != "") + boolInt(task != "")
+	count := boolInt(epic != "") + boolInt(feature != "") + boolInt(task != "") + boolInt(bug != "") + boolInt(change != "")
 	if count != 1 {
 		_ = cmd.Usage()
 		return nil
 	}
 
-	return dispatchAddDoc(cmd.Context(), epic, feature, task, title, path)
+	return dispatchAddDoc(cmd.Context(), epic, feature, task, bug, change, title, path)
 }
 
 // boolInt converts a bool to 0 or 1.
@@ -138,6 +152,8 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	epic, _ := cmd.Flags().GetString("epic")
 	feature, _ := cmd.Flags().GetString("feature")
 	task, _ := cmd.Flags().GetString("task")
+	bug, _ := cmd.Flags().GetString("bug")
+	change, _ := cmd.Flags().GetString("change")
 	ctx := cmd.Context()
 
 	if epic != "" {
@@ -152,6 +168,14 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 	if task != "" {
 		_ = cli.GetTaskServiceWithDeps().UnlinkDocument(ctx, task, title)
 		return printDocUnlinked(title, "task", task)
+	}
+	if bug != "" {
+		_ = cli.GetBugService().UnlinkDocument(ctx, bug, title)
+		return printDocUnlinked(title, "bug", bug)
+	}
+	if change != "" {
+		_ = cli.GetChangeCardService().UnlinkDocument(ctx, change, title)
+		return printDocUnlinked(title, "change-card", change)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -172,7 +196,7 @@ func printDocUnlinked(title, entityType, parentKey string) error {
 }
 
 // dispatchListDocs fetches related documents for the first non-empty entity key.
-func dispatchListDocs(ctx context.Context, epic, feature, task string) ([]*models.Document, error) {
+func dispatchListDocs(ctx context.Context, epic, feature, task, bug, change string) ([]*models.Document, error) {
 	if epic != "" {
 		docs, err := cli.GetEpicService().ListRelatedDocumentsByKey(ctx, epic)
 		if err != nil {
@@ -184,6 +208,20 @@ func dispatchListDocs(ctx context.Context, epic, feature, task string) ([]*model
 		docs, err := cli.GetFeatureService().ListRelatedDocumentsByKey(ctx, feature)
 		if err != nil {
 			return nil, fmt.Errorf("feature not found: %w", err)
+		}
+		return docs, nil
+	}
+	if bug != "" {
+		docs, err := cli.GetBugService().ListRelatedDocumentsByKey(ctx, bug)
+		if err != nil {
+			return nil, fmt.Errorf("bug not found: %w", err)
+		}
+		return docs, nil
+	}
+	if change != "" {
+		docs, err := cli.GetChangeCardService().ListRelatedDocumentsByKey(ctx, change)
+		if err != nil {
+			return nil, fmt.Errorf("change-card not found: %w", err)
 		}
 		return docs, nil
 	}
@@ -199,14 +237,16 @@ func runRelatedDocsListList(cmd *cobra.Command, args []string) error {
 	epic, _ := cmd.Flags().GetString("epic")
 	feature, _ := cmd.Flags().GetString("feature")
 	task, _ := cmd.Flags().GetString("task")
+	bug, _ := cmd.Flags().GetString("bug")
+	change, _ := cmd.Flags().GetString("change")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
 	useJSON := jsonOutput || cli.GlobalConfig.JSON
 
-	if epic == "" && feature == "" && task == "" {
-		return fmt.Errorf("one of --epic, --feature, or --task must be specified")
+	if epic == "" && feature == "" && task == "" && bug == "" && change == "" {
+		return fmt.Errorf("one of --epic, --feature, --task, --bug, or --change must be specified")
 	}
 
-	docs, err := dispatchListDocs(cmd.Context(), epic, feature, task)
+	docs, err := dispatchListDocs(cmd.Context(), epic, feature, task, bug, change)
 	if err != nil {
 		return err
 	}
@@ -239,15 +279,21 @@ func init() {
 	relatedDocsAddCmd.Flags().String("epic", "", "Epic key (e.g., E01)")
 	relatedDocsAddCmd.Flags().String("feature", "", "Feature key (e.g., E01-F01)")
 	relatedDocsAddCmd.Flags().String("task", "", "Task key (e.g., T-E01-F01-001)")
+	relatedDocsAddCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
+	relatedDocsAddCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
 
 	// Add flags for delete command
 	relatedDocsDeleteCmd.Flags().String("epic", "", "Epic key (e.g., E01)")
 	relatedDocsDeleteCmd.Flags().String("feature", "", "Feature key (e.g., E01-F01)")
 	relatedDocsDeleteCmd.Flags().String("task", "", "Task key (e.g., T-E01-F01-001)")
+	relatedDocsDeleteCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
+	relatedDocsDeleteCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
 
 	// Add flags for list command
 	relatedDocsListCmd.Flags().String("epic", "", "Epic key (e.g., E01)")
 	relatedDocsListCmd.Flags().String("feature", "", "Feature key (e.g., E01-F01)")
 	relatedDocsListCmd.Flags().String("task", "", "Task key (e.g., T-E01-F01-001)")
+	relatedDocsListCmd.Flags().String("bug", "", "Bug key (e.g., B001)")
+	relatedDocsListCmd.Flags().String("change", "", "Change-card key (e.g., CC-001)")
 	relatedDocsListCmd.Flags().Bool("json", false, "Output in JSON format")
 }

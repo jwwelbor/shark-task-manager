@@ -107,78 +107,93 @@ func sortFeatures(features []FeatureWithTaskCount, sortBy string) {
 	}
 }
 
-// renderFeaturePlanning renders a feature in planning mode showing workflow position.
-func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
+// buildFeaturePlanningBasicInfo assembles the key-value info table for planning mode feature display.
+func buildFeaturePlanningBasicInfo(info *services.FeatureDisplayInfo) [][]string {
 	feature := info.Feature
-
-	// Print feature metadata
-	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
-	fmt.Println()
-
-	// Build info rows
-	featureInfo := [][]string{
+	basicInfo := [][]string{
 		{"Title", feature.Title},
 		{"Epic ID", fmt.Sprintf("%d", feature.EpicID)},
 		{"Status", fmt.Sprintf("%s (workflow)", string(feature.Status))},
 	}
 
 	if info.Phase != "" {
-		featureInfo = append(featureInfo, []string{"Phase", info.Phase})
+		basicInfo = append(basicInfo, []string{"Phase", info.Phase})
 	}
 
 	if info.PhaseDescription != "" {
-		featureInfo = append(featureInfo, []string{"Phase Description", info.PhaseDescription})
+		basicInfo = append(basicInfo, []string{"Phase Description", info.PhaseDescription})
 	}
 
 	if info.ResolvedPath != "" {
-		featureInfo = append(featureInfo, []string{"Path", info.ResolvedPath})
+		basicInfo = append(basicInfo, []string{"Path", info.ResolvedPath})
 	}
 
 	if feature.Description != nil && *feature.Description != "" {
-		featureInfo = append(featureInfo, []string{"Description", *feature.Description})
+		basicInfo = append(basicInfo, []string{"Description", *feature.Description})
 	}
 
-	_ = pterm.DefaultTable.WithData(featureInfo).Render()
+	return basicInfo
+}
+
+// renderFeaturePlanning renders a feature in planning mode showing workflow position.
+func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
+	RenderEntity(EntityDisplayOptions{
+		EntityType:         "feature",
+		Key:                info.Feature.Key,
+		Status:             string(info.Feature.Status),
+		BasicInfo:          buildFeaturePlanningBasicInfo(info),
+		ValidTransitions:   info.ValidTransitions,
+		OrchestratorAction: info.OrchestratorAction,
+		RelatedDocs:        info.RelatedDocs,
+		Notes:              info.Notes,
+		ContextData:        info.ContextData,
+		RenderSpecific: func() {
+			// Workflow position
+			renderFeatureWorkflowPosition(info.WorkflowPosition)
+
+			// Planning mode tasks
+			renderFeatureTasksSection(info.Tasks)
+		},
+	})
+}
+
+// renderFeatureWorkflowPosition renders the workflow position section.
+func renderFeatureWorkflowPosition(wp *services.WorkflowPosition) {
+	if wp == nil {
+		return
+	}
+	pterm.DefaultSection.Println("Workflow Position")
 	fmt.Println()
 
-	// Workflow position
-	if info.WorkflowPosition != nil {
-		pterm.DefaultSection.Println("Workflow Position")
-		fmt.Println()
-
-		for i, st := range info.WorkflowPosition.Statuses {
-			marker := "  "
-			if i == info.WorkflowPosition.CurrentIndex {
-				marker = "> "
-			}
-			label := st
-			if i < info.WorkflowPosition.CurrentIndex {
-				label = fmt.Sprintf("%s (done)", st)
-			}
-			fmt.Printf("%s%s\n", marker, label)
+	for i, st := range wp.Statuses {
+		marker := "  "
+		if i == wp.CurrentIndex {
+			marker = "> "
 		}
-		fmt.Println()
+		label := st
+		if i < wp.CurrentIndex {
+			label = fmt.Sprintf("%s (done)", st)
+		}
+		fmt.Printf("%s%s\n", marker, label)
 	}
+	fmt.Println()
+}
 
-	// Planning mode tasks
-	if len(info.Tasks) == 0 {
+// renderFeatureTasksSection renders the tasks section for planning mode.
+func renderFeatureTasksSection(tasks []*models.Task) {
+	if len(tasks) == 0 {
 		pterm.Info.Println("No tasks yet (feature is still being refined)")
-	} else {
-		fmt.Println()
-		pterm.DefaultSection.Printf("Tasks (%d total)", len(info.Tasks))
-
-		// Use centralized task table formatter
-		workflowService := cli.GetWorkflowService()
-		tableConfig := formatters.FeatureGetTaskTableConfig()
-		tableConfig.ColorEnabled = !cli.GlobalConfig.NoColor
-		_ = formatters.RenderTaskTable(info.Tasks, workflowService, tableConfig)
+		return
 	}
 
-	// Display orchestrator action
-	displayOrchestratorAction(info.OrchestratorAction)
+	fmt.Println()
+	pterm.DefaultSection.Printf("Tasks (%d total)", len(tasks))
 
-	// Display related documents
-	renderRelatedDocuments(info.RelatedDocs)
+	// Use centralized task table formatter
+	workflowService := cli.GetWorkflowService()
+	tableConfig := formatters.FeatureGetTaskTableConfig()
+	tableConfig.ColorEnabled = !cli.GlobalConfig.NoColor
+	_ = formatters.RenderTaskTable(tasks, workflowService, tableConfig)
 }
 
 // renderFeatureListTable renders features as a table.
@@ -213,7 +228,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 	}
 
 	// Get project root for WorkflowService
-	projectRoot, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
 		projectRoot = ""
 	}
@@ -349,21 +364,14 @@ func generateNotesColumn(statusCounts map[string]int, cfg *config.WorkflowConfig
 	return fmt.Sprintf("[%s]", strings.Join(parts, ", "))
 }
 
-// renderFeatureDetails renders feature details with tasks table.
-// statusBreakdown is workflow-ordered with metadata.
-// workflowService is used for color formatting (can be nil for no colors).
-// progressInfo, workSummary, and actionItems provide enhanced status information.
-func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusBreakdown []workflow.StatusCount, path, filename string, relatedDocs []*models.Document, workflowService *workflow.Service, progressInfo *status.ProgressInfo, workSummary *status.WorkSummary, actionItems *status.ActionItems, notes []*models.EntityNote, contextData *models.ContextData) {
-	// Determine if colors should be enabled
-	colorEnabled := !cli.GlobalConfig.NoColor && workflowService != nil
-
-	// Print feature metadata
-	pterm.DefaultSection.Printf("Feature: %s", feature.Key)
+// buildFeatureBasicInfo assembles the key-value info table for aggregation mode feature display.
+func buildFeatureBasicInfo(feature *models.Feature, data *FeatureGetData) [][]string {
+	colorEnabled := !cli.GlobalConfig.NoColor && data.WorkflowService != nil
 
 	// Format feature status with color if available
 	featureStatusDisplay := string(feature.Status)
 	if colorEnabled {
-		formatted := workflowService.FormatStatusForDisplay(string(feature.Status), true)
+		formatted := data.WorkflowService.FormatStatusForDisplay(string(feature.Status), true)
 		featureStatusDisplay = formatted.Colored
 	}
 	if feature.StatusOverride {
@@ -374,8 +382,8 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 
 	// Feature info - use weighted progress for display
 	progressDisplay := fmt.Sprintf("%.0f%%", feature.ProgressPct)
-	if progressInfo != nil {
-		progressDisplay = fmt.Sprintf("%.0f%%", progressInfo.WeightedPct)
+	if data.ProgressInfo != nil {
+		progressDisplay = fmt.Sprintf("%.0f%%", data.ProgressInfo.WeightedPct)
 	}
 
 	info := [][]string{
@@ -385,189 +393,181 @@ func renderFeatureDetails(feature *models.Feature, tasks []*models.Task, statusB
 		{"Progress", progressDisplay},
 	}
 
-	if path != "" {
-		info = append(info, []string{"Path", path})
+	if data.DirPath != "" {
+		info = append(info, []string{"Path", data.DirPath})
 	}
 
-	if filename != "" {
-		info = append(info, []string{"Filename", filename})
+	if data.Filename != "" {
+		info = append(info, []string{"Filename", data.Filename})
 	}
 
 	if feature.Description != nil && *feature.Description != "" {
 		info = append(info, []string{"Description", *feature.Description})
 	}
 
-	// Render info table
-	fmt.Println()
-	_ = pterm.DefaultTable.WithData(info).Render()
+	return info
+}
 
-	// Related documents section
-	if len(relatedDocs) > 0 {
-		pterm.DefaultSection.Println("Related Documents")
-		for _, doc := range relatedDocs {
-			fmt.Printf("  - %s (%s)\n", doc.Title, doc.FilePath)
-		}
-	}
+// renderFeatureAggregation renders feature details in aggregation mode using RenderEntity.
+func renderFeatureAggregation(feature *models.Feature, data *FeatureGetData, orchestratorAction *config.PopulatedAction) {
+	validTransitions := GetValidTransitions(string(feature.Status), data.WorkflowCfg)
 
-	// Task status breakdown (workflow-ordered with colored status names)
-	if len(statusBreakdown) > 0 {
-		pterm.DefaultSection.Println("Task Status Breakdown")
-		breakdownData := pterm.TableData{
-			{"Status", "Count", "Phase"},
-		}
-		for _, sc := range statusBreakdown {
-			// Format status with color if available
-			statusDisplay := sc.Status
-			if colorEnabled {
-				statusDisplay = workflowService.FormatStatusCount(sc, true)
-			}
+	RenderEntity(EntityDisplayOptions{
+		EntityType:         "feature",
+		Key:                feature.Key,
+		Status:             string(feature.Status),
+		BasicInfo:          buildFeatureBasicInfo(feature, data),
+		ValidTransitions:   validTransitions,
+		OrchestratorAction: orchestratorAction,
+		RelatedDocs:        data.RelatedDocs,
+		Notes:              data.Notes,
+		ContextData:        data.ContextData,
+		RenderSpecific: func() {
+			colorEnabled := !cli.GlobalConfig.NoColor && data.WorkflowService != nil
 
-			breakdownData = append(breakdownData, []string{
-				statusDisplay,
-				fmt.Sprintf("%d", sc.Count),
-				sc.Phase,
-			})
-		}
-		_ = pterm.DefaultTable.WithHasHeader().WithData(breakdownData).Render()
-	}
+			// Task status breakdown (workflow-ordered with colored status names)
+			renderFeatureStatusBreakdown(data.StatusBreakdown, data.WorkflowService, colorEnabled)
 
-	// Progress breakdown section (weighted vs completion)
-	if progressInfo != nil {
-		pterm.DefaultSection.Println("Progress Breakdown")
-		progressData := pterm.TableData{
-			{"Metric", "Value", "Ratio"},
-			{"Weighted Progress", fmt.Sprintf("%.0f%%", progressInfo.WeightedPct), progressInfo.WeightedRatio},
-			{"Completion", fmt.Sprintf("%.0f%%", progressInfo.CompletionPct), progressInfo.CompletionRatio},
-		}
-		_ = pterm.DefaultTable.WithHasHeader().WithData(progressData).Render()
-	}
+			// Progress breakdown section (weighted vs completion)
+			renderFeatureProgressBreakdown(data.ProgressInfo)
 
-	// Work summary section (who's doing what)
-	if workSummary != nil && workSummary.TotalTasks > 0 {
-		pterm.DefaultSection.Println("Work Summary")
-		workData := [][]string{}
-		if workSummary.CompletedTasks > 0 {
-			workData = append(workData, []string{"✅ Completed", fmt.Sprintf("%d/%d", workSummary.CompletedTasks, workSummary.TotalTasks)})
-		}
-		if workSummary.AgentWork > 0 {
-			workData = append(workData, []string{"🤖 Agent Work", fmt.Sprintf("%d tasks", workSummary.AgentWork)})
-		}
-		if workSummary.HumanWork > 0 {
-			workData = append(workData, []string{"👤 Human Work", fmt.Sprintf("%d tasks", workSummary.HumanWork)})
-		}
-		if workSummary.BlockedWork > 0 {
-			workData = append(workData, []string{"🚫 Blocked", fmt.Sprintf("%d tasks", workSummary.BlockedWork)})
-		}
-		if workSummary.NotStarted > 0 {
-			workData = append(workData, []string{"⏳ Not Started", fmt.Sprintf("%d tasks", workSummary.NotStarted)})
-		}
-		if len(workData) > 0 {
-			_ = pterm.DefaultTable.WithData(workData).Render()
-		}
-	}
+			// Work summary section (who's doing what)
+			renderFeatureWorkSummary(data.WorkSummary)
 
-	// Action items section (tasks needing attention)
-	if actionItems != nil {
-		hasActionItems := len(actionItems.AwaitingApproval) > 0 || len(actionItems.Blocked) > 0 || len(actionItems.InProgress) > 0
-		if hasActionItems {
-			pterm.DefaultSection.Println("Action Items")
+			// Action items section (tasks needing attention)
+			renderFeatureActionItems(data.ActionItems)
 
-			// Awaiting approval
-			if len(actionItems.AwaitingApproval) > 0 {
+			// Check if all tasks are completed
+			if len(data.Tasks) > 0 && feature.ProgressPct >= 100.0 {
 				fmt.Println()
-				pterm.DefaultBox.WithTitle("⏳ Awaiting Approval").Println(fmt.Sprintf("%d tasks", len(actionItems.AwaitingApproval)))
-				for _, item := range actionItems.AwaitingApproval {
-					ageStr := ""
-					if item.AgeDays != nil {
-						ageStr = fmt.Sprintf(" (%d days)", *item.AgeDays)
-					}
-					fmt.Printf("  - %s: %s%s\n", item.TaskKey, item.Title, ageStr)
-				}
+				pterm.Success.Println("All tasks completed! Feature is ready for approval.")
 			}
 
-			// Blocked
-			if len(actionItems.Blocked) > 0 {
+			// Tasks section
+			if len(data.Tasks) == 0 {
 				fmt.Println()
-				pterm.DefaultBox.WithTitle("🚫 Blocked").Println(fmt.Sprintf("%d tasks", len(actionItems.Blocked)))
-				for _, item := range actionItems.Blocked {
-					reasonStr := ""
-					if item.BlockedReason != nil && *item.BlockedReason != "" {
-						reasonStr = fmt.Sprintf(" - %s", *item.BlockedReason)
-					}
-					fmt.Printf("  - %s: %s%s\n", item.TaskKey, item.Title, reasonStr)
-				}
+				pterm.Info.Println("No tasks found for this feature")
+				return
 			}
 
-			// In progress (summary only)
-			if len(actionItems.InProgress) > 0 {
-				fmt.Println()
-				pterm.DefaultBox.WithTitle("🔄 In Progress").Println(fmt.Sprintf("%d tasks", len(actionItems.InProgress)))
-			}
-		}
-	}
-
-	// Notes section (only if notes exist)
-	if len(notes) > 0 {
-		maxDisplay := 10
-		totalNotes := len(notes)
-		if totalNotes > maxDisplay {
-			pterm.DefaultSection.Printf("Notes (showing %d of %d)", maxDisplay, totalNotes)
-		} else {
-			pterm.DefaultSection.Printf("Notes (%d)", totalNotes)
-		}
-		fmt.Println()
-
-		displayCount := totalNotes
-		if displayCount > maxDisplay {
-			displayCount = maxDisplay
-		}
-		for i := totalNotes - displayCount; i < totalNotes; i++ {
-			note := notes[i]
-			dateStr := note.CreatedAt.Format("2006-01-02")
-			content := note.Content
-			if len(content) > 80 {
-				content = content[:77] + "..."
-			}
-			fmt.Printf("  [%s] %s  %s\n", note.NoteType, dateStr, content)
-		}
-		fmt.Println()
-	}
-
-	// Context section (only if context data exists and has content)
-	if contextData != nil {
-		hasContextContent := contextData.Progress != nil ||
-			len(contextData.ImplementationDecisions) > 0 ||
-			len(contextData.OpenQuestions) > 0 ||
-			len(contextData.Blockers) > 0 ||
-			len(contextData.AcceptanceCriteriaStatus) > 0
-		if hasContextContent {
-			pterm.DefaultSection.Println("Context")
 			fmt.Println()
-			printContextData(contextData)
+			pterm.DefaultSection.Printf("Tasks (%d total)", len(data.Tasks))
+
+			// Use centralized task table formatter
+			tableConfig := formatters.FeatureGetTaskTableConfig()
+			tableConfig.ColorEnabled = colorEnabled
+			_ = formatters.RenderTaskTable(data.Tasks, data.WorkflowService, tableConfig)
+		},
+	})
+}
+
+// renderFeatureStatusBreakdown renders the task status breakdown table.
+func renderFeatureStatusBreakdown(statusBreakdown []workflow.StatusCount, workflowService *workflow.Service, colorEnabled bool) {
+	if len(statusBreakdown) == 0 {
+		return
+	}
+	pterm.DefaultSection.Println("Task Status Breakdown")
+	breakdownData := pterm.TableData{
+		{"Status", "Count", "Phase"},
+	}
+	for _, sc := range statusBreakdown {
+		statusDisplay := sc.Status
+		if colorEnabled {
+			statusDisplay = workflowService.FormatStatusCount(sc, true)
 		}
+		breakdownData = append(breakdownData, []string{
+			statusDisplay,
+			fmt.Sprintf("%d", sc.Count),
+			sc.Phase,
+		})
 	}
+	_ = pterm.DefaultTable.WithHasHeader().WithData(breakdownData).Render()
+}
 
-	// Check if all tasks are completed
-	allTasksCompleted := len(tasks) > 0 && feature.ProgressPct >= 100.0
-	if allTasksCompleted {
-		fmt.Println()
-		pterm.Success.Println("All tasks completed! Feature is ready for approval.")
+// renderFeatureProgressBreakdown renders the progress breakdown section.
+func renderFeatureProgressBreakdown(progressInfo *status.ProgressInfo) {
+	if progressInfo == nil {
+		return
 	}
+	pterm.DefaultSection.Println("Progress Breakdown")
+	progressData := pterm.TableData{
+		{"Metric", "Value", "Ratio"},
+		{"Weighted Progress", fmt.Sprintf("%.0f%%", progressInfo.WeightedPct), progressInfo.WeightedRatio},
+		{"Completion", fmt.Sprintf("%.0f%%", progressInfo.CompletionPct), progressInfo.CompletionRatio},
+	}
+	_ = pterm.DefaultTable.WithHasHeader().WithData(progressData).Render()
+}
 
-	// Tasks section
-	if len(tasks) == 0 {
-		fmt.Println()
-		pterm.Info.Println("No tasks found for this feature")
+// renderFeatureWorkSummary renders the work summary section.
+func renderFeatureWorkSummary(workSummary *status.WorkSummary) {
+	if workSummary == nil || workSummary.TotalTasks == 0 {
+		return
+	}
+	pterm.DefaultSection.Println("Work Summary")
+	workData := [][]string{}
+	if workSummary.CompletedTasks > 0 {
+		workData = append(workData, []string{"\u2705 Completed", fmt.Sprintf("%d/%d", workSummary.CompletedTasks, workSummary.TotalTasks)})
+	}
+	if workSummary.AgentWork > 0 {
+		workData = append(workData, []string{"\U0001F916 Agent Work", fmt.Sprintf("%d tasks", workSummary.AgentWork)})
+	}
+	if workSummary.HumanWork > 0 {
+		workData = append(workData, []string{"\U0001F464 Human Work", fmt.Sprintf("%d tasks", workSummary.HumanWork)})
+	}
+	if workSummary.BlockedWork > 0 {
+		workData = append(workData, []string{"\U0001F6AB Blocked", fmt.Sprintf("%d tasks", workSummary.BlockedWork)})
+	}
+	if workSummary.NotStarted > 0 {
+		workData = append(workData, []string{"\u231B Not Started", fmt.Sprintf("%d tasks", workSummary.NotStarted)})
+	}
+	if len(workData) > 0 {
+		_ = pterm.DefaultTable.WithData(workData).Render()
+	}
+}
+
+// renderFeatureActionItems renders the action items section.
+func renderFeatureActionItems(actionItems *status.ActionItems) {
+	if actionItems == nil {
+		return
+	}
+	hasActionItems := len(actionItems.AwaitingApproval) > 0 || len(actionItems.Blocked) > 0 || len(actionItems.InProgress) > 0
+	if !hasActionItems {
 		return
 	}
 
-	fmt.Println()
-	pterm.DefaultSection.Printf("Tasks (%d total)", len(tasks))
+	pterm.DefaultSection.Println("Action Items")
 
-	// Use centralized task table formatter
-	tableConfig := formatters.FeatureGetTaskTableConfig()
-	tableConfig.ColorEnabled = colorEnabled
-	_ = formatters.RenderTaskTable(tasks, workflowService, tableConfig)
+	// Awaiting approval
+	if len(actionItems.AwaitingApproval) > 0 {
+		fmt.Println()
+		pterm.DefaultBox.WithTitle("\u231B Awaiting Approval").Println(fmt.Sprintf("%d tasks", len(actionItems.AwaitingApproval)))
+		for _, item := range actionItems.AwaitingApproval {
+			ageStr := ""
+			if item.AgeDays != nil {
+				ageStr = fmt.Sprintf(" (%d days)", *item.AgeDays)
+			}
+			fmt.Printf("  - %s: %s%s\n", item.TaskKey, item.Title, ageStr)
+		}
+	}
+
+	// Blocked
+	if len(actionItems.Blocked) > 0 {
+		fmt.Println()
+		pterm.DefaultBox.WithTitle("\U0001F6AB Blocked").Println(fmt.Sprintf("%d tasks", len(actionItems.Blocked)))
+		for _, item := range actionItems.Blocked {
+			reasonStr := ""
+			if item.BlockedReason != nil && *item.BlockedReason != "" {
+				reasonStr = fmt.Sprintf(" - %s", *item.BlockedReason)
+			}
+			fmt.Printf("  - %s: %s%s\n", item.TaskKey, item.Title, reasonStr)
+		}
+	}
+
+	// In progress (summary only)
+	if len(actionItems.InProgress) > 0 {
+		fmt.Println()
+		pterm.DefaultBox.WithTitle("In Progress").Println(fmt.Sprintf("%d tasks", len(actionItems.InProgress)))
+	}
 }
 
 // outputFeatureListJSON renders the feature list as enhanced JSON with health and progress info.
@@ -651,7 +651,7 @@ type FeatureGetData struct {
 // Uses a single SQL view query for all data (tasks, breakdown, docs, notes, context)
 // instead of multiple round-trips, critical for Turso cloud latency.
 func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*FeatureGetData, error) {
-	projectRoot, _ := os.Getwd()
+	projectRoot, _ := cli.FindProjectRoot()
 
 	featureSvc := cli.GetFeatureService()
 
@@ -795,9 +795,9 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		statusStr = "draft"
 	}
 
-	projectRoot, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil {
-		return services.CreateFeatureInput{}, "", "", fmt.Errorf("failed to get working directory: %w", err)
+		return services.CreateFeatureInput{}, "", "", fmt.Errorf("failed to find project root: %w", err)
 	}
 
 	customFile := getFileFlagValue(cmd)
@@ -909,7 +909,7 @@ func writeFeatureFile(content []byte, featureFilePath, projectRoot string) (bool
 
 // resolveFeaturePath resolves the relative path to a feature file.
 func resolveFeaturePath(ctx context.Context, feature *models.Feature) string {
-	projectRoot, err := os.Getwd()
+	projectRoot, err := cli.FindProjectRoot()
 	if err != nil || projectRoot == "" {
 		return ""
 	}
@@ -1083,7 +1083,7 @@ func buildFeatureGetJSON(feature *models.Feature, data *FeatureGetData, orchestr
 	if feature.StatusOverride {
 		statusSource = "manual"
 	}
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"id": feature.ID, "epic_id": feature.EpicID, "key": feature.Key,
 		"title": feature.Title, "description": feature.Description,
 		"status": feature.Status, "status_source": statusSource,
@@ -1097,6 +1097,19 @@ func buildFeatureGetJSON(feature *models.Feature, data *FeatureGetData, orchestr
 		"orchestrator_action": orchestratorAction,
 		"valid_transitions":   validTransitions,
 	}
+
+	// Optional scalar fields (matching task builder pattern: include only when non-nil)
+	if feature.Slug != nil {
+		result["slug"] = *feature.Slug
+	}
+	if feature.FilePath != nil {
+		result["file_path"] = *feature.FilePath
+	}
+	if feature.ExecutionOrder != nil {
+		result["execution_order"] = *feature.ExecutionOrder
+	}
+
+	return result
 }
 
 // performFeatureComplete handles the core logic for the feature complete command.

@@ -873,16 +873,20 @@ func (s *FeatureService) UpdateFeature(ctx context.Context, key string, updates 
 	if updates.ExecutionOrder != nil {
 		feature.ExecutionOrder = updates.ExecutionOrder
 	}
-	if updates.FilePath != nil {
-		feature.FilePath = updates.FilePath
-	}
-
 	if err := feature.Validate(); err != nil {
 		return nil, fmt.Errorf("feature validation failed: %w", err)
 	}
 
 	if err := s.repo.Update(ctx, feature); err != nil {
 		return nil, fmt.Errorf("failed to update feature %s: %w", key, err)
+	}
+
+	// Update file path separately since repo.Update doesn't include file_path
+	if updates.FilePath != nil {
+		if err := s.repo.UpdateFilePath(ctx, feature.Key, updates.FilePath); err != nil {
+			return nil, fmt.Errorf("failed to update feature %s file path: %w", key, err)
+		}
+		feature.FilePath = updates.FilePath
 	}
 
 	return feature, nil

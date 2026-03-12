@@ -46,14 +46,27 @@ func TestTaskPlaceholders_AllFields(t *testing.T) {
 	if m["id"] != "T-E07-F01-001" {
 		t.Errorf("id = %q, want %q", m["id"], "T-E07-F01-001")
 	}
+	if m["key"] != "T-E07-F01-001" {
+		t.Errorf("key = %q, want %q", m["key"], "T-E07-F01-001")
+	}
+	if m["task_key"] != "T-E07-F01-001" {
+		t.Errorf("task_key = %q, want %q", m["task_key"], "T-E07-F01-001")
+	}
+	if m["epic_key"] != "E07" {
+		t.Errorf("epic_key = %q, want %q", m["epic_key"], "E07")
+	}
+	if m["feature_key"] != "E07-F01" {
+		t.Errorf("feature_key = %q, want %q", m["feature_key"], "E07-F01")
+	}
+	// Verify backward-compatible aliases are present
 	if m["task_id"] != "T-E07-F01-001" {
-		t.Errorf("task_id = %q, want %q", m["task_id"], "T-E07-F01-001")
+		t.Errorf("task_id (backward compat) = %q, want %q", m["task_id"], "T-E07-F01-001")
 	}
-	if m["epic_id"] != "T-E07-F01-001" {
-		t.Errorf("epic_id = %q, want %q", m["epic_id"], "T-E07-F01-001")
+	if m["epic_id"] != "E07" {
+		t.Errorf("epic_id (backward compat) = %q, want %q", m["epic_id"], "E07")
 	}
-	if m["feature_id"] != "T-E07-F01-001" {
-		t.Errorf("feature_id = %q, want %q", m["feature_id"], "T-E07-F01-001")
+	if m["feature_id"] != "E07-F01" {
+		t.Errorf("feature_id (backward compat) = %q, want %q", m["feature_id"], "E07-F01")
 	}
 	if m["title"] != "Test Task" {
 		t.Errorf("title = %q, want %q", m["title"], "Test Task")
@@ -159,8 +172,18 @@ func TestFeaturePlaceholders_AllFields(t *testing.T) {
 	if m["id"] != "E07-F01" {
 		t.Errorf("id = %q, want %q", m["id"], "E07-F01")
 	}
+	if m["key"] != "E07-F01" {
+		t.Errorf("key = %q, want %q", m["key"], "E07-F01")
+	}
+	if m["epic_key"] != "E07" {
+		t.Errorf("epic_key = %q, want %q", m["epic_key"], "E07")
+	}
+	// Verify backward-compatible aliases
 	if m["feature_id"] != "E07-F01" {
-		t.Errorf("feature_id = %q, want %q", m["feature_id"], "E07-F01")
+		t.Errorf("feature_id (backward compat) = %q, want %q", m["feature_id"], "E07-F01")
+	}
+	if m["epic_id"] != "E07" {
+		t.Errorf("epic_id (backward compat) = %q, want %q", m["epic_id"], "E07")
 	}
 	if m["title"] != "Test Feature" {
 		t.Errorf("title = %q, want %q", m["title"], "Test Feature")
@@ -216,8 +239,12 @@ func TestEpicPlaceholders_AllFields(t *testing.T) {
 	if m["id"] != "E07" {
 		t.Errorf("id = %q, want %q", m["id"], "E07")
 	}
+	if m["key"] != "E07" {
+		t.Errorf("key = %q, want %q", m["key"], "E07")
+	}
+	// Verify backward-compatible alias
 	if m["epic_id"] != "E07" {
-		t.Errorf("epic_id = %q, want %q", m["epic_id"], "E07")
+		t.Errorf("epic_id (backward compat) = %q, want %q", m["epic_id"], "E07")
 	}
 	if m["title"] != "Test Epic" {
 		t.Errorf("title = %q, want %q", m["title"], "Test Epic")
@@ -1004,8 +1031,8 @@ func TestFeaturePlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	if result["id"] != "E07-F29" {
 		t.Errorf("id placeholder missing or incorrect")
 	}
-	if result["feature_id"] != "E07-F29" {
-		t.Errorf("feature_id placeholder missing or incorrect")
+	if result["key"] != "E07-F29" {
+		t.Errorf("key placeholder missing or incorrect")
 	}
 	if result["title"] != "Test Feature" {
 		t.Errorf("title placeholder missing or incorrect")
@@ -1051,8 +1078,8 @@ func TestEpicPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	if result["id"] != "E07" {
 		t.Errorf("id placeholder missing or incorrect")
 	}
-	if result["epic_id"] != "E07" {
-		t.Errorf("epic_id placeholder missing or incorrect")
+	if result["key"] != "E07" {
+		t.Errorf("key placeholder missing or incorrect")
 	}
 	if result["title"] != "Test Epic" {
 		t.Errorf("title placeholder missing or incorrect")
@@ -1202,8 +1229,8 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
 	}
 
 	// Verify existing placeholders still present
-	if id := result["task_id"]; id != "E07-F30-001" {
-		t.Errorf("task_id = %q, want %q", id, "E07-F30-001")
+	if id := result["key"]; id != "E07-F30-001" {
+		t.Errorf("key = %q, want %q", id, "E07-F30-001")
 	}
 	if title := result["title"]; title != "Test Task" {
 		t.Errorf("title = %q, want %q", title, "Test Task")
@@ -1367,8 +1394,8 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
 	}
 
 	// Verify existing placeholders still present
-	if id := result["feature_id"]; id != "E07-F30" {
-		t.Errorf("feature_id = %q, want %q", id, "E07-F30")
+	if id := result["key"]; id != "E07-F30" {
+		t.Errorf("key = %q, want %q", id, "E07-F30")
 	}
 }
 
@@ -1444,5 +1471,340 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierComplex(t *testing.T) {
 
 	if tier := result["complexity_tier"]; tier != "COMPLEX" {
 		t.Errorf("complexity_tier = %q, want %q", tier, "COMPLEX")
+	}
+}
+
+// ===================================================================
+// Tests for key-parsing helpers (E07-F33 T1)
+// ===================================================================
+
+func TestParseEpicKeyFromEntityKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"task key with T- prefix", "T-E07-F01-001", "E07"},
+		{"task key without T- prefix", "E07-F01-001", "E07"},
+		{"feature key", "E07-F01", "E07"},
+		{"epic key only", "E07", "E07"},
+		{"lowercase input", "t-e07-f01-001", "E07"},
+		{"double-digit epic", "E12-F03-005", "E12"},
+		{"empty string", "", ""},
+		{"malformed no epic", "F01-001", ""},
+		{"malformed gibberish", "xyz", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseEpicKeyFromEntityKey(tt.input)
+			if got != tt.expected {
+				t.Errorf("parseEpicKeyFromEntityKey(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseFeatureKeyFromTaskKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"task key with T- prefix", "T-E07-F01-001", "E07-F01"},
+		{"task key without T- prefix", "E07-F01-001", "E07-F01"},
+		{"feature key (no task num)", "E07-F01", "E07-F01"},
+		{"lowercase input", "t-e07-f01-001", "E07-F01"},
+		{"double-digit feature", "E12-F03-005", "E12-F03"},
+		{"empty string", "", ""},
+		{"epic only", "E07", ""},
+		{"malformed", "xyz-abc", ""},
+		{"single segment", "E07", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseFeatureKeyFromTaskKey(tt.input)
+			if got != tt.expected {
+				t.Errorf("parseFeatureKeyFromTaskKey(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// ===================================================================
+// Tests for canonical variable names (E07-F33 T2-T6)
+// ===================================================================
+
+// TestTaskPlaceholders_CanonicalKeys verifies new canonical keys and absence of removed keys
+func TestTaskPlaceholders_CanonicalKeys(t *testing.T) {
+	task := &models.Task{
+		Key:       "T-E07-F01-001",
+		Title:     "Test Task",
+		Status:    "todo",
+		Priority:  5,
+		CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 16, 14, 45, 0, 0, time.UTC),
+	}
+
+	m := TaskPlaceholders(task)
+
+	// New canonical keys must be present
+	requiredKeys := map[string]string{
+		"id":          "T-E07-F01-001",
+		"key":         "T-E07-F01-001",
+		"task_key":    "T-E07-F01-001",
+		"epic_key":    "E07",
+		"feature_key": "E07-F01",
+	}
+	for k, want := range requiredKeys {
+		if got := m[k]; got != want {
+			t.Errorf("TaskPlaceholders[%q] = %q, want %q", k, got, want)
+		}
+	}
+
+	// Old keys preserved as backward-compatible aliases
+	backwardCompat := map[string]string{
+		"task_id":    "T-E07-F01-001",
+		"epic_id":    "E07",
+		"feature_id": "E07-F01",
+	}
+	for k, want := range backwardCompat {
+		if got := m[k]; got != want {
+			t.Errorf("TaskPlaceholders[%q] (backward compat) = %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestTaskPlaceholders_ShortKeyFormat verifies parsing works with short task key format
+func TestTaskPlaceholders_ShortKeyFormat(t *testing.T) {
+	task := &models.Task{
+		Key:       "E07-F01-001",
+		Title:     "Test Task",
+		Status:    "todo",
+		Priority:  5,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	m := TaskPlaceholders(task)
+
+	if m["epic_key"] != "E07" {
+		t.Errorf("epic_key = %q, want %q (short task key format)", m["epic_key"], "E07")
+	}
+	if m["feature_key"] != "E07-F01" {
+		t.Errorf("feature_key = %q, want %q (short task key format)", m["feature_key"], "E07-F01")
+	}
+}
+
+// TestFeaturePlaceholders_CanonicalKeys verifies new canonical keys and absence of removed keys
+func TestFeaturePlaceholders_CanonicalKeys(t *testing.T) {
+	feature := &models.Feature{
+		Key:       "E07-F01",
+		Title:     "Test Feature",
+		Status:    "active",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	m := FeaturePlaceholders(feature)
+
+	// New canonical keys
+	if m["key"] != "E07-F01" {
+		t.Errorf("key = %q, want %q", m["key"], "E07-F01")
+	}
+	if m["epic_key"] != "E07" {
+		t.Errorf("epic_key = %q, want %q", m["epic_key"], "E07")
+	}
+	if m["id"] != "E07-F01" {
+		t.Errorf("id = %q, want %q", m["id"], "E07-F01")
+	}
+
+	// Backward-compatible aliases
+	if m["feature_id"] != "E07-F01" {
+		t.Errorf("feature_id (backward compat) = %q, want %q", m["feature_id"], "E07-F01")
+	}
+	if m["epic_id"] != "E07" {
+		t.Errorf("epic_id (backward compat) = %q, want %q", m["epic_id"], "E07")
+	}
+}
+
+// TestEpicPlaceholders_CanonicalKeys verifies new canonical keys and backward-compatible aliases
+func TestEpicPlaceholders_CanonicalKeys(t *testing.T) {
+	epic := &models.Epic{
+		Key:       "E07",
+		Title:     "Test Epic",
+		Status:    "active",
+		Priority:  models.PriorityHigh,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	m := EpicPlaceholders(epic)
+
+	// New canonical keys
+	if m["key"] != "E07" {
+		t.Errorf("key = %q, want %q", m["key"], "E07")
+	}
+	if m["id"] != "E07" {
+		t.Errorf("id = %q, want %q", m["id"], "E07")
+	}
+
+	// Backward-compatible alias
+	if m["epic_id"] != "E07" {
+		t.Errorf("epic_id (backward compat) = %q, want %q", m["epic_id"], "E07")
+	}
+}
+
+// TestBugPlaceholders_ExpandedFields verifies all expanded fields on Bug
+func TestBugPlaceholders_ExpandedFields(t *testing.T) {
+	slug := "test-bug"
+	description := "Bug description"
+	filePath := "docs/bug.md"
+	linkedType := "task"
+	linkedKey := "E07-F01-001"
+
+	bug := &models.Bug{
+		Key:              "B001",
+		Title:            "Test Bug",
+		Status:           "open",
+		Severity:         models.BugSeverityHigh,
+		Slug:             &slug,
+		Description:      &description,
+		FilePath:         &filePath,
+		LinkedEntityType: &linkedType,
+		LinkedEntityKey:  &linkedKey,
+		CreatedAt:        time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:        time.Date(2025, 3, 2, 11, 0, 0, 0, time.UTC),
+	}
+
+	m := BugPlaceholders(bug)
+
+	expected := map[string]string{
+		"id":                 "B001",
+		"key":                "B001",
+		"title":              "Test Bug",
+		"status":             "open",
+		"severity":           "high",
+		"slug":               "test-bug",
+		"description":        "Bug description",
+		"file_path":          "docs/bug.md",
+		"linked_entity_type": "task",
+		"linked_entity_key":  "E07-F01-001",
+		"created_at":         "2025-03-01T10:00:00Z",
+		"updated_at":         "2025-03-02T11:00:00Z",
+	}
+
+	for k, want := range expected {
+		if got := m[k]; got != want {
+			t.Errorf("BugPlaceholders[%q] = %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestBugPlaceholders_NilOptionalFields verifies nil pointer fields are omitted
+func TestBugPlaceholders_NilOptionalFields(t *testing.T) {
+	bug := &models.Bug{
+		Key:       "B002",
+		Title:     "Minimal Bug",
+		Status:    "open",
+		Severity:  models.BugSeverityLow,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	m := BugPlaceholders(bug)
+
+	// Required fields present
+	if m["key"] != "B002" {
+		t.Errorf("key = %q, want %q", m["key"], "B002")
+	}
+
+	// Optional fields absent
+	for _, k := range []string{"slug", "description", "file_path", "linked_entity_type", "linked_entity_key"} {
+		if _, exists := m[k]; exists {
+			t.Errorf("BugPlaceholders should not contain %q when nil", k)
+		}
+	}
+}
+
+// TestChangeCardPlaceholders_ExpandedFields verifies all expanded fields on ChangeCard
+func TestChangeCardPlaceholders_ExpandedFields(t *testing.T) {
+	description := "Change description"
+	requestedBy := "alice"
+	assignedTo := "bob"
+	justification := "Needed for performance"
+	impactAnalysis := "Low risk"
+	rollbackPlan := "Revert commit"
+
+	card := &models.ChangeCard{
+		Key:            "CC-001",
+		Title:          "Test Change",
+		Status:         "draft",
+		Priority:       3,
+		Slug:           "test-change",
+		FilePath:       "docs/change.md",
+		Description:    &description,
+		RequestedBy:    &requestedBy,
+		AssignedTo:     &assignedTo,
+		Justification:  &justification,
+		ImpactAnalysis: &impactAnalysis,
+		RollbackPlan:   &rollbackPlan,
+		CreatedAt:      time.Date(2025, 3, 5, 9, 0, 0, 0, time.UTC),
+		UpdatedAt:      time.Date(2025, 3, 6, 10, 0, 0, 0, time.UTC),
+	}
+
+	m := ChangeCardPlaceholders(card)
+
+	expected := map[string]string{
+		"id":              "CC-001",
+		"key":             "CC-001",
+		"title":           "Test Change",
+		"status":          "draft",
+		"priority":        "3",
+		"slug":            "test-change",
+		"file_path":       "docs/change.md",
+		"description":     "Change description",
+		"requested_by":    "alice",
+		"assigned_to":     "bob",
+		"justification":   "Needed for performance",
+		"impact_analysis": "Low risk",
+		"rollback_plan":   "Revert commit",
+		"created_at":      "2025-03-05T09:00:00Z",
+		"updated_at":      "2025-03-06T10:00:00Z",
+	}
+
+	for k, want := range expected {
+		if got := m[k]; got != want {
+			t.Errorf("ChangeCardPlaceholders[%q] = %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestChangeCardPlaceholders_NilOptionalFields verifies nil pointer fields are omitted
+func TestChangeCardPlaceholders_NilOptionalFields(t *testing.T) {
+	card := &models.ChangeCard{
+		Key:       "CC-002",
+		Title:     "Minimal Change",
+		Status:    "draft",
+		Priority:  5,
+		Slug:      "minimal-change",
+		FilePath:  "docs/change2.md",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	m := ChangeCardPlaceholders(card)
+
+	// Required fields present
+	if m["key"] != "CC-002" {
+		t.Errorf("key = %q, want %q", m["key"], "CC-002")
+	}
+
+	// Optional fields absent
+	for _, k := range []string{"description", "requested_by", "assigned_to", "justification", "impact_analysis", "rollback_plan"} {
+		if _, exists := m[k]; exists {
+			t.Errorf("ChangeCardPlaceholders should not contain %q when nil", k)
+		}
 	}
 }

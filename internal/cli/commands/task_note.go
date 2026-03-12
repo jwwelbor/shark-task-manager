@@ -227,10 +227,7 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 
 		if history.RejectionReason != nil {
 			// This is a rejection event
-			reason := *history.RejectionReason
-			if len(reason) > 80 {
-				reason = reason[:77] + "..."
-			}
+			reason := truncateRunes(*history.RejectionReason, 77)
 
 			var content string
 			if oldStatus != "" && history.NewStatus != "" {
@@ -282,10 +279,7 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 				}
 
 				// Truncate long content for timeline view
-				content := note.Content
-				if len(content) > 80 {
-					content = content[:77] + "..."
-				}
+				content := truncateRunes(note.Content, 77)
 
 				timeline = append(timeline, TimelineEvent{
 					Timestamp: note.CreatedAt,

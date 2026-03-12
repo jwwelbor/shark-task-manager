@@ -77,6 +77,11 @@ func runView(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get file path: %w", err)
 	}
 
+	// Resolve relative paths against project root so the command works from any subdirectory
+	if !filepath.IsAbs(filePath) {
+		filePath = filepath.Join(projectRoot, filePath)
+	}
+
 	viewerCmd := cfg.GetViewer()
 	if err := viewSvc.LaunchViewer(ctx, filePath, viewerCmd); err != nil {
 		return fmt.Errorf("failed to launch viewer: %w", err)

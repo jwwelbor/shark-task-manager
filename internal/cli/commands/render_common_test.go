@@ -425,6 +425,81 @@ func TestRenderContextData(t *testing.T) {
 	}
 }
 
+// Test Suite AC-003: truncateRunes() - rune-safe string truncation
+func TestTruncateRunes(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxRunes int
+		want     string
+	}{
+		{
+			name:     "TC-003-01: ASCII text longer than limit truncated with ellipsis",
+			input:    strings.Repeat("a", 100),
+			maxRunes: 77,
+			want:     strings.Repeat("a", 77) + "...",
+		},
+		{
+			name:     "TC-003-02: CJK characters (3-byte UTF-8) truncated at rune boundary",
+			input:    strings.Repeat("\u4e16", 100), // 100 CJK chars (each 3 bytes)
+			maxRunes: 77,
+			want:     strings.Repeat("\u4e16", 77) + "...",
+		},
+		{
+			name:     "TC-003-03: Emoji characters (4-byte UTF-8) truncated at rune boundary",
+			input:    strings.Repeat("\U0001F600", 100), // 100 emoji (each 4 bytes)
+			maxRunes: 77,
+			want:     strings.Repeat("\U0001F600", 77) + "...",
+		},
+		{
+			name:     "TC-003-04: Mixed ASCII and multi-byte truncated at rune boundary",
+			input:    "Hello " + strings.Repeat("\u4e16", 80), // 6 ASCII + 80 CJK = 86 runes
+			maxRunes: 77,
+			want:     "Hello " + strings.Repeat("\u4e16", 71) + "...",
+		},
+		{
+			name:     "TC-003-05: Exactly maxRunes - no truncation no ellipsis",
+			input:    strings.Repeat("a", 77),
+			maxRunes: 77,
+			want:     strings.Repeat("a", 77),
+		},
+		{
+			name:     "TC-003-06: Fewer than maxRunes - no truncation",
+			input:    "short string",
+			maxRunes: 77,
+			want:     "short string",
+		},
+		{
+			name:     "TC-003-07: Empty string - no panic",
+			input:    "",
+			maxRunes: 77,
+			want:     "",
+		},
+		{
+			name:     "TC-003-08: Single character - no truncation",
+			input:    "x",
+			maxRunes: 77,
+			want:     "x",
+		},
+		{
+			name:     "TC-003-09: Exactly maxRunes+1 - truncated with ellipsis",
+			input:    strings.Repeat("b", 78),
+			maxRunes: 77,
+			want:     strings.Repeat("b", 77) + "...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateRunes(tt.input, tt.maxRunes)
+			if got != tt.want {
+				t.Errorf("truncateRunes() = %q (len=%d), want %q (len=%d)",
+					got, len([]rune(got)), tt.want, len([]rune(tt.want)))
+			}
+		})
+	}
+}
+
 // Test capitalize helper function
 func TestCapitalize(t *testing.T) {
 	tests := []struct {

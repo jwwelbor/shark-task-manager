@@ -225,6 +225,12 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 			os.Exit(2)
 		}
 		info.ResolvedPath = resolveEpicPlanningPath(ctx, epic.Key)
+
+		// Populate valid transitions for planning mode
+		workflowCfg := cli.GetWorkflowService().ForLevel("epic").GetWorkflow()
+		info.ValidTransitions = GetValidTransitions(string(epic.Status), workflowCfg)
+		info.OrchestratorAction = displaySvc.ResolveEpicAction(ctx, epic)
+
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(info)
 		}
@@ -245,8 +251,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(buildEpicGetJSON(epic, data, orchestratorAction))
 	}
-	renderEpicDetails(epic, data.EpicProgress, data.FeaturesWithDetails, data.DirPath, data.Filename, data.RelatedDocs, data.FeatureRollup, data.TaskRollup, data.BlockedTasks, data.ApprovalBacklogCount, data.EpicNotes, data.EpicContext)
-	displayOrchestratorAction(orchestratorAction)
+	renderEpicDetails(epic, data, orchestratorAction)
 	return nil
 }
 

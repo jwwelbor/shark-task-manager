@@ -56,6 +56,8 @@ type EpicDisplayInfo struct {
 	RelatedDocs     []*models.Document   `json:"related_documents,omitempty"`
 
 	// Common fields
+	Notes              []*models.EntityNote    `json:"notes,omitempty"`
+	ContextData        *models.ContextData     `json:"context_data,omitempty"`
 	ResolvedPath       string                  `json:"path,omitempty"`
 	Filename           string                  `json:"filename,omitempty"`
 	StatusSource       string                  `json:"status_source"`
@@ -79,6 +81,8 @@ type FeatureDisplayInfo struct {
 	RelatedDocs     []*models.Document `json:"related_documents,omitempty"`
 
 	// Common fields
+	Notes              []*models.EntityNote    `json:"notes,omitempty"`
+	ContextData        *models.ContextData     `json:"context_data,omitempty"`
 	ResolvedPath       string                  `json:"path,omitempty"`
 	StatusSource       string                  `json:"status_source"`
 	ValidTransitions   []string                `json:"valid_transitions,omitempty"`
@@ -97,6 +101,7 @@ type DisplayServiceDeps struct {
 	FeatureRepo    *repository.FeatureRepository
 	TaskRepo       *repository.TaskRepository
 	DocumentRepo   *repository.DocumentRepository
+	NoteRepo       *repository.EntityNoteRepository
 	TaskRelRepo    *repository.TaskRelationshipRepository
 	FeatureRelRepo *repository.FeatureRelationshipRepository
 	EpicRelRepo    *repository.EpicRelationshipRepository
@@ -121,6 +126,7 @@ func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *Displa
 			FeatureRepo:    repository.NewFeatureRepository(db),
 			TaskRepo:       repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
 			DocumentRepo:   repository.NewDocumentRepository(db),
+			NoteRepo:       repository.NewEntityNoteRepository(db),
 			TaskRelRepo:    repository.NewTaskRelationshipRepository(db),
 			FeatureRelRepo: repository.NewFeatureRelationshipRepository(db),
 			EpicRelRepo:    repository.NewEpicRelationshipRepository(db),
@@ -386,6 +392,34 @@ func (s *DisplayService) populateEpicPlanningInfo(ctx context.Context, info *Epi
 		})
 	}
 
+	// Fetch notes (log and continue on error)
+	if s.deps.NoteRepo != nil {
+		notes, err := s.deps.NoteRepo.GetByEntity(ctx, models.EntityTypeEpic, info.Epic.ID)
+		if err == nil {
+			info.Notes = notes
+		}
+	}
+	if info.Notes == nil {
+		info.Notes = make([]*models.EntityNote, 0)
+	}
+
+	// Parse context data from epic's JSON context field
+	if info.Epic.ContextData != nil && *info.Epic.ContextData != "" {
+		cd, err := models.FromJSON(*info.Epic.ContextData)
+		if err == nil {
+			info.ContextData = cd
+		}
+	}
+
+	// Related documents
+	relatedDocs, err := s.deps.DocumentRepo.ListForEpic(ctx, info.Epic.ID)
+	if err == nil {
+		info.RelatedDocs = relatedDocs
+	}
+	if info.RelatedDocs == nil {
+		info.RelatedDocs = make([]*models.Document, 0)
+	}
+
 	return nil
 }
 
@@ -536,6 +570,34 @@ func (s *DisplayService) populateFeaturePlanningInfo(ctx context.Context, info *
 		return fmt.Errorf("failed to list tasks: %w", err)
 	}
 	info.Tasks = tasks
+
+	// Fetch notes (log and continue on error)
+	if s.deps.NoteRepo != nil {
+		notes, err := s.deps.NoteRepo.GetByEntity(ctx, models.EntityTypeFeature, info.Feature.ID)
+		if err == nil {
+			info.Notes = notes
+		}
+	}
+	if info.Notes == nil {
+		info.Notes = make([]*models.EntityNote, 0)
+	}
+
+	// Parse context data from feature's JSON context field
+	if info.Feature.ContextData != nil && *info.Feature.ContextData != "" {
+		cd, err := models.FromJSON(*info.Feature.ContextData)
+		if err == nil {
+			info.ContextData = cd
+		}
+	}
+
+	// Related documents
+	relatedDocs, err := s.deps.DocumentRepo.ListForFeature(ctx, info.Feature.ID)
+	if err == nil {
+		info.RelatedDocs = relatedDocs
+	}
+	if info.RelatedDocs == nil {
+		info.RelatedDocs = make([]*models.Document, 0)
+	}
 
 	return nil
 }

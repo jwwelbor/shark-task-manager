@@ -131,6 +131,17 @@ func capitalize(s string) string {
 	return string(runes)
 }
 
+// truncateRunes truncates a string to maxLen runes, appending "..." if truncated.
+// Unlike byte-based slicing (s[:n]), this safely handles multi-byte UTF-8 characters
+// (CJK, emoji, etc.) without producing corrupted output.
+func truncateRunes(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "..."
+}
+
 // renderBasicInfo renders key-value info table.
 // Expects [][]string with format: []{"Label", "Value"}
 //
@@ -246,11 +257,7 @@ func renderNotes(notes []*models.EntityNote) {
 	for i := totalNotes - displayCount; i < totalNotes; i++ {
 		note := notes[i]
 		dateStr := note.CreatedAt.Format("2006-01-02")
-		runes := []rune(note.Content)
-		content := string(runes)
-		if len(runes) > 80 {
-			content = string(runes[:77]) + "..."
-		}
+		content := truncateRunes(note.Content, 77)
 		fmt.Printf("  [%s] %s  %s\n", note.NoteType, dateStr, content)
 	}
 	fmt.Println()

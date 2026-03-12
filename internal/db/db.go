@@ -394,7 +394,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 5
+const CurrentSchemaVersion = 6
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -741,6 +741,11 @@ func runMigrations(db *sql.DB) error {
 	// Add context_data column to change_cards table (E18-F03)
 	if err := migrateChangeCardContextData(db); err != nil {
 		return fmt.Errorf("failed to migrate change_cards context_data column: %w", err)
+	}
+
+	// Add bug_documents and change_card_documents junction tables (E07-F32/F33)
+	if err := migrateBugAndChangeCardDocuments(db); err != nil {
+		return fmt.Errorf("failed to migrate bug/change_card document tables: %w", err)
 	}
 
 	return nil
@@ -2270,6 +2275,60 @@ func migrateChangeCardContextData(db *sql.DB) error {
 		if _, err := db.Exec(`ALTER TABLE change_cards ADD COLUMN context_data TEXT;`); err != nil {
 			return fmt.Errorf("failed to add context_data to change_cards: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// migrateBugAndChangeCardDocuments creates bug_documents and change_card_documents
+// junction tables for linking documents to bugs and change-cards (E07-F32/F33).
+func migrateBugAndChangeCardDocuments(db *sql.DB) error {
+	// Create bug_documents junction table
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS bug_documents (
+			bug_id INTEGER NOT NULL,
+			document_id INTEGER NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+			PRIMARY KEY (bug_id, document_id),
+			FOREIGN KEY (bug_id) REFERENCES bugs(id) ON DELETE CASCADE,
+			FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+		);
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create bug_documents table: %w", err)
+	}
+
+	// Indexes for bug_documents
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_bug_documents_bug_id ON bug_documents(bug_id);`); err != nil {
+		return fmt.Errorf("failed to create index on bug_documents(bug_id): %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_bug_documents_document_id ON bug_documents(document_id);`); err != nil {
+		return fmt.Errorf("failed to create index on bug_documents(document_id): %w", err)
+	}
+
+	// Create change_card_documents junction table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS change_card_documents (
+			change_card_id INTEGER NOT NULL,
+			document_id INTEGER NOT NULL,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+			PRIMARY KEY (change_card_id, document_id),
+			FOREIGN KEY (change_card_id) REFERENCES change_cards(id) ON DELETE CASCADE,
+			FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+		);
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create change_card_documents table: %w", err)
+	}
+
+	// Indexes for change_card_documents
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_change_card_documents_change_card_id ON change_card_documents(change_card_id);`); err != nil {
+		return fmt.Errorf("failed to create index on change_card_documents(change_card_id): %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_change_card_documents_document_id ON change_card_documents(document_id);`); err != nil {
+		return fmt.Errorf("failed to create index on change_card_documents(document_id): %w", err)
 	}
 
 	return nil

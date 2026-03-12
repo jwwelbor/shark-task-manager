@@ -643,12 +643,28 @@ func runConfigGetStatusAction(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 
-		// Populate template with basic ID placeholders
-		vars := map[string]string{
-			"id":         taskKey,
-			"task_id":    taskKey,
-			"epic_id":    taskKey,
-			"feature_id": taskKey,
+		// Try to use real placeholder generation for accurate preview
+		var vars map[string]string
+		task, taskErr := cli.GetTaskService().GetTask(cmd.Context(), taskKey)
+		if taskErr == nil && task != nil {
+			vars = config.TaskPlaceholders(task)
+		} else {
+			// Fallback: parse parent keys from task key format
+			epicKey := config.ParseEpicKeyFromEntityKey(taskKey)
+			featureKey := config.ParseFeatureKeyFromTaskKey(taskKey)
+			if epicKey == "" {
+				epicKey = taskKey
+			}
+			if featureKey == "" {
+				featureKey = taskKey
+			}
+			vars = map[string]string{
+				"id":          taskKey,
+				"key":         taskKey,
+				"task_key":    taskKey,
+				"epic_key":    epicKey,
+				"feature_key": featureKey,
+			}
 		}
 		instruction := action.PopulateTemplate(vars)
 

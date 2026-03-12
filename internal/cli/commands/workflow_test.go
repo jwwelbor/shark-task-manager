@@ -142,11 +142,18 @@ func TestWorkflowListCommand(t *testing.T) {
 				ConfigFile: configPath,
 			}
 
-			// Capture output
-			var buf bytes.Buffer
+			// Capture output - read pipe concurrently to avoid deadlock on large output
 			oldStdout := os.Stdout
 			r, w, _ := os.Pipe()
 			os.Stdout = w
+
+			// Read pipe in goroutine to prevent blocking when buffer fills
+			outputCh := make(chan string, 1)
+			go func() {
+				var buf bytes.Buffer
+				_, _ = buf.ReadFrom(r)
+				outputCh <- buf.String()
+			}()
 
 			// Run command
 			cmd := &cobra.Command{
@@ -156,11 +163,10 @@ func TestWorkflowListCommand(t *testing.T) {
 
 			err = runWorkflowList(cmd, []string{})
 
-			// Restore stdout
+			// Restore stdout and collect output
 			w.Close()
 			os.Stdout = oldStdout
-			_, _ = buf.ReadFrom(r)
-			output := buf.String()
+			output := <-outputCh
 
 			// Check error expectation
 			if tt.expectError && err == nil {
@@ -303,19 +309,27 @@ func TestWorkflowListCommandJSON(t *testing.T) {
 				ConfigFile: configPath,
 			}
 
-			var buf bytes.Buffer
+			// Capture output - read pipe concurrently to avoid deadlock on large output
 			oldStdout := os.Stdout
 			r, w, _ := os.Pipe()
 			os.Stdout = w
+
+			// Read pipe in goroutine to prevent blocking when buffer fills
+			outputCh := make(chan string, 1)
+			go func() {
+				var buf bytes.Buffer
+				_, _ = buf.ReadFrom(r)
+				outputCh <- buf.String()
+			}()
 
 			cmd := &cobra.Command{RunE: runWorkflowList}
 			cmd.SetContext(context.Background())
 			err := runWorkflowList(cmd, []string{})
 
+			// Restore stdout and collect output
 			w.Close()
 			os.Stdout = oldStdout
-			_, _ = buf.ReadFrom(r)
-			output := buf.String()
+			output := <-outputCh
 
 			if err != nil {
 				t.Fatalf("Unexpected error: %v\nOutput: %s", err, output)

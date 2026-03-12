@@ -91,7 +91,7 @@ func TestTaskRepository_UpdateStatusWithOrchestratorAction(t *testing.T) {
 					Action:              config.ActionSpawnAgent,
 					AgentType:           "developer",
 					Skills:              []string{"backend", "testing"},
-					InstructionTemplate: "Implement {task_id} following the specification",
+					InstructionTemplate: "Implement {task_key} following the specification",
 				},
 			},
 		},
@@ -294,7 +294,7 @@ func TestTaskRepository_UpdateStatusPopulatesTemplateVariables(t *testing.T) {
 					Action:              config.ActionSpawnAgent,
 					AgentType:           "developer",
 					Skills:              []string{"backend"},
-					InstructionTemplate: "Begin implementation for task {task_id}",
+					InstructionTemplate: "Begin implementation for task {task_key}",
 				},
 			},
 		},
@@ -311,5 +311,5 @@ func TestTaskRepository_UpdateStatusPopulatesTemplateVariables(t *testing.T) {
 
 	// Verify template variable is populated
 	assert.Equal(t, "Begin implementation for task T-E99-F03-001", action.Instruction)
-	assert.NotContains(t, action.Instruction, "{task_id}", "Template variable should be replaced")
+	assert.NotContains(t, action.Instruction, "{task_key}", "Template variable should be replaced")
 }

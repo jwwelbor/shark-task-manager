@@ -10,31 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- Test capitalizeEntityType ---
-
-func TestCapitalizeEntityType(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{name: "epic", input: "epic", expected: "Epic"},
-		{name: "feature", input: "feature", expected: "Feature"},
-		{name: "task", input: "task", expected: "Task"},
-		{name: "empty string", input: "", expected: ""},
-		{name: "single char", input: "a", expected: "A"},
-		{name: "already capitalized", input: "Epic", expected: "Epic"},
-		{name: "all uppercase", input: "TASK", expected: "TASK"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := capitalizeEntityType(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // --- Test truncateString ---
 
 func TestTruncateString(t *testing.T) {

@@ -117,9 +117,17 @@ func injectMockChangeCardSvc(t *testing.T, mock changeCardServicer) func() {
 	return func() { changeCardSvcOverride = nil }
 }
 
-// newChangeCmd returns a minimal cobra.Command whose Context() is non-nil.
+// newChangeCmd returns a minimal cobra.Command (Context may be nil).
 func newChangeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "test"}
+	return cmd
+}
+
+// newChangeCmdWithCtx returns a minimal cobra.Command with a non-nil context.
+// Use this for tests that call enrichment helpers (GetNoteService, GetContextService).
+func newChangeCmdWithCtx() *cobra.Command {
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetContext(context.Background())
 	return cmd
 }
 
@@ -234,6 +242,11 @@ func TestRunChangeCreate_JSONOutput(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRunChangeGet_Success(t *testing.T) {
+	// Reset service singletons so GetNoteService/GetContextService re-initialize
+	// (and fail gracefully if no DB is available).
+	cli.ResetServices()
+	defer cli.ResetServices()
+
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
 			return &models.ChangeCard{Key: key, Title: "Some change", Status: "proposed"}, nil
@@ -244,7 +257,7 @@ func TestRunChangeGet_Success(t *testing.T) {
 	restore2 := suppressOutput(t)
 	defer restore2()
 
-	cmd := newChangeCmd()
+	cmd := newChangeCmdWithCtx()
 	err := runChangeGet(cmd, []string{"CC-001"})
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -267,6 +280,9 @@ func TestRunChangeGet_NotFound(t *testing.T) {
 }
 
 func TestRunChangeGet_JSONOutput(t *testing.T) {
+	cli.ResetServices()
+	defer cli.ResetServices()
+
 	origJSON := cli.GlobalConfig.JSON
 	cli.GlobalConfig.JSON = true
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
@@ -279,7 +295,7 @@ func TestRunChangeGet_JSONOutput(t *testing.T) {
 	defer restore()
 
 	out := captureOutput(t, func() {
-		cmd := newChangeCmd()
+		cmd := newChangeCmdWithCtx()
 		_ = runChangeGet(cmd, []string{"CC-042"})
 	})
 

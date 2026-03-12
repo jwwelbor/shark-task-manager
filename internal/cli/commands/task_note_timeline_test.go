@@ -50,8 +50,8 @@ func TestTimelineRejectionEventFormatting(t *testing.T) {
 			}
 
 			// Verify truncation logic for long reasons
-			if len(tt.rejectionNote.Reason) > 80 {
-				truncated := tt.rejectionNote.Reason[:77] + "..."
+			if len([]rune(tt.rejectionNote.Reason)) > 77 {
+				truncated := truncateRunes(tt.rejectionNote.Reason, 77)
 				if len(truncated) >= len(tt.rejectionNote.Reason) {
 					t.Error("truncation should produce shorter text")
 				}
