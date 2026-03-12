@@ -334,25 +334,54 @@ func runChangeCreate(cmd *cobra.Command, args []string) error {
 func runChangeGet(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	key := args[0]
+	ctx := cmd.Context()
 
 	// Step 2: Call service
 	svc := getChangeCardService()
-	card, err := svc.GetChangeCard(cmd.Context(), key)
+	card, err := svc.GetChangeCard(ctx, key)
 	if err != nil {
 		return fmt.Errorf("change-card %s not found: %w", key, err)
 	}
 
+	// Gather enrichment data (best-effort)
+	orchestratorAction := svc.GetOrchestratorAction(card)
+	validTransitions := svc.GetValidTransitions(string(card.Status))
+
+	var notes []*models.EntityNote
+	if noteSvc, nErr := cli.GetNoteService(ctx); nErr == nil && noteSvc != nil {
+		notes, _ = noteSvc.ListNotes(ctx, models.EntityTypeChange, key, nil)
+	}
+
+	var contextData *models.ContextData
+	if ctxSvc, cErr := cli.GetContextService(ctx); cErr == nil && ctxSvc != nil {
+		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeChange, key)
+	}
+
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		orchestratorAction := svc.GetOrchestratorAction(card)
-		validTransitions := svc.GetValidTransitions(string(card.Status))
 		result, err := buildEnrichedJSON(card, orchestratorAction, validTransitions)
 		if err != nil {
 			return err
 		}
+		if notes != nil {
+			result["notes"] = notes
+		}
+		if contextData != nil {
+			result["context_data"] = contextData
+		}
 		return cli.OutputJSON(result)
 	}
-	renderChangeCardDetails(card)
+
+	RenderEntity(EntityDisplayOptions{
+		EntityType:         "change-card",
+		Key:                card.Key,
+		Status:             string(card.Status),
+		BasicInfo:          buildChangeCardBasicInfo(card),
+		ValidTransitions:   validTransitions,
+		OrchestratorAction: orchestratorAction,
+		Notes:              notes,
+		ContextData:        contextData,
+	})
 	return nil
 }
 

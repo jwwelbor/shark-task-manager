@@ -298,25 +298,55 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 func runBugGet(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	key := args[0]
+	ctx := cmd.Context()
 
 	// Step 2: Call service
 	svc := cli.GetBugService()
-	bug, err := svc.GetBug(cmd.Context(), key)
+	bug, err := svc.GetBug(ctx, key)
 	if err != nil {
 		return err
 	}
 
+	// Gather enrichment data (best-effort)
+	orchestratorAction := svc.GetOrchestratorAction(bug)
+	validTransitions := svc.GetValidTransitions(string(bug.Status))
+
+	var notes []*models.EntityNote
+	if noteSvc, nErr := cli.GetNoteService(ctx); nErr == nil && noteSvc != nil {
+		notes, _ = noteSvc.ListNotes(ctx, models.EntityTypeBug, key, nil)
+	}
+
+	var contextData *models.ContextData
+	if ctxSvc, cErr := cli.GetContextService(ctx); cErr == nil && ctxSvc != nil {
+		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeBug, key)
+	}
+
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
-		orchestratorAction := svc.GetOrchestratorAction(bug)
-		validTransitions := svc.GetValidTransitions(string(bug.Status))
 		result, err := buildEnrichedJSON(bug, orchestratorAction, validTransitions)
 		if err != nil {
 			return err
 		}
+		if notes != nil {
+			result["notes"] = notes
+		}
+		if contextData != nil {
+			result["context_data"] = contextData
+		}
 		return cli.OutputJSON(result)
 	}
-	return printBugDetail(bug)
+
+	RenderEntity(EntityDisplayOptions{
+		EntityType:         "bug",
+		Key:                bug.Key,
+		Status:             string(bug.Status),
+		BasicInfo:          buildBugBasicInfo(bug),
+		ValidTransitions:   validTransitions,
+		OrchestratorAction: orchestratorAction,
+		Notes:              notes,
+		ContextData:        contextData,
+	})
+	return nil
 }
 
 // runBugList handles the `shark bug list` command.
@@ -631,21 +661,27 @@ func parseBugLinkFlag(link string) (entityType, entityKey string) {
 	}
 }
 
-// printBugDetail renders a formatted bug detail view for non-JSON output.
-func printBugDetail(bug *models.Bug) error {
-	fmt.Printf("Bug %s\n", bug.Key)
-	fmt.Printf("  Title:     %s\n", bug.Title)
-	fmt.Printf("  Status:    %s\n", bug.Status)
-	fmt.Printf("  Severity:  %s\n", bug.Severity)
+// buildBugBasicInfo assembles the key-value info table for bug display.
+func buildBugBasicInfo(bug *models.Bug) [][]string {
+	var info [][]string
+
+	info = append(info, []string{"Title", bug.Title})
+	info = append(info, []string{"Status", string(bug.Status)})
+	info = append(info, []string{"Severity", string(bug.Severity)})
+
 	if bug.LinkedEntityKey != nil && bug.LinkedEntityType != nil {
-		fmt.Printf("  Linked To: %s (%s)\n", *bug.LinkedEntityKey, *bug.LinkedEntityType)
+		info = append(info, []string{"Linked To", fmt.Sprintf("%s (%s)", *bug.LinkedEntityKey, *bug.LinkedEntityType)})
+	}
+	if bug.FilePath != nil && *bug.FilePath != "" {
+		info = append(info, []string{"File", *bug.FilePath})
 	}
 	if bug.Description != nil && *bug.Description != "" {
-		fmt.Printf("  Desc:      %s\n", *bug.Description)
+		info = append(info, []string{"Description", *bug.Description})
 	}
-	fmt.Printf("  Created:   %s\n", bug.CreatedAt.Format(time.RFC3339))
-	fmt.Printf("  Updated:   %s\n", bug.UpdatedAt.Format(time.RFC3339))
-	return nil
+	info = append(info, []string{"Created", bug.CreatedAt.Format(time.RFC3339)})
+	info = append(info, []string{"Updated", bug.UpdatedAt.Format(time.RFC3339)})
+
+	return info
 }
 
 // printBugTable renders a table for bug list output.

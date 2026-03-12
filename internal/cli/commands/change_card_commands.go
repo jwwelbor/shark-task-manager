@@ -24,11 +24,44 @@ func runChangeCardGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("change-card %s not found: %w", cardKey, err)
 	}
 
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(card)
+	// Gather enrichment data (best-effort)
+	orchestratorAction := svc.GetOrchestratorAction(card)
+	validTransitions := svc.GetValidTransitions(string(card.Status))
+
+	var notes []*models.EntityNote
+	if noteSvc, nErr := cli.GetNoteService(ctx); nErr == nil && noteSvc != nil {
+		notes, _ = noteSvc.ListNotes(ctx, models.EntityTypeChange, cardKey, nil)
 	}
 
-	renderChangeCardDetails(card)
+	var contextData *models.ContextData
+	if ctxSvc, cErr := cli.GetContextService(ctx); cErr == nil && ctxSvc != nil {
+		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeChange, cardKey)
+	}
+
+	if cli.GlobalConfig.JSON {
+		result, err := buildEnrichedJSON(card, orchestratorAction, validTransitions)
+		if err != nil {
+			return err
+		}
+		if notes != nil {
+			result["notes"] = notes
+		}
+		if contextData != nil {
+			result["context_data"] = contextData
+		}
+		return cli.OutputJSON(result)
+	}
+
+	RenderEntity(EntityDisplayOptions{
+		EntityType:         "change-card",
+		Key:                card.Key,
+		Status:             string(card.Status),
+		BasicInfo:          buildChangeCardBasicInfo(card),
+		ValidTransitions:   validTransitions,
+		OrchestratorAction: orchestratorAction,
+		Notes:              notes,
+		ContextData:        contextData,
+	})
 	return nil
 }
 
@@ -92,22 +125,31 @@ func runChangeCardDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// renderChangeCardDetails prints a human-readable change-card summary to stdout.
-func renderChangeCardDetails(card *models.ChangeCard) {
-	cli.Info(fmt.Sprintf("Change Card: %s", card.Key))
-	fmt.Printf("  Title:        %s\n", card.Title)
-	fmt.Printf("  Status:       %s\n", card.Status)
-	fmt.Printf("  Priority:     %d\n", card.Priority)
+// buildChangeCardBasicInfo assembles the key-value info table for change-card display.
+func buildChangeCardBasicInfo(card *models.ChangeCard) [][]string {
+	var info [][]string
+
+	info = append(info, []string{"Title", card.Title})
+	info = append(info, []string{"Status", string(card.Status)})
+	info = append(info, []string{"Priority", fmt.Sprintf("%d", card.Priority)})
+
 	if card.RequestedBy != nil && *card.RequestedBy != "" {
-		fmt.Printf("  Requested By: %s\n", *card.RequestedBy)
+		info = append(info, []string{"Requested By", *card.RequestedBy})
 	}
 	if card.AssignedTo != nil && *card.AssignedTo != "" {
-		fmt.Printf("  Assigned To:  %s\n", *card.AssignedTo)
+		info = append(info, []string{"Assigned To", *card.AssignedTo})
+	}
+	if card.FilePath != "" {
+		info = append(info, []string{"File", card.FilePath})
 	}
 	if card.Description != nil && *card.Description != "" {
-		fmt.Printf("  Description:  %s\n", *card.Description)
+		info = append(info, []string{"Description", *card.Description})
 	}
 	if card.Justification != nil && *card.Justification != "" {
-		fmt.Printf("  Justification: %s\n", *card.Justification)
+		info = append(info, []string{"Justification", *card.Justification})
 	}
+	info = append(info, []string{"Created", card.CreatedAt.Format(time.RFC3339)})
+	info = append(info, []string{"Updated", card.UpdatedAt.Format(time.RFC3339)})
+
+	return info
 }
