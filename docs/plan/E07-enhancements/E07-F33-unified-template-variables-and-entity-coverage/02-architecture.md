@@ -64,7 +64,7 @@
 | `related_epics` | Epic | CSV of related epic keys |
 | `complexity_tier` | Task, Feature | Complexity tier from metadata |
 
-**Breaking change**: Remove `task_id`, `epic_id`, `feature_id` aliases. Replace with `task_key`, `epic_key`, `feature_key`. The old names were misleading (they implied database IDs but contained entity keys) and were all set to the same value.
+**Deprecation**: The `task_id`, `epic_id`, `feature_id` aliases are kept for backward compatibility but deprecated in favor of `task_key`, `epic_key`, `feature_key`. The old names were misleading (they implied database IDs but contained entity keys) and were all set to the same value. The aliases now resolve to the correct parent keys (e.g., `epic_id` resolves to `E07`, not the task key) but should be migrated to the canonical `_key` names in templates.
 
 ### ADR-3: Enrich Existing Placeholder Functions (Not a New Unified Struct)
 
@@ -124,13 +124,13 @@ For bugs and change-cards, `epic_key` and `feature_key` are not applicable (they
    - Add `key` (same as `id`, alias for backward compat)
    - Parse `epic_key` and `feature_key` from `task.Key` (e.g., `T-E07-F01-001` -> `E07`, `E07-F01`)
    - Add `task_key` as alias for `key`
-   - Remove misleading `epic_id` and `feature_id` entries (they were set to the task key)
+   - Keep `epic_id` and `feature_id` as deprecated aliases (now correctly resolved to parent keys)
    - Add `description` from `task.Description`
 
 2. **`FeaturePlaceholders(feature *models.Feature) map[string]string`**:
    - Add `key` (same as `id`)
    - Parse `epic_key` from `feature.Key` (e.g., `E07-F01` -> `E07`)
-   - Remove misleading `feature_id` alias (it was identical to `id`)
+   - Keep `feature_id` and `epic_id` as deprecated aliases (correctly resolved)
    - Add `description` from `feature.Description`
 
 3. **`EpicPlaceholders(epic *models.Epic) map[string]string`**:

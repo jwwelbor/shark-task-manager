@@ -17,9 +17,13 @@ var epicKeyPattern = regexp.MustCompile(`^E\d+$`)
 // featureKeyPattern matches a feature key segment like E07-F01 or E12-F03.
 var featureKeyPattern = regexp.MustCompile(`^E\d+-F\d+$`)
 
-// parseEpicKeyFromEntityKey extracts the epic key (E##) from a task or feature key.
+// ParseEpicKeyFromEntityKey extracts the epic key (E##) from a task or feature key.
 // E.g., "T-E07-F01-001" -> "E07", "E07-F01" -> "E07", "E07" -> "E07"
 // Returns empty string if no epic key can be extracted.
+func ParseEpicKeyFromEntityKey(entityKey string) string {
+	return parseEpicKeyFromEntityKey(entityKey)
+}
+
 func parseEpicKeyFromEntityKey(entityKey string) string {
 	if entityKey == "" {
 		return ""
@@ -43,9 +47,13 @@ func parseEpicKeyFromEntityKey(entityKey string) string {
 	return ""
 }
 
-// parseFeatureKeyFromTaskKey extracts the feature key (E##-F##) from a task key.
+// ParseFeatureKeyFromTaskKey extracts the feature key (E##-F##) from a task key.
 // E.g., "T-E07-F01-001" -> "E07-F01", "E07-F01-001" -> "E07-F01"
 // Returns empty string if no feature key can be extracted.
+func ParseFeatureKeyFromTaskKey(taskKey string) string {
+	return parseFeatureKeyFromTaskKey(taskKey)
+}
+
 func parseFeatureKeyFromTaskKey(taskKey string) string {
 	if taskKey == "" {
 		return ""

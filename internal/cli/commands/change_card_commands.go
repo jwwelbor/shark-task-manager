@@ -13,56 +13,9 @@ import (
 
 // runChangeCardGet retrieves and displays a specific change-card.
 // Called from runGet when a CC-### key is detected.
+// Delegates to runChangeGet to avoid duplicating the enrichment and display logic.
 func runChangeCardGet(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-	defer cancel()
-
-	cardKey := args[0]
-	svc := cli.GetChangeCardService()
-	card, err := svc.GetChangeCard(ctx, cardKey)
-	if err != nil {
-		return fmt.Errorf("change-card %s not found: %w", cardKey, err)
-	}
-
-	// Gather enrichment data (best-effort)
-	orchestratorAction := svc.GetOrchestratorAction(card)
-	validTransitions := svc.GetValidTransitions(string(card.Status))
-
-	var notes []*models.EntityNote
-	if noteSvc, nErr := cli.GetNoteService(ctx); nErr == nil && noteSvc != nil {
-		notes, _ = noteSvc.ListNotes(ctx, models.EntityTypeChange, cardKey, nil)
-	}
-
-	var contextData *models.ContextData
-	if ctxSvc, cErr := cli.GetContextService(ctx); cErr == nil && ctxSvc != nil {
-		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeChange, cardKey)
-	}
-
-	if cli.GlobalConfig.JSON {
-		result, err := buildEnrichedJSON(card, orchestratorAction, validTransitions)
-		if err != nil {
-			return err
-		}
-		if notes != nil {
-			result["notes"] = notes
-		}
-		if contextData != nil {
-			result["context_data"] = contextData
-		}
-		return cli.OutputJSON(result)
-	}
-
-	RenderEntity(EntityDisplayOptions{
-		EntityType:         "change-card",
-		Key:                card.Key,
-		Status:             string(card.Status),
-		BasicInfo:          buildChangeCardBasicInfo(card),
-		ValidTransitions:   validTransitions,
-		OrchestratorAction: orchestratorAction,
-		Notes:              notes,
-		ContextData:        contextData,
-	})
-	return nil
+	return runChangeGet(cmd, args)
 }
 
 // runChangeCardCreate creates a new change-card.
