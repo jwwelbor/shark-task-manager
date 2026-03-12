@@ -14,6 +14,9 @@ PLAN GATE — run before creating any document:
 READ:
 (1) Draft epic document at {{.file_path}} and any vision notes.
 (2) Other epic PRDs under docs/plan/ for consistency and overlap awareness.
+{{- if .related_docs}}
+(3) Related docs: {{.related_docs}}
+{{- end}}
 
 ACT: Create only documents in remaining_steps. After each doc: update completed_steps via shark epic context set {{.id}} --field completed_steps '[...]'. Register each: shark related-docs add "..." <path> --epic={{.id}}.
 

@@ -122,45 +122,45 @@ func renderEpicListTable(epics []EpicWithProgress) {
 	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 
-// renderEpicPlanning renders an epic in planning mode showing workflow position
-func renderEpicPlanning(info *services.EpicDisplayInfo) {
+// buildEpicPlanningBasicInfo assembles the key-value info table for epic planning mode display.
+func buildEpicPlanningBasicInfo(info *services.EpicDisplayInfo) [][]string {
 	epic := info.Epic
 
-	pterm.DefaultSection.Printf("Epic: %s", epic.Key)
-	fmt.Println()
-
-	epicInfo := [][]string{
+	basicInfo := [][]string{
 		{"Title", epic.Title},
 		{"Status", fmt.Sprintf("%s (workflow)", string(epic.Status))},
 	}
 
 	if info.Phase != "" {
-		epicInfo = append(epicInfo, []string{"Phase", info.Phase})
+		basicInfo = append(basicInfo, []string{"Phase", info.Phase})
 	}
 
 	if info.PhaseDescription != "" {
-		epicInfo = append(epicInfo, []string{"Phase Description", info.PhaseDescription})
+		basicInfo = append(basicInfo, []string{"Phase Description", info.PhaseDescription})
 	}
 
 	if epic.Priority != "" {
-		epicInfo = append(epicInfo, []string{"Priority", string(epic.Priority)})
+		basicInfo = append(basicInfo, []string{"Priority", string(epic.Priority)})
 	}
 
 	if info.ResolvedPath != "" {
-		epicInfo = append(epicInfo, []string{"Path", info.ResolvedPath})
+		basicInfo = append(basicInfo, []string{"Path", info.ResolvedPath})
 	}
 
 	if epic.Description != nil && *epic.Description != "" {
-		epicInfo = append(epicInfo, []string{"Description", *epic.Description})
+		basicInfo = append(basicInfo, []string{"Description", *epic.Description})
 	}
 
 	if epic.BusinessValue != nil {
-		epicInfo = append(epicInfo, []string{"Business Value", string(*epic.BusinessValue)})
+		basicInfo = append(basicInfo, []string{"Business Value", string(*epic.BusinessValue)})
 	}
 
-	_ = pterm.DefaultTable.WithData(epicInfo).Render()
-	fmt.Println()
+	return basicInfo
+}
 
+// renderEpicPlanningSpecific renders epic-specific sections for planning mode:
+// workflow position and planning features table.
+func renderEpicPlanningSpecific(info *services.EpicDisplayInfo) {
 	if info.WorkflowPosition != nil {
 		pterm.DefaultSection.Println("Workflow Position")
 		fmt.Println()
@@ -205,16 +205,28 @@ func renderEpicPlanning(info *services.EpicDisplayInfo) {
 		}
 		_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 	}
-
-	displayOrchestratorAction(info.OrchestratorAction)
-	renderRelatedDocuments(info.RelatedDocs)
 }
 
-// renderEpicDetails renders epic details with features table and rollup information
-func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWithDetails, path, filename string, relatedDocs []*models.Document, featureRollup map[string]int, taskRollup map[string]int, blockedTasks []*models.Task, approvalBacklogCount int, notes []*models.EntityNote, contextData *models.ContextData) {
-	pterm.DefaultSection.Printf("Epic: %s", epic.Key)
-	fmt.Println()
+// renderEpicPlanning renders an epic in planning mode using the unified RenderEntity pattern.
+func renderEpicPlanning(info *services.EpicDisplayInfo) {
+	RenderEntity(EntityDisplayOptions{
+		EntityType:         "epic",
+		Key:                info.Epic.Key,
+		Status:             string(info.Epic.Status),
+		BasicInfo:          buildEpicPlanningBasicInfo(info),
+		ValidTransitions:   info.ValidTransitions,
+		OrchestratorAction: info.OrchestratorAction,
+		RelatedDocs:        info.RelatedDocs,
+		Notes:              info.Notes,
+		ContextData:        info.ContextData,
+		RenderSpecific: func() {
+			renderEpicPlanningSpecific(info)
+		},
+	})
+}
 
+// buildEpicAggregationBasicInfo assembles the key-value info table for epic aggregation mode display.
+func buildEpicAggregationBasicInfo(epic *models.Epic, progress float64, path, filename string) [][]string {
 	info := [][]string{
 		{"Title", epic.Title},
 		{"Status", fmt.Sprintf("%s (calculated)", string(epic.Status))},
@@ -238,18 +250,12 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 		info = append(info, []string{"Business Value", string(*epic.BusinessValue)})
 	}
 
-	_ = pterm.DefaultTable.WithData(info).Render()
-	fmt.Println()
+	return info
+}
 
-	if len(relatedDocs) > 0 {
-		pterm.DefaultSection.Println("Related Documents")
-		fmt.Println()
-		for _, doc := range relatedDocs {
-			fmt.Printf("  - %s (%s)\n", doc.Title, doc.FilePath)
-		}
-		fmt.Println()
-	}
-
+// renderEpicAggregationSpecific renders epic-specific sections for aggregation mode:
+// feature status rollup, task rollup, impediments, and features table.
+func renderEpicAggregationSpecific(featureRollup map[string]int, taskRollup map[string]int, blockedTasks []*models.Task, approvalBacklogCount int, features []FeatureWithDetails) {
 	if len(featureRollup) > 0 {
 		pterm.DefaultSection.Println("Feature Status Rollup")
 		fmt.Println()
@@ -304,45 +310,6 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 		fmt.Println()
 	}
 
-	if len(notes) > 0 {
-		maxDisplay := 10
-		totalNotes := len(notes)
-		if totalNotes > maxDisplay {
-			pterm.DefaultSection.Printf("Notes (showing %d of %d)", maxDisplay, totalNotes)
-		} else {
-			pterm.DefaultSection.Printf("Notes (%d)", totalNotes)
-		}
-		fmt.Println()
-
-		displayCount := totalNotes
-		if displayCount > maxDisplay {
-			displayCount = maxDisplay
-		}
-		for i := totalNotes - displayCount; i < totalNotes; i++ {
-			note := notes[i]
-			dateStr := note.CreatedAt.Format("2006-01-02")
-			content := note.Content
-			if len(content) > 80 {
-				content = content[:77] + "..."
-			}
-			fmt.Printf("  [%s] %s  %s\n", note.NoteType, dateStr, content)
-		}
-		fmt.Println()
-	}
-
-	if contextData != nil {
-		hasContextContent := contextData.Progress != nil ||
-			len(contextData.ImplementationDecisions) > 0 ||
-			len(contextData.OpenQuestions) > 0 ||
-			len(contextData.Blockers) > 0 ||
-			len(contextData.AcceptanceCriteriaStatus) > 0
-		if hasContextContent {
-			pterm.DefaultSection.Println("Context")
-			fmt.Println()
-			printContextData(contextData)
-		}
-	}
-
 	if len(features) == 0 {
 		pterm.Info.Println("No features found for this epic")
 		return
@@ -378,6 +345,26 @@ func renderEpicDetails(epic *models.Epic, progress float64, features []FeatureWi
 	}
 
 	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
+}
+
+// renderEpicDetails renders epic details using the unified RenderEntity pattern with callbacks.
+func renderEpicDetails(epic *models.Epic, data *EpicGetData, orchestratorAction *config.PopulatedAction) {
+	validTransitions := GetValidTransitions(string(epic.Status), data.WorkflowCfg)
+
+	RenderEntity(EntityDisplayOptions{
+		EntityType:         "epic",
+		Key:                epic.Key,
+		Status:             string(epic.Status),
+		BasicInfo:          buildEpicAggregationBasicInfo(epic, data.EpicProgress, data.DirPath, data.Filename),
+		ValidTransitions:   validTransitions,
+		OrchestratorAction: orchestratorAction,
+		RelatedDocs:        data.RelatedDocs,
+		Notes:              data.EpicNotes,
+		ContextData:        data.EpicContext,
+		RenderSpecific: func() {
+			renderEpicAggregationSpecific(data.FeatureRollup, data.TaskRollup, data.BlockedTasks, data.ApprovalBacklogCount, data.FeaturesWithDetails)
+		},
+	})
 }
 
 // buildEpicsWithProgress attaches progress percentages to a list of epics.

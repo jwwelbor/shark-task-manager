@@ -14,8 +14,9 @@ type ActionService interface {
 	// Returns nil if no action is defined for the status
 	GetStatusAction(ctx context.Context, status string) (*OrchestratorAction, error)
 
-	// GetStatusActionPopulated returns action with template variables populated
-	GetStatusActionPopulated(ctx context.Context, status string, taskID string) (*PopulatedAction, error)
+	// GetStatusActionPopulated returns action with template variables populated.
+	// vars is a map of template variable names to values (e.g., from TaskPlaceholders).
+	GetStatusActionPopulated(ctx context.Context, status string, vars map[string]string) (*PopulatedAction, error)
 
 	// GetAllActions returns all orchestrator actions indexed by status name
 	GetAllActions(ctx context.Context) (map[string]*OrchestratorAction, error)
@@ -98,8 +99,10 @@ func (s *DefaultActionService) GetStatusAction(ctx context.Context, status strin
 	return metadata.OrchestratorAction, nil
 }
 
-// GetStatusActionPopulated retrieves action with template populated
-func (s *DefaultActionService) GetStatusActionPopulated(ctx context.Context, status string, taskID string) (*PopulatedAction, error) {
+// GetStatusActionPopulated retrieves action with template populated.
+// vars is a map of template variable names to values (e.g., from TaskPlaceholders).
+// If vars is nil, an empty map is used.
+func (s *DefaultActionService) GetStatusActionPopulated(ctx context.Context, status string, vars map[string]string) (*PopulatedAction, error) {
 	action, err := s.GetStatusAction(ctx, status)
 	if err != nil {
 		return nil, err
@@ -109,13 +112,11 @@ func (s *DefaultActionService) GetStatusActionPopulated(ctx context.Context, sta
 		return nil, nil // No action defined
 	}
 
-	// Populate template with basic ID placeholders
-	vars := map[string]string{
-		"id":         taskID,
-		"task_id":    taskID,
-		"epic_id":    taskID,
-		"feature_id": taskID,
+	// Use empty map if nil to avoid nil pointer issues
+	if vars == nil {
+		vars = make(map[string]string)
 	}
+
 	instruction := action.PopulateTemplate(vars)
 
 	return &PopulatedAction{

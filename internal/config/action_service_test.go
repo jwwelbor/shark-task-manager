@@ -140,7 +140,7 @@ func TestGetStatusAction_StatusNotFound(t *testing.T) {
 	}
 }
 
-// TestGetStatusActionPopulated replaces {task_id} template correctly
+// TestGetStatusActionPopulated replaces template variables correctly
 func TestGetStatusActionPopulated(t *testing.T) {
 	service := setupTestService(t)
 	ctx := context.Background()
@@ -149,7 +149,7 @@ func TestGetStatusActionPopulated(t *testing.T) {
 	testStatuses := []string{"todo", "in_progress", "ready_for_review", "completed"}
 
 	for _, status := range testStatuses {
-		populated, err := service.GetStatusActionPopulated(ctx, status, "T-E07-F01-001")
+		populated, err := service.GetStatusActionPopulated(ctx, status, map[string]string{"id": "T-E07-F01-001", "key": "T-E07-F01-001", "task_key": "T-E07-F01-001", "epic_key": "E07", "feature_key": "E07-F01"})
 
 		// May be nil if no action configured, but no error
 		var notFoundErr *StatusNotFoundError
@@ -180,7 +180,7 @@ func TestGetStatusActionPopulated_NoPlaceholder(t *testing.T) {
 	testStatuses := []string{"todo", "in_progress", "ready_for_review", "completed"}
 
 	for _, status := range testStatuses {
-		populated, err := service.GetStatusActionPopulated(ctx, status, "T-E07-F01-001")
+		populated, err := service.GetStatusActionPopulated(ctx, status, map[string]string{"id": "T-E07-F01-001", "key": "T-E07-F01-001", "task_key": "T-E07-F01-001", "epic_key": "E07", "feature_key": "E07-F01"})
 
 		var notFoundErr *StatusNotFoundError
 		if err != nil && !errors.As(err, &notFoundErr) {
@@ -398,7 +398,7 @@ func BenchmarkGetStatusActionPopulated(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = service.GetStatusActionPopulated(ctx, "ready_for_development", "T-E07-F01-001")
+		_, _ = service.GetStatusActionPopulated(ctx, "ready_for_development", map[string]string{"id": "T-E07-F01-001", "key": "T-E07-F01-001", "task_key": "T-E07-F01-001", "epic_key": "E07", "feature_key": "E07-F01"})
 	}
 }
 

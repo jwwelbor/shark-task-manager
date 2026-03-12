@@ -643,12 +643,13 @@ func runConfigGetStatusAction(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 
-		// Populate template with basic ID placeholders
+		// Populate template with canonical variable names
 		vars := map[string]string{
-			"id":         taskKey,
-			"task_id":    taskKey,
-			"epic_id":    taskKey,
-			"feature_id": taskKey,
+			"id":          taskKey,
+			"key":         taskKey,
+			"task_key":    taskKey,
+			"epic_key":    taskKey,
+			"feature_key": taskKey,
 		}
 		instruction := action.PopulateTemplate(vars)
 

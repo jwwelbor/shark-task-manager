@@ -4,11 +4,73 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
+
+// epicKeyPattern matches an epic key segment like E07 or E12.
+var epicKeyPattern = regexp.MustCompile(`^E\d+$`)
+
+// featureKeyPattern matches a feature key segment like E07-F01 or E12-F03.
+var featureKeyPattern = regexp.MustCompile(`^E\d+-F\d+$`)
+
+// parseEpicKeyFromEntityKey extracts the epic key (E##) from a task or feature key.
+// E.g., "T-E07-F01-001" -> "E07", "E07-F01" -> "E07", "E07" -> "E07"
+// Returns empty string if no epic key can be extracted.
+func parseEpicKeyFromEntityKey(entityKey string) string {
+	if entityKey == "" {
+		return ""
+	}
+
+	// Strip "T-" prefix if present
+	key := entityKey
+	if strings.HasPrefix(strings.ToUpper(key), "T-") {
+		key = key[2:]
+	}
+
+	// Split on "-" and find the first segment matching E\d+
+	parts := strings.Split(key, "-")
+	for _, part := range parts {
+		upper := strings.ToUpper(part)
+		if epicKeyPattern.MatchString(upper) {
+			return upper
+		}
+	}
+
+	return ""
+}
+
+// parseFeatureKeyFromTaskKey extracts the feature key (E##-F##) from a task key.
+// E.g., "T-E07-F01-001" -> "E07-F01", "E07-F01-001" -> "E07-F01"
+// Returns empty string if no feature key can be extracted.
+func parseFeatureKeyFromTaskKey(taskKey string) string {
+	if taskKey == "" {
+		return ""
+	}
+
+	// Strip "T-" prefix if present
+	key := taskKey
+	if strings.HasPrefix(strings.ToUpper(key), "T-") {
+		key = key[2:]
+	}
+
+	// Split on "-" and look for E##-F## pattern in the first segments
+	parts := strings.Split(key, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	// Try combining first two parts to form E##-F##
+	candidate := strings.ToUpper(parts[0]) + "-" + strings.ToUpper(parts[1])
+	if featureKeyPattern.MatchString(candidate) {
+		return candidate
+	}
+
+	return ""
+}
 
 // TaskPlaceholders creates a map of template placeholders from a Task.
 // Returns a map suitable for use with PopulateTemplate.
@@ -17,11 +79,20 @@ func TaskPlaceholders(task *models.Task) map[string]string {
 	if task == nil {
 		return make(map[string]string)
 	}
+	epicKey := parseEpicKeyFromEntityKey(task.Key)
+	featureKey := parseFeatureKeyFromTaskKey(task.Key)
 	m := map[string]string{
-		"id":         task.Key,
+		// Canonical names
+		"id":          task.Key,
+		"key":         task.Key,
+		"task_key":    task.Key,
+		"epic_key":    epicKey,
+		"feature_key": featureKey,
+		// Backward-compatible aliases (deprecated, prefer canonical names above)
 		"task_id":    task.Key,
-		"epic_id":    task.Key,
-		"feature_id": task.Key,
+		"epic_id":    epicKey,
+		"feature_id": featureKey,
+		// Other fields
 		"title":      task.Title,
 		"status":     string(task.Status),
 		"priority":   fmt.Sprintf("%d", task.Priority),
@@ -68,9 +139,16 @@ func FeaturePlaceholders(feature *models.Feature) map[string]string {
 	if feature == nil {
 		return make(map[string]string)
 	}
+	epicKey := parseEpicKeyFromEntityKey(feature.Key)
 	m := map[string]string{
-		"id":         feature.Key,
+		// Canonical names
+		"id":       feature.Key,
+		"key":      feature.Key,
+		"epic_key": epicKey,
+		// Backward-compatible aliases (deprecated)
 		"feature_id": feature.Key,
+		"epic_id":    epicKey,
+		// Other fields
 		"title":      feature.Title,
 		"status":     string(feature.Status),
 		"created_at": feature.CreatedAt.Format(time.RFC3339),
@@ -102,8 +180,12 @@ func EpicPlaceholders(epic *models.Epic) map[string]string {
 		return make(map[string]string)
 	}
 	m := map[string]string{
-		"id":         epic.Key,
-		"epic_id":    epic.Key,
+		// Canonical names
+		"id":  epic.Key,
+		"key": epic.Key,
+		// Backward-compatible alias (deprecated)
+		"epic_id": epic.Key,
+		// Other fields
 		"title":      epic.Title,
 		"status":     string(epic.Status),
 		"priority":   string(epic.Priority),
@@ -133,19 +215,34 @@ func BugPlaceholders(bug *models.Bug) map[string]string {
 	if bug == nil {
 		return make(map[string]string)
 	}
-	filePath := ""
+	m := map[string]string{
+		"id":         bug.Key,
+		"key":        bug.Key,
+		"title":      bug.Title,
+		"status":     string(bug.Status),
+		"severity":   string(bug.Severity),
+		"created_at": bug.CreatedAt.Format(time.RFC3339),
+		"updated_at": bug.UpdatedAt.Format(time.RFC3339),
+	}
+
+	// Optional pointer fields
+	if bug.Slug != nil {
+		m["slug"] = *bug.Slug
+	}
+	if bug.Description != nil {
+		m["description"] = *bug.Description
+	}
 	if bug.FilePath != nil {
-		filePath = *bug.FilePath
+		m["file_path"] = *bug.FilePath
 	}
-	severity := string(bug.Severity)
-	return map[string]string{
-		"id":        bug.Key,
-		"key":       bug.Key,
-		"title":     bug.Title,
-		"status":    string(bug.Status),
-		"severity":  severity,
-		"file_path": filePath,
+	if bug.LinkedEntityType != nil {
+		m["linked_entity_type"] = *bug.LinkedEntityType
 	}
+	if bug.LinkedEntityKey != nil {
+		m["linked_entity_key"] = *bug.LinkedEntityKey
+	}
+
+	return m
 }
 
 // ChangeCardPlaceholders creates a map of template placeholders from a ChangeCard.
@@ -153,19 +250,39 @@ func ChangeCardPlaceholders(card *models.ChangeCard) map[string]string {
 	if card == nil {
 		return make(map[string]string)
 	}
-	description := ""
+	m := map[string]string{
+		"id":         card.Key,
+		"key":        card.Key,
+		"title":      card.Title,
+		"status":     string(card.Status),
+		"priority":   fmt.Sprintf("%d", card.Priority),
+		"file_path":  card.FilePath,
+		"slug":       card.Slug,
+		"created_at": card.CreatedAt.Format(time.RFC3339),
+		"updated_at": card.UpdatedAt.Format(time.RFC3339),
+	}
+
+	// Optional pointer fields
 	if card.Description != nil {
-		description = *card.Description
+		m["description"] = *card.Description
 	}
-	return map[string]string{
-		"id":          card.Key,
-		"key":         card.Key,
-		"title":       card.Title,
-		"status":      string(card.Status),
-		"priority":    fmt.Sprintf("%d", card.Priority),
-		"file_path":   card.FilePath,
-		"description": description,
+	if card.RequestedBy != nil {
+		m["requested_by"] = *card.RequestedBy
 	}
+	if card.AssignedTo != nil {
+		m["assigned_to"] = *card.AssignedTo
+	}
+	if card.Justification != nil {
+		m["justification"] = *card.Justification
+	}
+	if card.ImpactAnalysis != nil {
+		m["impact_analysis"] = *card.ImpactAnalysis
+	}
+	if card.RollbackPlan != nil {
+		m["rollback_plan"] = *card.RollbackPlan
+	}
+
+	return m
 }
 
 // formatDocPathsAsCSV formats a slice of documents as comma-separated file paths.

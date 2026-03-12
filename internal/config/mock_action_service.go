@@ -5,7 +5,7 @@ import "context"
 // MockActionService is a mock implementation of ActionService for testing
 type MockActionService struct {
 	GetStatusActionFunc          func(ctx context.Context, status string) (*OrchestratorAction, error)
-	GetStatusActionPopulatedFunc func(ctx context.Context, status string, taskID string) (*PopulatedAction, error)
+	GetStatusActionPopulatedFunc func(ctx context.Context, status string, vars map[string]string) (*PopulatedAction, error)
 	GetAllActionsFunc            func(ctx context.Context) (map[string]*OrchestratorAction, error)
 	ValidateActionsFunc          func(ctx context.Context) (*ValidationResult, error)
 	ReloadFunc                   func(ctx context.Context) error
@@ -20,9 +20,9 @@ func (m *MockActionService) GetStatusAction(ctx context.Context, status string) 
 }
 
 // GetStatusActionPopulated implements ActionService
-func (m *MockActionService) GetStatusActionPopulated(ctx context.Context, status string, taskID string) (*PopulatedAction, error) {
+func (m *MockActionService) GetStatusActionPopulated(ctx context.Context, status string, vars map[string]string) (*PopulatedAction, error) {
 	if m.GetStatusActionPopulatedFunc != nil {
-		return m.GetStatusActionPopulatedFunc(ctx, status, taskID)
+		return m.GetStatusActionPopulatedFunc(ctx, status, vars)
 	}
 	return nil, nil
 }

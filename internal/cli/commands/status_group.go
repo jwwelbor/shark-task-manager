@@ -161,15 +161,6 @@ func init() {
 
 // --- Helper functions ---
 
-// capitalizeEntityType returns the entity type with first letter capitalized.
-// Used for user-facing messages (e.g., "epic" -> "Epic").
-func capitalizeEntityType(entityType string) string {
-	if entityType == "" {
-		return ""
-	}
-	return strings.ToUpper(entityType[:1]) + entityType[1:]
-}
-
 // dispatchTransition routes a transition request to the correct service based on entity type.
 func dispatchTransition(ctx context.Context, entityType, key, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 	switch entityType {
@@ -274,7 +265,7 @@ func handleStatusTransitionError(entityType, key string, err error) {
 		os.Exit(3)
 	}
 	if strings.Contains(err.Error(), "not found") {
-		cli.Error(fmt.Sprintf("%s %s not found", capitalizeEntityType(entityType), key))
+		cli.Error(fmt.Sprintf("%s %s not found", displayEntityTypeName(entityType), key))
 		os.Exit(1)
 	}
 }
@@ -355,7 +346,7 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(result)
 	}
 
-	cli.Success(fmt.Sprintf("%s %s: %s -> %s", capitalizeEntityType(entityType), transResult.EntityKey, transResult.FromStatus, transResult.ToStatus))
+	cli.Success(fmt.Sprintf("%s %s: %s -> %s", displayEntityTypeName(entityType), transResult.EntityKey, transResult.FromStatus, transResult.ToStatus))
 	if transResult.IsBackward && transResult.Reason != "" {
 		cli.Info(fmt.Sprintf("Reason: %s", transResult.Reason))
 	}
@@ -439,7 +430,7 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 			}
 			return cli.OutputJSON(result)
 		}
-		cli.Success(fmt.Sprintf("%s %s advanced to %s", capitalizeEntityType(entityType), transResult.EntityKey, transResult.ToStatus))
+		cli.Success(fmt.Sprintf("%s %s advanced to %s", displayEntityTypeName(entityType), transResult.EntityKey, transResult.ToStatus))
 		return nil
 	}
 
@@ -455,7 +446,7 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 
 	// Handle terminal status
 	if info.IsTerminal {
-		result.Message = fmt.Sprintf("%s is in terminal status '%s' - no transitions available", capitalizeEntityType(entityType), info.CurrentStatus)
+		result.Message = fmt.Sprintf("%s is in terminal status '%s' - no transitions available", displayEntityTypeName(entityType), info.CurrentStatus)
 
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(result)
@@ -512,7 +503,7 @@ func runStatusTransitions(cmd *cobra.Command, args []string) error {
 	result.Transitioned = false
 
 	if info.IsTerminal {
-		result.Message = fmt.Sprintf("%s is in terminal status '%s' - no transitions available", capitalizeEntityType(entityType), info.CurrentStatus)
+		result.Message = fmt.Sprintf("%s is in terminal status '%s' - no transitions available", displayEntityTypeName(entityType), info.CurrentStatus)
 	} else if len(info.AvailableTransitions) == 0 {
 		result.Message = fmt.Sprintf("No valid transitions from status '%s'", info.CurrentStatus)
 	}
@@ -522,7 +513,7 @@ func runStatusTransitions(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(result)
 	}
 
-	fmt.Printf("\n%s: %s\n", capitalizeEntityType(entityType), info.EntityKey)
+	fmt.Printf("\n%s: %s\n", displayEntityTypeName(entityType), info.EntityKey)
 	fmt.Printf("Current status: %s", info.CurrentStatus)
 	if info.CurrentPhase != "" {
 		fmt.Printf(" (phase: %s)", info.CurrentPhase)

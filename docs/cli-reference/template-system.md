@@ -65,36 +65,83 @@ Templates are referenced in `orchestrator_action` blocks:
 
 Available variables depend on entity type.
 
+### Common Variables (All Entity Types)
+
+```go
+{{.key}}               // Entity key (e.g., "E07", "E07-F01", "T-E07-F01-001", "B001", "CC-001")
+{{.id}}                // Alias for key (backward compat)
+{{.title}}             // Entity title
+{{.status}}            // Current workflow status
+{{.slug}}              // URL-friendly slug
+{{.file_path}}         // Path to entity file
+{{.created_at}}        // RFC3339 timestamp
+{{.updated_at}}        // RFC3339 timestamp
+{{.description}}       // Entity description (if set)
+```
+
 ### Task Templates
 
 ```go
-{{.task_id}}           // Task key (e.g., "T-E07-F01-001")
-{{.title}}             // Task title
-{{.file_path}}         // Path to task file (e.g., "docs/plan/.../tasks/T-E07-F01-001.md")
-{{.epic_id}}           // Parent epic key (e.g., "E07")
-{{.feature_id}}        // Parent feature key (e.g., "E07-F01")
-{{.related_docs}}      // Related documentation paths (if set)
-{{.related_tasks}}     // Related task keys (if set)
+{{.task_key}}          // Alias for key when entity is a task
+{{.epic_key}}          // Parent epic key (e.g., "E07") — parsed from task key
+{{.feature_key}}       // Parent feature key (e.g., "E07-F01") — parsed from task key
 {{.agent_type}}        // Agent type (e.g., "developer")
 {{.priority}}          // Task priority (1-10)
+{{.execution_order}}   // Execution order within feature
+{{.depends_on}}        // Dependency string
+{{.blocked_reason}}    // Blocked reason (if blocked)
+{{.completion_notes}}  // Completion notes
+{{.files_changed}}     // Files changed
+{{.related_docs}}      // Related documentation paths (if set)
+{{.related_tasks}}     // Related task keys (if set)
+{{.complexity_tier}}   // Complexity tier from metadata
 ```
+
+**Backward-compat aliases** (still work but canonical names preferred):
+- `{{.task_id}}` → use `{{.key}}` or `{{.task_key}}`
+- `{{.epic_id}}` → use `{{.epic_key}}` (now correctly resolves to parent epic key)
+- `{{.feature_id}}` → use `{{.feature_key}}` (now correctly resolves to parent feature key)
 
 ### Feature Templates
 
 ```go
-{{.id}}                // Feature key (e.g., "E07-F01")
-{{.title}}             // Feature title
-{{.file_path}}         // Path to feature.md
-{{.epic_id}}           // Parent epic key (e.g., "E07")
+{{.epic_key}}          // Parent epic key (e.g., "E07") — parsed from feature key
+{{.execution_order}}   // Execution order within epic
 {{.related_docs}}      // Related documentation
+{{.related_features}}  // Related feature keys
+{{.complexity_tier}}   // Complexity tier from metadata
 ```
+
+**Backward-compat aliases**: `{{.feature_id}}` → use `{{.key}}`, `{{.epic_id}}` → use `{{.epic_key}}`
 
 ### Epic Templates
 
 ```go
-{{.id}}                // Epic key (e.g., "E07")
-{{.title}}             // Epic title
-{{.file_path}}         // Path to epic.md
+{{.priority}}          // Epic priority
+{{.business_value}}    // Business value
+{{.related_docs}}      // Related documentation
+{{.related_epics}}     // Related epic keys
+```
+
+**Backward-compat alias**: `{{.epic_id}}` → use `{{.key}}`
+
+### Bug Templates
+
+```go
+{{.severity}}              // Bug severity (critical, high, medium, low)
+{{.linked_entity_type}}    // Linked entity type (epic, feature, task)
+{{.linked_entity_key}}     // Linked entity key
+```
+
+### Change-Card Templates
+
+```go
+{{.priority}}          // Change-card priority
+{{.requested_by}}      // Who requested the change
+{{.assigned_to}}       // Who is assigned
+{{.justification}}     // Change justification
+{{.impact_analysis}}   // Impact analysis text
+{{.rollback_plan}}     // Rollback plan text
 ```
 
 ## Template Syntax
@@ -102,7 +149,7 @@ Available variables depend on entity type.
 ### Basic Substitution
 
 ```go
-Task {{.task_id}}: "{{.title}}"
+Task {{.key}}: "{{.title}}"
 ```
 
 **Rendered:**

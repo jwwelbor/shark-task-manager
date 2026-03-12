@@ -257,10 +257,7 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(buildFeatureGetJSON(feature, data, orchestratorAction))
 	}
-	renderFeatureDetails(feature, data.Tasks, data.StatusBreakdown, data.DirPath, data.Filename,
-		data.RelatedDocs, data.WorkflowService, data.ProgressInfo, data.WorkSummary,
-		data.ActionItems, data.Notes, data.ContextData)
-	displayOrchestratorAction(orchestratorAction)
+	renderFeatureAggregation(feature, data, orchestratorAction)
 	return nil
 }
 

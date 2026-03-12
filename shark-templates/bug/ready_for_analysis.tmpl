@@ -1,0 +1,19 @@
+Analyze bug {{.key}}: "{{.title}}". Severity: {{.severity}}.
+
+READ:
+(1) Bug report at {{.file_path}} — reproduction steps, expected vs actual behavior, environment
+(2) Codebase: trace the code path involved. Use debugging skill to follow the failure.
+
+DETERMINE:
+- Root cause (exact code location causing the failure)
+- Component type: FRONTEND (UI visible, user interaction) or BACKEND (API, data, server-side)
+- Whether severity needs adjustment
+- Whether any linked entity should be set: shark bug update {{.key}} --link={entity_key}
+
+DOCUMENT findings:
+shark bug note {{.key}} 'ANALYSIS: component={frontend|backend}, root_cause={description}, files={file1,file2}, severity_confirmed={yes|adjusted to X}'
+
+ROUTE:
+- Root cause identified → shark status advance {{.key}}
+- Not reproducible / expected behavior → shark bug note {{.key}} 'WONT_FIX: {reason}' then shark status set {{.key}} wont_fix
+- Is a duplicate → shark bug note {{.key}} 'DUPLICATE of {other_key}' then shark status set {{.key}} duplicate

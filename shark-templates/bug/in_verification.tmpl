@@ -1,28 +1,26 @@
 {{template "_resume_preamble" .}}RESUME verification for bug {{.key}}: "{{.title}}".
 
-Check for existing verification notes:
-1. Read bug notes: shark bug notes {{.key}}
-2. Look for 'VERIFIED' or 'VERIFICATION_FAILED' note
-3. If VERIFIED → shark status set {{.key}} resolved
-4. If VERIFICATION_FAILED → shark status set {{.key}} in_fix
-5. If no notes → proceed with verification below
+Check for existing verification work:
+1. shark bug notes {{.key}} — look for 'VERIFIED' or 'VERIFICATION_FAILED' note
+2. Check if frontend/e2e/bugs/{{.key}}.spec.ts exists
+3. If 'VERIFIED' note found: shark status set {{.key}} resolved
+4. If 'VERIFICATION_FAILED' note found: shark status set {{.key}} ready_for_fix
+5. If playwright test exists but no result note → re-run: cd frontend && npx playwright test e2e/bugs/{{.key}}.spec.ts --reporter=list
 
 ---
 
-Verify fix for bug {{.key}}: "{{.title}}".
-
-SEVERITY: {{.severity}}
+Verify fix for bug {{.key}}: "{{.title}}". Severity: {{.severity}}.
 
 READ:
-(1) Bug report at {{.file_path}} — the original reproduction steps and expected behavior
-(2) Bug notes (shark bug notes {{.key}}) — the developer's fix description
+(1) Bug report at {{.file_path}}
+(2) shark bug notes {{.key}} — analysis (component) and fix description
 
-VERIFY:
-(1) Follow the original reproduction steps — confirm the bug no longer occurs
-(2) Confirm the expected behavior now works correctly
-(3) Run relevant tests: look for tests related to this bug
-(4) Check for regressions in adjacent functionality
+Determine component from analysis note, then verify:
 
-ROUTE:
-- Fix verified and working → shark bug note {{.key}} 'VERIFIED: {how it was verified}' then shark status set {{.key}} resolved
-- Fix incomplete or new issues found → shark bug note {{.key}} 'VERIFICATION_FAILED: {what still fails}' then shark status set {{.key}} in_fix
+FRONTEND bugs: Write and run frontend/e2e/bugs/{{.key}}.spec.ts (see ready_for_verification.tmpl for template).
+Playwright MUST pass. If it fails → shark status set {{.key}} ready_for_fix.
+
+BACKEND bugs: Run API tests or integration tests covering the bug scenario.
+
+On success: shark bug note {{.key}} 'VERIFIED: {results}' then shark status set {{.key}} resolved
+On failure: shark bug note {{.key}} 'VERIFICATION_FAILED: {reason}' then shark status set {{.key}} ready_for_fix
