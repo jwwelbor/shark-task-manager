@@ -3,10 +3,17 @@ Execute autonomous build for feature {{.id}}: "{{.title}}".
 LOAD: build skill.
 
 READ:
-(1) Feature PRD and architecture docs
+{{- if .related_docs}}
+(1) Related docs: {{.related_docs}}
 (2) All tasks via shark task list --feature={{.id}}
 (3) Task dependency graph
 (4) Feature research report for codebase conventions
+{{- else}}
+(1) Feature PRD and architecture docs in feature directory
+(2) All tasks via shark task list --feature={{.id}}
+(3) Task dependency graph
+(4) Feature research report for codebase conventions
+{{- end}}
 
 Drive all tasks through: development -> code review -> QA -> approval. Spawn appropriate agents per task status. Code review must check implementation against feature PRD intent, not just task spec.
 
