@@ -8,10 +8,13 @@ import (
 
 // createFolders creates required folder structure
 // Returns list of folders created (empty if all existed)
-func (i *Initializer) createFolders() ([]string, error) {
+func (i *Initializer) createFolders(templateDir string) ([]string, error) {
+	if templateDir == "" {
+		templateDir = "shark-templates"
+	}
 	folders := []string{
 		"docs/plan",
-		"shark-templates",
+		templateDir,
 	}
 
 	created := []string{} // Initialize to empty slice, not nil

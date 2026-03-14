@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"regexp"
@@ -378,14 +379,20 @@ func FeaturePlaceholdersWithRelated(
 		placeholders["related_features"] = ""
 	}
 
-	// Add complexity_tier from metadata
+	// Extract ALL metadata fields from ContextData.Metadata
+	extractContextDataMetadata(feature.ContextData, placeholders)
+
+	// Also extract complexity_tier from entity Metadata for backward compatibility
 	if feature.Metadata != nil {
 		if tier, ok := feature.Metadata["complexity_tier"].(string); ok {
-			placeholders["complexity_tier"] = tier
-		} else {
-			placeholders["complexity_tier"] = ""
+			if _, exists := placeholders["complexity_tier"]; !exists {
+				placeholders["complexity_tier"] = tier
+			}
 		}
-	} else {
+	}
+
+	// Ensure complexity_tier has a value (empty string if not set anywhere)
+	if _, exists := placeholders["complexity_tier"]; !exists {
 		placeholders["complexity_tier"] = ""
 	}
 
@@ -472,14 +479,21 @@ func TaskPlaceholdersWithRelated(
 		placeholders["related_tasks"] = strings.Join(relatedKeys, ",")
 	}
 
-	// Add complexity_tier from metadata
+	// Extract ALL metadata fields from ContextData.Metadata
+	// This makes any user-defined field available to templates
+	extractContextDataMetadata(task.ContextData, placeholders)
+
+	// Also extract complexity_tier from entity Metadata for backward compatibility
 	if task.Metadata != nil {
 		if tier, ok := task.Metadata["complexity_tier"].(string); ok {
-			placeholders["complexity_tier"] = tier
-		} else {
-			placeholders["complexity_tier"] = ""
+			if _, exists := placeholders["complexity_tier"]; !exists {
+				placeholders["complexity_tier"] = tier
+			}
 		}
-	} else {
+	}
+
+	// Ensure complexity_tier has a value (empty string if not set anywhere)
+	if _, exists := placeholders["complexity_tier"]; !exists {
 		placeholders["complexity_tier"] = ""
 	}
 
@@ -544,7 +558,61 @@ func EpicPlaceholdersWithRelated(
 		placeholders["related_epics"] = ""
 	}
 
+	// Extract ALL metadata fields from ContextData.Metadata
+	extractContextDataMetadata(epic.ContextData, placeholders)
+
 	return placeholders
+}
+
+// stringifyMetadataValue converts a metadata value of common types to a string
+// representation suitable for template placeholders.
+// Supports string, int, int64, float64, and bool types.
+// Returns empty string for unsupported types or nil values.
+func stringifyMetadataValue(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	case float64:
+		// JSON numbers are always float64
+		if v == float64(int64(v)) {
+			return fmt.Sprintf("%d", int64(v))
+		}
+		return fmt.Sprintf("%g", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case bool:
+		return fmt.Sprintf("%t", v)
+	default:
+		return ""
+	}
+}
+
+// extractContextDataMetadata parses the context_data JSON string and extracts
+// all metadata fields into the placeholder map. Each metadata key-value pair
+// is flattened into the map using stringifyMetadataValue for type conversion.
+// Gracefully handles nil, empty, or malformed JSON by silently returning.
+func extractContextDataMetadata(contextData *string, placeholders map[string]string) {
+	if contextData == nil || *contextData == "" {
+		return
+	}
+
+	var cd models.ContextData
+	if err := json.Unmarshal([]byte(*contextData), &cd); err != nil {
+		// Gracefully skip on malformed JSON
+		return
+	}
+
+	for key, value := range cd.Metadata {
+		str := stringifyMetadataValue(value)
+		if str != "" {
+			placeholders[key] = str
+		}
+	}
 }
 
 // formatEpicKeysAsCSV formats a slice of epic keys as comma-separated values.

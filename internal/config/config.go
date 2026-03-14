@@ -6,6 +6,10 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 )
 
+// DefaultTemplateDir is the default template directory name used when no
+// custom template_directory is configured in .sharkconfig.json.
+const DefaultTemplateDir = "shark-templates"
+
 // Config represents the .sharkconfig.json structure
 type Config struct {
 	// LastSyncTime is the timestamp of the last successful sync
@@ -21,6 +25,7 @@ type Config struct {
 	InteractiveMode        *bool                  `json:"interactive_mode,omitempty"`         // Enable interactive prompts (default: false for automation)
 	RequireRejectionReason bool                   `json:"require_rejection_reason,omitempty"` // NEW: Require rejection reason for backward transitions (default: false)
 	Viewer                 *string                `json:"viewer,omitempty"`                   // External viewer command for spec files (glow, nano, bat, less, cat, etc). Default: "cat"
+	TemplateDirectory      *string                `json:"template_directory,omitempty"`       // Template directory path relative to project root. Default: "shark-templates"
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
 
 	// statusMetadata holds status metadata for work breakdown calculations
@@ -73,6 +78,15 @@ func (c *Config) GetViewer() string {
 	return *c.Viewer
 }
 
+// GetTemplateDirectory returns the configured template directory or default "shark-templates"
+// The directory path is relative to the project root.
+func (c *Config) GetTemplateDirectory() string {
+	if c == nil || c.TemplateDirectory == nil || *c.TemplateDirectory == "" {
+		return DefaultTemplateDir
+	}
+	return *c.TemplateDirectory
+}
+
 // IsBackwardTransition determines whether a transition from oldStatus to newStatus is backward
 // based on ProgressWeight values. A backward transition has lower weight in the new status.
 // This method is used to determine if rejection reason validation should be applied (E07-F22).
@@ -98,4 +112,18 @@ func (c *Config) IsBackwardTransition(oldStatus, newStatus string, weights map[s
 
 	// Backward transition = moving to lower progress weight
 	return newWeight < oldWeight
+}
+
+// GetTemplateDirectoryFromConfig loads the template directory setting from the given config file path.
+// Returns "shark-templates" if the config file doesn't exist, is unreadable, or doesn't contain the field.
+func GetTemplateDirectoryFromConfig(configPath string) string {
+	if configPath == "" {
+		return DefaultTemplateDir
+	}
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	if err != nil {
+		return DefaultTemplateDir
+	}
+	return cfg.GetTemplateDirectory()
 }

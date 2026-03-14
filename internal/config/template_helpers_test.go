@@ -1808,3 +1808,322 @@ func TestChangeCardPlaceholders_NilOptionalFields(t *testing.T) {
 		}
 	}
 }
+
+// ===================================================================
+// Tests for ContextData.Metadata extraction (E07-F30-004)
+// ===================================================================
+
+// TestStringifyMetadataValue verifies type conversion for metadata values
+func TestStringifyMetadataValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{"string value", "STANDARD", "STANDARD"},
+		{"empty string", "", ""},
+		{"integer via float64 (JSON)", float64(42), "42"},
+		{"float value", float64(3.14), "3.14"},
+		{"bool true", true, "true"},
+		{"bool false", false, "false"},
+		{"int value", int(8), "8"},
+		{"int64 value", int64(100), "100"},
+		{"nil value", nil, ""},
+		{"unsupported slice", []string{"a"}, ""},
+		{"unsupported map", map[string]string{"a": "b"}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stringifyMetadataValue(tt.input)
+			if got != tt.expected {
+				t.Errorf("stringifyMetadataValue(%v) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestExtractContextDataMetadata_StringField verifies string metadata extraction
+func TestExtractContextDataMetadata_StringField(t *testing.T) {
+	contextData := `{"metadata": {"complexity_tier": "STANDARD", "assignee": "john"}}`
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(&contextData, placeholders)
+
+	if placeholders["complexity_tier"] != "STANDARD" {
+		t.Errorf("complexity_tier = %q, want %q", placeholders["complexity_tier"], "STANDARD")
+	}
+	if placeholders["assignee"] != "john" {
+		t.Errorf("assignee = %q, want %q", placeholders["assignee"], "john")
+	}
+}
+
+// TestExtractContextDataMetadata_IntegerField verifies integer metadata extraction
+func TestExtractContextDataMetadata_IntegerField(t *testing.T) {
+	contextData := `{"metadata": {"estimated_hours": 8}}`
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(&contextData, placeholders)
+
+	if placeholders["estimated_hours"] != "8" {
+		t.Errorf("estimated_hours = %q, want %q", placeholders["estimated_hours"], "8")
+	}
+}
+
+// TestExtractContextDataMetadata_FloatField verifies float metadata extraction
+func TestExtractContextDataMetadata_FloatField(t *testing.T) {
+	contextData := `{"metadata": {"velocity": 3.14}}`
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(&contextData, placeholders)
+
+	if placeholders["velocity"] != "3.14" {
+		t.Errorf("velocity = %q, want %q", placeholders["velocity"], "3.14")
+	}
+}
+
+// TestExtractContextDataMetadata_BoolField verifies bool metadata extraction
+func TestExtractContextDataMetadata_BoolField(t *testing.T) {
+	contextData := `{"metadata": {"is_critical": true}}`
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(&contextData, placeholders)
+
+	if placeholders["is_critical"] != "true" {
+		t.Errorf("is_critical = %q, want %q", placeholders["is_critical"], "true")
+	}
+}
+
+// TestExtractContextDataMetadata_NilContextData verifies nil handling
+func TestExtractContextDataMetadata_NilContextData(t *testing.T) {
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(nil, placeholders)
+
+	if len(placeholders) != 0 {
+		t.Errorf("expected 0 placeholders from nil context data, got %d", len(placeholders))
+	}
+}
+
+// TestExtractContextDataMetadata_EmptyContextData verifies empty string handling
+func TestExtractContextDataMetadata_EmptyContextData(t *testing.T) {
+	empty := ""
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(&empty, placeholders)
+
+	if len(placeholders) != 0 {
+		t.Errorf("expected 0 placeholders from empty context data, got %d", len(placeholders))
+	}
+}
+
+// TestExtractContextDataMetadata_MalformedJSON verifies graceful handling of bad JSON
+func TestExtractContextDataMetadata_MalformedJSON(t *testing.T) {
+	malformed := `{invalid json}`
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(&malformed, placeholders)
+
+	// Should not crash, just skip
+	if len(placeholders) != 0 {
+		t.Errorf("expected 0 placeholders from malformed JSON, got %d", len(placeholders))
+	}
+}
+
+// TestExtractContextDataMetadata_NoMetadataField verifies JSON without metadata field
+func TestExtractContextDataMetadata_NoMetadataField(t *testing.T) {
+	noMeta := `{"progress": {"current_step": "testing"}}`
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(&noMeta, placeholders)
+
+	if len(placeholders) != 0 {
+		t.Errorf("expected 0 placeholders from context data without metadata, got %d", len(placeholders))
+	}
+}
+
+// TestExtractContextDataMetadata_EmptyMetadata verifies empty metadata map
+func TestExtractContextDataMetadata_EmptyMetadata(t *testing.T) {
+	emptyMeta := `{"metadata": {}}`
+	placeholders := make(map[string]string)
+	extractContextDataMetadata(&emptyMeta, placeholders)
+
+	if len(placeholders) != 0 {
+		t.Errorf("expected 0 placeholders from empty metadata, got %d", len(placeholders))
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_ContextDataMetadata verifies task placeholder extraction
+// with metadata from ContextData (the primary path introduced by T-E07-F30-004)
+func TestTaskPlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	contextData := `{"metadata": {"complexity_tier": "STANDARD", "custom_field": "value123", "estimated_hours": 8, "is_critical": true}}`
+	task := &models.Task{
+		Key:         "T-E07-F30-001",
+		Title:       "Test Task",
+		Status:      "in_development",
+		Priority:    5,
+		ContextData: &contextData,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockDocRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
+
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	// Verify ContextData.Metadata fields are available
+	if result["complexity_tier"] != "STANDARD" {
+		t.Errorf("complexity_tier = %q, want %q", result["complexity_tier"], "STANDARD")
+	}
+	if result["custom_field"] != "value123" {
+		t.Errorf("custom_field = %q, want %q", result["custom_field"], "value123")
+	}
+	if result["estimated_hours"] != "8" {
+		t.Errorf("estimated_hours = %q, want %q", result["estimated_hours"], "8")
+	}
+	if result["is_critical"] != "true" {
+		t.Errorf("is_critical = %q, want %q", result["is_critical"], "true")
+	}
+
+	// Verify existing placeholders are still present
+	if result["task_key"] != "T-E07-F30-001" {
+		t.Errorf("task_key = %q, want %q", result["task_key"], "T-E07-F30-001")
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_NilContextData verifies no crash with nil ContextData
+func TestTaskPlaceholdersWithRelated_NilContextData(t *testing.T) {
+	ctx := context.Background()
+
+	task := &models.Task{
+		Key:       "T-E07-F30-001",
+		Title:     "Test Task",
+		Status:    "todo",
+		Priority:  5,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	mockDocRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
+
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	// Should not crash, existing placeholders still work
+	if result["task_key"] != "T-E07-F30-001" {
+		t.Errorf("task_key = %q, want %q", result["task_key"], "T-E07-F30-001")
+	}
+	// complexity_tier defaults to empty
+	if result["complexity_tier"] != "" {
+		t.Errorf("complexity_tier = %q, want empty string", result["complexity_tier"])
+	}
+}
+
+// TestFeaturePlaceholdersWithRelated_ContextDataMetadata verifies feature metadata extraction
+func TestFeaturePlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	contextData := `{"metadata": {"complexity_tier": "COMPLEX", "owner": "team-alpha"}}`
+	feature := &models.Feature{
+		ID:          1,
+		Key:         "E07-F30",
+		Title:       "Template Engine",
+		Status:      "active",
+		ContextData: &contextData,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	// mockDocumentRepository implements ListForFeature via the same mock
+	mockDocRepo := &mockDocumentRepository{}
+	mockRelRepo := &mockFeatureRelationshipRepository{}
+
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+
+	if result["complexity_tier"] != "COMPLEX" {
+		t.Errorf("complexity_tier = %q, want %q", result["complexity_tier"], "COMPLEX")
+	}
+	if result["owner"] != "team-alpha" {
+		t.Errorf("owner = %q, want %q", result["owner"], "team-alpha")
+	}
+}
+
+// TestEpicPlaceholdersWithRelated_ContextDataMetadata verifies epic metadata extraction
+func TestEpicPlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	contextData := `{"metadata": {"phase": "development", "budget": 50000}}`
+	epic := &models.Epic{
+		ID:          1,
+		Key:         "E07",
+		Title:       "Enhancements",
+		Status:      "active",
+		Priority:    models.PriorityHigh,
+		ContextData: &contextData,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	// mockDocumentRepository implements ListForEpic via the same mock
+	mockDocRepo := &mockDocumentRepository{}
+	mockRelRepo := &mockEpicRelationshipRepository{}
+
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+
+	if result["phase"] != "development" {
+		t.Errorf("phase = %q, want %q", result["phase"], "development")
+	}
+	if result["budget"] != "50000" {
+		t.Errorf("budget = %q, want %q", result["budget"], "50000")
+	}
+}
+
+// TestContextDataMetadata_BackwardCompatFallback verifies that entity Metadata
+// is used as fallback when ContextData.Metadata doesn't have the field
+func TestContextDataMetadata_BackwardCompatFallback(t *testing.T) {
+	ctx := context.Background()
+
+	// Task with entity Metadata but no ContextData
+	task := &models.Task{
+		Key:       "T-E07-F30-001",
+		Title:     "Test Task",
+		Status:    "todo",
+		Priority:  5,
+		Metadata:  map[string]interface{}{"complexity_tier": "SIMPLE"},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	mockDocRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
+
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	// Should fall back to entity Metadata
+	if result["complexity_tier"] != "SIMPLE" {
+		t.Errorf("complexity_tier = %q, want %q (from entity Metadata fallback)", result["complexity_tier"], "SIMPLE")
+	}
+}
+
+// TestContextDataMetadata_ContextDataTakesPrecedence verifies ContextData.Metadata
+// takes precedence over entity Metadata for the same field
+func TestContextDataMetadata_ContextDataTakesPrecedence(t *testing.T) {
+	ctx := context.Background()
+
+	contextData := `{"metadata": {"complexity_tier": "COMPLEX"}}`
+	task := &models.Task{
+		Key:         "T-E07-F30-001",
+		Title:       "Test Task",
+		Status:      "todo",
+		Priority:    5,
+		Metadata:    map[string]interface{}{"complexity_tier": "SIMPLE"}, // Entity metadata says SIMPLE
+		ContextData: &contextData,                                        // ContextData says COMPLEX
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockDocRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
+
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+
+	// ContextData.Metadata should win
+	if result["complexity_tier"] != "COMPLEX" {
+		t.Errorf("complexity_tier = %q, want %q (ContextData should take precedence)", result["complexity_tier"], "COMPLEX")
+	}
+}

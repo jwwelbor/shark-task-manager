@@ -21,6 +21,7 @@ The `.sharkconfig.json` file is automatically created by `shark init` and contai
   "json_output": false,
   "interactive_mode": false,
   "require_rejection_reason": true,
+  "template_directory": "shark-templates",
   "default_agent": null,
   "default_epic": null,
   "last_sync_time": "2026-01-16T23:22:45-06:00",
@@ -73,6 +74,7 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 | `interactive_mode` | bool | `false` | Enable interactive prompts |
 | `require_rejection_reason` | bool | `true` | Require reason when rejecting tasks |
 | `viewer` | string | `"cat"` | External viewer for `shark view` (e.g., `"glow"`, `"nano"`) |
+| `template_directory` | string | `"shark-templates"` | Template directory path relative to project root for `.tmpl` files |
 
 ### Default Values
 
@@ -449,7 +451,8 @@ shark config get-status-action blocked --json
   "color_enabled": false,
   "json_output": true,
   "interactive_mode": false,
-  "require_rejection_reason": true
+  "require_rejection_reason": true,
+  "template_directory": "shark-templates"
 }
 ```
 
@@ -461,7 +464,8 @@ shark config get-status-action blocked --json
   "color_enabled": true,
   "json_output": false,
   "interactive_mode": true,
-  "viewer": "glow"
+  "viewer": "glow",
+  "template_directory": "shark-templates"
 }
 ```
 
@@ -478,6 +482,7 @@ shark config get-status-action blocked --json
   "json_output": false,
   "interactive_mode": true,
   "require_rejection_reason": true,
+  "template_directory": "shark-templates",
   "default_epic": "E07",
   "default_agent": "developer"
 }

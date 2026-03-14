@@ -19,6 +19,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -635,8 +636,9 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		actualFilePath = fmt.Sprintf("%s/epic.md", epicDir)
 	}
 
-	// Read and render template
-	templatePath := "shark-templates/entity/epic.md"
+	// Read and render template (uses cached template dir from PersistentPreRunE)
+	templateDir := templates.GetTemplateDirName()
+	templatePath := filepath.Join(templateDir, "entity", "epic.md")
 	templateContent, err := os.ReadFile(templatePath)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: Failed to read epic template: %v", err))

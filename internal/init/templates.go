@@ -1,24 +1,26 @@
 package init
 
 import (
-	"embed"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	stm "github.com/jwwelbor/shark-task-manager"
 )
 
-//go:embed shark-templates/entity
-var embeddedTemplates embed.FS
-
-// copyTemplates copies embedded templates to shark-templates/entity/ folder
-// Returns count of templates copied
-func (i *Initializer) copyTemplates(force bool) (int, error) {
-	targetDir := "shark-templates/entity"
+// copyTemplates copies embedded templates to the configured template directory.
+// All files under shark-templates/ (entity templates, orchestrator .tmpl files,
+// partials, etc.) are copied preserving their directory structure.
+// Returns count of templates copied.
+func (i *Initializer) copyTemplates(force bool, templateDir string) (int, error) {
+	if templateDir == "" {
+		templateDir = "shark-templates"
+	}
 	count := 0
 
-	// Walk embedded templates
-	err := fs.WalkDir(embeddedTemplates, "shark-templates/entity", func(path string, d fs.DirEntry, err error) error {
+	// Walk all embedded templates under shark-templates/
+	err := fs.WalkDir(stm.EmbeddedSharkTemplates, "shark-templates", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -28,14 +30,14 @@ func (i *Initializer) copyTemplates(force bool) (int, error) {
 		}
 
 		// Read embedded file
-		data, err := embeddedTemplates.ReadFile(path)
+		data, err := stm.EmbeddedSharkTemplates.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read embedded template %s: %w", path, err)
 		}
 
-		// Compute target path
-		relPath, _ := filepath.Rel("shark-templates/entity", path)
-		targetPath := filepath.Join(targetDir, relPath)
+		// Compute target path: strip "shark-templates/" prefix, prepend templateDir
+		relPath, _ := filepath.Rel("shark-templates", path)
+		targetPath := filepath.Join(templateDir, relPath)
 
 		// Check if target exists
 		if _, err := os.Stat(targetPath); err == nil && !force {

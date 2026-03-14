@@ -23,7 +23,7 @@ shark init --non-interactive
 - SQLite database (`shark-tasks.db`)
 - Folder structure (`docs/plan/`)
 - Configuration file (`.sharkconfig.json`)
-- Templates directory (`shark-templates/`)
+- Templates directory (`shark-templates/` by default, configurable via `template_directory` in `.sharkconfig.json`)
 
 ## When to Use
 

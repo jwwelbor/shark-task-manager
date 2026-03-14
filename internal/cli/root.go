@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -41,6 +43,12 @@ Examples:
 		// Initialize configuration
 		if err := initConfig(); err != nil {
 			return fmt.Errorf("failed to initialize config: %w", err)
+		}
+
+		// Configure template directory from .sharkconfig.json
+		cfgPath, cfgErr := GetConfigPath()
+		if cfgErr == nil {
+			templates.SetConfiguredTemplateDir(config.GetTemplateDirectoryFromConfig(cfgPath))
 		}
 
 		// Disable color output if requested

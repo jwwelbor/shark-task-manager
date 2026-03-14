@@ -23,6 +23,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -861,7 +862,9 @@ func resolveCustomFeatureFilePath(cmd *cobra.Command, projectRoot string, force 
 
 // renderFeatureTemplate reads and renders the feature markdown template.
 func renderFeatureTemplate(epicKey, featureKey, featureSlug, title, description, filePath string) ([]byte, error) {
-	templatePath := "shark-templates/entity/feature.md"
+	// Use cached template dir from PersistentPreRunE
+	templateDir := templates.GetTemplateDirName()
+	templatePath := filepath.Join(templateDir, "entity", "feature.md")
 	templateContent, err := os.ReadFile(templatePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read feature template: %w (run 'shark init' to create templates)", err)

@@ -30,7 +30,7 @@ func (i *Initializer) Initialize(ctx context.Context, opts InitOptions) (*InitRe
 	result.DatabasePath, _ = filepath.Abs(opts.DBPath)
 
 	// Step 2: Create folders
-	folders, err := i.createFolders()
+	folders, err := i.createFolders(opts.TemplateDir)
 	if err != nil {
 		return nil, &InitError{Step: "folders", Message: "Failed to create folders", Err: err}
 	}
@@ -45,7 +45,7 @@ func (i *Initializer) Initialize(ctx context.Context, opts InitOptions) (*InitRe
 	result.ConfigPath, _ = filepath.Abs(opts.ConfigPath)
 
 	// Step 4: Copy templates
-	count, err := i.copyTemplates(opts.Force)
+	count, err := i.copyTemplates(opts.Force, opts.TemplateDir)
 	if err != nil {
 		return nil, &InitError{Step: "templates", Message: "Failed to copy templates", Err: err}
 	}

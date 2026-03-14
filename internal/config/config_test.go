@@ -957,3 +957,62 @@ func TestConfig_Viewer_Marshaling(t *testing.T) {
 func stringPtr(s string) *string {
 	return &s
 }
+
+func TestGetTemplateDirectory(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *Config
+		expected string
+	}{
+		{
+			name:     "nil config returns default",
+			config:   nil,
+			expected: "shark-templates",
+		},
+		{
+			name:     "nil TemplateDirectory returns default",
+			config:   &Config{},
+			expected: "shark-templates",
+		},
+		{
+			name:     "empty string TemplateDirectory returns default",
+			config:   &Config{TemplateDirectory: stringPtr("")},
+			expected: "shark-templates",
+		},
+		{
+			name:     "custom directory returned",
+			config:   &Config{TemplateDirectory: stringPtr("my-templates")},
+			expected: "my-templates",
+		},
+		{
+			name:     "path with subdirectory returned",
+			config:   &Config{TemplateDirectory: stringPtr("custom/templates")},
+			expected: "custom/templates",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.GetTemplateDirectory()
+			if result != tt.expected {
+				t.Errorf("GetTemplateDirectory() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetTemplateDirectoryFromConfig(t *testing.T) {
+	t.Run("empty config path returns default", func(t *testing.T) {
+		result := GetTemplateDirectoryFromConfig("")
+		if result != "shark-templates" {
+			t.Errorf("GetTemplateDirectoryFromConfig(\"\") = %q, want %q", result, "shark-templates")
+		}
+	})
+
+	t.Run("nonexistent config file returns default", func(t *testing.T) {
+		result := GetTemplateDirectoryFromConfig("/nonexistent/path/.sharkconfig.json")
+		if result != "shark-templates" {
+			t.Errorf("GetTemplateDirectoryFromConfig() = %q, want %q", result, "shark-templates")
+		}
+	})
+}

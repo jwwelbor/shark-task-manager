@@ -10,6 +10,9 @@ import (
 	"text/template"
 )
 
+// defaultTemplateDir is the default template directory name, matching config.DefaultTemplateDir.
+const defaultTemplateDir = "shark-templates"
+
 // OrchestratorRenderer handles template rendering for orchestrator instructions
 type OrchestratorRenderer struct {
 	templates   *template.Template // Precompiled template set
@@ -24,18 +27,41 @@ var (
 	testTemplateDir string // For testing only
 )
 
-// findTemplateDir locates the shark-templates directory by walking up from the
-// working directory. Returns the first directory containing a shark-templates/
-// subdirectory with .tmpl files, or falls back to the relative "shark-templates".
+// configuredTemplateDir is an optional override set via SetConfiguredTemplateDir.
+// When non-empty, findTemplateDir uses this name instead of the default "shark-templates".
+var configuredTemplateDir string
+
+// SetConfiguredTemplateDir sets the template directory name from config.
+// This should be called early in CLI initialization with the value from
+// Config.GetTemplateDirectory(). Pass empty string to use the default.
+func SetConfiguredTemplateDir(dir string) {
+	configuredTemplateDir = dir
+}
+
+// GetTemplateDirName returns the configured template directory name, falling
+// back to "shark-templates" if not configured. This is safe to call after
+// CLI initialization has run (PersistentPreRunE sets it via SetConfiguredTemplateDir).
+func GetTemplateDirName() string {
+	if configuredTemplateDir != "" {
+		return configuredTemplateDir
+	}
+	return defaultTemplateDir
+}
+
+// findTemplateDir locates the template directory by walking up from the
+// working directory. Returns the first directory containing a matching
+// subdirectory with .tmpl files, or falls back to the configured directory name.
 func findTemplateDir() string {
+	dirName := GetTemplateDirName()
+
 	wd, err := os.Getwd()
 	if err != nil {
-		return "shark-templates"
+		return dirName
 	}
 
 	currentDir := wd
 	for {
-		candidate := filepath.Join(currentDir, "shark-templates")
+		candidate := filepath.Join(currentDir, dirName)
 		// Check if this directory has template files
 		matches, _ := filepath.Glob(filepath.Join(candidate, "*", "*.tmpl"))
 		if len(matches) > 0 {
@@ -49,7 +75,7 @@ func findTemplateDir() string {
 		currentDir = parentDir
 	}
 
-	return "shark-templates"
+	return dirName
 }
 
 // NewOrchestratorRenderer creates a new orchestrator template renderer

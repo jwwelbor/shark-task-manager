@@ -75,6 +75,10 @@ func (m *Manager) Load() (*Config, error) {
 		config.RequireRejectionReason = requireRejection
 	}
 
+	if templateDir, ok := rawData["template_directory"].(string); ok && templateDir != "" {
+		config.TemplateDirectory = &templateDir
+	}
+
 	m.config = config
 	return config, nil
 }

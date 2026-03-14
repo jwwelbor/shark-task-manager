@@ -70,7 +70,7 @@ func TestCreateFolders(t *testing.T) {
 
 			// Execute
 			initializer := NewInitializer()
-			created, err := initializer.createFolders()
+			created, err := initializer.createFolders("")
 
 			// Assert
 			if (err != nil) != tt.wantErr {
@@ -132,7 +132,7 @@ func TestCreateFoldersInvalidPath(t *testing.T) {
 
 	// Execute
 	initializer := NewInitializer()
-	_, err = initializer.createFolders()
+	_, err = initializer.createFolders("")
 
 	// Should fail because 'docs' is a file, not a directory
 	if err == nil {
@@ -159,7 +159,7 @@ func TestCreateFoldersAbsolutePaths(t *testing.T) {
 
 	// Execute
 	initializer := NewInitializer()
-	created, err := initializer.createFolders()
+	created, err := initializer.createFolders("")
 	if err != nil {
 		t.Fatalf("createFolders() failed: %v", err)
 	}

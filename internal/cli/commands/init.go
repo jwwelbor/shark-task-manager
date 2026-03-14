@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	init_pkg "github.com/jwwelbor/shark-task-manager/internal/init"
 	"github.com/spf13/cobra"
@@ -146,12 +147,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Get template directory from existing config (if any)
+	configPath, _ := cli.GetConfigPath()
+	templateDir := config.GetTemplateDirectoryFromConfig(configPath)
+
 	// Create initializer options
 	opts := init_pkg.InitOptions{
 		DBPath:         dbPath,
 		ConfigPath:     ".sharkconfig.json", // Default
 		NonInteractive: initNonInteractive || cli.GlobalConfig.JSON,
 		Force:          initForce,
+		TemplateDir:    templateDir,
 	}
 
 	// Create initializer

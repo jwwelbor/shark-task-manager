@@ -6,6 +6,7 @@ type InitOptions struct {
 	ConfigPath     string // Config file path
 	NonInteractive bool   // Skip prompts
 	Force          bool   // Overwrite existing files
+	TemplateDir    string // Template directory name (default: "shark-templates")
 }
 
 // InitResult contains initialization results

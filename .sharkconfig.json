@@ -393,7 +393,16 @@
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
-        "aggregates_from": "features"
+        "aggregates_from": "features",
+        "orchestrator_action": {
+          "action": "cascade",
+          "agent_type": "tech-director",
+          "skills": [
+            "orchestration",
+            "shark"
+          ],
+          "instruction_template": "epic/active.tmpl"
+        }
       },
       "completed": {
         "description": "All features complete",
@@ -985,7 +994,16 @@
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
-        "aggregates_from": "tasks"
+        "aggregates_from": "tasks",
+        "orchestrator_action": {
+          "action": "cascade",
+          "agent_type": "product-manager",
+          "skills": [
+            "orchestration",
+            "shark"
+          ],
+          "instruction_template": "feature/active.tmpl"
+        }
       },
       "completed": {
         "description": "All tasks complete, feature delivered",

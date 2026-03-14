@@ -2,178 +2,16 @@
   "name": "advanced",
   "description": "Comprehensive AI-orchestrated workflow for teams",
   "status_metadata": {
-    "draft": {
-      "blocks_feature": false,
-      "color": "gray",
-      "description": "Task created but not yet refined",
-      "phase": "planning",
+    "blocked": {
+      "blocks_feature": true,
+      "color": "red",
+      "description": "Temporarily blocked by external dependency",
+      "phase": "any",
       "progress_weight": 0,
       "responsibility": "none",
       "orchestrator_action": {
-        "action": "wait_for_triage",
-        "instruction_template": "Task {task_id} is in draft status. Execute `shark task {task_id} next-status` to begin planning."
-      }
-    },
-    "todo": {
-      "blocks_feature": false,
-      "color": "gray",
-      "description": "Task created but not yet refined",
-      "phase": "planning",
-      "progress_weight": 0,
-      "responsibility": "none",
-      "orchestrator_action": {
-        "action": "wait_for_triage",
-        "instruction_template": "Task {task_id} is in todo status. Update with next-status to begin planning."
-      }
-    },
-    "ready_for_refinement_ba": {
-      "agent_types": ["business-analyst"],
-      "blocks_feature": false,
-      "color": "cyan",
-      "description": "Awaiting business specification and analysis",
-      "phase": "planning",
-      "progress_weight": 0.05,
-      "responsibility": "agent",
-      "orchestrator_action": {
-        "action": "spawn_agent",
-        "agent_type": "business-analyst",
-        "skills": ["specification-writing", "shark-task-management"],
-        "instruction_template": "Launch business-analyst with specification-writing skill for task {task_id}: \"{title}\". LOAD: specification-writing workflow refine-task-requirements.md. READ: (1) Task spec at {file_path}, (2) Parent feature PRD for feature-level intent, (3) Feature research report for codebase patterns and integration points, (4) Task notes (shark task get {task_id} --json) for blocker context, (5) Architecture docs for constraints. PRODUCE: Updated task spec with testable user stories, measurable acceptance criteria, business rules, edge cases. ALSO VERIFY: requirements align with feature PRD (no spec drift), codebase standards referenced (absorbs former task research), contracts consistent with architecture. EXIT GATE: AC unambiguous and measurable. No vague language. Traces to feature PRD. Blocker notes addressed. Advance: shark task next-status {task_id}."
-      }
-    },
-    "in_refinement_ba": {
-      "blocks_feature": false,
-      "color": "blue",
-      "description": "Being analyzed and specified",
-      "phase": "planning",
-      "progress_weight": 0.12,
-      "responsibility": "agent"
-    },
-    "ready_for_refinement_tech": {
-      "agent_types": ["architect"],
-      "blocks_feature": false,
-      "color": "cyan",
-      "description": "Awaiting technical specification and analysis",
-      "phase": "planning",
-      "progress_weight": 0.1,
-      "responsibility": "agent",
-      "orchestrator_action": {
-        "action": "spawn_agent",
-        "agent_type": "architect",
-        "skills": ["architecture", "specification-writing", "shark-task-management"],
-        "instruction_template": "Launch architect with architecture and specification-writing skills for task {task_id}: \"{title}\". LOAD: specification-writing workflow refine-task-requirements.md (architect path). READ: (1) Task spec at {file_path}, (2) BA-refined requirements, (3) Feature architecture docs (02-08 series), (4) Feature research report for patterns and integration points, (5) Blocker notes if returning from dev/review. PRODUCE: Updated task spec or PRP with API contracts, data models, architecture decisions with rationale, security/performance considerations. Verify contracts consistent with feature architecture. Reference codebase patterns from feature research. EXIT GATE: Contracts defined. Models specified. Decisions documented. No TBDs. Consistent with feature architecture. Task implementable without ambiguity. Advance: shark task next-status {task_id}."
-      }
-    },
-    "in_refinement_tech": {
-      "blocks_feature": false,
-      "color": "blue",
-      "description": "Being analyzed and specified",
-      "phase": "planning",
-      "progress_weight": 0.2,
-      "responsibility": "agent"
-    },
-    "ready_for_development": {
-      "agent_types": ["developer"],
-      "blocks_feature": false,
-      "color": "yellow",
-      "description": "Spec complete, ready for implementation",
-      "phase": "development",
-      "progress_weight": 0.32,
-      "responsibility": "none",
-      "orchestrator_action": {
-        "action": "spawn_agent",
-        "agent_type": "developer",
-        "skills": ["test-driven-development", "implementation"],
-        "instruction_template": "Launch developer with test-driven-development skill for task {task_id}: \"{title}\". LOAD: test-driven-development + implementation skills. READ: (1) Task spec at {file_path}, (2) Feature test plan (09-test-plan.md) for test cases, acceptance criteria tests, and API contract tests relevant to this task, (3) Feature architecture docs for contracts and patterns, (4) Feature research report for codebase conventions. TDD PROCESS: Read the feature test plan first -- find the test cases that map to this task's acceptance criteria. Write those tests first (they should fail). Then implement to make tests pass following the task spec and architecture docs. Tests are written with USER GOALS in mind -- they validate persona needs and user journey steps, not just technical correctness. EXIT GATE: All mapped test cases from feature test plan pass. Implementation matches task spec. Code follows codebase conventions from research. Advance: shark task next-status {task_id}."
-      }
-    },
-    "in_development": {
-      "blocks_feature": false,
-      "color": "yellow",
-      "description": "Code implementation in progress",
-      "phase": "development",
-      "progress_weight": 0.5,
-      "responsibility": "agent"
-    },
-    "ready_for_code_review": {
-      "agent_types": ["tech-lead", "code-reviewer"],
-      "blocks_feature": false,
-      "color": "magenta",
-      "description": "Code complete, awaiting review",
-      "phase": "review",
-      "progress_weight": 0.75,
-      "responsibility": "agent",
-      "orchestrator_action": {
-        "action": "spawn_agent",
-        "agent_type": "tech-lead",
-        "skills": ["quality"],
-        "instruction_template": "Launch tech-lead with quality skill to review task {task_id}: \"{title}\". LOAD: quality skill. READ: (1) Task spec at {file_path}, (2) Feature test plan (09-test-plan.md) for expected test coverage and acceptance criteria, (3) Feature PRD for feature-level intent, (4) Implementation code changes. REVIEW: Check code quality, security, and adherence to codebase standards. Compare implementation behavior against the task spec, the feature test plan, and the parent feature PRD. Verify acceptance criteria are met as specified in the feature requirements, not just as implemented. Verify TDD compliance -- tests from feature test plan are implemented and passing. Flag any deviation between feature intent, spec, and actual behavior. EXIT GATE: Code quality passes. Tests from feature plan implemented and passing. No spec drift from feature PRD. Advance: shark task next-status {task_id}."
-      }
-    },
-    "in_code_review": {
-      "blocks_feature": false,
-      "color": "magenta",
-      "description": "Under code review",
-      "phase": "review",
-      "progress_weight": 0.8,
-      "responsibility": "agent"
-    },
-    "ready_for_qa": {
-      "agent_types": ["qa"],
-      "blocks_feature": false,
-      "color": "green",
-      "description": "Ready for quality assurance testing",
-      "phase": "qa",
-      "progress_weight": 0.8,
-      "responsibility": "qa_team",
-      "orchestrator_action": {
-        "action": "spawn_agent",
-        "agent_type": "qa",
-        "skills": ["quality", "shark-task-management"],
-        "instruction_template": "Launch qa agent with quality skill to test task {task_id}: \"{title}\". LOAD: quality skill. READ: (1) Task spec at {file_path}, (2) Feature test plan (09-test-plan.md) for the acceptance test cases mapped to this task, (3) Feature PRD for feature-level intent, (4) Implementation code and test results. VALIDATE: Run test cases from feature test plan that map to this task. Verify acceptance criteria are met per the feature test plan, not just the task spec. Check edge cases identified in the test plan. Validate integration points behave correctly. EXIT GATE: All mapped test cases pass. Acceptance criteria validated against feature intent. No regressions in sibling task functionality. Advance: shark task next-status {task_id}."
-      }
-    },
-    "in_qa": {
-      "blocks_feature": false,
-      "color": "green",
-      "description": "Being tested",
-      "phase": "qa",
-      "progress_weight": 0.85,
-      "responsibility": "qa_team"
-    },
-    "ready_for_approval": {
-      "agent_types": ["product-manager", "client"],
-      "blocks_feature": false,
-      "color": "purple",
-      "description": "Awaiting final approval",
-      "phase": "approval",
-      "progress_weight": 0.9,
-      "responsibility": "human",
-      "orchestrator_action": {
-        "action": "spawn_agent",
-        "agent_type": "uat",
-        "skills": ["shark-task-management", "uat"],
-        "instruction_template": "Launch UAT agent to include {task_id} in the UAT documentation."
-      }
-    },
-    "in_approval": {
-      "blocks_feature": false,
-      "color": "purple",
-      "description": "Under final review",
-      "phase": "approval",
-      "progress_weight": 0.95,
-      "responsibility": "human"
-    },
-    "completed": {
-      "blocks_feature": false,
-      "color": "white",
-      "description": "Task finished and approved",
-      "phase": "done",
-      "progress_weight": 1,
-      "responsibility": "none",
-      "orchestrator_action": {
-        "action": "archive",
-        "instruction_template": "Task {task_id} is completed. No agent action needed."
+        "action": "pause",
+        "instruction_template": "task/blocked.tmpl"
       }
     },
     "cancelled": {
@@ -185,20 +23,80 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "archive",
-        "instruction_template": "Task {task_id} is cancelled. No agent action needed."
+        "instruction_template": "task/cancelled.tmpl"
       }
     },
-    "blocked": {
-      "blocks_feature": true,
-      "color": "red",
-      "description": "Temporarily blocked by external dependency",
-      "phase": "any",
+    "completed": {
+      "blocks_feature": false,
+      "color": "white",
+      "description": "Task finished and approved",
+      "phase": "done",
+      "progress_weight": 1,
+      "responsibility": "none",
+      "orchestrator_action": {
+        "action": "archive",
+        "instruction_template": "task/completed.tmpl"
+      }
+    },
+    "draft": {
+      "blocks_feature": false,
+      "color": "gray",
+      "description": "Task created but not yet refined",
+      "phase": "planning",
       "progress_weight": 0,
       "responsibility": "none",
       "orchestrator_action": {
-        "action": "pause",
-        "instruction_template": "Task {task_id} is blocked. Do not spawn agent. Wait for blocker resolution. Notify the user that the task was blocked and report the reason."
+        "action": "advance_status",
+        "instruction_template": "task/draft.tmpl"
       }
+    },
+    "in_approval": {
+      "blocks_feature": false,
+      "color": "purple",
+      "description": "Under final review",
+      "phase": "approval",
+      "progress_weight": 0.95,
+      "responsibility": "human"
+    },
+    "in_code_review": {
+      "blocks_feature": false,
+      "color": "magenta",
+      "description": "Under code review",
+      "phase": "review",
+      "progress_weight": 0.8,
+      "responsibility": "agent"
+    },
+    "in_development": {
+      "blocks_feature": false,
+      "color": "yellow",
+      "description": "Code implementation in progress",
+      "phase": "development",
+      "progress_weight": 0.5,
+      "responsibility": "agent"
+    },
+    "in_qa": {
+      "blocks_feature": false,
+      "color": "green",
+      "description": "Being tested",
+      "phase": "qa",
+      "progress_weight": 0.85,
+      "responsibility": "qa_team"
+    },
+    "in_refinement_ba": {
+      "blocks_feature": false,
+      "color": "blue",
+      "description": "Being analyzed and specified",
+      "phase": "planning",
+      "progress_weight": 0.12,
+      "responsibility": "agent"
+    },
+    "in_refinement_tech": {
+      "blocks_feature": false,
+      "color": "blue",
+      "description": "Being analyzed and specified",
+      "phase": "planning",
+      "progress_weight": 0.2,
+      "responsibility": "agent"
     },
     "on_hold": {
       "blocks_feature": false,
@@ -209,59 +107,397 @@
       "responsibility": "none",
       "orchestrator_action": {
         "action": "pause",
-        "instruction_template": "Task {task_id} is on hold. Do not spawn agent. Wait for product decision to resume."
+        "instruction_template": "task/on_hold.tmpl"
+      }
+    },
+    "ready_for_approval": {
+      "agent_types": [
+        "product-manager",
+        "client"
+      ],
+      "blocks_feature": false,
+      "color": "purple",
+      "description": "Awaiting final approval",
+      "phase": "approval",
+      "progress_weight": 0.9,
+      "responsibility": "human",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "uat",
+        "skills": [
+          "shark",
+          "uat"
+        ],
+        "instruction_template": "task/ready_for_approval.tmpl"
+      }
+    },
+    "ready_for_code_review": {
+      "agent_types": [
+        "tech-lead",
+        "code-reviewer"
+      ],
+      "blocks_feature": false,
+      "color": "magenta",
+      "description": "Code complete, awaiting review",
+      "phase": "review",
+      "progress_weight": 0.75,
+      "responsibility": "agent",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "tech-lead",
+        "skills": [
+          "quality"
+        ],
+        "instruction_template": "task/ready_for_code_review.tmpl"
+      }
+    },
+    "ready_for_development": {
+      "agent_types": [
+        "developer"
+      ],
+      "blocks_feature": false,
+      "color": "yellow",
+      "description": "Spec complete, ready for implementation",
+      "phase": "development",
+      "progress_weight": 0.32,
+      "responsibility": "none",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "developer",
+        "skills": [
+          "test-driven-development",
+          "implementation"
+        ],
+        "instruction_template": "task/ready_for_development.tmpl"
+      }
+    },
+    "ready_for_qa": {
+      "agent_types": [
+        "qa"
+      ],
+      "blocks_feature": false,
+      "color": "green",
+      "description": "Ready for quality assurance testing",
+      "phase": "qa",
+      "progress_weight": 0.8,
+      "responsibility": "qa_team",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "qa",
+        "skills": [
+          "quality",
+          "shark"
+        ],
+        "instruction_template": "task/ready_for_qa.tmpl"
+      }
+    },
+    "ready_for_refinement_ba": {
+      "agent_types": [
+        "business-analyst"
+      ],
+      "blocks_feature": false,
+      "color": "cyan",
+      "description": "Awaiting business specification and analysis",
+      "phase": "planning",
+      "progress_weight": 0.05,
+      "responsibility": "agent",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "business-analyst",
+        "skills": [
+          "specification-writing",
+          "shark"
+        ],
+        "instruction_template": "task/ready_for_refinement_ba.tmpl"
+      }
+    },
+    "ready_for_refinement_tech": {
+      "agent_types": [
+        "architect"
+      ],
+      "blocks_feature": false,
+      "color": "cyan",
+      "description": "Awaiting technical specification and analysis",
+      "phase": "planning",
+      "progress_weight": 0.1,
+      "responsibility": "agent",
+      "orchestrator_action": {
+        "action": "spawn_agent",
+        "agent_type": "architect",
+        "skills": [
+          "architecture",
+          "specification-writing",
+          "shark"
+        ],
+        "instruction_template": "task/ready_for_refinement_tech.tmpl"
+      }
+    },
+    "todo": {
+      "blocks_feature": false,
+      "color": "gray",
+      "description": "Task created but not yet refined",
+      "phase": "planning",
+      "progress_weight": 0,
+      "responsibility": "none",
+      "orchestrator_action": {
+        "action": "wait_for_triage",
+        "instruction_template": "task/todo.tmpl"
       }
     }
   },
   "status_flow": {
-    "draft": ["ready_for_refinement_ba", "ready_for_refinement_tech", "cancelled", "on_hold"],
-    "todo": ["ready_for_refinement_ba", "ready_for_refinement_tech", "cancelled", "on_hold"],
-    "ready_for_refinement_ba": ["in_refinement_ba", "cancelled", "on_hold"],
-    "in_refinement_ba": ["ready_for_refinement_tech", "ready_for_development", "draft", "blocked", "on_hold"],
-    "ready_for_refinement_tech": ["in_refinement_tech", "cancelled", "on_hold"],
-    "in_refinement_tech": ["ready_for_development", "ready_for_refinement_ba", "draft", "blocked", "on_hold"],
-    "ready_for_development": ["in_development", "ready_for_refinement_ba", "ready_for_refinement_tech", "cancelled", "on_hold"],
-    "in_development": ["ready_for_code_review", "ready_for_refinement_ba", "ready_for_refinement_tech", "blocked", "on_hold"],
-    "ready_for_code_review": ["in_code_review", "in_development", "on_hold"],
-    "in_code_review": ["ready_for_qa", "in_development", "ready_for_refinement_ba", "ready_for_refinement_tech", "on_hold"],
-    "ready_for_qa": ["in_qa", "on_hold"],
-    "in_qa": ["ready_for_approval", "in_development", "ready_for_refinement_ba", "ready_for_refinement_tech", "blocked", "on_hold"],
-    "ready_for_approval": ["in_approval", "on_hold", "ready_for_refinement_ba", "ready_for_refinement_tech", "ready_for_development"],
-    "in_approval": ["completed", "ready_for_qa", "ready_for_development", "ready_for_refinement_ba", "ready_for_refinement_tech", "on_hold"],
+    "blocked": [
+      "ready_for_development",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "cancelled"
+    ],
+    "cancelled": [
+      "draft"
+    ],
     "completed": [],
-    "cancelled": ["draft"],
-    "blocked": ["ready_for_development", "ready_for_refinement_ba", "ready_for_refinement_tech", "cancelled"],
-    "on_hold": ["ready_for_refinement_ba", "ready_for_refinement_tech", "ready_for_development", "cancelled"]
-  },
-  "special_statuses": {
-    "_start_": ["draft", "ready_for_refinement_ba", "ready_for_refinement_tech", "ready_for_development", "todo"],
-    "_complete_": ["completed", "cancelled"]
+    "draft": [
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "cancelled",
+      "on_hold"
+    ],
+    "in_approval": [
+      "completed",
+      "ready_for_qa",
+      "ready_for_development",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "on_hold"
+    ],
+    "in_code_review": [
+      "ready_for_qa",
+      "ready_for_development",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "on_hold"
+    ],
+    "in_development": [
+      "ready_for_code_review",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "blocked",
+      "on_hold"
+    ],
+    "in_qa": [
+      "ready_for_approval",
+      "ready_for_development",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "blocked",
+      "on_hold"
+    ],
+    "in_refinement_ba": [
+      "ready_for_refinement_tech",
+      "ready_for_development",
+      "draft",
+      "blocked",
+      "on_hold"
+    ],
+    "in_refinement_tech": [
+      "ready_for_development",
+      "ready_for_refinement_ba",
+      "draft",
+      "blocked",
+      "on_hold"
+    ],
+    "on_hold": [
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "ready_for_development",
+      "cancelled"
+    ],
+    "ready_for_approval": [
+      "in_approval",
+      "on_hold",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "ready_for_development"
+    ],
+    "ready_for_code_review": [
+      "in_code_review",
+      "in_development",
+      "on_hold"
+    ],
+    "ready_for_development": [
+      "in_development",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "cancelled",
+      "on_hold"
+    ],
+    "ready_for_qa": [
+      "in_qa",
+      "on_hold"
+    ],
+    "ready_for_refinement_ba": [
+      "in_refinement_ba",
+      "cancelled",
+      "on_hold"
+    ],
+    "ready_for_refinement_tech": [
+      "in_refinement_tech",
+      "cancelled",
+      "on_hold"
+    ],
+    "todo": [
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "cancelled",
+      "on_hold"
+    ]
   },
   "status_flow_version": "1.0",
-  "color_enabled": true,
-
+  "special_statuses": {
+    "_complete_": [
+      "completed",
+      "cancelled"
+    ],
+    "_start_": [
+      "draft",
+      "ready_for_refinement_ba",
+      "ready_for_refinement_tech",
+      "ready_for_development",
+      "todo"
+    ]
+  },
   "epic_workflow": {
     "version": "1.0",
     "status_flow": {
-      "draft":                    ["ready_for_refinement", "active", "cancelled"],
-      "ready_for_refinement":     ["in_refinement", "blocked", "on_hold"],
-      "in_refinement":            ["ready_for_research", "blocked", "on_hold"],
-      "ready_for_research":       ["in_research", "cancelled", "on_hold"],
-      "in_research":              ["ready_for_feasibility_review_ba", "blocked", "on_hold"],
-      "ready_for_feasibility_review_ba":  ["in_feasibility_review_ba", "blocked", "on_hold"],
-      "in_feasibility_review_ba":         ["ready_for_feasibility_review_tech", "intervention_required", "blocked", "on_hold"],
-      "ready_for_feasibility_review_tech": ["in_feasibility_review_tech", "blocked", "on_hold"],
-      "in_feasibility_review_tech":       ["ready_for_test_planning", "intervention_required", "blocked", "on_hold"],
-      "intervention_required":            ["ready_for_refinement", "ready_for_research", "ready_for_feasibility_review_ba", "ready_for_feasibility_review_tech", "ready_for_test_planning", "cancelled", "on_hold"],
-      "ready_for_test_planning":  ["in_test_planning", "blocked", "on_hold"],
-      "in_test_planning":         ["ready_for_decomposition", "ready_for_refinement", "blocked", "on_hold"],
-      "ready_for_decomposition":  ["in_decomposition", "blocked", "on_hold"],
-      "in_decomposition":         ["active", "blocked", "on_hold"],
-      "active":                   ["completed", "on_hold"],
-      "completed":                [],
-      "cancelled":                [],
-      "on_hold":                  ["ready_for_research", "ready_for_refinement", "ready_for_feasibility_review_ba", "ready_for_feasibility_review_tech", "ready_for_test_planning", "ready_for_decomposition", "active", "cancelled"],
-      "blocked":                  ["ready_for_research", "ready_for_refinement", "ready_for_feasibility_review_ba", "ready_for_feasibility_review_tech", "ready_for_test_planning", "ready_for_decomposition"]
+      "draft": [
+        "ready_for_refinement",
+        "active",
+        "cancelled"
+      ],
+      "ready_for_refinement": [
+        "in_refinement",
+        "blocked",
+        "on_hold"
+      ],
+      "in_refinement": [
+        "ready_for_ba_check",
+        "ready_for_research",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_research": [
+        "in_research",
+        "cancelled",
+        "on_hold"
+      ],
+      "in_research": [
+        "ready_for_feasibility_review_ba",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_feasibility_review_ba": [
+        "in_feasibility_review_ba",
+        "blocked",
+        "on_hold"
+      ],
+      "in_feasibility_review_ba": [
+        "ready_for_feasibility_review_tech",
+        "intervention_required",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_feasibility_review_tech": [
+        "in_feasibility_review_tech",
+        "blocked",
+        "on_hold"
+      ],
+      "in_feasibility_review_tech": [
+        "ready_for_tech_check",
+        "ready_for_test_planning",
+        "intervention_required",
+        "blocked",
+        "on_hold"
+      ],
+      "intervention_required": [
+        "ready_for_refinement",
+        "ready_for_research",
+        "ready_for_feasibility_review_ba",
+        "ready_for_feasibility_review_tech",
+        "ready_for_test_planning",
+        "cancelled",
+        "on_hold"
+      ],
+      "ready_for_test_planning": [
+        "in_test_planning",
+        "blocked",
+        "on_hold"
+      ],
+      "in_test_planning": [
+        "ready_for_decomposition",
+        "ready_for_refinement",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_decomposition": [
+        "in_decomposition",
+        "blocked",
+        "on_hold"
+      ],
+      "in_decomposition": [
+        "active",
+        "blocked",
+        "on_hold"
+      ],
+      "active": [
+        "completed",
+        "on_hold"
+      ],
+      "completed": [],
+      "cancelled": [],
+      "on_hold": [
+        "ready_for_research",
+        "ready_for_refinement",
+        "ready_for_feasibility_review_ba",
+        "ready_for_feasibility_review_tech",
+        "ready_for_test_planning",
+        "ready_for_decomposition",
+        "active",
+        "cancelled",
+        "ready_for_ba_check",
+        "ready_for_tech_check"
+      ],
+      "blocked": [
+        "ready_for_research",
+        "ready_for_refinement",
+        "ready_for_feasibility_review_ba",
+        "ready_for_feasibility_review_tech",
+        "ready_for_test_planning",
+        "ready_for_decomposition",
+        "ready_for_ba_check",
+        "ready_for_tech_check"
+      ],
+      "ready_for_ba_check": [
+        "in_ba_check",
+        "blocked",
+        "on_hold"
+      ],
+      "in_ba_check": [
+        "in_research",
+        "in_refinement",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_tech_check": [
+        "in_tech_check",
+        "blocked",
+        "on_hold"
+      ],
+      "in_tech_check": [
+        "in_test_planning",
+        "in_feasibility_review_tech",
+        "blocked",
+        "on_hold"
+      ]
     },
     "status_metadata": {
       "draft": {
@@ -272,55 +508,46 @@
         "is_planning": true,
         "responsibility": "none",
         "orchestrator_action": {
-          "action": "wait_for_triage",
-          "instruction_template": "Epic {id} is in draft. Execute `shark epic next-status {id}` to advance to refinement."
+          "action": "advance_status",
+          "instruction_template": "epic/draft.tmpl"
         }
-      },
-      "ready_for_refinement": {
-        "description": "Draft captured, ready for BA to write epic PRD",
-        "phase": "refinement",
-        "color": "orange",
-        "progress_weight": 0.10,
-        "is_planning": true,
-        "responsibility": "agent",
-        "agent_types": ["business-analyst"],
-        "orchestrator_action": {
-          "action": "spawn_agent",
-          "agent_type": "business-analyst",
-          "skills": ["specification-writing"],
-          "instruction_template": "Write epic PRD for {id}: \"{title}\". LOAD: specification-writing workflow write-epic.md -- follow multi-file architecture. READ: (1) Draft epic document at {file_path} and any vision notes, (2) Other epic PRDs under docs/plan/ for consistency and overlap awareness. PRODUCE: 6 PRD files per write-epic.md (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md). Define clear scope boundaries to guide research. Success metrics must be measurable. EXIT GATE: All 6 files created and cross-referenced. Write-epic.md checklist passes. No vague language or TBDs. Advance: shark epic next-status {id}."
-        }
-      },
-      "in_refinement": {
-        "description": "BA refining epic requirements",
-        "phase": "refinement",
-        "color": "orange",
-        "progress_weight": 0.15,
-        "is_planning": true,
-        "responsibility": "agent"
       },
       "ready_for_research": {
         "description": "Epic PRD complete, ready for targeted research against defined scope",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.20,
+        "progress_weight": 0.2,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["researcher"],
+        "agent_types": [
+          "researcher"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "researcher",
-          "skills": ["discovery", "research"],
-          "instruction_template": "Research epic {id}: \"{title}\". STRATEGIC RESEARCH -- assess system-wide impact and feasibility against the defined epic PRD. LOAD: discovery skill (market-research, feasibility-analysis) + research skill (analyze-codebase, find-patterns). READ: All 6 epic PRD files at {file_path} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md) -- research must be scoped to these defined requirements and boundaries. Read all sibling epic docs under docs/plan/ to identify overlap and interactions. Check existing system capabilities in codebase. PRODUCE: Research report containing: (1) Market/competitive landscape relevant to defined requirements, (2) Feasibility assessment against each requirement area, (3) System-wide impact -- how this epic interacts with other epics, (4) Existing capability overlap with defined scope, (5) Risk assessment with mitigations mapped to specific requirements, (6) Recommendations. EXIT GATE: All 6 sections complete. Research scoped to PRD boundaries. No unresolved feasibility blockers. Overlap explicitly addressed. Advance: shark epic next-status {id}."
+          "skills": [
+            "discovery",
+            "research"
+          ],
+          "instruction_template": "epic/ready_for_research.tmpl"
         }
       },
       "in_research": {
         "description": "Research in progress",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.30,
+        "progress_weight": 0.3,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "skills": [
+            "discovery",
+            "research"
+          ],
+          "instruction_template": "epic/in_research.tmpl"
+        }
       },
       "ready_for_feasibility_review_ba": {
         "description": "Research complete, ready for BA feasibility review",
@@ -329,12 +556,17 @@
         "progress_weight": 0.35,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["business-analyst"],
+        "agent_types": [
+          "business-analyst"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "business-analyst",
-          "skills": ["specification-writing", "discovery"],
-          "instruction_template": "BA feasibility review for epic {id}: \"{title}\". Compare research findings against the epic PRD from a business perspective. READ: (1) All 6 epic PRD files at {file_path} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md), (2) Research report from the research phase, (3) Other epic PRDs under docs/plan/ for cross-epic awareness. EVALUATE: (1) Cross-epic conflicts -- does research reveal overlap or contradiction with other epics?, (2) Market viability -- do research findings support or undermine the business case?, (3) Scope coherence -- do requirements still make sense given what research uncovered?, (4) Business risk -- are there showstopper business concerns? PRODUCE: BA feasibility review report with findings for each area, overall assessment (APPROVED or CONCERNS_FOUND), and recommended actions. IF APPROVED: Advance via shark epic next-status {id}. IF CONCERNS FOUND: Set intervention_required via shark epic update {id} --status=intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action."
+          "skills": [
+            "specification-writing",
+            "discovery"
+          ],
+          "instruction_template": "epic/ready_for_feasibility_review_ba.tmpl"
         }
       },
       "in_feasibility_review_ba": {
@@ -343,21 +575,35 @@
         "color": "teal",
         "progress_weight": 0.38,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "discovery"
+          ],
+          "instruction_template": "epic/in_feasibility_review_ba.tmpl"
+        }
       },
       "ready_for_feasibility_review_tech": {
         "description": "BA feasibility approved, ready for technical feasibility review",
         "phase": "feasibility",
         "color": "teal",
-        "progress_weight": 0.40,
+        "progress_weight": 0.4,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["architect"],
+        "agent_types": [
+          "architect"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "architect",
-          "skills": ["architecture", "research"],
-          "instruction_template": "Technical feasibility review for epic {id}: \"{title}\". Compare research findings against the epic PRD from a technical perspective. READ: (1) All 6 epic PRD files at {file_path} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md), (2) Research report from the research phase, (3) BA feasibility review report, (4) Other epic architectures and PRDs under docs/plan/ for system-wide awareness. EVALUATE: (1) Technical feasibility -- can each requirement area be implemented with available technology and team capabilities?, (2) Architectural concerns -- does research reveal integration complexity, performance risks, or scaling issues?, (3) Dependency and integration risks -- are there external system dependencies or cross-epic technical conflicts?, (4) Technical debt implications -- will this epic create or exacerbate technical debt? PRODUCE: Technical feasibility review report with findings for each area, overall assessment (APPROVED or CONCERNS_FOUND), and recommended actions. IF APPROVED: Advance via shark epic next-status {id}. IF CONCERNS FOUND: Set intervention_required via shark epic update {id} --status=intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action."
+          "skills": [
+            "architecture",
+            "research"
+          ],
+          "instruction_template": "epic/ready_for_feasibility_review_tech.tmpl"
         }
       },
       "in_feasibility_review_tech": {
@@ -366,7 +612,16 @@
         "color": "teal",
         "progress_weight": 0.43,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "research"
+          ],
+          "instruction_template": "epic/in_feasibility_review_tech.tmpl"
+        }
       },
       "intervention_required": {
         "description": "Feasibility review raised concerns requiring human decision",
@@ -377,22 +632,62 @@
         "responsibility": "human",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Epic {id} requires human intervention. A feasibility review agent found concerns that need a human decision. Read the intervention report in the epic directory. Options: (1) Back to ready_for_refinement to revise scope, (2) Back to ready_for_research for more data, (3) Back to ready_for_feasibility_review_ba or ready_for_feasibility_review_tech to re-review, (4) Forward to ready_for_test_planning if concerns are accepted/addressed, (5) cancelled. Human must set status manually via shark epic update {id} --status=<chosen_status>."
+          "instruction_template": "epic/intervention_required.tmpl"
+        }
+      },
+      "ready_for_refinement": {
+        "description": "Draft captured, ready for BA to write epic PRD",
+        "phase": "refinement",
+        "color": "orange",
+        "progress_weight": 0.1,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "business-analyst"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing"
+          ],
+          "instruction_template": "epic/ready_for_refinement.tmpl"
+        }
+      },
+      "in_refinement": {
+        "description": "BA refining epic requirements",
+        "phase": "refinement",
+        "color": "orange",
+        "progress_weight": 0.15,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing"
+          ],
+          "instruction_template": "epic/in_refinement.tmpl"
         }
       },
       "ready_for_test_planning": {
         "description": "Feasibility approved, ready for UAT acceptance plan",
         "phase": "test_planning",
         "color": "lime",
-        "progress_weight": 0.50,
+        "progress_weight": 0.5,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["qa"],
+        "agent_types": [
+          "qa"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "qa",
-          "skills": ["quality", "shark-task-management"],
-          "instruction_template": "Create UAT acceptance plan for epic {id}: \"{title}\". STRATEGIC TEST PLANNING -- define how we know this epic delivers what it promises. READ: (1) Epic PRD at {file_path} -- all 6 files (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md), (2) Research report for feasibility constraints and risk areas, (3) BA feasibility review report for business viability assessment and cross-epic conflict analysis, (4) Technical feasibility review report for architectural concerns and dependency risks, (5) Other epic UAT plans under docs/plan/ for cross-epic test coverage. PRODUCE: Epic UAT plan containing: (1) Acceptance scenarios derived from each user journey -- concrete end-to-end scenarios with preconditions, steps, expected outcomes that prove the journey works, (2) Success metrics validation plan -- how each metric from success-metrics.md will be measured and what constitutes pass/fail, (3) Cross-epic integration test scenarios -- where this epic's capabilities interact with other epics, (4) Risk-based test priorities -- which scenarios must pass first based on research risk assessment and feasibility review findings, (5) Persona-based acceptance matrix -- for each persona, which scenarios validate their needs are met. EXIT GATE: Every user journey has at least one acceptance scenario. Every success metric has a validation method. Risk areas from research and feasibility reviews have targeted scenarios. Plan is actionable for feature-level decomposition into test strategies. Advance: shark epic next-status {id}."
+          "skills": [
+            "quality",
+            "shark"
+          ],
+          "instruction_template": "epic/ready_for_test_planning.tmpl"
         }
       },
       "in_test_planning": {
@@ -401,30 +696,51 @@
         "color": "lime",
         "progress_weight": 0.55,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "skills": [
+            "quality",
+            "shark"
+          ],
+          "instruction_template": "epic/in_test_planning.tmpl"
+        }
       },
       "ready_for_decomposition": {
         "description": "Epic PRD, feasibility reviews, and UAT plan complete, ready to decompose into features",
         "phase": "decomposition",
         "color": "yellow",
-        "progress_weight": 0.60,
+        "progress_weight": 0.6,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["product-manager"],
+        "agent_types": [
+          "product-manager"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "product-manager",
-          "skills": ["specification-writing"],
-          "instruction_template": "Decompose epic {id}: \"{title}\" into features. LOAD: specification-writing workflow decompose-epic.md. READ: (1) Full epic PRD at {file_path} (all 6 files), (2) Research report for system interactions and technical landscape, (3) BA feasibility review report for business viability and cross-epic conflicts, (4) Technical feasibility review report for architectural concerns and dependency risks, (5) Success metrics to ensure features trace to outcomes, (6) Existing features (shark feature list --epic={id}). PRODUCE: For each feature: create in shark (shark feature create --epic={id} --title=\"Name\"), write scope description, define execution order and dependencies, map to epic requirements. Output decomposition summary with feature tree and dependency graph. EXIT GATE: Every epic requirement traces to a feature. No scope overlap. Acyclic dependencies. Each feature sized for 1-3 sprints. Reviewed with user. Advance: shark epic next-status {id}."
+          "skills": [
+            "specification-writing"
+          ],
+          "instruction_template": "epic/ready_for_decomposition.tmpl"
         }
       },
       "in_decomposition": {
         "description": "Features being generated from epic",
         "phase": "decomposition",
         "color": "yellow",
-        "progress_weight": 0.70,
+        "progress_weight": 0.7,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "product-manager",
+          "skills": [
+            "specification-writing"
+          ],
+          "instruction_template": "epic/in_decomposition.tmpl"
+        }
       },
       "active": {
         "description": "Features exist, progress aggregated from children",
@@ -433,7 +749,16 @@
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
-        "aggregates_from": "features"
+        "aggregates_from": "features",
+        "orchestrator_action": {
+          "action": "cascade",
+          "agent_type": "tech-director",
+          "skills": [
+            "orchestration",
+            "shark"
+          ],
+          "instruction_template": "epic/active.tmpl"
+        }
       },
       "completed": {
         "description": "All features complete",
@@ -444,7 +769,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
-          "instruction_template": "Epic {id} is completed. No agent action needed."
+          "instruction_template": "epic/completed.tmpl"
         }
       },
       "cancelled": {
@@ -456,7 +781,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
-          "instruction_template": "Epic {id} is cancelled. No agent action needed."
+          "instruction_template": "epic/cancelled.tmpl"
         }
       },
       "on_hold": {
@@ -468,7 +793,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Epic {id} is on hold. Do not spawn agent. Wait for product decision to resume."
+          "instruction_template": "epic/on_hold.tmpl"
         }
       },
       "blocked": {
@@ -480,37 +805,248 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Epic {id} is blocked. Do not spawn agent. Wait for blocker resolution."
+          "instruction_template": "epic/blocked.tmpl"
+        }
+      },
+      "ready_for_ba_check": {
+        "description": "Epic BA docs complete, ready for BA quality check",
+        "phase": "refinement",
+        "color": "yellow",
+        "progress_weight": 0.17,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "business-analyst"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "epic/ready_for_ba_check.tmpl"
+        }
+      },
+      "in_ba_check": {
+        "description": "BA validator checking epic docs for completeness and depth",
+        "phase": "refinement",
+        "color": "yellow",
+        "progress_weight": 0.19,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "epic/in_ba_check.tmpl"
+        }
+      },
+      "ready_for_tech_check": {
+        "description": "Epic tech docs complete, ready for tech quality check",
+        "phase": "feasibility",
+        "color": "lime",
+        "progress_weight": 0.46,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "architect"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "epic/ready_for_tech_check.tmpl"
+        }
+      },
+      "in_tech_check": {
+        "description": "Architect validator checking epic tech docs for completeness and depth",
+        "phase": "feasibility",
+        "color": "lime",
+        "progress_weight": 0.48,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "epic/in_tech_check.tmpl"
         }
       }
     },
     "special_statuses": {
-      "_start_": ["draft"],
-      "_complete_": ["completed", "cancelled"],
-      "_aggregation_": ["active"]
+      "_start_": [
+        "draft"
+      ],
+      "_complete_": [
+        "completed",
+        "cancelled"
+      ],
+      "_aggregation_": [
+        "active"
+      ]
     }
   },
-
   "feature_workflow": {
-    "version": "1.0",
+    "version": "1.1",
     "status_flow": {
-      "draft":                        ["ready_for_research", "ready_for_refinement_ba", "active", "cancelled"],
-      "ready_for_research":           ["in_research", "cancelled", "on_hold"],
-      "in_research":                  ["ready_for_refinement_ba", "draft", "blocked", "on_hold"],
-      "ready_for_refinement_ba":      ["in_refinement_ba", "cancelled", "on_hold"],
-      "in_refinement_ba":             ["ready_for_refinement_tech", "draft", "blocked", "on_hold"],
-      "ready_for_refinement_tech":    ["in_refinement_tech", "blocked", "on_hold"],
-      "in_refinement_tech":           ["ready_for_test_planning", "ready_for_refinement_ba", "blocked", "on_hold"],
-      "ready_for_test_planning":      ["in_test_planning", "blocked", "on_hold"],
-      "in_test_planning":             ["ready_for_task_generation", "ready_for_refinement_ba", "ready_for_refinement_tech", "blocked", "on_hold"],
-      "ready_for_task_generation":    ["in_task_generation", "blocked", "on_hold"],
-      "in_task_generation":           ["ready_to_build", "blocked", "on_hold"],
-      "ready_to_build":               ["active", "blocked", "on_hold"],
-      "active":                       ["completed", "on_hold"],
-      "completed":                    [],
-      "cancelled":                    [],
-      "on_hold":                      ["ready_for_research", "ready_for_refinement_ba", "ready_for_refinement_tech", "ready_for_test_planning", "ready_for_task_generation", "ready_to_build", "active", "cancelled"],
-      "blocked":                      ["ready_for_research", "ready_for_refinement_ba", "ready_for_refinement_tech", "ready_for_test_planning", "ready_for_task_generation", "ready_to_build", "draft"]
+      "draft": [
+        "ready_for_scope_validation",
+        "ready_for_research",
+        "ready_for_refinement_ba",
+        "active",
+        "cancelled"
+      ],
+      "ready_for_scope_validation": [
+        "in_scope_validation",
+        "cancelled",
+        "on_hold"
+      ],
+      "in_scope_validation": [
+        "ready_for_triage",
+        "cancelled"
+      ],
+      "ready_for_triage": [
+        "in_triage",
+        "blocked",
+        "on_hold"
+      ],
+      "in_triage": [
+        "ready_for_research",
+        "ready_for_refinement_ba",
+        "ready_for_task_generation",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_research": [
+        "in_research",
+        "cancelled",
+        "on_hold"
+      ],
+      "in_research": [
+        "ready_for_refinement_tech",
+        "draft",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_refinement_ba": [
+        "in_refinement_ba",
+        "cancelled",
+        "on_hold"
+      ],
+      "in_refinement_ba": [
+        "ready_for_ba_check",
+        "ready_for_research",
+        "ready_for_refinement_tech",
+        "draft",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_refinement_tech": [
+        "in_refinement_tech",
+        "blocked",
+        "on_hold"
+      ],
+      "in_refinement_tech": [
+        "ready_for_tech_check",
+        "ready_for_test_planning",
+        "ready_for_refinement_ba",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_test_planning": [
+        "in_test_planning",
+        "blocked",
+        "on_hold"
+      ],
+      "in_test_planning": [
+        "ready_for_task_generation",
+        "ready_for_refinement_ba",
+        "ready_for_refinement_tech",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_task_generation": [
+        "in_task_generation",
+        "blocked",
+        "on_hold"
+      ],
+      "in_task_generation": [
+        "ready_to_build",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_to_build": [
+        "active",
+        "blocked",
+        "on_hold"
+      ],
+      "active": [
+        "completed",
+        "on_hold"
+      ],
+      "completed": [],
+      "cancelled": [],
+      "on_hold": [
+        "ready_for_scope_validation",
+        "ready_for_triage",
+        "ready_for_research",
+        "ready_for_refinement_ba",
+        "ready_for_refinement_tech",
+        "ready_for_test_planning",
+        "ready_for_task_generation",
+        "ready_to_build",
+        "active",
+        "cancelled",
+        "ready_for_ba_check",
+        "ready_for_tech_check"
+      ],
+      "blocked": [
+        "ready_for_scope_validation",
+        "ready_for_triage",
+        "ready_for_research",
+        "ready_for_refinement_ba",
+        "ready_for_refinement_tech",
+        "ready_for_test_planning",
+        "ready_for_task_generation",
+        "ready_to_build",
+        "draft",
+        "ready_for_ba_check",
+        "ready_for_tech_check"
+      ],
+      "ready_for_ba_check": [
+        "in_ba_check",
+        "blocked",
+        "on_hold"
+      ],
+      "in_ba_check": [
+        "ready_for_refinement_tech",
+        "in_refinement_ba",
+        "blocked",
+        "on_hold"
+      ],
+      "ready_for_tech_check": [
+        "in_tech_check",
+        "blocked",
+        "on_hold"
+      ],
+      "in_tech_check": [
+        "ready_for_test_planning",
+        "in_refinement_tech",
+        "blocked",
+        "on_hold"
+      ]
     },
     "status_metadata": {
       "draft": {
@@ -521,55 +1057,157 @@
         "is_planning": true,
         "responsibility": "none",
         "orchestrator_action": {
-          "action": "wait_for_triage",
-          "instruction_template": "execute `shark feature {id} next-status` to begin work."
+          "action": "advance_status",
+          "instruction_template": "feature/draft.tmpl"
+        }
+      },
+      "ready_for_scope_validation": {
+        "description": "Ready for scope validation - ensure this is a feature not a task",
+        "phase": "validation",
+        "color": "orange",
+        "progress_weight": 0.01,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "business-analyst"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_scope_validation.tmpl"
+        }
+      },
+      "in_scope_validation": {
+        "description": "Scope validation in progress",
+        "phase": "validation",
+        "color": "orange",
+        "progress_weight": 0.02,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_scope_validation.tmpl"
+        }
+      },
+      "ready_for_triage": {
+        "description": "Scope validated, ready for complexity assessment",
+        "phase": "triage",
+        "color": "purple",
+        "progress_weight": 0.03,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "researcher"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_triage.tmpl"
+        }
+      },
+      "in_triage": {
+        "description": "Complexity assessment in progress",
+        "phase": "triage",
+        "color": "purple",
+        "progress_weight": 0.05,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "feature/in_triage.tmpl"
         }
       },
       "ready_for_research": {
         "description": "Ready for tactical codebase and integration research",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.03,
+        "progress_weight": 0.16,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["researcher"],
+        "agent_types": [
+          "researcher"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "researcher",
-          "skills": ["research", "shark-task-management"],
-          "instruction_template": "Research feature {id}: \"{title}\". TACTICAL RESEARCH -- analyze codebase and integration points informed by parent epic research. LOAD: research skill (analyze-codebase, trace-dependencies, find-patterns, understand-feature). READ: (1) Parent epic research report and PRD for strategic context, (2) Feature description at {file_path}, (3) Sibling features (shark feature list) for inter-feature interactions, (4) Codebase: CLAUDE.md, architecture docs for conventions. PRODUCE: Feature research report: (1) Codebase patterns relevant to this feature, (2) Existing implementations with file paths, (3) Integration points (services, APIs, tables), (4) Extension vs new code analysis, (5) Inter-feature technical dependency map, (6) Implementation approach recommendations. EXIT GATE: All sections populated with codebase evidence. File paths cited. Integration points identified. Actionable for BA and architect. Advance: shark feature next-status {id}."
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_research.tmpl"
         }
       },
       "in_research": {
         "description": "Research in progress",
         "phase": "research",
         "color": "purple",
-        "progress_weight": 0.08,
+        "progress_weight": 0.2,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "feature/in_research.tmpl"
+        }
       },
       "ready_for_refinement_ba": {
         "description": "Ready for business analysis and requirements specification",
         "phase": "refinement",
         "color": "cyan",
-        "progress_weight": 0.12,
+        "progress_weight": 0.08,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["business-analyst"],
+        "agent_types": [
+          "business-analyst"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "business-analyst",
-          "skills": ["specification-writing", "shark-task-management"],
-          "instruction_template": "Write feature PRD for {id}: \"{title}\". LOAD: specification-writing workflow write-feature-prd.md. READ: (1) Feature research report for codebase patterns and integration points, (2) Parent epic PRD for scope boundaries and requirements traceability, (3) Feature description at {file_path}, (4) Other feature PRDs in this epic for consistency. PRODUCE: Comprehensive prd.md: Goal, User Personas, User Stories (MoSCoW), Functional/Non-Functional Requirements, Acceptance Criteria, Out of Scope. Must reference research findings for feasibility. Requirements must trace to epic requirements. EXIT GATE: All sections complete per write-feature-prd.md checklist. Acceptance criteria testable. Research findings integrated. Open questions resolved with user. Advance: shark feature next-status {id}."
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_refinement_ba.tmpl"
         }
       },
       "in_refinement_ba": {
         "description": "BA actively refining requirements",
         "phase": "refinement",
         "color": "blue",
-        "progress_weight": 0.18,
+        "progress_weight": 0.12,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_refinement_ba.tmpl"
+        }
       },
       "ready_for_refinement_tech": {
         "description": "Requirements complete, ready for technical architecture",
@@ -578,21 +1216,37 @@
         "progress_weight": 0.25,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["architect"],
+        "agent_types": [
+          "architect"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "architect",
-          "skills": ["architecture", "specification-writing", "shark-task-management"],
-          "instruction_template": "Design technical architecture for feature {id}: \"{title}\". LOAD: architecture skill workflows (design-system, design-backend, design-frontend, design-database, design-security) as applicable. READ: (1) Feature PRD at {file_path}/prd.md, (2) Feature research report for codebase patterns and existing implementations, (3) Parent epic architecture docs for system constraints, (4) Other feature architectures in this epic for cross-feature consistency. PRODUCE: Architecture docs in feature directory: 02-architecture.md, 03-data-design.md, 04-backend-design.md, 05-frontend-design.md (if applicable), 06-security-design.md, 07-performance-design.md, 08-implementation-phases.md. Follow patterns from research. EXIT GATE: All applicable docs created. API contracts with request/response schemas. Data models complete. No conflicts with sibling features. Cross-feature integration points documented. Advance: shark feature next-status {id}."
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_refinement_tech.tmpl"
         }
       },
       "in_refinement_tech": {
         "description": "Architect designing technical solution",
         "phase": "refinement",
         "color": "blue",
-        "progress_weight": 0.40,
+        "progress_weight": 0.4,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_refinement_tech.tmpl"
+        }
       },
       "ready_for_test_planning": {
         "description": "Architecture complete, ready for feature test strategy",
@@ -601,58 +1255,92 @@
         "progress_weight": 0.45,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["qa"],
+        "agent_types": [
+          "qa"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "qa",
-          "skills": ["quality", "shark-task-management"],
-          "instruction_template": "Create feature test plan for {id}: \"{title}\". TACTICAL TEST PLANNING -- break down epic UAT scenarios into feature-specific, locally testable strategies. READ: (1) Parent epic UAT acceptance plan for the acceptance scenarios and success metric validation this feature must satisfy, (2) Feature PRD at {file_path}/prd.md for requirements and acceptance criteria, (3) Feature architecture docs (02-08 series) for API contracts, data models, and integration points, (4) Feature research report for codebase patterns and existing test infrastructure, (5) Sibling feature test plans for cross-feature test coordination. PRODUCE: Feature test plan (09-test-plan.md) containing: (1) Epic UAT scenario decomposition -- which epic acceptance scenarios this feature contributes to and what this feature's portion must validate, (2) Component test strategy -- unit and integration test approach for each architectural component, (3) API contract test cases -- request/response validation for each endpoint with edge cases, (4) Integration test scenarios -- how this feature integrates with sibling features and external services, (5) Acceptance criteria test matrix -- concrete test cases (inputs, expected outputs, edge cases) for every PRD acceptance criterion, (6) Performance and security test approach -- derived from architecture docs. Tests must be written with USER GOALS in mind -- trace back to persona needs and user journeys, not just technical correctness. EXIT GATE: Every PRD acceptance criterion has test cases. Every epic UAT scenario this feature touches has coverage. API contracts have positive and negative test cases. Plan is actionable for TDD at the task level -- developers can read this plan and write tests first. Advance: shark feature next-status {id}."
+          "skills": [
+            "quality",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_test_planning.tmpl"
         }
       },
       "in_test_planning": {
         "description": "QA creating feature test strategy from epic UAT plan",
         "phase": "test_planning",
         "color": "lime",
-        "progress_weight": 0.50,
+        "progress_weight": 0.5,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "skills": [
+            "quality",
+            "shark"
+          ],
+          "instruction_template": "feature/in_test_planning.tmpl"
+        }
       },
       "ready_for_task_generation": {
-        "description": "Architecture and test plan complete, ready to generate implementation tasks",
+        "description": "Ready to generate implementation tasks (may have limited or full design docs)",
         "phase": "decomposition",
         "color": "yellow",
         "progress_weight": 0.55,
         "is_planning": true,
         "responsibility": "agent",
-        "agent_types": ["product-manager"],
+        "agent_types": [
+          "product-manager"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "product-manager",
-          "skills": ["specification-writing", "shark-task-management"],
-          "instruction_template": "Generate tasks for feature {id}: \"{title}\". LOAD: specification-writing workflow write-task.md. READ: (1) Feature PRD at {file_path}/prd.md, (2) All architecture docs (02-08 series), (3) Feature test plan (09-test-plan.md) for test cases that tasks must satisfy, (4) Feature research report for patterns and standards, (5) Parent epic for cross-feature dependencies. Run write-task.md Step 0 (documentation detection). PRODUCE: Tasks in shark via shark task create. Each task: goal, success criteria, design doc references, test plan references (which test cases from 09-test-plan.md this task must satisfy), validation gates, agent assignment, dependencies. Map test cases to tasks so developers know which tests to write first (TDD). Incorporate research-identified standards into task specs. EXIT GATE: Every PRD requirement maps to a task. Every test case in 09-test-plan.md maps to a task. Acyclic dependency graph. Contract validation task present when API + frontend docs exist. All tasks verified: shark task list --feature={id}. Advance: shark feature next-status {id}."
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_task_generation.tmpl"
         }
       },
       "in_task_generation": {
         "description": "Tasks being generated from design documents",
         "phase": "decomposition",
         "color": "yellow",
-        "progress_weight": 0.70,
+        "progress_weight": 0.7,
         "is_planning": true,
-        "responsibility": "agent"
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "product-manager",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_task_generation.tmpl"
+        }
       },
       "ready_to_build": {
         "description": "All tasks generated and specified, ready for autonomous build",
         "phase": "execution",
         "color": "green",
         "progress_weight": 0.85,
-        "is_planning": true,
+        "is_planning": false,
         "responsibility": "agent",
-        "agent_types": ["tech-director"],
+        "agent_types": [
+          "product-manager"
+        ],
+        "aggregates_from": "tasks",
         "orchestrator_action": {
           "action": "spawn_agent",
-          "agent_type": "tech-director",
-          "skills": ["build", "shark-task-management"],
-          "instruction_template": "Execute autonomous build for feature {id}: \"{title}\". LOAD: build skill. READ: (1) Feature PRD and architecture docs, (2) All tasks via shark task list --feature={id}, (3) Task dependency graph, (4) Feature research report for codebase conventions. Drive all tasks through: development -> code review -> QA -> approval. Spawn appropriate agents per task status. Code review must check implementation against feature PRD intent, not just task spec. EXIT GATE: All tasks completed or in approval. No blocked tasks. Integration tests pass. Advance: shark feature next-status {id}."
+          "agent_type": "product-manager",
+          "skills": [
+            "build",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_to_build.tmpl"
         }
       },
       "active": {
@@ -662,7 +1350,16 @@
         "progress_weight": 1.0,
         "is_planning": false,
         "responsibility": "none",
-        "aggregates_from": "tasks"
+        "aggregates_from": "tasks",
+        "orchestrator_action": {
+          "action": "cascade",
+          "agent_type": "product-manager",
+          "skills": [
+            "orchestration",
+            "shark"
+          ],
+          "instruction_template": "feature/active.tmpl"
+        }
       },
       "completed": {
         "description": "All tasks complete, feature delivered",
@@ -673,7 +1370,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
-          "instruction_template": "Feature {id} is completed. No agent action needed."
+          "instruction_template": "feature/completed.tmpl"
         }
       },
       "cancelled": {
@@ -685,7 +1382,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "archive",
-          "instruction_template": "Feature {id} is cancelled. No agent action needed."
+          "instruction_template": "feature/cancelled.tmpl"
         }
       },
       "on_hold": {
@@ -697,7 +1394,7 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Feature {id} is on hold. Do not spawn agent. Wait for product decision to resume."
+          "instruction_template": "feature/on_hold.tmpl"
         }
       },
       "blocked": {
@@ -709,24 +1406,124 @@
         "responsibility": "none",
         "orchestrator_action": {
           "action": "pause",
-          "instruction_template": "Feature {id} is blocked. Do not spawn agent. Wait for blocker resolution."
+          "instruction_template": "feature/blocked.tmpl"
+        }
+      },
+      "ready_for_ba_check": {
+        "description": "Feature BA docs complete, ready for BA quality check",
+        "phase": "refinement",
+        "color": "yellow",
+        "progress_weight": 0.15,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "business-analyst"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_ba_check.tmpl"
+        }
+      },
+      "in_ba_check": {
+        "description": "BA validator checking feature docs for completeness and depth",
+        "phase": "refinement",
+        "color": "yellow",
+        "progress_weight": 0.18,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "skills": [
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_ba_check.tmpl"
+        }
+      },
+      "ready_for_tech_check": {
+        "description": "Feature tech docs complete, ready for tech quality check",
+        "phase": "refinement",
+        "color": "lime",
+        "progress_weight": 0.43,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": [
+          "architect"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/ready_for_tech_check.tmpl"
+        }
+      },
+      "in_tech_check": {
+        "description": "Architect validator checking feature tech docs for completeness and depth",
+        "phase": "refinement",
+        "color": "lime",
+        "progress_weight": 0.45,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "skills": [
+            "architecture",
+            "specification-writing",
+            "shark"
+          ],
+          "instruction_template": "feature/in_tech_check.tmpl"
         }
       }
     },
     "special_statuses": {
-      "_start_": ["draft"],
-      "_complete_": ["completed", "cancelled"],
-      "_aggregation_": ["active"]
+      "_start_": [
+        "draft"
+      ],
+      "_complete_": [
+        "completed",
+        "cancelled"
+      ],
+      "_aggregation_": [
+        "active"
+      ]
     }
   },
   "bug_workflow": {
+    "version": "1.0",
     "status_flow": {
-      "reported": ["triaged", "duplicate", "wont_fix"],
-      "triaged": ["in_fix", "wont_fix", "duplicate"],
-      "in_fix": ["in_verification", "triaged"],
-      "in_verification": ["resolved", "in_fix"],
+      "reported": [
+        "triaged",
+        "wont_fix",
+        "duplicate"
+      ],
+      "triaged": [
+        "in_fix",
+        "wont_fix",
+        "duplicate"
+      ],
+      "in_fix": [
+        "in_verification",
+        "triaged"
+      ],
+      "in_verification": [
+        "resolved",
+        "in_fix"
+      ],
       "resolved": [],
-      "wont_fix": ["triaged"],
+      "wont_fix": [
+        "triaged"
+      ],
       "duplicate": []
     },
     "status_metadata": {
@@ -734,22 +1531,40 @@
         "color": "red",
         "description": "Bug reported, awaiting triage",
         "phase": "planning",
-        "progress_weight": 0,
+        "progress_weight": 0.05,
         "responsibility": "agent",
-        "agent_types": ["qa", "developer"],
+        "agent_types": [
+          "business-analyst"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
-          "agent_type": "qa",
-          "instruction_template": "Triage bug {id}: assess severity, reproduce, and advance status."
+          "agent_type": "business-analyst",
+          "skills": [
+            "research",
+            "shark"
+          ],
+          "instruction_template": "bug/reported.tmpl"
         }
       },
       "triaged": {
         "color": "yellow",
-        "description": "Bug triaged, ready for fix",
-        "phase": "planning",
+        "description": "Triaged, ready for fix",
+        "phase": "development",
         "progress_weight": 0.2,
         "responsibility": "agent",
-        "agent_types": ["tech-lead", "developer"]
+        "agent_types": [
+          "developer"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "skills": [
+            "implementation",
+            "debugging",
+            "shark"
+          ],
+          "instruction_template": "bug/triaged.tmpl"
+        }
       },
       "in_fix": {
         "color": "blue",
@@ -757,7 +1572,16 @@
         "phase": "development",
         "progress_weight": 0.5,
         "responsibility": "agent",
-        "agent_types": ["developer", "backend", "frontend"]
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "skills": [
+            "implementation",
+            "debugging",
+            "shark"
+          ],
+          "instruction_template": "bug/in_fix.tmpl"
+        }
       },
       "in_verification": {
         "color": "cyan",
@@ -765,93 +1589,162 @@
         "phase": "review",
         "progress_weight": 0.8,
         "responsibility": "agent",
-        "agent_types": ["qa"]
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "skills": [
+            "quality",
+            "shark"
+          ],
+          "instruction_template": "bug/in_verification.tmpl"
+        }
       },
       "resolved": {
         "color": "green",
         "description": "Bug verified as fixed",
         "phase": "done",
         "progress_weight": 1.0,
-        "responsibility": "none"
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "bug/resolved.tmpl"
+        }
       },
       "wont_fix": {
         "color": "gray",
-        "description": "Bug will not be fixed",
+        "description": "Will not be fixed",
         "phase": "done",
         "progress_weight": 1.0,
-        "responsibility": "none"
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "bug/wont_fix.tmpl"
+        }
       },
       "duplicate": {
         "color": "gray",
-        "description": "Bug is a duplicate of another",
+        "description": "Duplicate of another bug",
         "phase": "done",
         "progress_weight": 1.0,
-        "responsibility": "none"
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "bug/duplicate.tmpl"
+        }
       }
     },
     "special_statuses": {
-      "_start_": ["reported"],
-      "_complete_": ["resolved", "wont_fix", "duplicate"]
-    },
-    "require_rejection_reason": true
+      "_start_": [
+        "reported"
+      ],
+      "_complete_": [
+        "resolved",
+        "wont_fix",
+        "duplicate"
+      ]
+    }
   },
   "change_workflow": {
+    "version": "1.0",
     "status_flow": {
-      "proposed": ["approved", "declined"],
-      "approved": ["in_progress", "declined"],
-      "in_progress": ["completed", "approved"],
+      "proposed": [
+        "approved",
+        "declined"
+      ],
+      "approved": [
+        "in_progress",
+        "declined"
+      ],
+      "in_progress": [
+        "completed",
+        "approved"
+      ],
       "completed": [],
-      "declined": ["proposed"]
+      "declined": [
+        "proposed"
+      ]
     },
     "status_metadata": {
       "proposed": {
         "color": "yellow",
-        "description": "Change proposed, awaiting approval",
+        "description": "Awaiting scope assessment and approval",
         "phase": "planning",
-        "progress_weight": 0,
-        "responsibility": "human",
-        "agent_types": ["project-manager", "tech-lead"],
+        "progress_weight": 0.1,
+        "responsibility": "agent",
+        "agent_types": [
+          "business-analyst"
+        ],
         "orchestrator_action": {
           "action": "spawn_agent",
-          "agent_type": "project-manager",
-          "instruction_template": "Review change proposal {id}: assess impact, approve or decline."
+          "agent_type": "business-analyst",
+          "skills": [
+            "assessment",
+            "shark"
+          ],
+          "instruction_template": "change/proposed.tmpl"
         }
       },
       "approved": {
         "color": "cyan",
-        "description": "Change approved, ready to implement",
-        "phase": "planning",
+        "description": "Approved, ready to implement",
+        "phase": "development",
         "progress_weight": 0.2,
         "responsibility": "agent",
-        "agent_types": ["developer", "tech-lead"]
+        "agent_types": [
+          "developer"
+        ],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "skills": [
+            "implementation",
+            "shark"
+          ],
+          "instruction_template": "change/approved.tmpl"
+        }
       },
       "in_progress": {
         "color": "blue",
-        "description": "Change implementation in progress",
+        "description": "Implementation in progress",
         "phase": "development",
-        "progress_weight": 0.5,
+        "progress_weight": 0.6,
         "responsibility": "agent",
-        "agent_types": ["developer", "backend", "frontend"]
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "skills": [
+            "implementation",
+            "shark"
+          ],
+          "instruction_template": "change/in_progress.tmpl"
+        }
       },
       "completed": {
         "color": "green",
-        "description": "Change completed and verified",
+        "description": "Completed and verified",
         "phase": "done",
         "progress_weight": 1.0,
-        "responsibility": "none"
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "change/completed.tmpl"
+        }
       },
       "declined": {
         "color": "red",
         "description": "Change declined",
         "phase": "done",
         "progress_weight": 1.0,
-        "responsibility": "none"
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "change/declined.tmpl"
+        }
       }
     },
     "special_statuses": {
-      "_start_": ["proposed"],
-      "_complete_": ["completed", "declined"]
-    },
-    "require_rejection_reason": true
+      "_start_": [
+        "proposed"
+      ],
+      "_complete_": [
+        "completed",
+        "declined"
+      ]
+    }
   }
 }

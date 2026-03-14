@@ -13,6 +13,7 @@ type ContextData struct {
 	OpenQuestions            []string                     `json:"open_questions,omitempty"`
 	Blockers                 []BlockerContext             `json:"blockers,omitempty"`
 	AcceptanceCriteriaStatus []AcceptanceCriterionContext `json:"acceptance_criteria_status,omitempty"`
+	Metadata                 map[string]interface{}       `json:"metadata,omitempty"` // User-defined fields available to templates
 }
 
 // ProgressContext tracks what's done, what's current, and what remains
@@ -137,5 +138,14 @@ func (cd *ContextData) Merge(other *ContextData) {
 
 	if other.AcceptanceCriteriaStatus != nil {
 		cd.AcceptanceCriteriaStatus = other.AcceptanceCriteriaStatus
+	}
+
+	if other.Metadata != nil {
+		if cd.Metadata == nil {
+			cd.Metadata = make(map[string]interface{})
+		}
+		for k, v := range other.Metadata {
+			cd.Metadata[k] = v
+		}
 	}
 }

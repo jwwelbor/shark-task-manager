@@ -35,6 +35,7 @@ const (
 	ActionArchive       = "archive"
 	ActionAdvanceStatus = "advance_status"
 	ActionCheckOrResume = "check_or_resume"
+	ActionCascade       = "cascade"
 )
 
 // ValidActionTypes defines the allowed action types
@@ -45,6 +46,7 @@ var ValidActionTypes = []string{
 	ActionArchive,
 	ActionAdvanceStatus,
 	ActionCheckOrResume,
+	ActionCascade,
 }
 
 // Validate validates the OrchestratorAction configuration

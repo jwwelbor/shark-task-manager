@@ -14,8 +14,10 @@ Shark v2 introduces file-based templates for agent instructions, replacing inlin
 
 ## Template Directory Structure
 
+The template directory is configurable via `template_directory` in `.sharkconfig.json` (default: `shark-templates`). Shark resolves this directory by walking up from the working directory to find a matching folder containing `.tmpl` files.
+
 ```
-templates/
+shark-templates/
 ├── epic/                          # Epic status templates
 │   ├── ready_for_research.tmpl
 │   ├── ready_for_feasibility_review_ba.tmpl
@@ -57,7 +59,9 @@ Templates are referenced in `orchestrator_action` blocks:
 ```
 
 **Path resolution:**
-- Relative to `templates/` directory in project root
+- Relative to the configured template directory (default: `shark-templates/` in project root)
+- The directory name is set via `template_directory` in `.sharkconfig.json`
+- Shark walks up from the working directory to find a matching folder with `.tmpl` files
 - No leading slash
 - Must include `.tmpl` extension
 
@@ -198,11 +202,11 @@ Task T-E07-F01-001: "Implement token generation"
 
 ## Partial Templates
 
-Reusable template fragments defined in `templates/partials/`.
+Reusable template fragments defined in `shark-templates/partials/`.
 
 ### Defining Partials
 
-Create file in `templates/partials/_partial_name.tmpl`:
+Create file in `shark-templates/partials/_partial_name.tmpl`:
 
 ```go
 {{define "_read_section"}}READ:
@@ -693,14 +697,14 @@ failed to load template: template not found: task/ready_for_development.tmpl
 ```
 
 **Causes:**
-1. File doesn't exist at `templates/task/ready_for_development.tmpl`
+1. File doesn't exist at `shark-templates/task/ready_for_development.tmpl`
 2. Wrong path in config (e.g., missing `.tmpl` extension)
 3. Wrong working directory
 
 **Solution:**
 ```bash
 # Verify file exists
-ls templates/task/ready_for_development.tmpl
+ls shark-templates/task/ready_for_development.tmpl
 
 # Check path in config
 cat .sharkconfig.json | jq '.status_metadata.ready_for_development.orchestrator_action.instruction_template'
@@ -729,10 +733,10 @@ template: no template "_read_section" associated with template "task"
 **Solution:**
 ```bash
 # Verify partial exists
-ls templates/partials/_read_section.tmpl
+ls shark-templates/partials/_read_section.tmpl
 
 # Check partial defines itself
-grep 'define "_read_section"' templates/partials/_read_section.tmpl
+grep 'define "_read_section"' shark-templates/partials/_read_section.tmpl
 ```
 
 ## Related Documentation

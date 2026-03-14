@@ -17,11 +17,12 @@ type Loader struct {
 }
 
 // NewLoader creates a new template loader
-// If templateDir is empty, uses embedded templates
+// If templateDir is empty, uses embedded templates and falls back to the
+// configured template directory name from SetConfiguredTemplateDir.
 func NewLoader(templateDir string) *Loader {
 	useEmbedded := templateDir == ""
 	if templateDir == "" {
-		templateDir = "shark-templates"
+		templateDir = GetTemplateDirName()
 	}
 	return &Loader{
 		templateDir: templateDir,
