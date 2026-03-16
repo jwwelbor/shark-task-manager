@@ -723,6 +723,9 @@ func buildChangeCardUpdates(cmd *cobra.Command) services.ChangeCardUpdates {
 	if cmd.Flags().Changed("assigned-to") {
 		updates.AssignedTo = &changeAssignedTo
 	}
+	if v := getFileFlagValue(cmd); v != "" {
+		updates.FilePath = &v
+	}
 	return updates
 }
 

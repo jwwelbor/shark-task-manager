@@ -257,6 +257,9 @@ func (s *ChangeCardService) UpdateChangeCard(ctx context.Context, key string, up
 	if updates.RollbackPlan != nil {
 		card.RollbackPlan = updates.RollbackPlan
 	}
+	if updates.FilePath != nil {
+		card.FilePath = *updates.FilePath
+	}
 
 	if err := card.Validate(); err != nil {
 		return nil, fmt.Errorf("validation failed: %w", err)

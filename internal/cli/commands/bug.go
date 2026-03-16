@@ -404,8 +404,12 @@ func runBugUpdate(cmd *cobra.Command, args []string) error {
 		updates.Severity = &sv
 	}
 
-	if updates.Title == nil && updates.Severity == nil {
-		return fmt.Errorf("at least one update flag is required (--title or --severity)")
+	if v := getFileFlagValue(cmd); v != "" {
+		updates.FilePath = &v
+	}
+
+	if updates.Title == nil && updates.Severity == nil && updates.FilePath == nil {
+		return fmt.Errorf("at least one update flag is required (--title, --severity, or --file)")
 	}
 
 	// Step 2: Call service

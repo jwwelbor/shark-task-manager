@@ -467,6 +467,44 @@ func TestTaskService_UpdateTask_Partial_Update(t *testing.T) {
 	assert.Equal(t, 5, task.Priority) // Original priority preserved
 }
 
+func TestTaskService_UpdateTask_FilePath(t *testing.T) {
+	existingTask := &models.Task{
+		ID:       1,
+		Key:      "T-E07-F01-001",
+		Title:    "Task With File",
+		Priority: 5,
+		Status:   models.TaskStatus("todo"),
+	}
+
+	var capturedTask *models.Task
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return existingTask, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	newPath := "docs/plan/E07/F01/tasks/custom-path.md"
+	updates := TaskUpdates{
+		FilePath: &newPath,
+	}
+
+	task, err := svc.UpdateTask(context.Background(), "E07-F01-001", updates)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.NotNil(t, task.FilePath)
+	assert.Equal(t, newPath, *task.FilePath)
+	assert.NotNil(t, capturedTask)
+	assert.Equal(t, newPath, *capturedTask.FilePath)
+	assert.Equal(t, "Task With File", task.Title) // Other fields unchanged
+}
+
 func TestTaskService_UpdateTask_Not_Found(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {

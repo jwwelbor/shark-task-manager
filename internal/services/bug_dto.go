@@ -23,6 +23,7 @@ type BugUpdates struct {
 	Severity         *models.BugSeverity `json:"severity,omitempty"`
 	LinkedEntityType *string             `json:"linked_entity_type,omitempty"`
 	LinkedEntityKey  *string             `json:"linked_entity_key,omitempty"`
+	FilePath         *string             `json:"file_path,omitempty"`
 }
 
 // BugFilters defines filter options for listing bugs via the service layer.

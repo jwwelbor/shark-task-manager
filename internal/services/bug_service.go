@@ -235,6 +235,10 @@ func (s *BugService) UpdateBug(ctx context.Context, key string, updates BugUpdat
 		bug.Severity = *updates.Severity
 	}
 
+	if updates.FilePath != nil {
+		bug.FilePath = updates.FilePath
+	}
+
 	if updates.LinkedEntityType != nil || updates.LinkedEntityKey != nil {
 		entityType := ""
 		entityKey := ""
