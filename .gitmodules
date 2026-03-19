@@ -1,0 +1,3 @@
+[submodule "shark-templates"]
+	path = shark-templates
+	url = https://github.com/jwwelbor/shark-templates.git
