@@ -92,8 +92,8 @@ func buildChangeCardBasicInfo(card *models.ChangeCard) [][]string {
 	if card.AssignedTo != nil && *card.AssignedTo != "" {
 		info = append(info, []string{"Assigned To", *card.AssignedTo})
 	}
-	if card.FilePath != "" {
-		info = append(info, []string{"File", card.FilePath})
+	if card.FilePath != nil && *card.FilePath != "" {
+		info = append(info, []string{"File", *card.FilePath})
 	}
 	if card.Description != nil && *card.Description != "" {
 		info = append(info, []string{"Description", *card.Description})

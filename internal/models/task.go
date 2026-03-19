@@ -49,6 +49,41 @@ type Task struct {
 	LastRejectionAt *time.Time `json:"last_rejection_at,omitempty" db:"-"` // Derived from task_notes, not stored
 }
 
+// Entity interface implementation for Task.
+
+func (t *Task) GetID() int64              { return t.ID }
+func (t *Task) GetKey() string            { return t.Key }
+func (t *Task) GetTitle() string          { return t.Title }
+func (t *Task) GetEntityType() EntityType { return EntityTypeTask }
+func (t *Task) GetStatus() string         { return string(t.Status) }
+func (t *Task) SetStatus(status string)   { t.Status = TaskStatus(status) }
+func (t *Task) GetCreatedAt() time.Time   { return t.CreatedAt }
+func (t *Task) GetUpdatedAt() time.Time   { return t.UpdatedAt }
+
+func (t *Task) GetSlug() string {
+	if t.Slug != nil {
+		return *t.Slug
+	}
+	return ""
+}
+
+func (t *Task) GetDescription() string {
+	if t.Description != nil {
+		return *t.Description
+	}
+	return ""
+}
+
+func (t *Task) GetFilePath() string {
+	if t.FilePath != nil {
+		return *t.FilePath
+	}
+	return ""
+}
+
+func (t *Task) GetContextData() *string     { return t.ContextData }
+func (t *Task) SetContextData(data *string) { t.ContextData = data }
+
 // Validate validates the Task fields
 func (t *Task) Validate() error {
 	if err := ValidateTaskKey(t.Key); err != nil {

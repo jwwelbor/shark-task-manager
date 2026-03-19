@@ -112,10 +112,10 @@ func (s *Service) GetFilePath(ctx context.Context, parsedScope *scope.Scope) (st
 		if err != nil {
 			return "", fmt.Errorf("change-card not found: %w", err)
 		}
-		if card.FilePath == "" {
+		if card.FilePath == nil || *card.FilePath == "" {
 			return "", fmt.Errorf("change-card %s has no file path set", parsedScope.Key)
 		}
-		return card.FilePath, nil
+		return *card.FilePath, nil
 
 	case scope.ScopeBug:
 		if s.bugRepo == nil {

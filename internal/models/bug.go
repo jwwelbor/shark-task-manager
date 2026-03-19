@@ -53,6 +53,41 @@ var bugKeyPattern = regexp.MustCompile(`^B\d{3}$`)
 // ErrInvalidBugKey is returned when a bug key does not match the expected format.
 var ErrInvalidBugKey = errors.New("invalid bug key format: must match B### (e.g., B001, B042)")
 
+// Entity interface implementation for Bug.
+
+func (b *Bug) GetID() int64              { return b.ID }
+func (b *Bug) GetKey() string            { return b.Key }
+func (b *Bug) GetTitle() string          { return b.Title }
+func (b *Bug) GetEntityType() EntityType { return EntityTypeBug }
+func (b *Bug) GetStatus() string         { return string(b.Status) }
+func (b *Bug) SetStatus(status string)   { b.Status = BugStatus(status) }
+func (b *Bug) GetCreatedAt() time.Time   { return b.CreatedAt }
+func (b *Bug) GetUpdatedAt() time.Time   { return b.UpdatedAt }
+
+func (b *Bug) GetSlug() string {
+	if b.Slug != nil {
+		return *b.Slug
+	}
+	return ""
+}
+
+func (b *Bug) GetDescription() string {
+	if b.Description != nil {
+		return *b.Description
+	}
+	return ""
+}
+
+func (b *Bug) GetFilePath() string {
+	if b.FilePath != nil {
+		return *b.FilePath
+	}
+	return ""
+}
+
+func (b *Bug) GetContextData() *string     { return b.ContextData }
+func (b *Bug) SetContextData(data *string) { b.ContextData = data }
+
 // Validate performs structural validation on the Bug model.
 // It does NOT check workflow status validity (that is the service layer's job).
 func (b *Bug) Validate() error {
