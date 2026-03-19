@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -202,50 +203,168 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 		return nil, fmt.Errorf("failed to parse JSON in %s: %w", configPath, err)
 	}
 
-	result := &MultiLevelWorkflow{}
+	result := &MultiLevelWorkflow{
+		Sources: make(map[string]string),
+	}
 
-	// Parse epic_workflow section
-	if epicRaw, ok := rawConfig["epic_workflow"]; ok {
-		epicWf, err := parseWorkflowSection(epicRaw, "epic_workflow")
-		if err != nil {
-			return nil, fmt.Errorf("invalid epic_workflow: %w", err)
+	// --- Workflow file loading (E20-F04) ---
+	// Determine workflow file path and attempt to load it.
+	// Workflow file entities take precedence over .sharkconfig.json inline definitions.
+	workflowFilePath := resolveWorkflowFilePath(configPath, rawConfig)
+
+	// Validate that the workflow file path does not escape the project root
+	configDir := filepath.Dir(configPath)
+	if err := validateWorkflowFilePath(configDir, workflowFilePath); err != nil {
+		return nil, fmt.Errorf("invalid workflow_config path: %w", err)
+	}
+
+	workflowFileData, err := loadWorkflowFile(workflowFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Map workflow keys to entity level names for source tracking
+	workflowKeyToLevel := map[string]string{
+		"epic_workflow":    "epic",
+		"feature_workflow": "feature",
+		"task_workflow":    "task",
+		"bug_workflow":     "bug",
+		"change_workflow":  "change",
+	}
+
+	// Parse entity blocks from workflow file first (highest precedence)
+	if workflowFileData != nil {
+		entityKeys := map[string]**WorkflowConfig{
+			"epic_workflow":    &result.Epic,
+			"feature_workflow": &result.Feature,
+			"task_workflow":    &result.Task,
+			"bug_workflow":     &result.Bug,
+			"change_workflow":  &result.Change,
 		}
-		result.Epic = epicWf
+		for key, field := range entityKeys {
+			if raw, ok := workflowFileData[key]; ok {
+				wf, parseErr := parseWorkflowSection(raw, key)
+				if parseErr != nil {
+					return nil, fmt.Errorf("invalid %s in %s: %w", key, workflowFilePath, parseErr)
+				}
+				if wf != nil {
+					*field = wf
+					result.Sources[workflowKeyToLevel[key]] = workflowFilePath
+				}
+			}
+		}
+
+		// Extract template_directory from workflow file if present
+		if tdRaw, ok := workflowFileData["template_directory"]; ok {
+			var td string
+			if json.Unmarshal(tdRaw, &td) == nil && td != "" {
+				result.TemplateDirectory = &td
+			}
+		}
+	}
+
+	// --- Fill remaining nil levels from .sharkconfig.json ---
+
+	// Parse epic_workflow section (only if not already set from workflow file)
+	if result.Epic == nil {
+		if epicRaw, ok := rawConfig["epic_workflow"]; ok {
+			epicWf, parseErr := parseWorkflowSection(epicRaw, "epic_workflow")
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid epic_workflow: %w", parseErr)
+			}
+			if epicWf != nil {
+				result.Epic = epicWf
+				result.Sources["epic"] = configPath
+			}
+		}
 	}
 
 	// Parse feature_workflow section
-	if featureRaw, ok := rawConfig["feature_workflow"]; ok {
-		featureWf, err := parseWorkflowSection(featureRaw, "feature_workflow")
-		if err != nil {
-			return nil, fmt.Errorf("invalid feature_workflow: %w", err)
+	if result.Feature == nil {
+		if featureRaw, ok := rawConfig["feature_workflow"]; ok {
+			featureWf, parseErr := parseWorkflowSection(featureRaw, "feature_workflow")
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid feature_workflow: %w", parseErr)
+			}
+			if featureWf != nil {
+				result.Feature = featureWf
+				result.Sources["feature"] = configPath
+			}
 		}
-		result.Feature = featureWf
 	}
 
 	// Parse bug_workflow section
-	if bugRaw, ok := rawConfig["bug_workflow"]; ok {
-		bugWf, err := parseWorkflowSection(bugRaw, "bug_workflow")
-		if err != nil {
-			return nil, fmt.Errorf("invalid bug_workflow: %w", err)
+	if result.Bug == nil {
+		if bugRaw, ok := rawConfig["bug_workflow"]; ok {
+			bugWf, parseErr := parseWorkflowSection(bugRaw, "bug_workflow")
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid bug_workflow: %w", parseErr)
+			}
+			if bugWf != nil {
+				result.Bug = bugWf
+				result.Sources["bug"] = configPath
+			}
 		}
-		result.Bug = bugWf
 	}
 
 	// Parse change_workflow section
-	if changeRaw, ok := rawConfig["change_workflow"]; ok {
-		changeWf, err := parseWorkflowSection(changeRaw, "change_workflow")
-		if err != nil {
-			return nil, fmt.Errorf("invalid change_workflow: %w", err)
+	if result.Change == nil {
+		if changeRaw, ok := rawConfig["change_workflow"]; ok {
+			changeWf, parseErr := parseWorkflowSection(changeRaw, "change_workflow")
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid change_workflow: %w", parseErr)
+			}
+			if changeWf != nil {
+				result.Change = changeWf
+				result.Sources["change"] = configPath
+			}
 		}
-		result.Change = changeWf
 	}
 
-	// Parse task workflow from top-level fields (backward compatible)
-	taskWf, err := parseTopLevelTaskWorkflow(rawConfig)
-	if err != nil {
-		return nil, fmt.Errorf("invalid task workflow: %w", err)
+	// Parse task_workflow block from .sharkconfig.json (consistent with other entities)
+	hasInlineTaskWorkflow := false
+	if result.Task == nil {
+		if taskRaw, ok := rawConfig["task_workflow"]; ok {
+			taskWf, parseErr := parseWorkflowSection(taskRaw, "task_workflow")
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid task_workflow: %w", parseErr)
+			}
+			if taskWf != nil {
+				result.Task = taskWf
+				result.Sources["task"] = configPath
+				hasInlineTaskWorkflow = true
+			}
+		}
 	}
-	result.Task = taskWf
+
+	// Detect legacy top-level keys for deprecation warning
+	_, hasLegacyStatusFlow := rawConfig["status_flow"]
+	if hasLegacyStatusFlow {
+		// Check if task_workflow block also exists (in workflow file or inline)
+		taskAlreadySet := result.Task != nil || hasInlineTaskWorkflow
+		if taskAlreadySet {
+			result.HasLegacyTaskKeys = true
+		}
+	}
+
+	// Fall back to legacy top-level keys for task workflow (backward compatible)
+	if result.Task == nil {
+		taskWf, parseErr := parseTopLevelTaskWorkflow(rawConfig)
+		if parseErr != nil {
+			return nil, fmt.Errorf("invalid task workflow: %w", parseErr)
+		}
+		if taskWf != nil {
+			result.Task = taskWf
+			result.Sources["task"] = configPath + " (legacy)"
+		}
+	}
+
+	// Set "default" source for entities not found in any file
+	for _, level := range []string{"epic", "feature", "task", "bug", "change"} {
+		if _, ok := result.Sources[level]; !ok {
+			result.Sources[level] = "default"
+		}
+	}
 
 	// Also update the legacy single-level cache for backward compatibility
 	workflowCacheLock.Lock()
@@ -357,4 +476,80 @@ func parseTopLevelTaskWorkflow(rawConfig map[string]json.RawMessage) (*WorkflowC
 	}
 
 	return &wf, nil
+}
+
+// validateWorkflowFilePath checks that the resolved workflow file path does not
+// escape the project root directory via path traversal (e.g. "../../../etc/passwd").
+// It resolves both projectRoot and filePath to absolute paths and verifies that the
+// file path is contained within the project root.
+func validateWorkflowFilePath(projectRoot, filePath string) error {
+	absRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to resolve project root: %w", err)
+	}
+
+	absFile, err := filepath.Abs(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve workflow file path: %w", err)
+	}
+
+	// Ensure the root path ends with separator for correct prefix matching
+	rootPrefix := absRoot + string(filepath.Separator)
+	if !strings.HasPrefix(absFile, rootPrefix) && absFile != absRoot {
+		return fmt.Errorf("workflow file path %q escapes project root %q", filePath, projectRoot)
+	}
+
+	return nil
+}
+
+// resolveWorkflowFilePath determines the workflow file path from config.
+// If workflow_config is set in rawConfig and is a non-empty string, it is used
+// (resolved relative to the config directory if relative). Otherwise, the default
+// .sharkworkflow.json in the config directory is returned.
+func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMessage) string {
+	configDir := filepath.Dir(configPath)
+
+	// Check for workflow_config key in raw config
+	if wcRaw, ok := rawConfig["workflow_config"]; ok {
+		var wc string
+		if json.Unmarshal(wcRaw, &wc) == nil && wc != "" {
+			if filepath.IsAbs(wc) {
+				return wc
+			}
+			return filepath.Join(configDir, wc)
+		}
+	}
+
+	// Default: .sharkworkflow.json in the same directory as .sharkconfig.json
+	return filepath.Join(configDir, ".sharkworkflow.json")
+}
+
+// loadWorkflowFile reads and parses the workflow file at the given path.
+// Returns (nil, nil) if the file does not exist (silent fallback).
+// Returns (nil, error) if the file exists but cannot be parsed.
+// Returns (data, nil) if the file is successfully parsed.
+// An empty file (0 bytes) is treated as {} (empty JSON object, all entities nil).
+func loadWorkflowFile(path string) (map[string]json.RawMessage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // Silent fallback
+		}
+		return nil, fmt.Errorf("failed to read workflow file %s: %w", path, err)
+	}
+
+	// Empty file treated as {}
+	if len(data) == 0 {
+		return make(map[string]json.RawMessage), nil
+	}
+
+	var rawData map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawData); err != nil {
+		if syntaxErr, ok := err.(*json.SyntaxError); ok {
+			return nil, fmt.Errorf("invalid JSON in %s at byte offset %d: %w", path, syntaxErr.Offset, err)
+		}
+		return nil, fmt.Errorf("failed to parse JSON in %s: %w", path, err)
+	}
+
+	return rawData, nil
 }

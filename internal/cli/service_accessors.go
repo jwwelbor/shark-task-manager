@@ -144,9 +144,11 @@ func GetEpicService() *services.EpicService {
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	docRepo := repository.NewDocumentRepository(db)
 	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
+	enrichRepo := repository.NewTemplateEnrichmentRepository(db)
 	svc := services.NewEpicService(epicRepo, workflowSvc, noteRepo, featureRepo, taskRepo)
 	svc.SetDocRepo(docRepo)
 	svc.SetWritableDocRepo(docRepo)
+	svc.SetEnrichRepo(enrichRepo)
 
 	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
@@ -180,9 +182,11 @@ func GetFeatureService() *services.FeatureService {
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	docRepo := repository.NewDocumentRepository(db)
+	enrichRepo := repository.NewTemplateEnrichmentRepository(db)
 	svc := services.NewFeatureService(featureRepo, workflowSvc, noteRepo, taskRepo, epicRepo)
 	svc.SetDocRepo(docRepo)
 	svc.SetWritableDocRepo(docRepo)
+	svc.SetEnrichRepo(enrichRepo)
 
 	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
 	progressSvc := services.NewFeatureProgressService(featureRepo, taskRepo, workflowSvc)

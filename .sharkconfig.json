@@ -1508,8 +1508,6 @@
       }
     }
   },
-  "default_agent": null,
-  "default_epic": null,
   "bug_workflow": {
     "version": "1.0",
     "status_flow": {

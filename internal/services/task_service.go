@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -190,6 +191,7 @@ type TaskService struct {
 	epicRepo        AnalyticsEpicRepository
 	featureRepo     AnalyticsFeatureRepository
 	featureService  *FeatureService // optional: triggers progress recalc on status change
+	enrichRepo      config.TemplateEnrichmentRepository
 
 	// Sub-services for delegating extracted functionality.
 	// When non-nil, method calls are delegated to the sub-service instead of
@@ -238,6 +240,12 @@ func (s *TaskService) SetDocRepo(docRepo config.DocumentRepository) {
 // This enables related task lookups.
 func (s *TaskService) SetRelRepo(relRepo config.TaskRelationshipRepository) {
 	s.relRepo = relRepo
+}
+
+// SetEnrichRepo sets the template enrichment repository on the service.
+// This enables enrichment data population for template rendering.
+func (s *TaskService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepository) {
+	s.enrichRepo = enrichRepo
 }
 
 // SetQueryService sets the query sub-service for delegating list/query/display operations.
@@ -754,14 +762,26 @@ func (s *TaskService) resolveAction(ctx context.Context, task *models.Task, stat
 		return nil
 	}
 
+	// Fetch enrichment data (optional, graceful degradation)
+	var enrichment *config.TemplateEnrichmentData
+	if s.enrichRepo != nil {
+		data, err := s.enrichRepo.GetTaskEnrichment(ctx, task.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch enrichment data for task %s: %v", task.Key, err)
+		} else {
+			enrichment = data
+		}
+	}
+
 	// Determine which placeholder function to use based on available repositories
 	var placeholders map[string]string
 	if s.docRepo != nil && s.relRepo != nil {
 		// Use function that includes related documents and tasks
-		placeholders = config.TaskPlaceholdersWithRelated(ctx, task, s.docRepo, s.relRepo)
+		placeholders = config.TaskPlaceholdersWithRelated(ctx, task, s.docRepo, s.relRepo, enrichment)
 	} else {
 		// Fall back to basic placeholders
 		placeholders = config.TaskPlaceholders(task)
+		config.ApplyEnrichmentData(enrichment, placeholders)
 	}
 
 	return &config.PopulatedAction{

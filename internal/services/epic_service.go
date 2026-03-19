@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -82,6 +83,7 @@ type EpicService struct {
 	relRepo          config.EpicRelationshipRepository
 	writableDocRepo  EpicWritableDocumentRepository
 	analyticsService *EpicAnalyticsService // optional; lazy-initialized if nil
+	enrichRepo       config.TemplateEnrichmentRepository
 }
 
 // NewEpicService creates a new EpicService.
@@ -116,6 +118,12 @@ func (s *EpicService) SetRelRepo(relRepo config.EpicRelationshipRepository) {
 // but the caller needs document lookup functionality (e.g., GetRelatedDocuments).
 func (s *EpicService) SetDocRepo(docRepo config.DocumentRepository) {
 	s.docRepo = docRepo
+}
+
+// SetEnrichRepo sets the template enrichment repository on the service.
+// This enables enrichment data population for template rendering.
+func (s *EpicService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepository) {
+	s.enrichRepo = enrichRepo
 }
 
 // SetWritableDocRepo sets the writable document repository on the service.
@@ -352,14 +360,26 @@ func (s *EpicService) resolveAction(ctx context.Context, epic *models.Epic, stat
 		return nil
 	}
 
+	// Fetch enrichment data (optional, graceful degradation)
+	var enrichment *config.TemplateEnrichmentData
+	if s.enrichRepo != nil {
+		data, err := s.enrichRepo.GetEpicEnrichment(ctx, epic.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch enrichment data for epic %s: %v", epic.Key, err)
+		} else {
+			enrichment = data
+		}
+	}
+
 	// Determine which placeholder function to use based on available repositories
 	var placeholders map[string]string
 	if s.docRepo != nil && s.relRepo != nil {
 		// Use the new function that includes related documents and epics
-		placeholders = config.EpicPlaceholdersWithRelated(epic, s.docRepo, s.relRepo, ctx)
+		placeholders = config.EpicPlaceholdersWithRelated(epic, s.docRepo, s.relRepo, ctx, enrichment)
 	} else {
 		// Fall back to basic placeholders (backward compatible)
 		placeholders = config.EpicPlaceholders(epic)
+		config.ApplyEnrichmentData(enrichment, placeholders)
 	}
 
 	return &config.PopulatedAction{

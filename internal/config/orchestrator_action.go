@@ -52,7 +52,7 @@ var ValidActionTypes = []string{
 // Validate validates the OrchestratorAction configuration
 func (oa *OrchestratorAction) Validate() error {
 	// Check action type is valid
-	if !sliceContains(ValidActionTypes, oa.Action) {
+	if !stringSliceContains(ValidActionTypes, oa.Action) {
 		return fmt.Errorf("invalid action type: %s (must be one of: %s)",
 			oa.Action, strings.Join(ValidActionTypes, ", "))
 	}
@@ -175,16 +175,6 @@ func (oa *OrchestratorAction) PopulateTemplate(vars map[string]string) string {
 	}
 
 	return strings.NewReplacer(replacements...).Replace(oa.InstructionTemplate)
-}
-
-// sliceContains checks if a string slice contains a target string (deprecated, use contains)
-func sliceContains(slice []string, target string) bool {
-	for _, s := range slice {
-		if s == target {
-			return true
-		}
-	}
-	return false
 }
 
 // stringSliceContains checks if a string slice contains a target string

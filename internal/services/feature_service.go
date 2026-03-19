@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 
@@ -90,6 +91,7 @@ type FeatureService struct {
 	epicLookupRepo  FeatureEpicLookup
 	writableDocRepo FeatureWritableDocumentRepository
 	progressService *FeatureProgressService
+	enrichRepo      config.TemplateEnrichmentRepository
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -123,6 +125,12 @@ func (s *FeatureService) SetDocRepo(docRepo DocumentRepository) {
 // This enables related feature lookups.
 func (s *FeatureService) SetRelRepo(relRepo FeatureRelationshipRepository) {
 	s.relRepo = relRepo
+}
+
+// SetEnrichRepo sets the template enrichment repository on the service.
+// This enables enrichment data population for template rendering.
+func (s *FeatureService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepository) {
+	s.enrichRepo = enrichRepo
 }
 
 // SetWritableDocRepo sets the writable document repository on the service.
@@ -356,14 +364,26 @@ func (s *FeatureService) resolveAction(ctx context.Context, feature *models.Feat
 		return nil
 	}
 
+	// Fetch enrichment data (optional, graceful degradation)
+	var enrichment *config.TemplateEnrichmentData
+	if s.enrichRepo != nil {
+		data, err := s.enrichRepo.GetFeatureEnrichment(ctx, feature.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch enrichment data for feature %s: %v", feature.Key, err)
+		} else {
+			enrichment = data
+		}
+	}
+
 	// Determine which placeholder function to use based on available repositories
 	var placeholders map[string]string
 	if s.docRepo != nil && s.relRepo != nil {
 		// Use the new function that includes related documents and features
-		placeholders = config.FeaturePlaceholdersWithRelated(ctx, feature, s.docRepo, s.relRepo)
+		placeholders = config.FeaturePlaceholdersWithRelated(ctx, feature, s.docRepo, s.relRepo, enrichment)
 	} else {
 		// Fall back to basic placeholders (backward compatible)
 		placeholders = config.FeaturePlaceholders(feature)
+		config.ApplyEnrichmentData(enrichment, placeholders)
 	}
 
 	return &config.PopulatedAction{

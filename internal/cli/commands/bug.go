@@ -231,6 +231,11 @@ func init() {
 	// Update flags
 	bugUpdateCmd.Flags().StringVar(&bugTitle, "title", "", "New title")
 	bugUpdateCmd.Flags().StringVar(&bugSeverity, "severity", "", "New severity")
+	bugUpdateCmd.Flags().String("file", "", "New file path")
+	bugUpdateCmd.Flags().String("filename", "", "Alias for --file")
+	bugUpdateCmd.Flags().String("path", "", "Alias for --file")
+	_ = bugUpdateCmd.Flags().MarkHidden("filename")
+	_ = bugUpdateCmd.Flags().MarkHidden("path")
 
 	// Delete flags
 	bugDeleteCmd.Flags().BoolVar(&bugForce, "force", false, "Skip confirmation prompt")

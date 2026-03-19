@@ -412,7 +412,7 @@ func TestTaskPlaceholdersWithRelated_HappyPath(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "docs/a.md,docs/b.md" {
 		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md,docs/b.md")
@@ -440,7 +440,7 @@ func TestTaskPlaceholdersWithRelated_NoData(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -456,7 +456,7 @@ func TestTaskPlaceholdersWithRelated_NilTask(t *testing.T) {
 	mockRepo := &mockDocumentRepository{}
 	mockTaskRelRepo := &mockTaskRelationshipRepository{}
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, nil, mockRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, nil, mockRepo, mockTaskRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -487,7 +487,7 @@ func TestFeaturePlaceholdersWithRelated_HappyPath(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "docs/a.md,docs/b.md" {
 		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md,docs/b.md")
@@ -515,7 +515,7 @@ func TestFeaturePlaceholdersWithRelated_NoData(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -531,7 +531,7 @@ func TestFeaturePlaceholdersWithRelated_NilFeature(t *testing.T) {
 	mockDocRepo := &mockDocumentRepository{}
 	mockRelRepo := &mockFeatureRelationshipRepository{}
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, nil, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, nil, mockDocRepo, mockRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -562,7 +562,7 @@ func TestEpicPlaceholdersWithRelated_HappyPath(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "docs/a.md,docs/b.md" {
 		t.Errorf("related_docs = %q, want %q", relDocs, "docs/a.md,docs/b.md")
@@ -590,7 +590,7 @@ func TestEpicPlaceholdersWithRelated_NoData(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -606,7 +606,7 @@ func TestEpicPlaceholdersWithRelated_NilEpic(t *testing.T) {
 	mockDocRepo := &mockDocumentRepository{}
 	mockRelRepo := &mockEpicRelationshipRepository{}
 	ctx := context.Background()
-	result := EpicPlaceholdersWithRelated(nil, mockDocRepo, mockRelRepo, ctx)
+	result := EpicPlaceholdersWithRelated(nil, mockDocRepo, mockRelRepo, ctx, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -700,7 +700,7 @@ func TestTaskPlaceholdersWithRelated_DocRepoError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo, nil)
 
 	// Should return empty string for docs when repo fails (graceful degradation)
 	if relDocs := result["related_docs"]; relDocs != "" {
@@ -732,7 +732,7 @@ func TestTaskPlaceholdersWithRelated_PartialData(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "docs/spec.md" {
 		t.Errorf("related_docs = %q, want %q", relDocs, "docs/spec.md")
@@ -763,7 +763,7 @@ func TestTaskPlaceholdersWithRelated_MalformedContext(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo, nil)
 
 	// Should still return docs
 	if relDocs := result["related_docs"]; relDocs != "docs/spec.md" {
@@ -793,7 +793,7 @@ func TestFeaturePlaceholdersWithRelated_DocRepoError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	// Should return empty string for docs when repo fails
 	if relDocs := result["related_docs"]; relDocs != "" {
@@ -825,7 +825,7 @@ func TestFeaturePlaceholdersWithRelated_FeatureRelRepoError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	// Related docs should still work
 	if relDocs := result["related_docs"]; relDocs != "docs/a.md" {
@@ -858,7 +858,7 @@ func TestFeaturePlaceholdersWithRelated_CrossEpic(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	// Should include cross-epic feature keys
 	if relFeatures := result["related_features"]; relFeatures != "E01-F01,E07-F05,E10-F20" {
@@ -883,7 +883,7 @@ func TestEpicPlaceholdersWithRelated_DocRepoError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx, nil)
 
 	// Should return empty string for docs when repo fails
 	if relDocs := result["related_docs"]; relDocs != "" {
@@ -915,7 +915,7 @@ func TestEpicPlaceholdersWithRelated_EpicRelRepoError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx, nil)
 
 	// Related docs should still work
 	if relDocs := result["related_docs"]; relDocs != "docs/a.md" {
@@ -976,7 +976,7 @@ func TestTaskPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockRepo, mockTaskRelRepo, nil)
 
 	// Verify basic placeholders are still there
 	if result["id"] != "T-E07-F29-001" {
@@ -1025,7 +1025,7 @@ func TestFeaturePlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	// Verify basic placeholders
 	if result["id"] != "E07-F29" {
@@ -1072,7 +1072,7 @@ func TestEpicPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx, nil)
 
 	// Verify basic placeholders
 	if result["id"] != "E07" {
@@ -1122,7 +1122,7 @@ func TestTaskPlaceholdersWithRelated_Refactored_WithRelatedTasks(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "docs/spec.md,docs/design.md" {
 		t.Errorf("related_docs = %q, want %q", relDocs, "docs/spec.md,docs/design.md")
@@ -1151,7 +1151,7 @@ func TestTaskPlaceholdersWithRelated_Refactored_NoRelatedTasks(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	if relDocs := result["related_docs"]; relDocs != "" {
 		t.Errorf("related_docs = %q, want empty string", relDocs)
@@ -1182,7 +1182,7 @@ func TestTaskPlaceholdersWithRelated_Refactored_QueryError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	// Docs should still work
 	if relDocs := result["related_docs"]; relDocs != "docs/spec.md" {
@@ -1222,7 +1222,7 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	if tier := result["complexity_tier"]; tier != "STANDARD" {
 		t.Errorf("complexity_tier = %q, want %q", tier, "STANDARD")
@@ -1255,7 +1255,7 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierMissing(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	// Should have empty string for complexity_tier when not set
 	if tier := result["complexity_tier"]; tier != "" {
@@ -1281,7 +1281,7 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierNilMetadata(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	// Should have empty string for complexity_tier when metadata is nil
 	if tier := result["complexity_tier"]; tier != "" {
@@ -1307,7 +1307,7 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierSimple(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	if tier := result["complexity_tier"]; tier != "SIMPLE" {
 		t.Errorf("complexity_tier = %q, want %q", tier, "SIMPLE")
@@ -1332,7 +1332,7 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierComplex(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	if tier := result["complexity_tier"]; tier != "COMPLEX" {
 		t.Errorf("complexity_tier = %q, want %q", tier, "COMPLEX")
@@ -1357,7 +1357,7 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierInvalidType(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	// Should return empty string when tier is not a string (type assertion fails)
 	if tier := result["complexity_tier"]; tier != "" {
@@ -1387,7 +1387,7 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	if tier := result["complexity_tier"]; tier != "STANDARD" {
 		t.Errorf("complexity_tier = %q, want %q", tier, "STANDARD")
@@ -1417,7 +1417,7 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierMissing(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	if tier := result["complexity_tier"]; tier != "" {
 		t.Errorf("complexity_tier = %q, want empty string", tier)
@@ -1442,7 +1442,7 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierNilMetadata(t *testing.T) 
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	if tier := result["complexity_tier"]; tier != "" {
 		t.Errorf("complexity_tier = %q, want empty string", tier)
@@ -1467,7 +1467,7 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierComplex(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	if tier := result["complexity_tier"]; tier != "COMPLEX" {
 		t.Errorf("complexity_tier = %q, want %q", tier, "COMPLEX")
@@ -1843,11 +1843,11 @@ func TestStringifyMetadataValue(t *testing.T) {
 	}
 }
 
-// TestExtractContextDataMetadata_StringField verifies string metadata extraction
-func TestExtractContextDataMetadata_StringField(t *testing.T) {
+// TestExtractContextDataFields_StringField verifies string metadata extraction
+func TestExtractContextDataFields_StringField(t *testing.T) {
 	contextData := `{"metadata": {"complexity_tier": "STANDARD", "assignee": "john"}}`
 	placeholders := make(map[string]string)
-	extractContextDataMetadata(&contextData, placeholders)
+	extractContextDataFields(&contextData, placeholders)
 
 	if placeholders["complexity_tier"] != "STANDARD" {
 		t.Errorf("complexity_tier = %q, want %q", placeholders["complexity_tier"], "STANDARD")
@@ -1857,88 +1857,85 @@ func TestExtractContextDataMetadata_StringField(t *testing.T) {
 	}
 }
 
-// TestExtractContextDataMetadata_IntegerField verifies integer metadata extraction
-func TestExtractContextDataMetadata_IntegerField(t *testing.T) {
+// TestExtractContextDataFields_IntegerField verifies integer metadata extraction
+func TestExtractContextDataFields_IntegerField(t *testing.T) {
 	contextData := `{"metadata": {"estimated_hours": 8}}`
 	placeholders := make(map[string]string)
-	extractContextDataMetadata(&contextData, placeholders)
+	extractContextDataFields(&contextData, placeholders)
 
 	if placeholders["estimated_hours"] != "8" {
 		t.Errorf("estimated_hours = %q, want %q", placeholders["estimated_hours"], "8")
 	}
 }
 
-// TestExtractContextDataMetadata_FloatField verifies float metadata extraction
-func TestExtractContextDataMetadata_FloatField(t *testing.T) {
+// TestExtractContextDataFields_FloatField verifies float metadata extraction
+func TestExtractContextDataFields_FloatField(t *testing.T) {
 	contextData := `{"metadata": {"velocity": 3.14}}`
 	placeholders := make(map[string]string)
-	extractContextDataMetadata(&contextData, placeholders)
+	extractContextDataFields(&contextData, placeholders)
 
 	if placeholders["velocity"] != "3.14" {
 		t.Errorf("velocity = %q, want %q", placeholders["velocity"], "3.14")
 	}
 }
 
-// TestExtractContextDataMetadata_BoolField verifies bool metadata extraction
-func TestExtractContextDataMetadata_BoolField(t *testing.T) {
+// TestExtractContextDataFields_BoolField verifies bool metadata extraction
+func TestExtractContextDataFields_BoolField(t *testing.T) {
 	contextData := `{"metadata": {"is_critical": true}}`
 	placeholders := make(map[string]string)
-	extractContextDataMetadata(&contextData, placeholders)
+	extractContextDataFields(&contextData, placeholders)
 
 	if placeholders["is_critical"] != "true" {
 		t.Errorf("is_critical = %q, want %q", placeholders["is_critical"], "true")
 	}
 }
 
-// TestExtractContextDataMetadata_NilContextData verifies nil handling
-func TestExtractContextDataMetadata_NilContextData(t *testing.T) {
+// TestExtractContextDataFields_NilContextData verifies nil handling
+func TestExtractContextDataFields_NilContextData(t *testing.T) {
 	placeholders := make(map[string]string)
-	extractContextDataMetadata(nil, placeholders)
+	extractContextDataFields(nil, placeholders)
 
 	if len(placeholders) != 0 {
 		t.Errorf("expected 0 placeholders from nil context data, got %d", len(placeholders))
 	}
 }
 
-// TestExtractContextDataMetadata_EmptyContextData verifies empty string handling
-func TestExtractContextDataMetadata_EmptyContextData(t *testing.T) {
+// TestExtractContextDataFields_EmptyContextData verifies empty string handling
+func TestExtractContextDataFields_EmptyContextData(t *testing.T) {
 	empty := ""
 	placeholders := make(map[string]string)
-	extractContextDataMetadata(&empty, placeholders)
+	extractContextDataFields(&empty, placeholders)
 
 	if len(placeholders) != 0 {
 		t.Errorf("expected 0 placeholders from empty context data, got %d", len(placeholders))
 	}
 }
 
-// TestExtractContextDataMetadata_MalformedJSON verifies graceful handling of bad JSON
-func TestExtractContextDataMetadata_MalformedJSON(t *testing.T) {
-	malformed := `{invalid json}`
-	placeholders := make(map[string]string)
-	extractContextDataMetadata(&malformed, placeholders)
-
-	// Should not crash, just skip
-	if len(placeholders) != 0 {
-		t.Errorf("expected 0 placeholders from malformed JSON, got %d", len(placeholders))
-	}
-}
-
-// TestExtractContextDataMetadata_NoMetadataField verifies JSON without metadata field
-func TestExtractContextDataMetadata_NoMetadataField(t *testing.T) {
+// TestExtractContextDataFields_NoMetadataField verifies JSON without metadata field.
+// With the extractContextDataFields extension, structured fields like progress are
+// now extracted even without a metadata field.
+func TestExtractContextDataFields_NoMetadataField(t *testing.T) {
 	noMeta := `{"progress": {"current_step": "testing"}}`
 	placeholders := make(map[string]string)
-	extractContextDataMetadata(&noMeta, placeholders)
+	extractContextDataFields(&noMeta, placeholders)
 
-	if len(placeholders) != 0 {
-		t.Errorf("expected 0 placeholders from context data without metadata, got %d", len(placeholders))
+	// The function now extracts structured fields too, so progress fields should appear
+	if placeholders["current_step"] != "testing" {
+		t.Errorf("expected current_step='testing', got %q", placeholders["current_step"])
+	}
+	if placeholders["completed_steps_count"] != "0" {
+		t.Errorf("expected completed_steps_count='0', got %q", placeholders["completed_steps_count"])
+	}
+	if placeholders["remaining_steps_count"] != "0" {
+		t.Errorf("expected remaining_steps_count='0', got %q", placeholders["remaining_steps_count"])
 	}
 }
 
-// TestExtractContextDataMetadata_EmptyMetadata verifies empty metadata map
-func TestExtractContextDataMetadata_EmptyMetadata(t *testing.T) {
+// TestExtractContextDataFields_EmptyMetadata verifies empty metadata map
+func TestExtractContextDataFields_EmptyMetadata(t *testing.T) {
 	emptyMeta := `{"metadata": {}}`
 	placeholders := make(map[string]string)
-	extractContextDataMetadata(&emptyMeta, placeholders)
+	extractContextDataFields(&emptyMeta, placeholders)
 
 	if len(placeholders) != 0 {
 		t.Errorf("expected 0 placeholders from empty metadata, got %d", len(placeholders))
@@ -1964,7 +1961,7 @@ func TestTaskPlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
 	mockDocRepo := &mockDocumentRepository{}
 	mockTaskRelRepo := &mockTaskRelationshipRepository{}
 
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	// Verify ContextData.Metadata fields are available
 	if result["complexity_tier"] != "STANDARD" {
@@ -2002,7 +1999,7 @@ func TestTaskPlaceholdersWithRelated_NilContextData(t *testing.T) {
 	mockDocRepo := &mockDocumentRepository{}
 	mockTaskRelRepo := &mockTaskRelationshipRepository{}
 
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	// Should not crash, existing placeholders still work
 	if result["task_key"] != "T-E07-F30-001" {
@@ -2033,7 +2030,7 @@ func TestFeaturePlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
 	mockDocRepo := &mockDocumentRepository{}
 	mockRelRepo := &mockFeatureRelationshipRepository{}
 
-	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo)
+	result := FeaturePlaceholdersWithRelated(ctx, feature, mockDocRepo, mockRelRepo, nil)
 
 	if result["complexity_tier"] != "COMPLEX" {
 		t.Errorf("complexity_tier = %q, want %q", result["complexity_tier"], "COMPLEX")
@@ -2063,7 +2060,7 @@ func TestEpicPlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
 	mockDocRepo := &mockDocumentRepository{}
 	mockRelRepo := &mockEpicRelationshipRepository{}
 
-	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx)
+	result := EpicPlaceholdersWithRelated(epic, mockDocRepo, mockRelRepo, ctx, nil)
 
 	if result["phase"] != "development" {
 		t.Errorf("phase = %q, want %q", result["phase"], "development")
@@ -2092,7 +2089,7 @@ func TestContextDataMetadata_BackwardCompatFallback(t *testing.T) {
 	mockDocRepo := &mockDocumentRepository{}
 	mockTaskRelRepo := &mockTaskRelationshipRepository{}
 
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	// Should fall back to entity Metadata
 	if result["complexity_tier"] != "SIMPLE" {
@@ -2120,10 +2117,326 @@ func TestContextDataMetadata_ContextDataTakesPrecedence(t *testing.T) {
 	mockDocRepo := &mockDocumentRepository{}
 	mockTaskRelRepo := &mockTaskRelationshipRepository{}
 
-	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo)
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
 
 	// ContextData.Metadata should win
 	if result["complexity_tier"] != "COMPLEX" {
 		t.Errorf("complexity_tier = %q, want %q (ContextData should take precedence)", result["complexity_tier"], "COMPLEX")
+	}
+}
+
+// ============================================================================
+// Tests for extractContextDataFields structured field extraction (E07-F34-001)
+// ============================================================================
+
+// TestExtractContextDataFields_ProgressAllFields verifies extraction of all progress fields (TC-CD-01)
+func TestExtractContextDataFields_ProgressAllFields(t *testing.T) {
+	cd := `{"progress":{"current_step":"Implementing API","completed_steps":["Design","DB Schema"],"remaining_steps":["Tests","Review"]}}`
+	placeholders := make(map[string]string)
+	extractContextDataFields(&cd, placeholders)
+
+	if placeholders["current_step"] != "Implementing API" {
+		t.Errorf("current_step = %q, want %q", placeholders["current_step"], "Implementing API")
+	}
+	if placeholders["completed_steps"] != "Design, DB Schema" {
+		t.Errorf("completed_steps = %q, want %q", placeholders["completed_steps"], "Design, DB Schema")
+	}
+	if placeholders["remaining_steps"] != "Tests, Review" {
+		t.Errorf("remaining_steps = %q, want %q", placeholders["remaining_steps"], "Tests, Review")
+	}
+	if placeholders["completed_steps_count"] != "2" {
+		t.Errorf("completed_steps_count = %q, want %q", placeholders["completed_steps_count"], "2")
+	}
+	if placeholders["remaining_steps_count"] != "2" {
+		t.Errorf("remaining_steps_count = %q, want %q", placeholders["remaining_steps_count"], "2")
+	}
+}
+
+// TestExtractContextDataFields_ProgressPartial verifies partial progress (TC-CD-02)
+func TestExtractContextDataFields_ProgressPartial(t *testing.T) {
+	cd := `{"progress":{"current_step":"Writing tests"}}`
+	placeholders := make(map[string]string)
+	extractContextDataFields(&cd, placeholders)
+
+	if placeholders["current_step"] != "Writing tests" {
+		t.Errorf("current_step = %q, want %q", placeholders["current_step"], "Writing tests")
+	}
+	if placeholders["completed_steps_count"] != "0" {
+		t.Errorf("completed_steps_count = %q, want %q", placeholders["completed_steps_count"], "0")
+	}
+	if placeholders["remaining_steps_count"] != "0" {
+		t.Errorf("remaining_steps_count = %q, want %q", placeholders["remaining_steps_count"], "0")
+	}
+}
+
+// TestExtractContextDataFields_NoProgress verifies no progress field (TC-CD-03)
+func TestExtractContextDataFields_NoProgress(t *testing.T) {
+	cd := `{"metadata":{"foo":"bar"}}`
+	placeholders := make(map[string]string)
+	extractContextDataFields(&cd, placeholders)
+
+	if placeholders["foo"] != "bar" {
+		t.Errorf("foo = %q, want %q", placeholders["foo"], "bar")
+	}
+	// current_step should not be set when progress is nil
+	if _, exists := placeholders["current_step"]; exists {
+		t.Errorf("current_step should not exist when progress is nil")
+	}
+}
+
+// TestExtractContextDataFields_OpenQuestions verifies open question extraction (TC-CD-04)
+func TestExtractContextDataFields_OpenQuestions(t *testing.T) {
+	cd := `{"open_questions":["Auth provider?","Rate limiting?"]}`
+	placeholders := make(map[string]string)
+	extractContextDataFields(&cd, placeholders)
+
+	if placeholders["open_questions"] != "Auth provider?; Rate limiting?" {
+		t.Errorf("open_questions = %q, want %q", placeholders["open_questions"], "Auth provider?; Rate limiting?")
+	}
+	if placeholders["open_questions_count"] != "2" {
+		t.Errorf("open_questions_count = %q, want %q", placeholders["open_questions_count"], "2")
+	}
+}
+
+// TestExtractContextDataFields_OpenQuestionsEmpty verifies empty open questions (TC-CD-05)
+func TestExtractContextDataFields_OpenQuestionsEmpty(t *testing.T) {
+	cd := `{"open_questions":[]}`
+	placeholders := make(map[string]string)
+	extractContextDataFields(&cd, placeholders)
+
+	if _, exists := placeholders["open_questions"]; exists {
+		t.Errorf("open_questions should not exist for empty slice")
+	}
+}
+
+// TestExtractContextDataFields_Blockers verifies blocker extraction (TC-CD-06, TC-CD-07)
+func TestExtractContextDataFields_Blockers(t *testing.T) {
+	cd := `{"blockers":[{"description":"First","blocker_type":"internal","blocked_since":"2026-03-01T00:00:00Z"},{"description":"Second","blocker_type":"external","blocked_since":"2026-03-02T00:00:00Z"}]}`
+	placeholders := make(map[string]string)
+	extractContextDataFields(&cd, placeholders)
+
+	if placeholders["blockers_count"] != "2" {
+		t.Errorf("blockers_count = %q, want %q", placeholders["blockers_count"], "2")
+	}
+	if placeholders["latest_blocker"] != "Second" {
+		t.Errorf("latest_blocker = %q, want %q (should be last element)", placeholders["latest_blocker"], "Second")
+	}
+}
+
+// TestExtractContextDataFields_Decisions verifies implementation decisions count (TC-CD-08)
+func TestExtractContextDataFields_Decisions(t *testing.T) {
+	cd := `{"implementation_decisions":{"auth":"JWT","db":"PostgreSQL","cache":"Redis"}}`
+	placeholders := make(map[string]string)
+	extractContextDataFields(&cd, placeholders)
+
+	if placeholders["decisions_count"] != "3" {
+		t.Errorf("decisions_count = %q, want %q", placeholders["decisions_count"], "3")
+	}
+}
+
+// TestExtractContextDataFields_EmptyAndNil verifies nil/empty safety (TC-CD-09, TC-CD-10)
+func TestExtractContextDataFields_EmptyAndNil(t *testing.T) {
+	// nil pointer
+	placeholders := make(map[string]string)
+	extractContextDataFields(nil, placeholders)
+	if len(placeholders) != 0 {
+		t.Errorf("expected 0 placeholders for nil, got %d", len(placeholders))
+	}
+
+	// empty string
+	empty := ""
+	placeholders = make(map[string]string)
+	extractContextDataFields(&empty, placeholders)
+	if len(placeholders) != 0 {
+		t.Errorf("expected 0 placeholders for empty, got %d", len(placeholders))
+	}
+}
+
+// TestExtractContextDataFields_MalformedJSON verifies graceful skip (TC-CD-11)
+func TestExtractContextDataFields_MalformedJSON(t *testing.T) {
+	bad := "not json"
+	placeholders := make(map[string]string)
+	extractContextDataFields(&bad, placeholders)
+	if len(placeholders) != 0 {
+		t.Errorf("expected 0 placeholders for malformed JSON, got %d", len(placeholders))
+	}
+}
+
+// TestExtractContextDataFields_MetadataCollision verifies metadata vs structured field precedence (TC-CD-12)
+func TestExtractContextDataFields_MetadataCollision(t *testing.T) {
+	cd := `{"metadata":{"current_step":"from-metadata"},"progress":{"current_step":"from-progress"}}`
+	placeholders := make(map[string]string)
+	extractContextDataFields(&cd, placeholders)
+
+	// Metadata runs first, structured fields should NOT overwrite
+	if placeholders["current_step"] != "from-metadata" {
+		t.Errorf("current_step = %q, want %q (metadata should take precedence)", placeholders["current_step"], "from-metadata")
+	}
+}
+
+// ============================================================================
+// Tests for ApplyEnrichmentData (E07-F34-002/003)
+// ============================================================================
+
+// TestApplyEnrichmentData_AllFieldsPopulated verifies all enrichment fields
+func TestApplyEnrichmentData_AllFieldsPopulated(t *testing.T) {
+	enrichment := &TemplateEnrichmentData{
+		PreviousStatus:    "in_code_review",
+		ParentTitle:       "User Auth",
+		GrandparentTitle:  "Security",
+		LatestNoteContent: "Review feedback addressed",
+		LatestNoteType:    "comment",
+		NotesCount:        5,
+		RejectionCount:    1,
+		SiblingTotal:      12,
+		SiblingCompleted:  8,
+		SiblingBlocked:    1,
+	}
+	placeholders := make(map[string]string)
+	ApplyEnrichmentData(enrichment, placeholders)
+
+	checks := map[string]string{
+		"previous_status":   "in_code_review",
+		"parent_title":      "User Auth",
+		"grandparent_title": "Security",
+		"latest_note":       "Review feedback addressed",
+		"latest_note_type":  "comment",
+		"notes_count":       "5",
+		"rejection_count":   "1",
+		"sibling_total":     "12",
+		"sibling_completed": "8",
+		"sibling_blocked":   "1",
+	}
+	for key, want := range checks {
+		if placeholders[key] != want {
+			t.Errorf("%s = %q, want %q", key, placeholders[key], want)
+		}
+	}
+}
+
+// TestApplyEnrichmentData_NilEnrichment verifies nil safety
+func TestApplyEnrichmentData_NilEnrichment(t *testing.T) {
+	placeholders := map[string]string{"existing": "value"}
+	ApplyEnrichmentData(nil, placeholders)
+	if len(placeholders) != 1 {
+		t.Errorf("expected 1 placeholder unchanged, got %d", len(placeholders))
+	}
+	if placeholders["existing"] != "value" {
+		t.Errorf("existing placeholder modified")
+	}
+}
+
+// TestApplyEnrichmentData_ZeroValues verifies zero-valued enrichment
+func TestApplyEnrichmentData_ZeroValues(t *testing.T) {
+	enrichment := &TemplateEnrichmentData{}
+	placeholders := make(map[string]string)
+	ApplyEnrichmentData(enrichment, placeholders)
+
+	// Counts should render as "0"
+	if placeholders["sibling_total"] != "0" {
+		t.Errorf("sibling_total = %q, want %q", placeholders["sibling_total"], "0")
+	}
+	if placeholders["notes_count"] != "0" {
+		t.Errorf("notes_count = %q, want %q", placeholders["notes_count"], "0")
+	}
+	// Empty strings should NOT create keys
+	if _, exists := placeholders["previous_status"]; exists {
+		t.Errorf("previous_status should not exist for empty string")
+	}
+	if _, exists := placeholders["parent_title"]; exists {
+		t.Errorf("parent_title should not exist for empty string")
+	}
+}
+
+// TestApplyEnrichmentData_PartialData verifies partial enrichment
+func TestApplyEnrichmentData_PartialData(t *testing.T) {
+	enrichment := &TemplateEnrichmentData{
+		PreviousStatus:   "todo",
+		SiblingTotal:     5,
+		SiblingCompleted: 3,
+	}
+	placeholders := make(map[string]string)
+	ApplyEnrichmentData(enrichment, placeholders)
+
+	if placeholders["previous_status"] != "todo" {
+		t.Errorf("previous_status = %q, want %q", placeholders["previous_status"], "todo")
+	}
+	if placeholders["sibling_total"] != "5" {
+		t.Errorf("sibling_total = %q, want %q", placeholders["sibling_total"], "5")
+	}
+	// latest_note should not be set
+	if _, exists := placeholders["latest_note"]; exists {
+		t.Errorf("latest_note should not exist when LatestNoteContent is empty")
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_NilEnrichment verifies backward compatibility
+func TestTaskPlaceholdersWithRelated_NilEnrichment_BackwardCompat(t *testing.T) {
+	ctx := context.Background()
+	task := &models.Task{
+		Key:       "T-E07-F01-001",
+		Title:     "Test Task",
+		Status:    "todo",
+		Priority:  5,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	mockDocRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
+
+	// Call with nil enrichment - should produce same output as basic + relationship placeholders
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, nil)
+
+	// Basic placeholders should still be present
+	if result["key"] != "T-E07-F01-001" {
+		t.Errorf("key = %q, want %q", result["key"], "T-E07-F01-001")
+	}
+	if result["title"] != "Test Task" {
+		t.Errorf("title = %q, want %q", result["title"], "Test Task")
+	}
+	// Enrichment placeholders should NOT be present
+	if _, exists := result["previous_status"]; exists {
+		t.Errorf("previous_status should not exist with nil enrichment")
+	}
+	if _, exists := result["parent_title"]; exists {
+		t.Errorf("parent_title should not exist with nil enrichment")
+	}
+}
+
+// TestTaskPlaceholdersWithRelated_WithEnrichment verifies enrichment integration
+func TestTaskPlaceholdersWithRelated_WithEnrichment(t *testing.T) {
+	ctx := context.Background()
+	task := &models.Task{
+		Key:       "T-E07-F01-001",
+		Title:     "Test Task",
+		Status:    "todo",
+		Priority:  5,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	mockDocRepo := &mockDocumentRepository{}
+	mockTaskRelRepo := &mockTaskRelationshipRepository{}
+
+	enrichment := &TemplateEnrichmentData{
+		PreviousStatus:   "in_development",
+		ParentTitle:      "Feature One",
+		GrandparentTitle: "Epic One",
+		SiblingTotal:     10,
+		SiblingCompleted: 7,
+	}
+
+	result := TaskPlaceholdersWithRelated(ctx, task, mockDocRepo, mockTaskRelRepo, enrichment)
+
+	if result["previous_status"] != "in_development" {
+		t.Errorf("previous_status = %q, want %q", result["previous_status"], "in_development")
+	}
+	if result["parent_title"] != "Feature One" {
+		t.Errorf("parent_title = %q, want %q", result["parent_title"], "Feature One")
+	}
+	if result["grandparent_title"] != "Epic One" {
+		t.Errorf("grandparent_title = %q, want %q", result["grandparent_title"], "Epic One")
+	}
+	if result["sibling_total"] != "10" {
+		t.Errorf("sibling_total = %q, want %q", result["sibling_total"], "10")
 	}
 }

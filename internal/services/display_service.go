@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -97,14 +98,15 @@ type StatusCountItem struct {
 
 // DisplayServiceDeps holds the repository dependencies for DisplayService
 type DisplayServiceDeps struct {
-	EpicRepo       *repository.EpicRepository
-	FeatureRepo    *repository.FeatureRepository
-	TaskRepo       *repository.TaskRepository
-	DocumentRepo   *repository.DocumentRepository
-	NoteRepo       *repository.EntityNoteRepository
-	TaskRelRepo    *repository.TaskRelationshipRepository
-	FeatureRelRepo *repository.FeatureRelationshipRepository
-	EpicRelRepo    *repository.EpicRelationshipRepository
+	EpicRepo               *repository.EpicRepository
+	FeatureRepo            *repository.FeatureRepository
+	TaskRepo               *repository.TaskRepository
+	DocumentRepo           *repository.DocumentRepository
+	NoteRepo               *repository.EntityNoteRepository
+	TaskRelRepo            *repository.TaskRelationshipRepository
+	FeatureRelRepo         *repository.FeatureRelationshipRepository
+	EpicRelRepo            *repository.EpicRelationshipRepository
+	TemplateEnrichmentRepo *repository.TemplateEnrichmentRepository
 }
 
 // DisplayService encapsulates the planning-vs-aggregation display logic.
@@ -122,14 +124,15 @@ type DisplayService struct {
 func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *DisplayService {
 	return &DisplayService{
 		deps: DisplayServiceDeps{
-			EpicRepo:       repository.NewEpicRepository(db),
-			FeatureRepo:    repository.NewFeatureRepository(db),
-			TaskRepo:       repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
-			DocumentRepo:   repository.NewDocumentRepository(db),
-			NoteRepo:       repository.NewEntityNoteRepository(db),
-			TaskRelRepo:    repository.NewTaskRelationshipRepository(db),
-			FeatureRelRepo: repository.NewFeatureRelationshipRepository(db),
-			EpicRelRepo:    repository.NewEpicRelationshipRepository(db),
+			EpicRepo:               repository.NewEpicRepository(db),
+			FeatureRepo:            repository.NewFeatureRepository(db),
+			TaskRepo:               repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
+			DocumentRepo:           repository.NewDocumentRepository(db),
+			NoteRepo:               repository.NewEntityNoteRepository(db),
+			TaskRelRepo:            repository.NewTaskRelationshipRepository(db),
+			FeatureRelRepo:         repository.NewFeatureRelationshipRepository(db),
+			EpicRelRepo:            repository.NewEpicRelationshipRepository(db),
+			TemplateEnrichmentRepo: repository.NewTemplateEnrichmentRepository(db),
 		},
 		epicWorkflow:    workflowSvc.ForLevel(workflow.LevelEpic).GetWorkflow(),
 		featureWorkflow: workflowSvc.ForLevel(workflow.LevelFeature).GetWorkflow(),
@@ -438,9 +441,20 @@ func (s *DisplayService) ResolveEpicAction(ctx context.Context, epic *models.Epi
 		return nil
 	}
 
+	// Fetch enrichment data (optional, graceful degradation)
+	var enrichment *config.TemplateEnrichmentData
+	if s.deps.TemplateEnrichmentRepo != nil {
+		data, err := s.deps.TemplateEnrichmentRepo.GetEpicEnrichment(ctx, epic.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch enrichment data for epic %s: %v", epic.Key, err)
+		} else {
+			enrichment = data
+		}
+	}
+
 	// Use EpicPlaceholdersWithRelated to populate placeholders with related docs
 	// Note: We don't have an epic relationship repository yet, so pass nil
-	placeholders := config.EpicPlaceholdersWithRelated(epic, s.deps.DocumentRepo, nil, ctx)
+	placeholders := config.EpicPlaceholdersWithRelated(epic, s.deps.DocumentRepo, nil, ctx, enrichment)
 
 	return &config.PopulatedAction{
 		Action:      meta.OrchestratorAction.Action,
@@ -617,9 +631,20 @@ func (s *DisplayService) ResolveFeatureAction(ctx context.Context, feature *mode
 		return nil
 	}
 
+	// Fetch enrichment data (optional, graceful degradation)
+	var enrichment *config.TemplateEnrichmentData
+	if s.deps.TemplateEnrichmentRepo != nil {
+		data, err := s.deps.TemplateEnrichmentRepo.GetFeatureEnrichment(ctx, feature.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch enrichment data for feature %s: %v", feature.Key, err)
+		} else {
+			enrichment = data
+		}
+	}
+
 	// Use FeaturePlaceholdersWithRelated to populate placeholders with related docs
 	// Note: We don't have a feature relationship repository yet, so pass nil
-	placeholders := config.FeaturePlaceholdersWithRelated(ctx, feature, s.deps.DocumentRepo, nil)
+	placeholders := config.FeaturePlaceholdersWithRelated(ctx, feature, s.deps.DocumentRepo, nil, enrichment)
 
 	return &config.PopulatedAction{
 		Action:      meta.OrchestratorAction.Action,
@@ -645,8 +670,19 @@ func (s *DisplayService) ResolveTaskAction(ctx context.Context, task *models.Tas
 		return nil
 	}
 
+	// Fetch enrichment data (optional, graceful degradation)
+	var taskEnrichment *config.TemplateEnrichmentData
+	if s.deps.TemplateEnrichmentRepo != nil {
+		data, err := s.deps.TemplateEnrichmentRepo.GetTaskEnrichment(ctx, task.ID)
+		if err != nil {
+			log.Printf("WARNING: Failed to fetch enrichment data for task %s: %v", task.Key, err)
+		} else {
+			taskEnrichment = data
+		}
+	}
+
 	// Use TaskPlaceholdersWithRelated to populate placeholders with related docs and tasks
-	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, s.deps.DocumentRepo, s.deps.TaskRelRepo)
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, s.deps.DocumentRepo, s.deps.TaskRelRepo, taskEnrichment)
 
 	return &config.PopulatedAction{
 		Action:      meta.OrchestratorAction.Action,
