@@ -957,3 +957,355 @@ func TestApplyProfile_DryRunWithExisting(t *testing.T) {
 		t.Error("expected non-nil Changes in dry-run result")
 	}
 }
+
+// ===== Workflow file generation tests (E20-F05) =====
+
+// TestApplyProfile_GeneratesWorkflowFile verifies that applying a workflow profile
+// generates a .sharkworkflow.json file with all 5 entity workflow blocks.
+func TestApplyProfile_GeneratesWorkflowFile(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+
+	service := NewProfileService(configPath)
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "advanced",
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	// Verify workflow file path is set in result
+	if result.WorkflowFilePath == "" {
+		t.Fatal("expected WorkflowFilePath to be set")
+	}
+
+	// Verify workflow file was created
+	wfPath := filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json")
+	data, err := os.ReadFile(wfPath)
+	if err != nil {
+		t.Fatalf("workflow file not created: %v", err)
+	}
+
+	var wfData map[string]interface{}
+	if err := json.Unmarshal(data, &wfData); err != nil {
+		t.Fatalf("invalid JSON in workflow file: %v", err)
+	}
+
+	// Verify all 5 entity workflow blocks exist
+	requiredKeys := []string{"epic_workflow", "feature_workflow", "task_workflow", "bug_workflow", "change_workflow"}
+	for _, key := range requiredKeys {
+		if _, ok := wfData[key]; !ok {
+			t.Errorf("missing required key %q in workflow file", key)
+		}
+	}
+}
+
+// TestApplyProfile_BasicGeneratesWorkflowFile verifies basic profile also generates workflow file.
+func TestApplyProfile_BasicGeneratesWorkflowFile(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+
+	service := NewProfileService(configPath)
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "basic",
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	if result.WorkflowFilePath == "" {
+		t.Fatal("expected WorkflowFilePath to be set")
+	}
+
+	wfPath := filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json")
+	data, err := os.ReadFile(wfPath)
+	if err != nil {
+		t.Fatalf("workflow file not created: %v", err)
+	}
+
+	var wfData map[string]interface{}
+	if err := json.Unmarshal(data, &wfData); err != nil {
+		t.Fatalf("invalid JSON in workflow file: %v", err)
+	}
+
+	// Basic profile should still have task_workflow (constructed from legacy keys)
+	if _, ok := wfData["task_workflow"]; !ok {
+		t.Error("missing task_workflow in basic workflow file")
+	}
+}
+
+// TestApplyProfile_WorkflowFileDryRun verifies dry-run does not create workflow file.
+func TestApplyProfile_WorkflowFileDryRun(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+
+	service := NewProfileService(configPath)
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "advanced",
+		DryRun:       true,
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	if !result.DryRun {
+		t.Error("expected DryRun to be true")
+	}
+
+	// WorkflowFilePath should be set (for preview purposes)
+	if result.WorkflowFilePath == "" {
+		t.Error("expected WorkflowFilePath to be set even in dry-run")
+	}
+
+	// But the file should NOT be created
+	wfPath := filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json")
+	if _, err := os.Stat(wfPath); !os.IsNotExist(err) {
+		t.Error("workflow file should not be created in dry-run mode")
+	}
+}
+
+// TestApplyProfile_WorkflowFileBackup verifies existing workflow file gets backed up.
+func TestApplyProfile_WorkflowFileBackup(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+	wfPath := filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json")
+
+	// Create an existing workflow file
+	existingContent := map[string]interface{}{
+		"task_workflow": map[string]interface{}{
+			"version": "old",
+		},
+	}
+	existingData, _ := json.Marshal(existingContent)
+	if err := os.WriteFile(wfPath, existingData, 0644); err != nil {
+		t.Fatalf("failed to write existing workflow file: %v", err)
+	}
+
+	service := NewProfileService(configPath)
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "advanced",
+	}
+
+	result, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	// Verify backup was created
+	if result.WorkflowBackupPath == "" {
+		t.Fatal("expected WorkflowBackupPath to be set")
+	}
+
+	if !strings.HasPrefix(result.WorkflowBackupPath, wfPath+".backup.") {
+		t.Errorf("unexpected backup path: %s", result.WorkflowBackupPath)
+	}
+
+	// Verify backup contains old content
+	backupData, err := os.ReadFile(result.WorkflowBackupPath)
+	if err != nil {
+		t.Fatalf("failed to read backup: %v", err)
+	}
+
+	var backupContent map[string]interface{}
+	if err := json.Unmarshal(backupData, &backupContent); err != nil {
+		t.Fatalf("invalid JSON in backup: %v", err)
+	}
+
+	tw, ok := backupContent["task_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("backup missing task_workflow")
+	}
+	if tw["version"] != "old" {
+		t.Errorf("backup has wrong version: %v", tw["version"])
+	}
+}
+
+// TestApplyProfile_WorkflowFileTaskBlock verifies task_workflow uses block format.
+func TestApplyProfile_WorkflowFileTaskBlock(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+
+	service := NewProfileService(configPath)
+	opts := UpdateOptions{
+		ConfigPath:   configPath,
+		WorkflowName: "advanced",
+	}
+
+	_, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	wfPath := filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json")
+	data, err := os.ReadFile(wfPath)
+	if err != nil {
+		t.Fatalf("failed to read workflow file: %v", err)
+	}
+
+	var wfData map[string]interface{}
+	if err := json.Unmarshal(data, &wfData); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// task_workflow should be a block (map), not a scalar
+	tw, ok := wfData["task_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("task_workflow should be a map (block format)")
+	}
+
+	// Verify it has expected sub-keys
+	expectedSubKeys := []string{"status_flow", "status_metadata"}
+	for _, key := range expectedSubKeys {
+		if _, ok := tw[key]; !ok {
+			t.Errorf("task_workflow missing sub-key %q", key)
+		}
+	}
+
+	// Verify NO legacy top-level keys in the workflow file
+	legacyKeys := []string{"status_flow", "status_metadata", "special_statuses", "status_flow_version"}
+	for _, key := range legacyKeys {
+		if _, ok := wfData[key]; ok {
+			t.Errorf("workflow file should not have legacy top-level key %q", key)
+		}
+	}
+}
+
+// TestApplyProfile_NoWorkflowFileWithoutProfileName verifies that when no workflow name
+// is specified, no workflow file is generated (only config is updated).
+func TestApplyProfile_NoWorkflowFileWithoutProfileName(t *testing.T) {
+	configPath := createTempConfigFile(t, nil)
+
+	service := NewProfileService(configPath)
+	opts := UpdateOptions{
+		ConfigPath: configPath,
+		// WorkflowName intentionally empty
+	}
+
+	_, err := service.ApplyProfile(opts)
+	if err != nil {
+		t.Fatalf("ApplyProfile() error = %v", err)
+	}
+
+	// Workflow file should NOT be created when no workflow name specified
+	wfPath := filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json")
+	if _, err := os.Stat(wfPath); !os.IsNotExist(err) {
+		t.Error("workflow file should not be created without explicit workflow name")
+	}
+}
+
+// Test: writeConfig preserves existing file permissions
+func TestWriteConfig_PreservesPermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+
+	service := NewProfileService(configPath)
+
+	testData := map[string]interface{}{
+		"color_enabled": true,
+	}
+
+	t.Run("preserves existing non-default permissions", func(t *testing.T) {
+		// Create file with restrictive permissions (0600)
+		initialContent := []byte(`{"initial": true}`)
+		if err := os.WriteFile(configPath, initialContent, 0600); err != nil {
+			t.Fatalf("failed to create initial config: %v", err)
+		}
+
+		// Verify initial permissions
+		info, err := os.Stat(configPath)
+		if err != nil {
+			t.Fatalf("failed to stat initial file: %v", err)
+		}
+		if info.Mode().Perm() != 0600 {
+			t.Fatalf("initial permissions not set correctly: got %o, want 0600", info.Mode().Perm())
+		}
+
+		// Write config (should preserve 0600)
+		if err := service.writeConfig(configPath, testData); err != nil {
+			t.Fatalf("writeConfig() error = %v", err)
+		}
+
+		// Verify permissions preserved
+		info, err = os.Stat(configPath)
+		if err != nil {
+			t.Fatalf("failed to stat config after write: %v", err)
+		}
+		if info.Mode().Perm() != 0600 {
+			t.Errorf("permissions not preserved: got %o, want 0600", info.Mode().Perm())
+		}
+	})
+
+	t.Run("defaults to 0644 for new files", func(t *testing.T) {
+		newConfigPath := filepath.Join(tmpDir, "new-config.json")
+
+		// File does not exist yet
+		if err := service.writeConfig(newConfigPath, testData); err != nil {
+			t.Fatalf("writeConfig() error = %v", err)
+		}
+
+		info, err := os.Stat(newConfigPath)
+		if err != nil {
+			t.Fatalf("failed to stat new config: %v", err)
+		}
+		if info.Mode().Perm() != 0644 {
+			t.Errorf("new file permissions: got %o, want 0644", info.Mode().Perm())
+		}
+	})
+}
+
+// Test: extractWorkflowData includes require_rejection_reason when present
+func TestExtractWorkflowData_IncludesRequireRejectionReason(t *testing.T) {
+	merged := map[string]interface{}{
+		"status_flow": map[string]interface{}{
+			"todo": []interface{}{"in_progress"},
+		},
+		"status_metadata": map[string]interface{}{
+			"todo": map[string]interface{}{"color": "gray"},
+		},
+		"require_rejection_reason": true,
+	}
+
+	result := extractWorkflowData(merged)
+
+	tw, ok := result["task_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected task_workflow to be a map")
+	}
+
+	rr, ok := tw["require_rejection_reason"]
+	if !ok {
+		t.Fatal("expected require_rejection_reason in task_workflow")
+	}
+
+	if rr != true {
+		t.Errorf("expected require_rejection_reason to be true, got %v", rr)
+	}
+}
+
+// Test: extractWorkflowData omits require_rejection_reason when absent
+func TestExtractWorkflowData_OmitsRequireRejectionReasonWhenAbsent(t *testing.T) {
+	merged := map[string]interface{}{
+		"status_flow": map[string]interface{}{
+			"todo": []interface{}{"in_progress"},
+		},
+		"status_metadata": map[string]interface{}{
+			"todo": map[string]interface{}{"color": "gray"},
+		},
+	}
+
+	result := extractWorkflowData(merged)
+
+	tw, ok := result["task_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected task_workflow to be a map")
+	}
+
+	if _, ok := tw["require_rejection_reason"]; ok {
+		t.Error("expected require_rejection_reason to NOT be in task_workflow when absent from merged config")
+	}
+}

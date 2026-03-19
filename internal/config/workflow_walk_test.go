@@ -11,6 +11,7 @@ import (
 // TestWorkflowWalk_TaskHappyPath walks through the full task workflow happy path,
 // showing which statuses have OrchestratorActions and what the populated instructions look like.
 func TestWorkflowWalk_TaskHappyPath(t *testing.T) {
+	t.Cleanup(ClearWorkflowCache)
 	configPath := findConfigPath(t)
 	multi := LoadMultiLevelWorkflowOrDefault(configPath)
 	taskWf := multi.GetWorkflowForLevel("task")
@@ -105,6 +106,7 @@ func TestWorkflowWalk_TaskHappyPath(t *testing.T) {
 
 // TestWorkflowWalk_EpicHappyPath walks through the epic workflow happy path.
 func TestWorkflowWalk_EpicHappyPath(t *testing.T) {
+	t.Cleanup(ClearWorkflowCache)
 	configPath := findConfigPath(t)
 	multi := LoadMultiLevelWorkflowOrDefault(configPath)
 	epicWf := multi.GetWorkflowForLevel("epic")
@@ -180,6 +182,7 @@ func TestWorkflowWalk_EpicHappyPath(t *testing.T) {
 
 // TestWorkflowWalk_FeatureHappyPath walks through the feature workflow happy path.
 func TestWorkflowWalk_FeatureHappyPath(t *testing.T) {
+	t.Cleanup(ClearWorkflowCache)
 	configPath := findConfigPath(t)
 	multi := LoadMultiLevelWorkflowOrDefault(configPath)
 	featureWf := multi.GetWorkflowForLevel("feature")
@@ -255,6 +258,7 @@ func TestWorkflowWalk_FeatureHappyPath(t *testing.T) {
 // TestWorkflowWalk_AllTaskStatusesHaveMetadata verifies every status in the
 // task status_flow has corresponding metadata defined.
 func TestWorkflowWalk_AllTaskStatusesHaveMetadata(t *testing.T) {
+	t.Cleanup(ClearWorkflowCache)
 	configPath := findConfigPath(t)
 	multi := LoadMultiLevelWorkflowOrDefault(configPath)
 	taskWf := multi.GetWorkflowForLevel("task")
@@ -269,6 +273,7 @@ func TestWorkflowWalk_AllTaskStatusesHaveMetadata(t *testing.T) {
 // TestWorkflowWalk_ActionCoverage reports which statuses have actions vs not
 // across all three entity types.
 func TestWorkflowWalk_ActionCoverage(t *testing.T) {
+	t.Cleanup(ClearWorkflowCache)
 	configPath := findConfigPath(t)
 	multi := LoadMultiLevelWorkflowOrDefault(configPath)
 

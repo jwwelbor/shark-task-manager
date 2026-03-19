@@ -570,6 +570,44 @@ func TestBugService_UpdateBug_InvalidSeverity(t *testing.T) {
 	}
 }
 
+func TestBugService_UpdateBug_FilePath(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedBug *models.Bug
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{
+				ID:       1,
+				Key:      "B001",
+				Title:    "Bug With File",
+				Status:   "reported",
+				Severity: models.BugSeverityMedium,
+			}, nil
+		},
+		updateFn: func(ctx context.Context, bug *models.Bug) error {
+			capturedBug = bug
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	newPath := "docs/plan/bugs/B001-custom.md"
+	bug, err := svc.UpdateBug(ctx, "B001", BugUpdates{FilePath: &newPath})
+	if err != nil {
+		t.Fatalf("UpdateBug() error = %v", err)
+	}
+	if bug.FilePath == nil || *bug.FilePath != newPath {
+		t.Errorf("expected file_path %q, got %v", newPath, bug.FilePath)
+	}
+	if capturedBug == nil {
+		t.Fatal("expected Update to be called")
+	}
+	if capturedBug.FilePath == nil || *capturedBug.FilePath != newPath {
+		t.Errorf("expected captured file_path %q, got %v", newPath, capturedBug.FilePath)
+	}
+}
+
 func TestBugService_UpdateBug_ClearLinkedEntity(t *testing.T) {
 	ctx := context.Background()
 

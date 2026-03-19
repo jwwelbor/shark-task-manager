@@ -293,6 +293,11 @@ func init() {
 	changeUpdateCmd.Flags().IntVar(&changePriority, "priority", 0, "New priority (1-10)")
 	changeUpdateCmd.Flags().StringVar(&changeRequestedBy, "requested-by", "", "Update requested by")
 	changeUpdateCmd.Flags().StringVar(&changeAssignedTo, "assigned-to", "", "Assign to a person")
+	changeUpdateCmd.Flags().String("file", "", "New file path")
+	changeUpdateCmd.Flags().String("filename", "", "Alias for --file")
+	changeUpdateCmd.Flags().String("path", "", "Alias for --file")
+	_ = changeUpdateCmd.Flags().MarkHidden("filename")
+	_ = changeUpdateCmd.Flags().MarkHidden("path")
 
 	// Delete flags
 	changeDeleteCmd.Flags().BoolVar(&changeForce, "force", false, "Skip confirmation prompt")
@@ -722,6 +727,9 @@ func buildChangeCardUpdates(cmd *cobra.Command) services.ChangeCardUpdates {
 	}
 	if cmd.Flags().Changed("assigned-to") {
 		updates.AssignedTo = &changeAssignedTo
+	}
+	if v := getFileFlagValue(cmd); v != "" {
+		updates.FilePath = &v
 	}
 	return updates
 }

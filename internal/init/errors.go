@@ -13,6 +13,7 @@ func (e *InitError) Error() string {
 	return fmt.Sprintf("initialization failed at step '%s': %s: %v", e.Step, e.Message, e.Err)
 }
 
+// Unwrap returns the underlying error for use with errors.Is and errors.As.
 func (e *InitError) Unwrap() error {
 	return e.Err
 }

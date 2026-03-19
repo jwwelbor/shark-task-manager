@@ -1,7 +1,9 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -226,6 +228,136 @@ func validateTerminalPaths(workflow *WorkflowConfig) error {
 	}
 
 	return nil
+}
+
+// WorkflowValidationFinding represents a single validation finding.
+type WorkflowValidationFinding struct {
+	Level   string `json:"level"`   // "error", "warning", "info"
+	Message string `json:"message"` // Human-readable message
+	Entity  string `json:"entity"`  // Entity type affected (e.g., "task", "epic")
+	File    string `json:"file"`    // Source file path
+}
+
+// ValidateWorkflowFiles validates both .sharkconfig.json and .sharkworkflow.json,
+// checking for JSON structure, duplicate definitions, and missing required sub-keys.
+// Returns a list of findings (errors, warnings, info).
+func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
+	var results []WorkflowValidationFinding
+
+	// Load the multi-level workflow to get source tracking
+	multi, err := LoadMultiLevelWorkflow(configPath)
+	if err != nil {
+		results = append(results, WorkflowValidationFinding{
+			Level:   "error",
+			Message: fmt.Sprintf("Failed to load workflow config: %v", err),
+			File:    configPath,
+		})
+		return results
+	}
+
+	// Report sources for each entity
+	entityLevels := []string{"epic", "feature", "task", "bug", "change"}
+	for _, level := range entityLevels {
+		source := multi.Sources[level]
+		results = append(results, WorkflowValidationFinding{
+			Level:   "info",
+			Message: fmt.Sprintf("%s_workflow source: %s", level, source),
+			Entity:  level,
+			File:    source,
+		})
+	}
+
+	// Check for duplicate definitions
+	configData, configErr := readRawConfigKeys(configPath)
+	var workflowFilePath string
+	if configErr == nil {
+		workflowFilePath = resolveWorkflowFilePath(configPath, configData)
+	}
+	if workflowFilePath != "" {
+		workflowData, workflowErr := readRawConfigKeys(workflowFilePath)
+
+		if workflowErr == nil && workflowData != nil {
+			entityWorkflowKeys := []string{"epic_workflow", "feature_workflow", "task_workflow", "bug_workflow", "change_workflow"}
+			for _, key := range entityWorkflowKeys {
+				_, inConfig := configData[key]
+				_, inWorkflow := workflowData[key]
+				if inConfig && inWorkflow {
+					level := strings.TrimSuffix(key, "_workflow")
+					results = append(results, WorkflowValidationFinding{
+						Level:   "warning",
+						Message: fmt.Sprintf("Duplicate definition: %s is defined in both %s and %s. Workflow file takes precedence.", key, configPath, workflowFilePath),
+						Entity:  level,
+					})
+				}
+			}
+		}
+	}
+
+	// Validate individual workflow configs
+	workflowMap := map[string]*WorkflowConfig{
+		"epic":    multi.Epic,
+		"feature": multi.Feature,
+		"task":    multi.Task,
+		"bug":     multi.Bug,
+		"change":  multi.Change,
+	}
+
+	for level, wf := range workflowMap {
+		if wf == nil {
+			continue
+		}
+		// Check required sub-keys
+		if len(wf.StatusFlow) == 0 {
+			results = append(results, WorkflowValidationFinding{
+				Level:   "warning",
+				Message: fmt.Sprintf("%s_workflow: missing or empty status_flow", level),
+				Entity:  level,
+				File:    multi.Sources[level],
+			})
+		}
+		if len(wf.StatusMetadata) == 0 {
+			results = append(results, WorkflowValidationFinding{
+				Level:   "warning",
+				Message: fmt.Sprintf("%s_workflow: missing or empty status_metadata", level),
+				Entity:  level,
+				File:    multi.Sources[level],
+			})
+		}
+		// Run full validation
+		if err := ValidateWorkflow(wf); err != nil {
+			results = append(results, WorkflowValidationFinding{
+				Level:   "error",
+				Message: fmt.Sprintf("%s_workflow: %v", level, err),
+				Entity:  level,
+				File:    multi.Sources[level],
+			})
+		}
+	}
+
+	// Check for legacy key deprecation
+	if multi.HasLegacyTaskKeys {
+		results = append(results, WorkflowValidationFinding{
+			Level:   "warning",
+			Message: "Legacy top-level status_flow keys coexist with task_workflow block. Migrate to task_workflow block. Run `shark init update` to auto-migrate.",
+			Entity:  "task",
+			File:    configPath,
+		})
+	}
+
+	return results
+}
+
+// readRawConfigKeys reads a JSON file and returns the top-level keys as a map.
+func readRawConfigKeys(path string) (map[string]json.RawMessage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
 }
 
 // ValidateTransition checks if a status transition is valid according to workflow

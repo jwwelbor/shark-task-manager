@@ -8,6 +8,19 @@ type MultiLevelWorkflow struct {
 	Task    *WorkflowConfig
 	Bug     *WorkflowConfig
 	Change  *WorkflowConfig
+
+	// TemplateDirectory from the workflow file, if present.
+	// When non-nil, takes precedence over Config.TemplateDirectory.
+	TemplateDirectory *string
+
+	// Sources tracks where each entity workflow was loaded from.
+	// Keys: "epic", "feature", "task", "bug", "change"
+	// Values: file path (e.g., ".sharkworkflow.json", ".sharkconfig.json") or "default"
+	Sources map[string]string
+
+	// HasLegacyTaskKeys is true when legacy top-level status_flow/status_metadata
+	// keys coexist with a task_workflow block (either inline or in workflow file).
+	HasLegacyTaskKeys bool
 }
 
 // GetWorkflowForLevel returns the workflow config for the given level.

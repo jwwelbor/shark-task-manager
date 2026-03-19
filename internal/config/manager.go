@@ -79,6 +79,10 @@ func (m *Manager) Load() (*Config, error) {
 		config.TemplateDirectory = &templateDir
 	}
 
+	if workflowConfig, ok := rawData["workflow_config"].(string); ok && workflowConfig != "" {
+		config.WorkflowConfig = &workflowConfig
+	}
+
 	m.config = config
 	return config, nil
 }

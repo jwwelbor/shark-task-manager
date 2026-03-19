@@ -58,12 +58,14 @@ type UpdateOptions struct {
 
 // UpdateResult represents the result of a config update
 type UpdateResult struct {
-	Success     bool          `json:"success"`
-	ProfileName string        `json:"profile_name,omitempty"`
-	BackupPath  string        `json:"backup_path,omitempty"`
-	Changes     *ChangeReport `json:"changes"`
-	ConfigPath  string        `json:"config_path"`
-	DryRun      bool          `json:"dry_run"`
+	Success            bool          `json:"success"`
+	ProfileName        string        `json:"profile_name,omitempty"`
+	BackupPath         string        `json:"backup_path,omitempty"`
+	WorkflowFilePath   string        `json:"workflow_file_path,omitempty"`
+	WorkflowBackupPath string        `json:"workflow_backup_path,omitempty"`
+	Changes            *ChangeReport `json:"changes"`
+	ConfigPath         string        `json:"config_path"`
+	DryRun             bool          `json:"dry_run"`
 }
 
 // ChangeReport details what changed during update

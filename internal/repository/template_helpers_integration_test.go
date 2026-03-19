@@ -174,7 +174,7 @@ func TestIntegrationTemplateTaskWithRelatedDocs(t *testing.T) {
 	}
 
 	// Execute
-	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo, nil)
 
 	// Verify
 	relatedDocs := placeholders["related_docs"]
@@ -225,7 +225,7 @@ func TestIntegrationTemplateTaskWithRelatedTasks(t *testing.T) {
 	}
 
 	// Execute
-	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo, nil)
 
 	// Verify - should have both related task keys
 	relatedTasks := placeholders["related_tasks"]
@@ -259,7 +259,7 @@ func TestIntegrationTemplateLargeDocumentList(t *testing.T) {
 	}
 
 	// Execute
-	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
+	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo, nil)
 
 	// Verify
 	relatedDocs := placeholders["related_docs"]
@@ -300,7 +300,7 @@ func TestIntegrationTemplateDynamicDocumentLookup(t *testing.T) {
 	}
 
 	// Initial lookup
-	placeholders1 := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
+	placeholders1 := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo, nil)
 	if !strings.Contains(placeholders1["related_docs"], "docs/doc1.md") {
 		t.Errorf("Initial lookup missing doc1.md")
 	}
@@ -312,7 +312,7 @@ func TestIntegrationTemplateDynamicDocumentLookup(t *testing.T) {
 	}
 
 	// Second lookup (dynamic)
-	placeholders2 := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo)
+	placeholders2 := config.TaskPlaceholdersWithRelated(ctx, task, docRepo, taskRelRepo, nil)
 	if strings.Contains(placeholders2["related_docs"], "docs/doc1.md") {
 		t.Errorf("Dynamic lookup should not include unlinked document")
 	}
@@ -347,7 +347,7 @@ func TestIntegrationTemplateFeaturePlaceholdersWithDocs(t *testing.T) {
 	}
 
 	// Execute
-	placeholders := config.FeaturePlaceholdersWithRelated(ctx, feature, docRepo, mockRelRepo)
+	placeholders := config.FeaturePlaceholdersWithRelated(ctx, feature, docRepo, mockRelRepo, nil)
 
 	// Verify
 	relatedDocs := placeholders["related_docs"]
@@ -382,7 +382,7 @@ func TestIntegrationTemplateEpicPlaceholdersWithDocs(t *testing.T) {
 	}
 
 	// Execute
-	placeholders := config.EpicPlaceholdersWithRelated(epic, docRepo, mockRelRepo, ctx)
+	placeholders := config.EpicPlaceholdersWithRelated(epic, docRepo, mockRelRepo, ctx, nil)
 
 	// Verify
 	relatedDocs := placeholders["related_docs"]

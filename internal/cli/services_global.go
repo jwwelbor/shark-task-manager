@@ -221,6 +221,7 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	docRepo := repository.NewDocumentRepository(d.db)
 	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(d.db)}
 
+	enrichRepo := repository.NewTemplateEnrichmentRepository(d.db)
 	svc := services.NewTaskService(d.taskRepo, d.workflowSvc, d.creatorSvc, d.noteRepo)
 	svc.SetDocRepo(docRepo)
 	svc.SetRelRepo(relRepo)
@@ -229,6 +230,7 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	svc.SetDepRepo(relRepo)
 	svc.SetRelQueryRepo(relRepo)
 	svc.SetWritableDocRepo(docRepo)
+	svc.SetEnrichRepo(enrichRepo)
 
 	// Wire sub-services for query and dependency delegation.
 	querySvc := services.NewTaskQueryService(d.taskRepo)

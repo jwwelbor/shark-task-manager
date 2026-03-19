@@ -379,6 +379,11 @@ func displayUpdateResult(result *init_pkg.UpdateResult) {
 	// Backup info
 	if result.BackupPath != "" {
 		fmt.Printf("✓ Backed up config to %s\n", result.BackupPath)
+	}
+	if result.WorkflowBackupPath != "" {
+		fmt.Printf("✓ Backed up workflow file to %s\n", result.WorkflowBackupPath)
+	}
+	if result.BackupPath != "" || result.WorkflowBackupPath != "" {
 		fmt.Println()
 	}
 
@@ -411,8 +416,14 @@ func displayUpdateResult(result *init_pkg.UpdateResult) {
 	if !result.DryRun {
 		fmt.Println()
 		fmt.Printf("✓ Config updated: %s\n", result.ConfigPath)
+		if result.WorkflowFilePath != "" {
+			fmt.Printf("✓ Workflow file written: %s\n", result.WorkflowFilePath)
+		}
 	} else {
 		fmt.Println()
+		if result.WorkflowFilePath != "" {
+			cli.Info(fmt.Sprintf("Would write workflow file: %s", result.WorkflowFilePath))
+		}
 		cli.Info("Run without --dry-run to apply these changes")
 	}
 }

@@ -89,18 +89,23 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 		return nil, fmt.Errorf("failed to merge config: %w", err)
 	}
 
-	// 4. If dry run, return preview without writing
+	// 4. Build workflow file data from the merged config
+	workflowData := extractWorkflowData(mergedConfig)
+	workflowFilePath := resolveWorkflowFilePath(opts.ConfigPath)
+
+	// 5. If dry run, return preview without writing
 	if opts.DryRun {
 		return &UpdateResult{
-			Success:     true,
-			ProfileName: profileName,
-			Changes:     changeReport,
-			ConfigPath:  opts.ConfigPath,
-			DryRun:      true,
+			Success:          true,
+			ProfileName:      profileName,
+			Changes:          changeReport,
+			ConfigPath:       opts.ConfigPath,
+			WorkflowFilePath: workflowFilePath,
+			DryRun:           true,
 		}, nil
 	}
 
-	// 5. Create backup before writing
+	// 6. Create backup before writing
 	backupPath, err := s.createConfigBackup(opts.ConfigPath)
 	if err != nil {
 		// Log warning but don't fail - backup is nice-to-have
@@ -109,18 +114,33 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 		}
 	}
 
-	// 6. Write merged config (atomic)
+	// 7. Write merged config (atomic)
 	if err := s.writeConfig(opts.ConfigPath, mergedConfig); err != nil {
 		return nil, fmt.Errorf("failed to write config: %w", err)
 	}
 
+	// 8. Write workflow file if a profile was specified
+	var workflowBackupPath string
+	if opts.WorkflowName != "" && len(workflowData) > 0 {
+		workflowBackupPath, err = s.createConfigBackup(workflowFilePath)
+		if err != nil && opts.Verbose {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create workflow file backup: %v\n", err)
+		}
+
+		if err := s.writeConfig(workflowFilePath, workflowData); err != nil {
+			return nil, fmt.Errorf("failed to write workflow file: %w", err)
+		}
+	}
+
 	return &UpdateResult{
-		Success:     true,
-		ProfileName: profileName,
-		BackupPath:  backupPath,
-		Changes:     changeReport,
-		ConfigPath:  opts.ConfigPath,
-		DryRun:      false,
+		Success:            true,
+		ProfileName:        profileName,
+		BackupPath:         backupPath,
+		WorkflowFilePath:   workflowFilePath,
+		WorkflowBackupPath: workflowBackupPath,
+		Changes:            changeReport,
+		ConfigPath:         opts.ConfigPath,
+		DryRun:             false,
 	}, nil
 }
 
@@ -217,12 +237,66 @@ func (s *ProfileService) createConfigBackup(configPath string) (string, error) {
 	return backupPath, nil
 }
 
+// resolveWorkflowFilePath returns the .sharkworkflow.json path next to the config file.
+func resolveWorkflowFilePath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), ".sharkworkflow.json")
+}
+
+// extractWorkflowData extracts workflow-related keys from a merged config map
+// and returns them in the .sharkworkflow.json format with all five entity workflow blocks.
+// Task workflow is constructed from legacy top-level keys if task_workflow block is absent.
+func extractWorkflowData(merged map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	// Entity workflow block keys to extract directly
+	entityKeys := []string{"epic_workflow", "feature_workflow", "bug_workflow", "change_workflow"}
+	for _, key := range entityKeys {
+		if val, ok := merged[key]; ok {
+			result[key] = val
+		}
+	}
+
+	// Handle task_workflow: prefer block format, fall back to constructing from legacy keys
+	if tw, ok := merged["task_workflow"]; ok {
+		result["task_workflow"] = tw
+	} else {
+		// Construct task_workflow block from legacy top-level keys
+		taskWorkflow := make(map[string]interface{})
+		if sf, ok := merged["status_flow"]; ok {
+			taskWorkflow["status_flow"] = sf
+		}
+		if sm, ok := merged["status_metadata"]; ok {
+			taskWorkflow["status_metadata"] = sm
+		}
+		if ss, ok := merged["special_statuses"]; ok {
+			taskWorkflow["special_statuses"] = ss
+		}
+		if sv, ok := merged["status_flow_version"]; ok {
+			taskWorkflow["version"] = sv
+		}
+		// Also check for orchestrator_actions at top level
+		if oa, ok := merged["orchestrator_actions"]; ok {
+			taskWorkflow["orchestrator_actions"] = oa
+		}
+		// Also check for require_rejection_reason at top level
+		if rr, ok := merged["require_rejection_reason"]; ok {
+			taskWorkflow["require_rejection_reason"] = rr
+		}
+		if len(taskWorkflow) > 0 {
+			result["task_workflow"] = taskWorkflow
+		}
+	}
+
+	return result
+}
+
 // writeConfig writes config to file atomically
 func (s *ProfileService) writeConfig(configPath string, data map[string]interface{}) error {
 	// Marshal to JSON with HTML escaping disabled and indentation
 	// Get current file permissions if file exists, default to 0644
+	filePerms := os.FileMode(0644)
 	if info, err := os.Stat(configPath); err == nil {
-		_ = info.Mode().Perm() // Preserve existing permissions if file exists
+		filePerms = info.Mode().Perm()
 	}
 
 	var buf bytes.Buffer
@@ -256,6 +330,11 @@ func (s *ProfileService) writeConfig(configPath string, data map[string]interfac
 
 	if err := tmpFile.Close(); err != nil {
 		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	// Apply original file permissions to temp file before rename
+	if err := os.Chmod(tmpPath, filePerms); err != nil {
+		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
 
 	// Atomic rename

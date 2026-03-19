@@ -29,4 +29,5 @@ type ChangeCardUpdates struct {
 	Justification  *string `json:"justification,omitempty"`
 	ImpactAnalysis *string `json:"impact_analysis,omitempty"`
 	RollbackPlan   *string `json:"rollback_plan,omitempty"`
+	FilePath       *string `json:"file_path,omitempty"`
 }

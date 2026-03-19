@@ -289,8 +289,7 @@ func parseTaskUpdates(cmd *cobra.Command) services.TaskUpdates {
 			updates.ExecutionOrder = &v
 		}
 	}
-	if cmd.Flags().Changed("filename") {
-		v, _ := cmd.Flags().GetString("filename")
+	if v := getFileFlagValue(cmd); v != "" {
 		updates.FilePath = &v
 	}
 	return updates

@@ -418,6 +418,38 @@ func TestChangeCardService_UpdateChangeCard(t *testing.T) {
 	}
 }
 
+func TestChangeCardService_UpdateChangeCard_FilePath(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedCard *models.ChangeCard
+	repo := &mockChangeCardRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Change Card", Status: "proposed"}, nil
+		},
+		updateFn: func(ctx context.Context, card *models.ChangeCard) error {
+			capturedCard = card
+			return nil
+		},
+	}
+
+	svc := newChangeCardService(repo, nil, nil)
+
+	newPath := "docs/plan/changes/CC-001-custom.md"
+	card, err := svc.UpdateChangeCard(ctx, "CC-001", ChangeCardUpdates{FilePath: &newPath})
+	if err != nil {
+		t.Fatalf("UpdateChangeCard() error = %v", err)
+	}
+	if card.FilePath != newPath {
+		t.Errorf("expected file_path %q, got %q", newPath, card.FilePath)
+	}
+	if capturedCard == nil {
+		t.Fatal("expected Update to be called")
+	}
+	if capturedCard.FilePath != newPath {
+		t.Errorf("expected captured file_path %q, got %q", newPath, capturedCard.FilePath)
+	}
+}
+
 func TestChangeCardService_DeleteChangeCard(t *testing.T) {
 	ctx := context.Background()
 

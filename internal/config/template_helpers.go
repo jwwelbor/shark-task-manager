@@ -344,6 +344,7 @@ func FeaturePlaceholdersWithRelated(
 		ListForFeature(ctx context.Context, featureID int64) ([]*models.Document, error)
 	},
 	featureRelRepo FeatureRelationshipRepository,
+	enrichment *TemplateEnrichmentData,
 ) map[string]string {
 	// Start with basic placeholders
 	placeholders := FeaturePlaceholders(feature)
@@ -379,8 +380,8 @@ func FeaturePlaceholdersWithRelated(
 		placeholders["related_features"] = ""
 	}
 
-	// Extract ALL metadata fields from ContextData.Metadata
-	extractContextDataMetadata(feature.ContextData, placeholders)
+	// Extract ALL metadata and structured fields from ContextData
+	extractContextDataFields(feature.ContextData, placeholders)
 
 	// Also extract complexity_tier from entity Metadata for backward compatibility
 	if feature.Metadata != nil {
@@ -395,6 +396,9 @@ func FeaturePlaceholdersWithRelated(
 	if _, exists := placeholders["complexity_tier"]; !exists {
 		placeholders["complexity_tier"] = ""
 	}
+
+	// Apply enrichment data (nil-safe)
+	ApplyEnrichmentData(enrichment, placeholders)
 
 	return placeholders
 }
@@ -452,6 +456,7 @@ func TaskPlaceholdersWithRelated(
 	task *models.Task,
 	docRepo DocumentRepository,
 	taskRelRepo TaskRelationshipRepository,
+	enrichment *TemplateEnrichmentData,
 ) map[string]string {
 	// Start with basic placeholders
 	placeholders := TaskPlaceholders(task)
@@ -479,9 +484,8 @@ func TaskPlaceholdersWithRelated(
 		placeholders["related_tasks"] = strings.Join(relatedKeys, ",")
 	}
 
-	// Extract ALL metadata fields from ContextData.Metadata
-	// This makes any user-defined field available to templates
-	extractContextDataMetadata(task.ContextData, placeholders)
+	// Extract ALL metadata and structured fields from ContextData
+	extractContextDataFields(task.ContextData, placeholders)
 
 	// Also extract complexity_tier from entity Metadata for backward compatibility
 	if task.Metadata != nil {
@@ -496,6 +500,9 @@ func TaskPlaceholdersWithRelated(
 	if _, exists := placeholders["complexity_tier"]; !exists {
 		placeholders["complexity_tier"] = ""
 	}
+
+	// Apply enrichment data (nil-safe)
+	ApplyEnrichmentData(enrichment, placeholders)
 
 	return placeholders
 }
@@ -523,6 +530,7 @@ func EpicPlaceholdersWithRelated(
 	},
 	epicRelRepo EpicRelationshipRepository,
 	ctx context.Context,
+	enrichment *TemplateEnrichmentData,
 ) map[string]string {
 	// Start with basic placeholders
 	placeholders := EpicPlaceholders(epic)
@@ -558,8 +566,11 @@ func EpicPlaceholdersWithRelated(
 		placeholders["related_epics"] = ""
 	}
 
-	// Extract ALL metadata fields from ContextData.Metadata
-	extractContextDataMetadata(epic.ContextData, placeholders)
+	// Extract ALL metadata and structured fields from ContextData
+	extractContextDataFields(epic.ContextData, placeholders)
+
+	// Apply enrichment data (nil-safe)
+	ApplyEnrichmentData(enrichment, placeholders)
 
 	return placeholders
 }
@@ -592,11 +603,14 @@ func stringifyMetadataValue(value interface{}) string {
 	}
 }
 
-// extractContextDataMetadata parses the context_data JSON string and extracts
-// all metadata fields into the placeholder map. Each metadata key-value pair
-// is flattened into the map using stringifyMetadataValue for type conversion.
+// extractContextDataFields parses the context_data JSON string and extracts
+// all metadata fields and structured fields into the placeholder map.
+// Metadata key-value pairs are flattened using stringifyMetadataValue.
+// Structured fields (Progress, OpenQuestions, Blockers, ImplementationDecisions)
+// are extracted into well-known placeholder keys.
+// Metadata is extracted first; structured fields do NOT overwrite existing keys.
 // Gracefully handles nil, empty, or malformed JSON by silently returning.
-func extractContextDataMetadata(contextData *string, placeholders map[string]string) {
+func extractContextDataFields(contextData *string, placeholders map[string]string) {
 	if contextData == nil || *contextData == "" {
 		return
 	}
@@ -607,12 +621,129 @@ func extractContextDataMetadata(contextData *string, placeholders map[string]str
 		return
 	}
 
+	// Step 1: Flatten Metadata key-value pairs (runs first)
 	for key, value := range cd.Metadata {
 		str := stringifyMetadataValue(value)
 		if str != "" {
 			placeholders[key] = str
 		}
 	}
+
+	// Step 2: Extract structured Progress fields (do not overwrite existing keys)
+	if cd.Progress != nil {
+		if cd.Progress.CurrentStep != nil {
+			if _, exists := placeholders["current_step"]; !exists {
+				placeholders["current_step"] = *cd.Progress.CurrentStep
+			}
+		}
+		if len(cd.Progress.CompletedSteps) > 0 {
+			if _, exists := placeholders["completed_steps"]; !exists {
+				placeholders["completed_steps"] = strings.Join(cd.Progress.CompletedSteps, ", ")
+			}
+		}
+		if len(cd.Progress.RemainingSteps) > 0 {
+			if _, exists := placeholders["remaining_steps"]; !exists {
+				placeholders["remaining_steps"] = strings.Join(cd.Progress.RemainingSteps, ", ")
+			}
+		}
+		if _, exists := placeholders["completed_steps_count"]; !exists {
+			placeholders["completed_steps_count"] = fmt.Sprintf("%d", len(cd.Progress.CompletedSteps))
+		}
+		if _, exists := placeholders["remaining_steps_count"]; !exists {
+			placeholders["remaining_steps_count"] = fmt.Sprintf("%d", len(cd.Progress.RemainingSteps))
+		}
+	}
+
+	// Step 3: Extract open questions
+	if len(cd.OpenQuestions) > 0 {
+		if _, exists := placeholders["open_questions"]; !exists {
+			placeholders["open_questions"] = strings.Join(cd.OpenQuestions, "; ")
+		}
+		if _, exists := placeholders["open_questions_count"]; !exists {
+			placeholders["open_questions_count"] = fmt.Sprintf("%d", len(cd.OpenQuestions))
+		}
+	}
+
+	// Step 4: Extract blockers summary
+	if len(cd.Blockers) > 0 {
+		if _, exists := placeholders["blockers_count"]; !exists {
+			placeholders["blockers_count"] = fmt.Sprintf("%d", len(cd.Blockers))
+		}
+		if _, exists := placeholders["latest_blocker"]; !exists {
+			placeholders["latest_blocker"] = cd.Blockers[len(cd.Blockers)-1].Description
+		}
+	}
+
+	// Step 5: Extract implementation decisions count
+	if len(cd.ImplementationDecisions) > 0 {
+		if _, exists := placeholders["decisions_count"]; !exists {
+			placeholders["decisions_count"] = fmt.Sprintf("%d", len(cd.ImplementationDecisions))
+		}
+	}
+}
+
+// TemplateEnrichmentData contains pre-fetched enrichment data for template rendering.
+// All fields are optional (zero-value means "not fetched" or "not applicable").
+// This struct is constructed by the service layer and passed to *PlaceholdersWithRelated().
+type TemplateEnrichmentData struct {
+	// Previous status from task_history (tasks only in v1)
+	PreviousStatus string
+
+	// Parent entity titles for hierarchical context
+	ParentTitle      string // feature.title for tasks, epic.title for features
+	GrandparentTitle string // epic.title for tasks (empty for features/epics)
+
+	// Latest note from entity_notes
+	LatestNoteContent string
+	LatestNoteType    string
+
+	// Note counts
+	NotesCount     int
+	RejectionCount int
+
+	// Sibling progress (children of the same parent)
+	SiblingTotal     int
+	SiblingCompleted int
+	SiblingBlocked   int
+}
+
+// TemplateEnrichmentRepository provides consolidated enrichment data
+// for template variable population. Implementations should fetch all
+// data in a single query to minimize Turso round-trips.
+type TemplateEnrichmentRepository interface {
+	GetTaskEnrichment(ctx context.Context, taskID int64) (*TemplateEnrichmentData, error)
+	GetFeatureEnrichment(ctx context.Context, featureID int64) (*TemplateEnrichmentData, error)
+	GetEpicEnrichment(ctx context.Context, epicID int64) (*TemplateEnrichmentData, error)
+}
+
+// ApplyEnrichmentData merges enrichment data into the placeholder map.
+// If enrichment is nil, this is a no-op (nil-safe).
+// This is exported for use by services that need to apply enrichment data
+// to basic placeholders (when *PlaceholdersWithRelated is not used).
+func ApplyEnrichmentData(enrichment *TemplateEnrichmentData, placeholders map[string]string) {
+	if enrichment == nil {
+		return
+	}
+
+	if enrichment.PreviousStatus != "" {
+		placeholders["previous_status"] = enrichment.PreviousStatus
+	}
+	if enrichment.ParentTitle != "" {
+		placeholders["parent_title"] = enrichment.ParentTitle
+	}
+	if enrichment.GrandparentTitle != "" {
+		placeholders["grandparent_title"] = enrichment.GrandparentTitle
+	}
+	if enrichment.LatestNoteContent != "" {
+		placeholders["latest_note"] = enrichment.LatestNoteContent
+		placeholders["latest_note_type"] = enrichment.LatestNoteType
+	}
+
+	placeholders["notes_count"] = fmt.Sprintf("%d", enrichment.NotesCount)
+	placeholders["rejection_count"] = fmt.Sprintf("%d", enrichment.RejectionCount)
+	placeholders["sibling_total"] = fmt.Sprintf("%d", enrichment.SiblingTotal)
+	placeholders["sibling_completed"] = fmt.Sprintf("%d", enrichment.SiblingCompleted)
+	placeholders["sibling_blocked"] = fmt.Sprintf("%d", enrichment.SiblingBlocked)
 }
 
 // formatEpicKeysAsCSV formats a slice of epic keys as comma-separated values.

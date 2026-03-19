@@ -72,6 +72,14 @@ var configShowCmd = &cobra.Command{
 			}
 		}
 
+		// Load workflow sources
+		if configFile != "" {
+			multi := config.LoadMultiLevelWorkflowOrDefault(configFile)
+			if multi.Sources != nil {
+				settings["workflow_sources"] = multi.Sources
+			}
+		}
+
 		if cli.GlobalConfig.JSON {
 			return cli.OutputJSON(settings)
 		}
@@ -81,10 +89,24 @@ var configShowCmd = &cobra.Command{
 			if key == "patterns" {
 				fmt.Printf("  %s: (use --patterns flag to view)\n", key)
 			} else if key == "database" {
+				dbMap, ok := value.(map[string]interface{})
+				if !ok {
+					fmt.Printf("  %s: %v\n", key, value)
+					continue
+				}
 				fmt.Printf("  %s:\n", key)
-				dbMap := value.(map[string]interface{})
 				for k, v := range dbMap {
 					fmt.Printf("    %s: %v\n", k, v)
+				}
+			} else if key == "workflow_sources" {
+				sourcesMap, ok := value.(map[string]string)
+				if !ok {
+					fmt.Printf("  %s: %v\n", key, value)
+					continue
+				}
+				fmt.Printf("  %s:\n", key)
+				for k, v := range sourcesMap {
+					fmt.Printf("    %s_workflow: %s\n", k, v)
 				}
 			} else {
 				fmt.Printf("  %s: %v\n", key, value)
@@ -99,17 +121,59 @@ var configShowCmd = &cobra.Command{
 var configValidateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate configuration file",
-	Long:  `Check configuration file for errors and validate settings.`,
+	Long: `Check configuration file for errors and validate settings.
+Validates both .sharkconfig.json and .sharkworkflow.json (if present).
+Reports workflow sources, duplicate definitions, and structural issues.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		configFile := viper.ConfigFileUsed()
-		if configFile == "" {
+		configFile, err := cli.GetConfigPath()
+		if err != nil || configFile == "" {
 			cli.Warning("No configuration file to validate")
 			return nil
 		}
 
-		// Configuration is already validated during loading
-		// If we got here, it's valid
-		cli.Success(fmt.Sprintf("Configuration file is valid: %s", configFile))
+		results := config.ValidateWorkflowFiles(configFile)
+
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(results)
+		}
+
+		hasErrors := false
+		hasWarnings := false
+
+		// Display info results (sources)
+		fmt.Println("\nWorkflow Sources:")
+		for _, r := range results {
+			if r.Level == "info" {
+				fmt.Printf("  %s\n", r.Message)
+			}
+		}
+
+		// Display warnings
+		for _, r := range results {
+			if r.Level == "warning" {
+				hasWarnings = true
+				cli.Warning(r.Message)
+			}
+		}
+
+		// Display errors
+		for _, r := range results {
+			if r.Level == "error" {
+				hasErrors = true
+				cli.Error(r.Message)
+			}
+		}
+
+		if hasErrors {
+			fmt.Println()
+			return fmt.Errorf("configuration validation failed")
+		}
+
+		if hasWarnings {
+			cli.Info(fmt.Sprintf("\nConfiguration valid with warnings: %s", configFile))
+		} else {
+			cli.Success(fmt.Sprintf("\nConfiguration file is valid: %s", configFile))
+		}
 		return nil
 	},
 }
@@ -184,7 +248,7 @@ Exits with non-zero status if any errors found (for CI integration).`,
 
 		if hasErrors || validationErr != nil {
 			fmt.Println("")
-			os.Exit(1)
+			return fmt.Errorf("pattern validation failed")
 		}
 
 		cli.Success("\nAll patterns validated successfully")
@@ -607,28 +671,24 @@ func runConfigGetStatusAction(cmd *cobra.Command, args []string) error {
 	// Load workflow config
 	configPath, err := cli.GetConfigPath()
 	if err != nil {
-		cli.Error(fmt.Sprintf("Failed to get config path: %v", err))
-		os.Exit(2)
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 
 	// Load the workflow configuration
 	workflowConfig, err := config.LoadWorkflowConfig(configPath)
 	if err != nil {
-		cli.Error(fmt.Sprintf("Failed to load workflow config: %v", err))
-		os.Exit(2)
+		return fmt.Errorf("failed to load workflow config: %w", err)
 	}
 
 	// Check if workflow config or metadata exists
 	if workflowConfig == nil || workflowConfig.StatusMetadata == nil {
-		cli.Error("No workflow configuration found")
-		os.Exit(2)
+		return fmt.Errorf("no workflow configuration found")
 	}
 
 	// Check if status exists in config
 	metadata, exists := workflowConfig.StatusMetadata[status]
 	if !exists {
-		cli.Error(fmt.Sprintf("Status '%s' not found in workflow config", status))
-		os.Exit(1)
+		return fmt.Errorf("status '%s' not found in workflow config", status)
 	}
 
 	// Get the orchestrator action (may be nil)
@@ -639,8 +699,7 @@ func runConfigGetStatusAction(cmd *cobra.Command, args []string) error {
 		// Validate task key format
 		taskKey, err := NormalizeTaskKey(taskKeyFlag)
 		if err != nil {
-			cli.Error(fmt.Sprintf("Invalid task key format: %s", taskKeyFlag))
-			os.Exit(1)
+			return fmt.Errorf("invalid task key format: %s", taskKeyFlag)
 		}
 
 		// Try to use real placeholder generation for accurate preview
