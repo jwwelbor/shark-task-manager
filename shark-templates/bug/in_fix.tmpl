@@ -15,6 +15,9 @@ SEVERITY: {{.severity}}
 READ:
 (1) Bug report at {{.file_path}}
 (2) Reproduce the bug before fixing it
+{{- if .linked_entity_key}}
+(3) Linked {{.linked_entity_type}} context: shark get {{.linked_entity_key}}
+{{- end}}
 
 IMPLEMENT the fix:
 - Write a failing test that captures the bug scenario

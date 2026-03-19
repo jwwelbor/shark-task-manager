@@ -2,7 +2,7 @@ Design technical architecture for feature {{.id}}: "{{.title}}".
 
 LOAD: architecture skill workflows (design-system, design-backend, design-frontend, design-database, design-security) as applicable. LOAD: specification-writing workflow plan/feature-tech-plan.md.
 
-CHECK COMPLEXITY TIER: shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
+COMPLEXITY TIER: {{.complexity_tier}}
 
 PLAN GATE — run before creating any document:
 (1) READ: shark feature context get {{.id}} --json

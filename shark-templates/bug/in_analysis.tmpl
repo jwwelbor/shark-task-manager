@@ -10,6 +10,9 @@ Check for existing analysis:
 Analyze bug {{.key}}: "{{.title}}". Severity: {{.severity}}.
 
 READ: {{.file_path}}
+{{- if .linked_entity_key}}
+Also read linked {{.linked_entity_type}}: shark get {{.linked_entity_key}}
+{{- end}}
 
 Use debugging skill to trace the failure path. Identify:
 - Root cause (exact code location)

@@ -5,6 +5,9 @@ Check for existing QA test results or reports. If all mapped test cases pass and
 ---
 
 Launch qa agent with quality skill to test task {{.task_id}}: "{{.title}}".
+{{- if ne .priority "0"}}
+PRIORITY: {{.priority}}/10.
+{{- end}}
 
 LOAD: quality skill.
 
@@ -12,12 +15,15 @@ READ:
 (1) Task spec at {{.file_path}}
 (2) Feature test plan (09-test-plan.md) for the acceptance test cases mapped to this task
 (3) Feature PRD for feature-level intent
-(4) Implementation code and test results
+(4) Implementation code and test results{{if .files_changed}} (files: {{.files_changed}}){{end}}
 {{- if .related_docs}}
 (5) Related docs: {{.related_docs}}
 {{- end}}
 {{- if .related_tasks}}
 ({{if .related_docs}}6{{else}}5{{end}}) Related tasks: {{.related_tasks}}
+{{- end}}
+{{- if .depends_on}}
+DEPENDENCIES: {{.depends_on}} — verify these tasks are completed before proceeding.
 {{- end}}
 
 VALIDATE:

@@ -14,6 +14,9 @@ Verify fix for bug {{.key}}: "{{.title}}". Severity: {{.severity}}.
 READ:
 (1) Bug report at {{.file_path}}
 (2) shark bug notes {{.key}} — analysis (component) and fix description
+{{- if .linked_entity_key}}
+(3) Linked {{.linked_entity_type}}: shark get {{.linked_entity_key}}
+{{- end}}
 
 Determine component from analysis note, then verify:
 

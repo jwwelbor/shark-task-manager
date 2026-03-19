@@ -10,6 +10,15 @@ Check for existing implementation work:
 Implement change-card {{.key}}: "{{.title}}".
 
 READ: Change-card description at {{.file_path}}
+{{- if .justification}}
+JUSTIFICATION: {{.justification}}
+{{- end}}
+{{- if .impact_analysis}}
+IMPACT ANALYSIS: {{.impact_analysis}}
+{{- end}}
+{{- if .rollback_plan}}
+ROLLBACK PLAN: {{.rollback_plan}}
+{{- end}}
 
 IMPLEMENT the targeted change:
 - Follow existing patterns in the codebase

@@ -5,6 +5,9 @@ Check for existing code review notes or comments. If review is complete with app
 ---
 
 Launch tech-lead with quality skill to review task {{.task_id}}: "{{.title}}".
+{{- if ne .priority "0"}}
+PRIORITY: {{.priority}}/10.
+{{- end}}
 
 LOAD: quality skill workflow review-code.md.
 
@@ -12,12 +15,15 @@ READ:
 (1) Task spec at {{.file_path}}
 (2) Feature test plan (09-test-plan.md) for expected test coverage and acceptance criteria
 (3) Feature PRD for feature-level intent
-(4) Implementation code changes
+(4) Implementation code changes{{if .files_changed}} (files: {{.files_changed}}){{end}}
 {{- if .related_docs}}
 (5) Related docs: {{.related_docs}}
 {{- end}}
 {{- if .related_tasks}}
 ({{if .related_docs}}6{{else}}5{{end}}) Related tasks: {{.related_tasks}}
+{{- end}}
+{{- if .depends_on}}
+DEPENDENCIES: {{.depends_on}} — verify these tasks are completed before proceeding.
 {{- end}}
 
 REVIEW:

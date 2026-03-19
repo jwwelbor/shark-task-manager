@@ -3,6 +3,9 @@ Verify fix for bug {{.key}}: "{{.title}}". Severity: {{.severity}}.
 READ:
 (1) Bug report at {{.file_path}} — original reproduction steps and expected behavior
 (2) shark bug notes {{.key}} — analysis (component type) and fix description
+{{- if .linked_entity_key}}
+(3) Linked {{.linked_entity_type}}: shark get {{.linked_entity_key}} — verify fix in context of related entity
+{{- end}}
 
 STEP 1 — Determine component from analysis note:
 - Look for 'ANALYSIS: component=frontend' or 'ANALYSIS: component=backend'

@@ -1,6 +1,12 @@
 Assess scope for change-card {{.key}}: "{{.title}}".
 
 READ: Change-card description at {{.file_path}}
+{{- if .justification}}
+JUSTIFICATION: {{.justification}}
+{{- end}}
+{{- if .impact_analysis}}
+IMPACT ANALYSIS: {{.impact_analysis}}
+{{- end}}
 
 ASSESS: Is this properly scoped as a change-card or is it too large?
 

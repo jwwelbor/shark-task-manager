@@ -3,6 +3,9 @@ Fix bug {{.key}}: "{{.title}}". Severity: {{.severity}}.
 READ:
 (1) Bug report at {{.file_path}}
 (2) Analysis note: shark bug notes {{.key}} — use the identified root cause and files
+{{- if .linked_entity_key}}
+(3) Linked {{.linked_entity_type}} context: shark get {{.linked_entity_key}} — understand the broader feature/task context
+{{- end}}
 
 IMPLEMENT a minimal, targeted fix:
 - Address the exact root cause identified in analysis

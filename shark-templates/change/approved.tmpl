@@ -2,6 +2,15 @@ Implement change-card {{.key}}: "{{.title}}".
 
 READ:
 (1) Change-card description at {{.file_path}}
+{{- if .justification}}
+JUSTIFICATION: {{.justification}}
+{{- end}}
+{{- if .impact_analysis}}
+IMPACT ANALYSIS: {{.impact_analysis}}
+{{- end}}
+{{- if .rollback_plan}}
+ROLLBACK PLAN: {{.rollback_plan}}
+{{- end}}
 (2) Relevant code using research skill — understand the area being changed
 
 IMPLEMENT:
