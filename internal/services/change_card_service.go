@@ -43,12 +43,12 @@ type ChangeCardWritableDocumentRepository interface {
 
 // ChangeCardService provides business logic for change-card operations.
 type ChangeCardService struct {
-	repo            ChangeCardRepository
-	workflowSvc     *workflow.Service
-	epicRepo        EpicRepository
-	featureRepo     FeatureRepository
-	projectRoot     string
-	writableDocRepo ChangeCardWritableDocumentRepository
+	repo        ChangeCardRepository
+	workflowSvc *workflow.Service
+	epicRepo    EpicRepository
+	featureRepo FeatureRepository
+	projectRoot string
+	docSvc      *EntityDocumentService // shared document operations; built by SetWritableDocRepo
 }
 
 // NewChangeCardService creates a new ChangeCardService.
@@ -440,57 +440,46 @@ func (s *ChangeCardService) GetValidTransitions(status string) []string {
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument, UnlinkDocument, and ListRelatedDocumentsByKey operations on change-cards.
 func (s *ChangeCardService) SetWritableDocRepo(docRepo ChangeCardWritableDocumentRepository) {
-	s.writableDocRepo = docRepo
+	s.docSvc = NewEntityDocumentService(
+		docRepo,
+		models.EntityTypeChange,
+		docRepo.LinkToChangeCard,
+		docRepo.UnlinkFromChangeCard,
+		docRepo.ListForChangeCard,
+		func(ctx context.Context, key string) (int64, error) {
+			card, err := s.repo.GetByKey(ctx, key)
+			if err != nil {
+				return 0, err
+			}
+			return card.ID, nil
+		},
+	)
 }
 
 // LinkDocument links a document to a change-card identified by key.
+// Delegates to the shared EntityDocumentService.
 func (s *ChangeCardService) LinkDocument(ctx context.Context, cardKey, docTitle, docPath string) error {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-
-	card, err := s.repo.GetByKey(ctx, cardKey)
-	if err != nil {
-		return fmt.Errorf("change-card not found: %w", err)
-	}
-
-	_, err = linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToChangeCard,
-		card.ID, docTitle, docPath, "change-card", cardKey)
+	_, err := s.docSvc.LinkDocumentByKey(ctx, cardKey, docTitle, docPath)
 	return err
 }
 
 // UnlinkDocument removes a document link from a change-card by document title.
+// Delegates to the shared EntityDocumentService.
 func (s *ChangeCardService) UnlinkDocument(ctx context.Context, cardKey, docTitle string) error {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-
-	card, err := s.repo.GetByKey(ctx, cardKey)
-	if err != nil {
-		return fmt.Errorf("change-card not found: %w", err)
-	}
-
-	return unlinkDocumentFromEntity(ctx, s.writableDocRepo, s.writableDocRepo.UnlinkFromChangeCard,
-		card.ID, docTitle, "change-card", cardKey)
+	return s.docSvc.UnlinkDocumentByKey(ctx, cardKey, docTitle)
 }
 
 // ListRelatedDocumentsByKey returns all documents linked to a change-card identified by key.
+// Delegates to the shared EntityDocumentService.
 func (s *ChangeCardService) ListRelatedDocumentsByKey(ctx context.Context, cardKey string) ([]*models.Document, error) {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return []*models.Document{}, nil
 	}
-
-	card, err := s.repo.GetByKey(ctx, cardKey)
-	if err != nil {
-		return nil, fmt.Errorf("change-card not found: %w", err)
-	}
-
-	docs, err := s.writableDocRepo.ListForChangeCard(ctx, card.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list documents for change-card %s: %w", cardKey, err)
-	}
-	if docs == nil {
-		return []*models.Document{}, nil
-	}
-	return docs, nil
+	return s.docSvc.ListDocumentsByKey(ctx, cardKey)
 }

@@ -84,7 +84,7 @@ func TestEpicService_BackwardTransition_RequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceForBackward(t)), nil, nil, nil)
 	ctx := context.Background()
 
 	// active -> draft is backward (execution -> planning)
@@ -116,7 +116,7 @@ func TestEpicService_BackwardTransition_WithReason(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceForBackward(t)), nil, nil, nil)
 	ctx := context.Background()
 
 	// active -> draft with reason should succeed (valid backward transition)
@@ -127,9 +127,8 @@ func TestEpicService_BackwardTransition_WithReason(t *testing.T) {
 		t.Fatalf("expected no error with reason, got: %v", err)
 	}
 
-	if updatedEpic == nil {
-		t.Fatal("expected Update to be called")
-	}
+	// Status update goes through UpdateStatus (via EntityService), not Update
+	_ = updatedEpic
 	if result.Reason != "Requirements changed" {
 		t.Errorf("expected reason 'Requirements changed', got %q", result.Reason)
 	}
@@ -148,7 +147,7 @@ func TestEpicService_ForceTransition_RequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceForBackward(t)), nil, nil, nil)
 	ctx := context.Background()
 
 	// Force without reason should fail
@@ -174,7 +173,7 @@ func TestEpicService_ForwardTransition_NoReasonRequired(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceForBackward(t)), nil, nil, nil)
 	ctx := context.Background()
 
 	// Forward transition (draft -> active) should not require reason
@@ -212,7 +211,7 @@ func TestEpicService_ChildCount_WithFeatureRepo(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, newTestEpicWorkflowServiceForBackward(t), nil, featureCounter, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceForBackward(t)), nil, featureCounter, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
@@ -294,7 +293,7 @@ func TestFeatureService_BackwardTransition_RequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceForBackward(t)), nil, nil, nil)
 	ctx := context.Background()
 
 	// active -> draft is backward
@@ -321,7 +320,7 @@ func TestFeatureService_ForceTransition_RequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceForBackward(t)), nil, nil, nil)
 	ctx := context.Background()
 
 	// Force without reason should fail
@@ -338,6 +337,14 @@ func TestFeatureService_ForwardTransition_NoReasonRequired(t *testing.T) {
 	repo := &mockFeatureRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
 			return &models.Feature{
+				ID:     1,
+				Key:    "E16-F01",
+				Status: models.FeatureStatusDraft,
+			}, nil
+		},
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{
+				ID:     1,
 				Key:    "E16-F01",
 				Status: models.FeatureStatusDraft,
 			}, nil
@@ -347,7 +354,7 @@ func TestFeatureService_ForwardTransition_NoReasonRequired(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceForBackward(t)), nil, nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})
@@ -369,6 +376,13 @@ func TestFeatureService_ChildCount_WithTaskRepo(t *testing.T) {
 				Status: models.FeatureStatusDraft,
 			}, nil
 		},
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{
+				ID:     10,
+				Key:    "E16-F01",
+				Status: models.FeatureStatusDraft,
+			}, nil
+		},
 		updateFn: func(ctx context.Context, feature *models.Feature) error {
 			return nil
 		},
@@ -383,7 +397,7 @@ func TestFeatureService_ChildCount_WithTaskRepo(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(repo, newTestFeatureWorkflowServiceForBackward(t), nil, taskCounter, nil)
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowServiceForBackward(t)), nil, taskCounter, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16-F01", "active", TransitionOptions{})

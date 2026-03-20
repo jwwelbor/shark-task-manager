@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -134,38 +135,76 @@ func TestEntityRegistry_RegisteredTypes(t *testing.T) {
 }
 
 func TestEntityRegistry_ConcurrentAccess(t *testing.T) {
-	reg := NewEntityRegistry()
+	t.Run("concurrent reads", func(t *testing.T) {
+		reg := NewEntityRegistry()
 
-	// Pre-register all types.
-	allTypes := []models.EntityType{
-		models.EntityTypeEpic,
-		models.EntityTypeFeature,
-		models.EntityTypeTask,
-		models.EntityTypeBug,
-		models.EntityTypeChange,
-	}
-	for _, et := range allTypes {
-		reg.Register(et, &mockEntityRepository{entityType: et})
-	}
+		// Pre-register all types.
+		allTypes := []models.EntityType{
+			models.EntityTypeEpic,
+			models.EntityTypeFeature,
+			models.EntityTypeTask,
+			models.EntityTypeBug,
+			models.EntityTypeChange,
+		}
+		for _, et := range allTypes {
+			reg.Register(et, &mockEntityRepository{entityType: et})
+		}
 
-	// Concurrent reads should not race.
-	var wg sync.WaitGroup
-	const goroutines = 50
+		// Concurrent reads should not race.
+		var wg sync.WaitGroup
+		const goroutines = 50
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			et := allTypes[idx%len(allTypes)]
+		for i := 0; i < goroutines; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				et := allTypes[idx%len(allTypes)]
 
-			repo, err := reg.GetRepository(et)
-			assert.NoError(t, err)
-			assert.NotNil(t, repo)
+				repo, err := reg.GetRepository(et)
+				assert.NoError(t, err)
+				assert.NotNil(t, repo)
 
-			types := reg.RegisteredTypes()
-			assert.Len(t, types, 5)
-		}(i)
-	}
+				types := reg.RegisteredTypes()
+				assert.Len(t, types, 5)
+			}(i)
+		}
 
-	wg.Wait()
+		wg.Wait()
+	})
+
+	t.Run("concurrent register and get", func(t *testing.T) {
+		// Use unique entity types to avoid duplicate registration panics.
+		// Register in goroutines while other goroutines read.
+		const numTypes = 20
+		var wg sync.WaitGroup
+		reg := NewEntityRegistry()
+
+		// Register goroutines — each registers a unique type.
+		for i := 0; i < numTypes; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				et := models.EntityType(fmt.Sprintf("test_type_%d", idx))
+				reg.Register(et, &mockEntityRepository{entityType: et})
+			}(i)
+		}
+
+		// Concurrent reader goroutines that call GetRepository and RegisteredTypes.
+		for i := 0; i < 30; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				et := models.EntityType(fmt.Sprintf("test_type_%d", idx%numTypes))
+				// May or may not find the type depending on registration order.
+				_, _ = reg.GetRepository(et)
+				_ = reg.RegisteredTypes()
+			}(i)
+		}
+
+		wg.Wait()
+
+		// After all goroutines complete, all types should be registered.
+		types := reg.RegisteredTypes()
+		assert.Len(t, types, numTypes)
+	})
 }

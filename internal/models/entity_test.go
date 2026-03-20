@@ -326,6 +326,82 @@ func TestEntity_NilPointerFields(t *testing.T) {
 	}
 }
 
+func TestEntity_Validate(t *testing.T) {
+	// Test that Validate() is callable via the Entity interface for all 5 types.
+	entityTypes := []EntityType{
+		EntityTypeEpic,
+		EntityTypeFeature,
+		EntityTypeTask,
+		EntityTypeBug,
+		EntityTypeChange,
+	}
+
+	// Build fully valid entities for Validate() testing.
+	slug := "test-slug"
+	desc := "test description"
+	filePath := "docs/plan/test.md"
+	now := time.Now()
+
+	validEntities := map[EntityType]Entity{
+		EntityTypeEpic: &Epic{
+			ID: 1, Key: "E01", Title: "Epic", Slug: &slug, Description: &desc,
+			Status: EpicStatusActive, FilePath: &filePath, Priority: "high",
+			CreatedAt: now, UpdatedAt: now,
+		},
+		EntityTypeFeature: &Feature{
+			ID: 2, Key: "E01-F01", Title: "Feature", Slug: &slug, Description: &desc,
+			Status: FeatureStatusActive, FilePath: &filePath,
+			CreatedAt: now, UpdatedAt: now,
+		},
+		EntityTypeTask: &Task{
+			ID: 3, Key: "T-E01-F01-001", Title: "Task", Slug: &slug, Description: &desc,
+			Status: TaskStatus("todo"), FilePath: &filePath, Priority: 5,
+			CreatedAt: now, UpdatedAt: now,
+		},
+		EntityTypeBug: &Bug{
+			ID: 4, Key: "B001", Title: "Bug", Slug: &slug, Description: &desc,
+			Status: BugStatus("open"), FilePath: &filePath, Severity: "medium",
+			CreatedAt: now, UpdatedAt: now,
+		},
+		EntityTypeChange: &ChangeCard{
+			ID: 5, Key: "CC-001", Title: "Change", Slug: &slug, Description: &desc,
+			Status: ChangeCardStatus("draft"), FilePath: &filePath,
+			CreatedAt: now, UpdatedAt: now,
+		},
+	}
+
+	for _, et := range entityTypes {
+		t.Run(string(et)+"_populated", func(t *testing.T) {
+			e := validEntities[et]
+			err := e.Validate()
+			if err != nil {
+				t.Errorf("Validate() on populated %s returned error: %v", et, err)
+			}
+		})
+	}
+
+	// Zero-value structs should fail validation (empty title).
+	zeroEntities := []struct {
+		name   string
+		entity Entity
+	}{
+		{"epic_zero", &Epic{}},
+		{"feature_zero", &Feature{}},
+		{"task_zero", &Task{}},
+		{"bug_zero", &Bug{}},
+		{"change_card_zero", &ChangeCard{}},
+	}
+
+	for _, tt := range zeroEntities {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.entity.Validate()
+			if err == nil {
+				t.Error("Validate() on zero-value entity should return error (empty title)")
+			}
+		})
+	}
+}
+
 func TestEntity_ZeroValueAccessors(t *testing.T) {
 	// Ensure zero-value structs do not panic on any accessor.
 	entities := []Entity{

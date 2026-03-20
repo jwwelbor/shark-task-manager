@@ -10,30 +10,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
 
-// entityNoteAdapter adapts *repository.EntityNoteRepository to the services.EpicNoteRepository
-// and services.FeatureNoteRepository interfaces (both have identical signatures).
-// The service interfaces use (string, string) for entityType and documentPath,
-// while the repository uses (models.EntityType, *string).
-type entityNoteAdapter struct {
-	repo *repository.EntityNoteRepository
-}
-
-func (a *entityNoteAdapter) CreateRejectionNote(
-	ctx context.Context,
-	entityType string,
-	entityID int64,
-	historyID int64,
-	fromStatus, toStatus, reason, rejectedBy, documentPath string,
-) error {
-	var dp *string
-	if documentPath != "" {
-		dp = &documentPath
-	}
-	_, err := a.repo.CreateRejectionNote(ctx, models.EntityType(entityType), entityID, historyID,
-		fromStatus, toStatus, reason, rejectedBy, dp)
-	return err
-}
-
 // workSessionAdapter adapts *repository.WorkSessionRepository to the services.WorkSessionRepository interface.
 // The repository returns *repository.SessionStats but the service interface expects *services.WorkSessionStats.
 type workSessionAdapter struct {
@@ -143,9 +119,10 @@ func GetEpicService() *services.EpicService {
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	docRepo := repository.NewDocumentRepository(db)
-	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	enrichRepo := repository.NewTemplateEnrichmentRepository(db)
-	svc := services.NewEpicService(epicRepo, workflowSvc, noteRepo, featureRepo, taskRepo)
+	entitySvc := GetEntityService()
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeEpic)
+	svc := services.NewEpicService(epicRepo, entitySvc, entityRepo, featureRepo, taskRepo)
 	svc.SetDocRepo(docRepo)
 	svc.SetWritableDocRepo(docRepo)
 	svc.SetEnrichRepo(enrichRepo)
@@ -180,10 +157,11 @@ func GetFeatureService() *services.FeatureService {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
-	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	docRepo := repository.NewDocumentRepository(db)
 	enrichRepo := repository.NewTemplateEnrichmentRepository(db)
-	svc := services.NewFeatureService(featureRepo, workflowSvc, noteRepo, taskRepo, epicRepo)
+	entitySvc := GetEntityService()
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeFeature)
+	svc := services.NewFeatureService(featureRepo, entitySvc, entityRepo, taskRepo, epicRepo)
 	svc.SetDocRepo(docRepo)
 	svc.SetWritableDocRepo(docRepo)
 	svc.SetEnrichRepo(enrichRepo)

@@ -94,7 +94,7 @@ func TestFeatureListIntegration_ProgressFormatValidation(t *testing.T) {
 
 	// Verify progress calculation for each feature via service layer
 	workflowSvc := workflow.NewService(".")
-	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, nil)
+	featureSvc := services.NewFeatureService(featureRepo, services.NewEntityService(workflowSvc), nil, taskRepo, nil)
 	for i, fd := range featureData {
 		progressInfo, err := featureSvc.GetProgress(ctx, features[i].Key)
 		if err != nil {

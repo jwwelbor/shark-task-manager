@@ -8,28 +8,51 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
-// Mock implementations for bug/change resume dependencies
-
-type mockResumeBugRepo struct {
-	getByKeyFunc func(ctx context.Context, key string) (*models.Bug, error)
+// mockResumeEntityRepo provides a configurable mock EntityRepository for ResumeService tests.
+type mockResumeEntityRepo struct {
+	getByKeyFunc func(ctx context.Context, key string) (models.Entity, error)
 }
 
-func (m *mockResumeBugRepo) GetByKey(ctx context.Context, key string) (*models.Bug, error) {
+func (m *mockResumeEntityRepo) GetByKey(ctx context.Context, key string) (models.Entity, error) {
 	if m.getByKeyFunc != nil {
 		return m.getByKeyFunc(ctx, key)
 	}
-	return &models.Bug{ID: 10, Key: key, Title: "Test Bug", Status: "open"}, nil
+	return nil, fmt.Errorf("GetByKey not implemented")
 }
 
-type mockResumeChangeCardRepo struct {
-	getByKeyFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
+func (m *mockResumeEntityRepo) GetByID(_ context.Context, _ int64) (models.Entity, error) {
+	return nil, nil
 }
 
-func (m *mockResumeChangeCardRepo) GetByKey(ctx context.Context, key string) (*models.ChangeCard, error) {
-	if m.getByKeyFunc != nil {
-		return m.getByKeyFunc(ctx, key)
+func (m *mockResumeEntityRepo) UpdateStatus(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+
+func (m *mockResumeEntityRepo) Update(_ context.Context, _ models.Entity) error {
+	return nil
+}
+
+func (m *mockResumeEntityRepo) GetContextData(_ context.Context, _ int64) (*string, error) {
+	return nil, nil
+}
+
+func (m *mockResumeEntityRepo) UpdateContextData(_ context.Context, _ int64, _ *string) error {
+	return nil
+}
+
+// newResumeTestRegistry creates a registry with bug and change entity types.
+func newResumeTestRegistry(bugRepo, changeRepo EntityRepository) *EntityRegistry {
+	reg := NewEntityRegistry()
+	reg.Register(models.EntityTypeEpic, &mockResumeEntityRepo{})
+	reg.Register(models.EntityTypeFeature, &mockResumeEntityRepo{})
+	reg.Register(models.EntityTypeTask, &mockResumeEntityRepo{})
+	if bugRepo != nil {
+		reg.Register(models.EntityTypeBug, bugRepo)
 	}
-	return &models.ChangeCard{ID: 20, Key: "CC-001", Title: "Test Change"}, nil
+	if changeRepo != nil {
+		reg.Register(models.EntityTypeChange, changeRepo)
+	}
+	return reg
 }
 
 // TestResumeService_GetBugResume_ReturnsContext tests bug resume context retrieval.
@@ -37,8 +60,8 @@ func TestResumeService_GetBugResume_ReturnsContext(t *testing.T) {
 	ctx := context.Background()
 	bugKey := "B001"
 
-	mockBugRepo := &mockResumeBugRepo{
-		getByKeyFunc: func(ctx context.Context, key string) (*models.Bug, error) {
+	bugRepo := &mockResumeEntityRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (models.Entity, error) {
 			if key != bugKey {
 				t.Errorf("GetByKey called with %q, want %q", key, bugKey)
 			}
@@ -52,9 +75,9 @@ func TestResumeService_GetBugResume_ReturnsContext(t *testing.T) {
 	}
 
 	noteRepo := &mockResumeNoteRepo{}
+	reg := newResumeTestRegistry(bugRepo, &mockResumeEntityRepo{})
 
-	svc := NewResumeService(nil, nil, nil, noteRepo)
-	svc.SetBugRepo(mockBugRepo)
+	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
 
 	result, err := svc.GetBugResume(ctx, bugKey)
 	if err != nil {
@@ -82,16 +105,16 @@ func TestResumeService_GetBugResume_ReturnsContext(t *testing.T) {
 func TestResumeService_GetBugResume_NotFound(t *testing.T) {
 	ctx := context.Background()
 
-	mockBugRepo := &mockResumeBugRepo{
-		getByKeyFunc: func(ctx context.Context, key string) (*models.Bug, error) {
+	bugRepo := &mockResumeEntityRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (models.Entity, error) {
 			return nil, fmt.Errorf("bug not found: %s", key)
 		},
 	}
 
 	noteRepo := &mockResumeNoteRepo{}
+	reg := newResumeTestRegistry(bugRepo, &mockResumeEntityRepo{})
 
-	svc := NewResumeService(nil, nil, nil, noteRepo)
-	svc.SetBugRepo(mockBugRepo)
+	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
 
 	_, err := svc.GetBugResume(ctx, "B999")
 	if err == nil {
@@ -99,21 +122,22 @@ func TestResumeService_GetBugResume_NotFound(t *testing.T) {
 	}
 }
 
-// TestResumeService_GetBugResume_NilBugRepo tests graceful degradation when bugRepo is nil.
-func TestResumeService_GetBugResume_NilBugRepo(t *testing.T) {
+// TestResumeService_GetBugResume_UnregisteredType tests error when bug type not registered.
+func TestResumeService_GetBugResume_UnregisteredType(t *testing.T) {
 	ctx := context.Background()
 
 	noteRepo := &mockResumeNoteRepo{}
+	// Create registry without bug type
+	reg := newResumeTestRegistry(nil, &mockResumeEntityRepo{})
 
-	svc := NewResumeService(nil, nil, nil, noteRepo)
-	// Do NOT set bug repo - it should remain nil
+	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
 
 	_, err := svc.GetBugResume(ctx, "B001")
 	if err == nil {
-		t.Error("GetBugResume() with nil bugRepo should return error")
+		t.Error("GetBugResume() with unregistered bug type should return error")
 	}
-	if err != nil && !containsString(err.Error(), "bug repository") {
-		t.Errorf("GetBugResume() error should mention 'bug repository', got: %v", err)
+	if err != nil && !containsString(err.Error(), "bug support not configured") {
+		t.Errorf("GetBugResume() error should mention 'bug support not configured', got: %v", err)
 	}
 }
 
@@ -121,7 +145,11 @@ func TestResumeService_GetBugResume_NilBugRepo(t *testing.T) {
 func TestResumeService_GetBugResume_IncludesNotes(t *testing.T) {
 	ctx := context.Background()
 
-	mockBugRepo := &mockResumeBugRepo{}
+	bugRepo := &mockResumeEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.Bug{ID: 10, Key: key, Title: "Test Bug", Status: "open"}, nil
+		},
+	}
 
 	notesCalled := false
 	noteRepo := &mockResumeNoteRepo{
@@ -136,8 +164,8 @@ func TestResumeService_GetBugResume_IncludesNotes(t *testing.T) {
 		},
 	}
 
-	svc := NewResumeService(nil, nil, nil, noteRepo)
-	svc.SetBugRepo(mockBugRepo)
+	reg := newResumeTestRegistry(bugRepo, &mockResumeEntityRepo{})
+	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
 
 	result, err := svc.GetBugResume(ctx, "B001")
 	if err != nil {
@@ -158,8 +186,8 @@ func TestResumeService_GetChangeResume_ReturnsContext(t *testing.T) {
 	ctx := context.Background()
 	changeKey := "C001"
 
-	mockChangeRepo := &mockResumeChangeCardRepo{
-		getByKeyFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+	changeRepo := &mockResumeEntityRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (models.Entity, error) {
 			if key != changeKey {
 				t.Errorf("GetByKey called with %q, want %q", key, changeKey)
 			}
@@ -172,9 +200,9 @@ func TestResumeService_GetChangeResume_ReturnsContext(t *testing.T) {
 	}
 
 	noteRepo := &mockResumeNoteRepo{}
+	reg := newResumeTestRegistry(&mockResumeEntityRepo{}, changeRepo)
 
-	svc := NewResumeService(nil, nil, nil, noteRepo)
-	svc.SetChangeCardRepo(mockChangeRepo)
+	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
 
 	result, err := svc.GetChangeResume(ctx, changeKey)
 	if err != nil {
@@ -199,16 +227,16 @@ func TestResumeService_GetChangeResume_ReturnsContext(t *testing.T) {
 func TestResumeService_GetChangeResume_NotFound(t *testing.T) {
 	ctx := context.Background()
 
-	mockChangeRepo := &mockResumeChangeCardRepo{
-		getByKeyFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+	changeRepo := &mockResumeEntityRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (models.Entity, error) {
 			return nil, fmt.Errorf("change not found: %s", key)
 		},
 	}
 
 	noteRepo := &mockResumeNoteRepo{}
+	reg := newResumeTestRegistry(&mockResumeEntityRepo{}, changeRepo)
 
-	svc := NewResumeService(nil, nil, nil, noteRepo)
-	svc.SetChangeCardRepo(mockChangeRepo)
+	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
 
 	_, err := svc.GetChangeResume(ctx, "C999")
 	if err == nil {
@@ -216,21 +244,22 @@ func TestResumeService_GetChangeResume_NotFound(t *testing.T) {
 	}
 }
 
-// TestResumeService_GetChangeResume_NilChangeRepo tests graceful degradation when changeCardRepo is nil.
-func TestResumeService_GetChangeResume_NilChangeRepo(t *testing.T) {
+// TestResumeService_GetChangeResume_UnregisteredType tests error when change type not registered.
+func TestResumeService_GetChangeResume_UnregisteredType(t *testing.T) {
 	ctx := context.Background()
 
 	noteRepo := &mockResumeNoteRepo{}
+	// Create registry without change type
+	reg := newResumeTestRegistry(&mockResumeEntityRepo{}, nil)
 
-	svc := NewResumeService(nil, nil, nil, noteRepo)
-	// Do NOT set change card repo
+	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
 
 	_, err := svc.GetChangeResume(ctx, "C001")
 	if err == nil {
-		t.Error("GetChangeResume() with nil changeCardRepo should return error")
+		t.Error("GetChangeResume() with unregistered change type should return error")
 	}
-	if err != nil && !containsString(err.Error(), "change") {
-		t.Errorf("GetChangeResume() error should mention 'change', got: %v", err)
+	if err != nil && !containsString(err.Error(), "change support not configured") {
+		t.Errorf("GetChangeResume() error should mention 'change support not configured', got: %v", err)
 	}
 }
 
@@ -238,7 +267,11 @@ func TestResumeService_GetChangeResume_NilChangeRepo(t *testing.T) {
 func TestResumeService_GetChangeResume_IncludesNotes(t *testing.T) {
 	ctx := context.Background()
 
-	mockChangeRepo := &mockResumeChangeCardRepo{}
+	changeRepo := &mockResumeEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.ChangeCard{ID: 20, Key: "CC-001", Title: "Test Change"}, nil
+		},
+	}
 
 	notesCalled := false
 	noteRepo := &mockResumeNoteRepo{
@@ -253,8 +286,8 @@ func TestResumeService_GetChangeResume_IncludesNotes(t *testing.T) {
 		},
 	}
 
-	svc := NewResumeService(nil, nil, nil, noteRepo)
-	svc.SetChangeCardRepo(mockChangeRepo)
+	reg := newResumeTestRegistry(&mockResumeEntityRepo{}, changeRepo)
+	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
 
 	result, err := svc.GetChangeResume(ctx, "C001")
 	if err != nil {
@@ -270,8 +303,23 @@ func TestResumeService_GetChangeResume_IncludesNotes(t *testing.T) {
 	}
 }
 
+// TestResumeService_NilRegistry_Panics tests that nil registry panics at construction.
+func TestResumeService_NilRegistry_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nil registry")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "ResumeService: EntityRegistry must not be nil" {
+			t.Errorf("unexpected panic message: %v", r)
+		}
+	}()
+
+	NewResumeService(nil, nil, nil, &mockResumeNoteRepo{}, nil)
+}
+
 // mockResumeNoteRepo is a mock for ResumeEntityNoteRepository.
-// Defined here to allow tests in this file; uses lowercase to stay package-private.
 type mockResumeNoteRepo struct {
 	getByEntityFunc func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
 }

@@ -149,7 +149,8 @@ func main() {
 
 	// Update feature progress via service layer
 	workflowSvc := workflow.NewService(".")
-	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, epicRepo)
+	entitySvc := services.NewEntityService(workflowSvc)
+	featureSvc := services.NewFeatureService(featureRepo, entitySvc, nil, taskRepo, epicRepo)
 	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		log.Fatal("Failed to update feature progress:", err)
 	}
@@ -181,7 +182,7 @@ func main() {
 	}
 
 	// Show epic progress via service layer
-	epicSvc := services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo, taskRepo)
+	epicSvc := services.NewEpicService(epicRepo, entitySvc, nil, featureRepo, taskRepo)
 	epicProgressInfo, err := epicSvc.GetProgress(ctx, epic.Key)
 	if err != nil {
 		log.Fatal("Failed to get epic progress:", err)

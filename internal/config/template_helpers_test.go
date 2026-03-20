@@ -2440,3 +2440,172 @@ func TestTaskPlaceholdersWithRelated_WithEnrichment(t *testing.T) {
 		t.Errorf("sibling_total = %q, want %q", result["sibling_total"], "10")
 	}
 }
+
+// TestEntityPlaceholders_WithTask verifies EntityPlaceholders extracts shared fields from a Task.
+func TestEntityPlaceholders_WithTask(t *testing.T) {
+	slug := "my-task"
+	desc := "A description"
+	fp := "docs/task.md"
+	task := &models.Task{
+		ID:          42,
+		Key:         "T-E07-F01-001",
+		Title:       "My Task",
+		Slug:        &slug,
+		Description: &desc,
+		Status:      "in_progress",
+		FilePath:    &fp,
+		CreatedAt:   time.Date(2025, 6, 1, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2025, 6, 2, 12, 0, 0, 0, time.UTC),
+	}
+
+	m := EntityPlaceholders(task)
+
+	checks := map[string]string{
+		"id":          "T-E07-F01-001",
+		"key":         "T-E07-F01-001",
+		"entity_type": "task",
+		"title":       "My Task",
+		"status":      "in_progress",
+		"slug":        "my-task",
+		"description": "A description",
+		"file_path":   "docs/task.md",
+		"created_at":  "2025-06-01T10:00:00Z",
+		"updated_at":  "2025-06-02T12:00:00Z",
+	}
+	for k, want := range checks {
+		if got := m[k]; got != want {
+			t.Errorf("EntityPlaceholders(task)[%q] = %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestEntityPlaceholders_WithEpic verifies EntityPlaceholders extracts shared fields from an Epic.
+func TestEntityPlaceholders_WithEpic(t *testing.T) {
+	epic := &models.Epic{
+		ID:        1,
+		Key:       "E07",
+		Title:     "My Epic",
+		Status:    "active",
+		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC),
+	}
+
+	m := EntityPlaceholders(epic)
+
+	if m["entity_type"] != "epic" {
+		t.Errorf("entity_type = %q, want %q", m["entity_type"], "epic")
+	}
+	if m["key"] != "E07" {
+		t.Errorf("key = %q, want %q", m["key"], "E07")
+	}
+	if m["title"] != "My Epic" {
+		t.Errorf("title = %q, want %q", m["title"], "My Epic")
+	}
+	// slug should not be present when nil
+	if _, ok := m["slug"]; ok {
+		t.Error("slug should not be present when nil")
+	}
+	// description should not be present when nil
+	if _, ok := m["description"]; ok {
+		t.Error("description should not be present when nil")
+	}
+	// file_path should not be present when nil
+	if _, ok := m["file_path"]; ok {
+		t.Error("file_path should not be present when nil")
+	}
+}
+
+// TestEntityPlaceholders_WithBug verifies EntityPlaceholders extracts shared fields from a Bug.
+func TestEntityPlaceholders_WithBug(t *testing.T) {
+	slug := "crash-on-login"
+	bug := &models.Bug{
+		ID:        10,
+		Key:       "B001",
+		Title:     "Crash on Login",
+		Slug:      &slug,
+		Status:    "open",
+		Severity:  "critical",
+		CreatedAt: time.Date(2025, 3, 15, 8, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 3, 15, 9, 0, 0, 0, time.UTC),
+	}
+
+	m := EntityPlaceholders(bug)
+
+	if m["entity_type"] != "bug" {
+		t.Errorf("entity_type = %q, want %q", m["entity_type"], "bug")
+	}
+	if m["key"] != "B001" {
+		t.Errorf("key = %q, want %q", m["key"], "B001")
+	}
+	if m["slug"] != "crash-on-login" {
+		t.Errorf("slug = %q, want %q", m["slug"], "crash-on-login")
+	}
+	// Bug-specific fields like severity should NOT be in base placeholders
+	if _, ok := m["severity"]; ok {
+		t.Error("severity should not be in base EntityPlaceholders")
+	}
+}
+
+// TestEntityPlaceholders_WithChangeCard verifies EntityPlaceholders with a ChangeCard.
+func TestEntityPlaceholders_WithChangeCard(t *testing.T) {
+	card := &models.ChangeCard{
+		ID:        5,
+		Key:       "CC-001",
+		Title:     "Migrate DB",
+		Status:    "draft",
+		Priority:  3,
+		CreatedAt: time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 4, 2, 0, 0, 0, 0, time.UTC),
+	}
+
+	m := EntityPlaceholders(card)
+
+	if m["entity_type"] != "change" {
+		t.Errorf("entity_type = %q, want %q", m["entity_type"], "change")
+	}
+	if m["key"] != "CC-001" {
+		t.Errorf("key = %q, want %q", m["key"], "CC-001")
+	}
+	// priority should NOT be in base (it's entity-specific formatting)
+	if _, ok := m["priority"]; ok {
+		t.Error("priority should not be in base EntityPlaceholders")
+	}
+}
+
+// TestEntityPlaceholders_NilEntity verifies EntityPlaceholders returns empty map for nil.
+func TestEntityPlaceholders_NilEntity(t *testing.T) {
+	m := EntityPlaceholders(nil)
+	if len(m) != 0 {
+		t.Errorf("EntityPlaceholders(nil) returned %d entries, want 0", len(m))
+	}
+}
+
+// TestEntityPlaceholders_OptionalFieldsOmittedWhenEmpty verifies that slug, description,
+// and file_path are omitted when the Entity returns empty strings for them.
+func TestEntityPlaceholders_OptionalFieldsOmittedWhenEmpty(t *testing.T) {
+	// Feature with no optional pointer fields set
+	feature := &models.Feature{
+		ID:        2,
+		Key:       "E01-F01",
+		Title:     "Feature",
+		Status:    "todo",
+		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	m := EntityPlaceholders(feature)
+
+	// These should NOT be present since the pointer fields are nil
+	for _, key := range []string{"slug", "description", "file_path"} {
+		if _, ok := m[key]; ok {
+			t.Errorf("%q should not be present when the underlying field is nil", key)
+		}
+	}
+
+	// These should always be present
+	for _, key := range []string{"id", "key", "entity_type", "title", "status", "created_at", "updated_at"} {
+		if _, ok := m[key]; !ok {
+			t.Errorf("%q should always be present in EntityPlaceholders output", key)
+		}
+	}
+}

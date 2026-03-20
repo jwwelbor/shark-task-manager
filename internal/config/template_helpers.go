@@ -81,6 +81,43 @@ func parseFeatureKeyFromTaskKey(taskKey string) string {
 	return ""
 }
 
+// EntityPlaceholders creates a map of template placeholders from any Entity
+// interface value. It extracts the shared fields common to all entity types:
+// id, key, entity_type, title, status, created_at, updated_at, and optionally
+// slug, description, and file_path.
+//
+// Entity-specific placeholder functions (TaskPlaceholders, FeaturePlaceholders,
+// etc.) call this base function first, then add their unique fields.
+//
+// Returns an empty map if entity is nil.
+func EntityPlaceholders(entity models.Entity) map[string]string {
+	if entity == nil {
+		return make(map[string]string)
+	}
+	m := map[string]string{
+		"id":          entity.GetKey(),
+		"key":         entity.GetKey(),
+		"entity_type": string(entity.GetEntityType()),
+		"title":       entity.GetTitle(),
+		"status":      entity.GetStatus(),
+		"created_at":  entity.GetCreatedAt().Format(time.RFC3339),
+		"updated_at":  entity.GetUpdatedAt().Format(time.RFC3339),
+	}
+
+	// Optional shared fields via Entity interface
+	if slug := entity.GetSlug(); slug != "" {
+		m["slug"] = slug
+	}
+	if desc := entity.GetDescription(); desc != "" {
+		m["description"] = desc
+	}
+	if fp := entity.GetFilePath(); fp != "" {
+		m["file_path"] = fp
+	}
+
+	return m
+}
+
 // TaskPlaceholders creates a map of template placeholders from a Task.
 // Returns a map suitable for use with PopulateTemplate.
 // Returns an empty map if task is nil.
@@ -88,39 +125,25 @@ func TaskPlaceholders(task *models.Task) map[string]string {
 	if task == nil {
 		return make(map[string]string)
 	}
+	m := EntityPlaceholders(task)
+
+	// Task-specific key aliases
 	epicKey := parseEpicKeyFromEntityKey(task.Key)
 	featureKey := parseFeatureKeyFromTaskKey(task.Key)
-	m := map[string]string{
-		// Canonical names
-		"id":          task.Key,
-		"key":         task.Key,
-		"task_key":    task.Key,
-		"epic_key":    epicKey,
-		"feature_key": featureKey,
-		// Backward-compatible aliases (deprecated, prefer canonical names above)
-		"task_id":    task.Key,
-		"epic_id":    epicKey,
-		"feature_id": featureKey,
-		// Other fields
-		"title":      task.Title,
-		"status":     string(task.Status),
-		"priority":   fmt.Sprintf("%d", task.Priority),
-		"created_at": task.CreatedAt.Format(time.RFC3339),
-		"updated_at": task.UpdatedAt.Format(time.RFC3339),
-	}
+	m["task_key"] = task.Key
+	m["epic_key"] = epicKey
+	m["feature_key"] = featureKey
+	// Backward-compatible aliases (deprecated, prefer canonical names above)
+	m["task_id"] = task.Key
+	m["epic_id"] = epicKey
+	m["feature_id"] = featureKey
 
-	// Optional pointer fields
-	if task.Slug != nil {
-		m["slug"] = *task.Slug
-	}
-	if task.FilePath != nil {
-		m["file_path"] = *task.FilePath
-	}
+	// Task-specific fields
+	m["priority"] = fmt.Sprintf("%d", task.Priority)
+
+	// Optional task-specific pointer fields
 	if task.AgentType != nil {
 		m["agent_type"] = *task.AgentType
-	}
-	if task.Description != nil {
-		m["description"] = *task.Description
 	}
 	if task.ExecutionOrder != nil {
 		m["execution_order"] = fmt.Sprintf("%d", *task.ExecutionOrder)
@@ -148,32 +171,16 @@ func FeaturePlaceholders(feature *models.Feature) map[string]string {
 	if feature == nil {
 		return make(map[string]string)
 	}
-	epicKey := parseEpicKeyFromEntityKey(feature.Key)
-	m := map[string]string{
-		// Canonical names
-		"id":       feature.Key,
-		"key":      feature.Key,
-		"epic_key": epicKey,
-		// Backward-compatible aliases (deprecated)
-		"feature_id": feature.Key,
-		"epic_id":    epicKey,
-		// Other fields
-		"title":      feature.Title,
-		"status":     string(feature.Status),
-		"created_at": feature.CreatedAt.Format(time.RFC3339),
-		"updated_at": feature.UpdatedAt.Format(time.RFC3339),
-	}
+	m := EntityPlaceholders(feature)
 
-	// Optional pointer fields
-	if feature.Slug != nil {
-		m["slug"] = *feature.Slug
-	}
-	if feature.Description != nil {
-		m["description"] = *feature.Description
-	}
-	if feature.FilePath != nil {
-		m["file_path"] = *feature.FilePath
-	}
+	// Feature-specific key aliases
+	epicKey := parseEpicKeyFromEntityKey(feature.Key)
+	m["epic_key"] = epicKey
+	// Backward-compatible aliases (deprecated)
+	m["feature_id"] = feature.Key
+	m["epic_id"] = epicKey
+
+	// Optional feature-specific pointer fields
 	if feature.ExecutionOrder != nil {
 		m["execution_order"] = fmt.Sprintf("%d", *feature.ExecutionOrder)
 	}
@@ -188,30 +195,16 @@ func EpicPlaceholders(epic *models.Epic) map[string]string {
 	if epic == nil {
 		return make(map[string]string)
 	}
-	m := map[string]string{
-		// Canonical names
-		"id":  epic.Key,
-		"key": epic.Key,
-		// Backward-compatible alias (deprecated)
-		"epic_id": epic.Key,
-		// Other fields
-		"title":      epic.Title,
-		"status":     string(epic.Status),
-		"priority":   string(epic.Priority),
-		"created_at": epic.CreatedAt.Format(time.RFC3339),
-		"updated_at": epic.UpdatedAt.Format(time.RFC3339),
-	}
+	m := EntityPlaceholders(epic)
 
-	// Optional pointer fields
-	if epic.Slug != nil {
-		m["slug"] = *epic.Slug
-	}
-	if epic.Description != nil {
-		m["description"] = *epic.Description
-	}
-	if epic.FilePath != nil {
-		m["file_path"] = *epic.FilePath
-	}
+	// Epic-specific key aliases
+	// Backward-compatible alias (deprecated)
+	m["epic_id"] = epic.Key
+
+	// Epic-specific fields
+	m["priority"] = string(epic.Priority)
+
+	// Optional epic-specific pointer fields
 	if epic.BusinessValue != nil {
 		m["business_value"] = string(*epic.BusinessValue)
 	}
@@ -224,26 +217,12 @@ func BugPlaceholders(bug *models.Bug) map[string]string {
 	if bug == nil {
 		return make(map[string]string)
 	}
-	m := map[string]string{
-		"id":         bug.Key,
-		"key":        bug.Key,
-		"title":      bug.Title,
-		"status":     string(bug.Status),
-		"severity":   string(bug.Severity),
-		"created_at": bug.CreatedAt.Format(time.RFC3339),
-		"updated_at": bug.UpdatedAt.Format(time.RFC3339),
-	}
+	m := EntityPlaceholders(bug)
 
-	// Optional pointer fields
-	if bug.Slug != nil {
-		m["slug"] = *bug.Slug
-	}
-	if bug.Description != nil {
-		m["description"] = *bug.Description
-	}
-	if bug.FilePath != nil {
-		m["file_path"] = *bug.FilePath
-	}
+	// Bug-specific fields
+	m["severity"] = string(bug.Severity)
+
+	// Optional bug-specific pointer fields
 	if bug.LinkedEntityType != nil {
 		m["linked_entity_type"] = *bug.LinkedEntityType
 	}
@@ -259,26 +238,12 @@ func ChangeCardPlaceholders(card *models.ChangeCard) map[string]string {
 	if card == nil {
 		return make(map[string]string)
 	}
-	m := map[string]string{
-		"id":         card.Key,
-		"key":        card.Key,
-		"title":      card.Title,
-		"status":     string(card.Status),
-		"priority":   fmt.Sprintf("%d", card.Priority),
-		"created_at": card.CreatedAt.Format(time.RFC3339),
-		"updated_at": card.UpdatedAt.Format(time.RFC3339),
-	}
-	if card.FilePath != nil {
-		m["file_path"] = *card.FilePath
-	}
-	if card.Slug != nil {
-		m["slug"] = *card.Slug
-	}
+	m := EntityPlaceholders(card)
 
-	// Optional pointer fields
-	if card.Description != nil {
-		m["description"] = *card.Description
-	}
+	// ChangeCard-specific fields
+	m["priority"] = fmt.Sprintf("%d", card.Priority)
+
+	// Optional change-card-specific pointer fields
 	if card.RequestedBy != nil {
 		m["requested_by"] = *card.RequestedBy
 	}

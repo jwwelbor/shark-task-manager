@@ -172,7 +172,7 @@ func TestTaskService_CreateTask_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -195,7 +195,7 @@ func TestTaskService_CreateTask_Happy_Path(t *testing.T) {
 
 func TestTaskService_CreateTask_Empty_Title(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -214,7 +214,7 @@ func TestTaskService_CreateTask_Empty_Title(t *testing.T) {
 
 func TestTaskService_CreateTask_Missing_Epic_Key(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "", // Missing epic key
@@ -233,7 +233,7 @@ func TestTaskService_CreateTask_Missing_Epic_Key(t *testing.T) {
 
 func TestTaskService_CreateTask_Missing_Feature_Key(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -252,7 +252,7 @@ func TestTaskService_CreateTask_Missing_Feature_Key(t *testing.T) {
 
 func TestTaskService_CreateTask_Invalid_Priority(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -277,7 +277,7 @@ func TestTaskService_CreateTask_Default_Priority(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -300,7 +300,7 @@ func TestTaskService_CreateTask_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -336,7 +336,7 @@ func TestTaskService_GetTask_Found(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	task, err := svc.GetTask(context.Background(), "E07-F01-001")
 
@@ -353,7 +353,7 @@ func TestTaskService_GetTask_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	task, err := svc.GetTask(context.Background(), "E07-F01-999")
 
@@ -385,7 +385,7 @@ func TestTaskService_UpdateTask_Update_Title(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	updates := TaskUpdates{
@@ -418,7 +418,7 @@ func TestTaskService_UpdateTask_Multiple_Fields(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	newPriority := 8
@@ -452,7 +452,7 @@ func TestTaskService_UpdateTask_Partial_Update(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	updates := TaskUpdates{
@@ -487,7 +487,7 @@ func TestTaskService_UpdateTask_FilePath(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newPath := "docs/plan/E07/F01/tasks/custom-path.md"
 	updates := TaskUpdates{
@@ -512,7 +512,7 @@ func TestTaskService_UpdateTask_Not_Found(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	updates := TaskUpdates{
@@ -548,7 +548,7 @@ func TestTaskService_DeleteTask_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	err := svc.DeleteTask(context.Background(), "E07-F01-001")
 
@@ -562,7 +562,7 @@ func TestTaskService_DeleteTask_Not_Found(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	err := svc.DeleteTask(context.Background(), "E07-F01-999")
 
@@ -587,7 +587,7 @@ func TestTaskService_ListTasks_No_Filters(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{})
 
@@ -609,7 +609,7 @@ func TestTaskService_ListTasks_Show_All(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{ShowAll: true})
 
@@ -630,7 +630,7 @@ func TestTaskService_ListTasks_Filter_By_Status(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{Status: "todo"})
 
@@ -656,7 +656,7 @@ func TestTaskService_ListTasks_Sorting(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{ShowAll: true})
 
@@ -672,7 +672,7 @@ func TestTaskService_ListTasks_Sorting(t *testing.T) {
 // ============================================================================
 
 func TestTaskService_ValidateStatus_Valid_Status(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate valid status
 	err := svc.ValidateStatus("todo")
@@ -682,7 +682,7 @@ func TestTaskService_ValidateStatus_Valid_Status(t *testing.T) {
 }
 
 func TestTaskService_ValidateStatus_Invalid_Status(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate invalid status
 	err := svc.ValidateStatus("invalid_status_xyz")
@@ -699,22 +699,22 @@ func TestTaskService_ValidateStatus_Invalid_Status(t *testing.T) {
 func TestNewTaskService_Requires_Repository(t *testing.T) {
 	// Arrange & Act & Assert: Should panic without repository
 	assert.Panics(t, func() {
-		NewTaskService(nil, newMockWorkflowService(), nil, nil)
+		NewTaskService(nil, NewEntityService(newMockWorkflowService()), nil)
 	})
 }
 
-func TestNewTaskService_Requires_WorkflowService(t *testing.T) {
-	// Arrange & Act & Assert: Should panic without workflow service
+func TestNewTaskService_Requires_EntityService(t *testing.T) {
+	// Arrange & Act & Assert: Should panic without entity service
 	mockRepo := &MockTaskRepository{}
 	assert.Panics(t, func() {
-		NewTaskService(mockRepo, nil, nil, nil)
+		NewTaskService(mockRepo, nil, nil)
 	})
 }
 
 func TestNewTaskService_Optional_Dependencies(t *testing.T) {
 	// Arrange & Act: Create service with only required dependencies
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Assert: Service created successfully
 	assert.NotNil(t, svc)
@@ -742,7 +742,7 @@ func TestTaskService_UpdateTask_Invalid_Priority(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	invalidPriority := 15 // > 10
 	updates := TaskUpdates{
@@ -775,7 +775,7 @@ func TestTaskService_UpdateTask_Update_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	updates := TaskUpdates{
@@ -808,7 +808,7 @@ func TestTaskService_DeleteTask_Has_Dependents(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Attempt to delete task with dependents
 	err := svc.DeleteTask(context.Background(), "T-E07-F01-001")
@@ -835,7 +835,7 @@ func TestTaskService_DeleteTask_Delete_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Attempt to delete
 	err := svc.DeleteTask(context.Background(), "E07-F01-001")
@@ -865,7 +865,7 @@ func TestTaskService_ListTasks_Filter_By_Agent(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: List tasks filtered by agent
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{AgentType: "backend"})
@@ -886,7 +886,7 @@ func TestTaskService_ListTasks_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Attempt to list tasks
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{})
@@ -921,7 +921,7 @@ func TestTaskService_ListTasks_Pagination(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tests := []struct {
 		name         string
@@ -1012,7 +1012,7 @@ func TestTaskService_GetTasksByStatus(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Get tasks by status
 	statusMap, err := svc.GetTasksByStatus(context.Background(), TaskFilters{})
@@ -1043,7 +1043,7 @@ func TestTaskService_GetTasksByAgent(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Get tasks by agent
 	agentMap, err := svc.GetTasksByAgent(context.Background(), TaskFilters{})
@@ -1072,7 +1072,7 @@ func TestTaskService_GetBlockedTasks(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Get blocked tasks
 	blockedTasks, err := svc.GetBlockedTasks(context.Background(), TaskFilters{})
@@ -1102,7 +1102,7 @@ func TestTaskQueryBuilder_WithStatus(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with status filter
 	tasks, total, err := svc.Query().
@@ -1132,7 +1132,7 @@ func TestTaskQueryBuilder_WithAgent(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with agent filter
 	tasks, total, err := svc.Query().
@@ -1162,7 +1162,7 @@ func TestTaskQueryBuilder_WithPriorityRange(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with priority range 5-8
 	tasks, total, err := svc.Query().
@@ -1192,7 +1192,7 @@ func TestTaskQueryBuilder_WithTitleSearch(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with title search
 	tasks, total, err := svc.Query().
@@ -1221,7 +1221,7 @@ func TestTaskQueryBuilder_SortBy(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with priority DESC sort
 	tasks, _, err := svc.Query().
@@ -1253,7 +1253,7 @@ func TestTaskQueryBuilder_Paginate(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with pagination (offset 10, limit 10)
 	tasks, total, err := svc.Query().
@@ -1282,7 +1282,7 @@ func TestTaskQueryBuilder_ChainedFilters(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Chain multiple filters
 	tasks, total, err := svc.Query().
@@ -1312,7 +1312,7 @@ func TestTaskService_ValidateDependencies_NoDependencies(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate task with no dependencies
 	err := svc.ValidateDependencies(context.Background(), "E15-F04-001", "in_development")
@@ -1349,7 +1349,7 @@ func TestTaskService_ValidateDependencies_CircularDependency(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate task that's part of circular dependency
 	err := svc.ValidateDependencies(context.Background(), "E15-F04-001", "in_development")
@@ -1370,7 +1370,7 @@ func TestTaskService_ValidateDependencies_DependencyNotCompleted(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate task with incomplete dependency
 	err := svc.ValidateDependencies(context.Background(), "E15-F04-002", "in_development")
@@ -1426,7 +1426,7 @@ func TestTaskService_GetDependencyTree(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Get dependency tree
 	tree, err := svc.GetDependencyTree(context.Background(), "E15-F04-002")
@@ -1518,7 +1518,7 @@ func TestTaskService_AddDependency_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
@@ -1532,7 +1532,7 @@ func TestTaskService_AddDependency_Happy_Path(t *testing.T) {
 
 func TestTaskService_AddDependency_NoDepRepo(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	// depRepo not set
 
 	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
@@ -1549,7 +1549,7 @@ func TestTaskService_AddDependency_TaskNotFound(t *testing.T) {
 	}
 
 	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
@@ -1567,7 +1567,7 @@ func TestTaskService_AddDependency_SelfDependency(t *testing.T) {
 	}
 
 	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.AddDependency(context.Background(), "E07-F01-001", "E07-F01-001")
@@ -1595,7 +1595,7 @@ func TestTaskService_AddDependency_DepRepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
@@ -1633,7 +1633,7 @@ func TestTaskService_RemoveDependency_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
@@ -1645,7 +1645,7 @@ func TestTaskService_RemoveDependency_Happy_Path(t *testing.T) {
 }
 
 func TestTaskService_RemoveDependency_NoDepRepo(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
 
@@ -1661,7 +1661,7 @@ func TestTaskService_RemoveDependency_TaskNotFound(t *testing.T) {
 	}
 
 	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
@@ -1700,7 +1700,7 @@ func TestTaskService_ListDependencies_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-002")
@@ -1723,7 +1723,7 @@ func TestTaskService_ListDependencies_NoDependencies(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
@@ -1733,7 +1733,7 @@ func TestTaskService_ListDependencies_NoDependencies(t *testing.T) {
 }
 
 func TestTaskService_ListDependencies_NoDepRepo(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
 
@@ -1750,7 +1750,7 @@ func TestTaskService_ListDependencies_TaskNotFound(t *testing.T) {
 	}
 
 	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
@@ -1789,7 +1789,7 @@ func TestTaskService_UnlinkFile_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
@@ -1801,7 +1801,7 @@ func TestTaskService_UnlinkFile_Happy_Path(t *testing.T) {
 }
 
 func TestTaskService_UnlinkFile_NoDepRepo(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
 
@@ -1817,7 +1817,7 @@ func TestTaskService_UnlinkFile_TaskNotFound(t *testing.T) {
 	}
 
 	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
@@ -1839,7 +1839,7 @@ func TestTaskService_UnlinkFile_TargetTaskNotFound(t *testing.T) {
 	}
 
 	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetDepRepo(mockDepRepo)
 
 	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-999")
@@ -1929,7 +1929,7 @@ func TestTaskService_GetWorkSessions_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -1948,7 +1948,7 @@ func TestTaskService_GetWorkSessions_Happy_Path(t *testing.T) {
 func TestTaskService_GetWorkSessions_Nil_Session_Repo(t *testing.T) {
 	// Arrange: service constructed without session repo
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act
 	result, err := svc.GetWorkSessions(context.Background(), "E07-F01-001")
@@ -1968,7 +1968,7 @@ func TestTaskService_GetWorkSessions_Task_Not_Found(t *testing.T) {
 	}
 	mockSessionRepo := &MockWorkSessionRepository{}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -1993,7 +1993,7 @@ func TestTaskService_GetWorkSessions_Sessions_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -2021,7 +2021,7 @@ func TestTaskService_GetWorkSessions_Stats_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -2049,7 +2049,7 @@ func TestTaskService_GetWorkSessions_Empty_Sessions(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -2098,7 +2098,7 @@ func TestTaskService_GetTaskHistory_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetHistoryRepo(mockHistoryRepo)
 
 	// Act
@@ -2116,7 +2116,7 @@ func TestTaskService_GetTaskHistory_Happy_Path(t *testing.T) {
 
 func TestTaskService_GetTaskHistory_Nil_History_Repo(t *testing.T) {
 	// Arrange: service constructed without history repo and SetHistoryRepo not called
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act
 	result, err := svc.GetTaskHistory(context.Background(), "E07-F01-001")
@@ -2135,7 +2135,7 @@ func TestTaskService_GetTaskHistory_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetHistoryRepo(mockHistoryRepo)
 
 	// Act
@@ -2156,7 +2156,7 @@ func TestTaskService_GetTaskHistory_Empty_History(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetHistoryRepo(mockHistoryRepo)
 
 	// Act
@@ -2189,7 +2189,7 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-006", "in_progress", TransitionOptions{
 		Agent:  "my-agent",
 		Reason: "starting work",
@@ -2226,7 +2226,7 @@ func TestTaskService_TransitionStatus_Forced_UsesStatusUpdateRaw(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-007", "todo", TransitionOptions{
 		Force:  true,
 		Reason: "reopening for rework",
@@ -2256,7 +2256,7 @@ func TestTaskService_TransitionStatus_BackwardRequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Attempt backward transition without reason
 	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-008", "in_progress", TransitionOptions{
@@ -2289,7 +2289,7 @@ func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-011", "ready_for_review", TransitionOptions{})
 
 	assert.NoError(t, err)
@@ -2317,7 +2317,7 @@ func TestTaskService_GetTaskDisplayData_ValidJSON(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	task := &models.Task{ID: 42, Key: "E01-F01-002"}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
@@ -2364,7 +2364,7 @@ func TestTaskService_GetTaskDisplayData_EmptyArrays(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	task := &models.Task{ID: 1, Key: "E01-F01-001"}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
@@ -2391,7 +2391,7 @@ func TestTaskService_GetTaskDisplayData_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	task := &models.Task{ID: 1, Key: "E01-F01-001"}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
