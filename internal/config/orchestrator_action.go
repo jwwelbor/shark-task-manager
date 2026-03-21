@@ -19,10 +19,12 @@ type OrchestratorAction struct {
 	// AgentType specifies the type of agent to spawn (required for spawn_agent action)
 	AgentType string `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`
 
-	// Provider specifies the AI provider to use for the agent (optional, e.g., "anthropic", "openai")
+	// Provider specifies the AI provider to use for dispatch (e.g., "anthropic", "openai").
+	// Optional — when empty, the run controller defaults to "anthropic" (Claude).
 	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
 
-	// Model specifies the AI model to use for the agent (optional, e.g., "sonnet", "opus", "haiku")
+	// Model specifies the model override for the dispatched agent (e.g., "o3", "claude-opus-4-5").
+	// Optional — when empty, the agent uses its default model.
 	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 
 	// Skills lists the skills required for the agent (required for spawn_agent action)

@@ -33,8 +33,8 @@ type ActionService interface {
 type PopulatedAction struct {
 	Action      string   `json:"action"`
 	AgentType   string   `json:"agent_type,omitempty"`
-	Provider    string   `json:"provider,omitempty"`
-	Model       string   `json:"model,omitempty"`
+	Provider    string   `json:"provider,omitempty"` // AI provider (e.g., "anthropic", "openai")
+	Model       string   `json:"model,omitempty"`    // Model override (e.g., "o3", "claude-opus-4-5")
 	Skills      []string `json:"skills,omitempty"`
 	Instruction string   `json:"instruction"` // Template populated
 }

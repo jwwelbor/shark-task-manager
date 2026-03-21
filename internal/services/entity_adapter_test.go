@@ -60,6 +60,7 @@ type mockFeatureAdapterRepo struct {
 	getByKeyFunc          func(ctx context.Context, key string) (*models.Feature, error)
 	getByIDFunc           func(ctx context.Context, id int64) (*models.Feature, error)
 	updateFunc            func(ctx context.Context, feature *models.Feature) error
+	updateStatusFunc      func(ctx context.Context, featureID int64, status models.FeatureStatus) error
 	getContextDataFunc    func(ctx context.Context, featureID int64) (*string, error)
 	updateContextDataFunc func(ctx context.Context, featureID int64, data *string) error
 }
@@ -82,6 +83,12 @@ func (m *mockFeatureAdapterRepo) Update(ctx context.Context, feature *models.Fea
 	}
 	return fmt.Errorf("not implemented")
 }
+func (m *mockFeatureAdapterRepo) UpdateStatus(ctx context.Context, featureID int64, status models.FeatureStatus) error {
+	if m.updateStatusFunc != nil {
+		return m.updateStatusFunc(ctx, featureID, status)
+	}
+	return fmt.Errorf("not implemented")
+}
 func (m *mockFeatureAdapterRepo) GetContextData(ctx context.Context, featureID int64) (*string, error) {
 	if m.getContextDataFunc != nil {
 		return m.getContextDataFunc(ctx, featureID)
@@ -96,9 +103,12 @@ func (m *mockFeatureAdapterRepo) UpdateContextData(ctx context.Context, featureI
 }
 
 type mockTaskAdapterRepo struct {
-	getByKeyFunc func(ctx context.Context, key string) (*models.Task, error)
-	getByIDFunc  func(ctx context.Context, id int64) (*models.Task, error)
-	updateFunc   func(ctx context.Context, task *models.Task) error
+	getByKeyFunc          func(ctx context.Context, key string) (*models.Task, error)
+	getByIDFunc           func(ctx context.Context, id int64) (*models.Task, error)
+	updateFunc            func(ctx context.Context, task *models.Task) error
+	updateStatusFunc      func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
+	getContextDataFunc    func(ctx context.Context, taskID int64) (*string, error)
+	updateContextDataFunc func(ctx context.Context, taskID int64, data *string) error
 }
 
 func (m *mockTaskAdapterRepo) GetByKey(ctx context.Context, key string) (*models.Task, error) {
@@ -119,12 +129,32 @@ func (m *mockTaskAdapterRepo) Update(ctx context.Context, task *models.Task) err
 	}
 	return fmt.Errorf("not implemented")
 }
+func (m *mockTaskAdapterRepo) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
+	if m.updateStatusFunc != nil {
+		return m.updateStatusFunc(ctx, taskID, newStatus, agent, notes)
+	}
+	return fmt.Errorf("not implemented")
+}
+func (m *mockTaskAdapterRepo) GetContextData(ctx context.Context, taskID int64) (*string, error) {
+	if m.getContextDataFunc != nil {
+		return m.getContextDataFunc(ctx, taskID)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockTaskAdapterRepo) UpdateContextData(ctx context.Context, taskID int64, data *string) error {
+	if m.updateContextDataFunc != nil {
+		return m.updateContextDataFunc(ctx, taskID, data)
+	}
+	return fmt.Errorf("not implemented")
+}
 
 type mockBugAdapterRepo struct {
-	getByKeyFunc     func(ctx context.Context, key string) (*models.Bug, error)
-	getByIDFunc      func(ctx context.Context, id int64) (*models.Bug, error)
-	updateFunc       func(ctx context.Context, bug *models.Bug) error
-	updateStatusFunc func(ctx context.Context, id int64, status models.BugStatus) error
+	getByKeyFunc          func(ctx context.Context, key string) (*models.Bug, error)
+	getByIDFunc           func(ctx context.Context, id int64) (*models.Bug, error)
+	updateFunc            func(ctx context.Context, bug *models.Bug) error
+	updateStatusFunc      func(ctx context.Context, id int64, status models.BugStatus) error
+	getContextDataFunc    func(ctx context.Context, id int64) (*string, error)
+	updateContextDataFunc func(ctx context.Context, id int64, data *string) error
 }
 
 func (m *mockBugAdapterRepo) GetByKey(ctx context.Context, key string) (*models.Bug, error) {
@@ -151,12 +181,25 @@ func (m *mockBugAdapterRepo) UpdateStatus(ctx context.Context, id int64, status 
 	}
 	return fmt.Errorf("not implemented")
 }
+func (m *mockBugAdapterRepo) GetContextData(ctx context.Context, id int64) (*string, error) {
+	if m.getContextDataFunc != nil {
+		return m.getContextDataFunc(ctx, id)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockBugAdapterRepo) UpdateContextData(ctx context.Context, id int64, data *string) error {
+	if m.updateContextDataFunc != nil {
+		return m.updateContextDataFunc(ctx, id, data)
+	}
+	return fmt.Errorf("not implemented")
+}
 
 type mockChangeCardAdapterRepo struct {
 	getByKeyFunc          func(ctx context.Context, key string) (*models.ChangeCard, error)
 	getByIDFunc           func(ctx context.Context, id int64) (*models.ChangeCard, error)
 	updateFunc            func(ctx context.Context, card *models.ChangeCard) error
 	updateStatusFunc      func(ctx context.Context, id int64, status models.ChangeCardStatus) error
+	getContextDataFunc    func(ctx context.Context, id int64) (*string, error)
 	updateContextDataFunc func(ctx context.Context, id int64, data *string) error
 }
 
@@ -183,6 +226,12 @@ func (m *mockChangeCardAdapterRepo) UpdateStatus(ctx context.Context, id int64, 
 		return m.updateStatusFunc(ctx, id, status)
 	}
 	return fmt.Errorf("not implemented")
+}
+func (m *mockChangeCardAdapterRepo) GetContextData(ctx context.Context, id int64) (*string, error) {
+	if m.getContextDataFunc != nil {
+		return m.getContextDataFunc(ctx, id)
+	}
+	return nil, fmt.Errorf("not implemented")
 }
 func (m *mockChangeCardAdapterRepo) UpdateContextData(ctx context.Context, id int64, data *string) error {
 	if m.updateContextDataFunc != nil {
@@ -383,17 +432,13 @@ func TestFeatureAdapter_GetByKey(t *testing.T) {
 }
 
 func TestFeatureAdapter_UpdateStatus_GetSetUpdate(t *testing.T) {
-	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01"}, Status: "draft"}
-	var updatedFeature *models.Feature
+	var capturedStatus models.FeatureStatus
 	mock := &mockFeatureAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Feature, error) {
-			if id != 10 {
-				t.Errorf("expected id 10, got %d", id)
+		updateStatusFunc: func(ctx context.Context, featureID int64, status models.FeatureStatus) error {
+			if featureID != 10 {
+				t.Errorf("expected id 10, got %d", featureID)
 			}
-			return feature, nil
-		},
-		updateFunc: func(ctx context.Context, f *models.Feature) error {
-			updatedFeature = f
+			capturedStatus = status
 			return nil
 		},
 	}
@@ -402,18 +447,15 @@ func TestFeatureAdapter_UpdateStatus_GetSetUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if updatedFeature == nil {
-		t.Fatal("expected update to be called")
-	}
-	if updatedFeature.Status != "active" {
-		t.Errorf("expected status active, got %s", updatedFeature.Status)
+	if capturedStatus != "active" {
+		t.Errorf("expected status active, got %s", capturedStatus)
 	}
 }
 
-func TestFeatureAdapter_UpdateStatus_GetError(t *testing.T) {
+func TestFeatureAdapter_UpdateStatus_Error(t *testing.T) {
 	mock := &mockFeatureAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Feature, error) {
-			return nil, fmt.Errorf("feature not found")
+		updateStatusFunc: func(ctx context.Context, featureID int64, status models.FeatureStatus) error {
+			return fmt.Errorf("database error")
 		},
 	}
 	adapter := NewFeatureRepositoryAdapter(mock)
@@ -491,15 +533,14 @@ func TestTaskAdapter_GetByKey(t *testing.T) {
 	}
 }
 
-func TestTaskAdapter_UpdateStatus_GetSetUpdate(t *testing.T) {
-	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001"}, Status: "todo"}
-	var updatedTask *models.Task
+func TestTaskAdapter_UpdateStatus(t *testing.T) {
+	var capturedStatus models.TaskStatus
 	mock := &mockTaskAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
-			return task, nil
-		},
-		updateFunc: func(ctx context.Context, t *models.Task) error {
-			updatedTask = t
+		updateStatusFunc: func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
+			if taskID != 3 {
+				t.Errorf("expected id 3, got %d", taskID)
+			}
+			capturedStatus = newStatus
 			return nil
 		},
 	}
@@ -508,11 +549,8 @@ func TestTaskAdapter_UpdateStatus_GetSetUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if updatedTask == nil {
-		t.Fatal("expected update to be called")
-	}
-	if updatedTask.Status != "in_progress" {
-		t.Errorf("expected status in_progress, got %s", updatedTask.Status)
+	if capturedStatus != "in_progress" {
+		t.Errorf("expected status in_progress, got %s", capturedStatus)
 	}
 }
 
@@ -528,10 +566,9 @@ func TestTaskAdapter_Update_WrongType(t *testing.T) {
 
 func TestTaskAdapter_GetContextData(t *testing.T) {
 	data := `{"progress":{"current_step":"writing tests"}}`
-	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001", ContextData: &data}}
 	mock := &mockTaskAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
-			return task, nil
+		getContextDataFunc: func(ctx context.Context, taskID int64) (*string, error) {
+			return &data, nil
 		},
 	}
 	adapter := NewTaskRepositoryAdapter(mock)
@@ -545,10 +582,9 @@ func TestTaskAdapter_GetContextData(t *testing.T) {
 }
 
 func TestTaskAdapter_GetContextData_Nil(t *testing.T) {
-	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001", ContextData: nil}}
 	mock := &mockTaskAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
-			return task, nil
+		getContextDataFunc: func(ctx context.Context, taskID int64) (*string, error) {
+			return nil, nil
 		},
 	}
 	adapter := NewTaskRepositoryAdapter(mock)
@@ -562,15 +598,11 @@ func TestTaskAdapter_GetContextData_Nil(t *testing.T) {
 }
 
 func TestTaskAdapter_UpdateContextData(t *testing.T) {
-	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001", ContextData: nil}}
 	data := `{"progress":{"current_step":"implementing"}}`
-	var updatedTask *models.Task
+	var capturedData *string
 	mock := &mockTaskAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
-			return task, nil
-		},
-		updateFunc: func(ctx context.Context, t *models.Task) error {
-			updatedTask = t
+		updateContextDataFunc: func(ctx context.Context, taskID int64, d *string) error {
+			capturedData = d
 			return nil
 		},
 	}
@@ -579,11 +611,8 @@ func TestTaskAdapter_UpdateContextData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if updatedTask == nil {
-		t.Fatal("expected update to be called")
-	}
-	if updatedTask.ContextData == nil || *updatedTask.ContextData != data {
-		t.Errorf("expected context data %q, got %v", data, updatedTask.ContextData)
+	if capturedData == nil || *capturedData != data {
+		t.Errorf("expected context data %q, got %v", data, capturedData)
 	}
 }
 
@@ -639,10 +668,9 @@ func TestBugAdapter_Update_WrongType(t *testing.T) {
 
 func TestBugAdapter_GetContextData(t *testing.T) {
 	data := `{"triage_notes":"needs investigation"}`
-	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 4, Key: "B001", ContextData: &data}}
 	mock := &mockBugAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Bug, error) {
-			return bug, nil
+		getContextDataFunc: func(ctx context.Context, id int64) (*string, error) {
+			return &data, nil
 		},
 	}
 	adapter := NewBugRepositoryAdapter(mock)
@@ -656,15 +684,11 @@ func TestBugAdapter_GetContextData(t *testing.T) {
 }
 
 func TestBugAdapter_UpdateContextData(t *testing.T) {
-	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 4, Key: "B001", ContextData: nil}}
 	data := `{"triage_notes":"fixed"}`
-	var updatedBug *models.Bug
+	var capturedData *string
 	mock := &mockBugAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Bug, error) {
-			return bug, nil
-		},
-		updateFunc: func(ctx context.Context, b *models.Bug) error {
-			updatedBug = b
+		updateContextDataFunc: func(ctx context.Context, id int64, d *string) error {
+			capturedData = d
 			return nil
 		},
 	}
@@ -673,11 +697,8 @@ func TestBugAdapter_UpdateContextData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if updatedBug == nil {
-		t.Fatal("expected update to be called")
-	}
-	if updatedBug.ContextData == nil || *updatedBug.ContextData != data {
-		t.Errorf("expected context data %q, got %v", data, updatedBug.ContextData)
+	if capturedData == nil || *capturedData != data {
+		t.Errorf("expected context data %q, got %v", data, capturedData)
 	}
 }
 
@@ -733,10 +754,9 @@ func TestChangeCardAdapter_Update_WrongType(t *testing.T) {
 
 func TestChangeCardAdapter_GetContextData(t *testing.T) {
 	data := `{"impact":"low"}`
-	card := &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 5, Key: "CC-001", ContextData: &data}}
 	mock := &mockChangeCardAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.ChangeCard, error) {
-			return card, nil
+		getContextDataFunc: func(ctx context.Context, id int64) (*string, error) {
+			return &data, nil
 		},
 	}
 	adapter := NewChangeCardRepositoryAdapter(mock)
@@ -796,10 +816,10 @@ func TestEpicAdapter_UpdateStatus_Error(t *testing.T) {
 	}
 }
 
-func TestTaskAdapter_UpdateStatus_GetError(t *testing.T) {
+func TestTaskAdapter_UpdateStatus_Error(t *testing.T) {
 	mock := &mockTaskAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
-			return nil, fmt.Errorf("task not found")
+		updateStatusFunc: func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
+			return fmt.Errorf("database error")
 		},
 	}
 	adapter := NewTaskRepositoryAdapter(mock)
@@ -811,7 +831,7 @@ func TestTaskAdapter_UpdateStatus_GetError(t *testing.T) {
 
 func TestBugAdapter_GetContextData_Error(t *testing.T) {
 	mock := &mockBugAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Bug, error) {
+		getContextDataFunc: func(ctx context.Context, id int64) (*string, error) {
 			return nil, fmt.Errorf("bug not found")
 		},
 	}
@@ -827,7 +847,7 @@ func TestBugAdapter_GetContextData_Error(t *testing.T) {
 
 func TestChangeCardAdapter_GetContextData_Error(t *testing.T) {
 	mock := &mockChangeCardAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.ChangeCard, error) {
+		getContextDataFunc: func(ctx context.Context, id int64) (*string, error) {
 			return nil, fmt.Errorf("card not found")
 		},
 	}
@@ -841,10 +861,10 @@ func TestChangeCardAdapter_GetContextData_Error(t *testing.T) {
 	}
 }
 
-func TestTaskAdapter_UpdateContextData_GetError(t *testing.T) {
+func TestTaskAdapter_UpdateContextData_Error(t *testing.T) {
 	mock := &mockTaskAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
-			return nil, fmt.Errorf("task not found")
+		updateContextDataFunc: func(ctx context.Context, taskID int64, data *string) error {
+			return fmt.Errorf("database error")
 		},
 	}
 	adapter := NewTaskRepositoryAdapter(mock)
@@ -855,10 +875,10 @@ func TestTaskAdapter_UpdateContextData_GetError(t *testing.T) {
 	}
 }
 
-func TestBugAdapter_UpdateContextData_GetError(t *testing.T) {
+func TestBugAdapter_UpdateContextData_Error(t *testing.T) {
 	mock := &mockBugAdapterRepo{
-		getByIDFunc: func(ctx context.Context, id int64) (*models.Bug, error) {
-			return nil, fmt.Errorf("bug not found")
+		updateContextDataFunc: func(ctx context.Context, id int64, data *string) error {
+			return fmt.Errorf("database error")
 		},
 	}
 	adapter := NewBugRepositoryAdapter(mock)

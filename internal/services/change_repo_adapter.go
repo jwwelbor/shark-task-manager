@@ -13,12 +13,11 @@ type ChangeCardAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.ChangeCard, error)
 	Update(ctx context.Context, card *models.ChangeCard) error
 	UpdateStatus(ctx context.Context, id int64, status models.ChangeCardStatus) error
+	GetContextData(ctx context.Context, id int64) (*string, error)
 	UpdateContextData(ctx context.Context, id int64, contextData *string) error
 }
 
 // ChangeCardRepositoryAdapter wraps a typed change-card repository to satisfy EntityRepository.
-// GetContextData uses the get-field pattern because the repository does not expose
-// a dedicated GetContextData method.
 type ChangeCardRepositoryAdapter struct {
 	repo ChangeCardAdapterRepository
 }
@@ -52,11 +51,7 @@ func (a *ChangeCardRepositoryAdapter) Update(ctx context.Context, entity models.
 }
 
 func (a *ChangeCardRepositoryAdapter) GetContextData(ctx context.Context, id int64) (*string, error) {
-	card, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return card.ContextData, nil
+	return a.repo.GetContextData(ctx, id)
 }
 
 func (a *ChangeCardRepositoryAdapter) UpdateContextData(ctx context.Context, id int64, data *string) error {

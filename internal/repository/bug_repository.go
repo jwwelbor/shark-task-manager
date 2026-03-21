@@ -298,6 +298,37 @@ func (r *BugRepository) CountByStatus(ctx context.Context) (map[string]int, erro
 	return counts, rows.Err()
 }
 
+// GetContextData retrieves the context data JSON string for a bug by its ID.
+func (r *BugRepository) GetContextData(ctx context.Context, id int64) (*string, error) {
+	query := `SELECT context_data FROM bugs WHERE id = ?`
+	var contextData *string
+	err := r.db.QueryRowContext(ctx, query, id).Scan(&contextData)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("bug not found with id %d", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bug context data: %w", err)
+	}
+	return contextData, nil
+}
+
+// UpdateContextData updates only the context_data field of a bug.
+func (r *BugRepository) UpdateContextData(ctx context.Context, id int64, contextData *string) error {
+	query := `UPDATE bugs SET context_data = ? WHERE id = ?`
+	result, err := r.db.ExecContext(ctx, query, contextData, id)
+	if err != nil {
+		return fmt.Errorf("failed to update bug context data: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("bug not found with id %d", id)
+	}
+	return nil
+}
+
 // CountBySeverity returns the count of bugs grouped by severity.
 func (r *BugRepository) CountBySeverity(ctx context.Context) (map[string]int, error) {
 	query := `SELECT severity, COUNT(*) FROM bugs GROUP BY severity`

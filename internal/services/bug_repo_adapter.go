@@ -13,11 +13,11 @@ type BugAdapterRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.Bug, error)
 	Update(ctx context.Context, bug *models.Bug) error
 	UpdateStatus(ctx context.Context, id int64, status models.BugStatus) error
+	GetContextData(ctx context.Context, id int64) (*string, error)
+	UpdateContextData(ctx context.Context, id int64, contextData *string) error
 }
 
 // BugRepositoryAdapter wraps a typed bug repository to satisfy EntityRepository.
-// GetContextData and UpdateContextData use the get-field-update pattern because
-// BugRepository does not expose dedicated context data methods.
 type BugRepositoryAdapter struct {
 	repo BugAdapterRepository
 }
@@ -51,18 +51,9 @@ func (a *BugRepositoryAdapter) Update(ctx context.Context, entity models.Entity)
 }
 
 func (a *BugRepositoryAdapter) GetContextData(ctx context.Context, id int64) (*string, error) {
-	bug, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return bug.ContextData, nil
+	return a.repo.GetContextData(ctx, id)
 }
 
 func (a *BugRepositoryAdapter) UpdateContextData(ctx context.Context, id int64, data *string) error {
-	bug, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	bug.ContextData = data
-	return a.repo.Update(ctx, bug)
+	return a.repo.UpdateContextData(ctx, id, data)
 }

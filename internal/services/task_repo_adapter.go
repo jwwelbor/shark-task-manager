@@ -12,12 +12,12 @@ type TaskAdapterRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
 	Update(ctx context.Context, task *models.Task) error
+	UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error
+	GetContextData(ctx context.Context, taskID int64) (*string, error)
+	UpdateContextData(ctx context.Context, taskID int64, contextData *string) error
 }
 
 // TaskRepositoryAdapter wraps a typed task repository to satisfy EntityRepository.
-// UpdateStatus, GetContextData, and UpdateContextData all use the get-set-update
-// pattern because the TaskRepository interface does not expose direct methods
-// with compatible signatures.
 type TaskRepositoryAdapter struct {
 	repo TaskAdapterRepository
 }
@@ -39,12 +39,7 @@ func (a *TaskRepositoryAdapter) GetByID(ctx context.Context, id int64) (models.E
 }
 
 func (a *TaskRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
-	task, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("failed to get task for status update: %w", err)
-	}
-	task.Status = models.TaskStatus(status)
-	return a.repo.Update(ctx, task)
+	return a.repo.UpdateStatus(ctx, id, models.TaskStatus(status), nil, nil)
 }
 
 func (a *TaskRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {
@@ -56,18 +51,9 @@ func (a *TaskRepositoryAdapter) Update(ctx context.Context, entity models.Entity
 }
 
 func (a *TaskRepositoryAdapter) GetContextData(ctx context.Context, id int64) (*string, error) {
-	task, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return task.ContextData, nil
+	return a.repo.GetContextData(ctx, id)
 }
 
 func (a *TaskRepositoryAdapter) UpdateContextData(ctx context.Context, id int64, data *string) error {
-	task, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	task.ContextData = data
-	return a.repo.Update(ctx, task)
+	return a.repo.UpdateContextData(ctx, id, data)
 }
