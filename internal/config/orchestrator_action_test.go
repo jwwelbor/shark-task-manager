@@ -1194,3 +1194,146 @@ func TestPhase2NoEmptyTemplateFiles(t *testing.T) {
 		}
 	}
 }
+
+// TC-021: OrchestratorAction accepts Provider and Model fields
+func TestOrchestratorAction_ProviderAndModel_Fields(t *testing.T) {
+	oa := &OrchestratorAction{
+		Action:              ActionSpawnAgent,
+		AgentType:           "developer",
+		Provider:            "anthropic",
+		Model:               "claude-opus-4-5",
+		Skills:              []string{"implementation"},
+		InstructionTemplate: "implement {task_key}",
+	}
+
+	if oa.Provider != "anthropic" {
+		t.Errorf("expected Provider %q, got %q", "anthropic", oa.Provider)
+	}
+	if oa.Model != "claude-opus-4-5" {
+		t.Errorf("expected Model %q, got %q", "claude-opus-4-5", oa.Model)
+	}
+
+	// Validate must not reject Provider or Model
+	err := oa.Validate()
+	if err != nil {
+		t.Errorf("Validate() error = %v, want nil (Provider/Model should not be rejected)", err)
+	}
+}
+
+// TC-021: Validate does NOT reject missing/empty Provider
+func TestOrchestratorAction_Validate_EmptyProvider_IsValid(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		model    string
+	}{
+		{"empty provider and model", "", ""},
+		{"provider only", "anthropic", ""},
+		{"model only", "", "claude-sonnet-4-5"},
+		{"openai provider", "openai", "o3"},
+		{"arbitrary provider", "custom-provider", "custom-model"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oa := &OrchestratorAction{
+				Action:              ActionSpawnAgent,
+				AgentType:           "developer",
+				Provider:            tt.provider,
+				Model:               tt.model,
+				Skills:              []string{"implementation"},
+				InstructionTemplate: "implement {task_key}",
+			}
+			err := oa.Validate()
+			if err != nil {
+				t.Errorf("Validate() error = %v, want nil (Provider=%q Model=%q should be accepted)", err, tt.provider, tt.model)
+			}
+		})
+	}
+}
+
+// TC-022: OrchestratorAction JSON round-trips Provider and Model
+func TestOrchestratorAction_JSON_RoundTrip_ProviderAndModel(t *testing.T) {
+	t.Run("with provider and model", func(t *testing.T) {
+		// Write config with provider and model and load via WorkflowConfig
+		jsonInput := `{
+			"status_flow_version": "1.0",
+			"status_flow": {},
+			"special_statuses": {},
+			"status_metadata": {
+				"some_status": {
+					"color": "blue",
+					"phase": "development",
+					"orchestrator_action": {
+						"action": "spawn_agent",
+						"agent_type": "developer",
+						"provider": "openai",
+						"model": "o3",
+						"skills": ["implementation"],
+						"instruction_template": "do the work"
+					}
+				}
+			}
+		}`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+		if err := os.WriteFile(configPath, []byte(jsonInput), 0644); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+		ClearWorkflowCache()
+		wf := GetWorkflowOrDefault(configPath)
+		if wf == nil {
+			t.Fatal("expected workflow, got nil")
+		}
+		meta, ok := wf.StatusMetadata["some_status"]
+		if !ok || meta.OrchestratorAction == nil {
+			t.Fatal("expected orchestrator_action in some_status")
+		}
+		if meta.OrchestratorAction.Provider != "openai" {
+			t.Errorf("expected Provider %q, got %q", "openai", meta.OrchestratorAction.Provider)
+		}
+		if meta.OrchestratorAction.Model != "o3" {
+			t.Errorf("expected Model %q, got %q", "o3", meta.OrchestratorAction.Model)
+		}
+	})
+
+	t.Run("without provider and model (backward compat)", func(t *testing.T) {
+		jsonInput := `{
+			"status_flow_version": "1.0",
+			"status_flow": {},
+			"special_statuses": {},
+			"status_metadata": {
+				"some_status": {
+					"color": "blue",
+					"phase": "development",
+					"orchestrator_action": {
+						"action": "spawn_agent",
+						"agent_type": "developer",
+						"skills": ["implementation"],
+						"instruction_template": "do the work"
+					}
+				}
+			}
+		}`
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+		if err := os.WriteFile(configPath, []byte(jsonInput), 0644); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+		ClearWorkflowCache()
+		wf := GetWorkflowOrDefault(configPath)
+		if wf == nil {
+			t.Fatal("expected workflow, got nil")
+		}
+		meta, ok := wf.StatusMetadata["some_status"]
+		if !ok || meta.OrchestratorAction == nil {
+			t.Fatal("expected orchestrator_action in some_status")
+		}
+		if meta.OrchestratorAction.Provider != "" {
+			t.Errorf("expected empty Provider, got %q", meta.OrchestratorAction.Provider)
+		}
+		if meta.OrchestratorAction.Model != "" {
+			t.Errorf("expected empty Model, got %q", meta.OrchestratorAction.Model)
+		}
+	})
+}

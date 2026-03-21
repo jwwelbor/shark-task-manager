@@ -402,6 +402,162 @@ func BenchmarkGetStatusActionPopulated(b *testing.B) {
 	}
 }
 
+// TC-023: PopulatedAction has Provider and Model propagated from OrchestratorAction
+func TestGetStatusActionPopulated_PropagatesProviderAndModel(t *testing.T) {
+	ClearWorkflowCache()
+
+	// Create a config with provider and model set on an orchestrator action
+	configContent := `{
+		"status_flow_version": "1.0",
+		"status_flow": {
+			"some_status": []
+		},
+		"special_statuses": {},
+		"status_metadata": {
+			"some_status": {
+				"color": "blue",
+				"phase": "development",
+				"orchestrator_action": {
+					"action": "spawn_agent",
+					"agent_type": "developer",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-5",
+					"skills": ["implementation"],
+					"instruction_template": "implement {task_key}"
+				}
+			}
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	service, err := NewActionService(configPath)
+	if err != nil {
+		t.Fatalf("NewActionService failed: %v", err)
+	}
+
+	ctx := context.Background()
+	populated, err := service.GetStatusActionPopulated(ctx, "some_status", map[string]string{"task_key": "E07-F01-001"})
+	if err != nil {
+		t.Fatalf("GetStatusActionPopulated failed: %v", err)
+	}
+	if populated == nil {
+		t.Fatal("expected populated action, got nil")
+	}
+	if populated.Provider != "anthropic" {
+		t.Errorf("expected Provider %q, got %q", "anthropic", populated.Provider)
+	}
+	if populated.Model != "claude-sonnet-4-5" {
+		t.Errorf("expected Model %q, got %q", "claude-sonnet-4-5", populated.Model)
+	}
+}
+
+// TC-023: PopulatedAction has empty Provider/Model when OrchestratorAction omits them
+func TestGetStatusActionPopulated_EmptyProviderAndModel(t *testing.T) {
+	ClearWorkflowCache()
+
+	configContent := `{
+		"status_flow_version": "1.0",
+		"status_flow": {
+			"some_status": []
+		},
+		"special_statuses": {},
+		"status_metadata": {
+			"some_status": {
+				"color": "blue",
+				"phase": "development",
+				"orchestrator_action": {
+					"action": "spawn_agent",
+					"agent_type": "developer",
+					"skills": ["implementation"],
+					"instruction_template": "implement {task_key}"
+				}
+			}
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	service, err := NewActionService(configPath)
+	if err != nil {
+		t.Fatalf("NewActionService failed: %v", err)
+	}
+
+	ctx := context.Background()
+	populated, err := service.GetStatusActionPopulated(ctx, "some_status", map[string]string{"task_key": "E07-F01-001"})
+	if err != nil {
+		t.Fatalf("GetStatusActionPopulated failed: %v", err)
+	}
+	if populated == nil {
+		t.Fatal("expected populated action, got nil")
+	}
+	// Must NOT default Provider to "anthropic" — that is the run controller's job
+	if populated.Provider != "" {
+		t.Errorf("expected empty Provider, got %q (must not default)", populated.Provider)
+	}
+	if populated.Model != "" {
+		t.Errorf("expected empty Model, got %q (must not default)", populated.Model)
+	}
+}
+
+// TC-023: PopulatedAction propagates openai/o3 provider+model pair correctly
+func TestGetStatusActionPopulated_PropagatesOpenAIProvider(t *testing.T) {
+	ClearWorkflowCache()
+
+	configContent := `{
+		"status_flow_version": "1.0",
+		"status_flow": {
+			"some_status": []
+		},
+		"special_statuses": {},
+		"status_metadata": {
+			"some_status": {
+				"color": "blue",
+				"phase": "development",
+				"orchestrator_action": {
+					"action": "spawn_agent",
+					"agent_type": "developer",
+					"provider": "openai",
+					"model": "o3",
+					"skills": ["implementation"],
+					"instruction_template": "implement {task_key}"
+				}
+			}
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	service, err := NewActionService(configPath)
+	if err != nil {
+		t.Fatalf("NewActionService failed: %v", err)
+	}
+
+	ctx := context.Background()
+	populated, err := service.GetStatusActionPopulated(ctx, "some_status", map[string]string{"task_key": "E07-F01-001"})
+	if err != nil {
+		t.Fatalf("GetStatusActionPopulated failed: %v", err)
+	}
+	if populated == nil {
+		t.Fatal("expected populated action, got nil")
+	}
+	if populated.Provider != "openai" {
+		t.Errorf("expected Provider %q, got %q", "openai", populated.Provider)
+	}
+	if populated.Model != "o3" {
+		t.Errorf("expected Model %q, got %q", "o3", populated.Model)
+	}
+}
+
 // setupTestService creates a test service with a temp config file
 func setupTestService(t interface{ Fatal(...interface{}) }) *DefaultActionService {
 	ClearWorkflowCache()
