@@ -10,8 +10,12 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// Compile-time assertion: *repository.EntityHistoryRepository satisfies EntityHistoryRecorder.
+var _ EntityHistoryRecorder = (*repository.EntityHistoryRepository)(nil)
 
 // mockEntityRepo implements EntityRepository for testing.
 type mockEntityRepo struct {
@@ -634,4 +638,292 @@ func newTestEntityServiceForBackward(t *testing.T) *EntityService {
 
 	wfSvc := workflow.NewService(tmpDir)
 	return NewEntityService(wfSvc).ForLevel(workflow.LevelEpic)
+}
+
+// --- MockEntityHistoryRecorder ---
+
+type mockEntityHistoryRecorder struct {
+	createFunc func(ctx context.Context, history *models.EntityHistory) error
+	created    []*models.EntityHistory
+}
+
+func (m *mockEntityHistoryRecorder) Create(ctx context.Context, history *models.EntityHistory) error {
+	m.created = append(m.created, history)
+	if m.createFunc != nil {
+		return m.createFunc(ctx, history)
+	}
+	return nil
+}
+
+// --- History Recording Tests ---
+
+func TestEntityService_TransitionStatus_CreatesHistory(t *testing.T) {
+	svc := newTestEntityService(t)
+	recorder := &mockEntityHistoryRecorder{}
+	svc.SetHistoryRepo(recorder)
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 42, Key: "E21-F07"}, Status: "draft"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeFeature, "E21-F07", "active",
+		TransitionOptions{Agent: "agent-ba"},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || !result.Transitioned {
+		t.Fatal("expected successful transition")
+	}
+	if len(recorder.created) != 1 {
+		t.Fatalf("expected 1 history record, got %d", len(recorder.created))
+	}
+
+	h := recorder.created[0]
+	if h.EntityType != models.EntityTypeFeature {
+		t.Errorf("expected entity_type 'feature', got %q", h.EntityType)
+	}
+	if h.EntityID != 42 {
+		t.Errorf("expected entity_id 42, got %d", h.EntityID)
+	}
+	if h.FromStatus == nil || *h.FromStatus != "draft" {
+		t.Errorf("expected from_status 'draft', got %v", h.FromStatus)
+	}
+	if h.ToStatus == "" {
+		t.Error("expected non-empty to_status")
+	}
+	if h.ChangedBy == nil || *h.ChangedBy != "agent-ba" {
+		t.Errorf("expected changed_by 'agent-ba', got %v", h.ChangedBy)
+	}
+	if h.Forced {
+		t.Error("expected forced=false")
+	}
+	if h.ChangedAt.IsZero() {
+		t.Error("expected non-zero changed_at")
+	}
+}
+
+func TestEntityService_TransitionStatus_NoHistoryRepo(t *testing.T) {
+	svc := newTestEntityService(t)
+	// Do NOT call SetHistoryRepo -- historyRepo is nil
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		TransitionOptions{},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || !result.Transitioned {
+		t.Fatal("expected successful transition with nil historyRepo")
+	}
+}
+
+func TestEntityService_TransitionStatus_HistoryError(t *testing.T) {
+	svc := newTestEntityService(t)
+	recorder := &mockEntityHistoryRecorder{
+		createFunc: func(ctx context.Context, history *models.EntityHistory) error {
+			return fmt.Errorf("database connection lost")
+		},
+	}
+	svc.SetHistoryRepo(recorder)
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		TransitionOptions{},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	// History error must NOT block the transition
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if result == nil || !result.Transitioned {
+		t.Fatal("expected successful transition despite history error")
+	}
+}
+
+func TestEntityService_TransitionStatus_ForcedHistory(t *testing.T) {
+	svc := newTestEntityService(t)
+	recorder := &mockEntityHistoryRecorder{}
+	svc.SetHistoryRepo(recorder)
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "completed"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	_, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "draft",
+		TransitionOptions{Force: true, Reason: "emergency rollback", Agent: "admin"},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(recorder.created) != 1 {
+		t.Fatalf("expected 1 history record, got %d", len(recorder.created))
+	}
+
+	h := recorder.created[0]
+	if !h.Forced {
+		t.Error("expected forced=true")
+	}
+	if h.Notes == nil || *h.Notes != "emergency rollback" {
+		t.Errorf("expected notes 'emergency rollback', got %v", h.Notes)
+	}
+	if h.ChangedBy == nil || *h.ChangedBy != "admin" {
+		t.Errorf("expected changed_by 'admin', got %v", h.ChangedBy)
+	}
+}
+
+func TestEntityService_TransitionStatus_BackwardHistory(t *testing.T) {
+	svc := newTestEntityServiceForBackward(t)
+	recorder := &mockEntityHistoryRecorder{}
+	svc.SetHistoryRepo(recorder)
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	_, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "draft",
+		TransitionOptions{Reason: "wrong status", Agent: "tech-lead"},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(recorder.created) != 1 {
+		t.Fatalf("expected 1 history record, got %d", len(recorder.created))
+	}
+
+	h := recorder.created[0]
+	if h.RejectionReason == nil || *h.RejectionReason != "wrong status" {
+		t.Errorf("expected rejection_reason 'wrong status', got %v", h.RejectionReason)
+	}
+	if h.Forced {
+		t.Error("expected forced=false for backward transition")
+	}
+}
+
+func TestEntityService_TransitionStatus_EmptyAgentNilChangedBy(t *testing.T) {
+	svc := newTestEntityService(t)
+	recorder := &mockEntityHistoryRecorder{}
+	svc.SetHistoryRepo(recorder)
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	_, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		TransitionOptions{Agent: ""},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(recorder.created) != 1 {
+		t.Fatalf("expected 1 history record, got %d", len(recorder.created))
+	}
+
+	h := recorder.created[0]
+	if h.ChangedBy != nil {
+		t.Errorf("expected nil changed_by for empty agent, got %v", h.ChangedBy)
+	}
+}
+
+func TestEntityService_TransitionStatus_EmptyReasonNilNotes(t *testing.T) {
+	svc := newTestEntityService(t)
+	recorder := &mockEntityHistoryRecorder{}
+	svc.SetHistoryRepo(recorder)
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	_, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		TransitionOptions{Reason: ""},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(recorder.created) != 1 {
+		t.Fatalf("expected 1 history record, got %d", len(recorder.created))
+	}
+
+	h := recorder.created[0]
+	if h.Notes != nil {
+		t.Errorf("expected nil notes for empty reason, got %v", h.Notes)
+	}
+	if h.RejectionReason != nil {
+		t.Errorf("expected nil rejection_reason for empty reason, got %v", h.RejectionReason)
+	}
+}
+
+func TestEntityService_ForLevel_PropagatesHistoryRepo(t *testing.T) {
+	wfSvc := workflow.NewService("")
+	svc := NewEntityService(wfSvc)
+	recorder := &mockEntityHistoryRecorder{}
+	svc.SetHistoryRepo(recorder)
+
+	scoped := svc.ForLevel(workflow.LevelTask)
+
+	if scoped.historyRepo != recorder {
+		t.Error("expected ForLevel to propagate historyRepo")
+	}
 }

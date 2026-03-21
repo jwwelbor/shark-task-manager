@@ -32,14 +32,7 @@ type TaskRelationshipQueryRepository interface {
 
 // TaskWritableDocumentRepository defines the interface for document write operations on tasks.
 // This interface is satisfied by *repository.DocumentRepository.
-// The existing config.DocumentRepository only exposes read-only List methods; this interface
-// adds the write operations needed by LinkDocument and UnlinkDocument.
-type TaskWritableDocumentRepository interface {
-	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
-	LinkToTask(ctx context.Context, taskID, documentID int64) error
-	UnlinkFromTask(ctx context.Context, taskID, documentID int64) error
-}
+// (TaskWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
 
 // TaskDependencyRepository defines the interface for managing task dependency relationships.
 // This interface is satisfied by *repository.TaskRelationshipRepository.
@@ -171,20 +164,20 @@ type AnalyticsFeatureRepository interface {
 }
 
 type TaskService struct {
-	repo            TaskRepository
-	entitySvc       *EntityService
-	creatorSvc      *taskcreation.Creator
-	historyRepo     TaskHistoryRepository
-	docRepo         config.DocumentRepository
-	writableDocRepo TaskWritableDocumentRepository
-	relRepo         config.TaskRelationshipRepository
-	relQueryRepo    TaskRelationshipQueryRepository
-	depRepo         TaskDependencyRepository
-	sessionRepo     WorkSessionRepository
-	epicRepo        AnalyticsEpicRepository
-	featureRepo     AnalyticsFeatureRepository
-	featureService  *FeatureService // optional: triggers progress recalc on status change
-	enrichRepo      config.TemplateEnrichmentRepository
+	repo              TaskRepository
+	entitySvc         *EntityService
+	creatorSvc        *taskcreation.Creator
+	historyRepo       TaskHistoryRepository
+	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
+	docRepo           config.DocumentRepository
+	relRepo           config.TaskRelationshipRepository
+	relQueryRepo      TaskRelationshipQueryRepository
+	depRepo           TaskDependencyRepository
+	sessionRepo       WorkSessionRepository
+	epicRepo          AnalyticsEpicRepository
+	featureRepo       AnalyticsFeatureRepository
+	featureService    *FeatureService // optional: triggers progress recalc on status change
+	enrichRepo        config.TemplateEnrichmentRepository
 
 	// Sub-services for delegating extracted functionality.
 	// When non-nil, method calls are delegated to the sub-service instead of
@@ -273,7 +266,7 @@ func (s *TaskService) getOrInitQueryService() *TaskQueryService {
 
 // getOrInitDependencyService returns the dependency sub-service, lazily initializing
 // it from the task repo if it has not been set via SetDependencyService.
-// Any previously configured depRepo, relQueryRepo, or writableDocRepo fields are
+// Any previously configured depRepo or relQueryRepo fields are
 // forwarded to the newly created sub-service.
 func (s *TaskService) getOrInitDependencyService() *TaskDependencyService {
 	if s.dependencyService == nil {
@@ -283,9 +276,6 @@ func (s *TaskService) getOrInitDependencyService() *TaskDependencyService {
 		}
 		if s.relQueryRepo != nil {
 			s.dependencyService.SetRelQueryRepo(s.relQueryRepo)
-		}
-		if s.writableDocRepo != nil {
-			s.dependencyService.SetWritableDocRepo(s.writableDocRepo)
 		}
 	}
 	return s.dependencyService
@@ -591,80 +581,39 @@ func sortTasks(tasks []*models.Task) {
 //   - ValidationError: missing required reason for backward transitions
 //   - RepositoryError: database update failed
 func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	// Step 1: Get task (task-specific typed repo)
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task %s: %w", key, err)
-	}
+	// Create task-specific adapter that routes UpdateStatus through StatusUpdateRaw
+	adapter := s.makeTaskEntityAdapter(opts)
 
-	fromStatus := string(task.Status)
-
-	// Step 2: Shared validation and normalization (delegated to EntityService)
-	targetStatus, err = s.entitySvc.ValidateAndNormalize(fromStatus, targetStatus, opts.Force)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 3: Shared force-reason enforcement
-	if opts.Force && opts.Reason == "" {
-		return nil, ErrForceReasonRequired
-	}
-
-	// Step 4: Shared backward detection (delegated to EntityService)
-	isBackward, err := s.entitySvc.DetectBackward(fromStatus, targetStatus, opts.Force, opts.Reason)
+	// Delegate full transition flow to EntityService:
+	// validation, normalization, force-reason check, backward detection,
+	// status update (via adapter), history recording, rejection notes, action resolution
+	result, err := s.entitySvc.TransitionStatus(
+		ctx, adapter, models.EntityTypeTask, key, targetStatus, opts,
+		DefaultTransitionFeatures(),
+		s.makeResolveActionFn(ctx),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 5: Task-specific atomic update via StatusUpdateRaw
-	var agentPtr, reasonPtr, docPathPtr *string
-	if opts.Agent != "" {
-		agentPtr = &opts.Agent
-	}
-	if opts.Reason != "" {
-		reasonPtr = &opts.Reason
-	}
-	if opts.DocumentPath != "" {
-		docPathPtr = &opts.DocumentPath
-	}
-
-	txResult, err := s.executeStatusTransition(ctx, task, statusTransitionOpts{
-		targetStatus: targetStatus,
-		agent:        agentPtr,
-		reason:       reasonPtr,
-		documentPath: docPathPtr,
-		force:        opts.Force,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to transition task %s to %s: %w", key, targetStatus, err)
-	}
-
-	// Step 6: Build result with shared action resolution
-	actualTarget := string(txResult.task.Status)
-	result := &TransitionResult{
-		EntityType:         "task",
-		EntityKey:          task.Key,
-		EntityID:           task.ID,
-		FromStatus:         fromStatus,
-		ToStatus:           actualTarget,
-		Transitioned:       true,
-		Message:            fmt.Sprintf("Transitioned: %s -> %s", fromStatus, actualTarget),
-		IsForced:           opts.Force,
-		IsBackward:         isBackward,
-		Reason:             opts.Reason,
-		OrchestratorAction: s.resolveAction(ctx, task, actualTarget),
-	}
-
-	// Step 7: Store auto-unblocked keys in result message if any
-	if len(txResult.unblockedKeys) > 0 {
+	// Post-hook: auto-unblock dependents (task-specific behavior)
+	// StatusUpdateRaw returns unblocked keys; retrieve them from the adapter
+	if len(adapter.unblockedKeys) > 0 {
 		result.Message = fmt.Sprintf("Transitioned: %s -> %s (auto-unblocked: %s)",
-			fromStatus, actualTarget, strings.Join(txResult.unblockedKeys, ", "))
+			result.FromStatus, result.ToStatus, strings.Join(adapter.unblockedKeys, ", "))
+	}
+
+	// Post-hook: recalculate feature progress
+	task, taskErr := s.repo.GetByKey(ctx, key)
+	if taskErr == nil {
+		s.recalculateFeatureProgress(ctx, task.FeatureID)
 	}
 
 	return result, nil
 }
 
 // GetNextStatus returns available status transitions for a task.
+// Delegates to EntityService.GetNextStatus for shared logic.
 //
 // Parameters:
 //   - ctx: context for cancellation and timeout
@@ -678,32 +627,9 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) GetNextStatus(ctx context.Context, key string) (*NextStatusInfo, error) {
-	task, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task %s: %w", key, err)
-	}
-
-	currentStatus := string(task.Status)
-	transitions := s.entitySvc.GetWorkflowService().GetTransitionInfo(currentStatus)
-	currentMeta := s.entitySvc.GetWorkflowService().GetStatusMetadata(currentStatus)
-
-	// Wrap transitions with orchestrator action support
-	wrapped := make([]TransitionInfoWithAction, 0, len(transitions))
-	for _, t := range transitions {
-		wrapped = append(wrapped, TransitionInfoWithAction{
-			TransitionInfo:     t,
-			OrchestratorAction: s.resolveAction(ctx, task, t.TargetStatus),
-		})
-	}
-
-	return &NextStatusInfo{
-		EntityType:           "task",
-		EntityKey:            key,
-		CurrentStatus:        currentStatus,
-		CurrentPhase:         currentMeta.Phase,
-		AvailableTransitions: wrapped,
-		IsTerminal:           s.entitySvc.GetWorkflowService().IsTerminalStatus(currentStatus),
-	}, nil
+	// Use a simple read-only adapter (no StatusUpdateRaw needed for GetNextStatus)
+	adapter := &taskEntityRepoAdapter{repo: s.repo}
+	return s.entitySvc.GetNextStatus(ctx, adapter, models.EntityTypeTask, key, s.makeResolveActionFn(ctx))
 }
 
 // ValidateStatus checks if a status is valid in the task workflow.
@@ -753,33 +679,39 @@ func (s *TaskService) GetDependencyTree(ctx context.Context, key string) (*Depen
 	return s.getOrInitDependencyService().GetDependencyTree(ctx, key)
 }
 
-// resolveAction looks up the orchestrator action for a given status.
-// Uses shared EntityService.ResolveActionForStatus for workflow lookup and
-// PopulatedAction construction, while retaining task-specific placeholder generation.
-// Returns nil if no action is defined or if document/relationship repositories are not available.
-func (s *TaskService) resolveAction(ctx context.Context, task *models.Task, status string) *config.PopulatedAction {
-	// Fetch enrichment data (optional, graceful degradation)
-	var enrichment *config.TemplateEnrichmentData
-	if s.enrichRepo != nil {
-		data, err := s.enrichRepo.GetTaskEnrichment(ctx, task.ID)
-		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for task %s: %v", task.Key, err)
-		} else {
-			enrichment = data
+// makeResolveActionFn returns a ResolveActionFn callback that generates
+// task-specific placeholders for orchestrator action resolution.
+// Closes over ctx for enrichment data fetching.
+func (s *TaskService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
+	return func(entity models.Entity, status string) *config.PopulatedAction {
+		task, ok := entity.(*models.Task)
+		if !ok {
+			return nil
 		}
-	}
 
-	// Determine which placeholder function to use based on available repositories
-	var placeholders map[string]string
-	if s.docRepo != nil && s.relRepo != nil {
-		placeholders = config.TaskPlaceholdersWithRelated(ctx, task, s.docRepo, s.relRepo, enrichment)
-	} else {
-		placeholders = config.TaskPlaceholders(task)
-		config.ApplyEnrichmentData(enrichment, placeholders)
-	}
+		// Fetch enrichment data (optional, graceful degradation)
+		var enrichment *config.TemplateEnrichmentData
+		if s.enrichRepo != nil {
+			data, err := s.enrichRepo.GetTaskEnrichment(ctx, task.ID)
+			if err != nil {
+				log.Printf("WARNING: Failed to fetch enrichment data for task %s: %v", task.Key, err)
+			} else {
+				enrichment = data
+			}
+		}
 
-	// Delegate workflow lookup + PopulatedAction construction to shared helper
-	return s.entitySvc.ResolveActionForStatus(status, placeholders)
+		// Determine which placeholder function to use based on available repositories
+		var placeholders map[string]string
+		if s.docRepo != nil && s.relRepo != nil {
+			placeholders = config.TaskPlaceholdersWithRelated(ctx, task, s.docRepo, s.relRepo, enrichment)
+		} else {
+			placeholders = config.TaskPlaceholders(task)
+			config.ApplyEnrichmentData(enrichment, placeholders)
+		}
+
+		// Delegate workflow lookup + PopulatedAction construction to shared helper
+		return s.entitySvc.ResolveActionForStatus(status, placeholders)
+	}
 }
 
 // ListTasksWithPagination retrieves a paginated list of tasks matching the given filters.
@@ -996,10 +928,9 @@ func (s *TaskService) SetRelQueryRepo(relQueryRepo TaskRelationshipQueryReposito
 
 // SetWritableDocRepo sets the writable document repository for link/unlink operations.
 // This is optional; commands needing document write operations must call this before use.
-func (s *TaskService) SetWritableDocRepo(writableDocRepo TaskWritableDocumentRepository) {
-	s.writableDocRepo = writableDocRepo
+func (s *TaskService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
 	if s.dependencyService != nil {
-		s.dependencyService.SetWritableDocRepo(writableDocRepo)
+		s.dependencyService.SetWritableDocRepo(writableRepo, linkRepo)
 	}
 }
 
@@ -1200,6 +1131,12 @@ func (s *TaskService) SetHistoryRepo(repo TaskHistoryRepository) {
 	}
 }
 
+// SetEntityHistoryRepo sets the entity history recorder for recording status transitions
+// to the polymorphic entity_history table. Optional — degrades gracefully when nil.
+func (s *TaskService) SetEntityHistoryRepo(repo EntityHistoryRecorder) {
+	s.entityHistoryRepo = repo
+}
+
 // SetSessionRepo sets the work session repository for analytics.
 // This is used by CLI global accessors to wire optional session repository
 // after initial construction via NewTaskService.
@@ -1245,14 +1182,10 @@ func (s *TaskService) recalculateFeatureProgress(ctx context.Context, featureID 
 	_ = s.featureService.RecalculateAndSetProgress(ctx, featureID)
 }
 
-// statusTransitionOpts bundles all options for a status transition.
-// statusTransitionOpts is an internal struct used by executeStatusTransition.
-// Validation, normalization, and backward detection are handled by EntityService
-// in TransitionStatus before this is called. This struct carries the already-validated
-// target status and optional metadata for the StatusUpdateRaw call.
+// statusTransitionOpts bundles metadata for routing through StatusUpdateRaw
+// via the taskEntityRepoAdapter. Used by makeTaskEntityAdapter to pass
+// agent/reason/documentPath/force to the adapter.
 type statusTransitionOpts struct {
-	// targetStatus is the validated/normalized target status.
-	targetStatus string
 	// agent is the optional agent performing the transition.
 	agent *string
 	// notes is optional notes for the transition.
@@ -1265,59 +1198,133 @@ type statusTransitionOpts struct {
 	force bool
 }
 
-// statusTransitionResult contains the output of a status transition.
-type statusTransitionResult struct {
-	// task is the updated task with the new status applied in-memory.
-	task *models.Task
-	// unblockedKeys contains keys of tasks that were auto-unblocked.
+// taskEntityRepoAdapter adapts the typed TaskRepository to the EntityRepository
+// interface, routing UpdateStatus through StatusUpdateRaw to preserve
+// agent/reason/documentPath handling and capture auto-unblocked keys.
+type taskEntityRepoAdapter struct {
+	repo TaskRepository
+	// opts is set before each TransitionStatus call to pass transition-specific
+	// metadata (agent, reason, documentPath, force) to StatusUpdateRaw.
+	opts *statusTransitionOpts
+	// lastTask caches the task fetched by GetByKey so UpdateStatus can access
+	// timestamp fields without an extra DB round-trip.
+	lastTask *models.Task
+	// unblockedKeys captures the auto-unblocked task keys from StatusUpdateRaw,
+	// retrieved by TaskService after EntityService.TransitionStatus returns.
 	unblockedKeys []string
 }
 
-// executeStatusTransition performs the task-specific atomic DB write via StatusUpdateRaw
-// and recalculates feature progress. Validation, normalization, and backward detection
-// are handled by EntityService in TransitionStatus before this is called.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - task: the task to transition (must be loaded from DB with current state)
-//   - opts: already-validated transition options with metadata for StatusUpdateRaw
-//
-// Returns:
-//   - *statusTransitionResult: the result including updated task and unblocked keys
-//   - error: repository errors from StatusUpdateRaw
-func (s *TaskService) executeStatusTransition(ctx context.Context, task *models.Task, opts statusTransitionOpts) (*statusTransitionResult, error) {
-	fromStatus := string(task.Status)
+func (a *taskEntityRepoAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	task, err := a.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, nil
+	}
+	a.lastTask = task
+	return task, nil
+}
 
-	// Build StatusUpdateParams
+func (a *taskEntityRepoAdapter) GetByID(ctx context.Context, id int64) (models.Entity, error) {
+	task, err := a.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, nil
+	}
+	return task, nil
+}
+
+func (a *taskEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
+	if a.opts == nil {
+		// Fallback: simple status update without metadata
+		return a.repo.UpdateStatus(ctx, id, models.TaskStatus(status), nil, nil)
+	}
+
+	// Use cached task from GetByKey (EntityService calls GetByKey before UpdateStatus)
+	task := a.lastTask
+	if task == nil || task.ID != id {
+		// Fallback: fetch task if cache miss
+		var err error
+		task, err = a.repo.GetByID(ctx, id)
+		if err != nil {
+			return fmt.Errorf("failed to get task for status update: %w", err)
+		}
+	}
+
 	params := models.StatusUpdateParams{
-		TaskID:          task.ID,
-		NewStatus:       models.TaskStatus(opts.targetStatus),
-		Agent:           opts.agent,
-		Notes:           opts.notes,
-		RejectionReason: opts.reason,
-		DocumentPath:    opts.documentPath,
-		Force:           opts.force,
-		OldStatus:       fromStatus,
+		TaskID:          id,
+		NewStatus:       models.TaskStatus(status),
+		Agent:           a.opts.agent,
+		Notes:           a.opts.notes,
+		RejectionReason: a.opts.reason,
+		DocumentPath:    a.opts.documentPath,
+		Force:           a.opts.force,
+		OldStatus:       string(task.Status),
 		TaskKey:         task.Key,
 		StartedAt:       task.StartedAt,
 		CompletedAt:     task.CompletedAt,
 		BlockedAt:       task.BlockedAt,
 	}
 
-	// Call repository for atomic DB write
-	unblockedKeys, err := s.repo.StatusUpdateRaw(ctx, params)
+	unblockedKeys, err := a.repo.StatusUpdateRaw(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update task %s status: %w", task.Key, err)
+		return err
+	}
+	a.unblockedKeys = unblockedKeys
+	return nil
+}
+
+func (a *taskEntityRepoAdapter) Update(ctx context.Context, entity models.Entity) error {
+	task, ok := entity.(*models.Task)
+	if !ok {
+		return fmt.Errorf("taskEntityRepoAdapter: expected *models.Task, got %T", entity)
+	}
+	return a.repo.Update(ctx, task)
+}
+
+func (a *taskEntityRepoAdapter) GetContextData(ctx context.Context, id int64) (*string, error) {
+	task, err := a.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return task.ContextData, nil
+}
+
+func (a *taskEntityRepoAdapter) UpdateContextData(ctx context.Context, id int64, data *string) error {
+	task, err := a.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	task.ContextData = data
+	return a.repo.Update(ctx, task)
+}
+
+// makeTaskEntityAdapter creates a taskEntityRepoAdapter configured with the
+// given TransitionOptions for routing through StatusUpdateRaw.
+func (s *TaskService) makeTaskEntityAdapter(opts TransitionOptions) *taskEntityRepoAdapter {
+	var agentPtr, reasonPtr, docPathPtr *string
+	if opts.Agent != "" {
+		agentPtr = &opts.Agent
+	}
+	if opts.Reason != "" {
+		reasonPtr = &opts.Reason
+	}
+	if opts.DocumentPath != "" {
+		docPathPtr = &opts.DocumentPath
 	}
 
-	// Update task in-memory and recalculate feature progress
-	task.Status = models.TaskStatus(opts.targetStatus)
-	s.recalculateFeatureProgress(ctx, task.FeatureID)
-
-	return &statusTransitionResult{
-		task:          task,
-		unblockedKeys: unblockedKeys,
-	}, nil
+	return &taskEntityRepoAdapter{
+		repo: s.repo,
+		opts: &statusTransitionOpts{
+			agent:        agentPtr,
+			reason:       reasonPtr,
+			documentPath: docPathPtr,
+			force:        opts.Force,
+		},
+	}
 }
 
 // GetTaskHistory retrieves the complete status change history for a task.

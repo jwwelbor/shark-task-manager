@@ -198,19 +198,50 @@ func (m *changeCardFeatureRepo) GetFeatureDisplayDataRaw(context.Context, int64)
 	return nil, nil
 }
 
-func newChangeCardWorkflowSvc() *workflow.Service {
-	return workflow.NewService("")
+// mockChangeCardEntityRepo adapts mockChangeCardRepo to the EntityRepository interface.
+type mockChangeCardEntityRepo struct {
+	ccRepo *mockChangeCardRepo
+}
+
+func (m *mockChangeCardEntityRepo) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	return m.ccRepo.GetByKey(ctx, key)
+}
+
+func (m *mockChangeCardEntityRepo) GetByID(ctx context.Context, id int64) (models.Entity, error) {
+	return m.ccRepo.GetByID(ctx, id)
+}
+
+func (m *mockChangeCardEntityRepo) UpdateStatus(ctx context.Context, id int64, status string) error {
+	return m.ccRepo.UpdateStatus(ctx, id, models.ChangeCardStatus(status))
+}
+
+func (m *mockChangeCardEntityRepo) Update(ctx context.Context, entity models.Entity) error {
+	card, ok := entity.(*models.ChangeCard)
+	if !ok {
+		return fmt.Errorf("expected *models.ChangeCard, got %T", entity)
+	}
+	return m.ccRepo.Update(ctx, card)
+}
+
+func (m *mockChangeCardEntityRepo) GetContextData(ctx context.Context, id int64) (*string, error) {
+	return nil, nil
+}
+
+func (m *mockChangeCardEntityRepo) UpdateContextData(ctx context.Context, id int64, data *string) error {
+	return nil
 }
 
 func newChangeCardService(repo *mockChangeCardRepo, epicRepo *changeCardEpicRepo, featureRepo *changeCardFeatureRepo) *ChangeCardService {
-	wfSvc := newChangeCardWorkflowSvc()
+	wfSvc := workflow.NewService("")
+	entitySvc := NewEntityService(wfSvc)
+	entityRepo := &mockChangeCardEntityRepo{ccRepo: repo}
 	if epicRepo == nil {
 		epicRepo = &changeCardEpicRepo{}
 	}
 	if featureRepo == nil {
 		featureRepo = &changeCardFeatureRepo{}
 	}
-	return NewChangeCardService(repo, wfSvc, epicRepo, featureRepo, "")
+	return NewChangeCardService(repo, entitySvc, entityRepo, epicRepo, featureRepo, "")
 }
 
 func TestChangeCardService_CreateChangeCard(t *testing.T) {
@@ -481,14 +512,16 @@ func TestChangeCardService_DeleteChangeCard(t *testing.T) {
 func TestChangeCardService_ApproveChangeCard(t *testing.T) {
 	ctx := context.Background()
 
+	currentStatus := models.ChangeCardStatus("proposed")
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: currentStatus}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.ChangeCardStatus) error {
 			if status != "approved" {
 				t.Errorf("expected status 'approved', got %s", status)
 			}
+			currentStatus = status
 			return nil
 		},
 	}
@@ -507,18 +540,20 @@ func TestChangeCardService_ApproveChangeCard(t *testing.T) {
 func TestChangeCardService_SetChangeCardStatus(t *testing.T) {
 	ctx := context.Background()
 
+	currentStatus := models.ChangeCardStatus("proposed")
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: currentStatus}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.ChangeCardStatus) error {
+			currentStatus = status
 			return nil
 		},
 	}
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	card, err := svc.SetChangeCardStatus(ctx, "CC-001", "approved")
+	card, err := svc.SetChangeCardStatus(ctx, "CC-001", "approved", false)
 	if err != nil {
 		t.Fatalf("SetChangeCardStatus() error = %v", err)
 	}
@@ -539,7 +574,7 @@ func TestChangeCardService_SetChangeCardStatus_InvalidTransition(t *testing.T) {
 	svc := newChangeCardService(repo, nil, nil)
 
 	// completed -> proposed should be invalid
-	_, err := svc.SetChangeCardStatus(ctx, "CC-001", "proposed")
+	_, err := svc.SetChangeCardStatus(ctx, "CC-001", "proposed", false)
 	if err == nil {
 		t.Fatal("expected error for invalid transition")
 	}
@@ -574,11 +609,13 @@ func TestChangeCardService_CountByStatus(t *testing.T) {
 func TestChangeCardService_AdvanceChangeCardStatus(t *testing.T) {
 	ctx := context.Background()
 
+	currentStatus := models.ChangeCardStatus("proposed")
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: currentStatus}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.ChangeCardStatus) error {
+			currentStatus = status
 			return nil
 		},
 	}

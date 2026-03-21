@@ -36,7 +36,7 @@ func main() {
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
-	historyRepo := repository.NewTaskHistoryRepository(repoDb)
+	historyRepo := repository.NewTaskHistoryRepository(repoDb) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 
 	// Test Epic CRUD
 	fmt.Println("\n--- Testing Epic CRUD ---")
@@ -119,7 +119,7 @@ func main() {
 	// Test Task History
 	fmt.Println("\n--- Testing Task History ---")
 
-	history, err := historyRepo.ListByTask(ctx, task.ID)
+	history, err := historyRepo.ListByTask(ctx, task.ID) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	if err != nil {
 		log.Fatal("Failed to list task history:", err)
 	}

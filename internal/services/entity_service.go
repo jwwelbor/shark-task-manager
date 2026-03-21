@@ -3,11 +3,61 @@ package services
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// EntityHistoryRecorder creates entity history records during status transitions.
+// Defined at point of use (consumer side) per Go best practice.
+// Satisfied by *repository.EntityHistoryRepository.
+type EntityHistoryRecorder interface {
+	Create(ctx context.Context, history *models.EntityHistory) error
+}
+
+// EntityHistoryOpts holds optional parameters for recording entity history.
+type EntityHistoryOpts struct {
+	Agent          string // who performed the transition
+	Reason         string // why the transition occurred
+	IsBackward     bool   // whether this is a backward transition
+	UseAsRejection bool   // if true and Reason != "", stores Reason in RejectionReason instead of Notes
+}
+
+// recordEntityHistory records a status transition to the entity_history table.
+// Non-blocking: errors are logged but not propagated.
+// All four services (EntityService, BugService, ChangeCardService, TaskService) use this
+// shared helper to avoid duplicated history-recording logic.
+func recordEntityHistory(ctx context.Context, repo EntityHistoryRecorder, entityType models.EntityType, entityID int64, fromStatus, toStatus string, force bool, opts EntityHistoryOpts) {
+	if repo == nil {
+		return
+	}
+	history := &models.EntityHistory{
+		EntityType: entityType,
+		EntityID:   entityID,
+		ToStatus:   toStatus,
+		Forced:     force,
+		ChangedAt:  time.Now(),
+	}
+	if fromStatus != "" {
+		history.FromStatus = &fromStatus
+	}
+	if opts.Agent != "" {
+		history.ChangedBy = &opts.Agent
+	}
+	if opts.Reason != "" {
+		if opts.UseAsRejection {
+			history.RejectionReason = &opts.Reason
+		} else {
+			history.Notes = &opts.Reason
+		}
+	}
+	if err := repo.Create(ctx, history); err != nil {
+		log.Printf("warning: failed to record entity history for %s: %v", entityType, err)
+	}
+}
 
 // RejectionNoteCreator creates rejection notes during backward/forced transitions.
 // Satisfied directly by *repository.EntityNoteRepository — no adapter needed.
@@ -62,7 +112,8 @@ type ResolveActionFn func(entity models.Entity, status string) *config.Populated
 // Entity-specific services compose this and delegate shared steps to it.
 type EntityService struct {
 	workflowSvc *workflow.Service
-	noteRepo    RejectionNoteCreator // optional, for rejection notes during transitions
+	noteRepo    RejectionNoteCreator  // optional, for rejection notes during transitions
+	historyRepo EntityHistoryRecorder // optional, for history recording during transitions
 }
 
 // NewEntityService creates an EntityService with the workflow service dependency.
@@ -82,6 +133,7 @@ func (s *EntityService) ForLevel(level string) *EntityService {
 	return &EntityService{
 		workflowSvc: s.workflowSvc.ForLevel(level),
 		noteRepo:    s.noteRepo,
+		historyRepo: s.historyRepo,
 	}
 }
 
@@ -89,6 +141,12 @@ func (s *EntityService) ForLevel(level string) *EntityService {
 // The *repository.EntityNoteRepository satisfies RejectionNoteCreator directly.
 func (s *EntityService) SetNoteRepo(noteRepo RejectionNoteCreator) {
 	s.noteRepo = noteRepo
+}
+
+// SetHistoryRepo sets the entity history recorder. Optional — degrades gracefully.
+// The *repository.EntityHistoryRepository satisfies EntityHistoryRecorder directly.
+func (s *EntityService) SetHistoryRepo(repo EntityHistoryRecorder) {
+	s.historyRepo = repo
 }
 
 // TransitionStatus performs a status transition on any entity via its
@@ -152,6 +210,13 @@ func (s *EntityService) TransitionStatus(
 	if err := repo.UpdateStatus(ctx, entity.GetID(), targetStatus); err != nil {
 		return nil, fmt.Errorf("failed to update %s status: %w", entityType, err)
 	}
+
+	// Step 7.5: Record history (non-blocking)
+	recordEntityHistory(ctx, s.historyRepo, entityType, entity.GetID(), currentStatus, targetStatus, opts.Force, EntityHistoryOpts{
+		Agent:          opts.Agent,
+		Reason:         opts.Reason,
+		UseAsRejection: isBackward && !opts.Force,
+	})
 
 	// Step 8: Create rejection note (opt-in, if backward/forced with reason)
 	if features.CreateRejectionNotes && s.noteRepo != nil && (isBackward || opts.Force) && opts.Reason != "" {
@@ -239,12 +304,7 @@ func (s *EntityService) ResolveActionForStatus(status string, placeholders map[s
 	if !exists || meta.OrchestratorAction == nil {
 		return nil
 	}
-	return &config.PopulatedAction{
-		Action:      meta.OrchestratorAction.Action,
-		AgentType:   meta.OrchestratorAction.AgentType,
-		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
-	}
+	return meta.OrchestratorAction.ToPopulatedAction(placeholders)
 }
 
 // GetNextStatus returns available status transitions for an entity.

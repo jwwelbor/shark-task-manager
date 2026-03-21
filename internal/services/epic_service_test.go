@@ -1814,40 +1814,52 @@ func TestEpicService_CascadeStatusToFeaturesAndTasks_RepoError(t *testing.T) {
 // MockEpicWritableDocumentRepository
 // ============================================================================
 
-// mockEpicWritableDocRepo implements EpicWritableDocumentRepository for testing.
-type mockEpicWritableDocRepo struct {
-	createOrGetFn    func(ctx context.Context, title, filePath string) (*models.Document, error)
-	getByTitleFn     func(ctx context.Context, title string) (*models.Document, error)
-	linkToEpicFn     func(ctx context.Context, epicID, documentID int64) error
-	unlinkFromEpicFn func(ctx context.Context, epicID, documentID int64) error
+// mockEpicDocRepo implements EntityDocumentRepository for epic-service doc tests.
+type mockEpicDocRepo struct {
+	createOrGetFn func(ctx context.Context, title, filePath string) (*models.Document, error)
+	getByTitleFn  func(ctx context.Context, title string) (*models.Document, error)
 }
 
-func (m *mockEpicWritableDocRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
+func (m *mockEpicDocRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
 	if m.createOrGetFn != nil {
 		return m.createOrGetFn(ctx, title, filePath)
 	}
-	return nil, fmt.Errorf("CreateOrGet not implemented in mockEpicWritableDocRepo")
+	return nil, fmt.Errorf("CreateOrGet not implemented")
 }
 
-func (m *mockEpicWritableDocRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
+func (m *mockEpicDocRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
 	if m.getByTitleFn != nil {
 		return m.getByTitleFn(ctx, title)
 	}
-	return nil, fmt.Errorf("GetByTitle not implemented in mockEpicWritableDocRepo")
+	return nil, fmt.Errorf("GetByTitle not implemented")
 }
 
-func (m *mockEpicWritableDocRepo) LinkToEpic(ctx context.Context, epicID, documentID int64) error {
-	if m.linkToEpicFn != nil {
-		return m.linkToEpicFn(ctx, epicID, documentID)
-	}
-	return fmt.Errorf("LinkToEpic not implemented in mockEpicWritableDocRepo")
+// mockEpicLinkRepo implements EntityDocumentLinkRepository for epic-service doc tests.
+type mockEpicLinkRepo struct {
+	linkFn          func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error
+	unlinkFn        func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error
+	listForEntityFn func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error)
 }
 
-func (m *mockEpicWritableDocRepo) UnlinkFromEpic(ctx context.Context, epicID, documentID int64) error {
-	if m.unlinkFromEpicFn != nil {
-		return m.unlinkFromEpicFn(ctx, epicID, documentID)
+func (m *mockEpicLinkRepo) Link(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error {
+	if m.linkFn != nil {
+		return m.linkFn(ctx, entityType, entityID, documentID, linkType)
 	}
-	return fmt.Errorf("UnlinkFromEpic not implemented in mockEpicWritableDocRepo")
+	return fmt.Errorf("Link not implemented")
+}
+
+func (m *mockEpicLinkRepo) Unlink(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+	if m.unlinkFn != nil {
+		return m.unlinkFn(ctx, entityType, entityID, documentID)
+	}
+	return fmt.Errorf("Unlink not implemented")
+}
+
+func (m *mockEpicLinkRepo) ListForEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+	if m.listForEntityFn != nil {
+		return m.listForEntityFn(ctx, entityType, entityID)
+	}
+	return nil, fmt.Errorf("ListForEntity not implemented")
 }
 
 // ============================================================================
@@ -1863,7 +1875,7 @@ func TestEpicService_LinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicWritableDocRepo{
+	docRepo := &mockEpicDocRepo{
 		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
 			if title != "Design Doc" {
 				t.Errorf("expected title 'Design Doc', got %q", title)
@@ -1873,15 +1885,17 @@ func TestEpicService_LinkDocument_Happy_Path(t *testing.T) {
 			}
 			return &models.Document{ID: 42, Title: title, FilePath: filePath}, nil
 		},
-		linkToEpicFn: func(ctx context.Context, epicID, documentID int64) error {
-			capturedEpicID = epicID
+	}
+	linkRepo := &mockEpicLinkRepo{
+		linkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error {
+			capturedEpicID = entityID
 			capturedDocID = documentID
 			return nil
 		},
 	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
 
@@ -1918,17 +1932,18 @@ func TestEpicService_LinkDocument_EpicNotFound(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicWritableDocRepo{}
+	docRepo := &mockEpicDocRepo{}
+	linkRepo := &mockEpicLinkRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E99", "Design Doc", "docs/design.md")
 
 	if err == nil {
 		t.Fatal("expected error when epic not found, got nil")
 	}
-	if !strings.Contains(err.Error(), "epic not found") {
-		t.Errorf("expected 'epic not found' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
 	}
 }
 
@@ -1939,14 +1954,15 @@ func TestEpicService_LinkDocument_CreateOrGetError(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicWritableDocRepo{
+	docRepo := &mockEpicDocRepo{
 		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
+	linkRepo := &mockEpicLinkRepo{}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
 
@@ -1965,17 +1981,19 @@ func TestEpicService_LinkDocument_LinkError(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicWritableDocRepo{
+	docRepo := &mockEpicDocRepo{
 		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
 			return &models.Document{ID: 42, Title: title}, nil
 		},
-		linkToEpicFn: func(ctx context.Context, epicID, documentID int64) error {
+	}
+	linkRepo := &mockEpicLinkRepo{
+		linkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error {
 			return fmt.Errorf("link failed")
 		},
 	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
 
@@ -2000,22 +2018,24 @@ func TestEpicService_UnlinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicWritableDocRepo{
+	docRepo := &mockEpicDocRepo{
 		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
 			if title != "Design Doc" {
 				t.Errorf("expected title 'Design Doc', got %q", title)
 			}
 			return &models.Document{ID: 42, Title: title}, nil
 		},
-		unlinkFromEpicFn: func(ctx context.Context, epicID, documentID int64) error {
-			capturedEpicID = epicID
+	}
+	linkRepo := &mockEpicLinkRepo{
+		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+			capturedEpicID = entityID
 			capturedDocID = documentID
 			return nil
 		},
 	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")
 
@@ -2051,17 +2071,18 @@ func TestEpicService_UnlinkDocument_EpicNotFound(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicWritableDocRepo{}
+	docRepo := &mockEpicDocRepo{}
+	linkRepo := &mockEpicLinkRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E99", "Design Doc")
 
 	if err == nil {
 		t.Fatal("expected error when epic not found, got nil")
 	}
-	if !strings.Contains(err.Error(), "epic not found") {
-		t.Errorf("expected 'epic not found' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
 	}
 }
 
@@ -2072,14 +2093,15 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicWritableDocRepo{
+	docRepo := &mockEpicDocRepo{
 		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
 			return nil, fmt.Errorf("document not found")
 		},
 	}
+	linkRepo := &mockEpicLinkRepo{}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Missing Doc")
 
@@ -2096,17 +2118,19 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockEpicWritableDocRepo{
+	docRepo := &mockEpicDocRepo{
 		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
 			return &models.Document{ID: 42, Title: title}, nil
 		},
-		unlinkFromEpicFn: func(ctx context.Context, epicID, documentID int64) error {
+	}
+	linkRepo := &mockEpicLinkRepo{
+		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			return fmt.Errorf("unlink failed")
 		},
 	}
 
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")
 

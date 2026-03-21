@@ -494,7 +494,7 @@ func setupTestDisplayService(t *testing.T) (*DisplayService, func(), *repository
 			EpicRepo:     repository.NewEpicRepository(repoDB),
 			FeatureRepo:  repository.NewFeatureRepository(repoDB),
 			TaskRepo:     repository.NewTaskRepositoryWithWorkflow(repoDB, nil),
-			DocumentRepo: repository.NewDocumentRepository(repoDB),
+			DocumentRepo: repository.NewPolymorphicDocRepoAdapter(repository.NewEntityDocumentRepository(repoDB)),
 			NoteRepo:     repository.NewEntityNoteRepository(repoDB),
 		},
 		epicWorkflow:    epicWf,
@@ -527,6 +527,7 @@ func seedEpicWithDocs(t *testing.T, repoDB *repository.DB) (int64, []int64) {
 
 	// Create documents and link to epic
 	docRepo := repository.NewDocumentRepository(repoDB)
+	entityDocRepo := repository.NewEntityDocumentRepository(repoDB)
 	doc1, err := docRepo.CreateOrGet(ctx, "Architecture Doc", "docs/architecture.md")
 	if err != nil {
 		t.Fatalf("failed to create doc1: %v", err)
@@ -536,10 +537,10 @@ func seedEpicWithDocs(t *testing.T, repoDB *repository.DB) (int64, []int64) {
 		t.Fatalf("failed to create doc2: %v", err)
 	}
 
-	if err := docRepo.LinkToEpic(ctx, epicID, doc1.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epicID, doc1.ID, ""); err != nil {
 		t.Fatalf("failed to link doc1 to epic: %v", err)
 	}
-	if err := docRepo.LinkToEpic(ctx, epicID, doc2.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epicID, doc2.ID, ""); err != nil {
 		t.Fatalf("failed to link doc2 to epic: %v", err)
 	}
 
@@ -564,12 +565,13 @@ func seedFeatureWithDocs(t *testing.T, repoDB *repository.DB, epicID int64) (int
 
 	// Create documents and link to feature
 	docRepo := repository.NewDocumentRepository(repoDB)
+	entityDocRepo := repository.NewEntityDocumentRepository(repoDB)
 	doc1, err := docRepo.CreateOrGet(ctx, "Feature Spec", "docs/feature-spec.md")
 	if err != nil {
 		t.Fatalf("failed to create doc1: %v", err)
 	}
 
-	if err := docRepo.LinkToFeature(ctx, featureID, doc1.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeFeature, featureID, doc1.ID, ""); err != nil {
 		t.Fatalf("failed to link doc1 to feature: %v", err)
 	}
 

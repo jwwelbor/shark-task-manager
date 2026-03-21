@@ -2086,40 +2086,52 @@ func TestFeatureService_CascadeFeatureStatusToTasks_ZeroTasks(t *testing.T) {
 // MockFeatureWritableDocumentRepository
 // ============================================================================
 
-// mockFeatureWritableDocRepo implements FeatureWritableDocumentRepository for testing.
-type mockFeatureWritableDocRepo struct {
-	createOrGetFn       func(ctx context.Context, title, filePath string) (*models.Document, error)
-	getByTitleFn        func(ctx context.Context, title string) (*models.Document, error)
-	linkToFeatureFn     func(ctx context.Context, featureID, documentID int64) error
-	unlinkFromFeatureFn func(ctx context.Context, featureID, documentID int64) error
+// mockFeatureDocRepo implements EntityDocumentRepository for feature-service doc tests.
+type mockFeatureDocRepo struct {
+	createOrGetFn func(ctx context.Context, title, filePath string) (*models.Document, error)
+	getByTitleFn  func(ctx context.Context, title string) (*models.Document, error)
 }
 
-func (m *mockFeatureWritableDocRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
+func (m *mockFeatureDocRepo) CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error) {
 	if m.createOrGetFn != nil {
 		return m.createOrGetFn(ctx, title, filePath)
 	}
-	return nil, fmt.Errorf("CreateOrGet not implemented in mockFeatureWritableDocRepo")
+	return nil, fmt.Errorf("CreateOrGet not implemented")
 }
 
-func (m *mockFeatureWritableDocRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
+func (m *mockFeatureDocRepo) GetByTitle(ctx context.Context, title string) (*models.Document, error) {
 	if m.getByTitleFn != nil {
 		return m.getByTitleFn(ctx, title)
 	}
-	return nil, fmt.Errorf("GetByTitle not implemented in mockFeatureWritableDocRepo")
+	return nil, fmt.Errorf("GetByTitle not implemented")
 }
 
-func (m *mockFeatureWritableDocRepo) LinkToFeature(ctx context.Context, featureID, documentID int64) error {
-	if m.linkToFeatureFn != nil {
-		return m.linkToFeatureFn(ctx, featureID, documentID)
-	}
-	return fmt.Errorf("LinkToFeature not implemented in mockFeatureWritableDocRepo")
+// mockFeatureLinkRepo implements EntityDocumentLinkRepository for feature-service doc tests.
+type mockFeatureLinkRepo struct {
+	linkFn          func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error
+	unlinkFn        func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error
+	listForEntityFn func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error)
 }
 
-func (m *mockFeatureWritableDocRepo) UnlinkFromFeature(ctx context.Context, featureID, documentID int64) error {
-	if m.unlinkFromFeatureFn != nil {
-		return m.unlinkFromFeatureFn(ctx, featureID, documentID)
+func (m *mockFeatureLinkRepo) Link(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error {
+	if m.linkFn != nil {
+		return m.linkFn(ctx, entityType, entityID, documentID, linkType)
 	}
-	return fmt.Errorf("UnlinkFromFeature not implemented in mockFeatureWritableDocRepo")
+	return fmt.Errorf("Link not implemented")
+}
+
+func (m *mockFeatureLinkRepo) Unlink(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+	if m.unlinkFn != nil {
+		return m.unlinkFn(ctx, entityType, entityID, documentID)
+	}
+	return fmt.Errorf("Unlink not implemented")
+}
+
+func (m *mockFeatureLinkRepo) ListForEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error) {
+	if m.listForEntityFn != nil {
+		return m.listForEntityFn(ctx, entityType, entityID)
+	}
+	return nil, fmt.Errorf("ListForEntity not implemented")
 }
 
 // ============================================================================
@@ -2135,7 +2147,7 @@ func TestFeatureService_LinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockFeatureWritableDocRepo{
+	docRepo := &mockFeatureDocRepo{
 		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
 			if title != "API Spec" {
 				t.Errorf("expected title 'API Spec', got %q", title)
@@ -2145,15 +2157,17 @@ func TestFeatureService_LinkDocument_Happy_Path(t *testing.T) {
 			}
 			return &models.Document{ID: 55, Title: title, FilePath: filePath}, nil
 		},
-		linkToFeatureFn: func(ctx context.Context, featureID, documentID int64) error {
-			capturedFeatureID = featureID
+	}
+	linkRepo := &mockFeatureLinkRepo{
+		linkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error {
+			capturedFeatureID = entityID
 			capturedDocID = documentID
 			return nil
 		},
 	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
 
@@ -2190,17 +2204,18 @@ func TestFeatureService_LinkDocument_FeatureNotFound(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockFeatureWritableDocRepo{}
+	docRepo := &mockFeatureDocRepo{}
+	linkRepo := &mockFeatureLinkRepo{}
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07-F99", "API Spec", "docs/api-spec.md")
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "feature not found") {
-		t.Errorf("expected error to contain 'feature not found', got: %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected error to contain 'not found', got: %v", err)
 	}
 }
 
@@ -2211,14 +2226,15 @@ func TestFeatureService_LinkDocument_CreateOrGetError(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockFeatureWritableDocRepo{
+	docRepo := &mockFeatureDocRepo{
 		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
+	linkRepo := &mockFeatureLinkRepo{}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
 
@@ -2237,17 +2253,19 @@ func TestFeatureService_LinkDocument_LinkError(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockFeatureWritableDocRepo{
+	docRepo := &mockFeatureDocRepo{
 		createOrGetFn: func(ctx context.Context, title, filePath string) (*models.Document, error) {
 			return &models.Document{ID: 55, Title: title}, nil
 		},
-		linkToFeatureFn: func(ctx context.Context, featureID, documentID int64) error {
+	}
+	linkRepo := &mockFeatureLinkRepo{
+		linkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error {
 			return fmt.Errorf("link failed")
 		},
 	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07-F01", "API Spec", "docs/api-spec.md")
 
@@ -2272,22 +2290,24 @@ func TestFeatureService_UnlinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockFeatureWritableDocRepo{
+	docRepo := &mockFeatureDocRepo{
 		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
 			if title != "API Spec" {
 				t.Errorf("expected title 'API Spec', got %q", title)
 			}
 			return &models.Document{ID: 55, Title: title}, nil
 		},
-		unlinkFromFeatureFn: func(ctx context.Context, featureID, documentID int64) error {
-			capturedFeatureID = featureID
+	}
+	linkRepo := &mockFeatureLinkRepo{
+		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
+			capturedFeatureID = entityID
 			capturedDocID = documentID
 			return nil
 		},
 	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
 
@@ -2323,17 +2343,18 @@ func TestFeatureService_UnlinkDocument_FeatureNotFound(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockFeatureWritableDocRepo{}
+	docRepo := &mockFeatureDocRepo{}
+	linkRepo := &mockFeatureLinkRepo{}
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F99", "API Spec")
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "feature not found") {
-		t.Errorf("expected error to contain 'feature not found', got: %v", err)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected error to contain 'not found', got: %v", err)
 	}
 }
 
@@ -2344,14 +2365,15 @@ func TestFeatureService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockFeatureWritableDocRepo{
+	docRepo := &mockFeatureDocRepo{
 		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
 			return nil, fmt.Errorf("document not found")
 		},
 	}
+	linkRepo := &mockFeatureLinkRepo{}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F01", "Missing Doc")
 
@@ -2368,17 +2390,19 @@ func TestFeatureService_UnlinkDocument_UnlinkError(t *testing.T) {
 		},
 	}
 
-	docRepo := &mockFeatureWritableDocRepo{
+	docRepo := &mockFeatureDocRepo{
 		getByTitleFn: func(ctx context.Context, title string) (*models.Document, error) {
 			return &models.Document{ID: 55, Title: title}, nil
 		},
-		unlinkFromFeatureFn: func(ctx context.Context, featureID, documentID int64) error {
+	}
+	linkRepo := &mockFeatureLinkRepo{
+		unlinkFn: func(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error {
 			return fmt.Errorf("unlink failed")
 		},
 	}
 
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, nil)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07-F01", "API Spec")
 

@@ -64,14 +64,7 @@ type FeatureRelationshipRepository = config.FeatureRelationshipRepository
 
 // FeatureWritableDocumentRepository defines the writable interface for document linking on features.
 // This interface is satisfied by *repository.DocumentRepository.
-// The existing DocumentRepository (config.DocumentRepository) only exposes read-only List methods;
-// this interface adds the write operations needed by LinkDocument and UnlinkDocument.
-type FeatureWritableDocumentRepository interface {
-	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
-	LinkToFeature(ctx context.Context, featureID, documentID int64) error
-	UnlinkFromFeature(ctx context.Context, featureID, documentID int64) error
-}
+// (FeatureWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
 
 // FeatureService provides business logic for feature operations.
 type FeatureService struct {
@@ -129,25 +122,16 @@ func (s *FeatureService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepos
 
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument and UnlinkDocument operations on features.
-// The *repository.DocumentRepository type satisfies the FeatureWritableDocumentRepository interface.
-func (s *FeatureService) SetWritableDocRepo(docRepo FeatureWritableDocumentRepository) {
-	// Build the shared EntityDocumentService with feature-specific callbacks.
-	var listFn func(ctx context.Context, entityID int64) ([]*models.Document, error)
-	if s.docRepo != nil {
-		listFn = s.docRepo.ListForFeature
-	}
+func (s *FeatureService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
 	s.docSvc = NewEntityDocumentService(
-		docRepo,
-		models.EntityTypeFeature,
-		docRepo.LinkToFeature,
-		docRepo.UnlinkFromFeature,
-		listFn,
-		func(ctx context.Context, key string) (int64, error) {
+		writableRepo,
+		linkRepo,
+		func(ctx context.Context, key string) (int64, models.EntityType, error) {
 			feature, err := s.repo.GetByKey(ctx, key)
 			if err != nil {
-				return 0, err
+				return 0, "", err
 			}
-			return feature.ID, nil
+			return feature.ID, models.EntityTypeFeature, nil
 		},
 	)
 }

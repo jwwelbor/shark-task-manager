@@ -18,11 +18,10 @@ type TaskDependencyTaskRepository interface {
 // and related-document linking for tasks.
 // It is a focused sub-service extracted from TaskService to reduce its size.
 type TaskDependencyService struct {
-	repo            TaskDependencyTaskRepository
-	depRepo         TaskDependencyRepository
-	relQueryRepo    TaskRelationshipQueryRepository
-	writableDocRepo TaskWritableDocumentRepository
-	docSvc          *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	repo         TaskDependencyTaskRepository
+	depRepo      TaskDependencyRepository
+	relQueryRepo TaskRelationshipQueryRepository
+	docSvc       *EntityDocumentService // shared document operations; built by SetWritableDocRepo
 }
 
 // NewTaskDependencyService creates a new TaskDependencyService.
@@ -45,20 +44,16 @@ func (s *TaskDependencyService) SetRelQueryRepo(relQueryRepo TaskRelationshipQue
 }
 
 // SetWritableDocRepo sets the writable document repository for link/unlink operations.
-func (s *TaskDependencyService) SetWritableDocRepo(writableDocRepo TaskWritableDocumentRepository) {
-	s.writableDocRepo = writableDocRepo
+func (s *TaskDependencyService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
 	s.docSvc = NewEntityDocumentService(
-		writableDocRepo,
-		models.EntityTypeTask,
-		writableDocRepo.LinkToTask,
-		writableDocRepo.UnlinkFromTask,
-		nil, // list is handled by TaskService via docRepo
-		func(ctx context.Context, key string) (int64, error) {
+		writableRepo,
+		linkRepo,
+		func(ctx context.Context, key string) (int64, models.EntityType, error) {
 			task, err := s.repo.GetByKey(ctx, key)
 			if err != nil {
-				return 0, err
+				return 0, "", err
 			}
-			return task.ID, nil
+			return task.ID, models.EntityTypeTask, nil
 		},
 	)
 }

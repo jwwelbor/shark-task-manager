@@ -473,7 +473,7 @@ func TestGAP002_Fix_DispatchTransition_ChangeKey(t *testing.T) {
 	wantStatus := "reviewed"
 
 	mock := &MockChangeCardService{
-		SetChangeCardStatusFunc: func(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error) {
+		SetChangeCardStatusFunc: func(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error) {
 			called = true
 			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key}, Status: models.ChangeCardStatus(targetStatus)}, nil
 		},

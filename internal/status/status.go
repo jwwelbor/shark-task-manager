@@ -50,9 +50,9 @@ type StatusService struct {
 	epicRepo        *repository.EpicRepository
 	featureRepo     *repository.FeatureRepository
 	taskRepo        *repository.TaskRepository
-	taskHistoryRepo *repository.TaskHistoryRepository
-	bugRepo         BugDashboardRepository        // optional: nil when not configured
-	changeCardRepo  ChangeCardDashboardRepository // optional: nil when not configured
+	taskHistoryRepo *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
+	bugRepo         BugDashboardRepository            // optional: nil when not configured
+	changeCardRepo  ChangeCardDashboardRepository     // optional: nil when not configured
 }
 
 // NewStatusService creates a new StatusService instance.
@@ -63,7 +63,7 @@ func NewStatusService(database *repository.DB, opts ...StatusServiceOption) *Sta
 		epicRepo:        repository.NewEpicRepository(database),
 		featureRepo:     repository.NewFeatureRepository(database),
 		taskRepo:        repository.NewTaskRepository(database),
-		taskHistoryRepo: repository.NewTaskHistoryRepository(database),
+		taskHistoryRepo: repository.NewTaskHistoryRepository(database), //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	}
 	for _, opt := range opts {
 		opt(s)

@@ -26,7 +26,7 @@ type Creator struct {
 	validator       *Validator
 	renderer        *templates.Renderer
 	taskRepo        *repository.TaskRepository
-	historyRepo     *repository.TaskHistoryRepository
+	historyRepo     *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	epicRepo        *repository.EpicRepository
 	featureRepo     *repository.FeatureRepository
 	pathResolver    *pathresolver.PathResolver
@@ -43,7 +43,7 @@ func NewCreator(
 	validator *Validator,
 	renderer *templates.Renderer,
 	taskRepo *repository.TaskRepository,
-	historyRepo *repository.TaskHistoryRepository,
+	historyRepo *repository.TaskHistoryRepository, //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	epicRepo *repository.EpicRepository,
 	featureRepo *repository.FeatureRepository,
 	projectRoot string,

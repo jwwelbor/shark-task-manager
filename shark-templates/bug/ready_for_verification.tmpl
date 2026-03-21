@@ -1,33 +1,22 @@
-Verify fix for bug {{.key}}: "{{.title}}". Severity: {{.severity}}.
+{{template "_resume_preamble" .}}Verify bug fix {{.id}}: "{{.title}}".
+
+Check for existing verification report. If report exists with PASS verdict, advance immediately. If FAIL, send back to ready_for_development.
+
+---
+
+VERIFICATION
 
 READ:
-(1) Bug report at {{.file_path}} — original reproduction steps and expected behavior
-(2) shark bug notes {{.key}} — analysis (component type) and fix description
+(1) Bug description at {{.file_path}}
+(2) Git diff of changes
+(3) CLAUDE.md for coding standards
 
-STEP 1 — Determine component from analysis note:
-- Look for 'ANALYSIS: component=frontend' or 'ANALYSIS: component=backend'
+VERIFY:
+- [ ] Run full test suite: `make fmt && make lint && make test`
+- [ ] Regression test exists and passes
+- [ ] Fix is minimal and targeted (no scope creep)
+- [ ] No regressions in existing functionality
 
-STEP 2 — Run unit/integration tests:
-Run the tests the developer wrote for this fix. They must pass.
-
-STEP 3 — Frontend verification (REQUIRED if component=frontend):
-Write a playwright test at frontend/e2e/bugs/{{.key}}.spec.ts that:
-- Authenticates (TEST_EMAIL='jwwelbor+coachz8@gmail.com', TEST_PASSWORD='123qweASD!', BASE_URL='http://localhost:3000')
-- Follows the exact reproduction steps from the bug report
-- Asserts the expected behavior now occurs
-- Asserts the bug behavior no longer occurs
-- Captures screenshots at key steps
-
-Run it:
-  cd frontend && npx playwright test e2e/bugs/{{.key}}.spec.ts --reporter=list
-
-The playwright test MUST PASS before this bug can be marked resolved.
-If it fails, the fix is NOT complete — route back to ready_for_fix.
-
-STEP 4 — Backend-only verification (if component=backend):
-- Verify via API calls or direct test execution that the bug scenario no longer occurs
-- Document verification method in notes
-
-ROUTE:
-- All required tests pass → shark bug note {{.key}} 'VERIFIED: {method and results}' then shark status set {{.key}} resolved
-- Tests fail → shark bug note {{.key}} 'VERIFICATION_FAILED: {what failed and why}' then shark status set {{.key}} ready_for_fix
+DECISION:
+- ALL PASS → shark status advance {{.id}}
+- ANY FAIL → shark status set {{.id}} ready_for_development --reason "<specific findings>"

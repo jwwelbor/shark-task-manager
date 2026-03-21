@@ -31,20 +31,14 @@ type ChangeCardRepository interface {
 	GetNextKey(ctx context.Context) (string, error)
 }
 
-// ChangeCardWritableDocumentRepository defines the writable interface for document linking on change-cards.
-// This interface is satisfied by *repository.DocumentRepository.
-type ChangeCardWritableDocumentRepository interface {
-	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
-	LinkToChangeCard(ctx context.Context, changeCardID, documentID int64) error
-	UnlinkFromChangeCard(ctx context.Context, changeCardID, documentID int64) error
-	ListForChangeCard(ctx context.Context, changeCardID int64) ([]*models.Document, error)
-}
+// (ChangeCardWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
 
 // ChangeCardService provides business logic for change-card operations.
 type ChangeCardService struct {
 	repo        ChangeCardRepository
 	workflowSvc *workflow.Service
+	entitySvc   *EntityService
+	entityRepo  EntityRepository
 	epicRepo    EpicRepository
 	featureRepo FeatureRepository
 	projectRoot string
@@ -52,22 +46,26 @@ type ChangeCardService struct {
 }
 
 // NewChangeCardService creates a new ChangeCardService.
-// The workflow service is automatically scoped to the change level.
+// entitySvc and entityRepo are required for status transition delegation.
 //
-// Required: repo, workflowSvc.
-// Optional (degrade gracefully when nil): epicRepo, featureRepo.
+// Panics:
+//   - If repo is nil (required dependency)
+//   - If entitySvc is nil (required dependency)
 func NewChangeCardService(
 	repo ChangeCardRepository,
-	workflowSvc *workflow.Service,
+	entitySvc *EntityService,
+	entityRepo EntityRepository,
 	epicRepo EpicRepository,
 	featureRepo FeatureRepository,
 	projectRoot string,
 ) *ChangeCardService {
 	requireNonNil(repo, "ChangeCardService requires a non-nil ChangeCardRepository")
-	requireNonNil(workflowSvc, "ChangeCardService requires a non-nil workflow.Service")
+	requireNonNil(entitySvc, "ChangeCardService requires a non-nil EntityService")
 	return &ChangeCardService{
 		repo:        repo,
-		workflowSvc: workflowSvc.ForLevel(workflow.LevelChange),
+		workflowSvc: entitySvc.GetWorkflowService().ForLevel(workflow.LevelChange),
+		entitySvc:   entitySvc.ForLevel(workflow.LevelChange),
+		entityRepo:  entityRepo,
 		epicRepo:    epicRepo,
 		featureRepo: featureRepo,
 		projectRoot: projectRoot,
@@ -297,65 +295,39 @@ func (s *ChangeCardService) DeleteChangeCard(ctx context.Context, key string) er
 
 // ApproveChangeCard transitions a change-card from proposed to approved.
 func (s *ChangeCardService) ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error) {
-	card, err := s.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get change-card %s: %w", key, err)
-	}
-
-	if err := s.workflowSvc.ValidateTransition(string(card.Status), "approved"); err != nil {
-		return nil, fmt.Errorf("cannot approve change-card %s: current status is '%s': %w", key, card.Status, err)
-	}
-
-	if err := s.repo.UpdateStatus(ctx, card.ID, models.ChangeCardStatus("approved")); err != nil {
-		return nil, fmt.Errorf("failed to update change-card %s status: %w", key, err)
-	}
-
-	card.Status = models.ChangeCardStatus("approved")
-	return card, nil
+	return s.SetChangeCardStatus(ctx, key, "approved", false)
 }
 
 // AdvanceChangeCardStatus advances a change-card to the next workflow status.
 func (s *ChangeCardService) AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error) {
-	card, err := s.repo.GetByKey(ctx, key)
+	info, err := s.entitySvc.GetNextStatus(
+		ctx, s.entityRepo, models.EntityTypeChange, key,
+		s.makeResolveActionFn(),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get change-card %s: %w", key, err)
+		return nil, fmt.Errorf("failed to get next status for change-card %s: %w", key, err)
 	}
-
-	validTransitions := s.workflowSvc.GetValidTransitions(string(card.Status))
-	if len(validTransitions) == 0 {
-		return nil, fmt.Errorf("change-card %s is in terminal status '%s'; no further transitions available", key, card.Status)
+	if len(info.AvailableTransitions) == 0 {
+		return nil, fmt.Errorf("cannot advance change-card %s: no valid transitions from status %q", key, info.CurrentStatus)
 	}
-	nextStatus := validTransitions[0]
-
-	if err := s.workflowSvc.ValidateTransition(string(card.Status), nextStatus); err != nil {
-		return nil, fmt.Errorf("cannot advance change-card %s: %w", key, err)
-	}
-
-	if err := s.repo.UpdateStatus(ctx, card.ID, models.ChangeCardStatus(nextStatus)); err != nil {
-		return nil, fmt.Errorf("failed to update change-card %s status: %w", key, err)
-	}
-
-	card.Status = models.ChangeCardStatus(nextStatus)
-	return card, nil
+	nextStatus := info.AvailableTransitions[0].TargetStatus
+	return s.SetChangeCardStatus(ctx, key, nextStatus, false)
 }
 
-// SetChangeCardStatus sets a change-card to a specific status.
-func (s *ChangeCardService) SetChangeCardStatus(ctx context.Context, key string, targetStatus string) (*models.ChangeCard, error) {
-	card, err := s.repo.GetByKey(ctx, key)
+// SetChangeCardStatus sets a change-card to a specific status with workflow validation.
+// Delegates to EntityService.TransitionStatus for shared transition logic.
+func (s *ChangeCardService) SetChangeCardStatus(ctx context.Context, key string, status string, force bool) (*models.ChangeCard, error) {
+	opts := TransitionOptions{Force: force}
+	_, err := s.entitySvc.TransitionStatus(
+		ctx, s.entityRepo, models.EntityTypeChange, key, status, opts,
+		SimpleTransitionFeatures(),
+		s.makeResolveActionFn(),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get change-card %s: %w", key, err)
+		return nil, err
 	}
-
-	if err := s.workflowSvc.ValidateTransition(string(card.Status), targetStatus); err != nil {
-		return nil, fmt.Errorf("cannot set change-card %s status to '%s': %w", key, targetStatus, err)
-	}
-
-	if err := s.repo.UpdateStatus(ctx, card.ID, models.ChangeCardStatus(targetStatus)); err != nil {
-		return nil, fmt.Errorf("failed to update change-card %s status: %w", key, err)
-	}
-
-	card.Status = models.ChangeCardStatus(targetStatus)
-	return card, nil
+	// Re-fetch to return typed model
+	return s.repo.GetByKey(ctx, key)
 }
 
 // CountByStatus returns counts of change-cards grouped by status.
@@ -400,28 +372,23 @@ func (s *ChangeCardService) generateMarkdown(card *models.ChangeCard) string {
 	return sb.String()
 }
 
-// resolveAction looks up the orchestrator action for a given change-card status.
-func (s *ChangeCardService) resolveAction(card *models.ChangeCard, status string) *config.PopulatedAction {
-	wf := s.workflowSvc.GetWorkflow()
-	if wf == nil || wf.StatusMetadata == nil {
-		return nil
-	}
-	meta, exists := wf.StatusMetadata[status]
-	if !exists || meta.OrchestratorAction == nil {
-		return nil
-	}
-	placeholders := config.ChangeCardPlaceholders(card)
-	return &config.PopulatedAction{
-		Action:      meta.OrchestratorAction.Action,
-		AgentType:   meta.OrchestratorAction.AgentType,
-		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+// makeResolveActionFn returns a ResolveActionFn callback that generates
+// ChangeCard-specific placeholders for orchestrator action resolution.
+func (s *ChangeCardService) makeResolveActionFn() ResolveActionFn {
+	return func(entity models.Entity, status string) *config.PopulatedAction {
+		card, ok := entity.(*models.ChangeCard)
+		if !ok {
+			return nil
+		}
+		placeholders := config.ChangeCardPlaceholders(card)
+		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}
 }
 
 // GetOrchestratorAction returns the orchestrator action for the change-card's current status.
 func (s *ChangeCardService) GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction {
-	return s.resolveAction(card, string(card.Status))
+	placeholders := config.ChangeCardPlaceholders(card)
+	return s.entitySvc.ResolveActionForStatus(string(card.Status), placeholders)
 }
 
 // GetValidTransitions returns the valid next statuses for the given status key.
@@ -439,19 +406,16 @@ func (s *ChangeCardService) GetValidTransitions(status string) []string {
 
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument, UnlinkDocument, and ListRelatedDocumentsByKey operations on change-cards.
-func (s *ChangeCardService) SetWritableDocRepo(docRepo ChangeCardWritableDocumentRepository) {
+func (s *ChangeCardService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
 	s.docSvc = NewEntityDocumentService(
-		docRepo,
-		models.EntityTypeChange,
-		docRepo.LinkToChangeCard,
-		docRepo.UnlinkFromChangeCard,
-		docRepo.ListForChangeCard,
-		func(ctx context.Context, key string) (int64, error) {
+		writableRepo,
+		linkRepo,
+		func(ctx context.Context, key string) (int64, models.EntityType, error) {
 			card, err := s.repo.GetByKey(ctx, key)
 			if err != nil {
-				return 0, err
+				return 0, "", err
 			}
-			return card.ID, nil
+			return card.ID, models.EntityTypeChange, nil
 		},
 	)
 }

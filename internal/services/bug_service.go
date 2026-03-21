@@ -44,20 +44,14 @@ type LinkValidatorTaskRepo interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
 }
 
-// BugWritableDocumentRepository defines the writable interface for document linking on bugs.
-// This interface is satisfied by *repository.DocumentRepository.
-type BugWritableDocumentRepository interface {
-	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
-	LinkToBug(ctx context.Context, bugID, documentID int64) error
-	UnlinkFromBug(ctx context.Context, bugID, documentID int64) error
-	ListForBug(ctx context.Context, bugID int64) ([]*models.Document, error)
-}
+// (BugWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
 
 // BugService provides business logic for bug operations.
 type BugService struct {
 	repo        BugRepository
 	workflowSvc *workflow.Service
+	entitySvc   *EntityService
+	entityRepo  EntityRepository
 	epicRepo    LinkValidatorEpicRepo
 	featureRepo LinkValidatorFeatureRepo
 	taskRepo    LinkValidatorTaskRepo
@@ -66,17 +60,27 @@ type BugService struct {
 }
 
 // NewBugService creates a new BugService with injected dependencies.
+// entitySvc and entityRepo are required for status transition delegation.
+//
+// Panics:
+//   - If repo is nil (required dependency)
+//   - If entitySvc is nil (required dependency)
 func NewBugService(
 	repo BugRepository,
-	workflowSvc *workflow.Service,
+	entitySvc *EntityService,
+	entityRepo EntityRepository,
 	epicRepo LinkValidatorEpicRepo,
 	featureRepo LinkValidatorFeatureRepo,
 	taskRepo LinkValidatorTaskRepo,
 	projectRoot string,
 ) *BugService {
+	requireNonNil(repo, "BugService requires a non-nil BugRepository")
+	requireNonNil(entitySvc, "BugService requires a non-nil EntityService")
 	return &BugService{
 		repo:        repo,
-		workflowSvc: workflowSvc.ForLevel(workflow.LevelBug),
+		workflowSvc: entitySvc.GetWorkflowService().ForLevel(workflow.LevelBug),
+		entitySvc:   entitySvc.ForLevel(workflow.LevelBug),
+		entityRepo:  entityRepo,
 		epicRepo:    epicRepo,
 		featureRepo: featureRepo,
 		taskRepo:    taskRepo,
@@ -302,51 +306,34 @@ func (s *BugService) ListBugs(ctx context.Context, filters BugFilters) ([]*model
 
 // AdvanceBugStatus advances a bug to the next workflow status.
 func (s *BugService) AdvanceBugStatus(ctx context.Context, key string) (*models.Bug, error) {
-	bug, err := s.repo.GetByKey(ctx, key)
+	info, err := s.entitySvc.GetNextStatus(
+		ctx, s.entityRepo, models.EntityTypeBug, key,
+		s.makeResolveActionFn(),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bug %s: %w", key, err)
+		return nil, fmt.Errorf("failed to get next status for bug %s: %w", key, err)
 	}
-
-	validTransitions := s.workflowSvc.GetValidTransitions(string(bug.Status))
-	if len(validTransitions) == 0 {
-		return nil, fmt.Errorf("cannot advance bug %s: no valid transitions from status %q", key, bug.Status)
+	if len(info.AvailableTransitions) == 0 {
+		return nil, fmt.Errorf("cannot advance bug %s: no valid transitions from status %q", key, info.CurrentStatus)
 	}
-
-	nextStatus := validTransitions[0]
-
-	if err := s.repo.UpdateStatus(ctx, bug.ID, models.BugStatus(nextStatus)); err != nil {
-		return nil, fmt.Errorf("failed to advance bug %s status: %w", key, err)
-	}
-
-	bug.Status = models.BugStatus(nextStatus)
-	return bug, nil
+	nextStatus := info.AvailableTransitions[0].TargetStatus
+	return s.SetBugStatus(ctx, key, nextStatus, false)
 }
 
 // SetBugStatus sets a bug to a specific status with workflow validation.
+// Delegates to EntityService.TransitionStatus for shared transition logic.
 func (s *BugService) SetBugStatus(ctx context.Context, key string, status string, force bool) (*models.Bug, error) {
-	bug, err := s.repo.GetByKey(ctx, key)
+	opts := TransitionOptions{Force: force}
+	_, err := s.entitySvc.TransitionStatus(
+		ctx, s.entityRepo, models.EntityTypeBug, key, status, opts,
+		SimpleTransitionFeatures(),
+		s.makeResolveActionFn(),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bug %s: %w", key, err)
+		return nil, err
 	}
-
-	// Validate the target status is a valid status in the workflow
-	if err := s.workflowSvc.ValidateStatus(status); err != nil {
-		return nil, fmt.Errorf("invalid bug status %q: %w", status, err)
-	}
-
-	// Validate transition unless forced
-	if !force {
-		if err := s.workflowSvc.ValidateTransition(string(bug.Status), status); err != nil {
-			return nil, fmt.Errorf("cannot transition bug %s from %q to %q: %w", key, bug.Status, status, err)
-		}
-	}
-
-	if err := s.repo.UpdateStatus(ctx, bug.ID, models.BugStatus(status)); err != nil {
-		return nil, fmt.Errorf("failed to set bug %s status: %w", key, err)
-	}
-
-	bug.Status = models.BugStatus(status)
-	return bug, nil
+	// Re-fetch to return typed model
+	return s.repo.GetByKey(ctx, key)
 }
 
 // TriageBug triages a bug by setting its severity and optionally assigning an agent.
@@ -380,28 +367,23 @@ func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugI
 	return bug, nil
 }
 
-// resolveAction looks up the orchestrator action for a given bug status.
-func (s *BugService) resolveAction(bug *models.Bug, status string) *config.PopulatedAction {
-	wf := s.workflowSvc.GetWorkflow()
-	if wf == nil || wf.StatusMetadata == nil {
-		return nil
-	}
-	meta, exists := wf.StatusMetadata[status]
-	if !exists || meta.OrchestratorAction == nil {
-		return nil
-	}
-	placeholders := config.BugPlaceholders(bug)
-	return &config.PopulatedAction{
-		Action:      meta.OrchestratorAction.Action,
-		AgentType:   meta.OrchestratorAction.AgentType,
-		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+// makeResolveActionFn returns a ResolveActionFn callback that generates
+// Bug-specific placeholders for orchestrator action resolution.
+func (s *BugService) makeResolveActionFn() ResolveActionFn {
+	return func(entity models.Entity, status string) *config.PopulatedAction {
+		bug, ok := entity.(*models.Bug)
+		if !ok {
+			return nil
+		}
+		placeholders := config.BugPlaceholders(bug)
+		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}
 }
 
 // GetOrchestratorAction returns the orchestrator action for the bug's current status.
 func (s *BugService) GetOrchestratorAction(bug *models.Bug) *config.PopulatedAction {
-	return s.resolveAction(bug, string(bug.Status))
+	placeholders := config.BugPlaceholders(bug)
+	return s.entitySvc.ResolveActionForStatus(string(bug.Status), placeholders)
 }
 
 // GetValidTransitions returns the valid next statuses for the bug's current status.
@@ -452,19 +434,16 @@ func (s *BugService) validateLinkedEntity(ctx context.Context, entityType, entit
 
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument, UnlinkDocument, and ListRelatedDocumentsByKey operations on bugs.
-func (s *BugService) SetWritableDocRepo(docRepo BugWritableDocumentRepository) {
+func (s *BugService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
 	s.docSvc = NewEntityDocumentService(
-		docRepo,
-		models.EntityTypeBug,
-		docRepo.LinkToBug,
-		docRepo.UnlinkFromBug,
-		docRepo.ListForBug,
-		func(ctx context.Context, key string) (int64, error) {
+		writableRepo,
+		linkRepo,
+		func(ctx context.Context, key string) (int64, models.EntityType, error) {
 			bug, err := s.repo.GetByKey(ctx, key)
 			if err != nil {
-				return 0, err
+				return 0, "", err
 			}
-			return bug.ID, nil
+			return bug.ID, models.EntityTypeBug, nil
 		},
 	)
 }

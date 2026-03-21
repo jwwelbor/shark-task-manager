@@ -604,6 +604,7 @@ func TestEpicGetIntegration_PlanningModeRelatedDocs(t *testing.T) {
 	db := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(db)
 	docRepo := repository.NewDocumentRepository(db)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	workflowSvc := workflow.NewService(".")
 
 	// Create epic in planning mode (ready_for_decomposition)
@@ -628,15 +629,15 @@ func TestEpicGetIntegration_PlanningModeRelatedDocs(t *testing.T) {
 	}
 
 	// Link documents to epic
-	if err := docRepo.LinkToEpic(ctx, epic.ID, doc1.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epic.ID, doc1.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 1 to epic: %v", err)
 	}
-	if err := docRepo.LinkToEpic(ctx, epic.ID, doc2.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epic.ID, doc2.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 2 to epic: %v", err)
 	}
 
 	// Get related documents
-	docs, err := docRepo.ListForEpic(ctx, epic.ID)
+	docs, err := entityDocRepo.ListForEntity(ctx, models.EntityTypeEpic, epic.ID)
 	if err != nil {
 		t.Fatalf("Failed to get related documents: %v", err)
 	}
@@ -700,6 +701,7 @@ func TestEpicGetIntegration_AggregationModeUnchanged(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	docRepo := repository.NewDocumentRepository(db)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
 
 	// Create epic in active status (aggregation mode)
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
@@ -736,7 +738,7 @@ func TestEpicGetIntegration_AggregationModeUnchanged(t *testing.T) {
 		t.Fatalf("Failed to create document: %v", err)
 	}
 
-	if err := docRepo.LinkToEpic(ctx, epic.ID, doc.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epic.ID, doc.ID, ""); err != nil {
 		t.Fatalf("Failed to link document to epic: %v", err)
 	}
 
@@ -755,7 +757,7 @@ func TestEpicGetIntegration_AggregationModeUnchanged(t *testing.T) {
 	}
 
 	// Verify related documents still accessible
-	docs, err := docRepo.ListForEpic(ctx, epic.ID)
+	docs, err := entityDocRepo.ListForEntity(ctx, models.EntityTypeEpic, epic.ID)
 	if err != nil {
 		t.Fatalf("Failed to get related documents: %v", err)
 	}
@@ -786,6 +788,7 @@ func TestEpicGetIntegration_JSONOutputWithNewFields(t *testing.T) {
 	db := repository.NewDB(database)
 	epicRepo := repository.NewEpicRepository(db)
 	docRepo := repository.NewDocumentRepository(db)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	workflowSvc := workflow.NewService(".")
 
 	// Create epic in planning mode
@@ -809,10 +812,10 @@ func TestEpicGetIntegration_JSONOutputWithNewFields(t *testing.T) {
 		t.Fatalf("Failed to create document 2: %v", err)
 	}
 
-	if err := docRepo.LinkToEpic(ctx, epic.ID, doc1.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epic.ID, doc1.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 1: %v", err)
 	}
-	if err := docRepo.LinkToEpic(ctx, epic.ID, doc2.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epic.ID, doc2.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 2: %v", err)
 	}
 
@@ -823,7 +826,7 @@ func TestEpicGetIntegration_JSONOutputWithNewFields(t *testing.T) {
 	}
 
 	// Get related documents
-	docs, err := docRepo.ListForEpic(ctx, epicData.ID)
+	docs, err := entityDocRepo.ListForEntity(ctx, models.EntityTypeEpic, epicData.ID)
 	if err != nil {
 		t.Fatalf("Failed to get related documents: %v", err)
 	}

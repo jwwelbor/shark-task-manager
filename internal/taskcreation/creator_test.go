@@ -293,7 +293,7 @@ func TestCreator_FileExistsAssignsFile(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
-	historyRepo := repository.NewTaskHistoryRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 
 	// Create test epic
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
@@ -377,7 +377,7 @@ func TestCreator_FileDoesNotExistWithCreateFlagCreatesFile(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
-	historyRepo := repository.NewTaskHistoryRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 
 	// Create test epic
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
@@ -466,7 +466,7 @@ func TestCreator_FileDoesNotExistWithoutCreateFlagFails(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
-	historyRepo := repository.NewTaskHistoryRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 
 	// Create test epic
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96",
@@ -580,7 +580,7 @@ func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
-	historyRepo := repository.NewTaskHistoryRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 
 	// Create test epic
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
@@ -652,7 +652,7 @@ func TestCreator_StandaloneFeatureFileCreatesTaskUnderFeatureDir(t *testing.T) {
 
 	// Repositories
 	taskRepo := repository.NewTaskRepository(db)
-	historyRepo := repository.NewTaskHistoryRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 

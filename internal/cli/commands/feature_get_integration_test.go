@@ -531,6 +531,7 @@ func TestFeatureGetIntegration_PlanningModeRelatedDocs(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	docRepo := repository.NewDocumentRepository(db)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	workflowSvc := workflow.NewService(".")
 
 	// Create epic
@@ -570,18 +571,18 @@ func TestFeatureGetIntegration_PlanningModeRelatedDocs(t *testing.T) {
 	}
 
 	// Link documents to feature
-	if err := docRepo.LinkToFeature(ctx, feature.ID, doc1.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeFeature, feature.ID, doc1.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 1 to feature: %v", err)
 	}
-	if err := docRepo.LinkToFeature(ctx, feature.ID, doc2.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeFeature, feature.ID, doc2.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 2 to feature: %v", err)
 	}
-	if err := docRepo.LinkToFeature(ctx, feature.ID, doc3.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeFeature, feature.ID, doc3.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 3 to feature: %v", err)
 	}
 
 	// Get related documents
-	docs, err := docRepo.ListForFeature(ctx, feature.ID)
+	docs, err := entityDocRepo.ListForEntity(ctx, models.EntityTypeFeature, feature.ID)
 	if err != nil {
 		t.Fatalf("Failed to get related documents: %v", err)
 	}
@@ -656,6 +657,7 @@ func TestFeatureGetIntegration_JSONOutputWithNewFields(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	docRepo := repository.NewDocumentRepository(db)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	workflowSvc := workflow.NewService(".")
 
 	// Create epic
@@ -689,10 +691,10 @@ func TestFeatureGetIntegration_JSONOutputWithNewFields(t *testing.T) {
 		t.Fatalf("Failed to create document 2: %v", err)
 	}
 
-	if err := docRepo.LinkToFeature(ctx, feature.ID, doc1.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeFeature, feature.ID, doc1.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 1: %v", err)
 	}
-	if err := docRepo.LinkToFeature(ctx, feature.ID, doc2.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeFeature, feature.ID, doc2.ID, ""); err != nil {
 		t.Fatalf("Failed to link document 2: %v", err)
 	}
 
@@ -703,7 +705,7 @@ func TestFeatureGetIntegration_JSONOutputWithNewFields(t *testing.T) {
 	}
 
 	// Get related documents
-	docs, err := docRepo.ListForFeature(ctx, featureData.ID)
+	docs, err := entityDocRepo.ListForEntity(ctx, models.EntityTypeFeature, featureData.ID)
 	if err != nil {
 		t.Fatalf("Failed to get related documents: %v", err)
 	}

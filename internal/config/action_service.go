@@ -33,6 +33,8 @@ type ActionService interface {
 type PopulatedAction struct {
 	Action      string   `json:"action"`
 	AgentType   string   `json:"agent_type,omitempty"`
+	Provider    string   `json:"provider,omitempty"`
+	Model       string   `json:"model,omitempty"`
 	Skills      []string `json:"skills,omitempty"`
 	Instruction string   `json:"instruction"` // Template populated
 }
@@ -117,14 +119,7 @@ func (s *DefaultActionService) GetStatusActionPopulated(ctx context.Context, sta
 		vars = make(map[string]string)
 	}
 
-	instruction := action.PopulateTemplate(vars)
-
-	return &PopulatedAction{
-		Action:      action.Action,
-		AgentType:   action.AgentType,
-		Skills:      action.Skills,
-		Instruction: instruction,
-	}, nil
+	return action.ToPopulatedAction(vars), nil
 }
 
 // GetAllActions returns all actions indexed by status

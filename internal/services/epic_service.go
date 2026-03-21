@@ -47,14 +47,7 @@ type EpicTaskLister interface {
 
 // EpicWritableDocumentRepository defines the writable interface for document linking on epics.
 // This interface is satisfied by *repository.DocumentRepository.
-// The existing config.DocumentRepository only exposes read-only List methods; this interface
-// adds the write operations needed by LinkDocument and UnlinkDocument.
-type EpicWritableDocumentRepository interface {
-	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
-	LinkToEpic(ctx context.Context, epicID, documentID int64) error
-	UnlinkFromEpic(ctx context.Context, epicID, documentID int64) error
-}
+// (EpicWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
 
 // EpicFeatureCounter defines the feature counting interface needed by EpicService
 // to count child features for backward transition warnings and epic completion.
@@ -123,24 +116,16 @@ func (s *EpicService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentReposito
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument and UnlinkDocument operations on epics.
 // The *repository.DocumentRepository type satisfies the EpicWritableDocumentRepository interface.
-func (s *EpicService) SetWritableDocRepo(docRepo EpicWritableDocumentRepository) {
-	// Build the shared EntityDocumentService with epic-specific callbacks.
-	var listFn func(ctx context.Context, entityID int64) ([]*models.Document, error)
-	if s.docRepo != nil {
-		listFn = s.docRepo.ListForEpic
-	}
+func (s *EpicService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
 	s.docSvc = NewEntityDocumentService(
-		docRepo,
-		models.EntityTypeEpic,
-		docRepo.LinkToEpic,
-		docRepo.UnlinkFromEpic,
-		listFn,
-		func(ctx context.Context, key string) (int64, error) {
+		writableRepo,
+		linkRepo,
+		func(ctx context.Context, key string) (int64, models.EntityType, error) {
 			epic, err := s.repo.GetByKey(ctx, key)
 			if err != nil {
-				return 0, err
+				return 0, "", err
 			}
-			return epic.ID, nil
+			return epic.ID, models.EntityTypeEpic, nil
 		},
 	)
 }

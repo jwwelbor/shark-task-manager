@@ -69,6 +69,7 @@ func GetEntityService() *services.EntityService {
 		db, err := GetDB(context.Background())
 		if err == nil {
 			globalEntityService.SetNoteRepo(repository.NewEntityNoteRepository(db))
+			globalEntityService.SetHistoryRepo(repository.NewEntityHistoryRepository(db))
 		}
 	})
 	return globalEntityService
@@ -136,7 +137,7 @@ type taskServiceDeps struct {
 	featureRepo *repository.FeatureRepository
 	entitySvc   *services.EntityService
 	creatorSvc  *taskcreation.Creator
-	historyRepo *repository.TaskHistoryRepository
+	historyRepo *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 }
 
 // buildTaskServiceDeps constructs the shared dependencies for TaskService variants.
@@ -153,7 +154,7 @@ func buildTaskServiceDeps() taskServiceDeps {
 	if projectRoot == "" {
 		projectRoot = "."
 	}
-	historyRepo := repository.NewTaskHistoryRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
@@ -184,6 +185,10 @@ func GetTaskService() *services.TaskService {
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
+
+	// Wire entity history recording for polymorphic entity_history table.
+	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
+	svc.SetEntityHistoryRepo(entityHistoryRepo)
 
 	// Wire sub-services for query delegation.
 	querySvc := services.NewTaskQueryService(d.taskRepo)
@@ -234,17 +239,19 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	d := buildTaskServiceDeps()
 	relRepo := repository.NewTaskRelationshipRepository(d.db)
 	docRepo := repository.NewDocumentRepository(d.db)
+	entityDocRepo := repository.NewEntityDocumentRepository(d.db)
+	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
 	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(d.db)}
 
 	enrichRepo := repository.NewTemplateEnrichmentRepository(d.db)
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
-	svc.SetDocRepo(docRepo)
+	svc.SetDocRepo(docAdapter)
 	svc.SetRelRepo(relRepo)
 	svc.SetSessionRepo(sessionRepo)
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetDepRepo(relRepo)
 	svc.SetRelQueryRepo(relRepo)
-	svc.SetWritableDocRepo(docRepo)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
 
 	// Wire sub-services for query and dependency delegation.
@@ -254,7 +261,7 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	depSvc := services.NewTaskDependencyService(d.taskRepo)
 	depSvc.SetDepRepo(relRepo)
 	depSvc.SetRelQueryRepo(relRepo)
-	depSvc.SetWritableDocRepo(docRepo)
+	depSvc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetDependencyService(depSvc)
 
 	return svc
@@ -336,7 +343,6 @@ func GetChangeCardService() *services.ChangeCardService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	workflowSvc := GetWorkflowService()
 	changeCardRepo := repository.NewChangeCardRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
@@ -346,9 +352,14 @@ func GetChangeCardService() *services.ChangeCardService {
 		projectRoot = "."
 	}
 
-	svc := services.NewChangeCardService(changeCardRepo, workflowSvc, epicRepo, featureRepo, projectRoot)
+	entitySvc := GetEntityService()
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeChange)
+
+	svc := services.NewChangeCardService(changeCardRepo, entitySvc, entityRepo, epicRepo, featureRepo, projectRoot)
 	docRepo := repository.NewDocumentRepository(db)
-	svc.SetWritableDocRepo(docRepo)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	// No longer need: svc.SetEntityHistoryRepo(...) -- EntityService handles history
 	return svc
 }
 
@@ -365,7 +376,6 @@ func GetBugService() *services.BugService {
 	if err != nil {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
-	workflowSvc := GetWorkflowService()
 	bugRepo := repository.NewBugRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
@@ -376,9 +386,14 @@ func GetBugService() *services.BugService {
 		projectRoot = "."
 	}
 
-	svc := services.NewBugService(bugRepo, workflowSvc, epicRepo, featureRepo, taskRepo, projectRoot)
+	entitySvc := GetEntityService()
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeBug)
+
+	svc := services.NewBugService(bugRepo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, projectRoot)
 	docRepo := repository.NewDocumentRepository(db)
-	svc.SetWritableDocRepo(docRepo)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	// No longer need: svc.SetEntityHistoryRepo(...) -- EntityService handles history
 	return svc
 }
 
@@ -398,6 +413,18 @@ func GetDashboardAnalyticsService() *services.DashboardAnalyticsService {
 	bugRepo := repository.NewBugRepository(db)
 	ccRepo := repository.NewChangeCardRepository(db)
 	return services.NewDashboardAnalyticsService(bugRepo, ccRepo)
+}
+
+// GetEntityHistoryService returns an EntityHistoryService instance.
+// Creates a new instance each call (lightweight, no shared state).
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+func GetEntityHistoryService() *services.EntityHistoryService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for EntityHistoryService: %v", err))
+	}
+	historyRepo := repository.NewEntityHistoryRepository(db)
+	return services.NewEntityHistoryService(historyRepo, GetEntityRegistry())
 }
 
 // ResetServices clears global service state. For testing only.

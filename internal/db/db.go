@@ -178,7 +178,29 @@ BEGIN
 END;
 
 -- ============================================================================
--- Table: task_history
+-- Table: entity_history (polymorphic -- replaces task_history)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS entity_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    changed_by TEXT,
+    notes TEXT,
+    forced INTEGER NOT NULL DEFAULT 0,
+    rejection_reason TEXT,
+    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for entity_history
+CREATE INDEX IF NOT EXISTS idx_entity_history_lookup ON entity_history(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_history_time ON entity_history(changed_at);
+CREATE INDEX IF NOT EXISTS idx_entity_history_entity_time ON entity_history(entity_type, entity_id, changed_at);
+
+-- ============================================================================
+-- Table: task_history (kept for backward compatibility until T-E21-F08-004)
+-- Data is also copied to entity_history during migration.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS task_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,14 +210,15 @@ CREATE TABLE IF NOT EXISTS task_history (
     agent TEXT,
     notes TEXT,
     forced BOOLEAN DEFAULT FALSE,
+    rejection_reason TEXT,
     timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );
 
--- Indexes for task_history
 CREATE INDEX IF NOT EXISTS idx_task_history_task_id ON task_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_history_timestamp ON task_history(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_task_history_rejection_reason ON task_history(rejection_reason) WHERE rejection_reason IS NOT NULL;
 
 -- ============================================================================
 -- Table: task_notes
@@ -274,55 +297,21 @@ CREATE INDEX IF NOT EXISTS idx_documents_title ON documents(title);
 CREATE INDEX IF NOT EXISTS idx_documents_file_path ON documents(file_path);
 
 -- ============================================================================
--- Table: epic_documents
+-- Table: entity_documents (polymorphic -- replaces epic/feature/task/bug/change_card_documents)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS epic_documents (
-    epic_id INTEGER NOT NULL,
-    document_id INTEGER NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (epic_id, document_id),
-    FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE CASCADE,
-    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS entity_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    link_type TEXT DEFAULT 'general',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity_type, entity_id, document_id)
 );
 
--- Indexes for epic_documents
-CREATE INDEX IF NOT EXISTS idx_epic_documents_epic_id ON epic_documents(epic_id);
-CREATE INDEX IF NOT EXISTS idx_epic_documents_document_id ON epic_documents(document_id);
-
--- ============================================================================
--- Table: feature_documents
--- ============================================================================
-CREATE TABLE IF NOT EXISTS feature_documents (
-    feature_id INTEGER NOT NULL,
-    document_id INTEGER NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (feature_id, document_id),
-    FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE,
-    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-);
-
--- Indexes for feature_documents
-CREATE INDEX IF NOT EXISTS idx_feature_documents_feature_id ON feature_documents(feature_id);
-CREATE INDEX IF NOT EXISTS idx_feature_documents_document_id ON feature_documents(document_id);
-
--- ============================================================================
--- Table: task_documents
--- ============================================================================
-CREATE TABLE IF NOT EXISTS task_documents (
-    task_id INTEGER NOT NULL,
-    document_id INTEGER NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    PRIMARY KEY (task_id, document_id),
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-);
-
--- Indexes for task_documents
-CREATE INDEX IF NOT EXISTS idx_task_documents_task_id ON task_documents(task_id);
-CREATE INDEX IF NOT EXISTS idx_task_documents_document_id ON task_documents(document_id);
+-- Indexes for entity_documents
+CREATE INDEX IF NOT EXISTS idx_entity_documents_lookup ON entity_documents(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_documents_document ON entity_documents(document_id);
 
 -- ============================================================================
 -- Table: ideas
@@ -379,6 +368,13 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Create compatibility triggers for polymorphic views (INSERT/DELETE).
+	// These must be separate from createSchema because CREATE TRIGGER
+	// with BEGIN...END blocks cannot be in multi-statement Exec calls.
+	if err := createPolymorphicCompatibilityTriggers(db); err != nil {
+		return fmt.Errorf("failed to create polymorphic compatibility triggers: %w", err)
+	}
+
 	// Run migrations for backwards compatibility
 	if err := runMigrations(db); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
@@ -394,7 +390,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 6
+const CurrentSchemaVersion = 7
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -748,6 +744,22 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate bug/change_card document tables: %w", err)
 	}
 
+	// Consolidate per-entity document tables and task_history into polymorphic tables (E21-F08)
+	if err := migrateToPolymorphicTables(db); err != nil {
+		return fmt.Errorf("failed to migrate to polymorphic tables: %w", err)
+	}
+
+	// Recreate display views to use entity_documents instead of old per-entity tables
+	if err := migrateEpicDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate epic_display_data view after polymorphic migration: %w", err)
+	}
+	if err := migrateFeatureDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate feature_display_data view after polymorphic migration: %w", err)
+	}
+	if err := migrateTaskDisplayDataView(db); err != nil {
+		return fmt.Errorf("failed to recreate task_display_data view after polymorphic migration: %w", err)
+	}
+
 	return nil
 }
 
@@ -828,9 +840,25 @@ func migrateSlugColumns(db *sql.DB) error {
 
 // migrateDocumentTables handles any future migrations to the document tables
 func migrateDocumentTables(db *sql.DB) error {
-	// Currently, the document tables are created by createSchema with IF NOT EXISTS.
-	// This function is a placeholder for future migrations such as adding new columns.
-	// Check if tables exist to ensure schema was created
+	// Check if the polymorphic entity_documents table exists (post E21-F08 migration).
+	// If so, the old per-entity tables are no longer needed.
+	var entityDocsExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_documents'`).Scan(&entityDocsExists); err != nil {
+		return fmt.Errorf("failed to check entity_documents existence: %w", err)
+	}
+	if entityDocsExists > 0 {
+		// Polymorphic tables exist (fresh DB or post-migration). Documents table must exist.
+		var docsExist int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='documents'`).Scan(&docsExist); err != nil {
+			return fmt.Errorf("failed to check documents table: %w", err)
+		}
+		if docsExist == 0 {
+			return fmt.Errorf("documents table not created")
+		}
+		return nil
+	}
+
+	// Pre-migration state: check old per-entity document tables
 	var tablesExist int
 	err := db.QueryRow(`
 		SELECT COUNT(*) FROM sqlite_master
@@ -1311,6 +1339,15 @@ func migrateTaskNotesMetadata(db *sql.DB) error {
 // migrateTaskHistoryRejectionReason adds rejection_reason column to task_history table
 // This column stores rejection reasons when tasks are rejected during review/QA (E07-F22)
 func migrateTaskHistoryRejectionReason(db *sql.DB) error {
+	// Skip if task_history no longer exists (post E21-F08 polymorphic migration)
+	var tableExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_history'`).Scan(&tableExists); err != nil {
+		return fmt.Errorf("failed to check task_history existence: %w", err)
+	}
+	if tableExists == 0 {
+		return nil
+	}
+
 	// Check if task_history table has rejection_reason column
 	var columnExists int
 	err := db.QueryRow(`
@@ -1338,6 +1375,15 @@ func migrateTaskHistoryRejectionReason(db *sql.DB) error {
 // migrateTaskDocumentsLinkType adds link_type column to task_documents table
 // for specifying the type of link between task and document (e.g., rejection_reason) (E07-F22)
 func migrateTaskDocumentsLinkType(db *sql.DB) error {
+	// Skip if task_documents no longer exists (post E21-F08 polymorphic migration)
+	var tableExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_documents'`).Scan(&tableExists); err != nil {
+		return fmt.Errorf("failed to check task_documents existence: %w", err)
+	}
+	if tableExists == 0 {
+		return nil
+	}
+
 	// Check if task_documents table has link_type column
 	var columnExists int
 	err := db.QueryRow(`
@@ -1795,8 +1841,8 @@ SELECT
   -- Related documents
   (SELECT COALESCE(json_group_array(json_object(
     'id', d.id, 'title', d.title, 'file_path', d.file_path
-  )), '[]') FROM documents d JOIN epic_documents ed ON d.id = ed.document_id
-  WHERE ed.epic_id = e.id
+  )), '[]') FROM documents d JOIN entity_documents ed ON d.id = ed.document_id
+  WHERE ed.entity_type = 'epic' AND ed.entity_id = e.id
   ) AS documents_json,
 
   -- Entity notes
@@ -1852,8 +1898,8 @@ SELECT
   -- Related documents
   (SELECT COALESCE(json_group_array(json_object(
     'id', d.id, 'title', d.title, 'file_path', d.file_path
-  )), '[]') FROM documents d JOIN feature_documents fd ON d.id = fd.document_id
-  WHERE fd.feature_id = f.id
+  )), '[]') FROM documents d JOIN entity_documents ed ON d.id = ed.document_id
+  WHERE ed.entity_type = 'feature' AND ed.entity_id = f.id
   ) AS documents_json,
 
   -- Entity notes
@@ -1923,8 +1969,8 @@ SELECT
   -- Related documents
   (SELECT COALESCE(json_group_array(json_object(
     'id', d.id, 'title', d.title, 'file_path', d.file_path
-  )), '[]') FROM documents d JOIN task_documents td ON d.id = td.document_id
-  WHERE td.task_id = t.id
+  )), '[]') FROM documents d JOIN entity_documents ed ON d.id = ed.document_id
+  WHERE ed.entity_type = 'task' AND ed.entity_id = t.id
   ) AS documents_json,
 
   -- Entity notes
@@ -2282,7 +2328,17 @@ func migrateChangeCardContextData(db *sql.DB) error {
 
 // migrateBugAndChangeCardDocuments creates bug_documents and change_card_documents
 // junction tables for linking documents to bugs and change-cards (E07-F32/F33).
+// Skips creation if entity_documents already exists (post E21-F08 migration).
 func migrateBugAndChangeCardDocuments(db *sql.DB) error {
+	// If entity_documents exists, skip creating per-entity tables
+	var entityDocsExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_documents'`).Scan(&entityDocsExists); err != nil {
+		return fmt.Errorf("failed to check entity_documents existence: %w", err)
+	}
+	if entityDocsExists > 0 {
+		return nil // Polymorphic table exists, skip old per-entity table creation
+	}
+
 	// Create bug_documents junction table
 	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS bug_documents (
@@ -2329,6 +2385,481 @@ func migrateBugAndChangeCardDocuments(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_change_card_documents_document_id ON change_card_documents(document_id);`); err != nil {
 		return fmt.Errorf("failed to create index on change_card_documents(document_id): %w", err)
+	}
+
+	return nil
+}
+
+// createPolymorphicCompatibilityTriggers creates INSTEAD OF INSERT/DELETE
+// triggers on the compatibility views (task_history, epic_documents, etc.)
+// so that INSERT/DELETE operations through the views redirect to the
+// underlying polymorphic tables.
+func createPolymorphicCompatibilityTriggers(db *sql.DB) error {
+	// Check if entity_documents exists (views depend on it)
+	var entityDocsExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_documents'`).Scan(&entityDocsExists); err != nil {
+		return fmt.Errorf("failed to check entity_documents existence: %w", err)
+	}
+	if entityDocsExists == 0 {
+		return nil // Tables not created yet
+	}
+
+	// Document compatibility triggers for views created in createSchema
+	type docTriggerDef struct {
+		viewName    string
+		entityType  string
+		fkColumn    string
+		hasLinkType bool
+	}
+
+	docTriggers := []docTriggerDef{
+		{"epic_documents", "epic", "epic_id", false},
+		{"feature_documents", "feature", "feature_id", false},
+		{"task_documents", "task", "task_id", true},
+		{"bug_documents", "bug", "bug_id", false},
+		{"change_card_documents", "change", "change_card_id", false},
+	}
+
+	for _, d := range docTriggers {
+		// Check if view exists (views are created by migrateToPolymorphicTables,
+		// which runs after this function in the initialization sequence)
+		var viewExists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name=?`, d.viewName).Scan(&viewExists); err != nil {
+			return fmt.Errorf("failed to check %s view existence: %w", d.viewName, err)
+		}
+		if viewExists == 0 {
+			continue // View not created yet, triggers will be created later
+		}
+
+		// INSERT trigger
+		var insertSQL string
+		if d.hasLinkType {
+			insertSQL = fmt.Sprintf(`
+CREATE TRIGGER IF NOT EXISTS %s_insert
+INSTEAD OF INSERT ON %s
+BEGIN
+    INSERT OR IGNORE INTO entity_documents (entity_type, entity_id, document_id, link_type, created_at)
+    VALUES ('%s', NEW.%s, NEW.document_id, COALESCE(NEW.link_type, 'general'), COALESCE(NEW.created_at, CURRENT_TIMESTAMP));
+END
+			`, d.viewName, d.viewName, d.entityType, d.fkColumn)
+		} else {
+			insertSQL = fmt.Sprintf(`
+CREATE TRIGGER IF NOT EXISTS %s_insert
+INSTEAD OF INSERT ON %s
+BEGIN
+    INSERT OR IGNORE INTO entity_documents (entity_type, entity_id, document_id, link_type, created_at)
+    VALUES ('%s', NEW.%s, NEW.document_id, 'general', COALESCE(NEW.created_at, CURRENT_TIMESTAMP));
+END
+			`, d.viewName, d.viewName, d.entityType, d.fkColumn)
+		}
+
+		if _, err := db.Exec(insertSQL); err != nil {
+			return fmt.Errorf("failed to create %s insert trigger: %w", d.viewName, err)
+		}
+
+		// DELETE trigger
+		deleteSQL := fmt.Sprintf(`
+CREATE TRIGGER IF NOT EXISTS %s_delete
+INSTEAD OF DELETE ON %s
+BEGIN
+    DELETE FROM entity_documents
+    WHERE entity_type = '%s' AND entity_id = OLD.%s AND document_id = OLD.document_id;
+END
+		`, d.viewName, d.viewName, d.entityType, d.fkColumn)
+
+		if _, err := db.Exec(deleteSQL); err != nil {
+			return fmt.Errorf("failed to create %s delete trigger: %w", d.viewName, err)
+		}
+	}
+
+	return nil
+}
+
+// migrateToPolymorphicTables consolidates per-entity document tables
+// (epic_documents, feature_documents, task_documents, bug_documents,
+// change_card_documents) into a single entity_documents table, and
+// migrates task_history into a polymorphic entity_history table.
+// This is the E21-F08 polymorphic data model unification migration.
+func migrateToPolymorphicTables(db *sql.DB) error {
+	// Step 0: Check if already fully migrated
+	// If entity_documents exists AND none of the old tables exist, we're done
+	var entityDocsExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='entity_documents'`).Scan(&entityDocsExists); err != nil {
+		return fmt.Errorf("failed to check entity_documents existence: %w", err)
+	}
+
+	if entityDocsExists > 0 {
+		// Check if any old document TABLE still exists (not counting task_history
+		// which is kept for backward compatibility)
+		var oldDocTablesExist int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('epic_documents','feature_documents','task_documents','bug_documents','change_card_documents')`).Scan(&oldDocTablesExist); err != nil {
+			return fmt.Errorf("failed to check old table existence: %w", err)
+		}
+		if oldDocTablesExist == 0 {
+			// Ensure compatibility views exist (needed for fresh DBs and after migration)
+			return createPolymorphicCompatibilityViews(db)
+		}
+		// Partial migration: new tables exist but old tables still present. Continue.
+	}
+
+	// Step 1: Create new polymorphic tables (IF NOT EXISTS)
+	if err := createPolymorphicTables(db); err != nil {
+		return fmt.Errorf("failed to create polymorphic tables: %w", err)
+	}
+
+	// Step 2: Migrate document data from old tables
+	if err := migrateDocumentDataToPolymorphic(db); err != nil {
+		return fmt.Errorf("failed to migrate document data: %w", err)
+	}
+
+	// Step 3: Migrate history data from task_history
+	if err := migrateHistoryDataToPolymorphic(db); err != nil {
+		return fmt.Errorf("failed to migrate history data: %w", err)
+	}
+
+	// Step 4: Verify row counts before dropping
+	if err := verifyPolymorphicMigration(db); err != nil {
+		return fmt.Errorf("migration verification failed, old tables NOT dropped: %w", err)
+	}
+
+	// Step 5: Drop old tables (only reached if verification passes)
+	if err := dropOldDocumentAndHistoryTables(db); err != nil {
+		return fmt.Errorf("failed to drop old tables: %w", err)
+	}
+
+	return nil
+}
+
+// createPolymorphicTables creates the entity_documents and entity_history tables
+// with all required indexes and constraints.
+func createPolymorphicTables(db *sql.DB) error {
+	// Create entity_documents table
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS entity_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    link_type TEXT DEFAULT 'general',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity_type, entity_id, document_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_documents_lookup
+    ON entity_documents(entity_type, entity_id);
+
+CREATE INDEX IF NOT EXISTS idx_entity_documents_document
+    ON entity_documents(document_id);
+`)
+	if err != nil {
+		return fmt.Errorf("failed to create entity_documents table: %w", err)
+	}
+
+	// Create entity_history table
+	_, err = db.Exec(`
+CREATE TABLE IF NOT EXISTS entity_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    changed_by TEXT,
+    notes TEXT,
+    forced INTEGER NOT NULL DEFAULT 0,
+    rejection_reason TEXT,
+    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_history_lookup
+    ON entity_history(entity_type, entity_id);
+
+CREATE INDEX IF NOT EXISTS idx_entity_history_time
+    ON entity_history(changed_at);
+
+CREATE INDEX IF NOT EXISTS idx_entity_history_entity_time
+    ON entity_history(entity_type, entity_id, changed_at);
+`)
+	if err != nil {
+		return fmt.Errorf("failed to create entity_history table: %w", err)
+	}
+
+	return nil
+}
+
+// migrateDocumentDataToPolymorphic copies document link data from old per-entity
+// tables to the new entity_documents table. Uses INSERT OR IGNORE for idempotency.
+// Skips tables that don't exist (EC-1). Filters by valid document_id (EC-4).
+func migrateDocumentDataToPolymorphic(db *sql.DB) error {
+	type docMapping struct {
+		oldTable   string
+		entityType string
+		fkColumn   string
+	}
+
+	mappings := []docMapping{
+		{"epic_documents", "epic", "epic_id"},
+		{"feature_documents", "feature", "feature_id"},
+		{"task_documents", "task", "task_id"},
+		{"bug_documents", "bug", "bug_id"},
+		{"change_card_documents", "change", "change_card_id"},
+	}
+
+	for _, m := range mappings {
+		// Check if old table exists
+		var tableExists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, m.oldTable).Scan(&tableExists); err != nil {
+			return fmt.Errorf("failed to check %s existence: %w", m.oldTable, err)
+		}
+		if tableExists == 0 {
+			continue // Old table doesn't exist (EC-1), skip
+		}
+
+		// For task_documents, preserve link_type; for others, default to 'general'
+		var query string
+		if m.oldTable == "task_documents" {
+			query = fmt.Sprintf(`INSERT OR IGNORE INTO entity_documents (entity_type, entity_id, document_id, link_type, created_at)
+				SELECT '%s', %s, document_id, COALESCE(link_type, 'general'), created_at
+				FROM %s
+				WHERE document_id IN (SELECT id FROM documents)`,
+				m.entityType, m.fkColumn, m.oldTable)
+		} else {
+			query = fmt.Sprintf(`INSERT OR IGNORE INTO entity_documents (entity_type, entity_id, document_id, link_type, created_at)
+				SELECT '%s', %s, document_id, 'general', created_at
+				FROM %s
+				WHERE document_id IN (SELECT id FROM documents)`,
+				m.entityType, m.fkColumn, m.oldTable)
+		}
+
+		if _, err := db.Exec(query); err != nil {
+			return fmt.Errorf("failed to migrate %s data: %w", m.oldTable, err)
+		}
+	}
+
+	return nil
+}
+
+// migrateHistoryDataToPolymorphic copies task_history data to entity_history.
+// Uses a count check to prevent duplicate history on re-run (ADR-T001-3).
+func migrateHistoryDataToPolymorphic(db *sql.DB) error {
+	// Check if task_history table exists
+	var tableExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_history'`).Scan(&tableExists); err != nil {
+		return fmt.Errorf("failed to check task_history existence: %w", err)
+	}
+	if tableExists == 0 {
+		return nil // No task_history to migrate
+	}
+
+	// Check if entity_history already has task data (re-run guard, ADR-T001-3)
+	var existingCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM entity_history WHERE entity_type = 'task'`).Scan(&existingCount); err != nil {
+		return fmt.Errorf("failed to check existing entity_history data: %w", err)
+	}
+
+	if existingCount > 0 {
+		return nil // Data already copied, skip
+	}
+
+	// Copy task_history to entity_history with field mapping
+	_, err := db.Exec(`INSERT INTO entity_history (entity_type, entity_id, from_status, to_status, changed_by, notes, forced, rejection_reason, changed_at)
+		SELECT 'task', task_id, old_status, new_status, agent, notes,
+		       COALESCE(forced, 0), rejection_reason, timestamp
+		FROM task_history`)
+	if err != nil {
+		return fmt.Errorf("failed to copy task_history data: %w", err)
+	}
+
+	return nil
+}
+
+// verifyPolymorphicMigration verifies that row counts in the new tables
+// match or exceed the row counts in the old tables (AC-6).
+func verifyPolymorphicMigration(db *sql.DB) error {
+	type verifyMapping struct {
+		oldTable   string
+		entityType string
+	}
+
+	docMappings := []verifyMapping{
+		{"epic_documents", "epic"},
+		{"feature_documents", "feature"},
+		{"task_documents", "task"},
+		{"bug_documents", "bug"},
+		{"change_card_documents", "change"},
+	}
+
+	// Verify document tables
+	for _, m := range docMappings {
+		var tableExists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, m.oldTable).Scan(&tableExists); err != nil {
+			return fmt.Errorf("failed to check %s existence: %w", m.oldTable, err)
+		}
+		if tableExists == 0 {
+			continue // Old table doesn't exist, nothing to verify
+		}
+
+		var oldCount, newCount int
+		// Count only rows with valid document_id (matching EC-4 filter)
+		if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE document_id IN (SELECT id FROM documents)`, m.oldTable)).Scan(&oldCount); err != nil {
+			return fmt.Errorf("failed to count %s rows: %w", m.oldTable, err)
+		}
+		if err := db.QueryRow(`SELECT COUNT(*) FROM entity_documents WHERE entity_type=?`, m.entityType).Scan(&newCount); err != nil {
+			return fmt.Errorf("failed to count entity_documents rows for %s: %w", m.entityType, err)
+		}
+
+		if newCount < oldCount {
+			return fmt.Errorf("verification failed: %s had %d rows (with valid documents), entity_documents has %d for entity_type='%s'",
+				m.oldTable, oldCount, newCount, m.entityType)
+		}
+	}
+
+	// Verify task_history
+	var taskHistoryExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_history'`).Scan(&taskHistoryExists); err != nil {
+		return fmt.Errorf("failed to check task_history existence: %w", err)
+	}
+	if taskHistoryExists > 0 {
+		var oldCount, newCount int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM task_history`).Scan(&oldCount); err != nil {
+			return fmt.Errorf("failed to count task_history rows: %w", err)
+		}
+		if err := db.QueryRow(`SELECT COUNT(*) FROM entity_history WHERE entity_type='task'`).Scan(&newCount); err != nil {
+			return fmt.Errorf("failed to count entity_history rows for task: %w", err)
+		}
+
+		if newCount < oldCount {
+			return fmt.Errorf("verification failed: task_history had %d rows, entity_history has %d for entity_type='task'",
+				oldCount, newCount)
+		}
+	}
+
+	return nil
+}
+
+// dropOldDocumentAndHistoryTables drops the old per-entity document tables
+// and task_history after migration verification passes. Creates a compatibility
+// view for task_history to maintain backward compatibility with existing
+// repository code until it is migrated to use entity_history directly.
+func dropOldDocumentAndHistoryTables(db *sql.DB) error {
+	// Drop old per-entity document TABLES and replace with compatibility VIEWS.
+	// Note: task_history TABLE is kept as-is until T-E21-F08-004 migrates
+	// the TaskHistoryRepository to use entity_history directly. The data
+	// has already been copied to entity_history by migrateHistoryDataToPolymorphic.
+	docTables := []string{
+		"epic_documents",
+		"feature_documents",
+		"task_documents",
+		"bug_documents",
+		"change_card_documents",
+	}
+
+	for _, table := range docTables {
+		if _, err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
+			return fmt.Errorf("failed to drop %s: %w", table, err)
+		}
+	}
+
+	// Create compatibility views and triggers for document tables
+	if err := createPolymorphicCompatibilityViews(db); err != nil {
+		return fmt.Errorf("failed to create compatibility views: %w", err)
+	}
+
+	return nil
+}
+
+// createPolymorphicCompatibilityViews creates backward-compatible views and
+// INSTEAD OF triggers for the old table names. This allows existing repository
+// code to continue working until it's migrated to use entity_documents and
+// entity_history directly.
+func createPolymorphicCompatibilityViews(db *sql.DB) error {
+	// Document table compatibility views.
+	// These replace the dropped per-entity document TABLES with VIEWS
+	// that map old column names to entity_documents columns.
+	// INSTEAD OF triggers handle INSERT and DELETE operations.
+	type docViewDef struct {
+		viewName   string
+		entityType string
+		fkColumn   string
+	}
+
+	docViews := []docViewDef{
+		{"epic_documents", "epic", "epic_id"},
+		{"feature_documents", "feature", "feature_id"},
+		{"task_documents", "task", "task_id"},
+		{"bug_documents", "bug", "bug_id"},
+		{"change_card_documents", "change", "change_card_id"},
+	}
+
+	for _, v := range docViews {
+		// Create compatibility view
+		var viewSQL string
+		if v.viewName == "task_documents" {
+			// task_documents has link_type column
+			viewSQL = fmt.Sprintf(`
+CREATE VIEW IF NOT EXISTS %s AS
+SELECT
+    entity_id AS %s,
+    document_id,
+    link_type,
+    created_at
+FROM entity_documents
+WHERE entity_type = '%s'
+			`, v.viewName, v.fkColumn, v.entityType)
+		} else {
+			viewSQL = fmt.Sprintf(`
+CREATE VIEW IF NOT EXISTS %s AS
+SELECT
+    entity_id AS %s,
+    document_id,
+    created_at
+FROM entity_documents
+WHERE entity_type = '%s'
+			`, v.viewName, v.fkColumn, v.entityType)
+		}
+
+		if _, err := db.Exec(viewSQL); err != nil {
+			return fmt.Errorf("failed to create %s compatibility view: %w", v.viewName, err)
+		}
+
+		// Create INSTEAD OF INSERT trigger
+		var insertSQL string
+		if v.viewName == "task_documents" {
+			insertSQL = fmt.Sprintf(`
+CREATE TRIGGER IF NOT EXISTS %s_insert
+INSTEAD OF INSERT ON %s
+BEGIN
+    INSERT OR IGNORE INTO entity_documents (entity_type, entity_id, document_id, link_type, created_at)
+    VALUES ('%s', NEW.%s, NEW.document_id, COALESCE(NEW.link_type, 'general'), COALESCE(NEW.created_at, CURRENT_TIMESTAMP));
+END
+			`, v.viewName, v.viewName, v.entityType, v.fkColumn)
+		} else {
+			insertSQL = fmt.Sprintf(`
+CREATE TRIGGER IF NOT EXISTS %s_insert
+INSTEAD OF INSERT ON %s
+BEGIN
+    INSERT OR IGNORE INTO entity_documents (entity_type, entity_id, document_id, link_type, created_at)
+    VALUES ('%s', NEW.%s, NEW.document_id, 'general', COALESCE(NEW.created_at, CURRENT_TIMESTAMP));
+END
+			`, v.viewName, v.viewName, v.entityType, v.fkColumn)
+		}
+
+		if _, err := db.Exec(insertSQL); err != nil {
+			return fmt.Errorf("failed to create %s insert trigger: %w", v.viewName, err)
+		}
+
+		// Create INSTEAD OF DELETE trigger
+		deleteSQL := fmt.Sprintf(`
+CREATE TRIGGER IF NOT EXISTS %s_delete
+INSTEAD OF DELETE ON %s
+BEGIN
+    DELETE FROM entity_documents
+    WHERE entity_type = '%s' AND entity_id = OLD.%s AND document_id = OLD.document_id;
+END
+		`, v.viewName, v.viewName, v.entityType, v.fkColumn)
+
+		if _, err := db.Exec(deleteSQL); err != nil {
+			return fmt.Errorf("failed to create %s delete trigger: %w", v.viewName, err)
+		}
 	}
 
 	return nil

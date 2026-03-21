@@ -29,7 +29,7 @@ type MockChangeCardService struct {
 	UpdateChangeCardFunc        func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
 	DeleteChangeCardFunc        func(ctx context.Context, key string) error
 	ApproveChangeCardFunc       func(ctx context.Context, key string) (*models.ChangeCard, error)
-	SetChangeCardStatusFunc     func(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error)
+	SetChangeCardStatusFunc     func(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error)
 	AdvanceChangeCardStatusFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
 	GetOrchestratorActionFunc   func(card *models.ChangeCard) *config.PopulatedAction
 	GetValidTransitionsFunc     func(status string) []string
@@ -77,9 +77,9 @@ func (m *MockChangeCardService) ApproveChangeCard(ctx context.Context, key strin
 	return nil, fmt.Errorf("ApproveChangeCard not implemented in mock")
 }
 
-func (m *MockChangeCardService) SetChangeCardStatus(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error) {
+func (m *MockChangeCardService) SetChangeCardStatus(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error) {
 	if m.SetChangeCardStatusFunc != nil {
-		return m.SetChangeCardStatusFunc(ctx, key, targetStatus)
+		return m.SetChangeCardStatusFunc(ctx, key, targetStatus, force)
 	}
 	return nil, fmt.Errorf("SetChangeCardStatus not implemented in mock")
 }

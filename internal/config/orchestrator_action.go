@@ -19,6 +19,12 @@ type OrchestratorAction struct {
 	// AgentType specifies the type of agent to spawn (required for spawn_agent action)
 	AgentType string `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`
 
+	// Provider specifies the AI provider to use for the agent (optional, e.g., "anthropic", "openai")
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+
+	// Model specifies the AI model to use for the agent (optional, e.g., "sonnet", "opus", "haiku")
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
+
 	// Skills lists the skills required for the agent (required for spawn_agent action)
 	Skills []string `json:"skills,omitempty" yaml:"skills,omitempty"`
 
@@ -138,6 +144,19 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 	_ = validateTemplateSyntax(oa.InstructionTemplate)
 
 	return nil
+}
+
+// ToPopulatedAction constructs a PopulatedAction from this OrchestratorAction,
+// populating the instruction template with the given placeholder values.
+func (oa *OrchestratorAction) ToPopulatedAction(placeholders map[string]string) *PopulatedAction {
+	return &PopulatedAction{
+		Action:      oa.Action,
+		AgentType:   oa.AgentType,
+		Provider:    oa.Provider,
+		Model:       oa.Model,
+		Skills:      oa.Skills,
+		Instruction: oa.PopulateTemplate(placeholders),
+	}
 }
 
 // PopulateTemplate replaces template placeholders with actual values from the vars map.

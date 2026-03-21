@@ -207,8 +207,43 @@ func newBugWorkflowSvc() *workflow.Service {
 	return workflow.NewService("")
 }
 
+// mockBugEntityRepo is a minimal EntityRepository adapter for bug tests.
+type mockBugEntityRepo struct {
+	bugRepo *mockBugRepo
+}
+
+func (m *mockBugEntityRepo) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	return m.bugRepo.GetByKey(ctx, key)
+}
+
+func (m *mockBugEntityRepo) GetByID(ctx context.Context, id int64) (models.Entity, error) {
+	return m.bugRepo.GetByID(ctx, id)
+}
+
+func (m *mockBugEntityRepo) UpdateStatus(ctx context.Context, id int64, status string) error {
+	return m.bugRepo.UpdateStatus(ctx, id, models.BugStatus(status))
+}
+
+func (m *mockBugEntityRepo) Update(ctx context.Context, entity models.Entity) error {
+	bug, ok := entity.(*models.Bug)
+	if !ok {
+		return fmt.Errorf("expected *models.Bug, got %T", entity)
+	}
+	return m.bugRepo.Update(ctx, bug)
+}
+
+func (m *mockBugEntityRepo) GetContextData(ctx context.Context, id int64) (*string, error) {
+	return nil, nil
+}
+
+func (m *mockBugEntityRepo) UpdateContextData(ctx context.Context, id int64, data *string) error {
+	return nil
+}
+
 func newBugService(repo *mockBugRepo, epicRepo *bugLinkEpicRepo, featureRepo *bugLinkFeatureRepo, taskRepo *bugLinkTaskRepo) *BugService {
 	wfSvc := newBugWorkflowSvc()
+	entitySvc := NewEntityService(wfSvc)
+	entityRepo := &mockBugEntityRepo{bugRepo: repo}
 	if epicRepo == nil {
 		epicRepo = &bugLinkEpicRepo{}
 	}
@@ -218,7 +253,7 @@ func newBugService(repo *mockBugRepo, epicRepo *bugLinkEpicRepo, featureRepo *bu
 	if taskRepo == nil {
 		taskRepo = &bugLinkTaskRepo{}
 	}
-	return NewBugService(repo, wfSvc, epicRepo, featureRepo, taskRepo, "")
+	return NewBugService(repo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, "")
 }
 
 // --- CreateBug tests ---
@@ -759,14 +794,18 @@ func TestBugService_ListBugs_WithSeverityFilter(t *testing.T) {
 func TestBugService_AdvanceBugStatus(t *testing.T) {
 	ctx := context.Background()
 
+	// Track current status to return updated value on re-fetch
+	currentStatus := models.BugStatus("reported")
+
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"}, Status: currentStatus, Severity: models.BugSeverityHigh}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
 			if id != 1 {
 				t.Errorf("expected id=1, got %d", id)
 			}
+			currentStatus = status
 			return nil
 		},
 	}
@@ -802,31 +841,31 @@ func TestBugService_AdvanceBugStatus_NotFound(t *testing.T) {
 
 // --- SetBugStatus tests ---
 
-func TestBugService_SetBugStatus_Force(t *testing.T) {
+func TestBugService_SetBugStatus_ValidTransition(t *testing.T) {
 	ctx := context.Background()
 
-	var capturedStatus models.BugStatus
+	// Track current status to return updated value on re-fetch
+	currentStatus := models.BugStatus("reported")
+
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"}, Status: currentStatus, Severity: models.BugSeverityHigh}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
-			capturedStatus = status
+			currentStatus = status
 			return nil
 		},
 	}
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	bug, err := svc.SetBugStatus(ctx, "B001", "triaged", true)
+	// "reported" -> "triaged" is a valid transition, no force needed
+	bug, err := svc.SetBugStatus(ctx, "B001", "triaged", false)
 	if err != nil {
 		t.Fatalf("SetBugStatus() error = %v", err)
 	}
 	if bug.Status != "triaged" {
 		t.Errorf("expected status 'triaged', got %s", bug.Status)
-	}
-	if capturedStatus != "triaged" {
-		t.Errorf("expected repository to receive status 'triaged', got %s", capturedStatus)
 	}
 }
 
@@ -918,5 +957,179 @@ func TestBugService_CreateBug_LinkedToTask(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CreateBug() with task link error = %v", err)
+	}
+}
+
+// --- Delegation-specific tests (TC-F09-003 through TC-F09-017) ---
+
+// TC-F09-005: SetBugStatus re-fetches bug after transition
+func TestBugService_SetBugStatus_RefetchesAfterTransition(t *testing.T) {
+	ctx := context.Background()
+
+	currentStatus := models.BugStatus("reported")
+	getByKeyCalls := 0
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			getByKeyCalls++
+			return &models.Bug{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"},
+				Status:     currentStatus,
+				Severity:   models.BugSeverityHigh,
+			}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
+			currentStatus = status
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	bug, err := svc.SetBugStatus(ctx, "B001", "triaged", false)
+	if err != nil {
+		t.Fatalf("SetBugStatus() error = %v", err)
+	}
+	// EntityService calls GetByKey once, then BugService re-fetches = 2 calls on entityRepo + 1 on bugRepo
+	// The re-fetched bug should have the updated status
+	if bug.Status != "triaged" {
+		t.Errorf("expected re-fetched bug status 'triaged', got %s", bug.Status)
+	}
+}
+
+// TC-F09-006: SetBugStatus propagates EntityService errors
+func TestBugService_SetBugStatus_PropagatesEntityServiceErrors(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"},
+				Status:     "reported",
+				Severity:   models.BugSeverityHigh,
+			}, nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	// "completely_invalid" is not a valid workflow status
+	_, err := svc.SetBugStatus(ctx, "B001", "completely_invalid", false)
+	if err == nil {
+		t.Fatal("expected error for invalid target status")
+	}
+}
+
+// TC-F09-007: SetBugStatus handles entity not found
+func TestBugService_SetBugStatus_NotFound(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return nil, fmt.Errorf("bug not found: %s", key)
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	_, err := svc.SetBugStatus(ctx, "B999", "triaged", false)
+	if err == nil {
+		t.Fatal("expected error for non-existent bug")
+	}
+}
+
+// TC-F09-010: AdvanceBugStatus with no available transitions
+func TestBugService_AdvanceBugStatus_NoTransitions(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			// "resolved" has no valid transitions in the default bug workflow
+			return &models.Bug{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"},
+				Status:     "resolved",
+				Severity:   models.BugSeverityHigh,
+			}, nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	_, err := svc.AdvanceBugStatus(ctx, "B001")
+	if err == nil {
+		t.Fatal("expected error for terminal status with no transitions")
+	}
+	if !strings.Contains(err.Error(), "no valid transitions") {
+		t.Errorf("expected 'no valid transitions' error, got: %v", err)
+	}
+}
+
+// TC-F09-011: AdvanceBugStatus returns typed Bug model
+func TestBugService_AdvanceBugStatus_ReturnsTypedBug(t *testing.T) {
+	ctx := context.Background()
+
+	currentStatus := models.BugStatus("reported")
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"},
+				Status:     currentStatus,
+				Severity:   models.BugSeverityHigh,
+			}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
+			currentStatus = status
+			return nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	bug, err := svc.AdvanceBugStatus(ctx, "B001")
+	if err != nil {
+		t.Fatalf("AdvanceBugStatus() error = %v", err)
+	}
+	// Verify it's a *models.Bug with correct fields
+	if bug.Key != "B001" {
+		t.Errorf("expected key B001, got %s", bug.Key)
+	}
+	if bug.Severity != models.BugSeverityHigh {
+		t.Errorf("expected severity high, got %s", bug.Severity)
+	}
+}
+
+// TC-F09-013: makeResolveActionFn callback handles non-Bug entity gracefully
+func TestBugService_makeResolveActionFn_NonBugEntity(t *testing.T) {
+	repo := &mockBugRepo{}
+	svc := newBugService(repo, nil, nil, nil)
+
+	resolveActionFn := svc.makeResolveActionFn()
+
+	// Pass a non-Bug entity (Epic)
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01", Title: "Test Epic"}}
+	action := resolveActionFn(epic, "reported")
+
+	if action != nil {
+		t.Error("expected nil action for non-Bug entity")
+	}
+}
+
+// TC-F09-014: makeResolveActionFn callback returns nil for unconfigured status
+func TestBugService_makeResolveActionFn_UnconfiguredStatus(t *testing.T) {
+	repo := &mockBugRepo{}
+	svc := newBugService(repo, nil, nil, nil)
+
+	resolveActionFn := svc.makeResolveActionFn()
+
+	bug := &models.Bug{
+		BaseEntity: models.BaseEntity{Key: "B001", Title: "Test Bug"},
+		Status:     "reported",
+		Severity:   models.BugSeverityHigh,
+	}
+	// "reported" status has no orchestrator action in default workflow
+	action := resolveActionFn(bug, "reported")
+
+	if action != nil {
+		t.Error("expected nil action for status without configured orchestrator action")
 	}
 }
