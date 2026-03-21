@@ -246,7 +246,7 @@ func TestChangeCardService_CreateChangeCard(t *testing.T) {
 	if card.Key != "CC-001" {
 		t.Errorf("expected key C001, got %s", card.Key)
 	}
-	if card.Slug == "" {
+	if card.Slug == nil || *card.Slug == "" {
 		t.Error("expected non-empty slug")
 	}
 }
@@ -439,14 +439,14 @@ func TestChangeCardService_UpdateChangeCard_FilePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateChangeCard() error = %v", err)
 	}
-	if card.FilePath != newPath {
-		t.Errorf("expected file_path %q, got %q", newPath, card.FilePath)
+	if card.FilePath == nil || *card.FilePath != newPath {
+		t.Errorf("expected file_path %q, got %v", newPath, card.FilePath)
 	}
 	if capturedCard == nil {
 		t.Fatal("expected Update to be called")
 	}
-	if capturedCard.FilePath != newPath {
-		t.Errorf("expected captured file_path %q, got %q", newPath, capturedCard.FilePath)
+	if capturedCard.FilePath == nil || *capturedCard.FilePath != newPath {
+		t.Errorf("expected captured file_path %q, got %v", newPath, capturedCard.FilePath)
 	}
 }
 

@@ -1,6 +1,8 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
 // EpicStatus represents the status of an epic
 type EpicStatus string
@@ -37,6 +39,41 @@ type Epic struct {
 	CreatedAt     time.Time              `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time              `json:"updated_at" db:"updated_at"`
 }
+
+// Entity interface implementation for Epic.
+
+func (e *Epic) GetID() int64              { return e.ID }
+func (e *Epic) GetKey() string            { return e.Key }
+func (e *Epic) GetTitle() string          { return e.Title }
+func (e *Epic) GetEntityType() EntityType { return EntityTypeEpic }
+func (e *Epic) GetStatus() string         { return string(e.Status) }
+func (e *Epic) SetStatus(status string)   { e.Status = EpicStatus(status) }
+func (e *Epic) GetCreatedAt() time.Time   { return e.CreatedAt }
+func (e *Epic) GetUpdatedAt() time.Time   { return e.UpdatedAt }
+
+func (e *Epic) GetSlug() string {
+	if e.Slug != nil {
+		return *e.Slug
+	}
+	return ""
+}
+
+func (e *Epic) GetDescription() string {
+	if e.Description != nil {
+		return *e.Description
+	}
+	return ""
+}
+
+func (e *Epic) GetFilePath() string {
+	if e.FilePath != nil {
+		return *e.FilePath
+	}
+	return ""
+}
+
+func (e *Epic) GetContextData() *string     { return e.ContextData }
+func (e *Epic) SetContextData(data *string) { e.ContextData = data }
 
 // Validate validates the Epic fields
 func (e *Epic) Validate() error {

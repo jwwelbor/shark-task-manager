@@ -1,6 +1,8 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
 // FeatureStatus represents the status of a feature
 type FeatureStatus string
@@ -30,6 +32,41 @@ type Feature struct {
 	CreatedAt      time.Time              `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time              `json:"updated_at" db:"updated_at"`
 }
+
+// Entity interface implementation for Feature.
+
+func (f *Feature) GetID() int64              { return f.ID }
+func (f *Feature) GetKey() string            { return f.Key }
+func (f *Feature) GetTitle() string          { return f.Title }
+func (f *Feature) GetEntityType() EntityType { return EntityTypeFeature }
+func (f *Feature) GetStatus() string         { return string(f.Status) }
+func (f *Feature) SetStatus(status string)   { f.Status = FeatureStatus(status) }
+func (f *Feature) GetCreatedAt() time.Time   { return f.CreatedAt }
+func (f *Feature) GetUpdatedAt() time.Time   { return f.UpdatedAt }
+
+func (f *Feature) GetSlug() string {
+	if f.Slug != nil {
+		return *f.Slug
+	}
+	return ""
+}
+
+func (f *Feature) GetDescription() string {
+	if f.Description != nil {
+		return *f.Description
+	}
+	return ""
+}
+
+func (f *Feature) GetFilePath() string {
+	if f.FilePath != nil {
+		return *f.FilePath
+	}
+	return ""
+}
+
+func (f *Feature) GetContextData() *string     { return f.ContextData }
+func (f *Feature) SetContextData(data *string) { f.ContextData = data }
 
 // IsAutoStatus returns true if status is automatically derived from tasks
 func (f *Feature) IsAutoStatus() bool {

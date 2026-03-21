@@ -108,7 +108,7 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	}
 
 	// Generate slug
-	slug := utils.GenerateSlug(title)
+	slugVal := utils.GenerateSlug(title)
 
 	// Get default status from workflow
 	defaultStatus := s.workflowSvc.GetDefaultStatus()
@@ -125,7 +125,7 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 		Title:     title,
 		Status:    models.ChangeCardStatus(defaultStatus),
 		Priority:  priority,
-		Slug:      slug,
+		Slug:      &slugVal,
 		EpicID:    epicID,
 		FeatureID: featureID,
 	}
@@ -149,7 +149,7 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 
 	// Set file path
 	filePath := filepath.Join("docs", "plan", "changes", nextKey+".md")
-	card.FilePath = filePath
+	card.FilePath = &filePath
 
 	// Create in database
 	if err := s.repo.Create(ctx, card); err != nil {
@@ -234,7 +234,8 @@ func (s *ChangeCardService) UpdateChangeCard(ctx context.Context, key string, up
 	// Apply non-nil updates
 	if updates.Title != nil {
 		card.Title = strings.TrimSpace(*updates.Title)
-		card.Slug = utils.GenerateSlug(card.Title)
+		newSlug := utils.GenerateSlug(card.Title)
+		card.Slug = &newSlug
 	}
 	if updates.Description != nil {
 		card.Description = updates.Description
@@ -258,7 +259,7 @@ func (s *ChangeCardService) UpdateChangeCard(ctx context.Context, key string, up
 		card.RollbackPlan = updates.RollbackPlan
 	}
 	if updates.FilePath != nil {
-		card.FilePath = *updates.FilePath
+		card.FilePath = updates.FilePath
 	}
 
 	if err := card.Validate(); err != nil {
@@ -284,8 +285,8 @@ func (s *ChangeCardService) DeleteChangeCard(ctx context.Context, key string) er
 	}
 
 	// Best-effort file deletion
-	if card.FilePath != "" && s.projectRoot != "" {
-		absPath := filepath.Join(s.projectRoot, card.FilePath)
+	if card.FilePath != nil && *card.FilePath != "" && s.projectRoot != "" {
+		absPath := filepath.Join(s.projectRoot, *card.FilePath)
 		if removeErr := os.Remove(absPath); removeErr != nil && !os.IsNotExist(removeErr) {
 			fmt.Fprintf(os.Stderr, "warning: failed to delete change-card file %s: %v\n", absPath, removeErr)
 		}
@@ -371,7 +372,9 @@ func (s *ChangeCardService) generateMarkdown(card *models.ChangeCard) string {
 	sb.WriteString(fmt.Sprintf("title: %s\n", card.Title))
 	sb.WriteString(fmt.Sprintf("status: %s\n", card.Status))
 	sb.WriteString(fmt.Sprintf("priority: %d\n", card.Priority))
-	sb.WriteString(fmt.Sprintf("slug: %s\n", card.Slug))
+	if card.Slug != nil {
+		sb.WriteString(fmt.Sprintf("slug: %s\n", *card.Slug))
+	}
 	sb.WriteString("---\n\n")
 	sb.WriteString(fmt.Sprintf("# %s\n\n", card.Title))
 	sb.WriteString("## Description\n\n")
