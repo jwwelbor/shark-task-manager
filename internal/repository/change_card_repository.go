@@ -364,6 +364,20 @@ func (r *ChangeCardRepository) CountByStatus(ctx context.Context) (map[string]in
 	return counts, nil
 }
 
+// GetContextData retrieves the context data JSON string for a change-card by its ID.
+func (r *ChangeCardRepository) GetContextData(ctx context.Context, id int64) (*string, error) {
+	query := `SELECT context_data FROM change_cards WHERE id = ?`
+	var contextData *string
+	err := r.db.QueryRowContext(ctx, query, id).Scan(&contextData)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("change-card not found with id %d", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get change-card context data: %w", err)
+	}
+	return contextData, nil
+}
+
 // GetNextKey returns the next available change-card key (e.g., CC-001, CC-002, ...).
 func (r *ChangeCardRepository) GetNextKey(ctx context.Context) (string, error) {
 	query := `SELECT COALESCE(MAX(CAST(SUBSTR(key, 4) AS INTEGER)), 0) FROM change_cards`

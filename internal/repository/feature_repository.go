@@ -937,6 +937,23 @@ func (r *FeatureRepository) UpdateContextData(ctx context.Context, featureID int
 	return nil
 }
 
+// UpdateStatus updates only the status field of a feature.
+func (r *FeatureRepository) UpdateStatus(ctx context.Context, featureID int64, status models.FeatureStatus) error {
+	query := `UPDATE features SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	result, err := r.db.ExecContext(ctx, query, status, featureID)
+	if err != nil {
+		return fmt.Errorf("failed to update feature status: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("feature not found with id %d", featureID)
+	}
+	return nil
+}
+
 // CascadeStatusToTasks updates the status of all child tasks to match a target task status
 // Used when --force is specified to override workflow validation
 func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error {
