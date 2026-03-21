@@ -1,0 +1,42 @@
+{{template "_resume_preamble" .}}Create test plan for feature {{.id}}: "{{.title}}".
+
+Check for existing test-plan.md in feature directory. If test plan exists meeting exit gate criteria, advance immediately.
+
+---
+
+LOAD: quality skill (test planning).
+
+READ:
+(1) Feature spec.md for requirements and acceptance criteria
+(2) Parent epic uat-plan.md for UAT scenarios this feature must satisfy
+(3) Feature research report (if exists) for existing test infrastructure
+(4) CLAUDE.md testing architecture rules (repo tests use real DB, everything else uses mocks)
+
+PRODUCE test-plan.md:
+
+(1) **AC Test Matrix**: For each acceptance criterion in spec.md:
+    - Test case description
+    - Input/setup
+    - Expected outcome
+    - Edge cases
+
+(2) **Integration Scenarios**: Cross-component interactions:
+    - Which components interact
+    - What to verify at boundaries
+    - Reference to epic UAT scenarios this feature contributes to
+
+(3) **Test Infrastructure**: What test utilities exist vs need creation:
+    - Existing test patterns to follow (with file paths)
+    - New test helpers needed (if any)
+
+CRITICAL: Tests trace to FEATURE acceptance criteria (in spec.md), which trace to epic requirements. No orphaned tests.
+
+EXIT GATE:
+- Every AC in spec.md has at least one test case
+- Edge cases identified for each AC
+- Integration scenarios cover cross-component boundaries
+- Test patterns reference existing infrastructure
+
+---
+## EXIT — REQUIRED
+    {{template "advance" .}}

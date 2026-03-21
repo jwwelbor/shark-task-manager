@@ -1,0 +1,911 @@
+{
+  "epic_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "draft": ["ready_for_refinement", "active", "cancelled"],
+      "ready_for_refinement": ["in_refinement", "blocked", "on_hold"],
+      "in_refinement": ["ready_for_research", "blocked", "on_hold"],
+      "ready_for_research": ["in_research", "blocked", "on_hold"],
+      "in_research": ["ready_for_design", "ready_for_refinement", "blocked", "on_hold"],
+      "ready_for_design": ["in_design", "blocked", "on_hold"],
+      "in_design": ["ready_for_decomposition", "ready_for_research", "ready_for_refinement", "blocked", "on_hold", "cancelled"],
+      "ready_for_decomposition": ["in_decomposition", "blocked", "on_hold"],
+      "in_decomposition": ["active", "blocked", "on_hold"],
+      "active": ["completed", "on_hold"],
+      "completed": [],
+      "cancelled": [],
+      "blocked": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition"],
+      "on_hold": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition", "active", "cancelled"]
+    },
+    "status_metadata": {
+      "draft": {
+        "description": "Epic captured, not yet refined",
+        "phase": "planning",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": true,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "advance_status",
+          "instruction_template": "epic_short/draft.tmpl"
+        }
+      },
+      "ready_for_refinement": {
+        "description": "Ready for BA to write epic PRD",
+        "phase": "refinement",
+        "color": "orange",
+        "progress_weight": 0.05,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["business-analyst"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "business-analyst",
+          "model": "opus",
+          "skills": ["specification-writing", "epic"],
+          "instruction_template": "epic_short/ready_for_refinement.tmpl"
+        }
+      },
+      "in_refinement": {
+        "description": "BA writing epic PRD: goals, scope, success criteria, constraints",
+        "phase": "refinement",
+        "color": "orange",
+        "progress_weight": 0.1,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "business-analyst",
+          "model": "opus",
+          "skills": ["specification-writing", "epic"],
+          "instruction_template": "epic_short/in_refinement.tmpl"
+        }
+      },
+      "ready_for_research": {
+        "description": "Ready for brownfield codebase analysis",
+        "phase": "research",
+        "color": "purple",
+        "progress_weight": 0.15,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["researcher"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "model": "sonnet",
+          "skills": ["research", "brownfield-analysis"],
+          "instruction_template": "epic_short/ready_for_research.tmpl"
+        }
+      },
+      "in_research": {
+        "description": "Brownfield codebase analysis in progress",
+        "phase": "research",
+        "color": "purple",
+        "progress_weight": 0.25,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "model": "sonnet",
+          "skills": ["research", "brownfield-analysis"],
+          "instruction_template": "epic_short/in_research.tmpl"
+        }
+      },
+      "ready_for_design": {
+        "description": "Ready for architecture decisions and UAT plan",
+        "phase": "design",
+        "color": "cyan",
+        "progress_weight": 0.3,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["architect"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "architect",
+          "model": "opus",
+          "skills": ["architecture", "quality"],
+          "instruction_template": "epic_short/ready_for_design.tmpl"
+        }
+      },
+      "in_design": {
+        "description": "Architecture and UAT plan in progress",
+        "phase": "design",
+        "color": "cyan",
+        "progress_weight": 0.4,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "model": "opus",
+          "skills": ["architecture", "quality"],
+          "instruction_template": "epic_short/in_design.tmpl"
+        }
+      },
+      "ready_for_decomposition": {
+        "description": "Ready to break epic into features",
+        "phase": "decomposition",
+        "color": "blue",
+        "progress_weight": 0.45,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["product-manager"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "product-manager",
+          "model": "sonnet",
+          "skills": ["specification-writing", "feature"],
+          "instruction_template": "epic_short/ready_for_decomposition.tmpl"
+        }
+      },
+      "in_decomposition": {
+        "description": "Breaking epic into features with ordering and dependencies",
+        "phase": "decomposition",
+        "color": "blue",
+        "progress_weight": 0.5,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "product-manager",
+          "model": "sonnet",
+          "skills": ["specification-writing", "feature"],
+          "instruction_template": "epic_short/in_decomposition.tmpl"
+        }
+      },
+      "active": {
+        "description": "Features in progress, progress aggregated from children",
+        "phase": "execution",
+        "color": "yellow",
+        "progress_weight": 0.75,
+        "is_planning": false,
+        "responsibility": "agent",
+        "aggregates_from": "features",
+        "orchestrator_action": {
+          "action": "cascade",
+          "instruction_template": "epic_short/active.tmpl"
+        }
+      },
+      "completed": {
+        "description": "All features done, epic delivered",
+        "phase": "done",
+        "color": "green",
+        "progress_weight": 1.0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "epic_short/completed.tmpl"
+        }
+      },
+      "cancelled": {
+        "description": "Epic abandoned",
+        "phase": "done",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "epic_short/cancelled.tmpl"
+        }
+      },
+      "blocked": {
+        "description": "External blocker preventing progress",
+        "phase": "blocked",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "epic_short/blocked.tmpl"
+        }
+      },
+      "on_hold": {
+        "description": "Intentionally paused, awaiting product decision",
+        "phase": "paused",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "epic_short/on_hold.tmpl"
+        }
+      }
+    },
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed", "cancelled"]
+    }
+  },
+
+  "feature_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "draft": ["ready_for_assessment", "active", "cancelled"],
+      "ready_for_assessment": ["in_assessment", "on_hold"],
+      "in_assessment": ["ready_for_research", "ready_for_specification", "ready_for_task_generation", "cancelled", "on_hold"],
+      "ready_for_research": ["in_research", "blocked", "on_hold"],
+      "in_research": ["ready_for_specification", "ready_for_assessment", "blocked", "on_hold"],
+      "ready_for_specification": ["in_specification", "blocked", "on_hold"],
+      "in_specification": ["ready_for_test_planning", "ready_for_research", "blocked", "on_hold"],
+      "ready_for_test_planning": ["in_test_planning", "blocked", "on_hold"],
+      "in_test_planning": ["ready_for_task_generation", "ready_for_specification", "blocked", "on_hold"],
+      "ready_for_task_generation": ["in_task_generation", "blocked", "on_hold"],
+      "in_task_generation": ["active", "blocked", "on_hold"],
+      "active": ["completed", "on_hold"],
+      "completed": [],
+      "cancelled": [],
+      "blocked": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "draft"],
+      "on_hold": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "active", "cancelled"]
+    },
+    "status_metadata": {
+      "draft": {
+        "description": "Feature created from epic decomposition",
+        "phase": "planning",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": true,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "advance_status",
+          "instruction_template": "feature_short/draft.tmpl"
+        }
+      },
+      "ready_for_assessment": {
+        "description": "Ready for scope validation and complexity triage",
+        "phase": "triage",
+        "color": "orange",
+        "progress_weight": 0.02,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["researcher"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "model": "haiku",
+          "skills": ["assessment", "research"],
+          "instruction_template": "feature_short/ready_for_assessment.tmpl"
+        }
+      },
+      "in_assessment": {
+        "description": "Scope validation and complexity triage in progress",
+        "phase": "triage",
+        "color": "orange",
+        "progress_weight": 0.05,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "model": "haiku",
+          "skills": ["assessment", "research"],
+          "instruction_template": "feature_short/in_assessment.tmpl"
+        }
+      },
+      "ready_for_research": {
+        "description": "COMPLEX features: ready for tactical codebase research",
+        "phase": "research",
+        "color": "purple",
+        "progress_weight": 0.1,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["researcher"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "researcher",
+          "model": "sonnet",
+          "skills": ["research", "brownfield-analysis"],
+          "instruction_template": "feature_short/ready_for_research.tmpl"
+        }
+      },
+      "in_research": {
+        "description": "Tactical codebase research in progress",
+        "phase": "research",
+        "color": "purple",
+        "progress_weight": 0.15,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "researcher",
+          "model": "sonnet",
+          "skills": ["research", "brownfield-analysis"],
+          "instruction_template": "feature_short/in_research.tmpl"
+        }
+      },
+      "ready_for_specification": {
+        "description": "Ready for combined requirements + architecture spec",
+        "phase": "specification",
+        "color": "cyan",
+        "progress_weight": 0.2,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["architect"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "architect",
+          "model": "opus",
+          "skills": ["architecture", "specification-writing"],
+          "instruction_template": "feature_short/ready_for_specification.tmpl"
+        }
+      },
+      "in_specification": {
+        "description": "Writing combined requirements + architecture spec",
+        "phase": "specification",
+        "color": "cyan",
+        "progress_weight": 0.3,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "architect",
+          "model": "opus",
+          "skills": ["architecture", "specification-writing"],
+          "instruction_template": "feature_short/in_specification.tmpl"
+        }
+      },
+      "ready_for_test_planning": {
+        "description": "Ready for feature test strategy",
+        "phase": "test_planning",
+        "color": "blue",
+        "progress_weight": 0.35,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["qa"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "qa",
+          "model": "sonnet",
+          "skills": ["quality", "test-driven-development"],
+          "instruction_template": "feature_short/ready_for_test_planning.tmpl"
+        }
+      },
+      "in_test_planning": {
+        "description": "Writing feature test strategy",
+        "phase": "test_planning",
+        "color": "blue",
+        "progress_weight": 0.4,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "model": "sonnet",
+          "skills": ["quality", "test-driven-development"],
+          "instruction_template": "feature_short/in_test_planning.tmpl"
+        }
+      },
+      "ready_for_task_generation": {
+        "description": "Ready to generate thin task specs",
+        "phase": "decomposition",
+        "color": "blue",
+        "progress_weight": 0.45,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["product-manager"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "product-manager",
+          "model": "sonnet",
+          "skills": ["specification-writing", "task"],
+          "instruction_template": "feature_short/ready_for_task_generation.tmpl"
+        }
+      },
+      "in_task_generation": {
+        "description": "Generating thin task specs",
+        "phase": "decomposition",
+        "color": "blue",
+        "progress_weight": 0.5,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "product-manager",
+          "model": "sonnet",
+          "skills": ["specification-writing", "task"],
+          "instruction_template": "feature_short/in_task_generation.tmpl"
+        }
+      },
+      "active": {
+        "description": "Tasks in progress, progress aggregated from children",
+        "phase": "execution",
+        "color": "yellow",
+        "progress_weight": 0.75,
+        "is_planning": false,
+        "responsibility": "agent",
+        "aggregates_from": "tasks",
+        "orchestrator_action": {
+          "action": "cascade",
+          "instruction_template": "feature_short/active.tmpl"
+        }
+      },
+      "completed": {
+        "description": "All tasks done, feature delivered",
+        "phase": "done",
+        "color": "green",
+        "progress_weight": 1.0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "feature_short/completed.tmpl"
+        }
+      },
+      "cancelled": {
+        "description": "Feature abandoned or converted to task",
+        "phase": "done",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "feature_short/cancelled.tmpl"
+        }
+      },
+      "blocked": {
+        "description": "External blocker preventing progress",
+        "phase": "blocked",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "feature_short/blocked.tmpl"
+        }
+      },
+      "on_hold": {
+        "description": "Intentionally paused, awaiting product decision",
+        "phase": "paused",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "feature_short/on_hold.tmpl"
+        }
+      }
+    },
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed", "cancelled"]
+    }
+  },
+
+  "task_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "draft": ["ready_for_development", "cancelled", "on_hold"],
+      "ready_for_development": ["in_development", "blocked", "on_hold"],
+      "in_development": ["ready_for_verification", "blocked", "on_hold"],
+      "ready_for_verification": ["in_verification", "on_hold"],
+      "in_verification": ["completed", "ready_for_development", "on_hold"],
+      "completed": [],
+      "cancelled": ["draft"],
+      "blocked": ["ready_for_development", "cancelled"],
+      "on_hold": ["ready_for_development", "cancelled"]
+    },
+    "status_metadata": {
+      "draft": {
+        "description": "Task created from feature decomposition",
+        "phase": "planning",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": true,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "advance_status",
+          "instruction_template": "task_short/draft.tmpl"
+        }
+      },
+      "ready_for_development": {
+        "description": "Ready for TDD implementation",
+        "phase": "development",
+        "color": "yellow",
+        "progress_weight": 0.1,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["developer"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": ["implementation", "test-driven-development"],
+          "instruction_template": "task_short/ready_for_development.tmpl"
+        }
+      },
+      "in_development": {
+        "description": "TDD implementation in progress",
+        "phase": "development",
+        "color": "yellow",
+        "progress_weight": 0.5,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": ["implementation", "test-driven-development"],
+          "instruction_template": "task_short/in_development.tmpl"
+        }
+      },
+      "ready_for_verification": {
+        "description": "Ready for combined code review + QA",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.7,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["tech-lead"],
+        "blocks_feature": true,
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "tech-lead",
+          "model": "codex",
+          "skills": ["quality", "test-driven-development"],
+          "instruction_template": "task_short/ready_for_verification.tmpl"
+        }
+      },
+      "in_verification": {
+        "description": "Code review + QA in progress",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.85,
+        "is_planning": false,
+        "responsibility": "agent",
+        "blocks_feature": true,
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "tech-lead",
+          "model": "codex",
+          "skills": ["quality", "test-driven-development"],
+          "instruction_template": "task_short/in_verification.tmpl"
+        }
+      },
+      "completed": {
+        "description": "Task done and verified",
+        "phase": "done",
+        "color": "green",
+        "progress_weight": 1.0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "task_short/completed.tmpl"
+        }
+      },
+      "cancelled": {
+        "description": "Task abandoned",
+        "phase": "done",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "task_short/cancelled.tmpl"
+        }
+      },
+      "blocked": {
+        "description": "External blocker preventing progress",
+        "phase": "blocked",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "task_short/blocked.tmpl"
+        }
+      },
+      "on_hold": {
+        "description": "Intentionally paused",
+        "phase": "paused",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "task_short/on_hold.tmpl"
+        }
+      }
+    },
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed", "cancelled"]
+    }
+  },
+
+  "bug_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "draft": ["ready_for_development", "cancelled", "on_hold"],
+      "ready_for_development": ["in_development", "blocked", "on_hold"],
+      "in_development": ["ready_for_verification", "blocked", "on_hold"],
+      "ready_for_verification": ["in_verification", "on_hold"],
+      "in_verification": ["completed", "ready_for_development", "on_hold"],
+      "completed": [],
+      "cancelled": [],
+      "blocked": ["ready_for_development", "cancelled"],
+      "on_hold": ["ready_for_development", "cancelled"]
+    },
+    "status_metadata": {
+      "draft": {
+        "description": "Bug reported, not yet started",
+        "phase": "planning",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": true,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "advance_status",
+          "instruction_template": "bug/draft.tmpl"
+        }
+      },
+      "ready_for_development": {
+        "description": "Ready for bug reproduction and fix",
+        "phase": "development",
+        "color": "yellow",
+        "progress_weight": 0.1,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["developer"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": ["debugging", "test-driven-development"],
+          "instruction_template": "bug/ready_for_development.tmpl"
+        }
+      },
+      "in_development": {
+        "description": "Bug fix in progress",
+        "phase": "development",
+        "color": "yellow",
+        "progress_weight": 0.5,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": ["debugging", "test-driven-development"],
+          "instruction_template": "bug/in_development.tmpl"
+        }
+      },
+      "ready_for_verification": {
+        "description": "Ready for fix verification",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.7,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["tech-lead"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "tech-lead",
+          "model": "codex",
+          "skills": ["quality"],
+          "instruction_template": "bug/ready_for_verification.tmpl"
+        }
+      },
+      "in_verification": {
+        "description": "Fix verification in progress",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.85,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "tech-lead",
+          "model": "codex",
+          "skills": ["quality"],
+          "instruction_template": "bug/in_verification.tmpl"
+        }
+      },
+      "completed": {
+        "description": "Bug fixed and verified",
+        "phase": "done",
+        "color": "green",
+        "progress_weight": 1.0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "bug/completed.tmpl"
+        }
+      },
+      "cancelled": {
+        "description": "Bug not reproducible or won't fix",
+        "phase": "done",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "bug/cancelled.tmpl"
+        }
+      },
+      "blocked": {
+        "description": "Cannot proceed, awaiting external resolution",
+        "phase": "blocked",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "bug/blocked.tmpl"
+        }
+      },
+      "on_hold": {
+        "description": "Intentionally deferred",
+        "phase": "paused",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "bug/on_hold.tmpl"
+        }
+      }
+    },
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed", "cancelled"]
+    }
+  },
+
+  "change_workflow": {
+    "version": "1.0",
+    "status_flow": {
+      "draft": ["ready_for_development", "cancelled", "on_hold"],
+      "ready_for_development": ["in_development", "blocked", "on_hold"],
+      "in_development": ["ready_for_verification", "blocked", "on_hold"],
+      "ready_for_verification": ["in_verification", "on_hold"],
+      "in_verification": ["completed", "ready_for_development", "on_hold"],
+      "completed": [],
+      "cancelled": [],
+      "blocked": ["ready_for_development", "cancelled"],
+      "on_hold": ["ready_for_development", "cancelled"]
+    },
+    "status_metadata": {
+      "draft": {
+        "description": "Change card created, not yet started",
+        "phase": "planning",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": true,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "advance_status",
+          "instruction_template": "change/draft.tmpl"
+        }
+      },
+      "ready_for_development": {
+        "description": "Ready for implementation",
+        "phase": "development",
+        "color": "yellow",
+        "progress_weight": 0.1,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["developer"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": ["implementation"],
+          "instruction_template": "change/ready_for_development.tmpl"
+        }
+      },
+      "in_development": {
+        "description": "Implementation in progress",
+        "phase": "development",
+        "color": "yellow",
+        "progress_weight": 0.5,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "developer",
+          "model": "sonnet",
+          "skills": ["implementation"],
+          "instruction_template": "change/in_development.tmpl"
+        }
+      },
+      "ready_for_verification": {
+        "description": "Ready for review and verification",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.7,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["tech-lead"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "tech-lead",
+          "model": "codex",
+          "skills": ["quality"],
+          "instruction_template": "change/ready_for_verification.tmpl"
+        }
+      },
+      "in_verification": {
+        "description": "Review and verification in progress",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.85,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "tech-lead",
+          "model": "codex",
+          "skills": ["quality"],
+          "instruction_template": "change/in_verification.tmpl"
+        }
+      },
+      "completed": {
+        "description": "Change implemented and verified",
+        "phase": "done",
+        "color": "green",
+        "progress_weight": 1.0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "change/completed.tmpl"
+        }
+      },
+      "cancelled": {
+        "description": "Change no longer needed",
+        "phase": "done",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "archive",
+          "instruction_template": "change/cancelled.tmpl"
+        }
+      },
+      "blocked": {
+        "description": "Cannot proceed, awaiting external resolution",
+        "phase": "blocked",
+        "color": "red",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "bug/blocked.tmpl"
+        }
+      },
+      "on_hold": {
+        "description": "Intentionally deferred",
+        "phase": "paused",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": false,
+        "responsibility": "human",
+        "orchestrator_action": {
+          "action": "pause",
+          "instruction_template": "bug/on_hold.tmpl"
+        }
+      }
+    },
+    "special_statuses": {
+      "_start_": ["draft"],
+      "_complete_": ["completed", "cancelled"]
+    }
+  }
+}

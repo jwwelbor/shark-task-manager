@@ -1,0 +1,9 @@
+{{template "_resume_preamble" .}}RESUME verification for task {{.id}}: "{{.title}}".
+
+Check for existing verification report in code_review/ directory. If report exists with PASS verdict, advance immediately. If FAIL verdict, send back: shark status set {{.id}} ready_for_development --reason "<findings from report>".
+
+Otherwise, continue with full verification per ready_for_verification instructions.
+
+---
+## EXIT — REQUIRED
+    {{template "advance" .}}

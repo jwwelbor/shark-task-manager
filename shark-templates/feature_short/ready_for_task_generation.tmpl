@@ -1,0 +1,73 @@
+{{template "_resume_preamble" .}}Generate tasks for feature {{.id}}: "{{.title}}".
+
+Check for existing tasks: shark task list {{.id}} --json. If tasks exist covering all feature requirements with proper sequencing, advance immediately.
+
+---
+
+LOAD: specification-writing skill (task creation).
+
+READ:
+(1) Feature spec.md for requirements, architecture, and file paths
+(2) Feature test-plan.md for test cases
+(3) Parent epic context for dependency awareness
+
+PRODUCE tasks via shark CLI. Each task:
+
+```
+shark task create {{.id}} "<title>" --order=N
+```
+
+Then write task spec file (50 LINES MAX, not counting frontmatter):
+
+```markdown
+---
+key: <assigned key>
+title: "<title>"
+epic: <epic>
+feature: {{.id}}
+agent: developer
+status: draft
+priority: N
+execution_order: N
+dependencies: [<prior task keys>]
+---
+
+# <Title>
+
+## Goal
+One paragraph: what this task accomplishes and why.
+
+## Scope
+- Files to modify: (list with paths)
+- Files to create: (list with paths, if any)
+
+## Acceptance Criteria
+Reference spec.md: "See spec.md AC-1, AC-2, AC-3"
+Additional task-specific criteria (if any):
+- AC-T1: <specific to this task>
+
+## Test Cases
+Reference test-plan.md: "See test-plan.md Section 1, cases 1.1-1.4"
+
+## Design Reference
+"See spec.md Architecture Section 2 for component design"
+"See spec.md Architecture Section 3 for data model"
+```
+
+CRITICAL RULES:
+- 50 lines MAX per task file (not counting frontmatter)
+- NO code blocks in task files (no Go, SQL, etc.)
+- REFERENCE parent docs by section — do NOT copy content
+- NO ADRs, user stories, or edge cases in tasks (those live in spec.md)
+- Each task modifies a coherent set of files (not too broad, not too narrow)
+
+EXIT GATE:
+- All spec.md requirements covered by tasks
+- Task dependencies form a valid DAG
+- Each task is 50 lines or less
+- Zero code blocks in any task file
+- Every task references spec.md and test-plan.md sections
+
+---
+## EXIT — REQUIRED
+    {{template "advance" .}}
