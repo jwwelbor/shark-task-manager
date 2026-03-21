@@ -42,10 +42,8 @@ func TestSlugArchitecture_EndToEnd(t *testing.T) {
 
 	// Step 1: Create epic with automatic slug generation
 	t.Run("1. Epic creation with automatic slug", func(t *testing.T) {
-		epic := &models.Epic{
-			Key:      "E96",
-			Title:    "Core Infrastructure Improvements",
-			Status:   models.EpicStatusActive,
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96",
+			Title: "Core Infrastructure Improvements"}, Status: models.EpicStatusActive,
 			Priority: models.PriorityHigh,
 		}
 
@@ -86,10 +84,9 @@ func TestSlugArchitecture_EndToEnd(t *testing.T) {
 		parentEpic, err := epicRepo.GetByKey(ctx, "E96")
 		require.NoError(t, err)
 
-		feature := &models.Feature{
-			EpicID: parentEpic.ID,
-			Key:    "E96-F01",
-			Title:  "Database Query Optimization",
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F01",
+			Title: "Database Query Optimization"}, EpicID: parentEpic.ID,
+
 			Status: models.FeatureStatusActive,
 		}
 
@@ -132,10 +129,9 @@ func TestSlugArchitecture_EndToEnd(t *testing.T) {
 	var taskID int64
 	t.Run("5. Task creation with automatic slug", func(t *testing.T) {
 		backendAgent := "backend"
-		task := &models.Task{
-			FeatureID: featureID,
-			Key:       "T-E96-F01-001",
-			Title:     "Add indexes to user queries table",
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E96-F01-001",
+			Title: "Add indexes to user queries table"}, FeatureID: featureID,
+
 			Status:    models.TaskStatus("todo"),
 			AgentType: &backendAgent,
 			Priority:  8,
@@ -239,10 +235,8 @@ func TestSlugArchitecture_SpecialCharactersWorkflow(t *testing.T) {
 	resolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
 
 	// Create epic with special characters
-	epic := &models.Epic{
-		Key:      "E95",
-		Title:    "API & UI Integration (v2.0)",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E95",
+		Title: "API & UI Integration (v2.0)"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -259,10 +253,9 @@ func TestSlugArchitecture_SpecialCharactersWorkflow(t *testing.T) {
 	assert.Equal(t, epic.ID, epicRetrieved.ID)
 
 	// Create feature with unicode characters
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E95-F01",
-		Title:  "Améliorer la sécurité",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E95-F01",
+		Title: "Améliorer la sécurité"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -280,10 +273,9 @@ func TestSlugArchitecture_SpecialCharactersWorkflow(t *testing.T) {
 
 	// Create task with mixed special characters
 	backendAgent := "backend"
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E95-F01-001",
-		Title:     "Fix Bug: API -> Database Connection",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E95-F01-001",
+		Title: "Fix Bug: API -> Database Connection"}, FeatureID: feature.ID,
+
 		Status:    models.TaskStatus("todo"),
 		AgentType: &backendAgent,
 		Priority:  7,
@@ -332,10 +324,8 @@ func TestSlugArchitecture_LegacyDataCompatibility(t *testing.T) {
 	resolver := pathresolver.NewPathResolver(epicRepo, featureRepo, taskRepo, projectRoot)
 
 	// Create epic with slug, then manually clear it to simulate legacy data
-	epic := &models.Epic{
-		Key:      "E94",
-		Title:    "Legacy Epic Without Slug",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E94",
+		Title: "Legacy Epic Without Slug"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -379,20 +369,17 @@ func TestSlugArchitecture_ConcurrentAccess(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	// Create test data
-	epic := &models.Epic{
-		Key:      "E93",
-		Title:    "Concurrent Access Test",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E93",
+		Title: "Concurrent Access Test"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID) }()
 
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E93-F01",
-		Title:  "Concurrent Feature Test",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E93-F01",
+		Title: "Concurrent Feature Test"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -400,10 +387,9 @@ func TestSlugArchitecture_ConcurrentAccess(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID) }()
 
 	backendAgent := "backend"
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E93-F01-001",
-		Title:     "Concurrent Task Test",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E93-F01-001",
+		Title: "Concurrent Task Test"}, FeatureID: feature.ID,
+
 		Status:    models.TaskStatus("todo"),
 		AgentType: &backendAgent,
 		Priority:  5,

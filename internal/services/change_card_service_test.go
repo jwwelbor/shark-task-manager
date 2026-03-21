@@ -267,7 +267,7 @@ func TestChangeCardService_CreateChangeCard_WithEpicLink(t *testing.T) {
 	epicRepo := &changeCardEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			if key == "E07" {
-				return &models.Epic{ID: 42, Key: "E07", Title: "Test Epic"}, nil
+				return &models.Epic{BaseEntity: models.BaseEntity{ID: 42, Key: "E07", Title: "Test Epic"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},
@@ -306,7 +306,7 @@ func TestChangeCardService_GetChangeCard(t *testing.T) {
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
 			if key == "CC-001" {
-				return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Test Card", Status: "proposed"}, nil
+				return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test Card"}, Status: "proposed"}, nil
 			}
 			return nil, fmt.Errorf("not found: %s", key)
 		},
@@ -346,8 +346,8 @@ func TestChangeCardService_ListChangeCards(t *testing.T) {
 	repo := &mockChangeCardRepo{
 		listFn: func(ctx context.Context, filter *repository.ChangeCardRepoFilter) ([]*models.ChangeCard, error) {
 			return []*models.ChangeCard{
-				{ID: 1, Key: "CC-001", Title: "Card 1", Status: "proposed"},
-				{ID: 2, Key: "CC-002", Title: "Card 2", Status: "approved"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Card 1"}, Status: "proposed"},
+				{BaseEntity: models.BaseEntity{ID: 2, Key: "CC-002", Title: "Card 2"}, Status: "approved"},
 			}, nil
 		},
 	}
@@ -368,7 +368,7 @@ func TestChangeCardService_ListChangeCards_WithEpicFilter(t *testing.T) {
 
 	epicRepo := &changeCardEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 10, Key: "E07"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 10, Key: "E07"}}, nil
 		},
 	}
 
@@ -396,7 +396,7 @@ func TestChangeCardService_UpdateChangeCard(t *testing.T) {
 
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Old Title", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Old Title"}, Status: "proposed"}, nil
 		},
 		updateFn: func(ctx context.Context, card *models.ChangeCard) error {
 			if card.Title != "New Title" {
@@ -424,7 +424,7 @@ func TestChangeCardService_UpdateChangeCard_FilePath(t *testing.T) {
 	var capturedCard *models.ChangeCard
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Change Card", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Change Card"}, Status: "proposed"}, nil
 		},
 		updateFn: func(ctx context.Context, card *models.ChangeCard) error {
 			capturedCard = card
@@ -456,7 +456,7 @@ func TestChangeCardService_DeleteChangeCard(t *testing.T) {
 	deleteCalled := false
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "To Delete", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "To Delete"}, Status: "proposed"}, nil
 		},
 		deleteFn: func(ctx context.Context, id int64) error {
 			deleteCalled = true
@@ -483,7 +483,7 @@ func TestChangeCardService_ApproveChangeCard(t *testing.T) {
 
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Test", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.ChangeCardStatus) error {
 			if status != "approved" {
@@ -509,7 +509,7 @@ func TestChangeCardService_SetChangeCardStatus(t *testing.T) {
 
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Test", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.ChangeCardStatus) error {
 			return nil
@@ -532,7 +532,7 @@ func TestChangeCardService_SetChangeCardStatus_InvalidTransition(t *testing.T) {
 
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Test", Status: "completed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "completed"}, nil
 		},
 	}
 
@@ -576,7 +576,7 @@ func TestChangeCardService_AdvanceChangeCardStatus(t *testing.T) {
 
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Test", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.ChangeCardStatus) error {
 			return nil
@@ -600,7 +600,7 @@ func TestChangeCardService_AdvanceChangeCardStatus_Terminal(t *testing.T) {
 
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{ID: 1, Key: "CC-001", Title: "Test", Status: "completed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "completed"}, nil
 		},
 	}
 

@@ -113,12 +113,10 @@ func TestLinkToEpic(t *testing.T) {
 	epicRepo := NewEpicRepository(db)
 
 	// Create or get test epic (handles duplicate key case in test reruns)
-	testEpic := &models.Epic{
-		Key:         "E70",
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E70",
 		Title:       "Test Link to Epic",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
-		Priority:    "high",
+		Description: test.StringPtr("Test")}, Status: "active",
+		Priority: "high",
 	}
 	var err error
 	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
@@ -158,12 +156,10 @@ func TestUnlinkFromEpic(t *testing.T) {
 	epicRepo := NewEpicRepository(db)
 
 	// Create or get test epic (handles duplicate key case in test reruns)
-	testEpic := &models.Epic{
-		Key:         "E71",
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E71",
 		Title:       "Test Unlink Epic",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
-		Priority:    "high",
+		Description: test.StringPtr("Test")}, Status: "active",
+		Priority: "high",
 	}
 	var err error
 	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
@@ -202,12 +198,10 @@ func TestUnlinkFromFeature(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create or get test epic
-	testEpic := &models.Epic{
-		Key:         "E77",
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E77",
 		Title:       "Test Unlink Feature",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
-		Priority:    "high",
+		Description: test.StringPtr("Test")}, Status: "active",
+		Priority: "high",
 	}
 	var err error
 	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
@@ -216,12 +210,11 @@ func TestUnlinkFromFeature(t *testing.T) {
 	}
 
 	// Create or get feature (handles duplicate key case)
-	feature := &models.Feature{
-		EpicID:      testEpic.ID,
-		Key:         "E77-F01",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E77-F01",
 		Title:       "Test Feature",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
+		Description: test.StringPtr("Test")}, EpicID: testEpic.ID,
+
+		Status: "active",
 	}
 	feature, _, err = featureRepo.CreateIfNotExists(ctx, feature)
 	if err != nil {
@@ -260,12 +253,10 @@ func TestUnlinkFromTask(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	// Create or get a unique test epic and feature and task
-	testEpic := &models.Epic{
-		Key:         "E72",
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E72",
 		Title:       "Test Unlink Task",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
-		Priority:    "high",
+		Description: test.StringPtr("Test")}, Status: "active",
+		Priority: "high",
 	}
 	var err error
 	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
@@ -273,24 +264,22 @@ func TestUnlinkFromTask(t *testing.T) {
 		t.Fatalf("Failed to create test epic: %v", err)
 	}
 
-	testFeature := &models.Feature{
-		EpicID:      testEpic.ID,
-		Key:         "E72-F01",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E72-F01",
 		Title:       "Test Feature",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
+		Description: test.StringPtr("Test")}, EpicID: testEpic.ID,
+
+		Status: "active",
 	}
 	testFeature, _, err = featureRepo.CreateIfNotExists(ctx, testFeature)
 	if err != nil {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
-	testTask := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E72-F01-999",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  1,
+	testTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E72-F01-999",
+		Title: "Test Task"}, FeatureID: testFeature.ID,
+
+		Status:   "todo",
+		Priority: 1,
 	}
 	// Try to get existing task first to handle test reruns
 	existing, _ := taskRepo.GetByKey(ctx, testTask.Key)
@@ -331,12 +320,10 @@ func TestListForFeature(t *testing.T) {
 	featureRepo := NewFeatureRepository(db)
 
 	// Create or get test epic and feature (handles duplicate key case in test reruns)
-	testEpic := &models.Epic{
-		Key:         "E74",
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E74",
 		Title:       "Test List Feature",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
-		Priority:    "high",
+		Description: test.StringPtr("Test")}, Status: "active",
+		Priority: "high",
 	}
 	var err error
 	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
@@ -344,12 +331,11 @@ func TestListForFeature(t *testing.T) {
 		t.Fatalf("Failed to create test epic: %v", err)
 	}
 
-	testFeature := &models.Feature{
-		EpicID:      testEpic.ID,
-		Key:         "E74-F01",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E74-F01",
 		Title:       "Test Feature",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
+		Description: test.StringPtr("Test")}, EpicID: testEpic.ID,
+
+		Status: "active",
 	}
 	testFeature, _, err = featureRepo.CreateIfNotExists(ctx, testFeature)
 	if err != nil {
@@ -386,12 +372,10 @@ func TestListForTask(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	// Create or get a unique test epic, feature, and task
-	testEpic := &models.Epic{
-		Key:         "E75",
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E75",
 		Title:       "Test List Task",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
-		Priority:    "high",
+		Description: test.StringPtr("Test")}, Status: "active",
+		Priority: "high",
 	}
 	var err error
 	testEpic, _, err = epicRepo.CreateIfNotExists(ctx, testEpic)
@@ -399,24 +383,22 @@ func TestListForTask(t *testing.T) {
 		t.Fatalf("Failed to create test epic: %v", err)
 	}
 
-	testFeature := &models.Feature{
-		EpicID:      testEpic.ID,
-		Key:         "E75-F01",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E75-F01",
 		Title:       "Test Feature",
-		Description: test.StringPtr("Test"),
-		Status:      "active",
+		Description: test.StringPtr("Test")}, EpicID: testEpic.ID,
+
+		Status: "active",
 	}
 	testFeature, _, err = featureRepo.CreateIfNotExists(ctx, testFeature)
 	if err != nil {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
-	testTask := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E75-F01-999",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  1,
+	testTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E75-F01-999",
+		Title: "Test Task"}, FeatureID: testFeature.ID,
+
+		Status:   "todo",
+		Priority: 1,
 	}
 	// Try to get existing task first to handle test reruns
 	existing, _ := taskRepo.GetByKey(ctx, testTask.Key)
@@ -457,10 +439,8 @@ func TestDocumentReuseSameTitlePath(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E93'")
 
 	// Create dedicated epic for this test
-	testEpic := &models.Epic{
-		Key:      "E93",
-		Title:    "Test Epic for Document Reuse",
-		Status:   models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E93",
+		Title: "Test Epic for Document Reuse"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, testEpic)

@@ -148,9 +148,8 @@ func TestCriteriaService_ListCriteria_Happy_Path(t *testing.T) {
 	mockTaskRepo := &MockCriteriaTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			assert.Equal(t, taskKey, key)
-			return &models.Task{
-				ID:  taskID,
-				Key: taskKey,
+			return &models.Task{BaseEntity: models.BaseEntity{ID: taskID,
+				Key: taskKey},
 			}, nil
 		},
 	}
@@ -206,7 +205,7 @@ func TestCriteriaService_ListCriteria_Empty_Results(t *testing.T) {
 
 	mockTaskRepo := &MockCriteriaTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: taskID, Key: taskKey}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: taskID, Key: taskKey}}, nil
 		},
 	}
 
@@ -234,7 +233,7 @@ func TestCriteriaService_ListCriteria_Repository_Error(t *testing.T) {
 
 	mockTaskRepo := &MockCriteriaTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: taskID, Key: taskKey}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: taskID, Key: taskKey}}, nil
 		},
 	}
 
@@ -263,9 +262,8 @@ func TestCriteriaService_GetFeatureCriteria_Happy_Path(t *testing.T) {
 	mockFeatureRepo := &MockCriteriaFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
 			assert.Equal(t, featureKey, key)
-			return &models.Feature{
-				ID:  featureID,
-				Key: featureKey,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: featureID,
+				Key: featureKey},
 			}, nil
 		},
 	}
@@ -274,8 +272,8 @@ func TestCriteriaService_GetFeatureCriteria_Happy_Path(t *testing.T) {
 		ListByFeatureFunc: func(ctx context.Context, id int64) ([]*models.Task, error) {
 			assert.Equal(t, featureID, id)
 			return []*models.Task{
-				{ID: task1ID, Key: "E07-F01-001"},
-				{ID: task2ID, Key: "E07-F01-002"},
+				{BaseEntity: models.BaseEntity{ID: task1ID, Key: "E07-F01-001"}},
+				{BaseEntity: models.BaseEntity{ID: task2ID, Key: "E07-F01-002"}},
 			}, nil
 		},
 	}
@@ -385,7 +383,7 @@ func TestCriteriaService_GetFeatureCriteria_No_Tasks(t *testing.T) {
 
 	mockFeatureRepo := &MockCriteriaFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{ID: featureID, Key: featureKey}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: featureID, Key: featureKey}}, nil
 		},
 	}
 
@@ -420,14 +418,14 @@ func TestCriteriaService_GetFeatureCriteria_Completion_Pct_Calculation(t *testin
 
 	mockFeatureRepo := &MockCriteriaFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{ID: featureID, Key: featureKey}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: featureID, Key: featureKey}}, nil
 		},
 	}
 
 	mockTaskRepo := &MockCriteriaTaskRepository{
 		ListByFeatureFunc: func(ctx context.Context, id int64) ([]*models.Task, error) {
 			return []*models.Task{
-				{ID: taskID, Key: "E07-F01-001"},
+				{BaseEntity: models.BaseEntity{ID: taskID, Key: "E07-F01-001"}},
 			}, nil
 		},
 	}

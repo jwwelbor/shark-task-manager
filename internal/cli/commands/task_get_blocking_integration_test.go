@@ -30,10 +30,8 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 	relationshipRepo := repository.NewTaskRelationshipRepository(db)
 
 	// Create test tasks with valid keys
-	taskA := &models.Task{
-		Key:       "T-E99-F99-010",
-		Title:     "Task A - Main Task",
-		Status:    "todo",
+	taskA := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-010",
+		Title: "Task A - Main Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -42,10 +40,8 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 		t.Fatalf("Failed to create task A: %v", err)
 	}
 
-	taskB := &models.Task{
-		Key:       "T-E99-F99-011",
-		Title:     "Task B - Blocks Task A",
-		Status:    "in_progress",
+	taskB := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-011",
+		Title: "Task B - Blocks Task A"}, Status: "in_progress",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -54,10 +50,8 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 		t.Fatalf("Failed to create task B: %v", err)
 	}
 
-	taskC := &models.Task{
-		Key:       "T-E99-F99-012",
-		Title:     "Task C - Blocked by Task A",
-		Status:    "todo",
+	taskC := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-012",
+		Title: "Task C - Blocked by Task A"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}

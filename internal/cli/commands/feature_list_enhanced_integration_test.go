@@ -29,11 +29,9 @@ func TestFeatureListIntegration_ProgressFormatValidation(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      "E13",
-		Title:    "Progress Test",
-		Slug:     strPtr("progress-test"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E13",
+		Title: "Progress Test",
+		Slug:  strPtr("progress-test")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -59,11 +57,9 @@ func TestFeatureListIntegration_ProgressFormatValidation(t *testing.T) {
 	createdTasks := make([]*models.Task, 0)
 
 	for _, fd := range featureData {
-		feature := &models.Feature{
-			Key:    fd.key,
-			Title:  "Feature " + fd.key,
-			Slug:   strPtr(fd.key),
-			EpicID: epic.ID,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fd.key,
+			Title: "Feature " + fd.key,
+			Slug:  strPtr(fd.key)}, EpicID: epic.ID,
 			Status: models.FeatureStatusActive,
 		}
 		if err := featureRepo.Create(ctx, feature); err != nil {
@@ -77,13 +73,12 @@ func TestFeatureListIntegration_ProgressFormatValidation(t *testing.T) {
 			if i <= fd.completed {
 				status = models.TaskStatus("completed")
 			}
-			task := &models.Task{
-				Key:       "T-" + fd.key + "-00" + string(rune('0'+i)),
-				Title:     "Task " + string(rune('0'+i)),
-				Status:    status,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-" + fd.key + "-00" + string(rune('0'+i)),
+				Title: "Task " + string(rune('0'+i)),
+
+				Slug: strPtr(fd.key + "-task-" + string(rune('0'+i)))}, Status: status,
 				FeatureID: feature.ID,
 				Priority:  5,
-				Slug:      strPtr(fd.key + "-task-" + string(rune('0'+i))),
 			}
 			if err := taskRepo.Create(ctx, task); err != nil {
 				t.Fatalf("Failed to create task: %v", err)
@@ -139,11 +134,9 @@ func TestFeatureListIntegration_JSONOutputValidation(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      "E14",
-		Title:    "JSON Output Test",
-		Slug:     strPtr("json-output-test"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E14",
+		Title: "JSON Output Test",
+		Slug:  strPtr("json-output-test")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -156,13 +149,13 @@ func TestFeatureListIntegration_JSONOutputValidation(t *testing.T) {
 
 	for i := 1; i <= featureCount; i++ {
 		keyNum := i
-		feature := &models.Feature{
-			Key:         "E14-F0" + string(rune('0'+keyNum)),
-			Title:       "Feature " + string(rune('0'+keyNum)),
-			Slug:        strPtr("feature-" + string(rune('0'+keyNum))),
-			EpicID:      epic.ID,
-			Description: strPtr("Test feature for JSON output"),
-			Status:      models.FeatureStatusActive,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E14-F0" + string(rune('0'+keyNum)),
+			Title: "Feature " + string(rune('0'+keyNum)),
+			Slug:  strPtr("feature-" + string(rune('0'+keyNum))),
+
+			Description: strPtr("Test feature for JSON output")}, EpicID: epic.ID,
+
+			Status: models.FeatureStatusActive,
 		}
 		if err := featureRepo.Create(ctx, feature); err != nil {
 			t.Fatalf("Failed to create feature: %v", err)
@@ -171,13 +164,12 @@ func TestFeatureListIntegration_JSONOutputValidation(t *testing.T) {
 
 		// Create tasks for each feature
 		for j := 1; j <= 2; j++ {
-			task := &models.Task{
-				Key:       "T-E14-F0" + string(rune('0'+keyNum)) + "-00" + string(rune('0'+j)),
-				Title:     "Task " + string(rune('0'+j)),
-				Status:    "todo",
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E14-F0" + string(rune('0'+keyNum)) + "-00" + string(rune('0'+j)),
+				Title: "Task " + string(rune('0'+j)),
+
+				Slug: strPtr("task-" + string(rune('0'+j)))}, Status: "todo",
 				FeatureID: feature.ID,
 				Priority:  5,
-				Slug:      strPtr("task-" + string(rune('0'+j))),
 			}
 			if err := taskRepo.Create(ctx, task); err != nil {
 				t.Fatalf("Failed to create task: %v", err)
@@ -237,11 +229,9 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      "E15",
-		Title:    "Health Test",
-		Slug:     strPtr("health-test"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E15",
+		Title: "Health Test",
+		Slug:  strPtr("health-test")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -250,11 +240,9 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 
 	// Create features with different health indicators
 	// Feature 1: Healthy (on track)
-	feature1 := &models.Feature{
-		Key:    "E15-F01",
-		Title:  "Healthy Feature",
-		Slug:   strPtr("healthy-feature"),
-		EpicID: epic.ID,
+	feature1 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E15-F01",
+		Title: "Healthy Feature",
+		Slug:  strPtr("healthy-feature")}, EpicID: epic.ID,
 		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature1); err != nil {
@@ -262,11 +250,9 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 	}
 
 	// Feature 2: At Risk (some blocking tasks)
-	feature2 := &models.Feature{
-		Key:    "E15-F02",
-		Title:  "At Risk Feature",
-		Slug:   strPtr("at-risk-feature"),
-		EpicID: epic.ID,
+	feature2 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E15-F02",
+		Title: "At Risk Feature",
+		Slug:  strPtr("at-risk-feature")}, EpicID: epic.ID,
 		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature2); err != nil {
@@ -274,11 +260,9 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 	}
 
 	// Feature 3: Archived (complete and archived)
-	feature3 := &models.Feature{
-		Key:    "E15-F03",
-		Title:  "Archived Feature",
-		Slug:   strPtr("archived-feature"),
-		EpicID: epic.ID,
+	feature3 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E15-F03",
+		Title: "Archived Feature",
+		Slug:  strPtr("archived-feature")}, EpicID: epic.ID,
 		Status: models.FeatureStatusArchived,
 	}
 	if err := featureRepo.Create(ctx, feature3); err != nil {
@@ -291,13 +275,12 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 		if i > 2 {
 			status = models.TaskStatus("in_progress")
 		}
-		task := &models.Task{
-			Key:       "T-E15-F01-00" + string(rune('0'+i)),
-			Title:     "Task " + string(rune('0'+i)),
-			Status:    status,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E15-F01-00" + string(rune('0'+i)),
+			Title: "Task " + string(rune('0'+i)),
+
+			Slug: strPtr("task-" + string(rune('0'+i)))}, Status: status,
 			FeatureID: feature1.ID,
 			Priority:  5,
-			Slug:      strPtr("task-" + string(rune('0'+i))),
 		}
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create task: %v", err)
@@ -307,13 +290,12 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 	// Feature 2: Add at-risk tasks (some blocked)
 	tasks2 := []models.TaskStatus{models.TaskStatus("completed"), models.TaskStatus("in_progress"), models.TaskStatus("blocked"), models.TaskStatus("todo")}
 	for i, status := range tasks2 {
-		task := &models.Task{
-			Key:       "T-E15-F02-00" + string(rune('0'+i+1)),
-			Title:     "Task " + string(rune('0'+i+1)),
-			Status:    status,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E15-F02-00" + string(rune('0'+i+1)),
+			Title: "Task " + string(rune('0'+i+1)),
+
+			Slug: strPtr("task-" + string(rune('0'+i+1)))}, Status: status,
 			FeatureID: feature2.ID,
 			Priority:  5,
-			Slug:      strPtr("task-" + string(rune('0'+i+1))),
 		}
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create task: %v", err)
@@ -322,13 +304,12 @@ func TestFeatureListIntegration_HealthIndicatorCalculation(t *testing.T) {
 
 	// Feature 3: Add all blocked tasks
 	for i := 1; i <= 3; i++ {
-		task := &models.Task{
-			Key:       "T-E15-F03-00" + string(rune('0'+i)),
-			Title:     "Task " + string(rune('0'+i)),
-			Status:    models.TaskStatus("blocked"),
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E15-F03-00" + string(rune('0'+i)),
+			Title: "Task " + string(rune('0'+i)),
+
+			Slug: strPtr("task-" + string(rune('0'+i)))}, Status: models.TaskStatus("blocked"),
 			FeatureID: feature3.ID,
 			Priority:  5,
-			Slug:      strPtr("task-" + string(rune('0'+i))),
 		}
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create task: %v", err)
@@ -405,22 +386,18 @@ func TestFeatureListIntegration_MultipleEpicsFeatures(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(db)
 
 	// Create two epics
-	epic1 := &models.Epic{
-		Key:      "E16",
-		Title:    "Epic 1",
-		Slug:     strPtr("epic-1"),
-		Status:   models.EpicStatusActive,
+	epic1 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16",
+		Title: "Epic 1",
+		Slug:  strPtr("epic-1")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic1); err != nil {
 		t.Fatalf("Failed to create epic1: %v", err)
 	}
 
-	epic2 := &models.Epic{
-		Key:      "E17",
-		Title:    "Epic 2",
-		Slug:     strPtr("epic-2"),
-		Status:   models.EpicStatusActive,
+	epic2 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E17",
+		Title: "Epic 2",
+		Slug:  strPtr("epic-2")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic2); err != nil {
@@ -430,11 +407,9 @@ func TestFeatureListIntegration_MultipleEpicsFeatures(t *testing.T) {
 	// Create features for each epic
 	features1 := []*models.Feature{}
 	for i := 1; i <= 2; i++ {
-		feature := &models.Feature{
-			Key:    "E16-F0" + string(rune('0'+i)),
-			Title:  "Feature " + string(rune('0'+i)),
-			Slug:   strPtr("feature-" + string(rune('0'+i))),
-			EpicID: epic1.ID,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E16-F0" + string(rune('0'+i)),
+			Title: "Feature " + string(rune('0'+i)),
+			Slug:  strPtr("feature-" + string(rune('0'+i)))}, EpicID: epic1.ID,
 			Status: models.FeatureStatusActive,
 		}
 		if err := featureRepo.Create(ctx, feature); err != nil {
@@ -445,11 +420,9 @@ func TestFeatureListIntegration_MultipleEpicsFeatures(t *testing.T) {
 
 	features2 := []*models.Feature{}
 	for i := 1; i <= 3; i++ {
-		feature := &models.Feature{
-			Key:    "E17-F0" + string(rune('0'+i)),
-			Title:  "Feature " + string(rune('0'+i)),
-			Slug:   strPtr("feature-" + string(rune('0'+i))),
-			EpicID: epic2.ID,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E17-F0" + string(rune('0'+i)),
+			Title: "Feature " + string(rune('0'+i)),
+			Slug:  strPtr("feature-" + string(rune('0'+i)))}, EpicID: epic2.ID,
 			Status: models.FeatureStatusActive,
 		}
 		if err := featureRepo.Create(ctx, feature); err != nil {
@@ -516,11 +489,9 @@ func TestFeatureListIntegration_StatusOverrideDetection(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(db)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      "E18",
-		Title:    "Status Override Test",
-		Slug:     strPtr("status-override-test"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E18",
+		Title: "Status Override Test",
+		Slug:  strPtr("status-override-test")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -528,11 +499,9 @@ func TestFeatureListIntegration_StatusOverrideDetection(t *testing.T) {
 	}
 
 	// Create feature with status_override field
-	feature := &models.Feature{
-		Key:            "E18-F01",
-		Title:          "Feature with Override",
-		Slug:           strPtr("feature-with-override"),
-		EpicID:         epic.ID,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E18-F01",
+		Title: "Feature with Override",
+		Slug:  strPtr("feature-with-override")}, EpicID: epic.ID,
 		Status:         models.FeatureStatusActive,
 		StatusOverride: true,
 	}

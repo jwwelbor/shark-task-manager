@@ -26,7 +26,7 @@ The database has **inconsistent polymorphism** across cross-cutting concerns:
 | Concern | Current State | Available To |
 |---------|--------------|-------------|
 | Notes | `entity_notes` (polymorphic, entity_type + entity_id) | All 5 entity types |
-| Documents | `epic_documents`, `feature_documents`, `task_documents` (3 separate tables) | Only Epic, Feature, Task |
+| Documents | `epic_documents`, `feature_documents`, `task_documents`, `bug_documents`, `change_card_documents` (5 separate tables) | All 5 types, but via 5 duplicate tables |
 | History | `task_history` (task-only) | Only Task |
 
 Bugs and ChangeCards cannot have related documents. Only Tasks have status change history. This contradicts the core design intent that **all entities should have access to all additional features**.
@@ -88,7 +88,7 @@ Adding document support for bugs requires creating a 4th table (`bug_documents`)
 **Story 3**: As a developer, I want the old per-entity document tables removed so that there's one canonical way to store document associations.
 
 **Acceptance Criteria**:
-- [ ] Data migrated from `epic_documents`, `feature_documents`, `task_documents` to `entity_documents`
+- [ ] Data migrated from `epic_documents`, `feature_documents`, `task_documents`, `bug_documents`, `change_card_documents` to `entity_documents`
 - [ ] Old tables dropped after successful migration verification
 - [ ] Repository code updated to use single `entity_documents` table
 - [ ] CLI commands produce identical output post-migration
@@ -272,6 +272,11 @@ CREATE TABLE entity_notes (
 - **E21-F07** (BaseEntity): If completed first, entity_type values come from `BaseEntity.GetEntityType()`
 - **E21-F09** (Service Delegation): EntityService.TransitionStatus should create history records automatically
 
+### Related Features
+
+- **E21-F11** (Polymorphic Entity Relationships): Same polymorphic table pattern for entity_relationships
+- **E21-F12** (Polymorphic Acceptance Criteria): Same polymorphic table pattern for entity_criteria
+
 ### Integration Points
 
 - **EntityDocumentService**: Refactored to use single `entity_documents` table
@@ -289,11 +294,11 @@ CREATE TABLE entity_notes (
    - **Measurement**: `shark related-docs add` and `shark status history` work for all entity types
 
 2. **Table Count Reduction**
-   - **Target**: 4 tables (epic_documents, feature_documents, task_documents, task_history) replaced by 2 (entity_documents, entity_history)
+   - **Target**: 6 tables (epic_documents, feature_documents, task_documents, bug_documents, change_card_documents, task_history) replaced by 2 (entity_documents, entity_history)
    - **Measurement**: `.schema` output in SQLite
 
 3. **Repository Code Reduction**
-   - **Target**: 3 document repositories replaced by 1; 1 history repository generalized
+   - **Target**: 5 document join tables and their repository methods replaced by 1 polymorphic repository; 1 history repository generalized
    - **Measurement**: Lines of repository code
 
 ---

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -217,10 +216,8 @@ func TestEpicService_TransitionStatus_Valid(t *testing.T) {
 	statusUpdated := false
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:     1,
-				Key:    "E16",
-				Status: models.EpicStatusDraft,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+				Key: "E16"}, Status: models.EpicStatusDraft,
 			}, nil
 		},
 		updateFn: func(ctx context.Context, epic *models.Epic) error {
@@ -259,10 +256,7 @@ func TestEpicService_TransitionStatus_Valid(t *testing.T) {
 func TestEpicService_TransitionStatus_Invalid(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:    "E16",
-				Status: models.EpicStatusDraft,
-			}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusDraft}, nil
 		},
 	}
 
@@ -280,10 +274,7 @@ func TestEpicService_TransitionStatus_Force(t *testing.T) {
 	var updatedEpic *models.Epic
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:    "E16",
-				Status: models.EpicStatusDraft,
-			}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusDraft}, nil
 		},
 		updateFn: func(ctx context.Context, epic *models.Epic) error {
 			updatedEpic = epic
@@ -344,10 +335,8 @@ func TestEpicService_TransitionStatus_RepoError(t *testing.T) {
 func TestEpicService_TransitionStatus_UpdateError(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:     1,
-				Key:    "E16",
-				Status: models.EpicStatusDraft,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+				Key: "E16"}, Status: models.EpicStatusDraft,
 			}, nil
 		},
 		updateStatusFn: func(ctx context.Context, epicID int64, status models.EpicStatus) error {
@@ -367,10 +356,7 @@ func TestEpicService_TransitionStatus_UpdateError(t *testing.T) {
 func TestEpicService_GetNextStatus(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:    "E16",
-				Status: models.EpicStatusDraft,
-			}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusDraft}, nil
 		},
 	}
 
@@ -399,10 +385,7 @@ func TestEpicService_GetNextStatus(t *testing.T) {
 func TestEpicService_GetNextStatus_Terminal(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:    "E16",
-				Status: models.EpicStatusArchived,
-			}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusArchived}, nil
 		},
 	}
 
@@ -576,7 +559,7 @@ func TestEpicService_GetEpic(t *testing.T) {
 			if key != "E01" {
 				t.Errorf("expected key 'E01', got %q", key)
 			}
-			return &models.Epic{ID: 1, Key: "E01", Title: "Test Epic", Status: models.EpicStatusActive}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"}, Status: models.EpicStatusActive}, nil
 		},
 	}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
@@ -627,8 +610,8 @@ func TestEpicService_ListEpics(t *testing.T) {
 				t.Errorf("expected nil status filter, got %v", *status)
 			}
 			return []*models.Epic{
-				{Key: "E01", Title: "Epic 1"},
-				{Key: "E02", Title: "Epic 2"},
+				{BaseEntity: models.BaseEntity{Key: "E01", Title: "Epic 1"}},
+				{BaseEntity: models.BaseEntity{Key: "E02", Title: "Epic 2"}},
 			}, nil
 		},
 	}
@@ -649,7 +632,7 @@ func TestEpicService_ListEpics_WithStatusFilter(t *testing.T) {
 			if status == nil || *status != models.EpicStatusActive {
 				t.Errorf("expected active status filter")
 			}
-			return []*models.Epic{{Key: "E01"}}, nil
+			return []*models.Epic{{BaseEntity: models.BaseEntity{Key: "E01"}}}, nil
 		},
 	}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
@@ -684,7 +667,7 @@ func TestEpicService_GetProgress(t *testing.T) {
 	// Progress = (26.665 + 26.665 + 100) / 3 = 51.11
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
 			return []repository.FeatureProgressData{
@@ -738,7 +721,7 @@ func TestEpicService_GetProgress_NotFound(t *testing.T) {
 func TestEpicService_GetProgress_CalculateError(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 		getFeatureProgressDataByEpicFn: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
 			return nil, fmt.Errorf("calculation failed")
@@ -851,7 +834,7 @@ func TestEpicService_CalculateProgress_RepoError(t *testing.T) {
 func TestEpicService_GetFeatureRollup(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 		getFeatureStatusRollupFn: func(ctx context.Context, epicID int64) (map[string]int, error) {
 			if epicID != 1 {
@@ -893,7 +876,7 @@ func TestEpicService_GetFeatureRollup_NotFound(t *testing.T) {
 func TestEpicService_GetTaskStatusRollup(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 		getTaskStatusRollupFn: func(ctx context.Context, epicID int64) (map[string]int, error) {
 			return map[string]int{"todo": 5, "completed": 10}, nil
@@ -936,7 +919,7 @@ func TestEpicService_GetImpediments(t *testing.T) {
 				t.Errorf("expected epicKey 'E01', got %q", epicKey)
 			}
 			return []*models.Task{
-				{Key: "T-E01-F01-001", Title: "Blocked task", Status: "blocked", Priority: 5, UpdatedAt: time.Now().Add(-48 * time.Hour)},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", Title: "Blocked task"}, Status: "blocked", Priority: 5},
 			}, nil
 		},
 	}
@@ -991,7 +974,7 @@ func TestEpicService_GetImpediments_RepoError(t *testing.T) {
 func TestEpicService_GetHealth_Healthy(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 	}
 	taskLister := &mockEpicTaskLister{
@@ -1016,13 +999,13 @@ func TestEpicService_GetHealth_Healthy(t *testing.T) {
 func TestEpicService_GetHealth_Warning(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 	}
 	taskLister := &mockEpicTaskLister{
 		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "T-E01-F01-001", Title: "Blocked", Status: "blocked", Priority: 5, UpdatedAt: time.Now()},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", Title: "Blocked"}, Status: "blocked", Priority: 5},
 			}, nil
 		},
 	}
@@ -1040,14 +1023,14 @@ func TestEpicService_GetHealth_Warning(t *testing.T) {
 func TestEpicService_GetHealth_Critical_MultipleBlocked(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 	}
 	taskLister := &mockEpicTaskLister{
 		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "T-E01-F01-001", Title: "Blocked 1", Status: "blocked", Priority: 5, UpdatedAt: time.Now()},
-				{Key: "T-E01-F01-002", Title: "Blocked 2", Status: "blocked", Priority: 5, UpdatedAt: time.Now()},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", Title: "Blocked 1"}, Status: "blocked", Priority: 5},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-002", Title: "Blocked 2"}, Status: "blocked", Priority: 5},
 			}, nil
 		},
 	}
@@ -1065,13 +1048,13 @@ func TestEpicService_GetHealth_Critical_MultipleBlocked(t *testing.T) {
 func TestEpicService_GetHealth_Critical_HighPriority(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 	}
 	taskLister := &mockEpicTaskLister{
 		listBlockedTasksByEpicFn: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "T-E01-F01-001", Title: "High-pri blocked", Status: "blocked", Priority: 2, UpdatedAt: time.Now()},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", Title: "High-pri blocked"}, Status: "blocked", Priority: 2},
 			}, nil
 		},
 	}
@@ -1103,7 +1086,7 @@ func TestEpicService_GetHealth_NotFound(t *testing.T) {
 func TestEpicService_GetHealth_NilTaskRepo(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 	}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
@@ -1122,10 +1105,7 @@ func TestEpicService_GetHealth_NilTaskRepo(t *testing.T) {
 func TestEpicService_TransitionStatus_WithAction(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:    "E16",
-				Status: models.EpicStatusDraft,
-			}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusDraft}, nil
 		},
 		updateFn: func(ctx context.Context, epic *models.Epic) error {
 			return nil
@@ -1164,10 +1144,7 @@ func TestEpicService_TransitionStatus_WithoutAction(t *testing.T) {
 	// Start from "active" to transition to "completed" (no action defined on completed)
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:    "E16",
-				Status: models.EpicStatusActive,
-			}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusActive}, nil
 		},
 		updateFn: func(ctx context.Context, epic *models.Epic) error {
 			return nil
@@ -1191,10 +1168,7 @@ func TestEpicService_TransitionStatus_WithoutAction(t *testing.T) {
 func TestEpicService_GetNextStatus_WithActions(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:    "E16",
-				Status: models.EpicStatusDraft,
-			}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusDraft}, nil
 		},
 	}
 
@@ -1252,7 +1226,7 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
 
-	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "draft"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
 	action := resolveFn(epic, "draft")
 	if action != nil {
@@ -1265,7 +1239,7 @@ func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
 
-	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "nonexistent_status"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "nonexistent_status"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
 	action := resolveFn(epic, "nonexistent_status")
 	if action != nil {
@@ -1278,7 +1252,7 @@ func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
 
-	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "draft"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "draft"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
 	action := resolveFn(epic, "draft")
 	if action != nil {
@@ -1290,7 +1264,7 @@ func TestEpicService_resolveAction_StatusWithAction(t *testing.T) {
 	repo := &mockEpicRepo{}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
 
-	epic := &models.Epic{Key: "E16", Title: "Test Epic", Status: "active"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "active"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
 	action := resolveFn(epic, "active")
 	if action == nil {
@@ -1315,10 +1289,7 @@ func TestEpicService_TransitionStatus_ActionJSON(t *testing.T) {
 	// Verify the action is properly serialized in JSON output
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:    "E16",
-				Status: models.EpicStatusDraft,
-			}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E16"}, Status: models.EpicStatusDraft}, nil
 		},
 		updateFn: func(ctx context.Context, epic *models.Epic) error {
 			return nil
@@ -1437,7 +1408,7 @@ func TestEpicService_CreateEpic_DuplicateCustomKey(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			// Return existing epic for duplicate key check
-			return &models.Epic{Key: "E99"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E99"}}, nil
 		},
 	}
 	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
@@ -1474,7 +1445,7 @@ func TestEpicService_CreateEpic_RepoError(t *testing.T) {
 // --- Tests for UpdateEpic ---
 
 func TestEpicService_UpdateEpic_Success(t *testing.T) {
-	existing := &models.Epic{ID: 1, Key: "E01", Title: "Old Title", Status: models.EpicStatusActive, Priority: models.Priority("medium")}
+	existing := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Old Title"}, Status: models.EpicStatusActive, Priority: models.Priority("medium")}
 	var updatedEpic *models.Epic
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
@@ -1519,7 +1490,7 @@ func TestEpicService_UpdateEpic_NotFound(t *testing.T) {
 }
 
 func TestEpicService_UpdateEpic_EmptyTitle(t *testing.T) {
-	existing := &models.Epic{ID: 1, Key: "E01", Title: "Original", Status: models.EpicStatusActive}
+	existing := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Original"}, Status: models.EpicStatusActive}
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			return existing, nil
@@ -1535,7 +1506,7 @@ func TestEpicService_UpdateEpic_EmptyTitle(t *testing.T) {
 }
 
 func TestEpicService_UpdateEpic_RepoError(t *testing.T) {
-	existing := &models.Epic{ID: 1, Key: "E01", Title: "Title", Status: models.EpicStatusActive}
+	existing := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Title"}, Status: models.EpicStatusActive}
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			return existing, nil
@@ -1559,7 +1530,7 @@ func TestEpicService_DeleteEpic_Success(t *testing.T) {
 	var deletedID int64
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 42, Key: "E01", Title: "To Delete", Status: models.EpicStatusActive}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 42, Key: "E01", Title: "To Delete"}, Status: models.EpicStatusActive}, nil
 		},
 		deleteFn: func(ctx context.Context, id int64) error {
 			deletedID = id
@@ -1594,7 +1565,7 @@ func TestEpicService_DeleteEpic_NotFound(t *testing.T) {
 func TestEpicService_DeleteEpic_RepoError(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}, Status: models.EpicStatusActive}, nil
 		},
 		deleteFn: func(ctx context.Context, id int64) error {
 			return fmt.Errorf("db delete failed")
@@ -1613,7 +1584,7 @@ func TestEpicService_DeleteEpic_RepoError(t *testing.T) {
 func TestEpicService_CompleteEpic_NoFeatures(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}, Status: models.EpicStatusActive}, nil
 		},
 	}
 	featureCounter := &mockEpicFeatureCounter{
@@ -1639,7 +1610,7 @@ func TestEpicService_CompleteEpic_NoFeatures(t *testing.T) {
 func TestEpicService_CompleteEpic_AllTasksComplete_NoForce(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}, Status: models.EpicStatusActive}, nil
 		},
 		updateFn: func(ctx context.Context, epic *models.Epic) error {
 			return nil
@@ -1648,11 +1619,11 @@ func TestEpicService_CompleteEpic_AllTasksComplete_NoForce(t *testing.T) {
 	featureCounter := &mockEpicFeatureCounter{
 		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
 			return []*models.Feature{
-				{ID: 10, Key: "E01-F01", Title: "Feature 1", Status: models.FeatureStatusActive},
+				{BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Feature 1"}, Status: models.FeatureStatusActive},
 			}, nil
 		},
 		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
-			return &models.Feature{ID: id, Key: "E01-F01", Status: models.FeatureStatusActive}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: id, Key: "E01-F01"}, Status: models.FeatureStatusActive}, nil
 		},
 		updateFn: func(ctx context.Context, feature *models.Feature) error {
 			return nil
@@ -1666,9 +1637,9 @@ func TestEpicService_CompleteEpic_AllTasksComplete_NoForce(t *testing.T) {
 	taskLister := &mockEpicTaskLister{
 		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
 			return []*models.Task{
-				{ID: 100, Key: "T-E01-F01-001", Status: models.TaskStatus("completed")},
-				{ID: 101, Key: "T-E01-F01-002", Status: models.TaskStatus("completed")},
-				{ID: 102, Key: "T-E01-F01-003", Status: models.TaskStatus("completed")},
+				{BaseEntity: models.BaseEntity{ID: 100, Key: "T-E01-F01-001"}, Status: models.TaskStatus("completed")},
+				{BaseEntity: models.BaseEntity{ID: 101, Key: "T-E01-F01-002"}, Status: models.TaskStatus("completed")},
+				{BaseEntity: models.BaseEntity{ID: 102, Key: "T-E01-F01-003"}, Status: models.TaskStatus("completed")},
 			}, nil
 		},
 	}
@@ -1689,21 +1660,21 @@ func TestEpicService_CompleteEpic_AllTasksComplete_NoForce(t *testing.T) {
 func TestEpicService_CompleteEpic_IncompleteTasksRequireForce(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}, Status: models.EpicStatusActive}, nil
 		},
 	}
 	featureCounter := &mockEpicFeatureCounter{
 		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
 			return []*models.Feature{
-				{ID: 10, Key: "E01-F01", Title: "Feature 1", Status: models.FeatureStatusActive},
+				{BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Feature 1"}, Status: models.FeatureStatusActive},
 			}, nil
 		},
 	}
 	taskLister := &mockEpicTaskLister{
 		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
 			return []*models.Task{
-				{ID: 100, Key: "T-E01-F01-001", Status: models.TaskStatus("in_progress"), Title: "Incomplete task"},
-				{ID: 101, Key: "T-E01-F01-002", Status: models.TaskStatus("completed"), Title: "Done task"},
+				{BaseEntity: models.BaseEntity{ID: 100, Key: "T-E01-F01-001", Title: "Incomplete task"}, Status: models.TaskStatus("in_progress")},
+				{BaseEntity: models.BaseEntity{ID: 101, Key: "T-E01-F01-002", Title: "Done task"}, Status: models.TaskStatus("completed")},
 			}, nil
 		},
 	}
@@ -1722,7 +1693,7 @@ func TestEpicService_CompleteEpic_Force(t *testing.T) {
 	forcedTaskIDs := make([]int64, 0)
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 1, Key: "E01", Title: "Epic", Status: models.EpicStatusActive}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}, Status: models.EpicStatusActive}, nil
 		},
 		updateFn: func(ctx context.Context, epic *models.Epic) error {
 			return nil
@@ -1731,11 +1702,11 @@ func TestEpicService_CompleteEpic_Force(t *testing.T) {
 	featureCounter := &mockEpicFeatureCounter{
 		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
 			return []*models.Feature{
-				{ID: 10, Key: "E01-F01", Title: "Feature 1", Status: models.FeatureStatusActive},
+				{BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Feature 1"}, Status: models.FeatureStatusActive},
 			}, nil
 		},
 		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
-			return &models.Feature{ID: id, Key: "E01-F01", Status: models.FeatureStatusActive}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: id, Key: "E01-F01"}, Status: models.FeatureStatusActive}, nil
 		},
 		updateFn: func(ctx context.Context, feature *models.Feature) error {
 			return nil
@@ -1747,8 +1718,8 @@ func TestEpicService_CompleteEpic_Force(t *testing.T) {
 	taskLister := &mockEpicTaskLister{
 		listByFeatureFn: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
 			return []*models.Task{
-				{ID: 100, Key: "T-E01-F01-001", Status: models.TaskStatus("in_progress"), Title: "Running task"},
-				{ID: 101, Key: "T-E01-F01-002", Status: models.TaskStatus("completed"), Title: "Done task"},
+				{BaseEntity: models.BaseEntity{ID: 100, Key: "T-E01-F01-001", Title: "Running task"}, Status: models.TaskStatus("in_progress")},
+				{BaseEntity: models.BaseEntity{ID: 101, Key: "T-E01-F01-002", Title: "Done task"}, Status: models.TaskStatus("completed")},
 			}, nil
 		},
 		updateStatusForcedFn: func(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
@@ -1888,7 +1859,7 @@ func TestEpicService_LinkDocument_Happy_Path(t *testing.T) {
 
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 7, Key: "E07"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07"}}, nil
 		},
 	}
 
@@ -1964,7 +1935,7 @@ func TestEpicService_LinkDocument_EpicNotFound(t *testing.T) {
 func TestEpicService_LinkDocument_CreateOrGetError(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 7, Key: "E07"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07"}}, nil
 		},
 	}
 
@@ -1990,7 +1961,7 @@ func TestEpicService_LinkDocument_CreateOrGetError(t *testing.T) {
 func TestEpicService_LinkDocument_LinkError(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 7, Key: "E07"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07"}}, nil
 		},
 	}
 
@@ -2025,7 +1996,7 @@ func TestEpicService_UnlinkDocument_Happy_Path(t *testing.T) {
 
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 7, Key: "E07"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07"}}, nil
 		},
 	}
 
@@ -2097,7 +2068,7 @@ func TestEpicService_UnlinkDocument_EpicNotFound(t *testing.T) {
 func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 7, Key: "E07"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07"}}, nil
 		},
 	}
 
@@ -2121,7 +2092,7 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 	repo := &mockEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 7, Key: "E07"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07"}}, nil
 		},
 	}
 

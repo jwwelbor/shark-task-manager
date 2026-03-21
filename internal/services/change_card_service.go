@@ -120,12 +120,12 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	}
 
 	// Build model
-	card := &models.ChangeCard{
-		Key:       nextKey,
-		Title:     title,
-		Status:    models.ChangeCardStatus(defaultStatus),
-		Priority:  priority,
-		Slug:      &slugVal,
+	card := &models.ChangeCard{BaseEntity: models.BaseEntity{Key: nextKey,
+		Title: title,
+
+		Slug: &slugVal}, Status: models.ChangeCardStatus(defaultStatus),
+		Priority: priority,
+
 		EpicID:    epicID,
 		FeatureID: featureID,
 	}

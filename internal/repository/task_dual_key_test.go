@@ -26,10 +26,8 @@ func TestTaskRepository_GetByKey_NumericFormat(t *testing.T) {
 
 	// Create dedicated epic for this test
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E94",
-		Title:         "Test Epic for Numeric Key Lookup",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E94",
+		Title: "Test Epic for Numeric Key Lookup"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -38,10 +36,9 @@ func TestTaskRepository_GetByKey_NumericFormat(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature for this test
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E94-F01",
-		Title:  "Test Feature for Numeric Key Lookup",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E94-F01",
+		Title: "Test Feature for Numeric Key Lookup"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -49,12 +46,11 @@ func TestTaskRepository_GetByKey_NumericFormat(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task with numeric key
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E94-F01-100",
-		Title:     "Test Numeric Key Lookup",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E94-F01-100",
+		Title: "Test Numeric Key Lookup"}, FeatureID: testFeature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 
 	err = repo.Create(ctx, task)
@@ -84,10 +80,8 @@ func TestTaskRepository_GetByKey_SluggedFormat(t *testing.T) {
 
 	// Create dedicated epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E98",
-		Title:         "Test Epic for Dual Key Lookup",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Dual Key Lookup"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -96,10 +90,9 @@ func TestTaskRepository_GetByKey_SluggedFormat(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E98-F01",
-		Title:  "Test Feature for Dual Key",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F01",
+		Title: "Test Feature for Dual Key"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -107,12 +100,11 @@ func TestTaskRepository_GetByKey_SluggedFormat(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task with numeric key (slug will be auto-generated)
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E98-F01-001",
-		Title:     "Implement User Authentication",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-001",
+		Title: "Implement User Authentication"}, FeatureID: testFeature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 
 	err = repo.Create(ctx, task)
@@ -148,10 +140,8 @@ func TestTaskRepository_GetByKey_SlugMismatch(t *testing.T) {
 
 	// Create dedicated epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E98",
-		Title:         "Test Epic for Slug Mismatch",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Slug Mismatch"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -160,10 +150,9 @@ func TestTaskRepository_GetByKey_SlugMismatch(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E98-F02",
-		Title:  "Test Feature for Slug Mismatch",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F02",
+		Title: "Test Feature for Slug Mismatch"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -171,12 +160,11 @@ func TestTaskRepository_GetByKey_SlugMismatch(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E98-F02-001",
-		Title:     "Fix Database Bug",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F02-001",
+		Title: "Fix Database Bug"}, FeatureID: testFeature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 
 	err = repo.Create(ctx, task)
@@ -211,10 +199,8 @@ func TestTaskRepository_GetByKey_PartialSlugMatch(t *testing.T) {
 
 	// Create dedicated epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E98",
-		Title:         "Test Epic for Partial Slug",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Partial Slug"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -223,10 +209,9 @@ func TestTaskRepository_GetByKey_PartialSlugMatch(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E98-F03",
-		Title:  "Test Feature for Partial Slug",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F03",
+		Title: "Test Feature for Partial Slug"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -234,12 +219,11 @@ func TestTaskRepository_GetByKey_PartialSlugMatch(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task with long title (slug gets truncated to 100 chars)
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E98-F03-001",
-		Title:     "Implement Advanced User Authentication System With Multi-Factor Support And Session Management",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F03-001",
+		Title: "Implement Advanced User Authentication System With Multi-Factor Support And Session Management"}, FeatureID: testFeature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 
 	err = repo.Create(ctx, task)
@@ -278,10 +262,8 @@ func TestTaskRepository_GetByKey_NoSlug(t *testing.T) {
 
 	// Create dedicated epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E98",
-		Title:         "Test Epic for No Slug",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for No Slug"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -290,10 +272,9 @@ func TestTaskRepository_GetByKey_NoSlug(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create dedicated feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E98-F04",
-		Title:  "Test Feature for No Slug",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F04",
+		Title: "Test Feature for No Slug"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -301,12 +282,11 @@ func TestTaskRepository_GetByKey_NoSlug(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create task and then manually clear the slug to simulate legacy data
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E98-F04-001",
-		Title:     "Legacy Task Without Slug",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F04-001",
+		Title: "Legacy Task Without Slug"}, FeatureID: testFeature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 
 	err = repo.Create(ctx, task)

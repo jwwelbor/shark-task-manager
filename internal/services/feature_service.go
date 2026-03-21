@@ -775,14 +775,14 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		filePath = &defaultPath
 	}
 
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            featureKey,
-		Title:          strings.TrimSpace(input.Title),
-		Description:    input.Description,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
+		Title:       strings.TrimSpace(input.Title),
+		Description: input.Description,
+
+		FilePath: filePath}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatus(statusStr),
 		ExecutionOrder: input.ExecutionOrder,
-		FilePath:       filePath,
 	}
 
 	if err := feature.Validate(); err != nil {
@@ -992,19 +992,22 @@ func (s *FeatureService) GetFeatureDisplayData(ctx context.Context, feature *mod
 		return nil, fmt.Errorf("failed to unmarshal tasks for feature %s: %w", feature.Key, err)
 	}
 	for _, tj := range tasksRaw {
-		task := &models.Task{
-			ID:             tj.ID,
-			Key:            tj.Key,
-			Title:          tj.Title,
-			Status:         models.TaskStatus(tj.Status),
-			FeatureID:      feature.ID,
-			Slug:           tj.Slug,
-			Description:    tj.Description,
-			AgentType:      tj.AgentType,
-			FilePath:       tj.FilePath,
+		task := &models.Task{BaseEntity: models.BaseEntity{ID: tj.ID,
+			Key:   tj.Key,
+			Title: tj.Title,
+
+			Slug:        tj.Slug,
+			Description: tj.Description,
+
+			FilePath: tj.FilePath,
+
+			ContextData: tj.ContextData}, Status: models.TaskStatus(tj.Status),
+			FeatureID: feature.ID,
+
+			AgentType: tj.AgentType,
+
 			BlockedReason:  tj.BlockedReason,
 			ExecutionOrder: tj.ExecutionOrder,
-			ContextData:    tj.ContextData,
 		}
 		if tj.Priority != nil {
 			task.Priority = *tj.Priority

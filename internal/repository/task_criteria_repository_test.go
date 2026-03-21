@@ -21,10 +21,8 @@ func setupCriteriaTestDB(t *testing.T) *DB {
 func createTestTask(t *testing.T, db *DB) int64 {
 	// Create epic
 	epicRepo := NewEpicRepository(db)
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: "active",
 		Priority: "high",
 	}
 	err := epicRepo.Create(context.Background(), epic)
@@ -32,10 +30,9 @@ func createTestTask(t *testing.T, db *DB) int64 {
 
 	// Create feature
 	featureRepo := NewFeatureRepository(db)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E01-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: "active",
 	}
 	err = featureRepo.Create(context.Background(), feature)
@@ -44,10 +41,9 @@ func createTestTask(t *testing.T, db *DB) int64 {
 	// Create task
 	taskRepo := NewTaskRepository(db)
 	agentType := "backend"
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E01-F01-001",
-		Title:     "Test Task",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+		Title: "Test Task"}, FeatureID: feature.ID,
+
 		Status:    "todo",
 		Priority:  5,
 		AgentType: &agentType,

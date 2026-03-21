@@ -32,10 +32,8 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: nil,
 	}
@@ -44,10 +42,9 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 	}
 
 	// Create Feature 1 with tasks
-	feature1 := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E99-F01",
-		Title:       "Feature 1",
+	feature1 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Feature 1"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -56,33 +53,30 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 	}
 
 	// Create tasks for feature 1
-	task1 := &models.Task{
-		FeatureID: feature1.ID,
-		Key:       "T-E99-F01-001",
-		Title:     "Task 1",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-001",
+		Title: "Task 1"}, FeatureID: feature1.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	if err := taskRepo.Create(ctx, task1); err != nil {
 		t.Fatalf("Failed to create task1: %v", err)
 	}
 
-	task2 := &models.Task{
-		FeatureID: feature1.ID,
-		Key:       "T-E99-F01-002",
-		Title:     "Task 2",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  5,
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-002",
+		Title: "Task 2"}, FeatureID: feature1.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 5,
 	}
 	if err := taskRepo.Create(ctx, task2); err != nil {
 		t.Fatalf("Failed to create task2: %v", err)
 	}
 
 	// Create Feature 2 with tasks
-	feature2 := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E99-F02",
-		Title:       "Feature 2",
+	feature2 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F02",
+		Title: "Feature 2"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -90,22 +84,20 @@ func TestEpicCompleteCascadesToFeatures(t *testing.T) {
 		t.Fatalf("Failed to create feature2: %v", err)
 	}
 
-	task3 := &models.Task{
-		FeatureID: feature2.ID,
-		Key:       "T-E99-F02-001",
-		Title:     "Task 3",
-		Status:    models.TaskStatus("blocked"),
-		Priority:  5,
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F02-001",
+		Title: "Task 3"}, FeatureID: feature2.ID,
+
+		Status:   models.TaskStatus("blocked"),
+		Priority: 5,
 	}
 	if err := taskRepo.Create(ctx, task3); err != nil {
 		t.Fatalf("Failed to create task3: %v", err)
 	}
 
 	// Create Feature 3 with no tasks
-	feature3 := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E99-F03",
-		Title:       "Feature 3 (no tasks)",
+	feature3 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F03",
+		Title: "Feature 3 (no tasks)"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}

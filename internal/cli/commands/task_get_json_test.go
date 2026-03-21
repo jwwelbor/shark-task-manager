@@ -21,25 +21,29 @@ func TestBuildTaskGetJSON(t *testing.T) {
 	blockedReason := "Waiting on API spec"
 	execOrder := 2
 
-	task := &models.Task{
-		ID:             1,
-		FeatureID:      10,
-		Key:            "T-E07-F01-001",
-		Title:          "Implement auth",
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+
+		Key:   "T-E07-F01-001",
+		Title: "Implement auth",
+
+		FilePath:    &filePath,
+		Description: &description,
+
+		CreatedAt: now,
+		UpdatedAt: now}, FeatureID: 10,
+
 		Status:         "in_progress",
 		AgentType:      &agentType,
 		Priority:       5,
 		ExecutionOrder: &execOrder,
-		FilePath:       &filePath,
-		Description:    &description,
-		BlockedReason:  &blockedReason,
-		CreatedAt:      now,
-		UpdatedAt:      now,
-		StartedAt:      sql.NullTime{Time: now, Valid: true},
+
+		BlockedReason: &blockedReason,
+
+		StartedAt: sql.NullTime{Time: now, Valid: true},
 	}
 
 	deps := []*models.Task{
-		{Key: "T-E07-F01-000", Status: "completed"},
+		{BaseEntity: models.BaseEntity{Key: "T-E07-F01-000"}, Status: "completed"},
 	}
 
 	blockedBy := []services.RelationshipWithTask{
@@ -224,14 +228,13 @@ func TestBuildTaskGetJSON(t *testing.T) {
 
 // TestBuildTaskGetJSON_EmptyOptionals verifies graceful handling of nil/empty optional fields.
 func TestBuildTaskGetJSON_EmptyOptionals(t *testing.T) {
-	task := &models.Task{
-		ID:        1,
-		Key:       "T-E07-F01-001",
-		Title:     "Simple task",
-		Status:    "todo",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Simple task",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "todo",
+		Priority: 5,
 	}
 
 	result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)

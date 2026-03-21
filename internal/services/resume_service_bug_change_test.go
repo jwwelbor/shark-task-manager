@@ -65,11 +65,9 @@ func TestResumeService_GetBugResume_ReturnsContext(t *testing.T) {
 			if key != bugKey {
 				t.Errorf("GetByKey called with %q, want %q", key, bugKey)
 			}
-			return &models.Bug{
-				ID:     10,
-				Key:    key,
-				Title:  "Login page crash",
-				Status: "open",
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 10,
+				Key:   key,
+				Title: "Login page crash"}, Status: "open",
 			}, nil
 		},
 	}
@@ -147,7 +145,7 @@ func TestResumeService_GetBugResume_IncludesNotes(t *testing.T) {
 
 	bugRepo := &mockResumeEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Bug{ID: 10, Key: key, Title: "Test Bug", Status: "open"}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 10, Key: key, Title: "Test Bug"}, Status: "open"}, nil
 		},
 	}
 
@@ -191,10 +189,9 @@ func TestResumeService_GetChangeResume_ReturnsContext(t *testing.T) {
 			if key != changeKey {
 				t.Errorf("GetByKey called with %q, want %q", key, changeKey)
 			}
-			return &models.ChangeCard{
-				ID:    20,
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 20,
 				Key:   "CC-001",
-				Title: "Update authentication flow",
+				Title: "Update authentication flow"},
 			}, nil
 		},
 	}
@@ -269,7 +266,7 @@ func TestResumeService_GetChangeResume_IncludesNotes(t *testing.T) {
 
 	changeRepo := &mockResumeEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.ChangeCard{ID: 20, Key: "CC-001", Title: "Test Change"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 20, Key: "CC-001", Title: "Test Change"}}, nil
 		},
 	}
 

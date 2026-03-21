@@ -55,12 +55,12 @@ func TestFeatureCreate_ExistingFile_ShouldNotOverwrite(t *testing.T) {
 
 	// Create feature with relative file path
 	relPath := "docs/plan/existing-feature.md"
-	feature := &models.Feature{
-		Key:      "E99-F98",
-		EpicID:   99, // Mock epic ID
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F98",
+		// Mock epic ID
 		Title:    "Test Feature",
-		FilePath: &relPath,
-		Status:   models.FeatureStatusDraft,
+		FilePath: &relPath}, EpicID: 99,
+
+		Status: models.FeatureStatusDraft,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -135,12 +135,12 @@ func TestFeatureCreate_NonExistingFile_ShouldCreate(t *testing.T) {
 	}
 
 	// Create feature (use E99-F97 for this test)
-	feature := &models.Feature{
-		Key:      "E99-F97",
-		EpicID:   99, // Mock epic ID
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F97",
+		// Mock epic ID
 		Title:    "New Feature",
-		FilePath: &relPath,
-		Status:   models.FeatureStatusDraft,
+		FilePath: &relPath}, EpicID: 99,
+
+		Status: models.FeatureStatusDraft,
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {

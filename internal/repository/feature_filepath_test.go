@@ -31,10 +31,8 @@ func TestFeatureRepository_GetByFilePath(t *testing.T) {
 
 	// Create parent epic
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
 	}
@@ -42,11 +40,10 @@ func TestFeatureRepository_GetByFilePath(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create feature without file path
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 		Title:       "Test Feature",
-		Description: stringPtr("Test Description"),
+		Description: stringPtr("Test Description")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
@@ -102,10 +99,8 @@ func TestFeatureRepository_UpdateFilePath(t *testing.T) {
 
 	// Create parent epic
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
 	}
@@ -113,11 +108,10 @@ func TestFeatureRepository_UpdateFilePath(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create feature without file path
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 		Title:       "Test Feature",
-		Description: stringPtr("Test Description"),
+		Description: stringPtr("Test Description")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
@@ -160,10 +154,8 @@ func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
 
 	// Create parent epic
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
 	}
@@ -171,11 +163,10 @@ func TestFeatureRepository_UpdateFilePath_Clear(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create feature without file path
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 		Title:       "Test Feature",
-		Description: stringPtr("Test Description"),
+		Description: stringPtr("Test Description")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
@@ -240,10 +231,8 @@ func TestFeatureRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 
 	// Create parent epic
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
 	}
@@ -251,10 +240,9 @@ func TestFeatureRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create first feature without shared path
-	feature1 := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey1,
-		Title:       "Feature 1",
+	feature1 := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey1,
+		Title: "Feature 1"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}

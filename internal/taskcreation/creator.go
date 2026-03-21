@@ -238,19 +238,21 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	initialStatus := c.workflowService.GetInitialStatus()
 
 	// Create task record
-	task := &models.Task{
-		FeatureID:      validated.FeatureID,
-		Key:            key,
-		Title:          input.Title,
-		Description:    description,
-		Status:         initialStatus,
-		AgentType:      &validated.AgentType,
-		Priority:       input.Priority,
-		DependsOn:      dependsOnJSON,
-		FilePath:       &filePath,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: key,
+		Title:       input.Title,
+		Description: description,
+
+		FilePath: &filePath,
+
+		CreatedAt: now,
+		UpdatedAt: now}, FeatureID: validated.FeatureID,
+
+		Status:    initialStatus,
+		AgentType: &validated.AgentType,
+		Priority:  input.Priority,
+		DependsOn: dependsOnJSON,
+
 		ExecutionOrder: executionOrder,
-		CreatedAt:      now,
-		UpdatedAt:      now,
 	}
 
 	// 5. Insert task into database

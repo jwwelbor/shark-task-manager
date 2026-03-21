@@ -15,50 +15,40 @@ func TestBug_Validate(t *testing.T) {
 	}{
 		{
 			name: "valid bug - high severity",
-			bug: Bug{
-				Key:      "B001",
-				Title:    "Login button not working",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B001",
+				Title: "Login button not working"}, Status: BugStatus("reported"),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid bug - critical severity",
-			bug: Bug{
-				Key:      "B042",
-				Title:    "Data corruption on save",
-				Status:   BugStatus("triaged"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B042",
+				Title: "Data corruption on save"}, Status: BugStatus("triaged"),
 				Severity: BugSeverityCritical,
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid bug - medium severity",
-			bug: Bug{
-				Key:      "B100",
-				Title:    "Tooltip misaligned",
-				Status:   BugStatus("in_progress"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B100",
+				Title: "Tooltip misaligned"}, Status: BugStatus("in_progress"),
 				Severity: BugSeverityMedium,
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid bug - low severity",
-			bug: Bug{
-				Key:      "B999",
-				Title:    "Minor UI inconsistency",
-				Status:   BugStatus("completed"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B999",
+				Title: "Minor UI inconsistency"}, Status: BugStatus("completed"),
 				Severity: BugSeverityLow,
 			},
 			wantErr: false,
 		},
 		{
 			name: "empty key",
-			bug: Bug{
-				Key:      "",
-				Title:    "Some bug",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "",
+				Title: "Some bug"}, Status: BugStatus("reported"),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
@@ -66,50 +56,40 @@ func TestBug_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid key - wrong prefix",
-			bug: Bug{
-				Key:      "A001",
-				Title:    "Some bug",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "A001",
+				Title: "Some bug"}, Status: BugStatus("reported"),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid key - too few digits",
-			bug: Bug{
-				Key:      "B01",
-				Title:    "Some bug",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B01",
+				Title: "Some bug"}, Status: BugStatus("reported"),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid key - too many digits",
-			bug: Bug{
-				Key:      "B0001",
-				Title:    "Some bug",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B0001",
+				Title: "Some bug"}, Status: BugStatus("reported"),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
 		},
 		{
 			name: "invalid key - lowercase",
-			bug: Bug{
-				Key:      "b001",
-				Title:    "Some bug",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "b001",
+				Title: "Some bug"}, Status: BugStatus("reported"),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty title",
-			bug: Bug{
-				Key:      "B001",
-				Title:    "",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B001",
+				Title: ""}, Status: BugStatus("reported"),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
@@ -117,10 +97,8 @@ func TestBug_Validate(t *testing.T) {
 		},
 		{
 			name: "whitespace title",
-			bug: Bug{
-				Key:      "B001",
-				Title:    "   ",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B001",
+				Title: "   "}, Status: BugStatus("reported"),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
@@ -128,10 +106,8 @@ func TestBug_Validate(t *testing.T) {
 		},
 		{
 			name: "empty status",
-			bug: Bug{
-				Key:      "B001",
-				Title:    "Some bug",
-				Status:   BugStatus(""),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B001",
+				Title: "Some bug"}, Status: BugStatus(""),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
@@ -139,10 +115,8 @@ func TestBug_Validate(t *testing.T) {
 		},
 		{
 			name: "whitespace status",
-			bug: Bug{
-				Key:      "B001",
-				Title:    "Some bug",
-				Status:   BugStatus("   "),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B001",
+				Title: "Some bug"}, Status: BugStatus("   "),
 				Severity: BugSeverityHigh,
 			},
 			wantErr: true,
@@ -150,10 +124,8 @@ func TestBug_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid severity",
-			bug: Bug{
-				Key:      "B001",
-				Title:    "Some bug",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B001",
+				Title: "Some bug"}, Status: BugStatus("reported"),
 				Severity: BugSeverity("extreme"),
 			},
 			wantErr: true,
@@ -161,10 +133,8 @@ func TestBug_Validate(t *testing.T) {
 		},
 		{
 			name: "empty severity",
-			bug: Bug{
-				Key:      "B001",
-				Title:    "Some bug",
-				Status:   BugStatus("reported"),
+			bug: Bug{BaseEntity: BaseEntity{Key: "B001",
+				Title: "Some bug"}, Status: BugStatus("reported"),
 				Severity: BugSeverity(""),
 			},
 			wantErr: true,

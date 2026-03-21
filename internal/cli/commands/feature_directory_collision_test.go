@@ -50,10 +50,8 @@ func TestFeatureCreate_FileAtEpicDirectoryPath(t *testing.T) {
 
 	// Create epic in database
 	epicRepo := repository.NewEpicRepository(db)
-	epic := &models.Epic{
-		Key:      "E98",
-		Title:    "Test Epic for Collision",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Collision"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -141,10 +139,8 @@ func TestFeatureCreate_ValidEpicDirectory(t *testing.T) {
 
 	// Create epic in database
 	epicRepo := repository.NewEpicRepository(db)
-	epic := &models.Epic{
-		Key:      "E98",
-		Title:    "Test Epic Valid Directory",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic Valid Directory"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -224,10 +220,8 @@ func TestFeatureCreate_NoEpicDirectory(t *testing.T) {
 
 	// Create epic in database
 	epicRepo := repository.NewEpicRepository(db)
-	epic := &models.Epic{
-		Key:      "E97",
-		Title:    "Test Epic No Directory",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Test Epic No Directory"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {

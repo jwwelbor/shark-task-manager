@@ -29,22 +29,18 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Seed test data
-	epic := &models.Epic{
-		Key:      "E07",
-		Title:    "Enhancements",
-		Slug:     strPtr("enhancements"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Enhancements",
+		Slug:  strPtr("enhancements")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
 	}
 
-	feature := &models.Feature{
-		Key:    "E07-F01",
-		Title:  "Feature One",
-		Slug:   strPtr("feature-one"),
-		EpicID: epic.ID,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01",
+		Title: "Feature One",
+		Slug:  strPtr("feature-one")}, EpicID: epic.ID,
 		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -54,29 +50,37 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 	// Create 4 tasks with different statuses: 2 completed, 1 in progress, 1 todo
 	tasks := []*models.Task{
 		{
-			Key:       "T-E07-F01-001",
-			Title:     "Task 1",
+			BaseEntity: models.BaseEntity{
+				Key:   "T-E07-F01-001",
+				Title: "Task 1",
+			},
 			Status:    models.TaskStatus("completed"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
 		{
-			Key:       "T-E07-F01-002",
-			Title:     "Task 2",
+			BaseEntity: models.BaseEntity{
+				Key:   "T-E07-F01-002",
+				Title: "Task 2",
+			},
 			Status:    models.TaskStatus("completed"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
 		{
-			Key:       "T-E07-F01-003",
-			Title:     "Task 3",
+			BaseEntity: models.BaseEntity{
+				Key:   "T-E07-F01-003",
+				Title: "Task 3",
+			},
 			Status:    models.TaskStatus("in_progress"),
 			FeatureID: feature.ID,
 			Priority:  5,
 		},
 		{
-			Key:       "T-E07-F01-004",
-			Title:     "Task 4",
+			BaseEntity: models.BaseEntity{
+				Key:   "T-E07-F01-004",
+				Title: "Task 4",
+			},
 			Status:    models.TaskStatus("todo"),
 			FeatureID: feature.ID,
 			Priority:  5,
@@ -129,22 +133,18 @@ func TestFeatureGetIntegration_GetStatusInfo(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Seed test data
-	epic := &models.Epic{
-		Key:      "E07",
-		Title:    "Enhancements",
-		Slug:     strPtr("enhancements"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Enhancements",
+		Slug:  strPtr("enhancements")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
 	}
 
-	feature := &models.Feature{
-		Key:    "E07-F02",
-		Title:  "Feature Two",
-		Slug:   strPtr("feature-two"),
-		EpicID: epic.ID,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02",
+		Title: "Feature Two",
+		Slug:  strPtr("feature-two")}, EpicID: epic.ID,
 		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -164,10 +164,8 @@ func TestFeatureGetIntegration_GetStatusInfo(t *testing.T) {
 
 	createdTasks := []*models.Task{}
 	for _, tc := range testCases {
-		task := &models.Task{
-			Key:       tc.key,
-			Title:     tc.key,
-			Status:    tc.status,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: tc.key,
+			Title: tc.key}, Status: tc.status,
 			FeatureID: feature.ID,
 			Priority:  5,
 		}
@@ -230,37 +228,32 @@ func TestFeatureGetIntegration_FeatureGetCommandJSONOutput(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Seed test data
-	epic := &models.Epic{
-		Key:      "E07",
-		Title:    "Enhancements",
-		Slug:     strPtr("enhancements"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Enhancements",
+		Slug:  strPtr("enhancements")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
 	}
 
-	feature := &models.Feature{
-		Key:         "E07-F03",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F03",
 		Title:       "Feature Three",
 		Slug:        strPtr("feature-three"),
-		Description: strPtr("Test feature for integration tests"),
-		EpicID:      epic.ID,
-		Status:      models.FeatureStatusActive,
+		Description: strPtr("Test feature for integration tests")}, EpicID: epic.ID,
+		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
 		t.Fatalf("Failed to create feature: %v", err)
 	}
 
 	// Create a task for the feature
-	task := &models.Task{
-		Key:       "T-E07-F03-001",
-		Title:     "Sample Task",
-		Status:    models.TaskStatus("todo"),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F03-001",
+		Title: "Sample Task",
+
+		Slug: strPtr("sample-task")}, Status: models.TaskStatus("todo"),
 		FeatureID: feature.ID,
 		Priority:  5,
-		Slug:      strPtr("sample-task"),
 	}
 	if err := taskRepo.Create(ctx, task); err != nil {
 		t.Fatalf("Failed to create task: %v", err)
@@ -365,11 +358,9 @@ func TestFeatureGetIntegration_MultipleFeatures(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Seed test data
-	epic := &models.Epic{
-		Key:      "E07",
-		Title:    "Enhancements",
-		Slug:     strPtr("enhancements"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Enhancements",
+		Slug:  strPtr("enhancements")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -392,11 +383,9 @@ func TestFeatureGetIntegration_MultipleFeatures(t *testing.T) {
 	createdTasks := []*models.Task{}
 
 	for _, fd := range featureData {
-		feature := &models.Feature{
-			Key:    fd.key,
-			Title:  fd.title,
-			Slug:   strPtr(fd.key),
-			EpicID: epic.ID,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fd.key,
+			Title: fd.title,
+			Slug:  strPtr(fd.key)}, EpicID: epic.ID,
 			Status: models.FeatureStatusActive,
 		}
 		if err := featureRepo.Create(ctx, feature); err != nil {
@@ -410,13 +399,12 @@ func TestFeatureGetIntegration_MultipleFeatures(t *testing.T) {
 			if i <= fd.completed {
 				status = models.TaskStatus("completed")
 			}
-			task := &models.Task{
-				Key:       "T-E07-" + fd.key[4:] + "-00" + string(rune('0'+i)),
-				Title:     fd.key + " Task " + string(rune('0'+i)),
-				Status:    status,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-" + fd.key[4:] + "-00" + string(rune('0'+i)),
+				Title: fd.key + " Task " + string(rune('0'+i)),
+
+				Slug: strPtr(fd.key + "-task-" + string(rune('0'+i)))}, Status: status,
 				FeatureID: feature.ID,
 				Priority:  5,
-				Slug:      strPtr(fd.key + "-task-" + string(rune('0'+i))),
 			}
 			if err := taskRepo.Create(ctx, task); err != nil {
 				t.Fatalf("Failed to create task: %v", err)
@@ -491,22 +479,18 @@ func TestFeatureGetIntegration_EmptyFeature(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(db)
 
 	// Seed test data
-	epic := &models.Epic{
-		Key:      "E07",
-		Title:    "Enhancements",
-		Slug:     strPtr("enhancements"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Enhancements",
+		Slug:  strPtr("enhancements")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create epic: %v", err)
 	}
 
-	feature := &models.Feature{
-		Key:    "E07-F04",
-		Title:  "Feature Four",
-		Slug:   strPtr("feature-four"),
-		EpicID: epic.ID,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F04",
+		Title: "Feature Four",
+		Slug:  strPtr("feature-four")}, EpicID: epic.ID,
 		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -550,11 +534,9 @@ func TestFeatureGetIntegration_PlanningModeRelatedDocs(t *testing.T) {
 	workflowSvc := workflow.NewService(".")
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      "E07",
-		Title:    "Enhancements",
-		Slug:     strPtr("enhancements"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Enhancements",
+		Slug:  strPtr("enhancements")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -562,11 +544,9 @@ func TestFeatureGetIntegration_PlanningModeRelatedDocs(t *testing.T) {
 	}
 
 	// Create feature in planning mode (ready_for_refinement_ba)
-	feature := &models.Feature{
-		Key:    "E07-F31",
-		Title:  "Unified Entity Display Rendering",
-		Slug:   strPtr("unified-entity-display-rendering"),
-		EpicID: epic.ID,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F31",
+		Title: "Unified Entity Display Rendering",
+		Slug:  strPtr("unified-entity-display-rendering")}, EpicID: epic.ID,
 		Status: models.FeatureStatus("ready_for_refinement_ba"),
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -679,11 +659,9 @@ func TestFeatureGetIntegration_JSONOutputWithNewFields(t *testing.T) {
 	workflowSvc := workflow.NewService(".")
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      "E07",
-		Title:    "Enhancements",
-		Slug:     strPtr("enhancements"),
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Enhancements",
+		Slug:  strPtr("enhancements")}, Status: models.EpicStatusActive,
 		Priority: models.PriorityHigh,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -691,11 +669,9 @@ func TestFeatureGetIntegration_JSONOutputWithNewFields(t *testing.T) {
 	}
 
 	// Create feature in planning mode
-	feature := &models.Feature{
-		Key:    "E07-F31",
-		Title:  "Unified Entity Display Rendering",
-		Slug:   strPtr("unified-entity-display-rendering"),
-		EpicID: epic.ID,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F31",
+		Title: "Unified Entity Display Rendering",
+		Slug:  strPtr("unified-entity-display-rendering")}, EpicID: epic.ID,
 		Status: models.FeatureStatus("ready_for_refinement_ba"),
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {

@@ -116,11 +116,9 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 	// Generate slug
 	slug := utils.GenerateSlug(input.Title)
 
-	bug := &models.Bug{
-		Key:      key,
-		Title:    input.Title,
-		Slug:     &slug,
-		Status:   models.BugStatus(defaultStatus),
+	bug := &models.Bug{BaseEntity: models.BaseEntity{Key: key,
+		Title: input.Title,
+		Slug:  &slug}, Status: models.BugStatus(defaultStatus),
 		Severity: input.Severity,
 	}
 

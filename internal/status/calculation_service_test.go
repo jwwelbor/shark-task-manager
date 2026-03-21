@@ -62,20 +62,17 @@ func TestCalculationService_RecalculateFeatureStatus(t *testing.T) {
 	calcService := NewCalculationService(testDB, cfg)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E01-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -94,12 +91,11 @@ func TestCalculationService_RecalculateFeatureStatus(t *testing.T) {
 	t.Run("all_todo_stays_draft", func(t *testing.T) {
 		// Add todo tasks
 		for i := 1; i <= 3; i++ {
-			task := &models.Task{
-				FeatureID: feature.ID,
-				Key:       "T-E01-F01-00" + string(rune('0'+i)),
-				Title:     "Todo Task",
-				Status:    models.TaskStatus("todo"),
-				Priority:  5,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-00" + string(rune('0'+i)),
+				Title: "Todo Task"}, FeatureID: feature.ID,
+
+				Status:   models.TaskStatus("todo"),
+				Priority: 5,
 			}
 			err := taskRepo.Create(ctx, task)
 			require.NoError(t, err)
@@ -167,10 +163,8 @@ func TestCalculationService_RecalculateEpicStatus(t *testing.T) {
 	calcService := NewCalculationService(testDB, cfg)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E02",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E02",
+		Title: "Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -184,10 +178,9 @@ func TestCalculationService_RecalculateEpicStatus(t *testing.T) {
 
 	t.Run("all_draft_features_keeps_draft", func(t *testing.T) {
 		for i := 1; i <= 3; i++ {
-			feature := &models.Feature{
-				EpicID: epic.ID,
-				Key:    "E02-F0" + string(rune('0'+i)),
-				Title:  "Draft Feature",
+			feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E02-F0" + string(rune('0'+i)),
+				Title: "Draft Feature"}, EpicID: epic.ID,
+
 				Status: models.FeatureStatusDraft,
 			}
 			err := featureRepo.Create(ctx, feature)
@@ -242,32 +235,28 @@ func TestCalculationService_CascadeFromTask(t *testing.T) {
 	calcService := NewCalculationService(testDB, cfg)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E03",
-		Title:    "Cascade Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E03",
+		Title: "Cascade Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E03-F01",
-		Title:  "Cascade Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E03-F01",
+		Title: "Cascade Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
 	// Create test task
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E03-F01-001",
-		Title:     "Cascade Test Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E03-F01-001",
+		Title: "Cascade Test Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -330,32 +319,28 @@ func TestCalculationService_RecalculateAll(t *testing.T) {
 
 	// Create test epics and features
 	for i := 1; i <= 2; i++ {
-		epic := &models.Epic{
-			Key:      "E0" + string(rune('0'+i)),
-			Title:    "Test Epic " + string(rune('0'+i)),
-			Status:   models.EpicStatusDraft,
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E0" + string(rune('0'+i)),
+			Title: "Test Epic " + string(rune('0'+i))}, Status: models.EpicStatusDraft,
 			Priority: models.PriorityMedium,
 		}
 		err := epicRepo.Create(ctx, epic)
 		require.NoError(t, err)
 
 		for j := 1; j <= 2; j++ {
-			feature := &models.Feature{
-				EpicID: epic.ID,
-				Key:    "E0" + string(rune('0'+i)) + "-F0" + string(rune('0'+j)),
-				Title:  "Test Feature " + string(rune('0'+j)),
+			feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E0" + string(rune('0'+i)) + "-F0" + string(rune('0'+j)),
+				Title: "Test Feature " + string(rune('0'+j))}, EpicID: epic.ID,
+
 				Status: models.FeatureStatusDraft,
 			}
 			err = featureRepo.Create(ctx, feature)
 			require.NoError(t, err)
 
 			// Add a task
-			task := &models.Task{
-				FeatureID: feature.ID,
-				Key:       "T-E0" + string(rune('0'+i)) + "-F0" + string(rune('0'+j)) + "-001",
-				Title:     "Test Task",
-				Status:    models.TaskStatus("todo"),
-				Priority:  5,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E0" + string(rune('0'+i)) + "-F0" + string(rune('0'+j)) + "-001",
+				Title: "Test Task"}, FeatureID: feature.ID,
+
+				Status:   models.TaskStatus("todo"),
+				Priority: 5,
 			}
 			err = taskRepo.Create(ctx, task)
 			require.NoError(t, err)
@@ -437,32 +422,28 @@ func TestCalculationService_FeaturePlanningModeBypass(t *testing.T) {
 	calcService.SetFeatureWorkflow(createFeatureWorkflowConfig())
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create feature in planning state (draft)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E01-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
 	// Create task (would normally trigger status derivation)
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E01-F01-001",
-		Title:     "Test Task",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+		Title: "Test Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -497,32 +478,28 @@ func TestCalculationService_FeatureAggregationModeStillWorks(t *testing.T) {
 	calcService.SetFeatureWorkflow(createFeatureWorkflowConfig())
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create feature in ACTIVE state (not planning = should aggregate)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E01-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
 	// Create task
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E01-F01-001",
-		Title:     "Test Task",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+		Title: "Test Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -549,32 +526,28 @@ func TestCalculationService_NoFeatureWorkflowDefaultsToAggregation(t *testing.T)
 	// NOTE: no SetFeatureWorkflow called - backward compat test
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create feature in draft state (but no feature workflow = always aggregates)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E01-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
 	// Create task
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E01-F01-001",
-		Title:     "Test Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+		Title: "Test Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -600,20 +573,17 @@ func TestCalculationService_EpicPlanningModeBypass(t *testing.T) {
 	calcService.SetEpicWorkflow(createEpicWorkflowConfig())
 
 	// Create test epic in planning mode (draft)
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create feature (would normally trigger epic status derivation)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E01-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)

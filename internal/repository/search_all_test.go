@@ -25,50 +25,45 @@ func seedSearchAllTestData(t *testing.T, repoDb *DB) {
 
 	// Epic
 	epicRepo := NewEpicRepository(repoDb)
-	epic := &models.Epic{Key: "E01", Title: "Login System", Status: "active", Priority: "high"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01", Title: "Login System"}, Status: "active", Priority: "high"}
 	require.NoError(t, epicRepo.Create(ctx, epic))
 
 	// Feature
 	featureRepo := NewFeatureRepository(repoDb)
-	feature := &models.Feature{EpicID: epic.ID, Key: "E01-F01", Title: "Authentication", Status: "active"}
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01", Title: "Authentication"}, EpicID: epic.ID, Status: "active"}
 	require.NoError(t, featureRepo.Create(ctx, feature))
 
 	// Task
 	taskRepo := NewTaskRepository(repoDb)
 	taskDesc := "Implement login endpoint"
 	agent := "backend"
-	task := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         "T-E01-F01-001",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
 		Title:       "Implement login flow",
-		Description: &taskDesc,
-		Status:      "todo",
-		Priority:    5,
-		AgentType:   &agent,
+		Description: &taskDesc}, FeatureID: feature.ID,
+
+		Status:    "todo",
+		Priority:  5,
+		AgentType: &agent,
 	}
 	require.NoError(t, taskRepo.Create(ctx, task))
 
 	// Bug
 	bugRepo := NewBugRepository(repoDb)
 	bugDesc := "Login button fails on mobile"
-	bug := &models.Bug{
-		Key:         "B001",
+	bug := &models.Bug{BaseEntity: models.BaseEntity{Key: "B001",
 		Title:       "Login button broken",
-		Description: &bugDesc,
-		Status:      models.BugStatus("reported"),
-		Severity:    models.BugSeverityHigh,
+		Description: &bugDesc}, Status: models.BugStatus("reported"),
+		Severity: models.BugSeverityHigh,
 	}
 	require.NoError(t, bugRepo.Create(ctx, bug))
 
 	// Change-Card
 	ccRepo := NewChangeCardRepository(repoDb)
 	ccDesc := "Add dark mode support to login page"
-	cc := &models.ChangeCard{
-		Key:         "CC-001",
+	cc := &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001",
 		Title:       "Dark mode login",
-		Description: &ccDesc,
-		Status:      models.ChangeCardStatus("proposed"),
-		Priority:    5,
+		Description: &ccDesc}, Status: models.ChangeCardStatus("proposed"),
+		Priority: 5,
 	}
 	require.NoError(t, ccRepo.Create(ctx, cc))
 }

@@ -57,27 +57,27 @@ func newContextTestRegistry() *EntityRegistry {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeEpic, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: key}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 	})
 	reg.Register(models.EntityTypeFeature, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Feature{ID: 2, Key: key}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 2, Key: key}}, nil
 		},
 	})
 	reg.Register(models.EntityTypeTask, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Task{ID: 3, Key: key}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: key}}, nil
 		},
 	})
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Bug{ID: 4, Key: key}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 4, Key: key}}, nil
 		},
 	})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.ChangeCard{ID: 5, Key: key}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 5, Key: key}}, nil
 		},
 	})
 	return reg
@@ -87,7 +87,7 @@ func TestContextService_GetContext_Epic_NoContext(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeEpic, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: key}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return nil, nil
@@ -115,7 +115,7 @@ func TestContextService_GetContext_Epic_WithContext(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeEpic, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: key}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return &contextJSON, nil
@@ -148,7 +148,7 @@ func TestContextService_GetContext_Task(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeTask, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Task{ID: 3, Key: key}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return &contextJSON, nil
@@ -198,7 +198,7 @@ func TestContextService_SetContextField_Epic(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeEpic, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: key}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return nil, nil // No existing context
@@ -240,7 +240,7 @@ func TestContextService_SetContextField_MergeSemantics(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeEpic, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: key}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return &existingJSON, nil
@@ -289,7 +289,7 @@ func TestContextService_SetContextField_Feature(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeFeature, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Feature{ID: 2, Key: key}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 2, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return nil, nil
@@ -325,7 +325,7 @@ func TestContextService_SetContextField_Task(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeTask, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Task{ID: 3, Key: key}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return nil, nil
@@ -357,7 +357,7 @@ func TestContextService_ClearContext_Epic(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeEpic, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: key}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 		updateContextDataFunc: func(_ context.Context, _ int64, data *string) error {
 			clearCalled = true
@@ -389,7 +389,7 @@ func TestContextService_ClearContext_Task(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeTask, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Task{ID: 3, Key: key}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: key}}, nil
 		},
 		updateContextDataFunc: func(_ context.Context, _ int64, data *string) error {
 			savedData = data
@@ -421,7 +421,7 @@ func TestContextService_GetContext_EmptyJSON(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeEpic, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: key}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return &emptyJSON, nil
@@ -457,7 +457,7 @@ func TestContextService_GetContext_ChangeCard_WithContext(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.ChangeCard{ID: 10, Key: key}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 10, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return &contextJSON, nil
@@ -487,7 +487,7 @@ func TestContextService_SetContextField_ChangeCard(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.ChangeCard{ID: 10, Key: key}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 10, Key: key}}, nil
 		},
 		getContextDataFunc: func(_ context.Context, _ int64) (*string, error) {
 			return nil, nil
@@ -520,7 +520,7 @@ func TestContextService_ClearContext_ChangeCard(t *testing.T) {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.ChangeCard{ID: 10, Key: key}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 10, Key: key}}, nil
 		},
 		updateContextDataFunc: func(_ context.Context, _ int64, data *string) error {
 			savedData = data

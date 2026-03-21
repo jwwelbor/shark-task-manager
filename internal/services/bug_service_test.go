@@ -331,7 +331,7 @@ func TestBugService_CreateBug_WithLinkedEntity(t *testing.T) {
 	epicRepo := &bugLinkEpicRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
 			if key == "E07" {
-				return &models.Epic{ID: 7, Key: "E07", Title: "Test Epic"}, nil
+				return &models.Epic{BaseEntity: models.BaseEntity{ID: 7, Key: "E07", Title: "Test Epic"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},
@@ -453,11 +453,9 @@ func TestBugService_GetBug(t *testing.T) {
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
 			if key == "B001" {
-				return &models.Bug{
-					ID:       1,
-					Key:      "B001",
-					Title:    "Test Bug",
-					Status:   "reported",
+				return &models.Bug{BaseEntity: models.BaseEntity{ID: 1,
+					Key:   "B001",
+					Title: "Test Bug"}, Status: "reported",
 					Severity: models.BugSeverityHigh,
 				}, nil
 			}
@@ -500,11 +498,9 @@ func TestBugService_UpdateBug_Title(t *testing.T) {
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				ID:       1,
-				Key:      "B001",
-				Title:    "Old Title",
-				Status:   "reported",
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "B001",
+				Title: "Old Title"}, Status: "reported",
 				Severity: models.BugSeverityLow,
 			}, nil
 		},
@@ -533,10 +529,7 @@ func TestBugService_UpdateBug_EmptyTitle(t *testing.T) {
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				ID: 1, Key: "B001", Title: "Old Title",
-				Status: "reported", Severity: models.BugSeverityHigh,
-			}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Old Title"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
 		},
 	}
 
@@ -554,10 +547,7 @@ func TestBugService_UpdateBug_InvalidSeverity(t *testing.T) {
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				ID: 1, Key: "B001", Title: "Bug",
-				Status: "reported", Severity: models.BugSeverityHigh,
-			}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Bug"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
 		},
 	}
 
@@ -576,11 +566,9 @@ func TestBugService_UpdateBug_FilePath(t *testing.T) {
 	var capturedBug *models.Bug
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				ID:       1,
-				Key:      "B001",
-				Title:    "Bug With File",
-				Status:   "reported",
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "B001",
+				Title: "Bug With File"}, Status: "reported",
 				Severity: models.BugSeverityMedium,
 			}, nil
 		},
@@ -617,9 +605,7 @@ func TestBugService_UpdateBug_ClearLinkedEntity(t *testing.T) {
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				ID: 1, Key: "B001", Title: "Linked Bug",
-				Status: "reported", Severity: models.BugSeverityHigh,
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Linked Bug"}, Status: "reported", Severity: models.BugSeverityHigh,
 				LinkedEntityType: &entityType,
 				LinkedEntityKey:  &entityKey,
 			}, nil
@@ -656,8 +642,7 @@ func TestBugService_DeleteBug(t *testing.T) {
 	deleteCalled := false
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{ID: 1, Key: "B001", Title: "To Delete",
-				Status: "reported", Severity: models.BugSeverityLow}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "To Delete"}, Status: "reported", Severity: models.BugSeverityLow}, nil
 		},
 		deleteFn: func(ctx context.Context, id int64) error {
 			deleteCalled = true
@@ -704,8 +689,8 @@ func TestBugService_ListBugs(t *testing.T) {
 	repo := &mockBugRepo{
 		listFn: func(ctx context.Context, filters *repository.BugListFilters) ([]*models.Bug, error) {
 			return []*models.Bug{
-				{ID: 1, Key: "B001", Title: "Bug 1", Status: "reported", Severity: models.BugSeverityHigh},
-				{ID: 2, Key: "B002", Title: "Bug 2", Status: "triaged", Severity: models.BugSeverityLow},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Bug 1"}, Status: "reported", Severity: models.BugSeverityHigh},
+				{BaseEntity: models.BaseEntity{ID: 2, Key: "B002", Title: "Bug 2"}, Status: "triaged", Severity: models.BugSeverityLow},
 			}, nil
 		},
 	}
@@ -776,10 +761,7 @@ func TestBugService_AdvanceBugStatus(t *testing.T) {
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				ID: 1, Key: "B001", Title: "Test Bug",
-				Status: "reported", Severity: models.BugSeverityHigh,
-			}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
 			if id != 1 {
@@ -826,10 +808,7 @@ func TestBugService_SetBugStatus_Force(t *testing.T) {
 	var capturedStatus models.BugStatus
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				ID: 1, Key: "B001", Title: "Test",
-				Status: "reported", Severity: models.BugSeverityHigh,
-			}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
 			capturedStatus = status
@@ -856,10 +835,7 @@ func TestBugService_SetBugStatus_InvalidStatus(t *testing.T) {
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				ID: 1, Key: "B001", Title: "Test",
-				Status: "reported", Severity: models.BugSeverityHigh,
-			}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
 		},
 	}
 
@@ -880,7 +856,7 @@ func TestBugService_CreateBug_LinkedToFeature(t *testing.T) {
 	featureRepo := &bugLinkFeatureRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
 			if key == "E07-F01" {
-				return &models.Feature{ID: 1, Key: "E07-F01", Title: "Test Feature"}, nil
+				return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01", Title: "Test Feature"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},
@@ -918,7 +894,7 @@ func TestBugService_CreateBug_LinkedToTask(t *testing.T) {
 	taskRepo := &bugLinkTaskRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Task, error) {
 			if key == "E07-F01-001" {
-				return &models.Task{ID: 1, Key: "E07-F01-001", Title: "Test Task"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001", Title: "Test Task"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},

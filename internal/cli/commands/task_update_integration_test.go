@@ -29,10 +29,8 @@ func TestTaskUpdate_PriorityAndDependencies(t *testing.T) {
 
 	// Create test epic
 	epicRepo := repository.NewEpicRepository(dbWrapper)
-	epic := &models.Epic{
-		Key:      "E90",
-		Title:    "Test Epic for Update",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E90",
+		Title: "Test Epic for Update"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -42,10 +40,9 @@ func TestTaskUpdate_PriorityAndDependencies(t *testing.T) {
 
 	// Create test feature
 	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E90-F90",
-		Title:  "Test Feature for Update",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E90-F90",
+		Title: "Test Feature for Update"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -55,12 +52,11 @@ func TestTaskUpdate_PriorityAndDependencies(t *testing.T) {
 
 	// Create dependency task (must be created first)
 	taskRepo := repository.NewTaskRepository(dbWrapper)
-	depTask := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E90-F90-001",
-		Title:     "Dependency Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	depTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E90-F90-001",
+		Title: "Dependency Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, depTask)
 	if err != nil {
@@ -68,12 +64,11 @@ func TestTaskUpdate_PriorityAndDependencies(t *testing.T) {
 	}
 
 	// Create main task
-	mainTask := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E90-F90-002",
-		Title:     "Main Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	mainTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E90-F90-002",
+		Title: "Main Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, mainTask)
 	if err != nil {

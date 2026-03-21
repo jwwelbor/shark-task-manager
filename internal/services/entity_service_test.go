@@ -81,7 +81,7 @@ func TestEntityService_TransitionStatus_HappyPath(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 42, Key: "E01", Status: "draft"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 42, Key: "E01"}, Status: "draft"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status string) error {
 			updatedID = id
@@ -167,7 +167,7 @@ func TestEntityService_TransitionStatus_ForcedWithReason(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "completed"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "completed"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status string) error {
 			return nil
@@ -196,7 +196,7 @@ func TestEntityService_TransitionStatus_ForcedWithoutReason(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "completed"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "completed"}, nil
 		},
 	}
 
@@ -216,7 +216,7 @@ func TestEntityService_TransitionStatus_BackwardWithReason(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "active"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status string) error {
 			return nil
@@ -242,7 +242,7 @@ func TestEntityService_TransitionStatus_BackwardWithoutReason(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "active"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
 		},
 	}
 
@@ -263,7 +263,7 @@ func TestEntityService_TransitionStatus_SimpleFeatures_NoBackwardDetection(t *te
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "active"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status string) error {
 			return nil
@@ -291,7 +291,7 @@ func TestEntityService_TransitionStatus_RepoUpdateError(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "draft"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status string) error {
 			return fmt.Errorf("database error")
@@ -313,7 +313,7 @@ func TestEntityService_TransitionStatus_WithResolveActionFn(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "draft"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
 		},
 		updateStatusFn: func(ctx context.Context, id int64, status string) error {
 			return nil
@@ -461,7 +461,7 @@ func TestEntityService_GetNextStatus_HappyPath(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "draft"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
 		},
 	}
 
@@ -503,7 +503,7 @@ func TestEntityService_GetNextStatus_TerminalStatus(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "completed"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "completed"}, nil
 		},
 	}
 
@@ -521,7 +521,7 @@ func TestEntityService_GetNextStatus_WithResolveActionFn(t *testing.T) {
 
 	repo := &mockEntityRepo{
 		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: "E01", Status: "draft"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"}, nil
 		},
 	}
 

@@ -340,7 +340,7 @@ func TestFeatureDisplayInfo_HasContextDataField(t *testing.T) {
 func TestEpicDisplayInfo_NotesAndContextInJSON(t *testing.T) {
 	step := "Step 1"
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{Key: "E07", Title: "Test", Status: "draft"},
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E07", Title: "Test"}, Status: "draft"},
 		Mode: DisplayModePlanning,
 		Notes: []*models.EntityNote{
 			{ID: 1, Content: "a note"},
@@ -385,7 +385,7 @@ func TestEpicDisplayInfo_NotesAndContextInJSON(t *testing.T) {
 func TestFeatureDisplayInfo_NotesAndContextInJSON(t *testing.T) {
 	step := "Building UI"
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{Key: "E07-F01", Title: "Auth", Status: "draft"},
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01", Title: "Auth"}, Status: "draft"},
 		Mode:    DisplayModePlanning,
 		Notes: []*models.EntityNote{
 			{ID: 1, Content: "feature note"},
@@ -429,7 +429,7 @@ func TestFeatureDisplayInfo_NotesAndContextInJSON(t *testing.T) {
 
 func TestEpicDisplayInfo_NoNotesOmitsFromJSON(t *testing.T) {
 	info := &EpicDisplayInfo{
-		Epic:         &models.Epic{Key: "E07", Title: "Test", Status: "draft"},
+		Epic:         &models.Epic{BaseEntity: models.BaseEntity{Key: "E07", Title: "Test"}, Status: "draft"},
 		Mode:         DisplayModePlanning,
 		StatusSource: "workflow",
 	}
@@ -583,10 +583,8 @@ func TestPopulateEpicPlanningInfo_FetchesRelatedDocs(t *testing.T) {
 	epicID, _ := seedEpicWithDocs(t, repoDB)
 
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{
-			ID:     epicID,
-			Key:    "E98",
-			Status: "draft",
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: epicID,
+			Key: "E98"}, Status: "draft",
 		},
 		Mode: DisplayModePlanning,
 	}
@@ -611,10 +609,8 @@ func TestPopulateFeaturePlanningInfo_FetchesRelatedDocs(t *testing.T) {
 	featureID, _ := seedFeatureWithDocs(t, repoDB, epicID)
 
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{
-			ID:     featureID,
-			Key:    "E98-F01",
-			Status: "draft",
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: featureID,
+			Key: "E98-F01"}, Status: "draft",
 		},
 		Mode: DisplayModePlanning,
 	}
@@ -647,10 +643,8 @@ func TestPopulateEpicPlanningInfo_NoDocs_EmptySlice(t *testing.T) {
 	epicID, _ := result.LastInsertId()
 
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{
-			ID:     epicID,
-			Key:    "E97",
-			Status: "draft",
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: epicID,
+			Key: "E97"}, Status: "draft",
 		},
 		Mode: DisplayModePlanning,
 	}
@@ -695,10 +689,8 @@ func TestPopulateFeaturePlanningInfo_NoDocs_EmptySlice(t *testing.T) {
 	featureID, _ := result.LastInsertId()
 
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{
-			ID:     featureID,
-			Key:    "E96-F01",
-			Status: "draft",
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: featureID,
+			Key: "E96-F01"}, Status: "draft",
 		},
 		Mode: DisplayModePlanning,
 	}

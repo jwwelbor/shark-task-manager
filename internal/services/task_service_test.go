@@ -322,11 +322,9 @@ func TestTaskService_CreateTask_Repository_Error(t *testing.T) {
 // ============================================================================
 
 func TestTaskService_GetTask_Found(t *testing.T) {
-	expectedTask := &models.Task{
-		ID:     1,
-		Key:    "T-E07-F01-001",
-		Title:  "Test Task",
-		Status: models.TaskStatus("todo"),
+	expectedTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Test Task"}, Status: models.TaskStatus("todo"),
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -367,12 +365,10 @@ func TestTaskService_GetTask_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestTaskService_UpdateTask_Update_Title(t *testing.T) {
-	existingTask := &models.Task{
-		ID:       1,
-		Key:      "T-E07-F01-001",
-		Title:    "Old Title",
-		Priority: 5,
-		Status:   models.TaskStatus("todo"),
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Old Title"}, Priority: 5,
+		Status: models.TaskStatus("todo"),
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -401,12 +397,10 @@ func TestTaskService_UpdateTask_Update_Title(t *testing.T) {
 }
 
 func TestTaskService_UpdateTask_Multiple_Fields(t *testing.T) {
-	existingTask := &models.Task{
-		ID:       1,
-		Key:      "T-E07-F01-001",
-		Title:    "Old Title",
-		Priority: 5,
-		Status:   models.TaskStatus("todo"),
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Old Title"}, Priority: 5,
+		Status: models.TaskStatus("todo"),
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -435,12 +429,10 @@ func TestTaskService_UpdateTask_Multiple_Fields(t *testing.T) {
 }
 
 func TestTaskService_UpdateTask_Partial_Update(t *testing.T) {
-	existingTask := &models.Task{
-		ID:       1,
-		Key:      "T-E07-F01-001",
-		Title:    "Old Title",
-		Priority: 5,
-		Status:   models.TaskStatus("todo"),
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Old Title"}, Priority: 5,
+		Status: models.TaskStatus("todo"),
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -468,12 +460,10 @@ func TestTaskService_UpdateTask_Partial_Update(t *testing.T) {
 }
 
 func TestTaskService_UpdateTask_FilePath(t *testing.T) {
-	existingTask := &models.Task{
-		ID:       1,
-		Key:      "T-E07-F01-001",
-		Title:    "Task With File",
-		Priority: 5,
-		Status:   models.TaskStatus("todo"),
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Task With File"}, Priority: 5,
+		Status: models.TaskStatus("todo"),
 	}
 
 	var capturedTask *models.Task
@@ -530,9 +520,8 @@ func TestTaskService_UpdateTask_Not_Found(t *testing.T) {
 // ============================================================================
 
 func TestTaskService_DeleteTask_Success(t *testing.T) {
-	taskToDelete := &models.Task{
-		ID:  1,
-		Key: "E07-F01-001",
+	taskToDelete := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key: "E07-F01-001"},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -576,9 +565,9 @@ func TestTaskService_DeleteTask_Not_Found(t *testing.T) {
 
 func TestTaskService_ListTasks_No_Filters(t *testing.T) {
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 5},
-		{Key: "E07-F01-002", Title: "Task 2", Status: models.TaskStatus("in_progress"), Priority: 8},
-		{Key: "E07-F01-003", Title: "Task 3", Status: models.TaskStatus("completed"), Priority: 3},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002", Title: "Task 2"}, Status: models.TaskStatus("in_progress"), Priority: 8},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-003", Title: "Task 3"}, Status: models.TaskStatus("completed"), Priority: 3},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -599,8 +588,8 @@ func TestTaskService_ListTasks_No_Filters(t *testing.T) {
 
 func TestTaskService_ListTasks_Show_All(t *testing.T) {
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 5},
-		{Key: "E07-F01-002", Title: "Task 2", Status: models.TaskStatus("completed"), Priority: 8},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002", Title: "Task 2"}, Status: models.TaskStatus("completed"), Priority: 8},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -619,9 +608,9 @@ func TestTaskService_ListTasks_Show_All(t *testing.T) {
 
 func TestTaskService_ListTasks_Filter_By_Status(t *testing.T) {
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 5},
-		{Key: "E07-F01-002", Title: "Task 2", Status: models.TaskStatus("in_progress"), Priority: 8},
-		{Key: "E07-F01-003", Title: "Task 3", Status: models.TaskStatus("todo"), Priority: 3},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002", Title: "Task 2"}, Status: models.TaskStatus("in_progress"), Priority: 8},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-003", Title: "Task 3"}, Status: models.TaskStatus("todo"), Priority: 3},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -645,9 +634,9 @@ func TestTaskService_ListTasks_Sorting(t *testing.T) {
 	ord1 := 1
 	ord2 := 2
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 3, ExecutionOrder: &ord2},
-		{Key: "E07-F01-002", Title: "Task 2", Status: models.TaskStatus("todo"), Priority: 8, ExecutionOrder: &ord1},
-		{Key: "E07-F01-003", Title: "Task 3", Status: models.TaskStatus("todo"), Priority: 5, ExecutionOrder: &ord1},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 3, ExecutionOrder: &ord2},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002", Title: "Task 2"}, Status: models.TaskStatus("todo"), Priority: 8, ExecutionOrder: &ord1},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-003", Title: "Task 3"}, Status: models.TaskStatus("todo"), Priority: 5, ExecutionOrder: &ord1},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -732,12 +721,10 @@ func TestTaskService_UpdateTask_Invalid_Priority(t *testing.T) {
 	// Arrange: Update with invalid priority
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:       1,
-				Key:      "T-E07-F01-001",
-				Title:    "Test Task",
-				Priority: 5,
-				Status:   models.TaskStatus("todo"),
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "T-E07-F01-001",
+				Title: "Test Task"}, Priority: 5,
+				Status: models.TaskStatus("todo"),
 			}, nil
 		},
 	}
@@ -762,12 +749,10 @@ func TestTaskService_UpdateTask_Update_Error(t *testing.T) {
 	// Arrange: Repository update fails
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:       1,
-				Key:      "T-E07-F01-001",
-				Title:    "Old Title",
-				Priority: 5,
-				Status:   models.TaskStatus("todo"),
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "T-E07-F01-001",
+				Title: "Old Title"}, Priority: 5,
+				Status: models.TaskStatus("todo"),
 			}, nil
 		},
 		UpdateFunc: func(ctx context.Context, task *models.Task) error {
@@ -795,15 +780,14 @@ func TestTaskService_DeleteTask_Has_Dependents(t *testing.T) {
 	// Arrange: Task has dependents
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:  1,
-				Key: "T-E07-F01-001",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key: "T-E07-F01-001"},
 			}, nil
 		},
 		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
 			// Return dependent tasks
 			return []*models.Task{
-				{Key: "T-E07-F01-002", Status: models.TaskStatus("todo")},
+				{BaseEntity: models.BaseEntity{Key: "T-E07-F01-002"}, Status: models.TaskStatus("todo")},
 			}, nil
 		},
 	}
@@ -822,9 +806,8 @@ func TestTaskService_DeleteTask_Delete_Error(t *testing.T) {
 	// Arrange: Delete operation fails
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:  1,
-				Key: "E07-F01-001",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key: "E07-F01-001"},
 			}, nil
 		},
 		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
@@ -854,9 +837,9 @@ func TestTaskService_ListTasks_Filter_By_Agent(t *testing.T) {
 	backend := "backend"
 	frontend := "frontend"
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Status: models.TaskStatus("todo"), AgentType: &backend},
-		{Key: "E07-F01-002", Status: models.TaskStatus("todo"), AgentType: &frontend},
-		{Key: "E07-F01-003", Status: models.TaskStatus("todo"), AgentType: &backend},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001"}, Status: models.TaskStatus("todo"), AgentType: &backend},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002"}, Status: models.TaskStatus("todo"), AgentType: &frontend},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-003"}, Status: models.TaskStatus("todo"), AgentType: &backend},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -909,10 +892,8 @@ func TestTaskService_ListTasks_Pagination(t *testing.T) {
 			tasks := make([]*models.Task, 100)
 			for i := 0; i < 100; i++ {
 				agentType := "backend"
-				tasks[i] = &models.Task{
-					Key:       fmt.Sprintf("E15-F04-%03d", i+1),
-					Title:     fmt.Sprintf("Task %d", i+1),
-					Status:    "todo",
+				tasks[i] = &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E15-F04-%03d", i+1),
+					Title: fmt.Sprintf("Task %d", i+1)}, Status: "todo",
 					Priority:  5,
 					AgentType: &agentType,
 				}
@@ -1003,11 +984,11 @@ func TestTaskService_GetTasksByStatus(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-002", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-003", Status: "in_development", AgentType: &agentType},
-				{Key: "E15-F04-004", Status: "completed", AgentType: &agentType},
-				{Key: "E15-F04-005", Status: "blocked", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "in_development", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004"}, Status: "completed", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-005"}, Status: "blocked", AgentType: &agentType},
 			}, nil
 		},
 	}
@@ -1035,10 +1016,10 @@ func TestTaskService_GetTasksByAgent(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", Priority: 5, AgentType: &backend},
-				{Key: "E15-F04-002", Status: "todo", Priority: 8, AgentType: &backend},
-				{Key: "E15-F04-003", Status: "in_development", Priority: 7, AgentType: &frontend},
-				{Key: "E15-F04-004", Status: "completed", Priority: 6, AgentType: &qa},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", Priority: 5, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "todo", Priority: 8, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "in_development", Priority: 7, AgentType: &frontend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004"}, Status: "completed", Priority: 6, AgentType: &qa},
 			}, nil
 		},
 	}
@@ -1064,10 +1045,10 @@ func TestTaskService_GetBlockedTasks(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-002", Status: "blocked", AgentType: &agentType},
-				{Key: "E15-F04-003", Status: "in_development", AgentType: &agentType},
-				{Key: "E15-F04-004", Status: "blocked", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "blocked", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "in_development", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004"}, Status: "blocked", AgentType: &agentType},
 			}, nil
 		},
 	}
@@ -1095,9 +1076,9 @@ func TestTaskQueryBuilder_WithStatus(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", Priority: 5, AgentType: &agentType},
-				{Key: "E15-F04-002", Status: "in_development", Priority: 8, AgentType: &agentType},
-				{Key: "E15-F04-003", Status: "todo", Priority: 3, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", Priority: 5, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "in_development", Priority: 8, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "todo", Priority: 3, AgentType: &agentType},
 			}, nil
 		},
 	}
@@ -1125,9 +1106,9 @@ func TestTaskQueryBuilder_WithAgent(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", AgentType: &backend},
-				{Key: "E15-F04-002", Status: "todo", AgentType: &frontend},
-				{Key: "E15-F04-003", Status: "todo", AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "todo", AgentType: &frontend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "todo", AgentType: &backend},
 			}, nil
 		},
 	}
@@ -1154,10 +1135,10 @@ func TestTaskQueryBuilder_WithPriorityRange(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", Priority: 3, AgentType: &agentType},
-				{Key: "E15-F04-002", Status: "todo", Priority: 5, AgentType: &agentType},
-				{Key: "E15-F04-003", Status: "todo", Priority: 8, AgentType: &agentType},
-				{Key: "E15-F04-004", Status: "todo", Priority: 10, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", Priority: 3, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "todo", Priority: 5, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "todo", Priority: 8, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004"}, Status: "todo", Priority: 10, AgentType: &agentType},
 			}, nil
 		},
 	}
@@ -1185,9 +1166,9 @@ func TestTaskQueryBuilder_WithTitleSearch(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Title: "Implement user authentication", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-002", Title: "Add database migration", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-003", Title: "Implement JWT token validation", Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001", Title: "Implement user authentication"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002", Title: "Add database migration"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003", Title: "Implement JWT token validation"}, Status: "todo", AgentType: &agentType},
 			}, nil
 		},
 	}
@@ -1214,9 +1195,9 @@ func TestTaskQueryBuilder_SortBy(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Title: "Task A", Status: "todo", Priority: 5, AgentType: &agentType},
-				{Key: "E15-F04-002", Title: "Task B", Status: "todo", Priority: 8, AgentType: &agentType},
-				{Key: "E15-F04-003", Title: "Task C", Status: "todo", Priority: 3, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001", Title: "Task A"}, Status: "todo", Priority: 5, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002", Title: "Task B"}, Status: "todo", Priority: 8, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003", Title: "Task C"}, Status: "todo", Priority: 3, AgentType: &agentType},
 			}, nil
 		},
 	}
@@ -1242,9 +1223,7 @@ func TestTaskQueryBuilder_Paginate(t *testing.T) {
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			tasks := make([]*models.Task, 50)
 			for i := 0; i < 50; i++ {
-				tasks[i] = &models.Task{
-					Key:       fmt.Sprintf("E15-F04-%03d", i+1),
-					Status:    "todo",
+				tasks[i] = &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E15-F04-%03d", i+1)}, Status: "todo",
 					Priority:  5,
 					AgentType: &agentType,
 				}
@@ -1274,10 +1253,10 @@ func TestTaskQueryBuilder_ChainedFilters(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Title: "Implement API", Status: "todo", Priority: 5, AgentType: &backend},
-				{Key: "E15-F04-002", Title: "Implement UI", Status: "todo", Priority: 8, AgentType: &frontend},
-				{Key: "E15-F04-003", Title: "Add tests", Status: "in_development", Priority: 7, AgentType: &backend},
-				{Key: "E15-F04-004", Title: "Implement auth", Status: "todo", Priority: 9, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001", Title: "Implement API"}, Status: "todo", Priority: 5, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002", Title: "Implement UI"}, Status: "todo", Priority: 8, AgentType: &frontend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003", Title: "Add tests"}, Status: "in_development", Priority: 7, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004", Title: "Implement auth"}, Status: "todo", Priority: 9, AgentType: &backend},
 			}, nil
 		},
 	}
@@ -1334,15 +1313,15 @@ func TestTaskService_ValidateDependencies_CircularDependency(t *testing.T) {
 			switch taskKey {
 			case "E15-F04-001":
 				return []*models.Task{
-					{Key: "E15-F04-002", Status: "completed", DependsOn: &dep1}, // Completed to pass first check
+					{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "completed", DependsOn: &dep1}, // Completed to pass first check
 				}, nil
 			case "E15-F04-002":
 				return []*models.Task{
-					{Key: "E15-F04-003", Status: "completed", DependsOn: &dep2}, // Completed to pass first check
+					{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "completed", DependsOn: &dep2}, // Completed to pass first check
 				}, nil
 			case "E15-F04-003":
 				return []*models.Task{
-					{Key: "E15-F04-001", Status: "completed", DependsOn: &dep3}, // Completed to pass first check
+					{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "completed", DependsOn: &dep3}, // Completed to pass first check
 				}, nil
 			}
 			return []*models.Task{}, nil
@@ -1365,7 +1344,7 @@ func TestTaskService_ValidateDependencies_DependencyNotCompleted(t *testing.T) {
 		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
 			emptyDeps := "[]"
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", DependsOn: &emptyDeps}, // Dependency not completed
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", DependsOn: &emptyDeps}, // Dependency not completed
 			}, nil
 		},
 	}
@@ -1392,18 +1371,14 @@ func TestTaskService_GetDependencyTree(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			switch key {
 			case "E15-F04-001":
-				return &models.Task{
-					Key:       "E15-F04-001",
-					Title:     "Task 1",
-					Status:    "todo",
+				return &models.Task{BaseEntity: models.BaseEntity{Key: "E15-F04-001",
+					Title: "Task 1"}, Status: "todo",
 					Priority:  5,
 					DependsOn: &emptyDeps,
 				}, nil
 			case "E15-F04-002":
-				return &models.Task{
-					Key:       "E15-F04-002",
-					Title:     "Task 2",
-					Status:    "todo",
+				return &models.Task{BaseEntity: models.BaseEntity{Key: "E15-F04-002",
+					Title: "Task 2"}, Status: "todo",
 					Priority:  5,
 					DependsOn: &dep1,
 				}, nil
@@ -1416,7 +1391,7 @@ func TestTaskService_GetDependencyTree(t *testing.T) {
 			case "E15-F04-002":
 				// Task 2 depends on Task 1 (has it in DependsOn field)
 				return []*models.Task{
-					{Key: "E15-F04-001", Title: "Task 1", Status: "completed", Priority: 5},
+					{BaseEntity: models.BaseEntity{Key: "E15-F04-001", Title: "Task 1"}, Status: "completed", Priority: 5},
 				}, nil
 			case "E15-F04-001":
 				// Task 1 has no dependencies
@@ -1503,9 +1478,9 @@ func TestTaskService_AddDependency_Happy_Path(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			switch key {
 			case "E07-F01-002":
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002"}}, nil
 			case "E07-F01-001":
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001"}}, nil
 			}
 			return nil, fmt.Errorf("task not found: %s", key)
 		},
@@ -1562,7 +1537,7 @@ func TestTaskService_AddDependency_SelfDependency(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			// Both keys resolve to same task ID
-			return &models.Task{ID: 1, Key: key}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 	}
 
@@ -1581,9 +1556,9 @@ func TestTaskService_AddDependency_DepRepoError(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			switch key {
 			case "E07-F01-002":
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002"}}, nil
 			case "E07-F01-001":
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},
@@ -1616,9 +1591,9 @@ func TestTaskService_RemoveDependency_Happy_Path(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			switch key {
 			case "E07-F01-002":
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002"}}, nil
 			case "E07-F01-001":
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},
@@ -1678,13 +1653,13 @@ func TestTaskService_ListDependencies_Happy_Path(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			if key == "E07-F01-002" {
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
 			if id == 1 {
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},
@@ -1713,7 +1688,7 @@ func TestTaskService_ListDependencies_Happy_Path(t *testing.T) {
 func TestTaskService_ListDependencies_NoDependencies(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: 1, Key: key}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
 		},
 	}
 
@@ -1772,9 +1747,9 @@ func TestTaskService_UnlinkFile_Happy_Path(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			switch key {
 			case "E07-F01-002":
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002"}}, nil
 			case "E07-F01-001":
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001"}}, nil
 			}
 			return nil, fmt.Errorf("not found")
 		},
@@ -1832,7 +1807,7 @@ func TestTaskService_UnlinkFile_TargetTaskNotFound(t *testing.T) {
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			callCount++
 			if callCount == 1 {
-				return &models.Task{ID: 2, Key: key}, nil // First call succeeds (taskKey)
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 2, Key: key}}, nil // First call succeeds (taskKey)
 			}
 			return nil, fmt.Errorf("not found") // Second call fails (targetKey)
 		},
@@ -1915,7 +1890,7 @@ func TestTaskService_GetWorkSessions_Happy_Path(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			assert.Equal(t, "E07-F01-001", key)
-			return &models.Task{ID: 42, Key: "E07-F01-001", Title: "Test Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 42, Key: "E07-F01-001", Title: "Test Task"}}, nil
 		},
 	}
 	mockSessionRepo := &MockWorkSessionRepository{
@@ -1984,7 +1959,7 @@ func TestTaskService_GetWorkSessions_Sessions_Repository_Error(t *testing.T) {
 	// Arrange
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: 1, Key: key, Title: "Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Task"}}, nil
 		},
 	}
 	mockSessionRepo := &MockWorkSessionRepository{
@@ -2009,7 +1984,7 @@ func TestTaskService_GetWorkSessions_Stats_Repository_Error(t *testing.T) {
 	// Arrange
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: 1, Key: key, Title: "Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Task"}}, nil
 		},
 	}
 	mockSessionRepo := &MockWorkSessionRepository{
@@ -2037,7 +2012,7 @@ func TestTaskService_GetWorkSessions_Empty_Sessions(t *testing.T) {
 	// Arrange: task exists but has no sessions
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: 5, Key: key, Title: "New Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 5, Key: key, Title: "New Task"}}, nil
 		},
 	}
 	mockSessionRepo := &MockWorkSessionRepository{
@@ -2176,10 +2151,8 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	var capturedParams models.StatusUpdateParams
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        6,
-				Key:       "T-E07-F01-006",
-				Status:    "todo",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 6,
+				Key: "T-E07-F01-006"}, Status: "todo",
 				FeatureID: 10,
 			}, nil
 		},
@@ -2213,10 +2186,8 @@ func TestTaskService_TransitionStatus_Forced_UsesStatusUpdateRaw(t *testing.T) {
 	var capturedParams models.StatusUpdateParams
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        7,
-				Key:       "T-E07-F01-007",
-				Status:    "completed",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 7,
+				Key: "T-E07-F01-007"}, Status: "completed",
 				FeatureID: 10,
 			}, nil
 		},
@@ -2244,10 +2215,8 @@ func TestTaskService_TransitionStatus_BackwardRequiresReason(t *testing.T) {
 	// when going through TransitionStatus (not the named lifecycle methods)
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        8,
-				Key:       "T-E07-F01-008",
-				Status:    "ready_for_review",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 8,
+				Key: "T-E07-F01-008"}, Status: "ready_for_review",
 				FeatureID: 10,
 			}, nil
 		},
@@ -2277,10 +2246,8 @@ func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 	// Verify that auto-unblocked keys are included in the TransitionResult message
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        11,
-				Key:       "T-E07-F01-011",
-				Status:    "in_progress",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 11,
+				Key: "T-E07-F01-011"}, Status: "in_progress",
 				FeatureID: 10,
 			}, nil
 		},
@@ -2318,7 +2285,7 @@ func TestTaskService_GetTaskDisplayData_ValidJSON(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	task := &models.Task{ID: 42, Key: "E01-F01-002"}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 42, Key: "E01-F01-002"}}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
 
@@ -2365,7 +2332,7 @@ func TestTaskService_GetTaskDisplayData_EmptyArrays(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	task := &models.Task{ID: 1, Key: "E01-F01-001"}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"}}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
 
@@ -2392,7 +2359,7 @@ func TestTaskService_GetTaskDisplayData_RepoError(t *testing.T) {
 	}
 
 	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
-	task := &models.Task{ID: 1, Key: "E01-F01-001"}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"}}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
 

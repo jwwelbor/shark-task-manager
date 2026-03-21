@@ -27,10 +27,8 @@ func TestTaskContextSetAndGet(t *testing.T) {
 
 	// Create test epic
 	priority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      priority,
 		BusinessValue: &priority,
 	}
@@ -39,10 +37,9 @@ func TestTaskContextSetAndGet(t *testing.T) {
 
 	// Create test feature
 	execOrder := 1
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            "E99-F01",
-		Title:          "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusActive,
 		ExecutionOrder: &execOrder,
 	}
@@ -50,12 +47,11 @@ func TestTaskContextSetAndGet(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test task
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-001",
-		Title:     "Test Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-001",
+		Title: "Test Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -100,10 +96,8 @@ func TestTaskContextCompletedSteps(t *testing.T) {
 
 	// Create test data
 	priority := models.PriorityMedium
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      priority,
 		BusinessValue: &priority,
 	}
@@ -111,22 +105,20 @@ func TestTaskContextCompletedSteps(t *testing.T) {
 	require.NoError(t, err)
 
 	execOrder := 1
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            "E99-F01",
-		Title:          "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusActive,
 		ExecutionOrder: &execOrder,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-002",
-		Title:     "Test Task 2",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  7,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-002",
+		Title: "Test Task 2"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 7,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -174,10 +166,8 @@ func TestWorkSessionCreationAndRetrieval(t *testing.T) {
 
 	// Create test data
 	priority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      priority,
 		BusinessValue: &priority,
 	}
@@ -185,22 +175,20 @@ func TestWorkSessionCreationAndRetrieval(t *testing.T) {
 	require.NoError(t, err)
 
 	execOrder := 1
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            "E99-F01",
-		Title:          "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusActive,
 		ExecutionOrder: &execOrder,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-003",
-		Title:     "Test Task 3",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-003",
+		Title: "Test Task 3"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -255,10 +243,8 @@ func TestWorkSessionStats(t *testing.T) {
 
 	// Create test data
 	priority := models.PriorityMedium
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      priority,
 		BusinessValue: &priority,
 	}
@@ -266,22 +252,20 @@ func TestWorkSessionStats(t *testing.T) {
 	require.NoError(t, err)
 
 	execOrder := 1
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            "E99-F01",
-		Title:          "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusActive,
 		ExecutionOrder: &execOrder,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-004",
-		Title:     "Test Task 4",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-004",
+		Title: "Test Task 4"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -356,10 +340,8 @@ func TestSessionAnalyticsByEpic(t *testing.T) {
 
 	// Create test data
 	priority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      priority,
 		BusinessValue: &priority,
 	}
@@ -367,10 +349,9 @@ func TestSessionAnalyticsByEpic(t *testing.T) {
 	require.NoError(t, err)
 
 	execOrder := 1
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            "E99-F01",
-		Title:          "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusActive,
 		ExecutionOrder: &execOrder,
 	}
@@ -380,12 +361,11 @@ func TestSessionAnalyticsByEpic(t *testing.T) {
 	// Create multiple tasks with sessions
 	for i := 1; i <= 3; i++ {
 		taskKey := fmt.Sprintf("T-E99-F01-%03d", i)
-		task := &models.Task{
-			FeatureID: feature.ID,
-			Key:       taskKey,
-			Title:     "Test Task",
-			Status:    models.TaskStatus("todo"),
-			Priority:  5,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
+			Title: "Test Task"}, FeatureID: feature.ID,
+
+			Status:   models.TaskStatus("todo"),
+			Priority: 5,
 		}
 		err = taskRepo.Create(ctx, task)
 		require.NoError(t, err)
@@ -544,11 +524,9 @@ func TestContextDataJSONRoundTrip(t *testing.T) {
 func TestResumeContextStructure(t *testing.T) {
 	// Create sample data
 	currentStep := "Testing"
-	task := &models.Task{
-		ID:       1,
-		Key:      "T-E99-F01-001",
-		Title:    "Test Task",
-		Status:   models.TaskStatus("in_progress"),
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E99-F01-001",
+		Title: "Test Task"}, Status: models.TaskStatus("in_progress"),
 		Priority: 5,
 	}
 

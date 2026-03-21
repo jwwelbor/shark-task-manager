@@ -10,25 +10,18 @@ type TaskStatus string
 
 // Task represents an atomic work unit within a feature
 type Task struct {
-	ID             int64        `json:"id" db:"id"`
+	BaseEntity                  // 9 shared fields + 10 accessor methods
 	FeatureID      int64        `json:"feature_id" db:"feature_id"`
-	Key            string       `json:"key" db:"key"`
-	Title          string       `json:"title" db:"title"`
-	Slug           *string      `json:"slug,omitempty" db:"slug"`
-	Description    *string      `json:"description,omitempty" db:"description"`
 	Status         TaskStatus   `json:"status" db:"status"`
 	AgentType      *string      `json:"agent_type,omitempty" db:"agent_type"`
 	Priority       int          `json:"priority" db:"priority"`
 	DependsOn      *string      `json:"depends_on,omitempty" db:"depends_on"` // JSON array
 	AssignedAgent  *string      `json:"assigned_agent,omitempty" db:"assigned_agent"`
-	FilePath       *string      `json:"file_path,omitempty" db:"file_path"`
 	BlockedReason  *string      `json:"blocked_reason,omitempty" db:"blocked_reason"`
 	ExecutionOrder *int         `json:"execution_order,omitempty" db:"execution_order"`
-	CreatedAt      time.Time    `json:"created_at" db:"created_at"`
 	StartedAt      sql.NullTime `json:"started_at,omitempty" db:"started_at"`
 	CompletedAt    sql.NullTime `json:"completed_at,omitempty" db:"completed_at"`
 	BlockedAt      sql.NullTime `json:"blocked_at,omitempty" db:"blocked_at"`
-	UpdatedAt      time.Time    `json:"updated_at" db:"updated_at"`
 
 	// Completion metadata fields
 	CompletedBy        *string             `json:"completed_by,omitempty" db:"completed_by"`
@@ -37,9 +30,6 @@ type Task struct {
 	TestsPassed        bool                `json:"tests_passed" db:"tests_passed"`
 	VerificationStatus *VerificationStatus `json:"verification_status,omitempty" db:"verification_status"`
 	TimeSpentMinutes   *int                `json:"time_spent_minutes,omitempty" db:"time_spent_minutes"`
-
-	// Context data for resume workflow
-	ContextData *string `json:"context_data,omitempty" db:"context_data"` // JSON structured resume context
 
 	// Metadata for task properties (e.g., complexity_tier for templates)
 	Metadata map[string]interface{} `json:"metadata,omitempty" db:"-"` // Not persisted to DB, derived from related data
@@ -51,38 +41,9 @@ type Task struct {
 
 // Entity interface implementation for Task.
 
-func (t *Task) GetID() int64              { return t.ID }
-func (t *Task) GetKey() string            { return t.Key }
-func (t *Task) GetTitle() string          { return t.Title }
 func (t *Task) GetEntityType() EntityType { return EntityTypeTask }
 func (t *Task) GetStatus() string         { return string(t.Status) }
 func (t *Task) SetStatus(status string)   { t.Status = TaskStatus(status) }
-func (t *Task) GetCreatedAt() time.Time   { return t.CreatedAt }
-func (t *Task) GetUpdatedAt() time.Time   { return t.UpdatedAt }
-
-func (t *Task) GetSlug() string {
-	if t.Slug != nil {
-		return *t.Slug
-	}
-	return ""
-}
-
-func (t *Task) GetDescription() string {
-	if t.Description != nil {
-		return *t.Description
-	}
-	return ""
-}
-
-func (t *Task) GetFilePath() string {
-	if t.FilePath != nil {
-		return *t.FilePath
-	}
-	return ""
-}
-
-func (t *Task) GetContextData() *string     { return t.ContextData }
-func (t *Task) SetContextData(data *string) { t.ContextData = data }
 
 // Validate validates the Task fields
 func (t *Task) Validate() error {

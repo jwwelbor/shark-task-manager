@@ -397,10 +397,8 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 
 	// Create task model
 	agentType := input.AgentType
-	task := &models.Task{
-		Key:            taskKey,
-		Title:          input.Title,
-		Status:         models.TaskStatus(s.entitySvc.GetWorkflowService().GetDefaultStatus()),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
+		Title: input.Title}, Status: models.TaskStatus(s.entitySvc.GetWorkflowService().GetDefaultStatus()),
 		Priority:       priority,
 		AgentType:      &agentType,
 		ExecutionOrder: nil,

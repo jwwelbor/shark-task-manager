@@ -43,9 +43,11 @@ func main() {
 
 	businessValue := models.PriorityHigh
 	epic := &models.Epic{
-		Key:           "E04",
-		Title:         "Task Management CLI - Core Functionality",
-		Description:   strPtr("Complete database schema and repositories"),
+		BaseEntity: models.BaseEntity{
+			Key:         "E04",
+			Title:       "Task Management CLI - Core Functionality",
+			Description: strPtr("Complete database schema and repositories"),
+		},
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &businessValue,
@@ -65,11 +67,10 @@ func main() {
 	// Test Feature CRUD
 	fmt.Println("\n--- Testing Feature CRUD ---")
 
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E04-F01",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E04-F01",
 		Title:       "Database Schema & Core Data Model",
-		Description: strPtr("SQLite database with epics, features, tasks, and history"),
+		Description: strPtr("SQLite database with epics, features, tasks, and history")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -83,15 +84,14 @@ func main() {
 	fmt.Println("\n--- Testing Task CRUD ---")
 
 	agentType := "backend"
-	task := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         "T-E04-F01-001",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E04-F01-001",
 		Title:       "Create ORM Models",
-		Description: strPtr("Define Epic, Feature, Task, TaskHistory models"),
-		Status:      models.TaskStatus("todo"),
-		AgentType:   &agentType,
-		Priority:    3,
-		DependsOn:   strPtr("[]"),
+		Description: strPtr("Define Epic, Feature, Task, TaskHistory models")}, FeatureID: feature.ID,
+
+		Status:    models.TaskStatus("todo"),
+		AgentType: &agentType,
+		Priority:  3,
+		DependsOn: strPtr("[]"),
 	}
 
 	if err := taskRepo.Create(ctx, task); err != nil {

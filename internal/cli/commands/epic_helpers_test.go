@@ -22,11 +22,11 @@ func TestBuildEpicPlanningBasicInfo(t *testing.T) {
 				desc := "Epic description"
 				bv := models.PriorityHigh
 				return &services.EpicDisplayInfo{
-					Epic: &models.Epic{
-						Title:         "User Authentication",
-						Status:        models.EpicStatusActive,
-						Priority:      models.PriorityHigh,
-						Description:   &desc,
+					Epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "User Authentication",
+
+						Description: &desc}, Status: models.EpicStatusActive,
+						Priority: models.PriorityHigh,
+
 						BusinessValue: &bv,
 					},
 					Phase:            "development",
@@ -48,10 +48,7 @@ func TestBuildEpicPlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-buildEpicPlanningBasicInfo-002: Minimal fields (only required)",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:  "Minimal Epic",
-					Status: models.EpicStatusDraft,
-				},
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Minimal Epic"}, Status: models.EpicStatusDraft},
 			},
 			want: [][]string{
 				{"Title", "Minimal Epic"},
@@ -61,11 +58,10 @@ func TestBuildEpicPlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-buildEpicPlanningBasicInfo-003: Nil description omitted",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:       "No Description",
-					Status:      models.EpicStatusActive,
-					Priority:    models.PriorityMedium,
-					Description: nil,
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "No Description",
+
+					Description: nil}, Status: models.EpicStatusActive,
+					Priority: models.PriorityMedium,
 				},
 			},
 			want: [][]string{
@@ -79,10 +75,9 @@ func TestBuildEpicPlanningBasicInfo(t *testing.T) {
 			info: func() *services.EpicDisplayInfo {
 				empty := ""
 				return &services.EpicDisplayInfo{
-					Epic: &models.Epic{
-						Title:       "Empty Description",
-						Status:      models.EpicStatusActive,
-						Description: &empty,
+					Epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Empty Description",
+
+						Description: &empty}, Status: models.EpicStatusActive,
 					},
 				}
 			}(),
@@ -94,9 +89,7 @@ func TestBuildEpicPlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-buildEpicPlanningBasicInfo-005: Empty priority omitted",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:    "No Priority",
-					Status:   models.EpicStatusDraft,
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "No Priority"}, Status: models.EpicStatusDraft,
 					Priority: "",
 				},
 			},
@@ -108,10 +101,7 @@ func TestBuildEpicPlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-buildEpicPlanningBasicInfo-006: Empty path omitted",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:  "No Path",
-					Status: models.EpicStatusDraft,
-				},
+				Epic:         &models.Epic{BaseEntity: models.BaseEntity{Title: "No Path"}, Status: models.EpicStatusDraft},
 				ResolvedPath: "",
 			},
 			want: [][]string{
@@ -122,9 +112,7 @@ func TestBuildEpicPlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-buildEpicPlanningBasicInfo-007: Nil business value omitted",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:         "No BV",
-					Status:        models.EpicStatusActive,
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "No BV"}, Status: models.EpicStatusActive,
 					BusinessValue: nil,
 				},
 			},
@@ -136,10 +124,7 @@ func TestBuildEpicPlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-buildEpicPlanningBasicInfo-008: Phase present without phase description",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:  "Phase Only",
-					Status: models.EpicStatusActive,
-				},
+				Epic:  &models.Epic{BaseEntity: models.BaseEntity{Title: "Phase Only"}, Status: models.EpicStatusActive},
 				Phase: "planning",
 			},
 			want: [][]string{
@@ -176,11 +161,11 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 			epic: func() *models.Epic {
 				desc := "Full epic"
 				bv := models.PriorityHigh
-				return &models.Epic{
-					Title:         "Full Epic",
-					Status:        models.EpicStatusActive,
-					Priority:      models.PriorityHigh,
-					Description:   &desc,
+				return &models.Epic{BaseEntity: models.BaseEntity{Title: "Full Epic",
+
+					Description: &desc}, Status: models.EpicStatusActive,
+					Priority: models.PriorityHigh,
+
 					BusinessValue: &bv,
 				}
 			}(),
@@ -200,9 +185,7 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-buildEpicAggregationBasicInfo-002: Minimal fields",
-			epic: &models.Epic{
-				Title:    "Minimal",
-				Status:   models.EpicStatusDraft,
+			epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Minimal"}, Status: models.EpicStatusDraft,
 				Priority: models.PriorityLow,
 			},
 			progress: 0.0,
@@ -217,9 +200,7 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-buildEpicAggregationBasicInfo-003: 100% progress",
-			epic: &models.Epic{
-				Title:    "Complete",
-				Status:   models.EpicStatusCompleted,
+			epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Complete"}, Status: models.EpicStatusCompleted,
 				Priority: models.PriorityMedium,
 			},
 			progress: 100.0,
@@ -234,11 +215,10 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-buildEpicAggregationBasicInfo-004: Nil description omitted",
-			epic: &models.Epic{
-				Title:       "No Desc",
-				Status:      models.EpicStatusActive,
-				Priority:    models.PriorityMedium,
-				Description: nil,
+			epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "No Desc",
+
+				Description: nil}, Status: models.EpicStatusActive,
+				Priority: models.PriorityMedium,
 			},
 			progress: 50.0,
 			path:     "",
@@ -254,11 +234,10 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 			name: "TC-buildEpicAggregationBasicInfo-005: Empty description omitted",
 			epic: func() *models.Epic {
 				empty := ""
-				return &models.Epic{
-					Title:       "Empty Desc",
-					Status:      models.EpicStatusActive,
-					Priority:    models.PriorityMedium,
-					Description: &empty,
+				return &models.Epic{BaseEntity: models.BaseEntity{Title: "Empty Desc",
+
+					Description: &empty}, Status: models.EpicStatusActive,
+					Priority: models.PriorityMedium,
 				}
 			}(),
 			progress: 25.0,
@@ -273,9 +252,7 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-buildEpicAggregationBasicInfo-006: Path without filename",
-			epic: &models.Epic{
-				Title:    "Path Only",
-				Status:   models.EpicStatusActive,
+			epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Path Only"}, Status: models.EpicStatusActive,
 				Priority: models.PriorityMedium,
 			},
 			progress: 10.0,
@@ -291,9 +268,7 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-buildEpicAggregationBasicInfo-007: Filename without path",
-			epic: &models.Epic{
-				Title:    "Filename Only",
-				Status:   models.EpicStatusActive,
+			epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Filename Only"}, Status: models.EpicStatusActive,
 				Priority: models.PriorityMedium,
 			},
 			progress: 10.0,
@@ -309,9 +284,7 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-buildEpicAggregationBasicInfo-008: Nil business value omitted",
-			epic: &models.Epic{
-				Title:         "No BV",
-				Status:        models.EpicStatusActive,
+			epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "No BV"}, Status: models.EpicStatusActive,
 				Priority:      models.PriorityMedium,
 				BusinessValue: nil,
 			},
@@ -327,9 +300,7 @@ func TestBuildEpicAggregationBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-buildEpicAggregationBasicInfo-009: Fractional progress rounds correctly",
-			epic: &models.Epic{
-				Title:    "Fractional",
-				Status:   models.EpicStatusActive,
+			epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Fractional"}, Status: models.EpicStatusActive,
 				Priority: models.PriorityMedium,
 			},
 			progress: 33.333,
@@ -365,17 +336,14 @@ func TestRenderEpicPlanningSpecific_NoPanic(t *testing.T) {
 		{
 			name: "TC-renderEpicPlanningSpecific-001: With workflow position and features",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:  "Test Epic",
-					Status: models.EpicStatusActive,
-				},
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Test Epic"}, Status: models.EpicStatusActive},
 				WorkflowPosition: &services.WorkflowPosition{
 					Statuses:     []string{"draft", "active", "completed"},
 					CurrentIndex: 1,
 				},
 				Features: []services.FeatureDisplayItem{
 					{
-						Feature:   &models.Feature{Key: "E07-F01", Title: "Feature 1", Status: "active"},
+						Feature:   &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01", Title: "Feature 1"}, Status: "active"},
 						TaskCount: 5,
 						Phase:     "development",
 					},
@@ -385,10 +353,7 @@ func TestRenderEpicPlanningSpecific_NoPanic(t *testing.T) {
 		{
 			name: "TC-renderEpicPlanningSpecific-002: No workflow position",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:  "No Position",
-					Status: models.EpicStatusDraft,
-				},
+				Epic:             &models.Epic{BaseEntity: models.BaseEntity{Title: "No Position"}, Status: models.EpicStatusDraft},
 				WorkflowPosition: nil,
 				Features:         []services.FeatureDisplayItem{},
 			},
@@ -396,23 +361,17 @@ func TestRenderEpicPlanningSpecific_NoPanic(t *testing.T) {
 		{
 			name: "TC-renderEpicPlanningSpecific-003: No features",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:  "No Features",
-					Status: models.EpicStatusDraft,
-				},
+				Epic:     &models.Epic{BaseEntity: models.BaseEntity{Title: "No Features"}, Status: models.EpicStatusDraft},
 				Features: nil,
 			},
 		},
 		{
 			name: "TC-renderEpicPlanningSpecific-004: Feature with empty phase",
 			info: &services.EpicDisplayInfo{
-				Epic: &models.Epic{
-					Title:  "Empty Phase Feature",
-					Status: models.EpicStatusActive,
-				},
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{Title: "Empty Phase Feature"}, Status: models.EpicStatusActive},
 				Features: []services.FeatureDisplayItem{
 					{
-						Feature:   &models.Feature{Key: "E07-F01", Title: "Feature 1", Status: "draft"},
+						Feature:   &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01", Title: "Feature 1"}, Status: "draft"},
 						TaskCount: 0,
 						Phase:     "",
 					},
@@ -449,12 +408,12 @@ func TestRenderEpicAggregationSpecific_NoPanic(t *testing.T) {
 			featureRollup: map[string]int{"active": 3, "completed": 2},
 			taskRollup:    map[string]int{"todo": 5, "in_progress": 3, "completed": 10},
 			blockedTasks: []*models.Task{
-				{Key: "E07-F01-001", Title: "Blocked Task"},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Blocked Task"}},
 			},
 			approvalBacklogCount: 2,
 			features: []FeatureWithDetails{
 				{
-					Feature:   &models.Feature{Key: "E07-F01", Title: "Feature 1", Status: "active"},
+					Feature:   &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01", Title: "Feature 1"}, Status: "active"},
 					TaskCount: 5,
 				},
 			},
@@ -481,7 +440,7 @@ func TestRenderEpicAggregationSpecific_NoPanic(t *testing.T) {
 			blockedTasks: func() []*models.Task {
 				reason := "Waiting on API"
 				return []*models.Task{
-					{Key: "E07-F01-001", Title: "Blocked", BlockedReason: &reason},
+					{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Blocked"}, BlockedReason: &reason},
 				}
 			}(),
 			approvalBacklogCount: 0,
@@ -502,13 +461,13 @@ func TestRenderEpicAggregationSpecific_NoPanic(t *testing.T) {
 			blockedTasks:  nil,
 			features: []FeatureWithDetails{
 				{
-					Feature:    &models.Feature{Key: "E07-F01", Title: "Planning Feature", Status: "draft"},
+					Feature:    &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01", Title: "Planning Feature"}, Status: "draft"},
 					TaskCount:  0,
 					IsPlanning: true,
 					Phase:      "planning",
 				},
 				{
-					Feature:    &models.Feature{Key: "E07-F02", Title: "Active Feature with a very long title that should be truncated by the renderer", Status: "active"},
+					Feature:    &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02", Title: "Active Feature with a very long title that should be truncated by the renderer"}, Status: "active"},
 					TaskCount:  10,
 					IsPlanning: false,
 				},
@@ -539,9 +498,9 @@ func TestSortEpics(t *testing.T) {
 		{
 			name: "Sort by key (default)",
 			epics: []EpicWithProgress{
-				{Epic: &models.Epic{Key: "E03"}, ProgressPct: 50},
-				{Epic: &models.Epic{Key: "E01"}, ProgressPct: 75},
-				{Epic: &models.Epic{Key: "E02"}, ProgressPct: 25},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E03"}}, ProgressPct: 50},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E01"}}, ProgressPct: 75},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E02"}}, ProgressPct: 25},
 			},
 			sortBy:   "key",
 			wantKeys: []string{"E01", "E02", "E03"},
@@ -549,9 +508,9 @@ func TestSortEpics(t *testing.T) {
 		{
 			name: "Sort by progress",
 			epics: []EpicWithProgress{
-				{Epic: &models.Epic{Key: "E01"}, ProgressPct: 75},
-				{Epic: &models.Epic{Key: "E02"}, ProgressPct: 25},
-				{Epic: &models.Epic{Key: "E03"}, ProgressPct: 50},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E01"}}, ProgressPct: 75},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E02"}}, ProgressPct: 25},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E03"}}, ProgressPct: 50},
 			},
 			sortBy:   "progress",
 			wantKeys: []string{"E02", "E03", "E01"},
@@ -559,9 +518,9 @@ func TestSortEpics(t *testing.T) {
 		{
 			name: "Sort by status",
 			epics: []EpicWithProgress{
-				{Epic: &models.Epic{Key: "E01", Status: models.EpicStatusCompleted}},
-				{Epic: &models.Epic{Key: "E02", Status: models.EpicStatusDraft}},
-				{Epic: &models.Epic{Key: "E03", Status: models.EpicStatusActive}},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E01"}, Status: models.EpicStatusCompleted}},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E02"}, Status: models.EpicStatusDraft}},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E03"}, Status: models.EpicStatusActive}},
 			},
 			sortBy:   "status",
 			wantKeys: []string{"E02", "E03", "E01"},
@@ -569,8 +528,8 @@ func TestSortEpics(t *testing.T) {
 		{
 			name: "Default sort (empty string) sorts by key",
 			epics: []EpicWithProgress{
-				{Epic: &models.Epic{Key: "E03"}},
-				{Epic: &models.Epic{Key: "E01"}},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E03"}}},
+				{Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E01"}}},
 			},
 			sortBy:   "",
 			wantKeys: []string{"E01", "E03"},

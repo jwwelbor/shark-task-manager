@@ -106,23 +106,17 @@ func TestBuildDependencyTreeSimple(t *testing.T) {
 	// T3 depends on T2
 	// T2 depends on T1
 	// T1 has no dependencies
-	task1 := &models.Task{
-		ID:     1,
-		Key:    "T-E01-F01-001",
-		Title:  "Base task",
-		Status: models.TaskStatus("completed"),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E01-F01-001",
+		Title: "Base task"}, Status: models.TaskStatus("completed"),
 	}
-	task2 := &models.Task{
-		ID:     2,
-		Key:    "T-E01-F01-002",
-		Title:  "Middle task",
-		Status: models.TaskStatus("in_progress"),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{ID: 2,
+		Key:   "T-E01-F01-002",
+		Title: "Middle task"}, Status: models.TaskStatus("in_progress"),
 	}
-	task3 := &models.Task{
-		ID:     3,
-		Key:    "T-E01-F01-003",
-		Title:  "Top task",
-		Status: models.TaskStatus("todo"),
+	task3 := &models.Task{BaseEntity: models.BaseEntity{ID: 3,
+		Key:   "T-E01-F01-003",
+		Title: "Top task"}, Status: models.TaskStatus("todo"),
 	}
 
 	taskRepo.AddTask(task1)
@@ -167,29 +161,21 @@ func TestBuildDependencyTreeMultipleDeps(t *testing.T) {
 
 	// Create tasks:
 	// T4 depends on T1, T2, T3
-	task1 := &models.Task{
-		ID:     1,
-		Key:    "T-E01-F01-001",
-		Title:  "Dep 1",
-		Status: models.TaskStatus("completed"),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E01-F01-001",
+		Title: "Dep 1"}, Status: models.TaskStatus("completed"),
 	}
-	task2 := &models.Task{
-		ID:     2,
-		Key:    "T-E01-F01-002",
-		Title:  "Dep 2",
-		Status: models.TaskStatus("completed"),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{ID: 2,
+		Key:   "T-E01-F01-002",
+		Title: "Dep 2"}, Status: models.TaskStatus("completed"),
 	}
-	task3 := &models.Task{
-		ID:     3,
-		Key:    "T-E01-F01-003",
-		Title:  "Dep 3",
-		Status: models.TaskStatus("in_progress"),
+	task3 := &models.Task{BaseEntity: models.BaseEntity{ID: 3,
+		Key:   "T-E01-F01-003",
+		Title: "Dep 3"}, Status: models.TaskStatus("in_progress"),
 	}
-	task4 := &models.Task{
-		ID:     4,
-		Key:    "T-E01-F01-004",
-		Title:  "Main task",
-		Status: models.TaskStatus("todo"),
+	task4 := &models.Task{BaseEntity: models.BaseEntity{ID: 4,
+		Key:   "T-E01-F01-004",
+		Title: "Main task"}, Status: models.TaskStatus("todo"),
 	}
 
 	taskRepo.AddTask(task1)
@@ -234,11 +220,9 @@ func TestBuildDependencyTreeNoDeps(t *testing.T) {
 	taskRepo := NewMockTaskRepositoryForTree()
 	relRepo := NewMockRelationshipRepositoryForTree()
 
-	task1 := &models.Task{
-		ID:     1,
-		Key:    "T-E01-F01-001",
-		Title:  "Standalone task",
-		Status: models.TaskStatus("todo"),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E01-F01-001",
+		Title: "Standalone task"}, Status: models.TaskStatus("todo"),
 	}
 
 	taskRepo.AddTask(task1)
@@ -262,23 +246,17 @@ func TestBuildDependencyTreeCircular(t *testing.T) {
 
 	// Create tasks with circular dependency:
 	// T1 -> T2 -> T3 -> T1
-	task1 := &models.Task{
-		ID:     1,
-		Key:    "T-E01-F01-001",
-		Title:  "Task 1",
-		Status: models.TaskStatus("todo"),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E01-F01-001",
+		Title: "Task 1"}, Status: models.TaskStatus("todo"),
 	}
-	task2 := &models.Task{
-		ID:     2,
-		Key:    "T-E01-F01-002",
-		Title:  "Task 2",
-		Status: models.TaskStatus("todo"),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{ID: 2,
+		Key:   "T-E01-F01-002",
+		Title: "Task 2"}, Status: models.TaskStatus("todo"),
 	}
-	task3 := &models.Task{
-		ID:     3,
-		Key:    "T-E01-F01-003",
-		Title:  "Task 3",
-		Status: models.TaskStatus("todo"),
+	task3 := &models.Task{BaseEntity: models.BaseEntity{ID: 3,
+		Key:   "T-E01-F01-003",
+		Title: "Task 3"}, Status: models.TaskStatus("todo"),
 	}
 
 	taskRepo.AddTask(task1)
@@ -324,24 +302,18 @@ func TestBuildDependencyTreeCircular(t *testing.T) {
 func TestRenderTreeSimple(t *testing.T) {
 	// Create a simple tree structure
 	tree := &DependencyTree{
-		Task: &models.Task{
-			Key:    "T-E01-F01-003",
-			Title:  "Top task",
-			Status: models.TaskStatus("todo"),
+		Task: &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-003",
+			Title: "Top task"}, Status: models.TaskStatus("todo"),
 		},
 		Dependencies: []*DependencyTree{
 			{
-				Task: &models.Task{
-					Key:    "T-E01-F01-002",
-					Title:  "Middle task",
-					Status: models.TaskStatus("in_progress"),
+				Task: &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-002",
+					Title: "Middle task"}, Status: models.TaskStatus("in_progress"),
 				},
 				Dependencies: []*DependencyTree{
 					{
-						Task: &models.Task{
-							Key:    "T-E01-F01-001",
-							Title:  "Base task",
-							Status: models.TaskStatus("completed"),
+						Task: &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+							Title: "Base task"}, Status: models.TaskStatus("completed"),
 						},
 						Dependencies: []*DependencyTree{},
 					},

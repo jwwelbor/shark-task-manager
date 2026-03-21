@@ -48,11 +48,9 @@ func TestEpicListingIntegration(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		epicKey := generateTestEpicKey()
 
-		epic := &models.Epic{
-			Key:           epicKey,
-			Title:         fmt.Sprintf("Integration Test Epic %d", i),
-			Description:   strPtr("Epic for integration testing"),
-			Status:        models.EpicStatusActive,
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+			Title:       fmt.Sprintf("Integration Test Epic %d", i),
+			Description: strPtr("Epic for integration testing")}, Status: models.EpicStatusActive,
 			Priority:      models.PriorityMedium,
 			BusinessValue: priorityPtr(models.PriorityHigh),
 		}
@@ -65,12 +63,11 @@ func TestEpicListingIntegration(t *testing.T) {
 
 		// Create a feature with some tasks for each epic
 		featureKey := fmt.Sprintf("%s-F01", epicKey)
-		feature := &models.Feature{
-			EpicID:      epic.ID,
-			Key:         featureKey,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 			Title:       fmt.Sprintf("Feature for epic %s", epicKey),
-			Description: strPtr("Test feature"),
-			Status:      models.FeatureStatusActive,
+			Description: strPtr("Test feature")}, EpicID: epic.ID,
+
+			Status: models.FeatureStatusActive,
 		}
 		_ = featureRepo.Create(ctx, feature)
 		if err != nil {
@@ -127,11 +124,9 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Feature Details Test Epic",
-		Description:   strPtr("Epic for testing feature details"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title:       "Feature Details Test Epic",
+		Description: strPtr("Epic for testing feature details")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: priorityPtr(models.PriorityHigh),
 	}
@@ -142,12 +137,11 @@ func TestFeatureDetailsIntegration(t *testing.T) {
 
 	// Create feature
 	featureKey := fmt.Sprintf("%s-F02", epicKey)
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 		Title:       "Feature with mixed task statuses",
-		Description: strPtr("Testing task breakdown"),
-		Status:      models.FeatureStatusActive,
+		Description: strPtr("Testing task breakdown")}, EpicID: epic.ID,
+
+		Status: models.FeatureStatusActive,
 	}
 	_ = featureRepo.Create(ctx, feature)
 
@@ -206,11 +200,9 @@ func TestFeatureListFilteringIntegration(t *testing.T) {
 
 	// Create epic for filter testing
 	epicKey := generateTestEpicKey()
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         fmt.Sprintf("Epic %s", epicKey),
-		Description:   strPtr("Epic for filter testing"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title:       fmt.Sprintf("Epic %s", epicKey),
+		Description: strPtr("Epic for filter testing")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: priorityPtr(models.PriorityMedium),
 	}
@@ -222,12 +214,11 @@ func TestFeatureListFilteringIntegration(t *testing.T) {
 
 	// Create 3 features for this epic
 	for i := 1; i <= 3; i++ {
-		feature := &models.Feature{
-			EpicID:      epic.ID,
-			Key:         fmt.Sprintf("%s-F%02d", epicKey, i),
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F%02d", epicKey, i),
 			Title:       fmt.Sprintf("Feature %d for %s", i, epicKey),
-			Description: strPtr("Test feature"),
-			Status:      models.FeatureStatusActive,
+			Description: strPtr("Test feature")}, EpicID: epic.ID,
+
+			Status: models.FeatureStatusActive,
 		}
 		_ = featureRepo.Create(ctx, feature)
 	}
@@ -269,11 +260,9 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 		_, _ = database.Exec("DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?)", epicKey)
 		_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 
-		epic := &models.Epic{
-			Key:           epicKey,
-			Title:         "Edge Case Epic",
-			Description:   strPtr("Testing zero tasks"),
-			Status:        models.EpicStatusActive,
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+			Title:       "Edge Case Epic",
+			Description: strPtr("Testing zero tasks")}, Status: models.EpicStatusActive,
 			Priority:      models.PriorityLow,
 			BusinessValue: priorityPtr(models.PriorityLow),
 		}
@@ -282,12 +271,11 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to create epic: %v", err)
 		}
 
-		feature := &models.Feature{
-			EpicID:      epic.ID,
-			Key:         fmt.Sprintf("%s-F01", epicKey),
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F01", epicKey),
 			Title:       "Feature with no tasks",
-			Description: strPtr("Edge case"),
-			Status:      models.FeatureStatusActive,
+			Description: strPtr("Edge case")}, EpicID: epic.ID,
+
+			Status: models.FeatureStatusActive,
 		}
 		_ = featureRepo.Create(ctx, feature)
 
@@ -310,11 +298,9 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 		_, _ = database.Exec("DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?)", epicKey)
 		_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 
-		epic := &models.Epic{
-			Key:           epicKey,
-			Title:         "All Complete Epic",
-			Description:   strPtr("All tasks completed"),
-			Status:        models.EpicStatusActive,
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+			Title:       "All Complete Epic",
+			Description: strPtr("All tasks completed")}, Status: models.EpicStatusActive,
 			Priority:      models.PriorityMedium,
 			BusinessValue: priorityPtr(models.PriorityMedium),
 		}
@@ -323,12 +309,11 @@ func TestProgressCalculationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to create epic: %v", err)
 		}
 
-		feature := &models.Feature{
-			EpicID:      epic.ID,
-			Key:         fmt.Sprintf("%s-F01", epicKey),
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F01", epicKey),
 			Title:       "All tasks complete",
-			Description: strPtr("Edge case"),
-			Status:      models.FeatureStatusActive,
+			Description: strPtr("Edge case")}, EpicID: epic.ID,
+
+			Status: models.FeatureStatusActive,
 		}
 		_ = featureRepo.Create(ctx, feature)
 
@@ -367,11 +352,9 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 	epicKey := generateTestEpicKey()
 
 	// Create epic
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Progress Propagation Test",
-		Description:   strPtr("Testing progress updates"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title:       "Progress Propagation Test",
+		Description: strPtr("Testing progress updates")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: priorityPtr(models.PriorityHigh),
 	}
@@ -382,12 +365,11 @@ func TestMultiLevelProgressPropagation(t *testing.T) {
 	}
 
 	// Create feature with 4 tasks (all todo initially)
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("%s-F01", epicKey),
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F01", epicKey),
 		Title:       "Propagation Test Feature",
-		Description: strPtr("Test feature"),
-		Status:      models.FeatureStatusActive,
+		Description: strPtr("Test feature")}, EpicID: epic.ID,
+
+		Status: models.FeatureStatusActive,
 	}
 	_ = featureRepo.Create(ctx, feature)
 

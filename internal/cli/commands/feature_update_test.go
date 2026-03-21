@@ -76,11 +76,10 @@ func TestFeatureUpdate_StatusCascadeWithForce(t *testing.T) {
 	}
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID:      epicID,
-		Key:         "E98-F01",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F01",
 		Title:       "Test Feature",
-		Description: test.StringPtr("Test"),
+		Description: test.StringPtr("Test")}, EpicID: epicID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -99,12 +98,11 @@ func TestFeatureUpdate_StatusCascadeWithForce(t *testing.T) {
 	}
 
 	for i, status := range statuses {
-		task := &models.Task{
-			FeatureID: feature.ID,
-			Key:       test.GenerateUniqueKey("E98-F01", i+1),
-			Title:     "Test Task " + string(status),
-			Status:    status,
-			Priority:  5,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: test.GenerateUniqueKey("E98-F01", i+1),
+			Title: "Test Task " + string(status)}, FeatureID: feature.ID,
+
+			Status:   status,
+			Priority: 5,
 		}
 		err = taskRepo.Create(ctx, task)
 		if err != nil {

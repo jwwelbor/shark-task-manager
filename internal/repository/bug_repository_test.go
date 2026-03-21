@@ -27,10 +27,8 @@ func bugTestSetup(t *testing.T) (*BugRepository, func()) {
 }
 
 func newTestBug(key, title, status string, severity models.BugSeverity) *models.Bug {
-	return &models.Bug{
-		Key:      key,
-		Title:    title,
-		Status:   models.BugStatus(status),
+	return &models.Bug{BaseEntity: models.BaseEntity{Key: key,
+		Title: title}, Status: models.BugStatus(status),
 		Severity: severity,
 	}
 }
@@ -58,10 +56,8 @@ func TestBugRepository_Create_ValidationFailure(t *testing.T) {
 	defer cleanup()
 
 	// Bug with empty title should fail validation
-	bug := &models.Bug{
-		Key:      "B902",
-		Title:    "",
-		Status:   models.BugStatus("reported"),
+	bug := &models.Bug{BaseEntity: models.BaseEntity{Key: "B902",
+		Title: ""}, Status: models.BugStatus("reported"),
 		Severity: models.BugSeverityHigh,
 	}
 
@@ -513,12 +509,12 @@ func TestBugRepository_NullableFields(t *testing.T) {
 	linkedType := "feature"
 	linkedKey := "E07-F01"
 
-	bug := &models.Bug{
-		Key:              "B980",
-		Title:            "Bug with nullable fields",
-		Status:           models.BugStatus("reported"),
-		Severity:         models.BugSeverityHigh,
-		Description:      &description,
+	bug := &models.Bug{BaseEntity: models.BaseEntity{Key: "B980",
+		Title: "Bug with nullable fields",
+
+		Description: &description}, Status: models.BugStatus("reported"),
+		Severity: models.BugSeverityHigh,
+
 		LinkedEntityType: &linkedType,
 		LinkedEntityKey:  &linkedKey,
 	}

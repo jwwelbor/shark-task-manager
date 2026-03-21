@@ -194,7 +194,7 @@ func (m *mockChangeCardAdapterRepo) UpdateContextData(ctx context.Context, id in
 // --- Epic Adapter Tests (thorough) ---
 
 func TestEpicAdapter_GetByKey(t *testing.T) {
-	epic := &models.Epic{ID: 1, Key: "E01", Title: "Test Epic", Status: "active"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"}, Status: "active"}
 	mock := &mockEpicAdapterRepo{
 		getByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
 			if key != "E01" {
@@ -230,7 +230,7 @@ func TestEpicAdapter_GetByKey_Error(t *testing.T) {
 }
 
 func TestEpicAdapter_GetByID(t *testing.T) {
-	epic := &models.Epic{ID: 5, Key: "E05", Title: "Epic Five"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 5, Key: "E05", Title: "Epic Five"}}
 	mock := &mockEpicAdapterRepo{
 		getByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
 			if id != 5 {
@@ -271,7 +271,7 @@ func TestEpicAdapter_UpdateStatus(t *testing.T) {
 }
 
 func TestEpicAdapter_Update_CorrectType(t *testing.T) {
-	epic := &models.Epic{ID: 1, Key: "E01", Title: "Updated"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Updated"}}
 	var capturedEpic *models.Epic
 	mock := &mockEpicAdapterRepo{
 		updateFunc: func(ctx context.Context, e *models.Epic) error {
@@ -290,7 +290,7 @@ func TestEpicAdapter_Update_CorrectType(t *testing.T) {
 }
 
 func TestEpicAdapter_Update_WrongType(t *testing.T) {
-	task := &models.Task{ID: 1, Key: "T-E01-F01-001"}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001"}}
 	mock := &mockEpicAdapterRepo{}
 	adapter := NewEpicRepositoryAdapter(mock)
 	err := adapter.Update(context.Background(), task)
@@ -363,7 +363,7 @@ func TestEpicAdapter_UpdateContextData(t *testing.T) {
 // --- Feature Adapter Tests ---
 
 func TestFeatureAdapter_GetByKey(t *testing.T) {
-	feature := &models.Feature{ID: 2, Key: "E01-F01", Title: "Test Feature", Status: "active"}
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 2, Key: "E01-F01", Title: "Test Feature"}, Status: "active"}
 	mock := &mockFeatureAdapterRepo{
 		getByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
 			return feature, nil
@@ -383,7 +383,7 @@ func TestFeatureAdapter_GetByKey(t *testing.T) {
 }
 
 func TestFeatureAdapter_UpdateStatus_GetSetUpdate(t *testing.T) {
-	feature := &models.Feature{ID: 10, Key: "E01-F01", Status: "draft"}
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01"}, Status: "draft"}
 	var updatedFeature *models.Feature
 	mock := &mockFeatureAdapterRepo{
 		getByIDFunc: func(ctx context.Context, id int64) (*models.Feature, error) {
@@ -424,7 +424,7 @@ func TestFeatureAdapter_UpdateStatus_GetError(t *testing.T) {
 }
 
 func TestFeatureAdapter_Update_WrongType(t *testing.T) {
-	epic := &models.Epic{ID: 1, Key: "E01"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}
 	mock := &mockFeatureAdapterRepo{}
 	adapter := NewFeatureRepositoryAdapter(mock)
 	err := adapter.Update(context.Background(), epic)
@@ -472,7 +472,7 @@ func TestFeatureAdapter_UpdateContextData(t *testing.T) {
 // --- Task Adapter Tests ---
 
 func TestTaskAdapter_GetByKey(t *testing.T) {
-	task := &models.Task{ID: 3, Key: "T-E01-F01-001", Title: "Test Task", Status: "todo"}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001", Title: "Test Task"}, Status: "todo"}
 	mock := &mockTaskAdapterRepo{
 		getByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			return task, nil
@@ -492,7 +492,7 @@ func TestTaskAdapter_GetByKey(t *testing.T) {
 }
 
 func TestTaskAdapter_UpdateStatus_GetSetUpdate(t *testing.T) {
-	task := &models.Task{ID: 3, Key: "T-E01-F01-001", Status: "todo"}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001"}, Status: "todo"}
 	var updatedTask *models.Task
 	mock := &mockTaskAdapterRepo{
 		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
@@ -517,7 +517,7 @@ func TestTaskAdapter_UpdateStatus_GetSetUpdate(t *testing.T) {
 }
 
 func TestTaskAdapter_Update_WrongType(t *testing.T) {
-	bug := &models.Bug{ID: 1, Key: "B001"}
+	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001"}}
 	mock := &mockTaskAdapterRepo{}
 	adapter := NewTaskRepositoryAdapter(mock)
 	err := adapter.Update(context.Background(), bug)
@@ -528,7 +528,7 @@ func TestTaskAdapter_Update_WrongType(t *testing.T) {
 
 func TestTaskAdapter_GetContextData(t *testing.T) {
 	data := `{"progress":{"current_step":"writing tests"}}`
-	task := &models.Task{ID: 3, Key: "T-E01-F01-001", ContextData: &data}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001", ContextData: &data}}
 	mock := &mockTaskAdapterRepo{
 		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
 			return task, nil
@@ -545,7 +545,7 @@ func TestTaskAdapter_GetContextData(t *testing.T) {
 }
 
 func TestTaskAdapter_GetContextData_Nil(t *testing.T) {
-	task := &models.Task{ID: 3, Key: "T-E01-F01-001", ContextData: nil}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001", ContextData: nil}}
 	mock := &mockTaskAdapterRepo{
 		getByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
 			return task, nil
@@ -562,7 +562,7 @@ func TestTaskAdapter_GetContextData_Nil(t *testing.T) {
 }
 
 func TestTaskAdapter_UpdateContextData(t *testing.T) {
-	task := &models.Task{ID: 3, Key: "T-E01-F01-001", ContextData: nil}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: "T-E01-F01-001", ContextData: nil}}
 	data := `{"progress":{"current_step":"implementing"}}`
 	var updatedTask *models.Task
 	mock := &mockTaskAdapterRepo{
@@ -590,7 +590,7 @@ func TestTaskAdapter_UpdateContextData(t *testing.T) {
 // --- Bug Adapter Tests ---
 
 func TestBugAdapter_GetByKey(t *testing.T) {
-	bug := &models.Bug{ID: 4, Key: "B001", Title: "Test Bug", Status: "open"}
+	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 4, Key: "B001", Title: "Test Bug"}, Status: "open"}
 	mock := &mockBugAdapterRepo{
 		getByKeyFunc: func(ctx context.Context, key string) (*models.Bug, error) {
 			return bug, nil
@@ -628,7 +628,7 @@ func TestBugAdapter_UpdateStatus(t *testing.T) {
 }
 
 func TestBugAdapter_Update_WrongType(t *testing.T) {
-	epic := &models.Epic{ID: 1, Key: "E01"}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}
 	mock := &mockBugAdapterRepo{}
 	adapter := NewBugRepositoryAdapter(mock)
 	err := adapter.Update(context.Background(), epic)
@@ -639,7 +639,7 @@ func TestBugAdapter_Update_WrongType(t *testing.T) {
 
 func TestBugAdapter_GetContextData(t *testing.T) {
 	data := `{"triage_notes":"needs investigation"}`
-	bug := &models.Bug{ID: 4, Key: "B001", ContextData: &data}
+	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 4, Key: "B001", ContextData: &data}}
 	mock := &mockBugAdapterRepo{
 		getByIDFunc: func(ctx context.Context, id int64) (*models.Bug, error) {
 			return bug, nil
@@ -656,7 +656,7 @@ func TestBugAdapter_GetContextData(t *testing.T) {
 }
 
 func TestBugAdapter_UpdateContextData(t *testing.T) {
-	bug := &models.Bug{ID: 4, Key: "B001", ContextData: nil}
+	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 4, Key: "B001", ContextData: nil}}
 	data := `{"triage_notes":"fixed"}`
 	var updatedBug *models.Bug
 	mock := &mockBugAdapterRepo{
@@ -684,7 +684,7 @@ func TestBugAdapter_UpdateContextData(t *testing.T) {
 // --- ChangeCard Adapter Tests ---
 
 func TestChangeCardAdapter_GetByKey(t *testing.T) {
-	card := &models.ChangeCard{ID: 5, Key: "CC-001", Title: "Test Change", Status: "draft"}
+	card := &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 5, Key: "CC-001", Title: "Test Change"}, Status: "draft"}
 	mock := &mockChangeCardAdapterRepo{
 		getByKeyFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
 			return card, nil
@@ -722,7 +722,7 @@ func TestChangeCardAdapter_UpdateStatus(t *testing.T) {
 }
 
 func TestChangeCardAdapter_Update_WrongType(t *testing.T) {
-	task := &models.Task{ID: 1, Key: "T-E01-F01-001"}
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001"}}
 	mock := &mockChangeCardAdapterRepo{}
 	adapter := NewChangeCardRepositoryAdapter(mock)
 	err := adapter.Update(context.Background(), task)
@@ -733,7 +733,7 @@ func TestChangeCardAdapter_Update_WrongType(t *testing.T) {
 
 func TestChangeCardAdapter_GetContextData(t *testing.T) {
 	data := `{"impact":"low"}`
-	card := &models.ChangeCard{ID: 5, Key: "CC-001", ContextData: &data}
+	card := &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 5, Key: "CC-001", ContextData: &data}}
 	mock := &mockChangeCardAdapterRepo{
 		getByIDFunc: func(ctx context.Context, id int64) (*models.ChangeCard, error) {
 			return card, nil

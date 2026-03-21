@@ -29,10 +29,8 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 
 	// Create test epic
 	epicRepo := repository.NewEpicRepository(dbWrapper)
-	epic := &models.Epic{
-		Key:      "E97",
-		Title:    "Test Epic for Status Update",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Test Epic for Status Update"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -42,10 +40,9 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 
 	// Create test feature
 	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E97-F97",
-		Title:  "Test Feature for Status Update",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E97-F97",
+		Title: "Test Feature for Status Update"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -60,12 +57,11 @@ func TestTaskUpdate_WithStatusFlag(t *testing.T) {
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
 
 	// Create test task with initial status
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E97-F97-001",
-		Title:     "Test Task for Status Update",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F97-001",
+		Title: "Test Task for Status Update"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	if err != nil {
@@ -125,10 +121,8 @@ func TestTaskUpdate_WithStatusFlag_InvalidTransition(t *testing.T) {
 
 	// Create test epic
 	epicRepo := repository.NewEpicRepository(dbWrapper)
-	epic := &models.Epic{
-		Key:      "E98",
-		Title:    "Test Epic for Invalid Transition",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Invalid Transition"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -138,10 +132,9 @@ func TestTaskUpdate_WithStatusFlag_InvalidTransition(t *testing.T) {
 
 	// Create test feature
 	featureRepo := repository.NewFeatureRepository(dbWrapper)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E98-F98",
-		Title:  "Test Feature for Invalid Transition",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F98",
+		Title: "Test Feature for Invalid Transition"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -156,12 +149,11 @@ func TestTaskUpdate_WithStatusFlag_InvalidTransition(t *testing.T) {
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(dbWrapper, workflow)
 
 	// Create test task with "completed" status
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E98-F98-001",
-		Title:     "Test Task for Invalid Transition",
-		Status:    models.TaskStatus("completed"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F98-001",
+		Title: "Test Task for Invalid Transition"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("completed"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	if err != nil {

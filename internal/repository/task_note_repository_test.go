@@ -703,10 +703,8 @@ func TestGetRejectionHistory(t *testing.T) {
 
 	// Create a test task
 	taskRepo := NewTaskRepository(db)
-	task := &models.Task{
-		Key:       "T-E99-F99-010",
-		Title:     "Test Task for Rejection History",
-		Status:    models.TaskStatus("todo"),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-010",
+		Title: "Test Task for Rejection History"}, Status: models.TaskStatus("todo"),
 		FeatureID: featureID,
 		Priority:  5,
 	}
@@ -816,10 +814,8 @@ func TestGetRejectionHistory_EmptyList(t *testing.T) {
 
 	// Create a test task with no rejections
 	taskRepo := NewTaskRepository(db)
-	task := &models.Task{
-		Key:       "T-E99-F99-011",
-		Title:     "Test Task No Rejections",
-		Status:    models.TaskStatus("todo"),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-011",
+		Title: "Test Task No Rejections"}, Status: models.TaskStatus("todo"),
 		FeatureID: featureID,
 		Priority:  5,
 	}
@@ -859,10 +855,8 @@ func TestGetRejectionHistory_MultipleRejections(t *testing.T) {
 
 	// Create a test task
 	taskRepo := NewTaskRepository(db)
-	task := &models.Task{
-		Key:       "T-E99-F99-012",
-		Title:     "Test Task Multiple Rejections",
-		Status:    models.TaskStatus("todo"),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-012",
+		Title: "Test Task Multiple Rejections"}, Status: models.TaskStatus("todo"),
 		FeatureID: featureID,
 		Priority:  5,
 	}

@@ -443,13 +443,15 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 	}
 
 	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         strings.TrimSpace(input.Title),
-		Description:   input.Description,
+		BaseEntity: models.BaseEntity{
+			Key:         epicKey,
+			Title:       strings.TrimSpace(input.Title),
+			Description: input.Description,
+			FilePath:    filePath,
+		},
 		Status:        models.EpicStatus(statusStr),
 		Priority:      models.Priority(priorityStr),
 		BusinessValue: businessValue,
-		FilePath:      filePath,
 	}
 
 	if err := epic.Validate(); err != nil {

@@ -198,10 +198,8 @@ func TestChangeCardSvcOverride_GetChangeCard(t *testing.T) {
 	mockSvc := &MockChangeCardService{
 		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
 			mockCalled = true
-			return &models.ChangeCard{
-				Key:    key,
-				Title:  "Test Change",
-				Status: models.ChangeCardStatus("open"),
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key,
+				Title: "Test Change"}, Status: models.ChangeCardStatus("open"),
 			}, nil
 		},
 	}
@@ -267,9 +265,8 @@ func TestChangeCardSvcOverride_UpdateChangeCard(t *testing.T) {
 			if key != wantKey {
 				return nil, fmt.Errorf("unexpected key %q", key)
 			}
-			return &models.ChangeCard{
-				Key:   key,
-				Title: wantTitle,
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key,
+				Title: wantTitle},
 			}, nil
 		},
 	}
@@ -478,10 +475,7 @@ func TestGAP002_Fix_DispatchTransition_ChangeKey(t *testing.T) {
 	mock := &MockChangeCardService{
 		SetChangeCardStatusFunc: func(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error) {
 			called = true
-			return &models.ChangeCard{
-				Key:    key,
-				Status: models.ChangeCardStatus(targetStatus),
-			}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key}, Status: models.ChangeCardStatus(targetStatus)}, nil
 		},
 	}
 
@@ -520,10 +514,7 @@ func TestGAP003_Fix_DispatchNextStatus_ChangeKey(t *testing.T) {
 	mock := &MockChangeCardService{
 		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
 			called = true
-			return &models.ChangeCard{
-				Key:    key,
-				Status: models.ChangeCardStatus("open"),
-			}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key}, Status: models.ChangeCardStatus("open")}, nil
 		},
 	}
 
@@ -562,10 +553,7 @@ func TestGAP004_Fix_DispatchAdvance_ChangeKey(t *testing.T) {
 	mock := &MockChangeCardService{
 		AdvanceChangeCardStatusFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
 			called = true
-			return &models.ChangeCard{
-				Key:    key,
-				Status: models.ChangeCardStatus("reviewed"),
-			}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key}, Status: models.ChangeCardStatus("reviewed")}, nil
 		},
 	}
 

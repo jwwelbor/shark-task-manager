@@ -324,8 +324,7 @@ func TestBugRepository_GetFeatureBugSummary_WithLinkedBugs(t *testing.T) {
 	bugs := []*models.Bug{
 		// Linked to E07-F01 (open)
 		{
-			Key:              "B840",
-			Title:            "Open high bug linked to feature",
+			BaseEntity:       models.BaseEntity{Key: "B840", Title: "Open high bug linked to feature"},
 			Status:           models.BugStatus("reported"),
 			Severity:         models.BugSeverityHigh,
 			LinkedEntityType: &linkedType,
@@ -333,8 +332,7 @@ func TestBugRepository_GetFeatureBugSummary_WithLinkedBugs(t *testing.T) {
 		},
 		// Linked to E07-F01 (open medium)
 		{
-			Key:              "B841",
-			Title:            "Open medium bug linked to feature",
+			BaseEntity:       models.BaseEntity{Key: "B841", Title: "Open medium bug linked to feature"},
 			Status:           models.BugStatus("in_fix"),
 			Severity:         models.BugSeverityMedium,
 			LinkedEntityType: &linkedType,
@@ -342,8 +340,7 @@ func TestBugRepository_GetFeatureBugSummary_WithLinkedBugs(t *testing.T) {
 		},
 		// Linked to E07-F01 (terminal -- should count in total but not open)
 		{
-			Key:              "B842",
-			Title:            "Resolved bug linked to feature",
+			BaseEntity:       models.BaseEntity{Key: "B842", Title: "Resolved bug linked to feature"},
 			Status:           models.BugStatus("resolved"),
 			Severity:         models.BugSeverityLow,
 			LinkedEntityType: &linkedType,
@@ -351,8 +348,7 @@ func TestBugRepository_GetFeatureBugSummary_WithLinkedBugs(t *testing.T) {
 		},
 		// Linked to different feature -- should NOT be counted
 		{
-			Key:              "B843",
-			Title:            "Bug linked to different feature",
+			BaseEntity:       models.BaseEntity{Key: "B843", Title: "Bug linked to different feature"},
 			Status:           models.BugStatus("reported"),
 			Severity:         models.BugSeverityCritical,
 			LinkedEntityType: &linkedType,

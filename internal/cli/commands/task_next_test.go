@@ -18,40 +18,48 @@ func TestSelectNextTasks_OrderPrioritySorting(t *testing.T) {
 
 	tasks := []*models.Task{
 		{
-			ID:             1,
-			Key:            "T-E01-F01-001",
-			Title:          "Task with order 2, priority 5",
+			BaseEntity: models.BaseEntity{
+				ID:        1,
+				Key:       "T-E01-F01-001",
+				Title:     "Task with order 2, priority 5",
+				CreatedAt: now,
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       5,
 			ExecutionOrder: &order2,
-			CreatedAt:      now,
 		},
 		{
-			ID:             2,
-			Key:            "T-E01-F01-002",
-			Title:          "Task with order 1, priority 3",
+			BaseEntity: models.BaseEntity{
+				ID:        2,
+				Key:       "T-E01-F01-002",
+				Title:     "Task with order 1, priority 3",
+				CreatedAt: now.Add(1 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       3,
 			ExecutionOrder: &order1,
-			CreatedAt:      now.Add(1 * time.Second),
 		},
 		{
-			ID:             3,
-			Key:            "T-E01-F01-003",
-			Title:          "Task with order 3, priority 1",
+			BaseEntity: models.BaseEntity{
+				ID:        3,
+				Key:       "T-E01-F01-003",
+				Title:     "Task with order 3, priority 1",
+				CreatedAt: now.Add(2 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       1,
 			ExecutionOrder: &order3,
-			CreatedAt:      now.Add(2 * time.Second),
 		},
 		{
-			ID:             4,
-			Key:            "T-E01-F01-004",
-			Title:          "Task with no order, priority 1",
+			BaseEntity: models.BaseEntity{
+				ID:        4,
+				Key:       "T-E01-F01-004",
+				Title:     "Task with no order, priority 1",
+				CreatedAt: now.Add(3 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       1,
 			ExecutionOrder: nil, // No order set
-			CreatedAt:      now.Add(3 * time.Second),
 		},
 	}
 
@@ -79,40 +87,48 @@ func TestSelectNextTasks_SameOrderReturnsAll(t *testing.T) {
 
 	tasks := []*models.Task{
 		{
-			ID:             1,
-			Key:            "T-E01-F01-001",
-			Title:          "Parallel task 1",
+			BaseEntity: models.BaseEntity{
+				ID:        1,
+				Key:       "T-E01-F01-001",
+				Title:     "Parallel task 1",
+				CreatedAt: now,
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       5,
 			ExecutionOrder: &order1,
-			CreatedAt:      now,
 		},
 		{
-			ID:             2,
-			Key:            "T-E01-F01-002",
-			Title:          "Parallel task 2",
+			BaseEntity: models.BaseEntity{
+				ID:        2,
+				Key:       "T-E01-F01-002",
+				Title:     "Parallel task 2",
+				CreatedAt: now.Add(1 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       3,
 			ExecutionOrder: &order1, // Same order as task 1
-			CreatedAt:      now.Add(1 * time.Second),
 		},
 		{
-			ID:             3,
-			Key:            "T-E01-F01-003",
-			Title:          "Parallel task 3",
+			BaseEntity: models.BaseEntity{
+				ID:        3,
+				Key:       "T-E01-F01-003",
+				Title:     "Parallel task 3",
+				CreatedAt: now.Add(2 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       1,
 			ExecutionOrder: &order1, // Same order as tasks 1 and 2
-			CreatedAt:      now.Add(2 * time.Second),
 		},
 		{
-			ID:             4,
-			Key:            "T-E01-F01-004",
-			Title:          "Sequential task (order 2)",
+			BaseEntity: models.BaseEntity{
+				ID:        4,
+				Key:       "T-E01-F01-004",
+				Title:     "Sequential task (order 2)",
+				CreatedAt: now.Add(3 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       1,
 			ExecutionOrder: &order2,
-			CreatedAt:      now.Add(3 * time.Second),
 		},
 	}
 
@@ -149,22 +165,26 @@ func TestSelectNextTasks_NullOrderComesLast(t *testing.T) {
 
 	tasks := []*models.Task{
 		{
-			ID:             1,
-			Key:            "T-E01-F01-001",
-			Title:          "No order, priority 1",
+			BaseEntity: models.BaseEntity{
+				ID:        1,
+				Key:       "T-E01-F01-001",
+				Title:     "No order, priority 1",
+				CreatedAt: now,
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       1,
 			ExecutionOrder: nil,
-			CreatedAt:      now,
 		},
 		{
-			ID:             2,
-			Key:            "T-E01-F01-002",
-			Title:          "Order 5, priority 10",
+			BaseEntity: models.BaseEntity{
+				ID:        2,
+				Key:       "T-E01-F01-002",
+				Title:     "Order 5, priority 10",
+				CreatedAt: now.Add(1 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       10,
 			ExecutionOrder: &order5,
-			CreatedAt:      now.Add(1 * time.Second),
 		},
 	}
 
@@ -189,31 +209,37 @@ func TestSelectNextTasks_NullOrderSortedByPriority(t *testing.T) {
 
 	tasks := []*models.Task{
 		{
-			ID:             1,
-			Key:            "T-E01-F01-001",
-			Title:          "No order, priority 5",
+			BaseEntity: models.BaseEntity{
+				ID:        1,
+				Key:       "T-E01-F01-001",
+				Title:     "No order, priority 5",
+				CreatedAt: now,
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       5,
 			ExecutionOrder: nil,
-			CreatedAt:      now,
 		},
 		{
-			ID:             2,
-			Key:            "T-E01-F01-002",
-			Title:          "No order, priority 1",
+			BaseEntity: models.BaseEntity{
+				ID:        2,
+				Key:       "T-E01-F01-002",
+				Title:     "No order, priority 1",
+				CreatedAt: now.Add(1 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       1,
 			ExecutionOrder: nil,
-			CreatedAt:      now.Add(1 * time.Second),
 		},
 		{
-			ID:             3,
-			Key:            "T-E01-F01-003",
-			Title:          "No order, priority 3",
+			BaseEntity: models.BaseEntity{
+				ID:        3,
+				Key:       "T-E01-F01-003",
+				Title:     "No order, priority 3",
+				CreatedAt: now.Add(2 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       3,
 			ExecutionOrder: nil,
-			CreatedAt:      now.Add(2 * time.Second),
 		},
 	}
 
@@ -238,22 +264,26 @@ func TestSelectNextTasks_SamePrioritySortedByCreatedAt(t *testing.T) {
 
 	tasks := []*models.Task{
 		{
-			ID:             1,
-			Key:            "T-E01-F01-001",
-			Title:          "Newer task",
+			BaseEntity: models.BaseEntity{
+				ID:        1,
+				Key:       "T-E01-F01-001",
+				Title:     "Newer task",
+				CreatedAt: now.Add(5 * time.Second),
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       5,
 			ExecutionOrder: nil,
-			CreatedAt:      now.Add(5 * time.Second),
 		},
 		{
-			ID:             2,
-			Key:            "T-E01-F01-002",
-			Title:          "Older task",
+			BaseEntity: models.BaseEntity{
+				ID:        2,
+				Key:       "T-E01-F01-002",
+				Title:     "Older task",
+				CreatedAt: now,
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       5,
 			ExecutionOrder: nil,
-			CreatedAt:      now,
 		},
 	}
 

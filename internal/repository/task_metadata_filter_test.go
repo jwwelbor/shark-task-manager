@@ -32,20 +32,17 @@ func TestFilterByMetadataAgentType(t *testing.T) {
 
 	// Create test epic and feature
 	epicRepo := NewEpicRepository(dbWrapper)
-	epic := &models.Epic{
-		Key:      "E99",
-		Title:    "Test Epic",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: "active",
 		Priority: "medium",
 	}
 	err := epicRepo.Create(ctx, epic)
 	assert.NoError(t, err)
 
 	featureRepo := NewFeatureRepository(dbWrapper)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E99-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: "active",
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -99,52 +96,47 @@ func TestFilterByMetadataAgentType(t *testing.T) {
 	// Create test tasks with different statuses
 	taskRepo := NewTaskRepository(dbWrapper)
 
-	task1 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-001",
-		Title:     "Planning Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-001",
+		Title: "Planning Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task1)
 	assert.NoError(t, err)
 
-	task2 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-002",
-		Title:     "Development Task 1",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  3,
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-002",
+		Title: "Development Task 1"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 3,
 	}
 	err = taskRepo.Create(ctx, task2)
 	assert.NoError(t, err)
 
-	task3 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-003",
-		Title:     "Development Task 2",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  4,
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-003",
+		Title: "Development Task 2"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 4,
 	}
 	err = taskRepo.Create(ctx, task3)
 	assert.NoError(t, err)
 
-	task4 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-004",
-		Title:     "Review Task",
-		Status:    models.TaskStatus("ready_for_review"),
-		Priority:  2,
+	task4 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-004",
+		Title: "Review Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("ready_for_review"),
+		Priority: 2,
 	}
 	err = taskRepo.Create(ctx, task4)
 	assert.NoError(t, err)
 
-	task5 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-005",
-		Title:     "Completed Task",
-		Status:    models.TaskStatus("completed"),
-		Priority:  1,
+	task5 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-005",
+		Title: "Completed Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("completed"),
+		Priority: 1,
 	}
 	err = taskRepo.Create(ctx, task5)
 	assert.NoError(t, err)
@@ -203,20 +195,17 @@ func TestFilterByMetadataPhase(t *testing.T) {
 
 	// Create test epic and feature
 	epicRepo := NewEpicRepository(dbWrapper)
-	epic := &models.Epic{
-		Key:      "E98",
-		Title:    "Test Epic",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic"}, Status: "active",
 		Priority: "medium",
 	}
 	err := epicRepo.Create(ctx, epic)
 	assert.NoError(t, err)
 
 	featureRepo := NewFeatureRepository(dbWrapper)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E98-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: "active",
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -266,42 +255,38 @@ func TestFilterByMetadataPhase(t *testing.T) {
 	// Create test tasks with different statuses
 	taskRepo := NewTaskRepository(dbWrapper)
 
-	task1 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E98-F01-010",
-		Title:     "Planning Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-010",
+		Title: "Planning Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task1)
 	assert.NoError(t, err)
 
-	task2 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E98-F01-011",
-		Title:     "Development Task 1",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  3,
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-011",
+		Title: "Development Task 1"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 3,
 	}
 	err = taskRepo.Create(ctx, task2)
 	assert.NoError(t, err)
 
-	task3 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E98-F01-012",
-		Title:     "Development Task 2",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  4,
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-012",
+		Title: "Development Task 2"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 4,
 	}
 	err = taskRepo.Create(ctx, task3)
 	assert.NoError(t, err)
 
-	task4 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E98-F01-013",
-		Title:     "Review Task",
-		Status:    models.TaskStatus("ready_for_review"),
-		Priority:  2,
+	task4 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-013",
+		Title: "Review Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("ready_for_review"),
+		Priority: 2,
 	}
 	err = taskRepo.Create(ctx, task4)
 	assert.NoError(t, err)

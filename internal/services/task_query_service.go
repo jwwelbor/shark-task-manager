@@ -237,10 +237,8 @@ func (s *TaskQueryService) GetTaskDisplayData(ctx context.Context, task *models.
 		return nil, fmt.Errorf("failed to unmarshal dependencies for task %s: %w", task.Key, err)
 	}
 	for _, d := range depsRaw {
-		result.Dependencies = append(result.Dependencies, &models.Task{
-			Key:    d.Key,
-			Title:  d.Title,
-			Status: models.TaskStatus(d.Status),
+		result.Dependencies = append(result.Dependencies, &models.Task{BaseEntity: models.BaseEntity{Key: d.Key,
+			Title: d.Title}, Status: models.TaskStatus(d.Status),
 		})
 	}
 

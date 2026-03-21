@@ -296,20 +296,17 @@ func TestCreator_FileExistsAssignsFile(t *testing.T) {
 	historyRepo := repository.NewTaskHistoryRepository(db)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E98",
-		Title:    "Test Epic for File Exists",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for File Exists"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err = epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E98-F98",
-		Title:  "Test Feature for File Exists",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F98",
+		Title: "Test Feature for File Exists"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -383,20 +380,17 @@ func TestCreator_FileDoesNotExistWithCreateFlagCreatesFile(t *testing.T) {
 	historyRepo := repository.NewTaskHistoryRepository(db)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E97",
-		Title:    "Test Epic for File Creation",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Test Epic for File Creation"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err = epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E97-F97",
-		Title:  "Test Feature for File Creation",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E97-F97",
+		Title: "Test Feature for File Creation"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -475,20 +469,17 @@ func TestCreator_FileDoesNotExistWithoutCreateFlagFails(t *testing.T) {
 	historyRepo := repository.NewTaskHistoryRepository(db)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E96",
-		Title:    "Test Epic for File Not Found",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96",
+		Title: "Test Epic for File Not Found"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err = epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E96-F96",
-		Title:  "Test Feature for File Not Found",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F96",
+		Title: "Test Feature for File Not Found"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -592,10 +583,8 @@ func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {
 	historyRepo := repository.NewTaskHistoryRepository(db)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E99",
-		Title:    "Test Epic for Workflow Config",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic for Workflow Config"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err = epicRepo.Create(ctx, epic)
@@ -603,12 +592,12 @@ func TestCreator_UsesWorkflowConfigEntryStatus(t *testing.T) {
 
 	// Create test feature (must have FilePath set for PathResolver)
 	featureFilePath := "docs/plan/E99/E99-F99/prd.md"
-	feature := &models.Feature{
-		EpicID:   epic.ID,
-		Key:      "E99-F99",
-		Title:    "Test Feature for Workflow Config",
-		Status:   models.FeatureStatusDraft,
-		FilePath: &featureFilePath,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F99",
+		Title: "Test Feature for Workflow Config",
+
+		FilePath: &featureFilePath}, EpicID: epic.ID,
+
+		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
@@ -677,12 +666,10 @@ func TestCreator_StandaloneFeatureFileCreatesTaskUnderFeatureDir(t *testing.T) {
 
 	// Create test epic with slug
 	epicSlug := "test-epic-standalone"
-	epic := &models.Epic{
-		Key:      "E88",
-		Title:    "Test Epic for Standalone Feature File",
-		Slug:     &epicSlug,
-		Priority: models.PriorityMedium,
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E88",
+		Title: "Test Epic for Standalone Feature File",
+		Slug:  &epicSlug}, Priority: models.PriorityMedium,
+		Status: models.EpicStatusActive,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
@@ -691,13 +678,13 @@ func TestCreator_StandaloneFeatureFileCreatesTaskUnderFeatureDir(t *testing.T) {
 	// This simulates the wormwoodGM scenario where feature files are directly under the epic folder
 	featureSlug := "standalone-feature"
 	standaloneFilePath := "docs/plan/E88-test-epic-standalone/F88-standalone-feature.md"
-	feature := &models.Feature{
-		EpicID:   epic.ID,
-		Key:      "E88-F88",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E88-F88",
 		Title:    "Standalone Feature File",
 		Slug:     &featureSlug,
-		FilePath: &standaloneFilePath, // Standalone file, not in feature folder!
-		Status:   models.FeatureStatusDraft,
+		FilePath: &standaloneFilePath}, EpicID: epic.ID,
+
+		// Standalone file, not in feature folder!
+		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)

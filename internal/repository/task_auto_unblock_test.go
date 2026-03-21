@@ -63,23 +63,23 @@ func TestAutoUnblock_SingleDependency(t *testing.T) {
 	defer cleanup()
 
 	// Create T-001 (no deps) and T-002 (depends on T-001)
-	task1 := &models.Task{
-		FeatureID:   featureID,
-		Key:         "T-E97-F01-001",
-		Title:       "Prerequisite Task",
-		Status:      models.TaskStatus("completed"),
-		Priority:    5,
-		DependsOn:   nil,
-		Description: stringPtr("No dependencies"),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001",
+		Title: "Prerequisite Task",
+
+		Description: stringPtr("No dependencies")}, FeatureID: featureID,
+
+		Status:    models.TaskStatus("completed"),
+		Priority:  5,
+		DependsOn: nil,
 	}
-	task2 := &models.Task{
-		FeatureID:   featureID,
-		Key:         "T-E97-F01-002",
-		Title:       "Dependent Task",
-		Status:      models.TaskStatus("blocked"),
-		Priority:    5,
-		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
-		Description: stringPtr("Depends on task 1"),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002",
+		Title: "Dependent Task",
+
+		Description: stringPtr("Depends on task 1")}, FeatureID: featureID,
+
+		Status:    models.TaskStatus("blocked"),
+		Priority:  5,
+		DependsOn: stringPtr(`["T-E97-F01-001"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -120,19 +120,19 @@ func TestAutoUnblock_MultipleDeps_PartialCompletion(t *testing.T) {
 	defer cleanup()
 
 	// T-001 completed, T-002 in_progress, T-003 depends on both
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatus("in_progress"), Priority: 5, Description: stringPtr(""),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("in_progress"), Priority: 5,
 	}
-	task3 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-003", Title: "Task 3",
+
+		Description: stringPtr("")}, FeatureID: featureID,
 		Status: models.TaskStatus("blocked"), Priority: 5,
-		DependsOn:   stringPtr(`["T-E97-F01-001", "T-E97-F01-002"]`),
-		Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001", "T-E97-F01-002"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -172,19 +172,19 @@ func TestAutoUnblock_MultipleDeps_AllCompleted(t *testing.T) {
 	defer cleanup()
 
 	// Both T-001 and T-002 completed, T-003 depends on both
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task3 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-003", Title: "Task 3",
+
+		Description: stringPtr("")}, FeatureID: featureID,
 		Status: models.TaskStatus("blocked"), Priority: 5,
-		DependsOn:   stringPtr(`["T-E97-F01-001", "T-E97-F01-002"]`),
-		Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001", "T-E97-F01-002"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -225,15 +225,15 @@ func TestAutoUnblock_ManualBlockSkipped(t *testing.T) {
 	defer cleanup()
 
 	// T-001 completed, T-002 blocked manually (not dependency-blocked)
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+
+		Description: stringPtr("")}, FeatureID: featureID,
 		Status: models.TaskStatus("blocked"), Priority: 5,
-		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
-		Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -274,9 +274,9 @@ func TestAutoUnblock_NoDependents(t *testing.T) {
 	defer cleanup()
 
 	// T-001 completed, no dependents
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -302,15 +302,15 @@ func TestAutoUnblock_NonBlockedDependentSkipped(t *testing.T) {
 	defer cleanup()
 
 	// T-001 completed, T-002 depends on T-001 but is in_progress (not blocked)
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+
+		Description: stringPtr("")}, FeatureID: featureID,
 		Status: models.TaskStatus("in_progress"), Priority: 5,
-		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
-		Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -336,15 +336,15 @@ func TestAutoUnblock_HistoryRecorded(t *testing.T) {
 	_, featureID, cleanup := setupAutoUnblockTest(t)
 	defer cleanup()
 
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+
+		Description: stringPtr("")}, FeatureID: featureID,
 		Status: models.TaskStatus("blocked"), Priority: 5,
-		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
-		Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -383,15 +383,15 @@ func TestAutoUnblock_AutoBlockedPrefixPattern(t *testing.T) {
 	_, featureID, cleanup := setupAutoUnblockTest(t)
 	defer cleanup()
 
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+
+		Description: stringPtr("")}, FeatureID: featureID,
 		Status: models.TaskStatus("blocked"), Priority: 5,
-		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
-		Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -424,15 +424,15 @@ func TestAutoUnblock_ViaUpdateStatusForcedWithUnblock(t *testing.T) {
 	defer cleanup()
 
 	// T-001 in_progress, T-002 blocked (depends on T-001)
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("in_progress"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("in_progress"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+
+		Description: stringPtr("")}, FeatureID: featureID,
 		Status: models.TaskStatus("blocked"), Priority: 5,
-		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
-		Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -472,15 +472,15 @@ func TestAutoUnblock_UpdateStatusForced_NoUnblockForNonCompletionStatus(t *testi
 	defer cleanup()
 
 	// T-001 todo, T-002 blocked (depends on T-001)
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("todo"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("todo"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+
+		Description: stringPtr("")}, FeatureID: featureID,
 		Status: models.TaskStatus("blocked"), Priority: 5,
-		DependsOn:   stringPtr(`["T-E97-F01-001"]`),
-		Description: stringPtr(""),
+		DependsOn: stringPtr(`["T-E97-F01-001"]`),
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -517,13 +517,13 @@ func TestAutoUnblock_TaskRelationships_SingleDependency(t *testing.T) {
 	defer cleanup()
 
 	// Create T-001 (completed) and T-002 (blocked, depends on T-001 via task_relationships)
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		// No depends_on JSON field — dependency is via task_relationships only
 	}
 
@@ -569,17 +569,17 @@ func TestAutoUnblock_TaskRelationships_MultipleDeps_PartialCompletion(t *testing
 	defer cleanup()
 
 	// T-001 completed, T-002 in_progress, T-003 depends on both via task_relationships
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatus("in_progress"), Priority: 5, Description: stringPtr(""),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("in_progress"), Priority: 5,
 	}
-	task3 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-003", Title: "Task 3",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -624,17 +624,17 @@ func TestAutoUnblock_TaskRelationships_AllCompleted(t *testing.T) {
 	defer cleanup()
 
 	// Both T-001 and T-002 completed, T-003 depends on both via task_relationships
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task3 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-003", Title: "Task 3",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 	}
 
 	require.NoError(t, taskRepo.Create(ctx, task1))
@@ -685,17 +685,17 @@ func TestAutoUnblock_MixedDependencies_LegacyAndRelationships(t *testing.T) {
 
 	// T-001 completed, T-002 completed
 	// T-003 depends on T-001 via depends_on JSON AND on T-002 via task_relationships
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task3 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-003", Title: "Task 3",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn: stringPtr(`["T-E97-F01-001"]`), // Legacy depends_on
 	}
 
@@ -742,17 +742,17 @@ func TestAutoUnblock_MixedDependencies_PartialSatisfied(t *testing.T) {
 
 	// T-001 completed, T-002 in_progress
 	// T-003 depends on T-001 via depends_on JSON AND on T-002 via task_relationships
-	task1 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-001", Title: "Task 1",
-		Status: models.TaskStatus("completed"), Priority: 5, Description: stringPtr(""),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001", Title: "Task 1",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("completed"), Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-002", Title: "Task 2",
-		Status: models.TaskStatus("in_progress"), Priority: 5, Description: stringPtr(""),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-002", Title: "Task 2",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("in_progress"), Priority: 5,
 	}
-	task3 := &models.Task{
-		FeatureID: featureID, Key: "T-E97-F01-003", Title: "Task 3",
-		Status: models.TaskStatus("blocked"), Priority: 5, Description: stringPtr(""),
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-003", Title: "Task 3",
+		Description: stringPtr("")}, FeatureID: featureID,
+		Status: models.TaskStatus("blocked"), Priority: 5,
 		DependsOn: stringPtr(`["T-E97-F01-001"]`), // Legacy dep satisfied
 	}
 

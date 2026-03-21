@@ -28,10 +28,8 @@ func TestTaskLinkCommand(t *testing.T) {
 
 	// Create test epic
 	testEpicKey := "E88"
-	epic := &models.Epic{
-		Key:           testEpicKey,
-		Title:         "Task Relationship Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: testEpicKey,
+		Title: "Task Relationship Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: ptrPriority(models.PriorityHigh),
 	}
@@ -49,10 +47,10 @@ func TestTaskLinkCommand(t *testing.T) {
 	// Create test feature
 	testFeatureKey := fmt.Sprintf("%s-F01", testEpicKey)
 	execOrder := 1
-	feature := &models.Feature{
-		Key:            testFeatureKey,
-		EpicID:         epic.ID,
-		Title:          "Task Relationship Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: testFeatureKey,
+
+		Title: "Task Relationship Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusDraft,
 		ExecutionOrder: &execOrder,
 	}
@@ -87,10 +85,10 @@ func TestTaskLinkCommand(t *testing.T) {
 		existing, _ := taskRepo.GetByKey(ctx, taskData.key)
 
 		if existing == nil {
-			task := &models.Task{
-				Key:       taskData.key,
-				FeatureID: feature.ID,
-				Title:     taskData.title,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: taskData.key,
+
+				Title: taskData.title}, FeatureID: feature.ID,
+
 				Status:    models.TaskStatus("todo"),
 				AgentType: &agentType,
 				Priority:  i + 1,
@@ -357,10 +355,8 @@ func TestTaskRelationshipTypes(t *testing.T) {
 	_, featureID := test.SeedTestData()
 
 	// Create two test tasks
-	task1 := &models.Task{
-		Key:       "T-E99-F99-040",
-		Title:     "Test Task 1",
-		Status:    "todo",
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-040",
+		Title: "Test Task 1"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -369,10 +365,8 @@ func TestTaskRelationshipTypes(t *testing.T) {
 		t.Fatalf("Failed to create test task 1: %v", err)
 	}
 
-	task2 := &models.Task{
-		Key:       "T-E99-F99-041",
-		Title:     "Test Task 2",
-		Status:    "todo",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-041",
+		Title: "Test Task 2"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -445,10 +439,8 @@ func TestTaskRelationshipValidation(t *testing.T) {
 	_, featureID := test.SeedTestData()
 
 	// Create two test tasks
-	task1 := &models.Task{
-		Key:       "T-E99-F99-050",
-		Title:     "Test Task 1",
-		Status:    "todo",
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-050",
+		Title: "Test Task 1"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -457,10 +449,8 @@ func TestTaskRelationshipValidation(t *testing.T) {
 		t.Fatalf("Failed to create test task 1: %v", err)
 	}
 
-	task2 := &models.Task{
-		Key:       "T-E99-F99-051",
-		Title:     "Test Task 2",
-		Status:    "todo",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-051",
+		Title: "Test Task 2"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}

@@ -25,20 +25,17 @@ func TestGetTaskStatusBreakdown(t *testing.T) {
 	_, _ = db.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E98'")
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E98",
-		Title:    "Status Cascade Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Status Cascade Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E98-F01",
-		Title:  "Status Cascade Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F01",
+		Title: "Status Cascade Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -46,12 +43,12 @@ func TestGetTaskStatusBreakdown(t *testing.T) {
 
 	// Create tasks with various statuses
 	tasks := []*models.Task{
-		{FeatureID: feature.ID, Key: "T-E98-F01-001", Title: "Todo Task 1", Status: models.TaskStatus("todo"), Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-002", Title: "Todo Task 2", Status: models.TaskStatus("todo"), Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-003", Title: "In Progress Task", Status: models.TaskStatus("in_progress"), Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-004", Title: "Completed Task 1", Status: models.TaskStatus("completed"), Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-005", Title: "Completed Task 2", Status: models.TaskStatus("completed"), Priority: 5},
-		{FeatureID: feature.ID, Key: "T-E98-F01-006", Title: "Blocked Task", Status: models.TaskStatus("blocked"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "T-E98-F01-001", Title: "Todo Task 1"}, FeatureID: feature.ID, Status: models.TaskStatus("todo"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "T-E98-F01-002", Title: "Todo Task 2"}, FeatureID: feature.ID, Status: models.TaskStatus("todo"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "T-E98-F01-003", Title: "In Progress Task"}, FeatureID: feature.ID, Status: models.TaskStatus("in_progress"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "T-E98-F01-004", Title: "Completed Task 1"}, FeatureID: feature.ID, Status: models.TaskStatus("completed"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "T-E98-F01-005", Title: "Completed Task 2"}, FeatureID: feature.ID, Status: models.TaskStatus("completed"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "T-E98-F01-006", Title: "Blocked Task"}, FeatureID: feature.ID, Status: models.TaskStatus("blocked"), Priority: 5},
 	}
 
 	for _, task := range tasks {
@@ -87,10 +84,8 @@ func TestGetFeatureStatusBreakdown(t *testing.T) {
 	_, _ = db.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E97'")
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E97",
-		Title:    "Feature Status Breakdown Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Feature Status Breakdown Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -98,11 +93,11 @@ func TestGetFeatureStatusBreakdown(t *testing.T) {
 
 	// Create features with various statuses
 	features := []*models.Feature{
-		{EpicID: epic.ID, Key: "E97-F01", Title: "Draft Feature 1", Status: models.FeatureStatusDraft},
-		{EpicID: epic.ID, Key: "E97-F02", Title: "Draft Feature 2", Status: models.FeatureStatusDraft},
-		{EpicID: epic.ID, Key: "E97-F03", Title: "Active Feature", Status: models.FeatureStatusActive},
-		{EpicID: epic.ID, Key: "E97-F04", Title: "Completed Feature 1", Status: models.FeatureStatusCompleted},
-		{EpicID: epic.ID, Key: "E97-F05", Title: "Completed Feature 2", Status: models.FeatureStatusCompleted},
+		{BaseEntity: models.BaseEntity{Key: "E97-F01", Title: "Draft Feature 1"}, EpicID: epic.ID, Status: models.FeatureStatusDraft},
+		{BaseEntity: models.BaseEntity{Key: "E97-F02", Title: "Draft Feature 2"}, EpicID: epic.ID, Status: models.FeatureStatusDraft},
+		{BaseEntity: models.BaseEntity{Key: "E97-F03", Title: "Active Feature"}, EpicID: epic.ID, Status: models.FeatureStatusActive},
+		{BaseEntity: models.BaseEntity{Key: "E97-F04", Title: "Completed Feature 1"}, EpicID: epic.ID, Status: models.FeatureStatusCompleted},
+		{BaseEntity: models.BaseEntity{Key: "E97-F05", Title: "Completed Feature 2"}, EpicID: epic.ID, Status: models.FeatureStatusCompleted},
 	}
 
 	for _, feature := range features {
@@ -136,20 +131,17 @@ func TestSetStatusOverride(t *testing.T) {
 	_, _ = db.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E96'")
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E96",
-		Title:    "Status Override Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96",
+		Title: "Status Override Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E96-F01",
-		Title:  "Status Override Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F01",
+		Title: "Status Override Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -194,20 +186,17 @@ func TestUpdateStatusIfNotOverridden(t *testing.T) {
 	_, _ = db.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E95'")
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E95",
-		Title:    "Conditional Update Test Epic",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E95",
+		Title: "Conditional Update Test Epic"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E95-F01",
-		Title:  "Conditional Update Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E95-F01",
+		Title: "Conditional Update Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -250,10 +239,8 @@ func TestEpicUpdateStatus(t *testing.T) {
 	_, _ = db.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E94'")
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E94",
-		Title:    "Epic Status Update Test",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E94",
+		Title: "Epic Status Update Test"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)

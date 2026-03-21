@@ -901,11 +901,9 @@ func TestTaskSetStatusCommand(t *testing.T) {
 			mockRepo := NewMockTaskRepositoryWithWorkflow()
 
 			// Add test task
-			task := &models.Task{
-				ID:       1,
-				Key:      "T-TEST-001",
-				Title:    "Test Task",
-				Status:   tt.currentStatus,
+			task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "T-TEST-001",
+				Title: "Test Task"}, Status: tt.currentStatus,
 				Priority: 5,
 			}
 			mockRepo.AddTask(task)
@@ -985,11 +983,9 @@ func TestTaskStartWithWorkflow(t *testing.T) {
 			mockRepo.SetWorkflow(config.DefaultWorkflow())
 
 			// Add test task
-			task := &models.Task{
-				ID:       1,
-				Key:      "T-TEST-001",
-				Title:    "Test Task",
-				Status:   tt.currentStatus,
+			task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "T-TEST-001",
+				Title: "Test Task"}, Status: tt.currentStatus,
 				Priority: 5,
 			}
 			mockRepo.AddTask(task)
@@ -1046,11 +1042,9 @@ func TestTaskCompleteWithWorkflow(t *testing.T) {
 			mockRepo.SetWorkflow(config.DefaultWorkflow())
 
 			// Add test task
-			task := &models.Task{
-				ID:       1,
-				Key:      "T-TEST-001",
-				Title:    "Test Task",
-				Status:   tt.currentStatus,
+			task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "T-TEST-001",
+				Title: "Test Task"}, Status: tt.currentStatus,
 				Priority: 5,
 			}
 			mockRepo.AddTask(task)
@@ -1107,11 +1101,9 @@ func TestTaskApproveWithWorkflow(t *testing.T) {
 			mockRepo.SetWorkflow(config.DefaultWorkflow())
 
 			// Add test task
-			task := &models.Task{
-				ID:       1,
-				Key:      "T-TEST-001",
-				Title:    "Test Task",
-				Status:   tt.currentStatus,
+			task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "T-TEST-001",
+				Title: "Test Task"}, Status: tt.currentStatus,
 				Priority: 5,
 			}
 			mockRepo.AddTask(task)

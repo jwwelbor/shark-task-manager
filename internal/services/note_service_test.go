@@ -95,42 +95,42 @@ func newNoteTestRegistry() *EntityRegistry {
 	reg := NewEntityRegistry()
 	reg.Register(models.EntityTypeEpic, &mockNoteEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Epic{ID: 1, Key: key, Title: "Test Epic"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Test Epic"}}, nil
 		},
 		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
-			return &models.Epic{ID: id, Key: "E01", Title: "Test Epic"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: id, Key: "E01", Title: "Test Epic"}}, nil
 		},
 	})
 	reg.Register(models.EntityTypeFeature, &mockNoteEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Feature{ID: 2, Key: key, Title: "Test Feature"}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 2, Key: key, Title: "Test Feature"}}, nil
 		},
 		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
-			return &models.Feature{ID: id, Key: "E01-F01", Title: "Test Feature"}, nil
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: id, Key: "E01-F01", Title: "Test Feature"}}, nil
 		},
 	})
 	reg.Register(models.EntityTypeTask, &mockNoteEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Task{ID: 3, Key: key, Title: "Test Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: key, Title: "Test Task"}}, nil
 		},
 		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
-			return &models.Task{ID: id, Key: "E01-F01-001", Title: "Test Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: id, Key: "E01-F01-001", Title: "Test Task"}}, nil
 		},
 	})
 	reg.Register(models.EntityTypeBug, &mockNoteEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.Bug{ID: 4, Key: key, Title: "Test Bug"}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 4, Key: key, Title: "Test Bug"}}, nil
 		},
 		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
-			return &models.Bug{ID: id, Key: "B001", Title: "Test Bug"}, nil
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: id, Key: "B001", Title: "Test Bug"}}, nil
 		},
 	})
 	reg.Register(models.EntityTypeChange, &mockNoteEntityRepo{
 		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
-			return &models.ChangeCard{ID: 5, Key: key, Title: "Test Change"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 5, Key: key, Title: "Test Change"}}, nil
 		},
 		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
-			return &models.ChangeCard{ID: id, Key: "CC-001", Title: "Test Change"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: id, Key: "CC-001", Title: "Test Change"}}, nil
 		},
 	})
 	return reg

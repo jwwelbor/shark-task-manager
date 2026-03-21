@@ -45,17 +45,19 @@ func TestBulkCreateValidationFailure(t *testing.T) {
 	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic and feature for test
-	epic := &models.Epic{Key: epicKey, Title: "Test Epic", Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey, Title: "Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
 	_ = epicRepo.Create(ctx, epic)
-	feature := &models.Feature{EpicID: epic.ID, Key: featureKey, Title: "Test Feature", Status: models.FeatureStatusActive}
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey, Title: "Test Feature"}, EpicID: epic.ID, Status: models.FeatureStatusActive}
 	_ = featureRepo.Create(ctx, feature)
 
 	// Create task with invalid key (empty)
 	tasks := []*models.Task{
 		{
+			BaseEntity: models.BaseEntity{
+				Key:   "", // Invalid: empty key
+				Title: "Invalid Task",
+			},
 			FeatureID: feature.ID,
-			Key:       "", // Invalid: empty key
-			Title:     "Invalid Task",
 			Status:    models.TaskStatus("todo"),
 		},
 	}
@@ -90,9 +92,9 @@ func TestBulkCreateRollback(t *testing.T) {
 	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic and feature for test
-	epic := &models.Epic{Key: epicKey, Title: "Test Epic", Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey, Title: "Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
 	_ = epicRepo.Create(ctx, epic)
-	feature := &models.Feature{EpicID: epic.ID, Key: featureKey, Title: "Test Feature", Status: models.FeatureStatusActive}
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey, Title: "Test Feature"}, EpicID: epic.ID, Status: models.FeatureStatusActive}
 	_ = featureRepo.Create(ctx, feature)
 
 	// Get initial task count (should be 0)
@@ -102,16 +104,20 @@ func TestBulkCreateRollback(t *testing.T) {
 	// Create tasks with duplicate key (will cause error)
 	tasks := []*models.Task{
 		{
+			BaseEntity: models.BaseEntity{
+				Key:   fmt.Sprintf("T-%s-200", featureKey),
+				Title: "First Task",
+			},
 			FeatureID: feature.ID,
-			Key:       fmt.Sprintf("T-%s-200", featureKey),
-			Title:     "First Task",
 			Status:    models.TaskStatus("todo"),
 			Priority:  1,
 		},
 		{
+			BaseEntity: models.BaseEntity{
+				Key:   fmt.Sprintf("T-%s-200", featureKey), // Duplicate key
+				Title: "Duplicate Task",
+			},
 			FeatureID: feature.ID,
-			Key:       fmt.Sprintf("T-%s-200", featureKey), // Duplicate key
-			Title:     "Duplicate Task",
 			Status:    models.TaskStatus("todo"),
 			Priority:  1,
 		},
@@ -155,14 +161,14 @@ func TestGetByKeysPartial(t *testing.T) {
 	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic and feature for test
-	epic := &models.Epic{Key: epicKey, Title: "Test Epic", Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey, Title: "Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
 	_ = epicRepo.Create(ctx, epic)
-	feature := &models.Feature{EpicID: epic.ID, Key: featureKey, Title: "Test Feature", Status: models.FeatureStatusActive}
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey, Title: "Test Feature"}, EpicID: epic.ID, Status: models.FeatureStatusActive}
 	_ = featureRepo.Create(ctx, feature)
 
 	// Create 2 tasks with known keys
-	task1 := &models.Task{FeatureID: feature.ID, Key: fmt.Sprintf("T-%s-001", featureKey), Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 1}
-	task2 := &models.Task{FeatureID: feature.ID, Key: fmt.Sprintf("T-%s-002", featureKey), Title: "Task 2", Status: models.TaskStatus("todo"), Priority: 1}
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-001", featureKey), Title: "Task 1"}, FeatureID: feature.ID, Status: models.TaskStatus("todo"), Priority: 1}
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-002", featureKey), Title: "Task 2"}, FeatureID: feature.ID, Status: models.TaskStatus("todo"), Priority: 1}
 	_ = taskRepo.Create(ctx, task1)
 	_ = taskRepo.Create(ctx, task2)
 
@@ -231,21 +237,20 @@ func TestUpdateMetadata(t *testing.T) {
 	_, _ = database.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic and feature for test
-	epic := &models.Epic{Key: epicKey, Title: "Test Epic", Status: models.EpicStatusActive, Priority: models.PriorityMedium}
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey, Title: "Test Epic"}, Status: models.EpicStatusActive, Priority: models.PriorityMedium}
 	_ = epicRepo.Create(ctx, epic)
-	feature := &models.Feature{EpicID: epic.ID, Key: featureKey, Title: "Test Feature", Status: models.FeatureStatusActive}
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey, Title: "Test Feature"}, EpicID: epic.ID, Status: models.FeatureStatusActive}
 	_ = featureRepo.Create(ctx, feature)
 
 	// Create test task with initial agent type
 	initialAgentType := "frontend"
-	task := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         fmt.Sprintf("T-%s-001", featureKey),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-001", featureKey),
 		Title:       "Original Title",
-		Description: test.StringPtr("Original Description"),
-		Status:      models.TaskStatus("todo"),
-		Priority:    5,
-		AgentType:   &initialAgentType,
+		Description: test.StringPtr("Original Description")}, FeatureID: feature.ID,
+
+		Status:    models.TaskStatus("todo"),
+		Priority:  5,
+		AgentType: &initialAgentType,
 	}
 	_ = taskRepo.Create(ctx, task)
 
@@ -314,11 +319,9 @@ func TestUpdateMetadataNotFound(t *testing.T) {
 	db := NewDB(database)
 	taskRepo := NewTaskRepository(db)
 
-	task := &models.Task{
-		ID:       99999, // Non-existent ID
-		Key:      "T-E99-F99-999",
-		Title:    "Fake Task",
-		Status:   models.TaskStatus("todo"),
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 99999, // Non-existent ID
+		Key:   "T-E99-F99-999",
+		Title: "Fake Task"}, Status: models.TaskStatus("todo"),
 		Priority: 1,
 	}
 
