@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
@@ -15,6 +17,10 @@ import (
 )
 
 var (
+	globalActionService config.ActionService
+	actionServiceOnce   sync.Once
+	actionServiceErr    error
+
 	globalNoteService *services.NoteService
 	noteServiceOnce   sync.Once
 	noteServiceErr    error
@@ -27,6 +33,30 @@ var (
 	resumeServiceOnce   sync.Once
 	resumeServiceErr    error
 )
+
+// GetActionService returns the global ActionService, initializing it if needed.
+// Uses sync.Once for thread-safe lazy initialization.
+// Returns (config.ActionService, error) because config.NewActionService can fail.
+func GetActionService(ctx context.Context) (config.ActionService, error) {
+	actionServiceOnce.Do(func() {
+		projectRoot, err := FindProjectRoot()
+		if err != nil || projectRoot == "" {
+			projectRoot = "."
+		}
+		configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+		svc, err := config.NewActionService(configPath)
+		if err != nil {
+			actionServiceErr = fmt.Errorf("failed to create ActionService: %w", err)
+			return
+		}
+		globalActionService = svc
+	})
+
+	if actionServiceErr != nil {
+		return nil, actionServiceErr
+	}
+	return globalActionService, nil
+}
 
 // GetNoteService returns the global NoteService, initializing it if needed.
 func GetNoteService(ctx context.Context) (*services.NoteService, error) {
@@ -387,6 +417,10 @@ func GetDashboardAnalyticsService() *services.DashboardAnalyticsService {
 
 // ResetServices clears global service state. For testing only.
 func ResetServices() {
+	globalActionService = nil
+	actionServiceErr = nil
+	actionServiceOnce = sync.Once{}
+
 	globalNoteService = nil
 	noteServiceErr = nil
 	noteServiceOnce = sync.Once{}
