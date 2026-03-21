@@ -163,6 +163,15 @@ func NewRunController(deps RunControllerDeps) (*RunController, error) {
 	}, nil
 }
 
+// stageOutcome is the return value from per-action handler methods. It tells the
+// main loop whether to continue, stop, or report a failure.
+type stageOutcome struct {
+	// nextStatus is the status to use for the next iteration (when done == false).
+	nextStatus string
+	// done signals the loop should return result immediately.
+	done bool
+}
+
 // Run executes the orchestration loop for the given entity key.
 //
 // The loop:
@@ -243,22 +252,20 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		}
 
 		// Step 6: Route by action type.
+		var outcome stageOutcome
 		switch action.Action {
 		case config.ActionPause, config.ActionWaitForTriage, config.ActionCheckOrResume:
-			// Pause actions: stop the loop and return paused outcome.
 			result.FinalStatus = currentStatus
 			result.Outcome = "paused"
 			result.TotalDuration = time.Since(startTime)
 			return result, nil
 
 		case config.ActionArchive:
-			// Archive: treat as a terminal outcome.
-			stage := StageLog{
+			result.Stages = append(result.Stages, StageLog{
 				Status:   currentStatus,
 				Action:   action.Action,
 				Duration: time.Since(stageStart),
-			}
-			result.Stages = append(result.Stages, stage)
+			})
 			result.StagesCompleted++
 			result.FinalStatus = currentStatus
 			result.Outcome = "completed"
@@ -266,210 +273,215 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 			return result, nil
 
 		case config.ActionAdvanceStatus:
-			// Advance without agent dispatch.
-			if opts.DryRun {
-				// In dry-run mode: simulate by reading next status only.
-				nextInfo, err = c.transitioner.GetNextStatus(ctx, key)
-				if err != nil {
-					result.FinalStatus = currentStatus
-					result.Outcome = "failed"
-					result.Error = err.Error()
-					result.TotalDuration = time.Since(startTime)
-					return result, nil
-				}
-				stage := StageLog{
-					Status:    currentStatus,
-					Action:    action.Action,
-					AgentType: action.AgentType,
-					Provider:  action.Provider,
-					Duration:  time.Since(stageStart),
-				}
-				result.Stages = append(result.Stages, stage)
-				result.StagesCompleted++
-				if len(nextInfo.AvailableTransitions) == 0 || nextInfo.IsTerminal {
-					result.FinalStatus = currentStatus
-					result.Outcome = "completed"
-					result.TotalDuration = time.Since(startTime)
-					return result, nil
-				}
-				currentStatus = nextInfo.AvailableTransitions[0].TargetStatus
-				continue
-			}
-
-			// Get the next target status from available transitions.
-			nextInfo, err = c.transitioner.GetNextStatus(ctx, key)
-			if err != nil {
-				result.FinalStatus = currentStatus
-				result.Outcome = "failed"
-				result.Error = err.Error()
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			if len(nextInfo.AvailableTransitions) == 0 {
-				// No transition available — treat as terminal.
-				result.FinalStatus = currentStatus
-				result.Outcome = "completed"
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			targetStatus := nextInfo.AvailableTransitions[0].TargetStatus
-			transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
-			if err != nil {
-				result.FinalStatus = currentStatus
-				result.Outcome = "failed"
-				result.Error = fmt.Sprintf("transition to %s failed: %v", targetStatus, err)
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			stage := StageLog{
-				Status:    currentStatus,
-				Action:    action.Action,
-				AgentType: action.AgentType,
-				Provider:  action.Provider,
-				Duration:  time.Since(stageStart),
-			}
-			result.Stages = append(result.Stages, stage)
-			result.StagesCompleted++
-			currentStatus = transResult.ToStatus
-
-			if c.workflowSvc.IsTerminalStatus(currentStatus) {
-				result.FinalStatus = currentStatus
-				result.Outcome = "completed"
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-			continue
+			outcome = c.handleAdvanceStatus(ctx, key, currentStatus, action, opts, result, stageStart, startTime)
 
 		case config.ActionSpawnAgent:
-			// Dispatch an agent.
-			dispatcher, err := c.selectDispatcher(action.Provider)
-			if err != nil {
-				result.FinalStatus = currentStatus
-				result.Outcome = "failed"
-				result.Error = err.Error()
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			input := DispatchInput{
-				Instruction: action.Instruction,
-				WorkingDir:  opts.WorkingDir,
-				EntityKey:   key,
-				Status:      currentStatus,
-				AgentType:   action.AgentType,
-				Model:       action.Model,
-			}
-
-			if opts.DryRun {
-				// In dry-run mode: record stage but do not dispatch.
-				stage := StageLog{
-					Status:    currentStatus,
-					Action:    action.Action,
-					AgentType: action.AgentType,
-					Provider:  action.Provider,
-					Duration:  time.Since(stageStart),
-				}
-				result.Stages = append(result.Stages, stage)
-				result.StagesCompleted++
-
-				// Simulate advancement.
-				nextInfo, err = c.transitioner.GetNextStatus(ctx, key)
-				if err != nil || len(nextInfo.AvailableTransitions) == 0 || nextInfo.IsTerminal {
-					result.FinalStatus = currentStatus
-					result.Outcome = "completed"
-					result.TotalDuration = time.Since(startTime)
-					return result, nil
-				}
-				currentStatus = nextInfo.AvailableTransitions[0].TargetStatus
-				continue
-			}
-
-			dispatchResult, err := dispatcher.Dispatch(ctx, input)
-			if err != nil {
-				result.FinalStatus = currentStatus
-				result.Outcome = "failed"
-				result.Error = err.Error()
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			stage := StageLog{
-				Status:    currentStatus,
-				Action:    action.Action,
-				AgentType: action.AgentType,
-				Provider:  action.Provider,
-				Duration:  dispatchResult.Duration,
-				ExitCode:  dispatchResult.ExitCode,
-			}
-
-			// Populate OutputSummary only for successful dispatches (exit code 0).
-			// Failed stages leave OutputSummary empty; error details are in result.Error.
-			if dispatchResult.ExitCode == 0 {
-				stage.OutputSummary = dispatchResult.Stdout
-			}
-
-			result.Stages = append(result.Stages, stage)
-
-			// Gate advancement on exit code 0.
-			if dispatchResult.ExitCode != 0 {
-				result.StagesCompleted = len(result.Stages) - 1 // last stage failed
-				result.FinalStatus = currentStatus
-				result.Outcome = "failed"
-				result.Error = fmt.Sprintf("agent exited with code %d", dispatchResult.ExitCode)
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			result.StagesCompleted++
-
-			// Determine next status and transition.
-			nextInfo, err = c.transitioner.GetNextStatus(ctx, key)
-			if err != nil {
-				result.FinalStatus = currentStatus
-				result.Outcome = "failed"
-				result.Error = err.Error()
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			if len(nextInfo.AvailableTransitions) == 0 {
-				result.FinalStatus = currentStatus
-				result.Outcome = "completed"
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			targetStatus := nextInfo.AvailableTransitions[0].TargetStatus
-			transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
-			if err != nil {
-				result.FinalStatus = currentStatus
-				result.Outcome = "failed"
-				result.Error = fmt.Sprintf("transition to %s failed: %v", targetStatus, err)
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
-
-			currentStatus = transResult.ToStatus
-
-			if c.workflowSvc.IsTerminalStatus(currentStatus) {
-				result.FinalStatus = currentStatus
-				result.Outcome = "completed"
-				result.TotalDuration = time.Since(startTime)
-				return result, nil
-			}
+			outcome = c.handleSpawnAgent(ctx, key, currentStatus, action, opts, result, stageStart, startTime)
 
 		default:
-			// Unknown action type — fail safely.
 			result.FinalStatus = currentStatus
 			result.Outcome = "failed"
 			result.Error = fmt.Sprintf("unknown action type %q for status %s", action.Action, currentStatus)
 			result.TotalDuration = time.Since(startTime)
 			return result, nil
 		}
+
+		if outcome.done {
+			return result, nil
+		}
+		currentStatus = outcome.nextStatus
 	}
+}
+
+// handleAdvanceStatus handles the advance_status action type: transitions the
+// entity to the next status without dispatching an agent.
+func (c *RunController) handleAdvanceStatus(
+	ctx context.Context, key, currentStatus string,
+	action *config.PopulatedAction, opts RunOptions,
+	result *RunResult, stageStart, startTime time.Time,
+) stageOutcome {
+	if opts.DryRun {
+		nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
+		if err != nil {
+			result.FinalStatus = currentStatus
+			result.Outcome = "failed"
+			result.Error = err.Error()
+			result.TotalDuration = time.Since(startTime)
+			return stageOutcome{done: true}
+		}
+		result.Stages = append(result.Stages, StageLog{
+			Status:    currentStatus,
+			Action:    action.Action,
+			AgentType: action.AgentType,
+			Provider:  action.Provider,
+			Duration:  time.Since(stageStart),
+		})
+		result.StagesCompleted++
+		if len(nextInfo.AvailableTransitions) == 0 || nextInfo.IsTerminal {
+			result.FinalStatus = currentStatus
+			result.Outcome = "completed"
+			result.TotalDuration = time.Since(startTime)
+			return stageOutcome{done: true}
+		}
+		return stageOutcome{nextStatus: nextInfo.AvailableTransitions[0].TargetStatus}
+	}
+
+	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
+	if err != nil {
+		result.FinalStatus = currentStatus
+		result.Outcome = "failed"
+		result.Error = err.Error()
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	if len(nextInfo.AvailableTransitions) == 0 {
+		result.FinalStatus = currentStatus
+		result.Outcome = "completed"
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus
+	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
+	if err != nil {
+		result.FinalStatus = currentStatus
+		result.Outcome = "failed"
+		result.Error = fmt.Sprintf("transition to %s failed: %v", targetStatus, err)
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	result.Stages = append(result.Stages, StageLog{
+		Status:    currentStatus,
+		Action:    action.Action,
+		AgentType: action.AgentType,
+		Provider:  action.Provider,
+		Duration:  time.Since(stageStart),
+	})
+	result.StagesCompleted++
+
+	if c.workflowSvc.IsTerminalStatus(transResult.ToStatus) {
+		result.FinalStatus = transResult.ToStatus
+		result.Outcome = "completed"
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+	return stageOutcome{nextStatus: transResult.ToStatus}
+}
+
+// handleSpawnAgent handles the spawn_agent action type: dispatches an agent,
+// gates status advancement on exit code 0.
+func (c *RunController) handleSpawnAgent(
+	ctx context.Context, key, currentStatus string,
+	action *config.PopulatedAction, opts RunOptions,
+	result *RunResult, stageStart, startTime time.Time,
+) stageOutcome {
+	dispatcher, err := c.selectDispatcher(action.Provider)
+	if err != nil {
+		result.FinalStatus = currentStatus
+		result.Outcome = "failed"
+		result.Error = err.Error()
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	input := DispatchInput{
+		Instruction: action.Instruction,
+		WorkingDir:  opts.WorkingDir,
+		EntityKey:   key,
+		Status:      currentStatus,
+		AgentType:   action.AgentType,
+		Model:       action.Model,
+	}
+
+	if opts.DryRun {
+		result.Stages = append(result.Stages, StageLog{
+			Status:    currentStatus,
+			Action:    action.Action,
+			AgentType: action.AgentType,
+			Provider:  action.Provider,
+			Duration:  time.Since(stageStart),
+		})
+		result.StagesCompleted++
+
+		nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
+		if err != nil || len(nextInfo.AvailableTransitions) == 0 || nextInfo.IsTerminal {
+			result.FinalStatus = currentStatus
+			result.Outcome = "completed"
+			result.TotalDuration = time.Since(startTime)
+			return stageOutcome{done: true}
+		}
+		return stageOutcome{nextStatus: nextInfo.AvailableTransitions[0].TargetStatus}
+	}
+
+	dispatchResult, err := dispatcher.Dispatch(ctx, input)
+	if err != nil {
+		result.FinalStatus = currentStatus
+		result.Outcome = "failed"
+		result.Error = err.Error()
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	stage := StageLog{
+		Status:    currentStatus,
+		Action:    action.Action,
+		AgentType: action.AgentType,
+		Provider:  action.Provider,
+		Duration:  dispatchResult.Duration,
+		ExitCode:  dispatchResult.ExitCode,
+	}
+	if dispatchResult.ExitCode == 0 {
+		stage.OutputSummary = dispatchResult.Stdout
+	}
+	result.Stages = append(result.Stages, stage)
+
+	// Gate advancement on exit code 0.
+	if dispatchResult.ExitCode != 0 {
+		result.StagesCompleted = len(result.Stages) - 1
+		result.FinalStatus = currentStatus
+		result.Outcome = "failed"
+		result.Error = fmt.Sprintf("agent exited with code %d", dispatchResult.ExitCode)
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	result.StagesCompleted++
+
+	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
+	if err != nil {
+		result.FinalStatus = currentStatus
+		result.Outcome = "failed"
+		result.Error = err.Error()
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	if len(nextInfo.AvailableTransitions) == 0 {
+		result.FinalStatus = currentStatus
+		result.Outcome = "completed"
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus
+	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
+	if err != nil {
+		result.FinalStatus = currentStatus
+		result.Outcome = "failed"
+		result.Error = fmt.Sprintf("transition to %s failed: %v", targetStatus, err)
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+
+	if c.workflowSvc.IsTerminalStatus(transResult.ToStatus) {
+		result.FinalStatus = transResult.ToStatus
+		result.Outcome = "completed"
+		result.TotalDuration = time.Since(startTime)
+		return stageOutcome{done: true}
+	}
+	return stageOutcome{nextStatus: transResult.ToStatus}
 }
 
 // selectDispatcher returns the AgentDispatcher for the given provider name.

@@ -5,6 +5,7 @@ package commands
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
@@ -71,12 +72,12 @@ func TestSetupWorktree_Success(t *testing.T) {
 	call := mock.createCalls[0]
 
 	// Path must contain the entity key.
-	if !wtContainsSubstring(call.path, "E22-F06-001") {
+	if !strings.Contains(call.path, "E22-F06-001") {
 		t.Errorf("worktree path %q should contain entity key %q", call.path, "E22-F06-001")
 	}
 
 	// Branch must start with "shark-run-".
-	if !wtHasPrefix(call.branch, "shark-run-") {
+	if !strings.HasPrefix(call.branch, "shark-run-") {
 		t.Errorf("branch %q should start with 'shark-run-'", call.branch)
 	}
 }
@@ -129,23 +130,4 @@ func TestSetupWorktree_PathContainsTimestamp(t *testing.T) {
 		t.Errorf("worktree path %q appears to be missing timestamp suffix (len=%d, want>%d)",
 			path, len(path), minExpectedLen)
 	}
-}
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-func wtContainsSubstring(s, sub string) bool {
-	return len(s) >= len(sub) && wtContainsAt(s, sub)
-}
-
-func wtContainsAt(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
-
-func wtHasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
