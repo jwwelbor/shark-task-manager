@@ -1804,3 +1804,34 @@ func (r *TaskRepository) GetTaskDisplayDataRaw(ctx context.Context, taskID int64
 
 	return raw, nil
 }
+
+// GetContextData retrieves the context data JSON string for a task by its ID.
+func (r *TaskRepository) GetContextData(ctx context.Context, taskID int64) (*string, error) {
+	query := `SELECT context_data FROM tasks WHERE id = ?`
+	var contextData *string
+	err := r.db.QueryRowContext(ctx, query, taskID).Scan(&contextData)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("task not found with id %d", taskID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task context data: %w", err)
+	}
+	return contextData, nil
+}
+
+// UpdateContextData updates only the context_data field of a task.
+func (r *TaskRepository) UpdateContextData(ctx context.Context, taskID int64, contextData *string) error {
+	query := `UPDATE tasks SET context_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	result, err := r.db.ExecContext(ctx, query, contextData, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to update task context data: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("task not found with id %d", taskID)
+	}
+	return nil
+}

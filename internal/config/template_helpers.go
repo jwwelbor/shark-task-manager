@@ -265,10 +265,14 @@ func ChangeCardPlaceholders(card *models.ChangeCard) map[string]string {
 		"title":      card.Title,
 		"status":     string(card.Status),
 		"priority":   fmt.Sprintf("%d", card.Priority),
-		"file_path":  card.FilePath,
-		"slug":       card.Slug,
 		"created_at": card.CreatedAt.Format(time.RFC3339),
 		"updated_at": card.UpdatedAt.Format(time.RFC3339),
+	}
+	if card.FilePath != nil {
+		m["file_path"] = *card.FilePath
+	}
+	if card.Slug != nil {
+		m["slug"] = *card.Slug
 	}
 
 	// Optional pointer fields
