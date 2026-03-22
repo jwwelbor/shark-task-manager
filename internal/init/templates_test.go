@@ -148,11 +148,9 @@ func TestCopyTemplatesIncludesAllSubdirectories(t *testing.T) {
 	// Verify key subdirectories were created
 	templateDir := filepath.Join(tempDir, "shark-templates")
 	expectedDirs := []string{
-		"entity",
-		"task",
-		"feature",
-		"epic",
-		"partials",
+		"task_short",
+		"feature_short",
+		"epic_short",
 		"bug",
 		"change",
 	}
@@ -164,23 +162,23 @@ func TestCopyTemplatesIncludesAllSubdirectories(t *testing.T) {
 		}
 	}
 
-	// Verify underscore-prefixed partials were included
-	partialsDir := filepath.Join(templateDir, "partials")
-	entries, err := os.ReadDir(partialsDir)
+	// Verify at least one .tmpl file exists in task_short/
+	taskDir := filepath.Join(templateDir, "task_short")
+	entries, err := os.ReadDir(taskDir)
 	if err != nil {
-		t.Fatalf("Failed to read partials directory: %v", err)
+		t.Fatalf("Failed to read task_short directory: %v", err)
 	}
 
-	hasUnderscoredFile := false
+	hasTmplFile := false
 	for _, entry := range entries {
-		if len(entry.Name()) > 0 && entry.Name()[0] == '_' {
-			hasUnderscoredFile = true
+		if filepath.Ext(entry.Name()) == ".tmpl" {
+			hasTmplFile = true
 			break
 		}
 	}
 
-	if !hasUnderscoredFile {
-		t.Error("No underscore-prefixed partial templates found (e.g., _read_section.tmpl)")
+	if !hasTmplFile {
+		t.Error("No .tmpl files found in task_short/ directory")
 	}
 }
 
@@ -206,11 +204,11 @@ func TestCopyTemplatesFilePermissions(t *testing.T) {
 		t.Skip("No templates embedded, skipping permission check")
 	}
 
-	// Check permissions on copied files in entity/ subdirectory
-	entityDir := filepath.Join(tempDir, "shark-templates", "entity")
-	entries, err := os.ReadDir(entityDir)
+	// Check permissions on copied files in task_short/ subdirectory
+	taskShortDir := filepath.Join(tempDir, "shark-templates", "task_short")
+	entries, err := os.ReadDir(taskShortDir)
 	if err != nil {
-		t.Fatalf("Failed to read entity directory: %v", err)
+		t.Fatalf("Failed to read task_short directory: %v", err)
 	}
 
 	for _, entry := range entries {
@@ -257,11 +255,11 @@ func TestCopyTemplatesCustomDir(t *testing.T) {
 	}
 
 	// Verify custom directory was used
-	if _, err := os.Stat(filepath.Join(tempDir, customDir, "entity", "task.md")); os.IsNotExist(err) {
-		t.Error("Entity template not found in custom directory")
+	if _, err := os.Stat(filepath.Join(tempDir, customDir, "task_short")); os.IsNotExist(err) {
+		t.Error("Task orchestrator templates not found in custom directory")
 	}
 
-	if _, err := os.Stat(filepath.Join(tempDir, customDir, "task")); os.IsNotExist(err) {
-		t.Error("Task orchestrator templates not found in custom directory")
+	if _, err := os.Stat(filepath.Join(tempDir, customDir, "bug")); os.IsNotExist(err) {
+		t.Error("Bug templates not found in custom directory")
 	}
 }

@@ -97,9 +97,8 @@ func TestSearchRepository_RebuildIndex(t *testing.T) {
 
 	task1ID, task2ID := createTestDataForSearch(t, db)
 
-	// Add some notes and criteria
+	// Add some notes
 	noteRepo := NewEntityNoteRepository(db)
-	criteriaRepo := NewTaskCriteriaRepository(db)
 	ctx := context.Background()
 
 	note1 := &models.EntityNote{
@@ -110,12 +109,8 @@ func TestSearchRepository_RebuildIndex(t *testing.T) {
 	}
 	require.NoError(t, noteRepo.Create(ctx, note1))
 
-	criteria1 := &models.TaskCriteria{
-		TaskID:    task2ID,
-		Criterion: "FTS5 index created",
-		Status:    models.CriteriaStatusComplete,
-	}
-	require.NoError(t, criteriaRepo.Create(ctx, criteria1))
+	// Use task2ID to avoid unused variable
+	_ = task2ID
 
 	// Rebuild index
 	searchRepo := NewSearchRepository(db)

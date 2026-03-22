@@ -125,11 +125,13 @@ func GetNoteService(ctx context.Context) (*services.NoteService, error) {
 }
 
 // GetContextService returns the global ContextService, initializing it if needed.
-func GetContextService(ctx context.Context) (*services.ContextService, error) {
+// Unlike GetNoteService/GetResumeService, this never fails because its only
+// dependency (GetEntityRegistry) panics on failure rather than returning an error.
+func GetContextService() *services.ContextService {
 	contextServiceOnce.Do(func() {
 		globalContextService = services.NewContextService(GetEntityRegistry())
 	})
-	return globalContextService, nil
+	return globalContextService
 }
 
 // GetResumeService returns the global ResumeService, initializing it if needed.
@@ -297,25 +299,6 @@ func GetTaskServiceWithDeps() *services.TaskService {
 	return svc
 }
 
-// GetCriteriaService returns a CriteriaService instance.
-// Creates a new instance each call with the global DB connection.
-// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
-//
-// Usage:
-//
-//	svc := cli.GetCriteriaService()
-//	count, err := svc.ImportCriteriaFromFile(ctx, "E07-F01-001")
-func GetCriteriaService() *services.CriteriaService {
-	db, err := GetDB(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("failed to get database: %v", err))
-	}
-	criteriaRepo := repository.NewTaskCriteriaRepository(db)
-	taskRepo := repository.NewTaskRepository(db)
-	featureRepo := repository.NewFeatureRepository(db)
-	return services.NewCriteriaService(criteriaRepo, taskRepo, featureRepo)
-}
-
 // GetViewService returns a view.Service instance for viewing entity file paths.
 // Creates a new instance each call with the global DB connection.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
@@ -455,6 +438,18 @@ func GetEntityHistoryService() *services.EntityHistoryService {
 	}
 	historyRepo := repository.NewEntityHistoryRepository(db)
 	return services.NewEntityHistoryService(historyRepo, GetEntityRegistry())
+}
+
+// GetEntityRelationshipService returns an EntityRelationshipService instance.
+// Creates a new instance each call (lightweight, no shared state).
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+func GetEntityRelationshipService() *services.EntityRelationshipService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for EntityRelationshipService: %v", err))
+	}
+	repo := repository.NewEntityRelationshipRepository(db)
+	return services.NewEntityRelationshipService(repo)
 }
 
 // ResetServices clears global service state. For testing only.

@@ -438,13 +438,7 @@ func (s *BugService) SetWritableDocRepo(writableRepo EntityDocumentRepository, l
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			bug, err := s.repo.GetByKey(ctx, key)
-			if err != nil {
-				return 0, "", err
-			}
-			return bug.ID, models.EntityTypeBug, nil
-		},
+		EntityLookupFnFromRepo(s.entityRepo),
 	)
 }
 

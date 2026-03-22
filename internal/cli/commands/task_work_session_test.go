@@ -7,12 +7,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func setupTestDB(t *testing.T) *repository.DB {
+	database, err := db.InitDB(":memory:")
+	require.NoError(t, err)
+	return &repository.DB{DB: database}
+}
 
 // TestTaskContextSetAndGet tests setting and retrieving context data
 func TestTaskContextSetAndGet(t *testing.T) {
@@ -452,12 +459,6 @@ func TestContextDataValidation(t *testing.T) {
 				BlockedSince: time.Now(),
 			},
 		},
-		AcceptanceCriteriaStatus: []models.AcceptanceCriterionContext{
-			{
-				Criterion: "Test passes",
-				Status:    "complete",
-			},
-		},
 	}
 	err := validCtx.Validate()
 	assert.NoError(t, err)
@@ -472,18 +473,6 @@ func TestContextDataValidation(t *testing.T) {
 		},
 	}
 	err = invalidBlockerCtx.Validate()
-	assert.Error(t, err)
-
-	// Test invalid AC status
-	invalidACCtx := &models.ContextData{
-		AcceptanceCriteriaStatus: []models.AcceptanceCriterionContext{
-			{
-				Criterion: "Test",
-				Status:    "invalid_status",
-			},
-		},
-	}
-	err = invalidACCtx.Validate()
 	assert.Error(t, err)
 }
 

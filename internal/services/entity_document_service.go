@@ -23,6 +23,31 @@ type EntityDocumentLinkRepository interface {
 	ListForEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error)
 }
 
+// EntityKeyLookup defines the minimal interface needed to resolve an entity key
+// to a polymorphic models.Entity. This is satisfied by EntityRepository and by
+// any adapter wrapping a typed repository whose GetByKey returns a concrete type
+// implementing models.Entity.
+type EntityKeyLookup interface {
+	GetByKey(ctx context.Context, key string) (models.Entity, error)
+}
+
+// EntityLookupFnFromRepo creates an entity lookup function from any EntityKeyLookup.
+// This eliminates duplicate closures in SetWritableDocRepo methods across services.
+// The returned function resolves an entity key to (entityID, entityType) via the
+// polymorphic Entity interface.
+func EntityLookupFnFromRepo(repo EntityKeyLookup) func(ctx context.Context, key string) (int64, models.EntityType, error) {
+	return func(ctx context.Context, key string) (int64, models.EntityType, error) {
+		entity, err := repo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, "", err
+		}
+		if entity == nil {
+			return 0, "", fmt.Errorf("entity not found: %s", key)
+		}
+		return entity.GetID(), entity.GetEntityType(), nil
+	}
+}
+
 // EntityDocumentService provides shared document link/unlink/list operations
 // for all entity types. It uses the polymorphic EntityDocumentLinkRepository
 // to handle document associations and an entityLookupFn to resolve entity keys

@@ -390,7 +390,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 7
+const CurrentSchemaVersion = 10
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -577,9 +577,14 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate completion metadata: %w", err)
 	}
 
-	// Run task criteria and search migration
-	if err := migrateTaskCriteriaAndSearch(db); err != nil {
-		return fmt.Errorf("failed to migrate task criteria and search: %w", err)
+	// Run search FTS migration
+	if err := migrateSearchFTS(db); err != nil {
+		return fmt.Errorf("failed to migrate search FTS: %w", err)
+	}
+
+	// Drop unused task_criteria table
+	if err := migrateDropTaskCriteria(db); err != nil {
+		return fmt.Errorf("failed to drop task_criteria table: %w", err)
 	}
 
 	// Run work sessions and context data migration
@@ -616,18 +621,6 @@ func runMigrations(db *sql.DB) error {
 	if needsTaskNotesFix {
 		if err := fixTaskNotesTasksOldFK(db); err != nil {
 			return fmt.Errorf("failed to fix task_notes foreign key: %w", err)
-		}
-	}
-
-	// Run task_criteria foreign key fix migration
-	// This fixes databases where task_criteria references tasks_old
-	needsTaskCriteriaFix, err := needsTaskCriteriaFKFix(db)
-	if err != nil {
-		return fmt.Errorf("failed to check if task_criteria FK fix needed: %w", err)
-	}
-	if needsTaskCriteriaFix {
-		if err := fixTaskCriteriaTasksOldFK(db); err != nil {
-			return fmt.Errorf("failed to fix task_criteria foreign key: %w", err)
 		}
 	}
 
@@ -758,6 +751,16 @@ func runMigrations(db *sql.DB) error {
 	}
 	if err := migrateTaskDisplayDataView(db); err != nil {
 		return fmt.Errorf("failed to recreate task_display_data view after polymorphic migration: %w", err)
+	}
+
+	// Create polymorphic entity_relationships table (E21-F11)
+	if err := migrateAddEntityRelationships(db); err != nil {
+		return fmt.Errorf("failed to migrate entity_relationships table: %w", err)
+	}
+
+	// Migrate data from legacy relationship tables into entity_relationships (E21-F11)
+	if err := migrateDataToEntityRelationships(db); err != nil {
+		return fmt.Errorf("failed to migrate data to entity_relationships: %w", err)
 	}
 
 	return nil
@@ -919,49 +922,11 @@ func migrateCompletionMetadata(db *sql.DB) error {
 	return nil
 }
 
-// migrateTaskCriteriaAndSearch adds task_criteria table and FTS5 virtual table for search
-func migrateTaskCriteriaAndSearch(db *sql.DB) error {
-	// Check if task_criteria table exists
+// migrateSearchFTS adds FTS5 virtual table for search (if not already present)
+func migrateSearchFTS(db *sql.DB) error {
+	// Check if task_search_fts table exists
 	var tableExists int
 	err := db.QueryRow(`
-		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_criteria'
-	`).Scan(&tableExists)
-	if err != nil {
-		return fmt.Errorf("failed to check task_criteria table: %w", err)
-	}
-
-	if tableExists == 0 {
-		// Create task_criteria table
-		_, err := db.Exec(`
-			CREATE TABLE IF NOT EXISTS task_criteria (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				task_id INTEGER NOT NULL,
-				criterion TEXT NOT NULL,
-				status TEXT CHECK (status IN ('pending', 'in_progress', 'complete', 'failed', 'na')) DEFAULT 'pending',
-				verified_at TIMESTAMP,
-				verification_notes TEXT,
-				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-				FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-			);
-		`)
-		if err != nil {
-			return fmt.Errorf("failed to create task_criteria table: %w", err)
-		}
-
-		// Create indexes for task_criteria
-		indexes := []string{
-			`CREATE INDEX IF NOT EXISTS idx_task_criteria_task_id ON task_criteria(task_id);`,
-			`CREATE INDEX IF NOT EXISTS idx_task_criteria_status ON task_criteria(status);`,
-		}
-		for _, idx := range indexes {
-			if _, err := db.Exec(idx); err != nil {
-				return fmt.Errorf("failed to create task_criteria index: %w", err)
-			}
-		}
-	}
-
-	// Check if task_search_fts table exists
-	err = db.QueryRow(`
 		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_search_fts'
 	`).Scan(&tableExists)
 	if err != nil {
@@ -989,6 +954,13 @@ func migrateTaskCriteriaAndSearch(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// migrateDropTaskCriteria drops the unused task_criteria table.
+// The acceptance criteria system was built but never used (0 rows in production).
+func migrateDropTaskCriteria(db *sql.DB) error {
+	_, err := db.Exec("DROP TABLE IF EXISTS task_criteria")
+	return err
 }
 
 // migrateWorkSessionsAndContext adds work_sessions table and context_data column to tasks
@@ -1933,8 +1905,9 @@ SELECT
   (SELECT COALESCE(json_group_array(json_object(
     'relationship_type', 'depends_on', 'direction', 'outgoing',
     'task_key', t2.key, 'task_title', t2.title, 'task_status', t2.status
-  )), '[]') FROM task_relationships tr JOIN tasks t2 ON t2.id = tr.to_task_id
-  WHERE tr.from_task_id = t.id AND tr.relationship_type = 'depends_on'
+  )), '[]') FROM entity_relationships er JOIN tasks t2 ON t2.id = er.to_entity_id
+  WHERE er.from_entity_type = 'task' AND er.from_entity_id = t.id
+    AND er.to_entity_type = 'task' AND er.relationship_type = 'depends_on'
   ) AS blocked_by_json,
 
   -- Blocks: incoming depends_on + outgoing blocks (tasks blocked by this task)
@@ -1943,12 +1916,14 @@ SELECT
     'task_key', sub.key, 'task_title', sub.title, 'task_status', sub.status
   )), '[]') FROM (
     SELECT 'depends_on' as rt, 'incoming' as dir, t2.key, t2.title, t2.status
-    FROM task_relationships tr JOIN tasks t2 ON t2.id = tr.from_task_id
-    WHERE tr.to_task_id = t.id AND tr.relationship_type = 'depends_on'
+    FROM entity_relationships er JOIN tasks t2 ON t2.id = er.from_entity_id
+    WHERE er.to_entity_type = 'task' AND er.to_entity_id = t.id
+      AND er.from_entity_type = 'task' AND er.relationship_type = 'depends_on'
     UNION ALL
     SELECT 'blocks' as rt, 'outgoing' as dir, t2.key, t2.title, t2.status
-    FROM task_relationships tr JOIN tasks t2 ON t2.id = tr.to_task_id
-    WHERE tr.from_task_id = t.id AND tr.relationship_type = 'blocks'
+    FROM entity_relationships er JOIN tasks t2 ON t2.id = er.to_entity_id
+    WHERE er.from_entity_type = 'task' AND er.from_entity_id = t.id
+      AND er.to_entity_type = 'task' AND er.relationship_type = 'blocks'
   ) sub
   ) AS blocks_json,
 
@@ -1957,10 +1932,10 @@ SELECT
     'key', sub2.key, 'title', sub2.title, 'status', sub2.status
   )), '[]') FROM (
     SELECT DISTINCT t2.key, t2.title, t2.status
-    FROM task_relationships tr
+    FROM entity_relationships er
     JOIN tasks t2 ON (
-      (tr.from_task_id = t.id AND tr.to_task_id = t2.id) OR
-      (tr.to_task_id = t.id AND tr.from_task_id = t2.id)
+      (er.from_entity_type = 'task' AND er.from_entity_id = t.id AND er.to_entity_type = 'task' AND er.to_entity_id = t2.id) OR
+      (er.to_entity_type = 'task' AND er.to_entity_id = t.id AND er.from_entity_type = 'task' AND er.from_entity_id = t2.id)
     )
     WHERE t2.id != t.id
   ) sub2
@@ -2863,4 +2838,232 @@ END
 	}
 
 	return nil
+}
+
+// migrateAddEntityRelationships creates the entity_relationships table
+// and its supporting indexes. This replaces the three type-specific
+// relationship tables (task_relationships, epic_relationships,
+// feature_relationships) and the bug/change_card flat-column patterns.
+//
+// Data migration from old tables is handled by a separate one-time
+// migration script; this function only creates the schema objects.
+func migrateAddEntityRelationships(db *sql.DB) error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS entity_relationships (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_entity_type  TEXT NOT NULL CHECK(from_entity_type IN (
+                                'epic','feature','task','bug','change'
+                              )),
+            from_entity_id    INTEGER NOT NULL,
+            to_entity_type    TEXT NOT NULL CHECK(to_entity_type IN (
+                                'epic','feature','task','bug','change'
+                              )),
+            to_entity_id      INTEGER NOT NULL,
+            relationship_type TEXT NOT NULL CHECK(relationship_type IN (
+                                'depends_on','blocks','related_to','follows',
+                                'spawned_from','duplicates','references','linked_to'
+                              )),
+            created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(from_entity_type, from_entity_id,
+                   to_entity_type,   to_entity_id, relationship_type)
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_er_from
+             ON entity_relationships(from_entity_type, from_entity_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_er_to
+             ON entity_relationships(to_entity_type, to_entity_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_er_type
+             ON entity_relationships(relationship_type)`,
+	}
+
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("migrateAddEntityRelationships: %w", err)
+		}
+	}
+	return nil
+}
+
+// tableExistsInDB checks whether a table exists in the database.
+func tableExistsInDB(db *sql.DB, tableName string) bool {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&count)
+	return err == nil && count > 0
+}
+
+// MigrateDataToEntityRelationships migrates data from legacy relationship tables
+// (task_relationships, depends_on JSON, bug linked_entity columns, change_card FK columns,
+// epic_relationships, feature_relationships) into the unified entity_relationships table.
+//
+// This function is idempotent: INSERT OR IGNORE prevents duplicate rows.
+// It checks whether each source table exists before running that phase.
+//
+// Returns per-phase row counts for verification.
+func MigrateDataToEntityRelationships(db *sql.DB) (map[string]int64, error) {
+	return migrateDataToEntityRelationshipsWithCounts(db)
+}
+
+// migrateDataToEntityRelationships is the internal version called from runMigrations.
+// It runs all phases silently (no counts returned).
+func migrateDataToEntityRelationships(db *sql.DB) error {
+	_, err := migrateDataToEntityRelationshipsWithCounts(db)
+	return err
+}
+
+// migrateDataToEntityRelationshipsWithCounts runs all 5 data migration phases
+// and returns the number of rows inserted per phase.
+func migrateDataToEntityRelationshipsWithCounts(db *sql.DB) (map[string]int64, error) {
+	counts := map[string]int64{
+		"phase1_task_relationships": 0,
+		"phase2_depends_on_json":    0,
+		"phase3_bug_linked_entity":  0,
+		"phase4_change_card_fks":    0,
+		"phase5_epic_feature_rels":  0,
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Phase 1: task_relationships → entity_relationships
+	if tableExistsInDB(db, "task_relationships") {
+		result, err := tx.Exec(`
+			INSERT OR IGNORE INTO entity_relationships
+				(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type, created_at)
+			SELECT
+				'task', from_task_id,
+				'task', to_task_id,
+				relationship_type,
+				created_at
+			FROM task_relationships`)
+		if err != nil {
+			return nil, fmt.Errorf("phase 1 (task_relationships) failed: %w", err)
+		}
+		counts["phase1_task_relationships"], _ = result.RowsAffected()
+	}
+
+	// Phase 2: depends_on JSON column → entity_relationships
+	if tableExistsInDB(db, "tasks") {
+		result, err := tx.Exec(`
+			INSERT OR IGNORE INTO entity_relationships
+				(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+			SELECT
+				'task'     AS from_entity_type,
+				t.id       AS from_entity_id,
+				'task'     AS to_entity_type,
+				dep_t.id   AS to_entity_id,
+				'depends_on'
+			FROM tasks t
+			CROSS JOIN json_each(t.depends_on) AS je
+			JOIN tasks dep_t ON dep_t.key = je.value
+			WHERE t.depends_on IS NOT NULL
+			  AND t.depends_on != '[]'
+			  AND t.depends_on != 'null'`)
+		if err != nil {
+			return nil, fmt.Errorf("phase 2 (depends_on JSON) failed: %w", err)
+		}
+		counts["phase2_depends_on_json"], _ = result.RowsAffected()
+	}
+
+	// Phase 3: bug linked_entity columns → entity_relationships
+	if tableExistsInDB(db, "bugs") {
+		result, err := tx.Exec(`
+			INSERT OR IGNORE INTO entity_relationships
+				(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+			SELECT
+				'bug' AS from_entity_type,
+				b.id  AS from_entity_id,
+				b.linked_entity_type  AS to_entity_type,
+				CASE b.linked_entity_type
+					WHEN 'epic'    THEN e.id
+					WHEN 'feature' THEN f.id
+					WHEN 'task'    THEN t.id
+				END   AS to_entity_id,
+				'related_to'
+			FROM bugs b
+			LEFT JOIN epics    e ON b.linked_entity_type = 'epic'    AND e.key = b.linked_entity_key
+			LEFT JOIN features f ON b.linked_entity_type = 'feature' AND f.key = b.linked_entity_key
+			LEFT JOIN tasks    t ON b.linked_entity_type = 'task'    AND t.key = b.linked_entity_key
+			WHERE b.linked_entity_type IS NOT NULL
+			  AND b.linked_entity_key  IS NOT NULL`)
+		if err != nil {
+			return nil, fmt.Errorf("phase 3 (bug linked_entity) failed: %w", err)
+		}
+		counts["phase3_bug_linked_entity"], _ = result.RowsAffected()
+	}
+
+	// Phase 4: change_card FK columns → entity_relationships
+	if tableExistsInDB(db, "change_cards") {
+		// change_card → epic
+		r1, err := tx.Exec(`
+			INSERT OR IGNORE INTO entity_relationships
+				(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+			SELECT 'change', cc.id, 'epic', cc.epic_id, 'related_to'
+			FROM change_cards cc
+			WHERE cc.epic_id IS NOT NULL`)
+		if err != nil {
+			return nil, fmt.Errorf("phase 4 (change_card → epic) failed: %w", err)
+		}
+		c1, _ := r1.RowsAffected()
+
+		// change_card → feature
+		r2, err := tx.Exec(`
+			INSERT OR IGNORE INTO entity_relationships
+				(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+			SELECT 'change', cc.id, 'feature', cc.feature_id, 'related_to'
+			FROM change_cards cc
+			WHERE cc.feature_id IS NOT NULL`)
+		if err != nil {
+			return nil, fmt.Errorf("phase 4 (change_card → feature) failed: %w", err)
+		}
+		c2, _ := r2.RowsAffected()
+
+		// change_card → task
+		r3, err := tx.Exec(`
+			INSERT OR IGNORE INTO entity_relationships
+				(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type)
+			SELECT 'change', cc.id, 'task', cc.related_task_id, 'related_to'
+			FROM change_cards cc
+			WHERE cc.related_task_id IS NOT NULL`)
+		if err != nil {
+			return nil, fmt.Errorf("phase 4 (change_card → task) failed: %w", err)
+		}
+		c3, _ := r3.RowsAffected()
+
+		counts["phase4_change_card_fks"] = c1 + c2 + c3
+	}
+
+	// Phase 5: epic_relationships and feature_relationships → entity_relationships
+	if tableExistsInDB(db, "epic_relationships") {
+		result, err := tx.Exec(`
+			INSERT OR IGNORE INTO entity_relationships
+				(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type, created_at)
+			SELECT 'epic', from_epic_id, 'epic', to_epic_id, relationship_type, created_at
+			FROM epic_relationships`)
+		if err != nil {
+			return nil, fmt.Errorf("phase 5 (epic_relationships) failed: %w", err)
+		}
+		c1, _ := result.RowsAffected()
+		counts["phase5_epic_feature_rels"] += c1
+	}
+
+	if tableExistsInDB(db, "feature_relationships") {
+		result, err := tx.Exec(`
+			INSERT OR IGNORE INTO entity_relationships
+				(from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type, created_at)
+			SELECT 'feature', from_feature_id, 'feature', to_feature_id, relationship_type, created_at
+			FROM feature_relationships`)
+		if err != nil {
+			return nil, fmt.Errorf("phase 5 (feature_relationships) failed: %w", err)
+		}
+		c2, _ := result.RowsAffected()
+		counts["phase5_epic_feature_rels"] += c2
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit data migration transaction: %w", err)
+	}
+
+	return counts, nil
 }

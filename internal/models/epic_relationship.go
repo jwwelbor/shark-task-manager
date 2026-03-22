@@ -4,7 +4,12 @@ import (
 	"time"
 )
 
-// EpicRelationship represents a typed relationship between two epics
+// EpicRelationship represents a typed relationship between two epics.
+//
+// LEGACY: EpicRelationship uses the legacy epic_relationships table.
+// New code should use EntityRelationship (entity_relationships table) which
+// supports polymorphic cross-entity-type linking. This model will be removed
+// once all callers are migrated to EntityRelationship.
 type EpicRelationship struct {
 	ID               int64            `json:"id" db:"id"`
 	FromEpicID       int64            `json:"from_epic_id" db:"from_epic_id"`

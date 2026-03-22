@@ -17,6 +17,11 @@ type TaskDependencyTaskRepository interface {
 // TaskDependencyService handles dependency management, relationship operations,
 // and related-document linking for tasks.
 // It is a focused sub-service extracted from TaskService to reduce its size.
+//
+// LEGACY: TaskDependencyService operates on the legacy task_relationships table.
+// New code should use EntityRelationshipService which operates on the polymorphic
+// entity_relationships table and supports cross-entity-type linking.
+// This service will be removed once all callers are migrated to EntityRelationshipService.
 type TaskDependencyService struct {
 	repo         TaskDependencyTaskRepository
 	depRepo      TaskDependencyRepository
@@ -48,14 +53,18 @@ func (s *TaskDependencyService) SetWritableDocRepo(writableRepo EntityDocumentRe
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			task, err := s.repo.GetByKey(ctx, key)
-			if err != nil {
-				return 0, "", err
-			}
-			return task.ID, models.EntityTypeTask, nil
-		},
+		EntityLookupFnFromRepo(&taskDepRepoKeyLookup{repo: s.repo}),
 	)
+}
+
+// taskDepRepoKeyLookup adapts TaskDependencyTaskRepository to EntityKeyLookup
+// by wrapping the typed GetByKey to return models.Entity.
+type taskDepRepoKeyLookup struct {
+	repo TaskDependencyTaskRepository
+}
+
+func (a *taskDepRepoKeyLookup) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	return a.repo.GetByKey(ctx, key)
 }
 
 // ValidateDependencies checks if a task's dependencies are met for the given transition.
@@ -161,6 +170,9 @@ func (s *TaskDependencyService) GetDependencyTree(ctx context.Context, key strin
 
 // AddDependency creates a dependency relationship between two tasks.
 // The task identified by taskKey will depend on the task identified by depKey.
+//
+// LEGACY: Use EntityRelationshipService.CreateRelationship() instead.
+// This method writes to the legacy task_relationships table.
 func (s *TaskDependencyService) AddDependency(ctx context.Context, taskKey, depKey string) error {
 	if s.depRepo == nil {
 		return fmt.Errorf("dependency repository not configured")
@@ -194,6 +206,9 @@ func (s *TaskDependencyService) AddDependency(ctx context.Context, taskKey, depK
 }
 
 // RemoveDependency removes a dependency relationship between two tasks.
+//
+// LEGACY: Use EntityRelationshipService.UnlinkEntities() instead.
+// This method operates on the legacy task_relationships table.
 func (s *TaskDependencyService) RemoveDependency(ctx context.Context, taskKey, depKey string) error {
 	if s.depRepo == nil {
 		return fmt.Errorf("dependency repository not configured")
@@ -217,6 +232,9 @@ func (s *TaskDependencyService) RemoveDependency(ctx context.Context, taskKey, d
 }
 
 // ListDependencies returns all tasks that the given task depends on.
+//
+// LEGACY: Use EntityRelationshipService.GetOutgoing() with EntityTypeTask instead.
+// This method queries the legacy task_relationships table.
 func (s *TaskDependencyService) ListDependencies(ctx context.Context, taskKey string) ([]*models.Task, error) {
 	if s.depRepo == nil {
 		return nil, fmt.Errorf("dependency repository not configured")
@@ -245,6 +263,9 @@ func (s *TaskDependencyService) ListDependencies(ctx context.Context, taskKey st
 }
 
 // UnlinkFile removes the typed relationship between two tasks.
+//
+// LEGACY: Use EntityRelationshipService.UnlinkEntities() instead.
+// This method operates on the legacy task_relationships table.
 func (s *TaskDependencyService) UnlinkFile(ctx context.Context, taskKey, relType, targetKey string) error {
 	if s.depRepo == nil {
 		return fmt.Errorf("dependency repository not configured")
@@ -269,6 +290,9 @@ func (s *TaskDependencyService) UnlinkFile(ctx context.Context, taskKey, relType
 
 // UnlinkRelationships removes relationship links between tasks.
 // If targetKeys is empty, all relationships of the given type are removed.
+//
+// LEGACY: Use EntityRelationshipService.UnlinkEntities() instead.
+// This method operates on the legacy task_relationships table.
 func (s *TaskDependencyService) UnlinkRelationships(ctx context.Context, taskKey, relType string, targetKeys []string) (int, error) {
 	if s.depRepo == nil {
 		return 0, fmt.Errorf("dependency repository not configured")
@@ -313,6 +337,9 @@ func (s *TaskDependencyService) UnlinkRelationships(ctx context.Context, taskKey
 
 // CreateTypedRelationship creates a typed relationship between two tasks.
 // For depends_on and blocks relationships, circular dependency detection is performed.
+//
+// LEGACY: Use EntityRelationshipService.CreateRelationship() instead.
+// This method writes to the legacy task_relationships table.
 func (s *TaskDependencyService) CreateTypedRelationship(ctx context.Context, taskKey, targetKey, relType string) (*models.Task, error) {
 	if s.depRepo == nil {
 		return nil, fmt.Errorf("relationship repository not configured")
@@ -348,6 +375,9 @@ func (s *TaskDependencyService) CreateTypedRelationship(ctx context.Context, tas
 }
 
 // GetTaskRelationships retrieves all relationships for a task, optionally filtered by type.
+//
+// LEGACY: Use EntityRelationshipService.GetRelationships() with EntityTypeTask instead.
+// This method queries the legacy task_relationships table.
 func (s *TaskDependencyService) GetTaskRelationships(ctx context.Context, taskKey string, typeFilter []string) ([]RelationshipWithTask, error) {
 	if s.relQueryRepo == nil {
 		return nil, fmt.Errorf("relationship query repository not configured")
@@ -403,6 +433,9 @@ func (s *TaskDependencyService) GetTaskRelationships(ctx context.Context, taskKe
 }
 
 // GetTaskBlockedBy retrieves tasks that this task depends on (incoming dependencies).
+//
+// LEGACY: Use EntityRelationshipService.GetOutgoing() with EntityTypeTask and
+// depends_on relationship type instead. This method queries the legacy task_relationships table.
 func (s *TaskDependencyService) GetTaskBlockedBy(ctx context.Context, taskKey string) ([]RelationshipWithTask, error) {
 	if s.relQueryRepo == nil {
 		return nil, fmt.Errorf("relationship query repository not configured")
@@ -437,6 +470,9 @@ func (s *TaskDependencyService) GetTaskBlockedBy(ctx context.Context, taskKey st
 }
 
 // GetTaskBlocks retrieves tasks that depend on this task completing.
+//
+// LEGACY: Use EntityRelationshipService.GetIncoming() with EntityTypeTask and
+// depends_on relationship type instead. This method queries the legacy task_relationships table.
 func (s *TaskDependencyService) GetTaskBlocks(ctx context.Context, taskKey string) ([]RelationshipWithTask, error) {
 	if s.relQueryRepo == nil {
 		return nil, fmt.Errorf("relationship query repository not configured")

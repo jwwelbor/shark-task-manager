@@ -1318,19 +1318,6 @@ func needsTaskNotesFKFix(db *sql.DB) (bool, error) {
 	return strings.Contains(createSQL, "tasks_old"), nil
 }
 
-// needsTaskCriteriaFKFix checks if task_criteria table references tasks_old
-func needsTaskCriteriaFKFix(db *sql.DB) (bool, error) {
-	var createSQL string
-	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_criteria'`).Scan(&createSQL)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return strings.Contains(createSQL, "tasks_old"), nil
-}
-
 // needsWorkSessionsFKFix checks if work_sessions table references tasks_old
 func needsWorkSessionsFKFix(db *sql.DB) (bool, error) {
 	var createSQL string
@@ -1410,77 +1397,6 @@ CREATE TABLE task_notes (
 	_, err = tx.Exec(`DROP TABLE task_notes_old;`)
 	if err != nil {
 		return fmt.Errorf("failed to drop old task_notes table: %w", err)
-	}
-
-	// Re-enable foreign keys
-	if _, err := tx.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return fmt.Errorf("failed to re-enable foreign keys: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
-}
-
-// fixTaskCriteriaTasksOldFK fixes the task_criteria table's foreign key
-// that incorrectly references "tasks_old" instead of "tasks"
-func fixTaskCriteriaTasksOldFK(db *sql.DB) error {
-	var createSQL string
-	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='task_criteria'`).Scan(&createSQL)
-	if err != nil {
-		return fmt.Errorf("failed to get task_criteria schema: %w", err)
-	}
-
-	// If no reference to tasks_old, nothing to do
-	if !strings.Contains(createSQL, "tasks_old") {
-		return nil
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Disable foreign keys temporarily
-	if _, err := tx.Exec("PRAGMA foreign_keys = OFF"); err != nil {
-		return fmt.Errorf("failed to disable foreign keys: %w", err)
-	}
-
-	// Rename existing table
-	_, err = tx.Exec(`ALTER TABLE task_criteria RENAME TO task_criteria_old;`)
-	if err != nil {
-		return fmt.Errorf("failed to rename task_criteria table: %w", err)
-	}
-
-	// Create new table with correct foreign key
-	_, err = tx.Exec(`
-CREATE TABLE task_criteria (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    criterion TEXT NOT NULL,
-    status TEXT CHECK (status IN ('pending', 'in_progress', 'complete', 'failed', 'na')) DEFAULT 'pending',
-    verified_at TIMESTAMP,
-    verification_notes TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-);`)
-	if err != nil {
-		return fmt.Errorf("failed to create new task_criteria table: %w", err)
-	}
-
-	// Copy data from old table
-	_, err = tx.Exec(`INSERT INTO task_criteria SELECT * FROM task_criteria_old;`)
-	if err != nil {
-		return fmt.Errorf("failed to copy task_criteria data: %w", err)
-	}
-
-	// Drop old table
-	_, err = tx.Exec(`DROP TABLE task_criteria_old;`)
-	if err != nil {
-		return fmt.Errorf("failed to drop old task_criteria table: %w", err)
 	}
 
 	// Re-enable foreign keys

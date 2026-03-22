@@ -26,8 +26,6 @@ var (
 	ErrInvalidNoteType         = errors.New("invalid note type: must be comment, decision, blocker, solution, reference, implementation, testing, future, question, rejection, or requirement")
 	ErrInvalidTaskID           = errors.New("task_id must be greater than 0")
 	ErrEmptyContent            = errors.New("content cannot be empty")
-	ErrInvalidCriteriaStatus   = errors.New("invalid criteria status: must be pending, in_progress, complete, failed, or na")
-	ErrEmptyCriterion          = errors.New("criterion cannot be empty")
 	ErrInvalidRelationshipType = errors.New("invalid relationship type: must be depends_on, blocks, related_to, follows, spawned_from, duplicates, or references")
 	ErrSelfRelationship        = errors.New("task cannot have a relationship with itself")
 	ErrCircularDependency      = errors.New("circular dependency detected")
@@ -186,21 +184,6 @@ func ValidateNoteType(noteType string) error {
 	}
 	if !validTypes[noteType] {
 		return fmt.Errorf("%w: got %q", ErrInvalidNoteType, noteType)
-	}
-	return nil
-}
-
-// ValidateCriteriaStatus validates the criteria status enum
-func ValidateCriteriaStatus(status string) error {
-	validStatuses := map[string]bool{
-		"pending":     true,
-		"in_progress": true,
-		"complete":    true,
-		"failed":      true,
-		"na":          true,
-	}
-	if !validStatuses[status] {
-		return fmt.Errorf("%w: got %q", ErrInvalidCriteriaStatus, status)
 	}
 	return nil
 }

@@ -134,7 +134,7 @@ func main() {
 
 	workflowSvc := workflow.NewService(".")
 	entitySvc := services.NewEntityService(workflowSvc)
-	featureSvc := services.NewFeatureService(featureRepo, entitySvc, nil, taskRepo, epicRepo)
+	featureSvc := services.NewFeatureService(featureRepo, entitySvc, services.NewNoopEntityRepository(), taskRepo, epicRepo)
 
 	progressInfo, err := featureSvc.GetProgress(ctx, feature.Key)
 	if err != nil {
@@ -158,7 +158,7 @@ func main() {
 	fmt.Printf("✓ Feature progress updated: %.1f%% (1/1 tasks completed)\n", updatedFeature.ProgressPct)
 
 	// Test Epic Progress Calculation via service layer
-	epicSvc := services.NewEpicService(epicRepo, entitySvc, nil, featureRepo, taskRepo)
+	epicSvc := services.NewEpicService(epicRepo, entitySvc, services.NewNoopEntityRepository(), featureRepo, taskRepo)
 	epicProgressInfo, err := epicSvc.GetProgress(ctx, epic.Key)
 	if err != nil {
 		log.Fatal("Failed to calculate epic progress:", err)

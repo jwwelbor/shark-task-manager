@@ -138,7 +138,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	validTransitions := GetValidTransitions(string(task.Status), workflowCfg)
 
 	var contextData *models.ContextData
-	if ctxSvc, err := cli.GetContextService(ctx); err == nil && ctxSvc != nil {
+	if ctxSvc := cli.GetContextService(); ctxSvc != nil {
 		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeTask, taskKey)
 	}
 

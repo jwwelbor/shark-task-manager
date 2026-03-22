@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -25,50 +27,50 @@ var (
 )
 
 var historyCmd = &cobra.Command{
-	Use:     "history [EPIC] [FEATURE]",
-	Short:   "View project-wide task history",
+	Use:     "history [KEY]",
+	Short:   "View entity or project-wide history",
 	GroupID: "manage",
-	Long: `View project-wide task activity log with optional filtering.
+	Long: `View status change history for a specific entity or project-wide activity log.
 
-Displays recent status changes, agent assignments, and task transitions across all tasks in the project.
+When given a specific entity key, shows the status history for that entity.
+When given no arguments or epic/feature filters, shows project-wide task history.
 
-Positional Arguments:
-  (no args)       View history for all tasks
-  EPIC            View history for tasks in specific epic (e.g., E04)
-  EPIC FEATURE    View history for tasks in specific feature (e.g., E04 F01 or E04-F01)`,
-	Example: `  # View recent 50 events (default)
-  shark history
+Entity keys are auto-detected from format:
+  E##               Epic history
+  E##-F##           Feature history
+  E##-F##-###       Task history (also T-E##-F##-###)
+  B###              Bug history
+  CC-###            Change-card history
 
-  # View history for specific epic
-  shark history E05
+Project-wide filtering:
+  (no args)         View history for all tasks
+  EPIC FEATURE      View history for tasks in specific feature (e.g., E04 F01)`,
+	Example: `  # View history for a specific task
+  shark history T-E21-F10-001
+  shark history E21-F10-001
 
-  # View history for specific feature
+  # View history for a specific feature
+  shark history E07-F01
+
+  # View history for a specific epic
+  shark history E07
+
+  # View history for a bug or change-card
+  shark history B001
+  shark history CC-001
+
+  # Project-wide history
+  shark history --epic=E05 --limit=20
+
+  # Project-wide with filters
   shark history E05 F02
-  shark history E05-F02
-
-  # View history for specific agent
-  shark history --agent=backend-agent-1
-
-  # View history since timestamp
-  shark history --since="2025-12-27T10:00:00Z"
-
-  # Filter by status transition
-  shark history --old-status=todo --new-status=in_progress
-
-  # Combine filters
-  shark history --agent=backend --epic=E05 --limit=20
-
-  # Pagination
-  shark history --limit=10 --offset=10
+  shark history --agent=backend --since="2025-12-27T10:00:00Z"
 
   # Output as JSON
-  shark history --json
+  shark history E07-F01-001 --json
 
-  # Export as CSV
-  shark history --format=csv
-
-  # Export as JSON (alternative to --json)
-  shark history --format=json`,
+  # Pagination
+  shark history --limit=10 --offset=10`,
 	RunE: runHistory,
 }
 
@@ -86,10 +88,113 @@ func init() {
 	historyCmd.Hidden = true
 }
 
+// detectHistoryEntityKey checks if the args represent a single entity key.
+// Returns (entityType, key, true) if an entity key is detected,
+// or ("", "", false) if args should be handled as project-wide history filters.
+func detectHistoryEntityKey(args []string) (entityType string, key string, isEntity bool) {
+	if len(args) != 1 {
+		return "", "", false
+	}
+
+	detected := DetectEntityType(args[0])
+	if detected == "unknown" {
+		return "", "", false
+	}
+
+	return detected, args[0], true
+}
+
+// runEntityHistory handles `shark history <key>` for a specific entity.
+// It uses ParseGetArgs for key normalization (e.g., E21-F10-001 -> T-E21-F10-001).
+func runEntityHistory(cmd *cobra.Command, entityType string, key string) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+	defer cancel()
+
+	// Normalize entity type (ADR-1: change_card -> change)
+	if entityType == "change_card" {
+		entityType = "change"
+	}
+
+	svc := cli.GetEntityHistoryService()
+	history, err := svc.GetHistory(ctx, models.EntityType(entityType), key)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			cli.Error(fmt.Sprintf("%s %s not found", entityType, key))
+			os.Exit(1)
+		}
+		return fmt.Errorf("failed to get history: %w", err)
+	}
+
+	// Apply limit
+	if historyLimit > 0 && len(history) > historyLimit {
+		history = history[:historyLimit]
+	}
+
+	entries := make([]StatusHistoryEntry, 0, len(history))
+	for _, h := range history {
+		entry := StatusHistoryEntry{
+			Timestamp: h.ChangedAt.Format(time.RFC3339),
+			NewStatus: h.ToStatus,
+		}
+		if h.FromStatus != nil {
+			entry.OldStatus = *h.FromStatus
+		}
+		if h.ChangedBy != nil {
+			entry.Agent = *h.ChangedBy
+		}
+		if h.Notes != nil {
+			entry.Notes = *h.Notes
+		}
+		entries = append(entries, entry)
+	}
+
+	result := &StatusHistoryResult{
+		EntityType: entityType,
+		EntityKey:  key,
+		History:    entries,
+		Total:      len(entries),
+	}
+
+	if cli.GlobalConfig.JSON {
+		return cli.OutputJSON(result)
+	}
+
+	if len(entries) == 0 {
+		cli.Info(fmt.Sprintf("No history found for %s %s", entityType, key))
+		return nil
+	}
+
+	fmt.Printf("\nHistory for %s %s (%d entries)\n", entityType, key, len(entries))
+	fmt.Println(strings.Repeat("-", 80))
+
+	headers := []string{"Timestamp", "Old Status", "New Status", "Agent", "Notes"}
+	rows := make([][]string, 0, len(entries))
+	for _, e := range entries {
+		oldStatus := e.OldStatus
+		if oldStatus == "" {
+			oldStatus = "(initial)"
+		}
+		rows = append(rows, []string{e.Timestamp, oldStatus, e.NewStatus, e.Agent, e.Notes})
+	}
+
+	cli.OutputTable(headers, rows)
+	return nil
+}
+
 func runHistory(cmd *cobra.Command, args []string) error {
+	// Check if the argument is a specific entity key (task, feature, epic, bug, change-card)
+	if _, _, isEntity := detectHistoryEntityKey(args); isEntity {
+		// Use ParseGetArgs for proper key normalization (e.g., E21-F10-001 -> T-E21-F10-001)
+		entityType, key, err := ParseGetArgs(args)
+		if err != nil {
+			return fmt.Errorf("invalid key format: %w", err)
+		}
+		return runEntityHistory(cmd, entityType, key)
+	}
+
 	ctx := cmd.Context()
 
-	// Parse positional arguments first
+	// Parse positional arguments for project-wide history (0 args or 2 args: EPIC FEATURE)
 	_, positionalEpic, positionalFeature, err := ParseListArgs(args)
 	if err != nil {
 		return err

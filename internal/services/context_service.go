@@ -117,13 +117,12 @@ func (s *ContextService) setContextJSON(ctx context.Context, entityType models.E
 // isValidContextField checks if a field name is a valid context field.
 func isValidContextField(field string) bool {
 	validFields := map[string]bool{
-		"current_step":               true,
-		"completed_steps":            true,
-		"remaining_steps":            true,
-		"implementation_decisions":   true,
-		"open_questions":             true,
-		"blockers":                   true,
-		"acceptance_criteria_status": true,
+		"current_step":             true,
+		"completed_steps":          true,
+		"remaining_steps":          true,
+		"implementation_decisions": true,
+		"open_questions":           true,
+		"blockers":                 true,
 	}
 	return validFields[field]
 }
@@ -183,13 +182,6 @@ func updateContextField(cd *models.ContextData, field, value string) error {
 			return fmt.Errorf("invalid JSON for blockers: %w", err)
 		}
 		cd.Blockers = blockers
-
-	case "acceptance_criteria_status":
-		var criteria []models.AcceptanceCriterionContext
-		if err := json.Unmarshal([]byte(value), &criteria); err != nil {
-			return fmt.Errorf("invalid JSON for acceptance_criteria_status: %w", err)
-		}
-		cd.AcceptanceCriteriaStatus = criteria
 
 	default:
 		return fmt.Errorf("unsupported context field: %s", field)

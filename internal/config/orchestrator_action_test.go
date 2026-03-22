@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -875,15 +876,74 @@ func TestOrchestratorAction_PopulateTemplate_LegacyPathKeptIntact(t *testing.T) 
 
 // === NEW TESTS FOR PHASE 2 TEMPLATE REFERENCES (T-E07-F30-008) ===
 
-// TestPhase2TemplateReferenceCountInConfig verifies .tmpl references in config
-func TestPhase2TemplateReferenceCountInConfig(t *testing.T) {
-	// Find the config file
+// loadWorkflowFileData reads the workflow config file referenced by .sharkconfig.json
+// and returns its parsed JSON data as a map.
+func loadWorkflowFileData(t *testing.T) map[string]interface{} {
+	t.Helper()
 	projectRoot := getProjectRoot()
 	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
 
-	content, err := os.ReadFile(configPath)
+	configContent, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("Failed to read .sharkconfig.json: %v", err)
+	}
+
+	var configData map[string]interface{}
+	if err := json.Unmarshal(configContent, &configData); err != nil {
+		t.Fatalf("Failed to parse .sharkconfig.json: %v", err)
+	}
+
+	workflowConfigPath, ok := configData["workflow_config"].(string)
+	if !ok || workflowConfigPath == "" {
+		t.Fatal("workflow_config not found or empty in .sharkconfig.json")
+	}
+
+	// Resolve relative to project root
+	if !filepath.IsAbs(workflowConfigPath) {
+		workflowConfigPath = filepath.Join(projectRoot, workflowConfigPath)
+	}
+
+	wfContent, err := os.ReadFile(workflowConfigPath)
+	if err != nil {
+		t.Fatalf("Failed to read workflow file %s: %v", workflowConfigPath, err)
+	}
+
+	var wfData map[string]interface{}
+	if err := json.Unmarshal(wfContent, &wfData); err != nil {
+		t.Fatalf("Failed to parse workflow file: %v", err)
+	}
+
+	return wfData
+}
+
+// TestPhase2TemplateReferenceCountInConfig verifies .tmpl references in workflow config
+func TestPhase2TemplateReferenceCountInConfig(t *testing.T) {
+	// The workflow data is now in a separate file referenced by workflow_config
+	projectRoot := getProjectRoot()
+	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
+
+	configContent, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read .sharkconfig.json: %v", err)
+	}
+
+	var configData map[string]interface{}
+	if err := json.Unmarshal(configContent, &configData); err != nil {
+		t.Fatalf("Failed to parse .sharkconfig.json: %v", err)
+	}
+
+	workflowConfigPath, ok := configData["workflow_config"].(string)
+	if !ok || workflowConfigPath == "" {
+		t.Fatal("workflow_config not found or empty in .sharkconfig.json")
+	}
+
+	if !filepath.IsAbs(workflowConfigPath) {
+		workflowConfigPath = filepath.Join(projectRoot, workflowConfigPath)
+	}
+
+	content, err := os.ReadFile(workflowConfigPath)
+	if err != nil {
+		t.Fatalf("Failed to read workflow file %s: %v", workflowConfigPath, err)
 	}
 
 	// Count occurrences of .tmpl"
@@ -895,40 +955,35 @@ func TestPhase2TemplateReferenceCountInConfig(t *testing.T) {
 		}
 	}
 
-	// Should have at least 12 .tmpl references (expanded in E18-F01 to include all entity statuses)
+	// Should have at least 12 .tmpl references across all entity workflows
 	if count < 12 {
-		t.Errorf("Config has %d .tmpl references, want at least 12", count)
+		t.Errorf("Workflow config has %d .tmpl references, want at least 12", count)
 	}
 }
 
-// TestPhase2TaskTemplateReferencesInConfig verifies 5 task templates referenced
+// TestPhase2TaskTemplateReferencesInConfig verifies task templates referenced in workflow
 func TestPhase2TaskTemplateReferencesInConfig(t *testing.T) {
-	projectRoot := getProjectRoot()
-	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
-	manager := NewManager(configPath)
-	config, err := manager.Load()
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
+	wfData := loadWorkflowFileData(t)
+
+	taskWorkflow, ok := wfData["task_workflow"].(map[string]interface{})
+	if !ok {
+		t.Fatal("task_workflow not found in workflow config file")
+	}
+
+	statusMetadata, ok := taskWorkflow["status_metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("task_workflow.status_metadata not found")
 	}
 
 	taskStatuses := map[string]string{
-		"ready_for_development":     "task/ready_for_development.tmpl",
-		"ready_for_code_review":     "task/ready_for_code_review.tmpl",
-		"ready_for_qa":              "task/ready_for_qa.tmpl",
-		"ready_for_refinement_ba":   "task/ready_for_refinement_ba.tmpl",
-		"ready_for_refinement_tech": "task/ready_for_refinement_tech.tmpl",
-	}
-
-	// Get status_metadata from raw data
-	statusMetadata, ok := config.RawData["status_metadata"].(map[string]interface{})
-	if !ok {
-		t.Fatal("status_metadata not found in raw config")
+		"ready_for_development":  "task_short/ready_for_development.tmpl",
+		"ready_for_verification": "task_short/ready_for_verification.tmpl",
 	}
 
 	for status, expectedTemplate := range taskStatuses {
 		statusData, ok := statusMetadata[status].(map[string]interface{})
 		if !ok {
-			t.Errorf("Task status %q not found in status_metadata", status)
+			t.Errorf("Task status %q not found in task_workflow.status_metadata", status)
 			continue
 		}
 
@@ -953,20 +1008,13 @@ func TestPhase2TaskTemplateReferencesInConfig(t *testing.T) {
 	}
 }
 
-// TestPhase2FeatureTemplateReferencesInConfig verifies 4 feature templates referenced
+// TestPhase2FeatureTemplateReferencesInConfig verifies feature templates referenced in workflow
 func TestPhase2FeatureTemplateReferencesInConfig(t *testing.T) {
-	projectRoot := getProjectRoot()
-	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
-	manager := NewManager(configPath)
-	config, err := manager.Load()
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
-	}
+	wfData := loadWorkflowFileData(t)
 
-	// Get feature_workflow from raw data
-	featureWorkflow, ok := config.RawData["feature_workflow"].(map[string]interface{})
+	featureWorkflow, ok := wfData["feature_workflow"].(map[string]interface{})
 	if !ok {
-		t.Fatal("feature_workflow not found in raw config")
+		t.Fatal("feature_workflow not found in workflow config file")
 	}
 
 	statusMetadata, ok := featureWorkflow["status_metadata"].(map[string]interface{})
@@ -975,10 +1023,11 @@ func TestPhase2FeatureTemplateReferencesInConfig(t *testing.T) {
 	}
 
 	featureStatuses := map[string]string{
-		"ready_for_research":        "feature/ready_for_research.tmpl",
-		"ready_for_refinement_ba":   "feature/ready_for_refinement_ba.tmpl",
-		"ready_for_refinement_tech": "feature/ready_for_refinement_tech.tmpl",
-		"ready_for_test_planning":   "feature/ready_for_test_planning.tmpl",
+		"ready_for_research":        "feature_short/ready_for_research.tmpl",
+		"ready_for_assessment":      "feature_short/ready_for_assessment.tmpl",
+		"ready_for_specification":   "feature_short/ready_for_specification.tmpl",
+		"ready_for_test_planning":   "feature_short/ready_for_test_planning.tmpl",
+		"ready_for_task_generation": "feature_short/ready_for_task_generation.tmpl",
 	}
 
 	for status, expectedTemplate := range featureStatuses {
@@ -1009,20 +1058,13 @@ func TestPhase2FeatureTemplateReferencesInConfig(t *testing.T) {
 	}
 }
 
-// TestPhase2EpicTemplateReferencesInConfig verifies 3 epic templates referenced
+// TestPhase2EpicTemplateReferencesInConfig verifies epic templates referenced in workflow
 func TestPhase2EpicTemplateReferencesInConfig(t *testing.T) {
-	projectRoot := getProjectRoot()
-	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
-	manager := NewManager(configPath)
-	config, err := manager.Load()
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
-	}
+	wfData := loadWorkflowFileData(t)
 
-	// Get epic_workflow from raw data
-	epicWorkflow, ok := config.RawData["epic_workflow"].(map[string]interface{})
+	epicWorkflow, ok := wfData["epic_workflow"].(map[string]interface{})
 	if !ok {
-		t.Fatal("epic_workflow not found in raw config")
+		t.Fatal("epic_workflow not found in workflow config file")
 	}
 
 	statusMetadata, ok := epicWorkflow["status_metadata"].(map[string]interface{})
@@ -1031,9 +1073,10 @@ func TestPhase2EpicTemplateReferencesInConfig(t *testing.T) {
 	}
 
 	epicStatuses := map[string]string{
-		"ready_for_research":                "epic/ready_for_research.tmpl",
-		"ready_for_feasibility_review_ba":   "epic/ready_for_feasibility_review_ba.tmpl",
-		"ready_for_feasibility_review_tech": "epic/ready_for_feasibility_review_tech.tmpl",
+		"ready_for_research":      "epic_short/ready_for_research.tmpl",
+		"ready_for_design":        "epic_short/ready_for_design.tmpl",
+		"ready_for_decomposition": "epic_short/ready_for_decomposition.tmpl",
+		"ready_for_refinement":    "epic_short/ready_for_refinement.tmpl",
 	}
 
 	for status, expectedTemplate := range epicStatuses {
@@ -1064,18 +1107,21 @@ func TestPhase2EpicTemplateReferencesInConfig(t *testing.T) {
 	}
 }
 
-// TestPhase2AllTaskTemplateFilesExist verifies all 5 task .tmpl files exist
+// TestPhase2AllTaskTemplateFilesExist verifies all task_short .tmpl files exist
 func TestPhase2AllTaskTemplateFilesExist(t *testing.T) {
-	// Find templates directory
 	projectRoot := getProjectRoot()
 	baseDir := filepath.Join(projectRoot, "shark-templates")
 
 	taskTemplates := []string{
-		baseDir + "/task/ready_for_development.tmpl",
-		baseDir + "/task/ready_for_code_review.tmpl",
-		baseDir + "/task/ready_for_qa.tmpl",
-		baseDir + "/task/ready_for_refinement_ba.tmpl",
-		baseDir + "/task/ready_for_refinement_tech.tmpl",
+		baseDir + "/task_short/draft.tmpl",
+		baseDir + "/task_short/ready_for_development.tmpl",
+		baseDir + "/task_short/in_development.tmpl",
+		baseDir + "/task_short/ready_for_verification.tmpl",
+		baseDir + "/task_short/in_verification.tmpl",
+		baseDir + "/task_short/completed.tmpl",
+		baseDir + "/task_short/cancelled.tmpl",
+		baseDir + "/task_short/blocked.tmpl",
+		baseDir + "/task_short/on_hold.tmpl",
 	}
 
 	for _, path := range taskTemplates {
@@ -1085,17 +1131,28 @@ func TestPhase2AllTaskTemplateFilesExist(t *testing.T) {
 	}
 }
 
-// TestPhase2AllFeatureTemplateFilesExist verifies all 4 feature .tmpl files exist
+// TestPhase2AllFeatureTemplateFilesExist verifies all feature_short .tmpl files exist
 func TestPhase2AllFeatureTemplateFilesExist(t *testing.T) {
-	// Find templates directory
 	projectRoot := getProjectRoot()
 	baseDir := filepath.Join(projectRoot, "shark-templates")
 
 	featureTemplates := []string{
-		baseDir + "/feature/ready_for_research.tmpl",
-		baseDir + "/feature/ready_for_refinement_ba.tmpl",
-		baseDir + "/feature/ready_for_refinement_tech.tmpl",
-		baseDir + "/feature/ready_for_test_planning.tmpl",
+		baseDir + "/feature_short/draft.tmpl",
+		baseDir + "/feature_short/ready_for_assessment.tmpl",
+		baseDir + "/feature_short/in_assessment.tmpl",
+		baseDir + "/feature_short/ready_for_research.tmpl",
+		baseDir + "/feature_short/in_research.tmpl",
+		baseDir + "/feature_short/ready_for_specification.tmpl",
+		baseDir + "/feature_short/in_specification.tmpl",
+		baseDir + "/feature_short/ready_for_test_planning.tmpl",
+		baseDir + "/feature_short/in_test_planning.tmpl",
+		baseDir + "/feature_short/ready_for_task_generation.tmpl",
+		baseDir + "/feature_short/in_task_generation.tmpl",
+		baseDir + "/feature_short/active.tmpl",
+		baseDir + "/feature_short/completed.tmpl",
+		baseDir + "/feature_short/cancelled.tmpl",
+		baseDir + "/feature_short/blocked.tmpl",
+		baseDir + "/feature_short/on_hold.tmpl",
 	}
 
 	for _, path := range featureTemplates {
@@ -1105,16 +1162,26 @@ func TestPhase2AllFeatureTemplateFilesExist(t *testing.T) {
 	}
 }
 
-// TestPhase2AllEpicTemplateFilesExist verifies all 3 epic .tmpl files exist
+// TestPhase2AllEpicTemplateFilesExist verifies all epic_short .tmpl files exist
 func TestPhase2AllEpicTemplateFilesExist(t *testing.T) {
-	// Find templates directory
 	projectRoot := getProjectRoot()
 	baseDir := filepath.Join(projectRoot, "shark-templates")
 
 	epicTemplates := []string{
-		baseDir + "/epic/ready_for_research.tmpl",
-		baseDir + "/epic/ready_for_feasibility_review_ba.tmpl",
-		baseDir + "/epic/ready_for_feasibility_review_tech.tmpl",
+		baseDir + "/epic_short/draft.tmpl",
+		baseDir + "/epic_short/ready_for_refinement.tmpl",
+		baseDir + "/epic_short/in_refinement.tmpl",
+		baseDir + "/epic_short/ready_for_research.tmpl",
+		baseDir + "/epic_short/in_research.tmpl",
+		baseDir + "/epic_short/ready_for_design.tmpl",
+		baseDir + "/epic_short/in_design.tmpl",
+		baseDir + "/epic_short/ready_for_decomposition.tmpl",
+		baseDir + "/epic_short/in_decomposition.tmpl",
+		baseDir + "/epic_short/active.tmpl",
+		baseDir + "/epic_short/completed.tmpl",
+		baseDir + "/epic_short/cancelled.tmpl",
+		baseDir + "/epic_short/blocked.tmpl",
+		baseDir + "/epic_short/on_hold.tmpl",
 	}
 
 	for _, path := range epicTemplates {
@@ -1128,58 +1195,88 @@ func TestPhase2AllEpicTemplateFilesExist(t *testing.T) {
 // Note: E18-F01 expanded the template system to cover all entity statuses.
 // All statuses now use .tmpl files for consistent orchestration instructions.
 func TestPhase2NonPhase2StatusesRemainInline(t *testing.T) {
-	projectRoot := getProjectRoot()
-	configPath := filepath.Join(projectRoot, ".sharkconfig.json")
-	manager := NewManager(configPath)
-	config, err := manager.Load()
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
-	}
+	wfData := loadWorkflowFileData(t)
 
-	statusMetadata, ok := config.RawData["status_metadata"].(map[string]interface{})
-	if !ok {
-		// No status_metadata, that's fine
-		return
-	}
-
-	// Verify all orchestrator_action entries have non-empty instruction_template
-	for status, v := range statusMetadata {
-		statusData, ok := v.(map[string]interface{})
+	// Check each entity workflow for consistent instruction_template references
+	workflowKeys := []string{"task_workflow", "feature_workflow", "epic_workflow"}
+	for _, wfKey := range workflowKeys {
+		workflow, ok := wfData[wfKey].(map[string]interface{})
 		if !ok {
 			continue
 		}
 
-		orchestratorAction, ok := statusData["orchestrator_action"].(map[string]interface{})
+		statusMetadata, ok := workflow["status_metadata"].(map[string]interface{})
 		if !ok {
 			continue
 		}
 
-		template, ok := orchestratorAction["instruction_template"].(string)
-		if !ok || template == "" {
-			t.Errorf("Status %q has orchestrator_action with empty instruction_template", status)
+		for status, v := range statusMetadata {
+			statusData, ok := v.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			orchestratorAction, ok := statusData["orchestrator_action"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			template, ok := orchestratorAction["instruction_template"].(string)
+			if !ok || template == "" {
+				t.Errorf("[%s] Status %q has orchestrator_action with empty instruction_template", wfKey, status)
+			}
 		}
 	}
 }
 
 // TestPhase2NoEmptyTemplateFiles verifies no template files are empty
 func TestPhase2NoEmptyTemplateFiles(t *testing.T) {
-	// Find templates directory
 	projectRoot := getProjectRoot()
 	baseDir := filepath.Join(projectRoot, "shark-templates")
 
 	allTemplates := []string{
-		baseDir + "/task/ready_for_development.tmpl",
-		baseDir + "/task/ready_for_code_review.tmpl",
-		baseDir + "/task/ready_for_qa.tmpl",
-		baseDir + "/task/ready_for_refinement_ba.tmpl",
-		baseDir + "/task/ready_for_refinement_tech.tmpl",
-		baseDir + "/feature/ready_for_research.tmpl",
-		baseDir + "/feature/ready_for_refinement_ba.tmpl",
-		baseDir + "/feature/ready_for_refinement_tech.tmpl",
-		baseDir + "/feature/ready_for_test_planning.tmpl",
-		baseDir + "/epic/ready_for_research.tmpl",
-		baseDir + "/epic/ready_for_feasibility_review_ba.tmpl",
-		baseDir + "/epic/ready_for_feasibility_review_tech.tmpl",
+		// task_short templates
+		baseDir + "/task_short/draft.tmpl",
+		baseDir + "/task_short/ready_for_development.tmpl",
+		baseDir + "/task_short/in_development.tmpl",
+		baseDir + "/task_short/ready_for_verification.tmpl",
+		baseDir + "/task_short/in_verification.tmpl",
+		baseDir + "/task_short/completed.tmpl",
+		baseDir + "/task_short/cancelled.tmpl",
+		baseDir + "/task_short/blocked.tmpl",
+		baseDir + "/task_short/on_hold.tmpl",
+		// feature_short templates
+		baseDir + "/feature_short/draft.tmpl",
+		baseDir + "/feature_short/ready_for_assessment.tmpl",
+		baseDir + "/feature_short/in_assessment.tmpl",
+		baseDir + "/feature_short/ready_for_research.tmpl",
+		baseDir + "/feature_short/in_research.tmpl",
+		baseDir + "/feature_short/ready_for_specification.tmpl",
+		baseDir + "/feature_short/in_specification.tmpl",
+		baseDir + "/feature_short/ready_for_test_planning.tmpl",
+		baseDir + "/feature_short/in_test_planning.tmpl",
+		baseDir + "/feature_short/ready_for_task_generation.tmpl",
+		baseDir + "/feature_short/in_task_generation.tmpl",
+		baseDir + "/feature_short/active.tmpl",
+		baseDir + "/feature_short/completed.tmpl",
+		baseDir + "/feature_short/cancelled.tmpl",
+		baseDir + "/feature_short/blocked.tmpl",
+		baseDir + "/feature_short/on_hold.tmpl",
+		// epic_short templates
+		baseDir + "/epic_short/draft.tmpl",
+		baseDir + "/epic_short/ready_for_refinement.tmpl",
+		baseDir + "/epic_short/in_refinement.tmpl",
+		baseDir + "/epic_short/ready_for_research.tmpl",
+		baseDir + "/epic_short/in_research.tmpl",
+		baseDir + "/epic_short/ready_for_design.tmpl",
+		baseDir + "/epic_short/in_design.tmpl",
+		baseDir + "/epic_short/ready_for_decomposition.tmpl",
+		baseDir + "/epic_short/in_decomposition.tmpl",
+		baseDir + "/epic_short/active.tmpl",
+		baseDir + "/epic_short/completed.tmpl",
+		baseDir + "/epic_short/cancelled.tmpl",
+		baseDir + "/epic_short/blocked.tmpl",
+		baseDir + "/epic_short/on_hold.tmpl",
 	}
 
 	for _, path := range allTemplates {

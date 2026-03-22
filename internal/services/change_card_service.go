@@ -410,13 +410,7 @@ func (s *ChangeCardService) SetWritableDocRepo(writableRepo EntityDocumentReposi
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			card, err := s.repo.GetByKey(ctx, key)
-			if err != nil {
-				return 0, "", err
-			}
-			return card.ID, models.EntityTypeChange, nil
-		},
+		EntityLookupFnFromRepo(s.entityRepo),
 	)
 }
 

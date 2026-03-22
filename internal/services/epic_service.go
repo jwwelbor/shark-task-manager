@@ -83,6 +83,7 @@ type EpicService struct {
 func NewEpicService(repo EpicRepository, entitySvc *EntityService, entityRepo EntityRepository, featureRepo EpicFeatureCounter, taskRepo EpicTaskLister) *EpicService {
 	requireNonNil(repo, "EpicService requires a non-nil EpicRepository")
 	requireNonNil(entitySvc, "EpicService requires a non-nil EntityService")
+	requireNonNil(entityRepo, "EpicService requires a non-nil EntityRepository")
 	return &EpicService{
 		repo:        repo,
 		entitySvc:   entitySvc.ForLevel(workflow.LevelEpic),
@@ -120,13 +121,7 @@ func (s *EpicService) SetWritableDocRepo(writableRepo EntityDocumentRepository, 
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			epic, err := s.repo.GetByKey(ctx, key)
-			if err != nil {
-				return 0, "", err
-			}
-			return epic.ID, models.EntityTypeEpic, nil
-		},
+		EntityLookupFnFromRepo(s.entityRepo),
 	)
 }
 
@@ -180,15 +175,9 @@ func (s *EpicService) UnlinkDocument(ctx context.Context, epicKey, docTitle stri
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
 func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	// Use entityRepo if available, otherwise create inline adapter from typed repo
-	entityRepo := s.entityRepo
-	if entityRepo == nil {
-		entityRepo = &epicEntityRepoAdapter{repo: s.repo}
-	}
-
 	// Delegate shared logic to EntityService
 	result, err := s.entitySvc.TransitionStatus(
-		ctx, entityRepo, models.EntityTypeEpic, epicKey, targetStatus, opts,
+		ctx, s.entityRepo, models.EntityTypeEpic, epicKey, targetStatus, opts,
 		DefaultTransitionFeatures(),
 		s.makeResolveActionFn(ctx),
 	)
@@ -209,11 +198,7 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 
 // GetNextStatus returns the available transitions for the current status of an epic.
 func (s *EpicService) GetNextStatus(ctx context.Context, epicKey string) (*NextStatusInfo, error) {
-	entityRepo := s.entityRepo
-	if entityRepo == nil {
-		entityRepo = &epicEntityRepoAdapter{repo: s.repo}
-	}
-	return s.entitySvc.GetNextStatus(ctx, entityRepo, models.EntityTypeEpic, epicKey,
+	return s.entitySvc.GetNextStatus(ctx, s.entityRepo, models.EntityTypeEpic, epicKey,
 		s.makeResolveActionFn(ctx))
 }
 
@@ -858,53 +843,5 @@ func (s *EpicService) resolveEpicFilePath(ctx context.Context, filePath *string,
 		}
 	}
 
-	return nil
-}
-
-// epicEntityRepoAdapter is a fallback adapter that wraps an EpicRepository as an EntityRepository.
-// Used when entityRepo is nil (e.g., in tests that don't set up the full adapter chain).
-type epicEntityRepoAdapter struct {
-	repo EpicRepository
-}
-
-func (a *epicEntityRepoAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
-	epic, err := a.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-	if epic == nil {
-		return nil, nil
-	}
-	return epic, nil
-}
-
-func (a *epicEntityRepoAdapter) GetByID(ctx context.Context, id int64) (models.Entity, error) {
-	epic, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if epic == nil {
-		return nil, nil
-	}
-	return epic, nil
-}
-
-func (a *epicEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return a.repo.UpdateStatus(ctx, id, models.EpicStatus(status))
-}
-
-func (a *epicEntityRepoAdapter) Update(ctx context.Context, entity models.Entity) error {
-	epic, ok := entity.(*models.Epic)
-	if !ok {
-		return fmt.Errorf("epicEntityRepoAdapter: expected *models.Epic, got %T", entity)
-	}
-	return a.repo.Update(ctx, epic)
-}
-
-func (a *epicEntityRepoAdapter) GetContextData(_ context.Context, _ int64) (*string, error) {
-	return nil, nil
-}
-
-func (a *epicEntityRepoAdapter) UpdateContextData(_ context.Context, _ int64, _ *string) error {
 	return nil
 }

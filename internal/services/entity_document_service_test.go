@@ -447,6 +447,165 @@ func TestEntityDocumentService_ListDocumentsByKey_ListError(t *testing.T) {
 // EntityDocumentService All Entity Types Test (AC-7)
 // ============================================================================
 
+// ============================================================================
+// EntityLookupFnFromRepo Tests
+// ============================================================================
+
+// mockEntityKeyLookup implements EntityKeyLookup for testing.
+type mockEntityKeyLookup struct {
+	getByKeyFunc func(ctx context.Context, key string) (models.Entity, error)
+}
+
+func (m *mockEntityKeyLookup) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	if m.getByKeyFunc != nil {
+		return m.getByKeyFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+
+func TestEntityLookupFnFromRepo_Success(t *testing.T) {
+	mock := &mockEntityKeyLookup{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			epic := &models.Epic{}
+			epic.ID = 42
+			epic.Key = key
+			return epic, nil
+		},
+	}
+
+	lookupFn := EntityLookupFnFromRepo(mock)
+	id, entityType, err := lookupFn(context.Background(), "E07")
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if id != 42 {
+		t.Errorf("expected ID 42, got %d", id)
+	}
+	if entityType != models.EntityTypeEpic {
+		t.Errorf("expected entity type %q, got %q", models.EntityTypeEpic, entityType)
+	}
+}
+
+func TestEntityLookupFnFromRepo_RepoError(t *testing.T) {
+	mock := &mockEntityKeyLookup{
+		getByKeyFunc: func(_ context.Context, _ string) (models.Entity, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+
+	lookupFn := EntityLookupFnFromRepo(mock)
+	_, _, err := lookupFn(context.Background(), "E99")
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Error() != "not found" {
+		t.Errorf("expected 'not found' error, got %q", err.Error())
+	}
+}
+
+func TestEntityLookupFnFromRepo_NilEntity(t *testing.T) {
+	mock := &mockEntityKeyLookup{
+		getByKeyFunc: func(_ context.Context, _ string) (models.Entity, error) {
+			return nil, nil
+		},
+	}
+
+	lookupFn := EntityLookupFnFromRepo(mock)
+	_, _, err := lookupFn(context.Background(), "E99")
+
+	if err == nil {
+		t.Fatal("expected error for nil entity, got nil")
+	}
+	if err.Error() != "entity not found: E99" {
+		t.Errorf("expected 'entity not found: E99', got %q", err.Error())
+	}
+}
+
+func TestEntityLookupFnFromRepo_DifferentEntityTypes(t *testing.T) {
+	tests := []struct {
+		name         string
+		entity       models.Entity
+		expectedType models.EntityType
+		expectedID   int64
+	}{
+		{
+			name: "epic",
+			entity: func() models.Entity {
+				e := &models.Epic{}
+				e.ID = 1
+				return e
+			}(),
+			expectedType: models.EntityTypeEpic,
+			expectedID:   1,
+		},
+		{
+			name: "feature",
+			entity: func() models.Entity {
+				f := &models.Feature{}
+				f.ID = 2
+				return f
+			}(),
+			expectedType: models.EntityTypeFeature,
+			expectedID:   2,
+		},
+		{
+			name: "task",
+			entity: func() models.Entity {
+				tk := &models.Task{}
+				tk.ID = 3
+				return tk
+			}(),
+			expectedType: models.EntityTypeTask,
+			expectedID:   3,
+		},
+		{
+			name: "bug",
+			entity: func() models.Entity {
+				b := &models.Bug{}
+				b.ID = 4
+				return b
+			}(),
+			expectedType: models.EntityTypeBug,
+			expectedID:   4,
+		},
+		{
+			name: "change card",
+			entity: func() models.Entity {
+				c := &models.ChangeCard{}
+				c.ID = 5
+				return c
+			}(),
+			expectedType: models.EntityTypeChange,
+			expectedID:   5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockEntityKeyLookup{
+				getByKeyFunc: func(_ context.Context, _ string) (models.Entity, error) {
+					return tt.entity, nil
+				},
+			}
+
+			lookupFn := EntityLookupFnFromRepo(mock)
+			id, entityType, err := lookupFn(context.Background(), "test-key")
+
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if id != tt.expectedID {
+				t.Errorf("expected ID %d, got %d", tt.expectedID, id)
+			}
+			if entityType != tt.expectedType {
+				t.Errorf("expected entity type %q, got %q", tt.expectedType, entityType)
+			}
+		})
+	}
+}
+
 func TestEntityDocumentService_LinkDocumentByKey_AllEntityTypes(t *testing.T) {
 	tests := []struct {
 		name       string

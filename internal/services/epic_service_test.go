@@ -226,7 +226,7 @@ func TestEpicService_TransitionStatus_Valid(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
@@ -260,7 +260,7 @@ func TestEpicService_TransitionStatus_Invalid(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	// "draft" -> "completed" is not a valid direct transition in default epic workflow
@@ -282,7 +282,7 @@ func TestEpicService_TransitionStatus_Force(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	// Force should bypass validation - even arbitrary strings should work
@@ -304,7 +304,7 @@ func TestEpicService_TransitionStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E99", "active", TransitionOptions{})
@@ -323,7 +323,7 @@ func TestEpicService_TransitionStatus_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
@@ -344,7 +344,7 @@ func TestEpicService_TransitionStatus_UpdateError(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
@@ -360,7 +360,7 @@ func TestEpicService_GetNextStatus(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -389,7 +389,7 @@ func TestEpicService_GetNextStatus_Terminal(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -412,7 +412,7 @@ func TestEpicService_GetNextStatus_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	_, err := svc.GetNextStatus(ctx, "E99")
@@ -423,7 +423,7 @@ func TestEpicService_GetNextStatus_NotFound(t *testing.T) {
 
 func TestEpicService_ValidateStatus(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	// Valid epic statuses
 	for _, status := range []string{"draft", "active", "completed", "archived"} {
@@ -562,7 +562,7 @@ func TestEpicService_GetEpic(t *testing.T) {
 			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"}, Status: models.EpicStatusActive}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	epic, err := svc.GetEpic(context.Background(), "E01")
 	if err != nil {
@@ -579,7 +579,7 @@ func TestEpicService_GetEpic_NotFound(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.GetEpic(context.Background(), "E99")
 	if err == nil {
@@ -593,7 +593,7 @@ func TestEpicService_GetEpic_RepoError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.GetEpic(context.Background(), "E01")
 	if err == nil {
@@ -615,7 +615,7 @@ func TestEpicService_ListEpics(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	epics, err := svc.ListEpics(context.Background(), EpicFilters{})
 	if err != nil {
@@ -635,7 +635,7 @@ func TestEpicService_ListEpics_WithStatusFilter(t *testing.T) {
 			return []*models.Epic{{BaseEntity: models.BaseEntity{Key: "E01"}}}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	epics, err := svc.ListEpics(context.Background(), EpicFilters{Status: "active"})
 	if err != nil {
@@ -652,7 +652,7 @@ func TestEpicService_ListEpics_RepoError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.ListEpics(context.Background(), EpicFilters{})
 	if err == nil {
@@ -683,7 +683,7 @@ func TestEpicService_GetProgress(t *testing.T) {
 			return map[string]int{"todo": 3, "in_development": 2, "completed": 5}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	progress, err := svc.GetProgress(context.Background(), "E01")
 	if err != nil {
@@ -710,7 +710,7 @@ func TestEpicService_GetProgress_NotFound(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.GetProgress(context.Background(), "E99")
 	if err == nil {
@@ -727,7 +727,7 @@ func TestEpicService_GetProgress_CalculateError(t *testing.T) {
 			return nil, fmt.Errorf("calculation failed")
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.GetProgress(context.Background(), "E01")
 	if err == nil {
@@ -743,7 +743,7 @@ func TestEpicService_CalculateProgress_NoFeatures(t *testing.T) {
 			return []repository.FeatureProgressData{}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	progress, err := svc.CalculateProgress(context.Background(), 1)
 	if err != nil {
@@ -760,7 +760,7 @@ func TestEpicService_CalculateProgress_NilFeatures(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	progress, err := svc.CalculateProgress(context.Background(), 1)
 	if err != nil {
@@ -781,7 +781,7 @@ func TestEpicService_CalculateProgress_AllCompleted(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	progress, err := svc.CalculateProgress(context.Background(), 1)
 	if err != nil {
@@ -803,7 +803,7 @@ func TestEpicService_CalculateProgress_MixedStatuses(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	progress, err := svc.CalculateProgress(context.Background(), 1)
 	if err != nil {
@@ -821,7 +821,7 @@ func TestEpicService_CalculateProgress_RepoError(t *testing.T) {
 			return nil, fmt.Errorf("db connection failed")
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.CalculateProgress(context.Background(), 1)
 	if err == nil {
@@ -843,7 +843,7 @@ func TestEpicService_GetFeatureRollup(t *testing.T) {
 			return map[string]int{"active": 3, "completed": 2}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	rollup, err := svc.GetFeatureRollup(context.Background(), "E01")
 	if err != nil {
@@ -863,7 +863,7 @@ func TestEpicService_GetFeatureRollup_NotFound(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.GetFeatureRollup(context.Background(), "E99")
 	if err == nil {
@@ -882,7 +882,7 @@ func TestEpicService_GetTaskStatusRollup(t *testing.T) {
 			return map[string]int{"todo": 5, "completed": 10}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	rollup, err := svc.GetTaskStatusRollup(context.Background(), "E01")
 	if err != nil {
@@ -902,7 +902,7 @@ func TestEpicService_GetTaskStatusRollup_NotFound(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.GetTaskStatusRollup(context.Background(), "E99")
 	if err == nil {
@@ -924,7 +924,7 @@ func TestEpicService_GetImpediments(t *testing.T) {
 		},
 	}
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, taskLister)
 
 	impediments, err := svc.GetImpediments(context.Background(), "E01")
 	if err != nil {
@@ -943,7 +943,7 @@ func TestEpicService_GetImpediments(t *testing.T) {
 
 func TestEpicService_GetImpediments_NilTaskRepo(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	impediments, err := svc.GetImpediments(context.Background(), "E01")
 	if err != nil {
@@ -961,7 +961,7 @@ func TestEpicService_GetImpediments_RepoError(t *testing.T) {
 		},
 	}
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, taskLister)
 
 	_, err := svc.GetImpediments(context.Background(), "E01")
 	if err == nil {
@@ -982,7 +982,7 @@ func TestEpicService_GetHealth_Healthy(t *testing.T) {
 			return []*models.Task{}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, taskLister)
 
 	health, err := svc.GetHealth(context.Background(), "E01")
 	if err != nil {
@@ -1009,7 +1009,7 @@ func TestEpicService_GetHealth_Warning(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, taskLister)
 
 	health, err := svc.GetHealth(context.Background(), "E01")
 	if err != nil {
@@ -1034,7 +1034,7 @@ func TestEpicService_GetHealth_Critical_MultipleBlocked(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, taskLister)
 
 	health, err := svc.GetHealth(context.Background(), "E01")
 	if err != nil {
@@ -1058,7 +1058,7 @@ func TestEpicService_GetHealth_Critical_HighPriority(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, taskLister)
 
 	health, err := svc.GetHealth(context.Background(), "E01")
 	if err != nil {
@@ -1075,7 +1075,7 @@ func TestEpicService_GetHealth_NotFound(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.GetHealth(context.Background(), "E99")
 	if err == nil {
@@ -1089,7 +1089,7 @@ func TestEpicService_GetHealth_NilTaskRepo(t *testing.T) {
 			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	health, err := svc.GetHealth(context.Background(), "E01")
 	if err != nil {
@@ -1112,7 +1112,7 @@ func TestEpicService_TransitionStatus_WithAction(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	// Transition to "active" which has an orchestrator_action defined
@@ -1151,7 +1151,7 @@ func TestEpicService_TransitionStatus_WithoutAction(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	// Transition to "completed" which has no orchestrator_action
@@ -1172,7 +1172,7 @@ func TestEpicService_GetNextStatus_WithActions(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	info, err := svc.GetNextStatus(ctx, "E16")
@@ -1224,7 +1224,7 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 	// Create an EpicService with a default workflow (no actions defined)
 	// makeResolveActionFn callback should return nil gracefully
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "draft"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
@@ -1237,7 +1237,7 @@ func TestEpicService_resolveAction_NilWorkflow(t *testing.T) {
 func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 	// resolveAction with a status not in metadata should return nil
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), epicRepoAsEntityRepo(repo), nil, nil)
 
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "nonexistent_status"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
@@ -1250,7 +1250,7 @@ func TestEpicService_resolveAction_NonexistentStatus(t *testing.T) {
 func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 	// resolveAction for a status that exists but has no orchestrator_action
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), epicRepoAsEntityRepo(repo), nil, nil)
 
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "draft"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
@@ -1262,7 +1262,7 @@ func TestEpicService_resolveAction_StatusWithoutAction(t *testing.T) {
 
 func TestEpicService_resolveAction_StatusWithAction(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), epicRepoAsEntityRepo(repo), nil, nil)
 
 	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E16", Title: "Test Epic"}, Status: "active"}
 	resolveFn := svc.makeResolveActionFn(context.Background())
@@ -1296,7 +1296,7 @@ func TestEpicService_TransitionStatus_ActionJSON(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowServiceWithActions(t)), epicRepoAsEntityRepo(repo), nil, nil)
 	ctx := context.Background()
 
 	result, err := svc.TransitionStatus(ctx, "E16", "active", TransitionOptions{})
@@ -1341,7 +1341,7 @@ func TestEpicService_CreateEpic_Success(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	input := CreateEpicInput{
 		Title: "My New Epic",
@@ -1366,7 +1366,7 @@ func TestEpicService_CreateEpic_Success(t *testing.T) {
 
 func TestEpicService_CreateEpic_EmptyTitle(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{Title: "   "})
 	if err == nil {
@@ -1386,7 +1386,7 @@ func TestEpicService_CreateEpic_CustomKey(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	input := CreateEpicInput{
 		Title:     "Custom Key Epic",
@@ -1411,7 +1411,7 @@ func TestEpicService_CreateEpic_DuplicateCustomKey(t *testing.T) {
 			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E99"}}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{
 		Title:     "Duplicate Epic",
@@ -1434,7 +1434,7 @@ func TestEpicService_CreateEpic_RepoError(t *testing.T) {
 			return fmt.Errorf("db write failed")
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.CreateEpic(context.Background(), CreateEpicInput{Title: "Failing Epic"})
 	if err == nil {
@@ -1456,7 +1456,7 @@ func TestEpicService_UpdateEpic_Success(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	newTitle := "New Title"
 	result, err := svc.UpdateEpic(context.Background(), "E01", EpicUpdates{Title: &newTitle})
@@ -1480,7 +1480,7 @@ func TestEpicService_UpdateEpic_NotFound(t *testing.T) {
 			return nil, nil // Not found (nil, nil pattern)
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	newTitle := "Whatever"
 	_, err := svc.UpdateEpic(context.Background(), "E99", EpicUpdates{Title: &newTitle})
@@ -1496,7 +1496,7 @@ func TestEpicService_UpdateEpic_EmptyTitle(t *testing.T) {
 			return existing, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	emptyTitle := "   "
 	_, err := svc.UpdateEpic(context.Background(), "E01", EpicUpdates{Title: &emptyTitle})
@@ -1515,7 +1515,7 @@ func TestEpicService_UpdateEpic_RepoError(t *testing.T) {
 			return fmt.Errorf("db write failed")
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	newTitle := "New Title"
 	_, err := svc.UpdateEpic(context.Background(), "E01", EpicUpdates{Title: &newTitle})
@@ -1537,7 +1537,7 @@ func TestEpicService_DeleteEpic_Success(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	err := svc.DeleteEpic(context.Background(), "E01")
 	if err != nil {
@@ -1554,7 +1554,7 @@ func TestEpicService_DeleteEpic_NotFound(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	err := svc.DeleteEpic(context.Background(), "E99")
 	if err == nil {
@@ -1571,7 +1571,7 @@ func TestEpicService_DeleteEpic_RepoError(t *testing.T) {
 			return fmt.Errorf("db delete failed")
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	err := svc.DeleteEpic(context.Background(), "E01")
 	if err == nil {
@@ -1593,7 +1593,7 @@ func TestEpicService_CompleteEpic_NoFeatures(t *testing.T) {
 		},
 	}
 	taskLister := &mockEpicTaskLister{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, featureCounter, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), featureCounter, taskLister)
 
 	result, err := svc.CompleteEpic(context.Background(), "E01", false, "agent1")
 	if err != nil {
@@ -1643,7 +1643,7 @@ func TestEpicService_CompleteEpic_AllTasksComplete_NoForce(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, featureCounter, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), featureCounter, taskLister)
 
 	result, err := svc.CompleteEpic(context.Background(), "E01", false, "agent1")
 	if err != nil {
@@ -1678,7 +1678,7 @@ func TestEpicService_CompleteEpic_IncompleteTasksRequireForce(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, featureCounter, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), featureCounter, taskLister)
 
 	result, err := svc.CompleteEpic(context.Background(), "E01", false, "agent1")
 	if err != nil {
@@ -1727,7 +1727,7 @@ func TestEpicService_CompleteEpic_Force(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, featureCounter, taskLister)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), featureCounter, taskLister)
 
 	result, err := svc.CompleteEpic(context.Background(), "E01", true, "agent1")
 	if err != nil {
@@ -1748,7 +1748,7 @@ func TestEpicService_CompleteEpic_NotFound(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	_, err := svc.CompleteEpic(context.Background(), "E99", false, "agent1")
 	if err == nil {
@@ -1771,7 +1771,7 @@ func TestEpicService_CascadeStatusToFeaturesAndTasks_Success(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	err := svc.CascadeStatusToFeaturesAndTasks(
 		context.Background(), 1,
@@ -1798,7 +1798,7 @@ func TestEpicService_CascadeStatusToFeaturesAndTasks_RepoError(t *testing.T) {
 			return fmt.Errorf("db cascade failed")
 		},
 	}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	err := svc.CascadeStatusToFeaturesAndTasks(
 		context.Background(), 1,
@@ -1894,7 +1894,7 @@ func TestEpicService_LinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
@@ -1912,7 +1912,7 @@ func TestEpicService_LinkDocument_Happy_Path(t *testing.T) {
 
 func TestEpicService_LinkDocument_NoWritableDocRepo(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	// writableDocRepo not set
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
@@ -1934,7 +1934,7 @@ func TestEpicService_LinkDocument_EpicNotFound(t *testing.T) {
 
 	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E99", "Design Doc", "docs/design.md")
@@ -1961,7 +1961,7 @@ func TestEpicService_LinkDocument_CreateOrGetError(t *testing.T) {
 	}
 	linkRepo := &mockEpicLinkRepo{}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
@@ -1992,7 +1992,7 @@ func TestEpicService_LinkDocument_LinkError(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.LinkDocument(context.Background(), "E07", "Design Doc", "docs/design.md")
@@ -2034,7 +2034,7 @@ func TestEpicService_UnlinkDocument_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")
@@ -2052,7 +2052,7 @@ func TestEpicService_UnlinkDocument_Happy_Path(t *testing.T) {
 
 func TestEpicService_UnlinkDocument_NoWritableDocRepo(t *testing.T) {
 	repo := &mockEpicRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")
 
@@ -2073,7 +2073,7 @@ func TestEpicService_UnlinkDocument_EpicNotFound(t *testing.T) {
 
 	docRepo := &mockEpicDocRepo{}
 	linkRepo := &mockEpicLinkRepo{}
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E99", "Design Doc")
@@ -2100,7 +2100,7 @@ func TestEpicService_UnlinkDocument_DocumentNotFound(t *testing.T) {
 	}
 	linkRepo := &mockEpicLinkRepo{}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Missing Doc")
@@ -2129,7 +2129,7 @@ func TestEpicService_UnlinkDocument_UnlinkError(t *testing.T) {
 		},
 	}
 
-	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), nil, nil, nil)
+	svc := NewEpicService(repo, NewEntityService(newTestEpicWorkflowService()), epicRepoAsEntityRepo(repo), nil, nil)
 	svc.SetWritableDocRepo(docRepo, linkRepo)
 
 	err := svc.UnlinkDocument(context.Background(), "E07", "Design Doc")

@@ -10,55 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// taskNoteCmd is the parent command for note operations
-var taskNoteCmd = &cobra.Command{
-	Use:   "note",
-	Short: "Manage task notes",
-	Long:  `Add, view, and manage typed notes for tasks.`,
-}
-
-// taskNoteAddCmd adds a note to a task
-var taskNoteAddCmd = &cobra.Command{
-	Use:   "add <task-key> --type <type> <content>",
-	Short: "Add a typed note to a task",
-	Long: `Add a typed note to a task for context, decisions, and documentation.
-
-Note Types:
-  comment        - General observation
-  decision       - Why we chose X over Y
-  blocker        - What's blocking progress
-  solution       - How we solved a problem
-  reference      - External links, documentation
-  implementation - What we actually built
-  testing        - Test results, coverage
-  future         - Future improvements / TODO
-  question       - Unanswered questions
-
-Examples:
-  shark task note add T-E10-F01-001 --type decision "Used SQLite for persistence"
-  shark task note add T-E10-F01-001 --type blocker "Waiting for API specification" --created-by alice
-  shark task note add T-E10-F01-001 --type reference "https://example.com/docs"
-  shark task note add T-E10-F01-001 --type solution "Fixed by adding null check" --json`,
-	Args: cobra.ExactArgs(2),
-	RunE: runTaskNoteAdd,
-}
-
-// taskNotesCmd lists notes for a task
-var taskNotesCmd = &cobra.Command{
-	Use:   "notes <task-key>",
-	Short: "List notes for a task",
-	Long: `List all notes for a task, optionally filtered by type.
-
-Examples:
-  shark task notes T-E10-F01-001                    List all notes
-  shark task notes T-E10-F01-001 --type decision    List decision notes only
-  shark task notes T-E10-F01-001 --type decision,solution  List multiple types
-  shark task notes T-E10-F01-001 --json             Output as JSON`,
-	Args: cobra.ExactArgs(1),
-	RunE: runTaskNotes,
-}
-
-// taskTimelineCmd shows task timeline
+// taskTimelineCmd shows task timeline — task-specific, not consolidated.
 var taskTimelineCmd = &cobra.Command{
 	Use:   "timeline <task-key>",
 	Short: "Show task timeline with status changes and notes",
@@ -84,114 +36,9 @@ type TimelineEvent struct {
 	ReasonDocument *string   `json:"reason_document,omitempty"` // Document path for rejection
 }
 
-// runTaskNoteAdd handles the task note add command
-func runTaskNoteAdd(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse arguments
-	taskKey := args[0]
-	content := args[1]
-
-	noteTypeStr, _ := cmd.Flags().GetString("type")
-	createdBy, _ := cmd.Flags().GetString("created-by")
-
-	// Step 2: Call service
-	noteSvc, err := cli.GetNoteService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get note service: %w", err)
-	}
-
-	note, err := noteSvc.AddNote(cmd.Context(), models.EntityTypeTask, taskKey, noteTypeStr, content, createdBy)
-	if err != nil {
-		return fmt.Errorf("failed to add note: %w", err)
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(note)
-	}
-
-	// Human-readable output
-	creator := "unknown"
-	if note.CreatedBy != nil {
-		creator = *note.CreatedBy
-	}
-
-	ts := note.CreatedAt
-	if ts.IsZero() {
-		ts = time.Now()
-	}
-
-	fmt.Printf("Note added to %s\n\n", taskKey)
-	fmt.Printf("[%s] %s (%s)\n", strings.ToUpper(noteTypeStr), ts.Format("2006-01-02 15:04"), creator)
-	fmt.Println(content)
-
-	return nil
-}
-
-// runTaskNotes handles the task notes command
-func runTaskNotes(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse arguments
-	taskKey := args[0]
-	noteTypesStr, _ := cmd.Flags().GetString("type")
-
-	var noteTypes []string
-	if noteTypesStr != "" {
-		noteTypes = strings.Split(noteTypesStr, ",")
-		for i, nt := range noteTypes {
-			noteTypes[i] = strings.TrimSpace(nt)
-		}
-	}
-
-	// Step 2: Call service
-	noteSvc, err := cli.GetNoteService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get note service: %w", err)
-	}
-
-	notes, err := noteSvc.ListNotes(cmd.Context(), models.EntityTypeTask, taskKey, noteTypes)
-	if err != nil {
-		return fmt.Errorf("failed to get notes: %w", err)
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(notes)
-	}
-
-	// Human-readable output
-	if len(notes) == 0 {
-		fmt.Printf("No notes found for task %s\n", taskKey)
-		return nil
-	}
-
-	// Try to get task title for display
-	taskSvc := cli.GetTaskService()
-	task, taskErr := taskSvc.GetTask(cmd.Context(), taskKey)
-	if taskErr == nil {
-		fmt.Printf("Task %s: %s (%d notes)\n\n", taskKey, task.Title, len(notes))
-	} else {
-		fmt.Printf("Task %s (%d notes)\n\n", taskKey, len(notes))
-	}
-
-	for _, note := range notes {
-		creator := "unknown"
-		if note.CreatedBy != nil {
-			creator = *note.CreatedBy
-		}
-
-		fmt.Printf("[%s] %s (%s)\n", strings.ToUpper(string(note.NoteType)), note.CreatedAt.Format("2006-01-02 15:04"), creator)
-		fmt.Println(note.Content)
-		fmt.Println()
-	}
-
-	return nil
-}
-
-// runTaskTimeline handles the task timeline command
 func runTaskTimeline(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse arguments
 	taskKey := args[0]
 
-	// Step 2: Call services
 	taskSvc := cli.GetTaskServiceWithDeps()
 
 	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
@@ -206,14 +53,12 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 
 	var timeline []TimelineEvent
 
-	// Add task creation event
 	timeline = append(timeline, TimelineEvent{
 		Timestamp: task.CreatedAt,
 		EventType: "status",
 		Content:   "Created",
 	})
 
-	// Add status changes and rejections from history
 	for _, history := range histories {
 		oldStatus := ""
 		if history.OldStatus != nil {
@@ -226,7 +71,6 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		}
 
 		if history.RejectionReason != nil {
-			// This is a rejection event
 			reason := truncateRunes(*history.RejectionReason, 77)
 
 			var content string
@@ -246,7 +90,6 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 				Reason:    reason,
 			})
 		} else {
-			// Regular status change
 			var content string
 			if oldStatus == "" {
 				content = fmt.Sprintf("Status: → %s", history.NewStatus)
@@ -263,7 +106,6 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get notes and add to timeline
 	noteSvc, err := cli.GetNoteService(cmd.Context())
 	if err != nil {
 		cli.Warning(fmt.Sprintf("Failed to get note service: %v", err))
@@ -278,7 +120,6 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 					actor = *note.CreatedBy
 				}
 
-				// Truncate long content for timeline view
 				content := truncateRunes(note.Content, 77)
 
 				timeline = append(timeline, TimelineEvent{
@@ -300,12 +141,10 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(timeline)
 	}
 
-	// Human-readable output
 	fmt.Printf("Task %s: %s\n\n", taskKey, task.Title)
 	fmt.Println("Timeline:")
 
@@ -318,20 +157,14 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 		if event.EventType == "status" {
 			fmt.Printf("  %s  %s%s\n", event.Timestamp.Format("2006-01-02 15:04"), event.Content, actor)
 		} else if event.EventType == "rejection" {
-			// Special formatting for rejection events
 			fmt.Printf("  %s  %s%s\n", event.Timestamp.Format("2006-01-02 15:04"), event.Content, actor)
-
-			// Display truncated reason on next line if present
 			if event.Reason != "" {
 				fmt.Printf("        Reason: %s\n", event.Reason)
 			}
-
-			// Display document indicator if linked document exists
 			if event.ReasonDocument != nil && *event.ReasonDocument != "" {
 				fmt.Printf("        📄 %s\n", *event.ReasonDocument)
 			}
 		} else {
-			// Other note types
 			fmt.Printf("  %s  [%s] %s%s\n", event.Timestamp.Format("2006-01-02 15:04"), strings.ToUpper(event.EventType), event.Content, actor)
 		}
 	}
@@ -340,19 +173,10 @@ func runTaskTimeline(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	// Add note subcommand to task command
-	taskCmd.AddCommand(taskNoteCmd)
-	taskCmd.AddCommand(taskNotesCmd)
+	// Use generic note commands for add and list
+	taskCmd.AddCommand(makeNoteCmd("task"))
+	taskCmd.AddCommand(makeNotesCmd("task"))
+
+	// Task-specific timeline command
 	taskCmd.AddCommand(taskTimelineCmd)
-
-	// Add subcommands to note command
-	taskNoteCmd.AddCommand(taskNoteAddCmd)
-
-	// Flags for note add
-	taskNoteAddCmd.Flags().StringP("type", "t", "", "Note type (required): comment, decision, blocker, solution, reference, implementation, testing, future, question")
-	taskNoteAddCmd.Flags().StringP("created-by", "c", "", "Creator name (optional)")
-	_ = taskNoteAddCmd.MarkFlagRequired("type")
-
-	// Flags for notes list
-	taskNotesCmd.Flags().StringP("type", "t", "", "Filter by note type (comma-separated for multiple)")
 }

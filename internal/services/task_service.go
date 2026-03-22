@@ -21,6 +21,9 @@ type TaskRelationshipRepository = config.TaskRelationshipRepository
 // by direction and type. This interface is satisfied by *repository.TaskRelationshipRepository.
 // It is used by the deps/blocked-by/blocks commands which need richer relationship queries
 // than the basic ListRelatedTaskKeys method provided by config.TaskRelationshipRepository.
+//
+// LEGACY: This interface operates on the legacy task_relationships table.
+// Use EntityRelationshipRepository (which operates on entity_relationships) instead.
 type TaskRelationshipQueryRepository interface {
 	// GetByTaskID retrieves all relationships for a task (both incoming and outgoing)
 	GetByTaskID(ctx context.Context, taskID int64) ([]*models.TaskRelationship, error)
@@ -36,6 +39,9 @@ type TaskRelationshipQueryRepository interface {
 
 // TaskDependencyRepository defines the interface for managing task dependency relationships.
 // This interface is satisfied by *repository.TaskRelationshipRepository.
+//
+// LEGACY: This interface operates on the legacy task_relationships table.
+// Use EntityRelationshipRepository (which operates on entity_relationships) instead.
 type TaskDependencyRepository interface {
 	// Create creates a new task relationship (used for adding dependencies)
 	Create(ctx context.Context, rel *models.TaskRelationship) error

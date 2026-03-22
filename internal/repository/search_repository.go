@@ -126,7 +126,7 @@ func (r *SearchRepository) RebuildIndex(ctx context.Context) error {
 		return fmt.Errorf("failed to clear search index: %w", err)
 	}
 
-	// Rebuild from tasks, task_notes, and task_criteria
+	// Rebuild from tasks and entity_notes
 	query := `
 		INSERT INTO task_search_fts (task_key, title, description, note_content, criterion_text, metadata_text)
 		SELECT
@@ -134,7 +134,7 @@ func (r *SearchRepository) RebuildIndex(ctx context.Context) error {
 			t.title,
 			COALESCE(t.description, ''),
 			COALESCE((SELECT GROUP_CONCAT(content, ' ') FROM entity_notes WHERE entity_type = 'task' AND entity_id = t.id), ''),
-			COALESCE((SELECT GROUP_CONCAT(criterion, ' ') FROM task_criteria WHERE task_id = t.id), ''),
+			'',
 			COALESCE(t.agent_type || ' ' || t.status, '')
 		FROM tasks t
 	`
@@ -160,7 +160,7 @@ func (r *SearchRepository) IndexTask(ctx context.Context, taskID int64) error {
 		return fmt.Errorf("failed to delete from search index: %w", err)
 	}
 
-	// Re-index the task with all its notes and criteria
+	// Re-index the task with its notes
 	query := `
 		INSERT INTO task_search_fts (task_key, title, description, note_content, criterion_text, metadata_text)
 		SELECT
@@ -168,7 +168,7 @@ func (r *SearchRepository) IndexTask(ctx context.Context, taskID int64) error {
 			t.title,
 			COALESCE(t.description, ''),
 			COALESCE((SELECT GROUP_CONCAT(content, ' ') FROM entity_notes WHERE entity_type = 'task' AND entity_id = t.id), ''),
-			COALESCE((SELECT GROUP_CONCAT(criterion, ' ') FROM task_criteria WHERE task_id = t.id), ''),
+			'',
 			COALESCE(t.agent_type || ' ' || t.status, '')
 		FROM tasks t
 		WHERE t.id = ?

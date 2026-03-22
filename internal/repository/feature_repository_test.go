@@ -392,6 +392,66 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 	}
 }
 
+// TestFeatureRepository_UpdateStatus verifies atomic status updates via UpdateStatus.
+func TestFeatureRepository_UpdateStatus(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := NewEpicRepository(db)
+
+	// Clean up test data first (use E87 to avoid conflict with other tests)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E87-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E87'")
+
+	// Create dedicated epic for this test
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E87",
+		Title: "Test Epic for UpdateStatus"}, Status: models.EpicStatusActive,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	}()
+
+	// Create feature with initial status
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E87-F01",
+		Title: "Feature for Status Update Test"}, EpicID: testEpic.ID,
+		Status: models.FeatureStatusDraft,
+	}
+	err = repo.Create(ctx, feature)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	}()
+
+	t.Run("successful status update", func(t *testing.T) {
+		err := repo.UpdateStatus(ctx, feature.ID, models.FeatureStatusActive)
+		require.NoError(t, err)
+
+		// Verify status was updated
+		updated, err := repo.GetByID(ctx, feature.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.FeatureStatusActive, updated.Status)
+	})
+
+	t.Run("update to completed status", func(t *testing.T) {
+		err := repo.UpdateStatus(ctx, feature.ID, models.FeatureStatusCompleted)
+		require.NoError(t, err)
+
+		updated, err := repo.GetByID(ctx, feature.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.FeatureStatusCompleted, updated.Status)
+	})
+
+	t.Run("non-existent feature returns error", func(t *testing.T) {
+		err := repo.UpdateStatus(ctx, 999999, models.FeatureStatusActive)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "feature not found")
+	})
+}
+
 // TestFeatureRepository_UpdateCustomPath removed - custom_folder_path feature no longer supported
 
 // TestFeatureRepository_UpdateCascadesOrder verifies that updating a feature's execution order

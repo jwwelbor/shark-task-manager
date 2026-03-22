@@ -29,17 +29,26 @@ type ChangeCardStatus string
 
 // ChangeCard represents a lightweight enhancement proposal or change request.
 type ChangeCard struct {
-	BaseEntity                      // 9 shared fields + 10 accessor methods
-	Status         ChangeCardStatus `json:"status" db:"status"`
-	Priority       int              `json:"priority" db:"priority"`
-	RequestedBy    *string          `json:"requested_by,omitempty" db:"requested_by"`
-	AssignedTo     *string          `json:"assigned_to,omitempty" db:"assigned_to"`
-	EpicID         *int64           `json:"epic_id,omitempty" db:"epic_id"`
-	FeatureID      *int64           `json:"feature_id,omitempty" db:"feature_id"`
-	RelatedTaskID  *int64           `json:"related_task_id,omitempty" db:"related_task_id"`
-	Justification  *string          `json:"justification,omitempty" db:"justification"`
-	ImpactAnalysis *string          `json:"impact_analysis,omitempty" db:"impact_analysis"`
-	RollbackPlan   *string          `json:"rollback_plan,omitempty" db:"rollback_plan"`
+	BaseEntity                   // 9 shared fields + 10 accessor methods
+	Status      ChangeCardStatus `json:"status" db:"status"`
+	Priority    int              `json:"priority" db:"priority"`
+	RequestedBy *string          `json:"requested_by,omitempty" db:"requested_by"`
+	AssignedTo  *string          `json:"assigned_to,omitempty" db:"assigned_to"`
+	// LEGACY: EpicID is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	EpicID *int64 `json:"epic_id,omitempty" db:"epic_id"`
+	// LEGACY: FeatureID is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	FeatureID *int64 `json:"feature_id,omitempty" db:"feature_id"`
+	// LEGACY: RelatedTaskID is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	RelatedTaskID  *int64  `json:"related_task_id,omitempty" db:"related_task_id"`
+	Justification  *string `json:"justification,omitempty" db:"justification"`
+	ImpactAnalysis *string `json:"impact_analysis,omitempty" db:"impact_analysis"`
+	RollbackPlan   *string `json:"rollback_plan,omitempty" db:"rollback_plan"`
 }
 
 // Entity interface implementation for ChangeCard.

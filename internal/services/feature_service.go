@@ -31,6 +31,7 @@ type FeatureRepository interface {
 	GetTaskStatusBreakdown(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
 	GetTaskCount(ctx context.Context, featureID int64) (int, error)
 	SetStatusOverride(ctx context.Context, featureID int64, override bool) error
+	UpdateStatus(ctx context.Context, featureID int64, status models.FeatureStatus) error
 	UpdateStatusIfNotOverridden(ctx context.Context, featureID int64, newStatus models.FeatureStatus) (bool, error)
 	CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error
 	GetFeatureDisplayDataRaw(ctx context.Context, featureID int64) (*repository.FeatureDisplayDataRaw, error)
@@ -91,6 +92,7 @@ type FeatureService struct {
 func NewFeatureService(repo FeatureRepository, entitySvc *EntityService, entityRepo EntityRepository, taskRepo FeatureTaskCounter, epicLookupRepo FeatureEpicLookup) *FeatureService {
 	requireNonNil(repo, "FeatureService requires a non-nil FeatureRepository")
 	requireNonNil(entitySvc, "FeatureService requires a non-nil EntityService")
+	requireNonNil(entityRepo, "FeatureService requires a non-nil EntityRepository")
 	return &FeatureService{
 		repo:           repo,
 		entitySvc:      entitySvc.ForLevel(workflow.LevelFeature),
@@ -126,13 +128,7 @@ func (s *FeatureService) SetWritableDocRepo(writableRepo EntityDocumentRepositor
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			feature, err := s.repo.GetByKey(ctx, key)
-			if err != nil {
-				return 0, "", err
-			}
-			return feature.ID, models.EntityTypeFeature, nil
-		},
+		EntityLookupFnFromRepo(s.entityRepo),
 	)
 }
 
@@ -184,15 +180,9 @@ func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitl
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
 func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	// Use entityRepo if available, otherwise create inline adapter from typed repo
-	entityRepo := s.entityRepo
-	if entityRepo == nil {
-		entityRepo = &featureEntityRepoAdapter{repo: s.repo}
-	}
-
 	// Delegate shared logic to EntityService
 	result, err := s.entitySvc.TransitionStatus(
-		ctx, entityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
+		ctx, s.entityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
 		DefaultTransitionFeatures(),
 		s.makeResolveActionFn(ctx),
 	)
@@ -213,11 +203,7 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 
 // GetNextStatus returns the available transitions for the current status of a feature.
 func (s *FeatureService) GetNextStatus(ctx context.Context, featureKey string) (*NextStatusInfo, error) {
-	entityRepo := s.entityRepo
-	if entityRepo == nil {
-		entityRepo = &featureEntityRepoAdapter{repo: s.repo}
-	}
-	return s.entitySvc.GetNextStatus(ctx, entityRepo, models.EntityTypeFeature, featureKey,
+	return s.entitySvc.GetNextStatus(ctx, s.entityRepo, models.EntityTypeFeature, featureKey,
 		s.makeResolveActionFn(ctx))
 }
 
@@ -256,58 +242,6 @@ func (s *FeatureService) makeResolveActionFn(ctx context.Context) ResolveActionF
 
 		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}
-}
-
-// featureEntityRepoAdapter is a fallback adapter for when entityRepo is nil.
-type featureEntityRepoAdapter struct {
-	repo FeatureRepository
-}
-
-func (a *featureEntityRepoAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
-	f, err := a.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-	if f == nil {
-		return nil, nil
-	}
-	return f, nil
-}
-
-func (a *featureEntityRepoAdapter) GetByID(ctx context.Context, id int64) (models.Entity, error) {
-	f, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if f == nil {
-		return nil, nil
-	}
-	return f, nil
-}
-
-func (a *featureEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
-	f, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	f.Status = models.FeatureStatus(status)
-	return a.repo.Update(ctx, f)
-}
-
-func (a *featureEntityRepoAdapter) Update(ctx context.Context, entity models.Entity) error {
-	feature, ok := entity.(*models.Feature)
-	if !ok {
-		return fmt.Errorf("featureEntityRepoAdapter: expected *models.Feature, got %T", entity)
-	}
-	return a.repo.Update(ctx, feature)
-}
-
-func (a *featureEntityRepoAdapter) GetContextData(_ context.Context, _ int64) (*string, error) {
-	return nil, nil
-}
-
-func (a *featureEntityRepoAdapter) UpdateContextData(_ context.Context, _ int64, _ *string) error {
-	return nil
 }
 
 // GetFeature retrieves a feature by key.

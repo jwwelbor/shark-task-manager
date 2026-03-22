@@ -2,13 +2,15 @@ package commands
 
 import (
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestEpicSetStatusCmd_Registration(t *testing.T) {
 	// Verify the command is properly registered as subcommand of epicCmd
 	found := false
 	for _, cmd := range epicCmd.Commands() {
-		if cmd.Use == "set-status <epic-key> <status>" {
+		if cmd.Name() == "set-status" {
 			found = true
 			break
 		}
@@ -19,7 +21,16 @@ func TestEpicSetStatusCmd_Registration(t *testing.T) {
 }
 
 func TestEpicSetStatusCmd_Args(t *testing.T) {
-	cmd := epicSetStatusCmd
+	var cmd *cobra.Command
+	for _, c := range epicCmd.Commands() {
+		if c.Name() == "set-status" {
+			cmd = c
+			break
+		}
+	}
+	if cmd == nil {
+		t.Fatal("set-status command not found")
+	}
 
 	// Verify exact 2 args required
 	if err := cmd.Args(cmd, []string{"E16"}); err == nil {
@@ -36,7 +47,16 @@ func TestEpicSetStatusCmd_Args(t *testing.T) {
 }
 
 func TestEpicSetStatusCmd_Flags(t *testing.T) {
-	cmd := epicSetStatusCmd
+	var cmd *cobra.Command
+	for _, c := range epicCmd.Commands() {
+		if c.Name() == "set-status" {
+			cmd = c
+			break
+		}
+	}
+	if cmd == nil {
+		t.Fatal("set-status command not found")
+	}
 
 	// Verify flags are registered
 	flags := []string{"reason", "force", "agent"}

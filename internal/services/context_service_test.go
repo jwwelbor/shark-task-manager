@@ -566,7 +566,6 @@ func TestIsValidContextField(t *testing.T) {
 	validFields := []string{
 		"current_step", "completed_steps", "remaining_steps",
 		"implementation_decisions", "open_questions", "blockers",
-		"acceptance_criteria_status",
 	}
 
 	for _, f := range validFields {
@@ -596,14 +595,12 @@ func TestUpdateContextField_AllFields(t *testing.T) {
 		{"implementation_decisions", "implementation_decisions", `{"db":"sqlite"}`, false},
 		{"open_questions", "open_questions", `["Q1?"]`, false},
 		{"blockers", "blockers", `[]`, false},
-		{"acceptance_criteria_status", "acceptance_criteria_status", `[]`, false},
 		{"invalid_field", "invalid_field", "value", true},
 		{"bad_json_completed_steps", "completed_steps", "not json", true},
 		{"bad_json_remaining_steps", "remaining_steps", "not json", true},
 		{"bad_json_decisions", "implementation_decisions", "not json", true},
 		{"bad_json_questions", "open_questions", "not json", true},
 		{"bad_json_blockers", "blockers", "not json", true},
-		{"bad_json_criteria", "acceptance_criteria_status", "not json", true},
 	}
 
 	for _, tt := range tests {
