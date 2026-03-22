@@ -131,6 +131,17 @@ func (s *Service) GetTerminalStatuses() []string {
 	return completeStatuses
 }
 
+// GetAggregationStatuses returns the aggregation statuses for this workflow level.
+// Reads from special_statuses._aggregation_ in workflow config.
+// Falls back to ["active"] if not configured or empty.
+func (s *Service) GetAggregationStatuses() []string {
+	aggStatuses, exists := s.workflow.SpecialStatuses[config.AggregationStatusKey]
+	if !exists || len(aggStatuses) == 0 {
+		return []string{"active"}
+	}
+	return aggStatuses
+}
+
 // IsTerminalStatus returns true if the given status is a terminal status.
 func (s *Service) IsTerminalStatus(status string) bool {
 	for _, terminal := range s.GetTerminalStatuses() {

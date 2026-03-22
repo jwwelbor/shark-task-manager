@@ -39,6 +39,7 @@ type mockFeatureRepo struct {
 type mockFeatureEpicLookup struct {
 	getByKeyFn      func(ctx context.Context, key string) (*models.Epic, error)
 	getByFilePathFn func(ctx context.Context, filePath string) (*models.Epic, error)
+	updateFn        func(ctx context.Context, epic *models.Epic) error
 }
 
 func (m *mockFeatureEpicLookup) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
@@ -61,6 +62,13 @@ func (m *mockFeatureEpicLookup) UpdateFilePath(ctx context.Context, epicKey stri
 
 func (m *mockFeatureEpicLookup) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
 	return nil, nil
+}
+
+func (m *mockFeatureEpicLookup) Update(ctx context.Context, epic *models.Epic) error {
+	if m.updateFn != nil {
+		return m.updateFn(ctx, epic)
+	}
+	return nil
 }
 
 func (m *mockFeatureRepo) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
@@ -3315,4 +3323,231 @@ func TestFeatureService_GetFeatureDisplayData(t *testing.T) {
 			t.Fatal("expected context data, got nil")
 		}
 	})
+}
+
+// ============================================================================
+// Auto-Reopen Parent Epic Tests (maybeReopenParentEpic via CreateFeature)
+// ============================================================================
+
+func TestFeatureService_CreateFeature_ReopensTerminalEpic(t *testing.T) {
+	epicUpdated := false
+	var capturedEpicStatus models.EpicStatus
+
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				ID:     1,
+				Key:    "E01",
+				Title:  "Test Epic",
+				Status: "completed",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			epicUpdated = true
+			capturedEpicStatus = epic.Status
+			return nil
+		},
+	}
+
+	featureRepo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			feature.ID = 100
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(featureRepo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "New feature under completed epic",
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if !epicUpdated {
+		t.Error("expected epic to be updated (reopened)")
+	}
+	if capturedEpicStatus != "active" {
+		t.Errorf("expected epic status 'active', got %q", capturedEpicStatus)
+	}
+}
+
+func TestFeatureService_CreateFeature_NoReopenNonTerminalEpic(t *testing.T) {
+	epicUpdated := false
+
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				ID:     1,
+				Key:    "E01",
+				Title:  "Test Epic",
+				Status: "active",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			epicUpdated = true
+			return nil
+		},
+	}
+
+	featureRepo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			feature.ID = 100
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(featureRepo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "New feature under active epic",
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if epicUpdated {
+		t.Error("expected epic NOT to be updated (already non-terminal)")
+	}
+}
+
+func TestFeatureService_CreateFeature_ReopenFailureDoesNotFailCreate(t *testing.T) {
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				ID:     1,
+				Key:    "E01",
+				Title:  "Test Epic",
+				Status: "completed",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			return fmt.Errorf("simulated DB error on epic update")
+		},
+	}
+
+	featureRepo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			feature.ID = 100
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(featureRepo, newTestFeatureWorkflowService(), nil, nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "Feature when epic update fails",
+	})
+
+	// Feature creation should STILL succeed despite epic update failure
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+}
+
+func TestFeatureService_CreateFeature_CustomAggregationStatus(t *testing.T) {
+	var capturedEpicStatus models.EpicStatus
+
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				ID:     1,
+				Key:    "E01",
+				Title:  "Test Epic",
+				Status: "done", // Custom terminal status
+			}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			capturedEpicStatus = epic.Status
+			return nil
+		},
+	}
+
+	featureRepo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			feature.ID = 100
+			return nil
+		},
+	}
+
+	// Create custom workflow with custom _complete_ and _aggregation_
+	tempDir := t.TempDir()
+	configData := `{
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed"]
+			},
+			"status_flow": {
+				"draft": ["active"],
+				"active": ["completed"],
+				"completed": []
+			}
+		},
+		"epic_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["done", "abandoned"],
+				"_aggregation_": ["tracking"]
+			},
+			"status_flow": {
+				"draft": ["tracking"],
+				"tracking": ["done"],
+				"done": [],
+				"abandoned": []
+			}
+		}
+	}`
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configData), 0644)
+	if err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	config.ClearWorkflowCache()
+	defer config.ClearWorkflowCache()
+
+	customWf := workflow.NewService(tempDir)
+	svc := NewFeatureService(featureRepo, customWf, nil, nil, epicLookup)
+
+	feature, createErr := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "Feature under done epic with custom aggregation",
+	})
+
+	if createErr != nil {
+		t.Fatalf("expected no error, got: %v", createErr)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if capturedEpicStatus != "tracking" {
+		t.Errorf("expected epic status 'tracking' (custom aggregation), got %q", capturedEpicStatus)
+	}
 }

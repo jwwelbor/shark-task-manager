@@ -37,12 +37,13 @@ type FeatureRepository interface {
 }
 
 // FeatureEpicLookup defines the minimal epic repository interface needed by FeatureService
-// when creating features (to look up the parent epic by key).
+// when creating features (to look up the parent epic by key) and auto-reopening epics.
 type FeatureEpicLookup interface {
 	GetByKey(ctx context.Context, key string) (*models.Epic, error)
 	GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error)
 	UpdateFilePath(ctx context.Context, epicKey string, newFilePath *string) error
 	List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
+	Update(ctx context.Context, epic *models.Epic) error
 }
 
 // FeatureNoteRepository defines the note repo interface needed by FeatureService
@@ -856,7 +857,34 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		return nil, fmt.Errorf("failed to create feature %s: %w", featureKey, err)
 	}
 
+	s.maybeReopenParentEpic(ctx, epic, feature.Key)
 	return feature, nil
+}
+
+// maybeReopenParentEpic checks if the parent epic is in a terminal status
+// and reopens it to the first aggregation status. Best-effort: logs a warning
+// on failure, never fails the caller.
+//
+// Parameters:
+//   - ctx: context for cancellation
+//   - epic: the parent epic model (already retrieved during feature creation)
+//   - featureKey: key of the newly created feature (for audit logging)
+func (s *FeatureService) maybeReopenParentEpic(ctx context.Context, epic *models.Epic, featureKey string) {
+	if s.epicLookupRepo == nil {
+		return
+	}
+
+	epicWf := s.workflowSvc.ForLevel(workflow.LevelEpic)
+	if !epicWf.IsTerminalStatus(string(epic.Status)) {
+		return
+	}
+
+	aggStatuses := epicWf.GetAggregationStatuses()
+	epic.Status = models.EpicStatus(aggStatuses[0])
+
+	if err := s.epicLookupRepo.Update(ctx, epic); err != nil {
+		log.Printf("warning: auto-reopen of epic %s failed: %v", epic.Key, err)
+	}
 }
 
 // UpdateFeature updates fields on an existing feature.

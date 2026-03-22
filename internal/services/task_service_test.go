@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
@@ -2400,4 +2403,259 @@ func TestTaskService_GetTaskDisplayData_RepoError(t *testing.T) {
 	assert.Nil(t, data)
 	assert.Contains(t, err.Error(), "failed to get display data for task E01-F01-001")
 	assert.Contains(t, err.Error(), "database connection lost")
+}
+
+// ============================================================================
+// Auto-Reopen Parent Feature Tests (maybeReopenParentFeature via CreateTask)
+// ============================================================================
+
+// mockFeatureServiceForReopen is a minimal mock of FeatureService for testing
+// the auto-reopen behavior in TaskService.CreateTask.
+// We create a real FeatureService with mocked repos so we can wire it via SetFeatureService.
+func newFeatureServiceForReopenTest(t *testing.T, featureStatus models.FeatureStatus, updateErr error) (*FeatureService, *bool) {
+	t.Helper()
+	featureUpdated := false
+
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				ID:     10,
+				Key:    "E01-F01",
+				Status: featureStatus,
+				Title:  "Test Feature",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			featureUpdated = true
+			if updateErr != nil {
+				return updateErr
+			}
+			return nil
+		},
+	}
+
+	wfSvc := workflow.NewService("")
+	svc := NewFeatureService(repo, wfSvc, nil, nil, nil)
+	return svc, &featureUpdated
+}
+
+func TestTaskService_CreateTask_ReopensTerminalFeature(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "completed", nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "New task under completed feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.True(t, *featureUpdated, "feature should have been updated (reopened)")
+}
+
+func TestTaskService_CreateTask_ReopensArchivedFeature(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// "archived" is in default feature _complete_ list: ["completed", "archived"]
+	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "archived", nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Revived task under archived feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.True(t, *featureUpdated, "feature should have been updated (reopened from archived)")
+}
+
+func TestTaskService_CreateTask_NoReopenNonTerminalFeature(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "active", nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task under active feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.False(t, *featureUpdated, "feature should NOT have been updated (already non-terminal)")
+}
+
+func TestTaskService_CreateTask_NoReopenNilFeatureService(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	// Do NOT set featureService -- it remains nil
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task with nil featureService",
+		AgentType:  "developer",
+	})
+
+	// Task creation should still succeed
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+}
+
+func TestTaskService_CreateTask_ReopenFailureDoesNotFailCreate(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+
+	// Feature service will fail on update
+	featureSvc, _ := newFeatureServiceForReopenTest(t, "completed", fmt.Errorf("simulated DB error"))
+	svc.SetFeatureService(featureSvc)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task when feature update fails",
+		AgentType:  "developer",
+	})
+
+	// Task creation should STILL succeed despite feature update failure
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+}
+
+func TestTaskService_CreateTask_CustomAggregationStatus(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	// Create a custom workflow config with custom _aggregation_ status
+	tempDir := t.TempDir()
+	configData := `{
+		"task_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["todo"],
+				"_complete_": ["completed"]
+			},
+			"status_flow": {
+				"todo": ["completed"],
+				"completed": []
+			}
+		},
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["done", "abandoned"],
+				"_aggregation_": ["tracking"]
+			},
+			"status_flow": {
+				"draft": ["tracking"],
+				"tracking": ["done"],
+				"done": [],
+				"abandoned": []
+			}
+		}
+	}`
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configData), 0644)
+	assert.NoError(t, err)
+	config.ClearWorkflowCache()
+	defer config.ClearWorkflowCache()
+
+	customWf := workflow.NewService(tempDir)
+	svc := NewTaskService(mockRepo, customWf, nil, nil)
+
+	// Create feature service with custom workflow and "done" status (terminal)
+	var capturedFeatureStatus models.FeatureStatus
+	featureRepo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				ID:     10,
+				Key:    "E01-F01",
+				Status: "done",
+				Title:  "Test Feature",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeatureStatus = feature.Status
+			return nil
+		},
+	}
+	featureSvc := NewFeatureService(featureRepo, customWf, nil, nil, nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task under done feature with custom aggregation",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, createErr)
+	assert.NotNil(t, task)
+	assert.Equal(t, models.FeatureStatus("tracking"), capturedFeatureStatus,
+		"feature should be reopened to custom aggregation status 'tracking'")
 }
