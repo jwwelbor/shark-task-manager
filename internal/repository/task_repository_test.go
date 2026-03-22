@@ -554,3 +554,135 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	require.NotNil(t, lastEntry.Notes, "Notes should be stored")
 	require.Equal(t, notes, *lastEntry.Notes, "Notes should be stored")
 }
+
+// TestTaskRepository_GetByIDs tests the batch GetByIDs method
+func TestTaskRepository_GetByIDs(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewTaskRepository(db)
+	epicRepo := NewEpicRepository(db)
+	featureRepo := NewFeatureRepository(db)
+
+	// Clean up test data first
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E95-F17-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E95-F17'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E95'")
+
+	// Create dedicated epic for this test
+	highPriority := models.PriorityHigh
+	testEpic := &models.Epic{
+		Key:           "E95",
+		Title:         "Test Epic for GetByIDs",
+		Status:        models.EpicStatusActive,
+		Priority:      models.PriorityHigh,
+		BusinessValue: &highPriority,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	}()
+
+	// Create dedicated feature for this test
+	testFeature := &models.Feature{
+		EpicID: testEpic.ID,
+		Key:    "E95-F17",
+		Title:  "Test Feature for GetByIDs",
+		Status: models.FeatureStatusDraft,
+	}
+	err = featureRepo.Create(ctx, testFeature)
+	require.NoError(t, err, "Failed to create test feature")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID)
+	}()
+
+	// Create 3 test tasks
+	task1 := &models.Task{
+		FeatureID: testFeature.ID,
+		Key:       "T-E95-F17-011",
+		Title:     "Batch Test Task One",
+		Status:    models.TaskStatus("todo"),
+		Priority:  5,
+	}
+	task2 := &models.Task{
+		FeatureID: testFeature.ID,
+		Key:       "T-E95-F17-012",
+		Title:     "Batch Test Task Two",
+		Status:    models.TaskStatus("in_progress"),
+		Priority:  3,
+	}
+	task3 := &models.Task{
+		FeatureID: testFeature.ID,
+		Key:       "T-E95-F17-013",
+		Title:     "Batch Test Task Three",
+		Status:    models.TaskStatus("todo"),
+		Priority:  7,
+	}
+
+	for _, task := range []*models.Task{task1, task2, task3} {
+		err = repo.Create(ctx, task)
+		require.NoError(t, err, "Failed to create test task %s", task.Key)
+	}
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E95-F17-%'")
+	}()
+
+	t.Run("MultipleTasks", func(t *testing.T) {
+		tasks, err := repo.GetByIDs(ctx, []int64{task1.ID, task2.ID, task3.ID})
+		require.NoError(t, err)
+		assert.Len(t, tasks, 3)
+
+		// Build a map for easy lookup
+		tasksByKey := make(map[string]*models.Task)
+		for _, task := range tasks {
+			tasksByKey[task.Key] = task
+		}
+		assert.Contains(t, tasksByKey, "T-E95-F17-011")
+		assert.Contains(t, tasksByKey, "T-E95-F17-012")
+		assert.Contains(t, tasksByKey, "T-E95-F17-013")
+	})
+
+	t.Run("EmptyInput", func(t *testing.T) {
+		tasks, err := repo.GetByIDs(ctx, []int64{})
+		require.NoError(t, err)
+		assert.NotNil(t, tasks)
+		assert.Len(t, tasks, 0)
+	})
+
+	t.Run("NilInput", func(t *testing.T) {
+		tasks, err := repo.GetByIDs(ctx, nil)
+		require.NoError(t, err)
+		assert.NotNil(t, tasks)
+		assert.Len(t, tasks, 0)
+	})
+
+	t.Run("SomeMissing", func(t *testing.T) {
+		tasks, err := repo.GetByIDs(ctx, []int64{task1.ID, -999, task3.ID})
+		require.NoError(t, err)
+		assert.Len(t, tasks, 2)
+
+		tasksByKey := make(map[string]*models.Task)
+		for _, task := range tasks {
+			tasksByKey[task.Key] = task
+		}
+		assert.Contains(t, tasksByKey, "T-E95-F17-011")
+		assert.Contains(t, tasksByKey, "T-E95-F17-013")
+	})
+
+	t.Run("AllMissing", func(t *testing.T) {
+		tasks, err := repo.GetByIDs(ctx, []int64{-1, -2, -3})
+		require.NoError(t, err)
+		assert.NotNil(t, tasks)
+		assert.Len(t, tasks, 0)
+	})
+
+	t.Run("SingleID", func(t *testing.T) {
+		tasks, err := repo.GetByIDs(ctx, []int64{task2.ID})
+		require.NoError(t, err)
+		assert.Len(t, tasks, 1)
+		assert.Equal(t, "T-E95-F17-012", tasks[0].Key)
+		assert.Equal(t, "Batch Test Task Two", tasks[0].Title)
+		assert.Equal(t, models.TaskStatus("in_progress"), tasks[0].Status)
+	})
+}

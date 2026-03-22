@@ -161,6 +161,42 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, e
 	return task, nil
 }
 
+// GetByIDs retrieves multiple tasks by their IDs in a single query.
+// Returns only found tasks; missing IDs are silently skipped.
+// Returns empty slice (not nil) for empty or nil input.
+func (r *TaskRepository) GetByIDs(ctx context.Context, ids []int64) ([]*models.Task, error) {
+	if len(ids) == 0 {
+		return []*models.Task{}, nil
+	}
+
+	// Build parameterized IN clause
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `
+		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
+		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
+		       created_at, started_at, completed_at, blocked_at, updated_at,
+		       completed_by, completion_notes, files_changed, tests_passed,
+		       verification_status, time_spent_minutes, context_data
+		FROM tasks
+		WHERE id IN (` + strings.Join(placeholders, ", ") + `)
+	`
+
+	tasks, err := r.queryTasks(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	if tasks == nil {
+		return []*models.Task{}, nil
+	}
+	return tasks, nil
+}
+
 // GetByKey retrieves a task by its key, supporting both numeric and slugged formats.
 // Supports two key formats:
 // 1. Numeric: T-E04-F01-001
