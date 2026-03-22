@@ -1,0 +1,45 @@
+Launch tech-lead with quality skill to review task {{.task_id}}: "{{.title}}".
+{{- if ne .priority "0"}}
+PRIORITY: {{.priority}}/10.
+{{- end}}
+
+LOAD: quality skill workflow review-code.md.
+
+READ:
+(1) Task spec at {{.file_path}}
+(2) Feature test plan (09-test-plan.md) for expected test coverage and acceptance criteria
+(3) Feature PRD for feature-level intent
+(4) Implementation code changes{{if .files_changed}} (files: {{.files_changed}}){{end}}
+{{- if .related_docs}}
+(5) Related docs: {{.related_docs}}
+{{- end}}
+{{- if .related_tasks}}
+({{if .related_docs}}6{{else}}5{{end}}) Related tasks: {{.related_tasks}}
+{{- end}}
+{{- if .depends_on}}
+DEPENDENCIES: {{.depends_on}} — verify these tasks are completed before proceeding.
+{{- end}}
+
+REVIEW:
+- Check code quality, security, and adherence to codebase standards
+- Compare implementation behavior against the task spec, feature test plan, and feature PRD
+- Verify acceptance criteria are met as specified in feature requirements
+- Verify TDD compliance -- tests from feature test plan are implemented and passing
+- Flag any deviation between feature intent, spec, and actual behavior
+
+RUNTIME WIRING VERIFICATION (Step 2.5):
+- Verify all new components/functions have call sites from runtime entry points (not just test files)
+- Check registration in DI containers, routers, or module registries as applicable
+- Auto-fail the review if new code has zero call sites from the application entry point
+- Test-only call sites do NOT count — the code must be reachable in a running application
+
+ON PASS (all acceptance criteria met, no blockers):
+- Write code review report to code_review/ directory
+- Add note: shark note add --task={{.task_id}} --type=review "Code review approved - see report"
+- Advance: {{template "advance" .}}
+
+ON FAIL (blockers found, spec drift, or missing acceptance criteria):
+- Write code review report with detailed findings and required changes
+- Add note: shark note add --task={{.task_id}} --type=blocker "Code review failed - see report for required changes"
+- Send back to development: shark task update {{.task_id}} --status=ready_for_development
+- Do NOT use changes_requested, in_development, or any invented status. The valid rejection status from code review is ready_for_development.

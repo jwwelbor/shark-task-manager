@@ -1,0 +1,31 @@
+Epic {{.id}} ("{{.title}}") is ACTIVE — execution is in progress.
+{{- if .description}}
+{{.description}}
+{{- end}}
+
+This epic has been decomposed into features. Your job is to find the next actionable feature and drive it forward.
+
+## Steps
+
+1. List all features for this epic:
+   ```bash
+   shark feature list --epic={{.id}} --json
+   ```
+
+2. For each feature (in execution order), check its status:
+   - **completed / cancelled** → skip
+   - **active** → this feature has tasks in flight. Run `/run {feature-key}` to continue it.
+   - **Any other non-terminal status** → this feature needs work. Run `/run {feature-key}` to drive it forward.
+
+3. Process features sequentially by execution order. Once a feature reaches `completed`, move to the next.
+
+4. When ALL features are `completed` or `cancelled`:
+   ```bash
+   shark status advance {{.id}}
+   ```
+
+## Important
+
+- Do NOT re-run features that are already `completed` or `cancelled`
+- If a feature is `blocked`, report it to the user and move to the next unblocked feature
+- If ALL remaining features are `blocked`, report to the user and STOP

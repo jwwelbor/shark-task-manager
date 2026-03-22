@@ -1,0 +1,39 @@
+{{template "_resume_preamble" .}}RESUME epic research for {{.id}}: "{{.title}}".
+
+Check for existing research report at {{.file_path}}. If report exists with all 6 sections complete and exit gate criteria met, advance immediately.
+
+---
+
+Research epic {{.id}}: "{{.title}}".
+{{- if .business_value}}
+BUSINESS VALUE: {{.business_value}}.
+{{- end}}
+
+STRATEGIC RESEARCH -- assess system-wide impact and feasibility against the defined epic PRD.
+
+LOAD: discovery skill (market-research, feasibility-analysis) + research skill (analyze-codebase, find-patterns).
+
+READ:
+All 6 epic PRD files at {{.file_path}} (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md) -- research must be scoped to these defined requirements and boundaries.
+
+Read all sibling epic docs under docs/plan/ to identify overlap and interactions.
+
+Check existing system capabilities in codebase.
+
+PRODUCE: Research report containing:
+(1) Market/competitive landscape relevant to defined requirements
+(2) Feasibility assessment against each requirement area
+(3) System-wide impact -- how this epic interacts with other epics
+(4) Existing capability overlap with defined scope
+(5) Risk assessment with mitigations mapped to specific requirements
+(6) Recommendations
+
+EXIT GATE:
+- All 6 sections complete
+- Research scoped to PRD boundaries
+- No unresolved feasibility blockers
+- Overlap explicitly addressed
+
+---
+## EXIT — REQUIRED
+    {{template "advance" .}}
