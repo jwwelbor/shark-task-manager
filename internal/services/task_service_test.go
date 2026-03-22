@@ -2183,7 +2183,7 @@ func newFeatureServiceForReopenTest(t *testing.T, featureStatus models.FeatureSt
 	}
 
 	wfSvc := workflow.NewService("")
-	svc := NewFeatureService(repo, NewEntityService(wfSvc), nil, nil, nil)
+	svc := NewFeatureService(repo, NewEntityService(wfSvc), featureRepoAsEntityRepo(repo), nil, nil)
 	return svc, &featureUpdated
 }
 
@@ -2432,7 +2432,7 @@ func TestTaskService_CreateTask_CustomAggregationStatus(t *testing.T) {
 			return nil
 		},
 	}
-	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), nil, nil, nil)
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), featureRepoAsEntityRepo(featureRepo), nil, nil)
 	svc.SetFeatureService(featureSvc)
 
 	task, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
@@ -2513,7 +2513,7 @@ func TestTaskService_CreateTask_ReopensCancelledFeature(t *testing.T) {
 			return nil
 		},
 	}
-	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), nil, nil, nil)
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), featureRepoAsEntityRepo(featureRepo), nil, nil)
 	svc.SetFeatureService(featureSvc)
 
 	task, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
@@ -2570,7 +2570,7 @@ func TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature(t *testing.T) {
 	svc := NewTaskService(taskRepo, entitySvc, creator)
 
 	// Wire FeatureService that reads from the same DB so reopen can find the feature
-	featureSvc := NewFeatureService(featureRepo, NewEntityService(wfSvc), nil, nil, epicRepo)
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(wfSvc), NewFeatureRepositoryAdapter(featureRepo), nil, epicRepo)
 	svc.SetFeatureService(featureSvc)
 
 	// Wire history recorder to capture audit trail

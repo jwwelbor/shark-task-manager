@@ -551,8 +551,7 @@ func TestTaskRepository_GetByIDs(t *testing.T) {
 	// Create dedicated epic for this test
 	highPriority := models.PriorityHigh
 	testEpic := &models.Epic{
-		Key:           "E95",
-		Title:         "Test Epic for GetByIDs",
+		BaseEntity:    models.BaseEntity{Key: "E95", Title: "Test Epic for GetByIDs"},
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
@@ -565,10 +564,9 @@ func TestTaskRepository_GetByIDs(t *testing.T) {
 
 	// Create dedicated feature for this test
 	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E95-F17",
-		Title:  "Test Feature for GetByIDs",
-		Status: models.FeatureStatusDraft,
+		BaseEntity: models.BaseEntity{Key: "E95-F17", Title: "Test Feature for GetByIDs"},
+		EpicID:     testEpic.ID,
+		Status:     models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
 	require.NoError(t, err, "Failed to create test feature")
@@ -578,25 +576,22 @@ func TestTaskRepository_GetByIDs(t *testing.T) {
 
 	// Create 3 test tasks
 	task1 := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E95-F17-011",
-		Title:     "Batch Test Task One",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+		BaseEntity: models.BaseEntity{Key: "T-E95-F17-011", Title: "Batch Test Task One"},
+		FeatureID:  testFeature.ID,
+		Status:     models.TaskStatus("todo"),
+		Priority:   5,
 	}
 	task2 := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E95-F17-012",
-		Title:     "Batch Test Task Two",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  3,
+		BaseEntity: models.BaseEntity{Key: "T-E95-F17-012", Title: "Batch Test Task Two"},
+		FeatureID:  testFeature.ID,
+		Status:     models.TaskStatus("in_progress"),
+		Priority:   3,
 	}
 	task3 := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E95-F17-013",
-		Title:     "Batch Test Task Three",
-		Status:    models.TaskStatus("todo"),
-		Priority:  7,
+		BaseEntity: models.BaseEntity{Key: "T-E95-F17-013", Title: "Batch Test Task Three"},
+		FeatureID:  testFeature.ID,
+		Status:     models.TaskStatus("todo"),
+		Priority:   7,
 	}
 
 	for _, task := range []*models.Task{task1, task2, task3} {

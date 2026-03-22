@@ -3384,7 +3384,7 @@ func TestFeatureService_CreateFeature_ReopensTerminalEpic(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, epicLookup)
+	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
 
 	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
 		EpicKey: "E01",
@@ -3430,7 +3430,7 @@ func TestFeatureService_CreateFeature_ReopenRecordsHistory(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, epicLookup)
+	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
 
 	historyRecorder := &mockEntityHistoryRecorder{}
 	svc.SetEntityHistoryRepo(historyRecorder)
@@ -3494,7 +3494,7 @@ func TestFeatureService_CreateFeature_NoReopenNonTerminalEpic(t *testing.T) {
 		},
 	}
 
-	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, epicLookup)
+	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
 
 	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
 		EpicKey: "E01",
@@ -3535,7 +3535,7 @@ func TestFeatureService_CreateFeature_ReopenFailureDoesNotFailCreate(t *testing.
 		},
 	}
 
-	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, epicLookup)
+	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
 
 	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
 		EpicKey: "E01",
@@ -3616,7 +3616,7 @@ func TestFeatureService_CreateFeature_CustomAggregationStatus(t *testing.T) {
 	defer config.ClearWorkflowCache()
 
 	customWf := workflow.NewService(tempDir)
-	svc := NewFeatureService(featureRepo, NewEntityService(customWf), nil, nil, epicLookup)
+	svc := NewFeatureService(featureRepo, NewEntityService(customWf), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
 
 	feature, createErr := svc.CreateFeature(context.Background(), CreateFeatureInput{
 		EpicKey: "E01",

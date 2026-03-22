@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
