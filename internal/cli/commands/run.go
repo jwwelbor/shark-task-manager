@@ -347,7 +347,7 @@ type changeCardTransitionerAdapter struct {
 }
 
 func (a *changeCardTransitionerAdapter) TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
-	card, err := a.svc.SetChangeCardStatus(ctx, key, targetStatus, false)
+	card, err := a.svc.SetChangeCardStatus(ctx, key, targetStatus, opts.Force)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transition change card %s to %s: %w", key, targetStatus, err)
 	}
