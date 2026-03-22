@@ -22,22 +22,23 @@ func TestTaskPlaceholders_AllFields(t *testing.T) {
 	completionNotes := "Done"
 	filesChanged := `["file1.go","file2.go"]`
 
-	task := &models.Task{
-		Key:             "T-E07-F01-001",
-		Title:           "Test Task",
-		Slug:            &slug,
-		Description:     &description,
-		Status:          "todo",
-		AgentType:       &agentType,
-		Priority:        5,
-		FilePath:        &filePath,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F01-001",
+		Title:       "Test Task",
+		Slug:        &slug,
+		Description: &description,
+
+		FilePath: &filePath,
+
+		CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 16, 14, 45, 0, 0, time.UTC)}, Status: "todo",
+		AgentType: &agentType,
+		Priority:  5,
+
 		ExecutionOrder:  &executionOrder,
 		BlockedReason:   &blockedReason,
 		DependsOn:       &dependsOn,
 		CompletionNotes: &completionNotes,
 		FilesChanged:    &filesChanged,
-		CreatedAt:       time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
-		UpdatedAt:       time.Date(2025, 1, 16, 14, 45, 0, 0, time.UTC),
 	}
 
 	m := TaskPlaceholders(task)
@@ -116,13 +117,12 @@ func TestTaskPlaceholders_AllFields(t *testing.T) {
 
 // TestTaskPlaceholders_NilPointers validates nil pointer fields are omitted
 func TestTaskPlaceholders_NilPointers(t *testing.T) {
-	task := &models.Task{
-		Key:       "T-E07-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F01-001",
+		Title: "Test Task",
+
 		CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2025, 1, 16, 14, 45, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 16, 14, 45, 0, 0, time.UTC)}, Status: "todo",
+		Priority: 5,
 	}
 
 	m := TaskPlaceholders(task)
@@ -154,16 +154,17 @@ func TestFeaturePlaceholders_AllFields(t *testing.T) {
 	filePath := "docs/feature.md"
 	executionOrder := 3
 
-	feature := &models.Feature{
-		Key:            "E07-F01",
-		Title:          "Test Feature",
-		Slug:           &slug,
-		Description:    &description,
-		Status:         "active",
-		FilePath:       &filePath,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01",
+		Title:       "Test Feature",
+		Slug:        &slug,
+		Description: &description,
+
+		FilePath: &filePath,
+
+		CreatedAt: time.Date(2025, 1, 10, 9, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 15, 12, 30, 0, 0, time.UTC)}, Status: "active",
+
 		ExecutionOrder: &executionOrder,
-		CreatedAt:      time.Date(2025, 1, 10, 9, 0, 0, 0, time.UTC),
-		UpdatedAt:      time.Date(2025, 1, 15, 12, 30, 0, 0, time.UTC),
 	}
 
 	m := FeaturePlaceholders(feature)
@@ -220,17 +221,16 @@ func TestEpicPlaceholders_AllFields(t *testing.T) {
 	filePath := "docs/epic.md"
 	businessValue := models.PriorityHigh
 
-	epic := &models.Epic{
-		Key:           "E07",
-		Title:         "Test Epic",
-		Slug:          &slug,
-		Description:   &description,
-		Status:        "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title:       "Test Epic",
+		Slug:        &slug,
+		Description: &description,
+
+		FilePath:  &filePath,
+		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 20, 16, 0, 0, 0, time.UTC)}, Status: "active",
 		Priority:      models.PriorityHigh,
 		BusinessValue: &businessValue,
-		FilePath:      &filePath,
-		CreatedAt:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:     time.Date(2025, 1, 20, 16, 0, 0, 0, time.UTC),
 	}
 
 	m := EpicPlaceholders(epic)
@@ -393,11 +393,10 @@ func TestFormatEpicKeysAsCSV_MultipleKeys(t *testing.T) {
 func TestTaskPlaceholdersWithRelated_HappyPath(t *testing.T) {
 	t.Skip("DEPRECATED: This test uses the old context_data approach. Use TestTaskPlaceholdersWithRelated_Refactored_* instead.")
 
-	task := &models.Task{
-		Key:         "T-E07-F29-001",
-		Title:       "Test Task",
-		Status:      "todo",
-		ContextData: ptrString(`{"related_tasks":["E07-F05-001","E10-F05-002"]}`),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-001",
+		Title: "Test Task",
+
+		ContextData: ptrString(`{"related_tasks":["E07-F05-001","E10-F05-002"]}`)}, Status: "todo",
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -425,10 +424,8 @@ func TestTaskPlaceholdersWithRelated_HappyPath(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_NoData tests task placeholders with no data
 func TestTaskPlaceholdersWithRelated_NoData(t *testing.T) {
-	task := &models.Task{
-		Key:    "T-E07-F29-002",
-		Title:  "Empty Task",
-		Status: "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-002",
+		Title: "Empty Task"}, Status: "todo",
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -469,10 +466,8 @@ func TestTaskPlaceholdersWithRelated_NilTask(t *testing.T) {
 
 // TestFeaturePlaceholdersWithRelated_HappyPath tests feature placeholders with docs and features
 func TestFeaturePlaceholdersWithRelated_HappyPath(t *testing.T) {
-	feature := &models.Feature{
-		Key:    "E07-F29",
-		Title:  "Test Feature",
-		Status: "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F29",
+		Title: "Test Feature"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -500,10 +495,8 @@ func TestFeaturePlaceholdersWithRelated_HappyPath(t *testing.T) {
 
 // TestFeaturePlaceholdersWithRelated_NoData tests feature placeholders with no data
 func TestFeaturePlaceholdersWithRelated_NoData(t *testing.T) {
-	feature := &models.Feature{
-		Key:    "E07-F30",
-		Title:  "Empty Feature",
-		Status: "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F30",
+		Title: "Empty Feature"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -544,10 +537,8 @@ func TestFeaturePlaceholdersWithRelated_NilFeature(t *testing.T) {
 
 // TestEpicPlaceholdersWithRelated_HappyPath tests epic placeholders with docs and epics
 func TestEpicPlaceholdersWithRelated_HappyPath(t *testing.T) {
-	epic := &models.Epic{
-		Key:    "E07",
-		Title:  "Test Epic",
-		Status: "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Test Epic"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -575,10 +566,8 @@ func TestEpicPlaceholdersWithRelated_HappyPath(t *testing.T) {
 
 // TestEpicPlaceholdersWithRelated_NoData tests epic placeholders with no data
 func TestEpicPlaceholdersWithRelated_NoData(t *testing.T) {
-	epic := &models.Epic{
-		Key:    "E08",
-		Title:  "Empty Epic",
-		Status: "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E08",
+		Title: "Empty Epic"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -685,10 +674,8 @@ func (m *mockTaskRelationshipRepository) ListRelatedTaskKeys(ctx context.Context
 
 // TestTaskPlaceholdersWithRelated_DocRepoError tests task placeholders when doc repo fails (TC-PH-06)
 func TestTaskPlaceholdersWithRelated_DocRepoError(t *testing.T) {
-	task := &models.Task{
-		Key:    "T-E07-F29-001",
-		Title:  "Test Task",
-		Status: "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-001",
+		Title: "Test Task"}, Status: "todo",
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -715,10 +702,8 @@ func TestTaskPlaceholdersWithRelated_DocRepoError(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_PartialData tests task with docs but no relationships (TC-PH-03)
 func TestTaskPlaceholdersWithRelated_PartialData(t *testing.T) {
-	task := &models.Task{
-		Key:    "T-E07-F29-001",
-		Title:  "Test Task",
-		Status: "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-001",
+		Title: "Test Task"}, Status: "todo",
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -746,10 +731,8 @@ func TestTaskPlaceholdersWithRelated_PartialData(t *testing.T) {
 // TestTaskPlaceholdersWithRelated_MalformedContext tests task when repo query fails (TC-PH-04)
 // NOTE: This test was originally for malformed JSON context, but now tests repository error handling
 func TestTaskPlaceholdersWithRelated_MalformedContext(t *testing.T) {
-	task := &models.Task{
-		Key:    "T-E07-F29-001",
-		Title:  "Test Task",
-		Status: "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-001",
+		Title: "Test Task"}, Status: "todo",
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -778,10 +761,8 @@ func TestTaskPlaceholdersWithRelated_MalformedContext(t *testing.T) {
 
 // TestFeaturePlaceholdersWithRelated_DocRepoError tests feature placeholders when doc repo fails (TC-FPH-04)
 func TestFeaturePlaceholdersWithRelated_DocRepoError(t *testing.T) {
-	feature := &models.Feature{
-		Key:    "E07-F29",
-		Title:  "Test Feature",
-		Status: "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F29",
+		Title: "Test Feature"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -808,10 +789,8 @@ func TestFeaturePlaceholdersWithRelated_DocRepoError(t *testing.T) {
 
 // TestFeaturePlaceholdersWithRelated_FeatureRelRepoError tests feature placeholders when feature rel repo fails (TC-FPH-04)
 func TestFeaturePlaceholdersWithRelated_FeatureRelRepoError(t *testing.T) {
-	feature := &models.Feature{
-		Key:    "E07-F29",
-		Title:  "Test Feature",
-		Status: "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F29",
+		Title: "Test Feature"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -840,10 +819,8 @@ func TestFeaturePlaceholdersWithRelated_FeatureRelRepoError(t *testing.T) {
 
 // TestFeaturePlaceholdersWithRelated_CrossEpic tests feature placeholders with cross-epic relationships (TC-FPH-05)
 func TestFeaturePlaceholdersWithRelated_CrossEpic(t *testing.T) {
-	feature := &models.Feature{
-		Key:    "E07-F29",
-		Title:  "Test Feature",
-		Status: "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F29",
+		Title: "Test Feature"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -868,10 +845,8 @@ func TestFeaturePlaceholdersWithRelated_CrossEpic(t *testing.T) {
 
 // TestEpicPlaceholdersWithRelated_DocRepoError tests epic placeholders when doc repo fails (TC-EPH-04)
 func TestEpicPlaceholdersWithRelated_DocRepoError(t *testing.T) {
-	epic := &models.Epic{
-		Key:    "E07",
-		Title:  "Test Epic",
-		Status: "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Test Epic"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -898,10 +873,8 @@ func TestEpicPlaceholdersWithRelated_DocRepoError(t *testing.T) {
 
 // TestEpicPlaceholdersWithRelated_EpicRelRepoError tests epic placeholders when epic rel repo fails (TC-EPH-04)
 func TestEpicPlaceholdersWithRelated_EpicRelRepoError(t *testing.T) {
-	epic := &models.Epic{
-		Key:    "E07",
-		Title:  "Test Epic",
-		Status: "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Test Epic"}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -955,14 +928,13 @@ func TestFormatDocPathsAsCSV_MixedValidAndEmpty(t *testing.T) {
 // TestTaskPlaceholdersWithRelated_BasicPlaceholders tests that basic placeholders are still present
 func TestTaskPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	slug := "test-task"
-	task := &models.Task{
-		Key:       "T-E07-F29-001",
-		Title:     "Test Task",
-		Status:    "in_progress",
-		Priority:  7,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-001",
+		Title: "Test Task",
+
 		Slug:      &slug,
 		CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)}, Status: "in_progress",
+		Priority: 7,
 	}
 
 	mockRepo := &mockDocumentRepository{
@@ -1007,11 +979,10 @@ func TestTaskPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 // TestFeaturePlaceholdersWithRelated_BasicPlaceholders tests that basic placeholders are still present
 func TestFeaturePlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	slug := "test-feature"
-	feature := &models.Feature{
-		Key:    "E07-F29",
-		Title:  "Test Feature",
-		Status: "active",
-		Slug:   &slug,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F29",
+		Title: "Test Feature",
+
+		Slug: &slug}, Status: "active",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -1053,12 +1024,11 @@ func TestFeaturePlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 // TestEpicPlaceholdersWithRelated_BasicPlaceholders tests that basic placeholders are still present
 func TestEpicPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 	slug := "test-epic"
-	epic := &models.Epic{
-		Key:      "E07",
-		Title:    "Test Epic",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Test Epic",
+
+		Slug: &slug}, Status: "active",
 		Priority: models.PriorityHigh,
-		Slug:     &slug,
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -1103,11 +1073,9 @@ func TestEpicPlaceholdersWithRelated_BasicPlaceholders(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_Refactored_WithRelatedTasks tests task placeholder with repository-fetched tasks
 func TestTaskPlaceholdersWithRelated_Refactored_WithRelatedTasks(t *testing.T) {
-	task := &models.Task{
-		ID:     100,
-		Key:    "E07-F29-001",
-		Title:  "Test Task",
-		Status: "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 100,
+		Key:   "E07-F29-001",
+		Title: "Test Task"}, Status: "todo",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -1135,11 +1103,9 @@ func TestTaskPlaceholdersWithRelated_Refactored_WithRelatedTasks(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_Refactored_NoRelatedTasks tests empty array handling
 func TestTaskPlaceholdersWithRelated_Refactored_NoRelatedTasks(t *testing.T) {
-	task := &models.Task{
-		ID:     200,
-		Key:    "E07-F29-002",
-		Title:  "Test Task",
-		Status: "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 200,
+		Key:   "E07-F29-002",
+		Title: "Test Task"}, Status: "todo",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -1164,11 +1130,9 @@ func TestTaskPlaceholdersWithRelated_Refactored_NoRelatedTasks(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_Refactored_QueryError tests graceful degradation on repo error
 func TestTaskPlaceholdersWithRelated_Refactored_QueryError(t *testing.T) {
-	task := &models.Task{
-		ID:     300,
-		Key:    "E07-F29-003",
-		Title:  "Test Task",
-		Status: "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 300,
+		Key:   "E07-F29-003",
+		Title: "Test Task"}, Status: "todo",
 	}
 
 	mockDocRepo := &mockDocumentRepository{
@@ -1206,10 +1170,8 @@ func ptrString(s string) *string {
 
 // TestTaskPlaceholdersWithRelated_ComplexityTierWithValue tests task with complexity_tier in metadata (API-28)
 func TestTaskPlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
-	task := &models.Task{
-		Key:      "E07-F30-001",
-		Title:    "Test Task",
-		Status:   "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F30-001",
+		Title: "Test Task"}, Status: "todo",
 		Metadata: map[string]interface{}{"complexity_tier": "STANDARD"},
 	}
 
@@ -1239,10 +1201,8 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_ComplexityTierMissing tests task without complexity_tier (API-29)
 func TestTaskPlaceholdersWithRelated_ComplexityTierMissing(t *testing.T) {
-	task := &models.Task{
-		Key:      "E07-F30-002",
-		Title:    "Task without tier",
-		Status:   "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F30-002",
+		Title: "Task without tier"}, Status: "todo",
 		Metadata: map[string]interface{}{}, // Empty metadata
 	}
 
@@ -1265,10 +1225,8 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierMissing(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_ComplexityTierNilMetadata tests task with nil metadata
 func TestTaskPlaceholdersWithRelated_ComplexityTierNilMetadata(t *testing.T) {
-	task := &models.Task{
-		Key:      "E07-F30-003",
-		Title:    "Task with nil metadata",
-		Status:   "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F30-003",
+		Title: "Task with nil metadata"}, Status: "todo",
 		Metadata: nil,
 	}
 
@@ -1291,10 +1249,8 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierNilMetadata(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_ComplexityTierSimple tests task with SIMPLE tier
 func TestTaskPlaceholdersWithRelated_ComplexityTierSimple(t *testing.T) {
-	task := &models.Task{
-		Key:      "E07-F30-004",
-		Title:    "Simple task",
-		Status:   "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F30-004",
+		Title: "Simple task"}, Status: "todo",
 		Metadata: map[string]interface{}{"complexity_tier": "SIMPLE"},
 	}
 
@@ -1316,10 +1272,8 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierSimple(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_ComplexityTierComplex tests task with COMPLEX tier
 func TestTaskPlaceholdersWithRelated_ComplexityTierComplex(t *testing.T) {
-	task := &models.Task{
-		Key:      "E07-F30-005",
-		Title:    "Complex task",
-		Status:   "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F30-005",
+		Title: "Complex task"}, Status: "todo",
 		Metadata: map[string]interface{}{"complexity_tier": "COMPLEX"},
 	}
 
@@ -1341,10 +1295,8 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierComplex(t *testing.T) {
 
 // TestTaskPlaceholdersWithRelated_ComplexityTierInvalidType tests task with non-string complexity_tier
 func TestTaskPlaceholdersWithRelated_ComplexityTierInvalidType(t *testing.T) {
-	task := &models.Task{
-		Key:      "E07-F30-006",
-		Title:    "Task with invalid tier type",
-		Status:   "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F30-006",
+		Title: "Task with invalid tier type"}, Status: "todo",
 		Metadata: map[string]interface{}{"complexity_tier": 123}, // Integer instead of string
 	}
 
@@ -1371,10 +1323,8 @@ func TestTaskPlaceholdersWithRelated_ComplexityTierInvalidType(t *testing.T) {
 
 // TestFeaturePlaceholdersWithRelated_ComplexityTierWithValue tests feature with complexity_tier (API-30)
 func TestFeaturePlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
-	feature := &models.Feature{
-		Key:      "E07-F30",
-		Title:    "Template engine",
-		Status:   "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F30",
+		Title: "Template engine"}, Status: "active",
 		Metadata: map[string]interface{}{"complexity_tier": "STANDARD"},
 	}
 
@@ -1401,10 +1351,8 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierWithValue(t *testing.T) {
 
 // TestFeaturePlaceholdersWithRelated_ComplexityTierMissing tests feature without complexity_tier
 func TestFeaturePlaceholdersWithRelated_ComplexityTierMissing(t *testing.T) {
-	feature := &models.Feature{
-		Key:      "E07-F31",
-		Title:    "Feature without tier",
-		Status:   "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F31",
+		Title: "Feature without tier"}, Status: "active",
 		Metadata: map[string]interface{}{},
 	}
 
@@ -1426,10 +1374,8 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierMissing(t *testing.T) {
 
 // TestFeaturePlaceholdersWithRelated_ComplexityTierNilMetadata tests feature with nil metadata
 func TestFeaturePlaceholdersWithRelated_ComplexityTierNilMetadata(t *testing.T) {
-	feature := &models.Feature{
-		Key:      "E07-F32",
-		Title:    "Feature with nil metadata",
-		Status:   "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F32",
+		Title: "Feature with nil metadata"}, Status: "active",
 		Metadata: nil,
 	}
 
@@ -1451,10 +1397,8 @@ func TestFeaturePlaceholdersWithRelated_ComplexityTierNilMetadata(t *testing.T) 
 
 // TestFeaturePlaceholdersWithRelated_ComplexityTierComplex tests feature with COMPLEX tier
 func TestFeaturePlaceholdersWithRelated_ComplexityTierComplex(t *testing.T) {
-	feature := &models.Feature{
-		Key:      "E07-F33",
-		Title:    "Complex feature",
-		Status:   "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F33",
+		Title: "Complex feature"}, Status: "active",
 		Metadata: map[string]interface{}{"complexity_tier": "COMPLEX"},
 	}
 
@@ -1538,13 +1482,12 @@ func TestParseFeatureKeyFromTaskKey(t *testing.T) {
 
 // TestTaskPlaceholders_CanonicalKeys verifies new canonical keys and absence of removed keys
 func TestTaskPlaceholders_CanonicalKeys(t *testing.T) {
-	task := &models.Task{
-		Key:       "T-E07-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F01-001",
+		Title: "Test Task",
+
 		CreatedAt: time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2025, 1, 16, 14, 45, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 16, 14, 45, 0, 0, time.UTC)}, Status: "todo",
+		Priority: 5,
 	}
 
 	m := TaskPlaceholders(task)
@@ -1578,13 +1521,12 @@ func TestTaskPlaceholders_CanonicalKeys(t *testing.T) {
 
 // TestTaskPlaceholders_ShortKeyFormat verifies parsing works with short task key format
 func TestTaskPlaceholders_ShortKeyFormat(t *testing.T) {
-	task := &models.Task{
-		Key:       "E07-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001",
+		Title: "Test Task",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "todo",
+		Priority: 5,
 	}
 
 	m := TaskPlaceholders(task)
@@ -1599,12 +1541,11 @@ func TestTaskPlaceholders_ShortKeyFormat(t *testing.T) {
 
 // TestFeaturePlaceholders_CanonicalKeys verifies new canonical keys and absence of removed keys
 func TestFeaturePlaceholders_CanonicalKeys(t *testing.T) {
-	feature := &models.Feature{
-		Key:       "E07-F01",
-		Title:     "Test Feature",
-		Status:    "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01",
+		Title: "Test Feature",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "active",
 	}
 
 	m := FeaturePlaceholders(feature)
@@ -1631,13 +1572,12 @@ func TestFeaturePlaceholders_CanonicalKeys(t *testing.T) {
 
 // TestEpicPlaceholders_CanonicalKeys verifies new canonical keys and backward-compatible aliases
 func TestEpicPlaceholders_CanonicalKeys(t *testing.T) {
-	epic := &models.Epic{
-		Key:       "E07",
-		Title:     "Test Epic",
-		Status:    "active",
-		Priority:  models.PriorityHigh,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "Test Epic",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "active",
+		Priority: models.PriorityHigh,
 	}
 
 	m := EpicPlaceholders(epic)
@@ -1664,18 +1604,19 @@ func TestBugPlaceholders_ExpandedFields(t *testing.T) {
 	linkedType := "task"
 	linkedKey := "E07-F01-001"
 
-	bug := &models.Bug{
-		Key:              "B001",
-		Title:            "Test Bug",
-		Status:           "open",
-		Severity:         models.BugSeverityHigh,
-		Slug:             &slug,
-		Description:      &description,
-		FilePath:         &filePath,
+	bug := &models.Bug{BaseEntity: models.BaseEntity{Key: "B001",
+		Title: "Test Bug",
+
+		Slug:        &slug,
+		Description: &description,
+		FilePath:    &filePath,
+
+		CreatedAt: time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 3, 2, 11, 0, 0, 0, time.UTC)}, Status: "open",
+		Severity: models.BugSeverityHigh,
+
 		LinkedEntityType: &linkedType,
 		LinkedEntityKey:  &linkedKey,
-		CreatedAt:        time.Date(2025, 3, 1, 10, 0, 0, 0, time.UTC),
-		UpdatedAt:        time.Date(2025, 3, 2, 11, 0, 0, 0, time.UTC),
 	}
 
 	m := BugPlaceholders(bug)
@@ -1704,13 +1645,12 @@ func TestBugPlaceholders_ExpandedFields(t *testing.T) {
 
 // TestBugPlaceholders_NilOptionalFields verifies nil pointer fields are omitted
 func TestBugPlaceholders_NilOptionalFields(t *testing.T) {
-	bug := &models.Bug{
-		Key:       "B002",
-		Title:     "Minimal Bug",
-		Status:    "open",
-		Severity:  models.BugSeverityLow,
+	bug := &models.Bug{BaseEntity: models.BaseEntity{Key: "B002",
+		Title: "Minimal Bug",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "open",
+		Severity: models.BugSeverityLow,
 	}
 
 	m := BugPlaceholders(bug)
@@ -1737,21 +1677,22 @@ func TestChangeCardPlaceholders_ExpandedFields(t *testing.T) {
 	impactAnalysis := "Low risk"
 	rollbackPlan := "Revert commit"
 
-	card := &models.ChangeCard{
-		Key:            "CC-001",
-		Title:          "Test Change",
-		Status:         "draft",
-		Priority:       3,
-		Slug:           ptrString("test-change"),
-		FilePath:       ptrString("docs/change.md"),
-		Description:    &description,
+	card := &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001",
+		Title: "Test Change",
+
+		Slug:        ptrString("test-change"),
+		FilePath:    ptrString("docs/change.md"),
+		Description: &description,
+
+		CreatedAt: time.Date(2025, 3, 5, 9, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 3, 6, 10, 0, 0, 0, time.UTC)}, Status: "draft",
+		Priority: 3,
+
 		RequestedBy:    &requestedBy,
 		AssignedTo:     &assignedTo,
 		Justification:  &justification,
 		ImpactAnalysis: &impactAnalysis,
 		RollbackPlan:   &rollbackPlan,
-		CreatedAt:      time.Date(2025, 3, 5, 9, 0, 0, 0, time.UTC),
-		UpdatedAt:      time.Date(2025, 3, 6, 10, 0, 0, 0, time.UTC),
 	}
 
 	m := ChangeCardPlaceholders(card)
@@ -1783,15 +1724,14 @@ func TestChangeCardPlaceholders_ExpandedFields(t *testing.T) {
 
 // TestChangeCardPlaceholders_NilOptionalFields verifies nil pointer fields are omitted
 func TestChangeCardPlaceholders_NilOptionalFields(t *testing.T) {
-	card := &models.ChangeCard{
-		Key:       "CC-002",
-		Title:     "Minimal Change",
-		Status:    "draft",
-		Priority:  5,
+	card := &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-002",
+		Title: "Minimal Change",
+
 		Slug:      ptrString("minimal-change"),
 		FilePath:  ptrString("docs/change2.md"),
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "draft",
+		Priority: 5,
 	}
 
 	m := ChangeCardPlaceholders(card)
@@ -1948,14 +1888,13 @@ func TestTaskPlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
 	ctx := context.Background()
 
 	contextData := `{"metadata": {"complexity_tier": "STANDARD", "custom_field": "value123", "estimated_hours": 8, "is_critical": true}}`
-	task := &models.Task{
-		Key:         "T-E07-F30-001",
-		Title:       "Test Task",
-		Status:      "in_development",
-		Priority:    5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F30-001",
+		Title: "Test Task",
+
 		ContextData: &contextData,
 		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		UpdatedAt:   time.Now()}, Status: "in_development",
+		Priority: 5,
 	}
 
 	mockDocRepo := &mockDocumentRepository{}
@@ -1987,13 +1926,12 @@ func TestTaskPlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
 func TestTaskPlaceholdersWithRelated_NilContextData(t *testing.T) {
 	ctx := context.Background()
 
-	task := &models.Task{
-		Key:       "T-E07-F30-001",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F30-001",
+		Title: "Test Task",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "todo",
+		Priority: 5,
 	}
 
 	mockDocRepo := &mockDocumentRepository{}
@@ -2016,14 +1954,13 @@ func TestFeaturePlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
 	ctx := context.Background()
 
 	contextData := `{"metadata": {"complexity_tier": "COMPLEX", "owner": "team-alpha"}}`
-	feature := &models.Feature{
-		ID:          1,
-		Key:         "E07-F30",
-		Title:       "Template Engine",
-		Status:      "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "E07-F30",
+		Title: "Template Engine",
+
 		ContextData: &contextData,
 		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		UpdatedAt:   time.Now()}, Status: "active",
 	}
 
 	// mockDocumentRepository implements ListForFeature via the same mock
@@ -2045,15 +1982,14 @@ func TestEpicPlaceholdersWithRelated_ContextDataMetadata(t *testing.T) {
 	ctx := context.Background()
 
 	contextData := `{"metadata": {"phase": "development", "budget": 50000}}`
-	epic := &models.Epic{
-		ID:          1,
-		Key:         "E07",
-		Title:       "Enhancements",
-		Status:      "active",
-		Priority:    models.PriorityHigh,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "E07",
+		Title: "Enhancements",
+
 		ContextData: &contextData,
 		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		UpdatedAt:   time.Now()}, Status: "active",
+		Priority: models.PriorityHigh,
 	}
 
 	// mockDocumentRepository implements ListForEpic via the same mock
@@ -2076,14 +2012,13 @@ func TestContextDataMetadata_BackwardCompatFallback(t *testing.T) {
 	ctx := context.Background()
 
 	// Task with entity Metadata but no ContextData
-	task := &models.Task{
-		Key:       "T-E07-F30-001",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  5,
-		Metadata:  map[string]interface{}{"complexity_tier": "SIMPLE"},
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F30-001",
+		Title: "Test Task",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "todo",
+		Priority: 5,
+		Metadata: map[string]interface{}{"complexity_tier": "SIMPLE"},
 	}
 
 	mockDocRepo := &mockDocumentRepository{}
@@ -2103,15 +2038,15 @@ func TestContextDataMetadata_ContextDataTakesPrecedence(t *testing.T) {
 	ctx := context.Background()
 
 	contextData := `{"metadata": {"complexity_tier": "COMPLEX"}}`
-	task := &models.Task{
-		Key:         "T-E07-F30-001",
-		Title:       "Test Task",
-		Status:      "todo",
-		Priority:    5,
-		Metadata:    map[string]interface{}{"complexity_tier": "SIMPLE"}, // Entity metadata says SIMPLE
-		ContextData: &contextData,                                        // ContextData says COMPLEX
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F30-001",
+		Title: "Test Task",
+
+		// Entity metadata says SIMPLE
+		ContextData: &contextData, // ContextData says COMPLEX
 		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		UpdatedAt:   time.Now()}, Status: "todo",
+		Priority: 5,
+		Metadata: map[string]interface{}{"complexity_tier": "SIMPLE"},
 	}
 
 	mockDocRepo := &mockDocumentRepository{}
@@ -2373,13 +2308,12 @@ func TestApplyEnrichmentData_PartialData(t *testing.T) {
 // TestTaskPlaceholdersWithRelated_NilEnrichment verifies backward compatibility
 func TestTaskPlaceholdersWithRelated_NilEnrichment_BackwardCompat(t *testing.T) {
 	ctx := context.Background()
-	task := &models.Task{
-		Key:       "T-E07-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F01-001",
+		Title: "Test Task",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "todo",
+		Priority: 5,
 	}
 	mockDocRepo := &mockDocumentRepository{}
 	mockTaskRelRepo := &mockTaskRelationshipRepository{}
@@ -2406,13 +2340,12 @@ func TestTaskPlaceholdersWithRelated_NilEnrichment_BackwardCompat(t *testing.T) 
 // TestTaskPlaceholdersWithRelated_WithEnrichment verifies enrichment integration
 func TestTaskPlaceholdersWithRelated_WithEnrichment(t *testing.T) {
 	ctx := context.Background()
-	task := &models.Task{
-		Key:       "T-E07-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F01-001",
+		Title: "Test Task",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "todo",
+		Priority: 5,
 	}
 	mockDocRepo := &mockDocumentRepository{}
 	mockTaskRelRepo := &mockTaskRelationshipRepository{}
@@ -2438,5 +2371,169 @@ func TestTaskPlaceholdersWithRelated_WithEnrichment(t *testing.T) {
 	}
 	if result["sibling_total"] != "10" {
 		t.Errorf("sibling_total = %q, want %q", result["sibling_total"], "10")
+	}
+}
+
+// TestEntityPlaceholders_WithTask verifies EntityPlaceholders extracts shared fields from a Task.
+func TestEntityPlaceholders_WithTask(t *testing.T) {
+	slug := "my-task"
+	desc := "A description"
+	fp := "docs/task.md"
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 42,
+		Key:         "T-E07-F01-001",
+		Title:       "My Task",
+		Slug:        &slug,
+		Description: &desc,
+
+		FilePath:  &fp,
+		CreatedAt: time.Date(2025, 6, 1, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 6, 2, 12, 0, 0, 0, time.UTC)}, Status: "in_progress",
+	}
+
+	m := EntityPlaceholders(task)
+
+	checks := map[string]string{
+		"id":          "T-E07-F01-001",
+		"key":         "T-E07-F01-001",
+		"entity_type": "task",
+		"title":       "My Task",
+		"status":      "in_progress",
+		"slug":        "my-task",
+		"description": "A description",
+		"file_path":   "docs/task.md",
+		"created_at":  "2025-06-01T10:00:00Z",
+		"updated_at":  "2025-06-02T12:00:00Z",
+	}
+	for k, want := range checks {
+		if got := m[k]; got != want {
+			t.Errorf("EntityPlaceholders(task)[%q] = %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestEntityPlaceholders_WithEpic verifies EntityPlaceholders extracts shared fields from an Epic.
+func TestEntityPlaceholders_WithEpic(t *testing.T) {
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "E07",
+		Title: "My Epic",
+
+		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)}, Status: "active",
+	}
+
+	m := EntityPlaceholders(epic)
+
+	if m["entity_type"] != "epic" {
+		t.Errorf("entity_type = %q, want %q", m["entity_type"], "epic")
+	}
+	if m["key"] != "E07" {
+		t.Errorf("key = %q, want %q", m["key"], "E07")
+	}
+	if m["title"] != "My Epic" {
+		t.Errorf("title = %q, want %q", m["title"], "My Epic")
+	}
+	// slug should not be present when nil
+	if _, ok := m["slug"]; ok {
+		t.Error("slug should not be present when nil")
+	}
+	// description should not be present when nil
+	if _, ok := m["description"]; ok {
+		t.Error("description should not be present when nil")
+	}
+	// file_path should not be present when nil
+	if _, ok := m["file_path"]; ok {
+		t.Error("file_path should not be present when nil")
+	}
+}
+
+// TestEntityPlaceholders_WithBug verifies EntityPlaceholders extracts shared fields from a Bug.
+func TestEntityPlaceholders_WithBug(t *testing.T) {
+	slug := "crash-on-login"
+	bug := &models.Bug{BaseEntity: models.BaseEntity{ID: 10,
+		Key:   "B001",
+		Title: "Crash on Login",
+		Slug:  &slug,
+
+		CreatedAt: time.Date(2025, 3, 15, 8, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 3, 15, 9, 0, 0, 0, time.UTC)}, Status: "open",
+		Severity: "critical",
+	}
+
+	m := EntityPlaceholders(bug)
+
+	if m["entity_type"] != "bug" {
+		t.Errorf("entity_type = %q, want %q", m["entity_type"], "bug")
+	}
+	if m["key"] != "B001" {
+		t.Errorf("key = %q, want %q", m["key"], "B001")
+	}
+	if m["slug"] != "crash-on-login" {
+		t.Errorf("slug = %q, want %q", m["slug"], "crash-on-login")
+	}
+	// Bug-specific fields like severity should NOT be in base placeholders
+	if _, ok := m["severity"]; ok {
+		t.Error("severity should not be in base EntityPlaceholders")
+	}
+}
+
+// TestEntityPlaceholders_WithChangeCard verifies EntityPlaceholders with a ChangeCard.
+func TestEntityPlaceholders_WithChangeCard(t *testing.T) {
+	card := &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 5,
+		Key:   "CC-001",
+		Title: "Migrate DB",
+
+		CreatedAt: time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 4, 2, 0, 0, 0, 0, time.UTC)}, Status: "draft",
+		Priority: 3,
+	}
+
+	m := EntityPlaceholders(card)
+
+	if m["entity_type"] != "change" {
+		t.Errorf("entity_type = %q, want %q", m["entity_type"], "change")
+	}
+	if m["key"] != "CC-001" {
+		t.Errorf("key = %q, want %q", m["key"], "CC-001")
+	}
+	// priority should NOT be in base (it's entity-specific formatting)
+	if _, ok := m["priority"]; ok {
+		t.Error("priority should not be in base EntityPlaceholders")
+	}
+}
+
+// TestEntityPlaceholders_NilEntity verifies EntityPlaceholders returns empty map for nil.
+func TestEntityPlaceholders_NilEntity(t *testing.T) {
+	m := EntityPlaceholders(nil)
+	if len(m) != 0 {
+		t.Errorf("EntityPlaceholders(nil) returned %d entries, want 0", len(m))
+	}
+}
+
+// TestEntityPlaceholders_OptionalFieldsOmittedWhenEmpty verifies that slug, description,
+// and file_path are omitted when the Entity returns empty strings for them.
+func TestEntityPlaceholders_OptionalFieldsOmittedWhenEmpty(t *testing.T) {
+	// Feature with no optional pointer fields set
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 2,
+		Key:   "E01-F01",
+		Title: "Feature",
+
+		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)}, Status: "todo",
+	}
+
+	m := EntityPlaceholders(feature)
+
+	// These should NOT be present since the pointer fields are nil
+	for _, key := range []string{"slug", "description", "file_path"} {
+		if _, ok := m[key]; ok {
+			t.Errorf("%q should not be present when the underlying field is nil", key)
+		}
+	}
+
+	// These should always be present
+	for _, key := range []string{"id", "key", "entity_type", "title", "status", "created_at", "updated_at"} {
+		if _, ok := m[key]; !ok {
+			t.Errorf("%q should always be present in EntityPlaceholders output", key)
+		}
 	}
 }

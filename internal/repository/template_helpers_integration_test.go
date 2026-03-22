@@ -164,11 +164,9 @@ func TestIntegrationTemplateTaskWithRelatedDocs(t *testing.T) {
 
 	docRepo := &testDocumentRepository{db: database}
 	taskRelRepo := &testTaskRelationshipRepository{db: database}
-	task := &models.Task{
-		ID:        taskID,
-		Key:       "TMPL-E01-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: taskID,
+		Key:   "TMPL-E01-F01-001",
+		Title: "Test Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -215,11 +213,9 @@ func TestIntegrationTemplateTaskWithRelatedTasks(t *testing.T) {
 
 	docRepo := &testDocumentRepository{db: database}
 	taskRelRepo := &testTaskRelationshipRepository{db: database}
-	task := &models.Task{
-		ID:        taskID,
-		Key:       "TMPL-E02-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: taskID,
+		Key:   "TMPL-E02-F01-001",
+		Title: "Test Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -249,11 +245,9 @@ func TestIntegrationTemplateLargeDocumentList(t *testing.T) {
 
 	docRepo := &testDocumentRepository{db: database}
 	taskRelRepo := &testTaskRelationshipRepository{db: database}
-	task := &models.Task{
-		ID:        taskID,
-		Key:       "TMPL-E03-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: taskID,
+		Key:   "TMPL-E03-F01-001",
+		Title: "Test Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -290,11 +284,9 @@ func TestIntegrationTemplateDynamicDocumentLookup(t *testing.T) {
 
 	docRepo := &testDocumentRepository{db: database}
 	taskRelRepo := &testTaskRelationshipRepository{db: database}
-	task := &models.Task{
-		ID:        taskID,
-		Key:       "TMPL-E04-F01-001",
-		Title:     "Test Task",
-		Status:    "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: taskID,
+		Key:   "TMPL-E04-F01-001",
+		Title: "Test Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -337,13 +329,12 @@ func TestIntegrationTemplateFeaturePlaceholdersWithDocs(t *testing.T) {
 
 	docRepo := &testDocumentRepository{db: database}
 	mockRelRepo := &mockFeatureRelationshipRepository{features: []string{}}
-	feature := &models.Feature{
-		ID:        featureID,
-		Key:       "TMPL-E05-F01",
-		Title:     "Test Feature",
-		Status:    models.FeatureStatusActive,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: featureID,
+		Key:   "TMPL-E05-F01",
+		Title: "Test Feature",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: models.FeatureStatusActive,
 	}
 
 	// Execute
@@ -371,14 +362,13 @@ func TestIntegrationTemplateEpicPlaceholdersWithDocs(t *testing.T) {
 
 	docRepo := &testDocumentRepository{db: database}
 	mockRelRepo := &mockEpicRelationshipRepository{epics: []string{}}
-	epic := &models.Epic{
-		ID:        epicID,
-		Key:       "TMPL-E06",
-		Title:     "Test Epic",
-		Status:    models.EpicStatusActive,
-		Priority:  models.PriorityHigh,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: epicID,
+		Key:   "TMPL-E06",
+		Title: "Test Epic",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: models.EpicStatusActive,
+		Priority: models.PriorityHigh,
 	}
 
 	// Execute

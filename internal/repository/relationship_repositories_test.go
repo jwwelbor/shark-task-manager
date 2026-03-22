@@ -25,24 +25,24 @@ func TestFeatureRelationshipRepository_Create(t *testing.T) {
 
 	// Create additional test features
 	desc1 := "Test feature for relationships"
-	feature1 := &models.Feature{
-		EpicID:      epicID,
-		Key:         "E99-F97",
-		Title:       "Test Feature 1",
-		Status:      "todo",
-		Description: &desc1,
+	feature1 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F97",
+		Title: "Test Feature 1",
+
+		Description: &desc1}, EpicID: epicID,
+
+		Status: "todo",
 	}
 	if err := featureRepo.Create(ctx, feature1); err != nil {
 		t.Fatalf("Failed to create test feature 1: %v", err)
 	}
 
 	desc2 := "Related test feature"
-	feature2 := &models.Feature{
-		EpicID:      epicID,
-		Key:         "E99-F98",
-		Title:       "Test Feature 2",
-		Status:      "todo",
-		Description: &desc2,
+	feature2 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F98",
+		Title: "Test Feature 2",
+
+		Description: &desc2}, EpicID: epicID,
+
+		Status: "todo",
 	}
 	if err := featureRepo.Create(ctx, feature2); err != nil {
 		t.Fatalf("Failed to create test feature 2: %v", err)
@@ -101,12 +101,12 @@ func TestFeatureRelationshipRepository_ListRelatedFeatures(t *testing.T) {
 		desc := "Test feature for relationships"
 		fnum := 91 + i // F91, F92, F93
 		fkey := "E99-F" + string(rune(48+(fnum/10))) + string(rune(48+(fnum%10)))
-		features[i] = &models.Feature{
-			EpicID:      epicID,
-			Key:         fkey,
-			Title:       "Test Feature " + string(rune(49+i)),
-			Status:      "todo",
-			Description: &desc,
+		features[i] = &models.Feature{BaseEntity: models.BaseEntity{Key: fkey,
+			Title: "Test Feature " + string(rune(49+i)),
+
+			Description: &desc}, EpicID: epicID,
+
+			Status: "todo",
 		}
 		if err := featureRepo.Create(ctx, features[i]); err != nil {
 			t.Fatalf("Failed to create test feature: %v", err)
@@ -179,20 +179,18 @@ func TestFeatureRelationshipRepository_GetRelatedFeatureKeys(t *testing.T) {
 	epicID, _ := test.SeedTestData()
 
 	// Create test features with specific keys for CSV format testing
-	feature1 := &models.Feature{
-		EpicID: epicID,
-		Key:    "E99-F95",
-		Title:  "Auth Feature",
+	feature1 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F95",
+		Title: "Auth Feature"}, EpicID: epicID,
+
 		Status: "todo",
 	}
 	if err := featureRepo.Create(ctx, feature1); err != nil {
 		t.Fatalf("Failed to create feature1: %v", err)
 	}
 
-	feature2 := &models.Feature{
-		EpicID: epicID,
-		Key:    "E99-F96",
-		Title:  "API Feature",
+	feature2 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F96",
+		Title: "API Feature"}, EpicID: epicID,
+
 		Status: "todo",
 	}
 	if err := featureRepo.Create(ctx, feature2); err != nil {
@@ -241,10 +239,9 @@ func TestFeatureRelationshipRepository_NoRelatedFeatures(t *testing.T) {
 	epicID, _ := test.SeedTestData()
 
 	// Create test feature with no relationships
-	feature := &models.Feature{
-		EpicID: epicID,
-		Key:    "E99-F94",
-		Title:  "Isolated Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F94",
+		Title: "Isolated Feature"}, EpicID: epicID,
+
 		Status: "todo",
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -290,24 +287,22 @@ func TestEpicRelationshipRepository_Create(t *testing.T) {
 
 	// Create test epics
 	desc1 := "Test epic for relationships"
-	epic1 := &models.Epic{
-		Key:         "E98",
-		Title:       "Test Epic 1",
-		Status:      "todo",
-		Priority:    models.PriorityMedium,
-		Description: &desc1,
+	epic1 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic 1",
+
+		Description: &desc1}, Status: "todo",
+		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic1); err != nil {
 		t.Fatalf("Failed to create epic1: %v", err)
 	}
 
 	desc2 := "Related test epic"
-	epic2 := &models.Epic{
-		Key:         "E97",
-		Title:       "Test Epic 2",
-		Status:      "todo",
-		Priority:    models.PriorityMedium,
-		Description: &desc2,
+	epic2 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Test Epic 2",
+
+		Description: &desc2}, Status: "todo",
+		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic2); err != nil {
 		t.Fatalf("Failed to create epic2: %v", err)
@@ -361,12 +356,11 @@ func TestEpicRelationshipRepository_ListRelatedEpics(t *testing.T) {
 	epics := make([]*models.Epic, 3)
 	for i := 0; i < 3; i++ {
 		desc := "Test epic for relationships"
-		epics[i] = &models.Epic{
-			Key:         "E9" + string(rune(48+i)), // E90, E91, E92
-			Title:       "Test Epic " + string(rune(49+i)),
-			Status:      "todo",
-			Priority:    models.PriorityMedium,
-			Description: &desc,
+		epics[i] = &models.Epic{BaseEntity: models.BaseEntity{Key: "E9" + string(rune(48+i)), // E90, E91, E92
+			Title: "Test Epic " + string(rune(49+i)),
+
+			Description: &desc}, Status: "todo",
+			Priority: models.PriorityMedium,
 		}
 		if err := epicRepo.Create(ctx, epics[i]); err != nil {
 			t.Fatalf("Failed to create test epic: %v", err)
@@ -436,20 +430,16 @@ func TestEpicRelationshipRepository_GetRelatedEpicKeys(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key IN ('E98', 'E97', 'E96', 'E95', 'E94', 'E93', 'E92', 'E91', 'E90')")
 
 	// Create test epics with specific keys for CSV format testing
-	epic1 := &models.Epic{
-		Key:      "E96",
-		Title:    "Auth Epic",
-		Status:   "todo",
+	epic1 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96",
+		Title: "Auth Epic"}, Status: "todo",
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic1); err != nil {
 		t.Fatalf("Failed to create epic1: %v", err)
 	}
 
-	epic2 := &models.Epic{
-		Key:      "E95",
-		Title:    "API Epic",
-		Status:   "todo",
+	epic2 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E95",
+		Title: "API Epic"}, Status: "todo",
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic2); err != nil {
@@ -495,10 +485,8 @@ func TestEpicRelationshipRepository_NoRelatedEpics(t *testing.T) {
 	relRepo := NewEpicRelationshipRepository(db)
 
 	// Create test epic with no relationships
-	epic := &models.Epic{
-		Key:      "E97",
-		Title:    "Isolated Epic",
-		Status:   "todo",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Isolated Epic"}, Status: "todo",
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -543,20 +531,16 @@ func TestFeatureRelationshipRepository_CrossEpicRelationships(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM feature_relationships WHERE from_feature_id > 0")
 
 	// Create two epics
-	epic1 := &models.Epic{
-		Key:      "E98",
-		Title:    "Epic 1",
-		Status:   "todo",
+	epic1 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Epic 1"}, Status: "todo",
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic1); err != nil {
 		t.Fatalf("Failed to create epic1: %v", err)
 	}
 
-	epic2 := &models.Epic{
-		Key:      "E94",
-		Title:    "Epic 2",
-		Status:   "todo",
+	epic2 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E94",
+		Title: "Epic 2"}, Status: "todo",
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic2); err != nil {
@@ -564,20 +548,18 @@ func TestFeatureRelationshipRepository_CrossEpicRelationships(t *testing.T) {
 	}
 
 	// Create features in different epics
-	feature1 := &models.Feature{
-		EpicID: epic1.ID,
-		Key:    "E99-F95",
-		Title:  "Feature in Epic 1",
+	feature1 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F95",
+		Title: "Feature in Epic 1"}, EpicID: epic1.ID,
+
 		Status: "todo",
 	}
 	if err := featureRepo.Create(ctx, feature1); err != nil {
 		t.Fatalf("Failed to create feature1: %v", err)
 	}
 
-	feature2 := &models.Feature{
-		EpicID: epic2.ID,
-		Key:    "E94-F05",
-		Title:  "Feature in Epic 2",
+	feature2 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E94-F05",
+		Title: "Feature in Epic 2"}, EpicID: epic2.ID,
+
 		Status: "todo",
 	}
 	if err := featureRepo.Create(ctx, feature2); err != nil {
@@ -701,10 +683,9 @@ func BenchmarkListRelatedFeatures(b *testing.B) {
 	epicID, _ := test.SeedTestData()
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID: epicID,
-		Key:    "BENCH-F01",
-		Title:  "Benchmark Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "BENCH-F01",
+		Title: "Benchmark Feature"}, EpicID: epicID,
+
 		Status: "todo",
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -713,10 +694,9 @@ func BenchmarkListRelatedFeatures(b *testing.B) {
 
 	// Create 10 related features
 	for i := 0; i < 10; i++ {
-		relFeature := &models.Feature{
-			EpicID: epicID,
-			Key:    "BENCH-REL-" + string(rune(49+i)),
-			Title:  "Related Feature",
+		relFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "BENCH-REL-" + string(rune(49+i)),
+			Title: "Related Feature"}, EpicID: epicID,
+
 			Status: "todo",
 		}
 		if err := featureRepo.Create(ctx, relFeature); err != nil {
@@ -755,10 +735,8 @@ func BenchmarkListRelatedEpics(b *testing.B) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epic_relationships WHERE from_epic_id > 0")
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "BENCH-E01",
-		Title:    "Benchmark Epic",
-		Status:   "todo",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "BENCH-E01",
+		Title: "Benchmark Epic"}, Status: "todo",
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -767,10 +745,8 @@ func BenchmarkListRelatedEpics(b *testing.B) {
 
 	// Create 10 related epics
 	for i := 0; i < 10; i++ {
-		relEpic := &models.Epic{
-			Key:      "BENCH-REL-" + string(rune(49+i)),
-			Title:    "Related Epic",
-			Status:   "todo",
+		relEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "BENCH-REL-" + string(rune(49+i)),
+			Title: "Related Epic"}, Status: "todo",
 			Priority: models.PriorityMedium,
 		}
 		if err := epicRepo.Create(ctx, relEpic); err != nil {

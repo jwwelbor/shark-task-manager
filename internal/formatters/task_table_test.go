@@ -58,8 +58,10 @@ func TestFormatTaskTable_SingleTask(t *testing.T) {
 
 	tasks := []*models.Task{
 		{
-			Key:            "E07-F01-001",
-			Title:          "Test Task",
+			BaseEntity: models.BaseEntity{
+				Key:   "E07-F01-001",
+				Title: "Test Task",
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       5,
 			AgentType:      &agentType,
@@ -107,8 +109,10 @@ func TestFormatTaskTable_TitleTruncation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tasks := []*models.Task{
 				{
-					Key:       "E07-F01-001",
-					Title:     longTitle,
+					BaseEntity: models.BaseEntity{
+						Key:   "E07-F01-001",
+						Title: longTitle,
+					},
 					Status:    models.TaskStatus("todo"),
 					Priority:  5,
 					AgentType: &agentType,
@@ -166,8 +170,10 @@ func TestFormatTaskTable_RejectionIndicator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tasks := []*models.Task{
 				{
-					Key:            "E07-F01-001",
-					Title:          "Test Task",
+					BaseEntity: models.BaseEntity{
+						Key:   "E07-F01-001",
+						Title: "Test Task",
+					},
 					Status:         models.TaskStatus("todo"),
 					Priority:       5,
 					AgentType:      &agentType,
@@ -211,8 +217,10 @@ func TestFormatTaskTable_AgentType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tasks := []*models.Task{
 				{
-					Key:       "E07-F01-001",
-					Title:     "Test Task",
+					BaseEntity: models.BaseEntity{
+						Key:   "E07-F01-001",
+						Title: "Test Task",
+					},
 					Status:    models.TaskStatus("todo"),
 					Priority:  5,
 					AgentType: tt.agentType,
@@ -255,8 +263,10 @@ func TestFormatTaskTable_ExecutionOrder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tasks := []*models.Task{
 				{
-					Key:            "E07-F01-001",
-					Title:          "Test Task",
+					BaseEntity: models.BaseEntity{
+						Key:   "E07-F01-001",
+						Title: "Test Task",
+					},
 					Status:         models.TaskStatus("todo"),
 					Priority:       5,
 					AgentType:      &agentType,
@@ -281,8 +291,10 @@ func TestFormatTaskTable_ColumnVisibility(t *testing.T) {
 
 	tasks := []*models.Task{
 		{
-			Key:            "E07-F01-001",
-			Title:          "Test Task",
+			BaseEntity: models.BaseEntity{
+				Key:   "E07-F01-001",
+				Title: "Test Task",
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       5,
 			AgentType:      &agentType,
@@ -358,8 +370,10 @@ func TestFormatTaskTable_WithColorFormatting(t *testing.T) {
 	agentType := "backend"
 	tasks := []*models.Task{
 		{
-			Key:       "E07-F01-001",
-			Title:     "Test Task",
+			BaseEntity: models.BaseEntity{
+				Key:   "E07-F01-001",
+				Title: "Test Task",
+			},
 			Status:    models.TaskStatus("todo"),
 			Priority:  5,
 			AgentType: &agentType,
@@ -386,16 +400,20 @@ func TestFormatTaskTable_MultipleTasks(t *testing.T) {
 
 	tasks := []*models.Task{
 		{
-			Key:            "E07-F01-001",
-			Title:          "Backend Task",
+			BaseEntity: models.BaseEntity{
+				Key:   "E07-F01-001",
+				Title: "Backend Task",
+			},
 			Status:         models.TaskStatus("todo"),
 			Priority:       5,
 			AgentType:      &backend,
 			ExecutionOrder: &order1,
 		},
 		{
-			Key:            "E07-F01-002",
-			Title:          "Frontend Task",
+			BaseEntity: models.BaseEntity{
+				Key:   "E07-F01-002",
+				Title: "Frontend Task",
+			},
 			Status:         models.TaskStatus("in_progress"),
 			Priority:       3,
 			AgentType:      &frontend,

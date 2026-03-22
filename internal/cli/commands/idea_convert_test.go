@@ -169,10 +169,9 @@ func TestConvertIdeaToFeature_Success(t *testing.T) {
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
 			if key == "E10" {
-				return &models.Epic{
-					ID:    10,
+				return &models.Epic{BaseEntity: models.BaseEntity{ID: 10,
 					Key:   "E10",
-					Title: "Existing Epic",
+					Title: "Existing Epic"},
 				}, nil
 			}
 			return nil, fmt.Errorf("epic not found")
@@ -287,17 +286,16 @@ func TestConvertIdeaToTask_Success(t *testing.T) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 10, Key: "E10", Title: "Epic"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 10, Key: "E10", Title: "Epic"}}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     5,
-				EpicID: 10,
-				Key:    "E10-F02",
-				Title:  "Feature",
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 5,
+
+				Key:   "E10-F02",
+				Title: "Feature"}, EpicID: 10,
 			}, nil
 		},
 	}
@@ -364,17 +362,16 @@ func TestConvertIdeaToTask_FeatureNotInEpic(t *testing.T) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{ID: 10, Key: "E10"}, nil
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 10, Key: "E10"}}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
 			// Feature belongs to different epic (ID 5 instead of 10)
-			return &models.Feature{
-				ID:     1,
-				EpicID: 5,
-				Key:    "E05-F01",
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key: "E05-F01"}, EpicID: 5,
 			}, nil
 		},
 	}

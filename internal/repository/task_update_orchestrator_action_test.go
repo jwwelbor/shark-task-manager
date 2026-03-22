@@ -27,10 +27,8 @@ func TestTaskRepository_UpdateStatusWithOrchestratorAction(t *testing.T) {
 
 	// Create test epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic for Orchestrator Actions",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic for Orchestrator Actions"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -43,10 +41,9 @@ func TestTaskRepository_UpdateStatusWithOrchestratorAction(t *testing.T) {
 	}()
 
 	// Create test feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E99-F01",
-		Title:  "Test Feature",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Test Feature"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -58,12 +55,11 @@ func TestTaskRepository_UpdateStatusWithOrchestratorAction(t *testing.T) {
 	}()
 
 	// Create task
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E99-F01-001",
-		Title:     "Test Task for Orchestrator Action",
-		Status:    "draft",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-001",
+		Title: "Test Task for Orchestrator Action"}, FeatureID: testFeature.ID,
+
+		Status:   "draft",
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -134,10 +130,8 @@ func TestTaskRepository_UpdateStatusWithoutOrchestratorAction(t *testing.T) {
 
 	// Create test epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -150,10 +144,9 @@ func TestTaskRepository_UpdateStatusWithoutOrchestratorAction(t *testing.T) {
 	}()
 
 	// Create test feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E99-F02",
-		Title:  "Test Feature No Action",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F02",
+		Title: "Test Feature No Action"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -165,12 +158,11 @@ func TestTaskRepository_UpdateStatusWithoutOrchestratorAction(t *testing.T) {
 	}()
 
 	// Create task
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E99-F02-001",
-		Title:     "Task without action",
-		Status:    "draft",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F02-001",
+		Title: "Task without action"}, FeatureID: testFeature.ID,
+
+		Status:   "draft",
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -230,10 +222,8 @@ func TestTaskRepository_UpdateStatusPopulatesTemplateVariables(t *testing.T) {
 
 	// Create test epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -246,10 +236,9 @@ func TestTaskRepository_UpdateStatusPopulatesTemplateVariables(t *testing.T) {
 	}()
 
 	// Create test feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E99-F03",
-		Title:  "Test Feature",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F03",
+		Title: "Test Feature"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -261,12 +250,11 @@ func TestTaskRepository_UpdateStatusPopulatesTemplateVariables(t *testing.T) {
 	}()
 
 	// Create task
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E99-F03-001",
-		Title:     "Template Test Task",
-		Status:    "ready_for_development",
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F03-001",
+		Title: "Template Test Task"}, FeatureID: testFeature.ID,
+
+		Status:   "ready_for_development",
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	require.NoError(t, err)

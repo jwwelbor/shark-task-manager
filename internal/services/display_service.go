@@ -101,7 +101,7 @@ type DisplayServiceDeps struct {
 	EpicRepo               *repository.EpicRepository
 	FeatureRepo            *repository.FeatureRepository
 	TaskRepo               *repository.TaskRepository
-	DocumentRepo           *repository.DocumentRepository
+	DocumentRepo           config.DocumentRepository
 	NoteRepo               *repository.EntityNoteRepository
 	TaskRelRepo            *repository.TaskRelationshipRepository
 	FeatureRelRepo         *repository.FeatureRelationshipRepository
@@ -127,7 +127,7 @@ func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *Displa
 			EpicRepo:               repository.NewEpicRepository(db),
 			FeatureRepo:            repository.NewFeatureRepository(db),
 			TaskRepo:               repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
-			DocumentRepo:           repository.NewDocumentRepository(db),
+			DocumentRepo:           repository.NewPolymorphicDocRepoAdapter(repository.NewEntityDocumentRepository(db)),
 			NoteRepo:               repository.NewEntityNoteRepository(db),
 			TaskRelRepo:            repository.NewTaskRelationshipRepository(db),
 			FeatureRelRepo:         repository.NewFeatureRelationshipRepository(db),
@@ -456,12 +456,7 @@ func (s *DisplayService) ResolveEpicAction(ctx context.Context, epic *models.Epi
 	// Note: We don't have an epic relationship repository yet, so pass nil
 	placeholders := config.EpicPlaceholdersWithRelated(epic, s.deps.DocumentRepo, nil, ctx, enrichment)
 
-	return &config.PopulatedAction{
-		Action:      meta.OrchestratorAction.Action,
-		AgentType:   meta.OrchestratorAction.AgentType,
-		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
-	}
+	return meta.OrchestratorAction.ToPopulatedAction(placeholders)
 }
 
 // populateEpicAggregationInfo fills in aggregation-mode fields for an epic.
@@ -646,12 +641,7 @@ func (s *DisplayService) ResolveFeatureAction(ctx context.Context, feature *mode
 	// Note: We don't have a feature relationship repository yet, so pass nil
 	placeholders := config.FeaturePlaceholdersWithRelated(ctx, feature, s.deps.DocumentRepo, nil, enrichment)
 
-	return &config.PopulatedAction{
-		Action:      meta.OrchestratorAction.Action,
-		AgentType:   meta.OrchestratorAction.AgentType,
-		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
-	}
+	return meta.OrchestratorAction.ToPopulatedAction(placeholders)
 }
 
 // ResolveTaskAction looks up the orchestrator action for a task's current status.
@@ -684,12 +674,7 @@ func (s *DisplayService) ResolveTaskAction(ctx context.Context, task *models.Tas
 	// Use TaskPlaceholdersWithRelated to populate placeholders with related docs and tasks
 	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, s.deps.DocumentRepo, s.deps.TaskRelRepo, taskEnrichment)
 
-	return &config.PopulatedAction{
-		Action:      meta.OrchestratorAction.Action,
-		AgentType:   meta.OrchestratorAction.AgentType,
-		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
-	}
+	return meta.OrchestratorAction.ToPopulatedAction(placeholders)
 }
 
 // populateFeatureAggregationInfo fills in aggregation-mode fields for a feature.

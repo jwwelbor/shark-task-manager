@@ -110,11 +110,10 @@ func TestDetectFileCollision_EpicClaimed(t *testing.T) {
 	ctx := context.Background()
 	filePath := "docs/test/epic.md"
 
-	existingEpic := &models.Epic{
-		ID:       1,
+	existingEpic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 		Key:      "E01",
 		Title:    "Existing Epic",
-		FilePath: &filePath,
+		FilePath: &filePath},
 	}
 
 	// Mock epic repository returns existing epic
@@ -169,11 +168,10 @@ func TestDetectFileCollision_FeatureClaimed(t *testing.T) {
 	ctx := context.Background()
 	filePath := "docs/test/feature.md"
 
-	existingFeature := &models.Feature{
-		ID:       1,
+	existingFeature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
 		Key:      "E01-F01",
 		Title:    "Existing Feature",
-		FilePath: &filePath,
+		FilePath: &filePath},
 	}
 
 	epicRepo := &FileAssignmentEpicRepo{
@@ -227,11 +225,10 @@ func TestDetectFileCollision_TaskClaimed(t *testing.T) {
 	ctx := context.Background()
 	filePath := "docs/test/task.md"
 
-	existingTask := &models.Task{
-		ID:       1,
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
 		Key:      "T-E01-F01-001",
 		Title:    "Existing Task",
-		FilePath: &filePath,
+		FilePath: &filePath},
 	}
 
 	epicRepo := &FileAssignmentEpicRepo{
@@ -371,9 +368,8 @@ func TestHandleFileReassignment_WithoutForce(t *testing.T) {
 			name: "Epic collision without force",
 			collision: &FileCollision{
 				FilePath: filePath,
-				Epic: &models.Epic{
-					Key:   "E01",
-					Title: "Existing Epic",
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+					Title: "Existing Epic"},
 				},
 			},
 			wantErr: "already claimed by epic E01",
@@ -382,9 +378,8 @@ func TestHandleFileReassignment_WithoutForce(t *testing.T) {
 			name: "Feature collision without force",
 			collision: &FileCollision{
 				FilePath: filePath,
-				Feature: &models.Feature{
-					Key:   "E01-F01",
-					Title: "Existing Feature",
+				Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+					Title: "Existing Feature"},
 				},
 			},
 			wantErr: "already claimed by feature E01-F01",
@@ -393,9 +388,8 @@ func TestHandleFileReassignment_WithoutForce(t *testing.T) {
 			name: "Task collision without force",
 			collision: &FileCollision{
 				FilePath: filePath,
-				Task: &models.Task{
-					Key:   "T-E01-F01-001",
-					Title: "Existing Task",
+				Task: &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+					Title: "Existing Task"},
 				},
 			},
 			wantErr: "already claimed by task T-E01-F01-001",
@@ -428,11 +422,10 @@ func TestHandleFileReassignment_WithForce_Epic(t *testing.T) {
 	ctx := context.Background()
 	filePath := "docs/test/epic.md"
 
-	existingEpic := &models.Epic{
-		ID:       1,
+	existingEpic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 		Key:      "E01",
 		Title:    "Existing Epic",
-		FilePath: &filePath,
+		FilePath: &filePath},
 	}
 
 	updateCalled := false
@@ -473,11 +466,10 @@ func TestHandleFileReassignment_WithForce_Feature(t *testing.T) {
 	ctx := context.Background()
 	filePath := "docs/test/feature.md"
 
-	existingFeature := &models.Feature{
-		ID:       1,
+	existingFeature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
 		Key:      "E01-F01",
 		Title:    "Existing Feature",
-		FilePath: &filePath,
+		FilePath: &filePath},
 	}
 
 	updateCalled := false
@@ -518,11 +510,10 @@ func TestHandleFileReassignment_WithForce_Task(t *testing.T) {
 	ctx := context.Background()
 	filePath := "docs/test/task.md"
 
-	existingTask := &models.Task{
-		ID:       1,
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
 		Key:      "T-E01-F01-001",
 		Title:    "Existing Task",
-		FilePath: &filePath,
+		FilePath: &filePath},
 	}
 
 	updateCalled := false
@@ -564,11 +555,10 @@ func TestHandleFileReassignment_UpdateError(t *testing.T) {
 	filePath := "docs/test/epic.md"
 	testErr := errors.New("database update failed")
 
-	existingEpic := &models.Epic{
-		ID:       1,
+	existingEpic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 		Key:      "E01",
 		Title:    "Existing Epic",
-		FilePath: &filePath,
+		FilePath: &filePath},
 	}
 
 	epicRepo := &FileAssignmentEpicRepo{

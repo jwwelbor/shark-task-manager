@@ -340,7 +340,7 @@ func TestFeatureDisplayInfo_HasContextDataField(t *testing.T) {
 func TestEpicDisplayInfo_NotesAndContextInJSON(t *testing.T) {
 	step := "Step 1"
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{Key: "E07", Title: "Test", Status: "draft"},
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E07", Title: "Test"}, Status: "draft"},
 		Mode: DisplayModePlanning,
 		Notes: []*models.EntityNote{
 			{ID: 1, Content: "a note"},
@@ -385,7 +385,7 @@ func TestEpicDisplayInfo_NotesAndContextInJSON(t *testing.T) {
 func TestFeatureDisplayInfo_NotesAndContextInJSON(t *testing.T) {
 	step := "Building UI"
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{Key: "E07-F01", Title: "Auth", Status: "draft"},
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01", Title: "Auth"}, Status: "draft"},
 		Mode:    DisplayModePlanning,
 		Notes: []*models.EntityNote{
 			{ID: 1, Content: "feature note"},
@@ -429,7 +429,7 @@ func TestFeatureDisplayInfo_NotesAndContextInJSON(t *testing.T) {
 
 func TestEpicDisplayInfo_NoNotesOmitsFromJSON(t *testing.T) {
 	info := &EpicDisplayInfo{
-		Epic:         &models.Epic{Key: "E07", Title: "Test", Status: "draft"},
+		Epic:         &models.Epic{BaseEntity: models.BaseEntity{Key: "E07", Title: "Test"}, Status: "draft"},
 		Mode:         DisplayModePlanning,
 		StatusSource: "workflow",
 	}
@@ -494,7 +494,7 @@ func setupTestDisplayService(t *testing.T) (*DisplayService, func(), *repository
 			EpicRepo:     repository.NewEpicRepository(repoDB),
 			FeatureRepo:  repository.NewFeatureRepository(repoDB),
 			TaskRepo:     repository.NewTaskRepositoryWithWorkflow(repoDB, nil),
-			DocumentRepo: repository.NewDocumentRepository(repoDB),
+			DocumentRepo: repository.NewPolymorphicDocRepoAdapter(repository.NewEntityDocumentRepository(repoDB)),
 			NoteRepo:     repository.NewEntityNoteRepository(repoDB),
 		},
 		epicWorkflow:    epicWf,
@@ -527,6 +527,7 @@ func seedEpicWithDocs(t *testing.T, repoDB *repository.DB) (int64, []int64) {
 
 	// Create documents and link to epic
 	docRepo := repository.NewDocumentRepository(repoDB)
+	entityDocRepo := repository.NewEntityDocumentRepository(repoDB)
 	doc1, err := docRepo.CreateOrGet(ctx, "Architecture Doc", "docs/architecture.md")
 	if err != nil {
 		t.Fatalf("failed to create doc1: %v", err)
@@ -536,10 +537,10 @@ func seedEpicWithDocs(t *testing.T, repoDB *repository.DB) (int64, []int64) {
 		t.Fatalf("failed to create doc2: %v", err)
 	}
 
-	if err := docRepo.LinkToEpic(ctx, epicID, doc1.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epicID, doc1.ID, ""); err != nil {
 		t.Fatalf("failed to link doc1 to epic: %v", err)
 	}
-	if err := docRepo.LinkToEpic(ctx, epicID, doc2.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epicID, doc2.ID, ""); err != nil {
 		t.Fatalf("failed to link doc2 to epic: %v", err)
 	}
 
@@ -564,12 +565,13 @@ func seedFeatureWithDocs(t *testing.T, repoDB *repository.DB, epicID int64) (int
 
 	// Create documents and link to feature
 	docRepo := repository.NewDocumentRepository(repoDB)
+	entityDocRepo := repository.NewEntityDocumentRepository(repoDB)
 	doc1, err := docRepo.CreateOrGet(ctx, "Feature Spec", "docs/feature-spec.md")
 	if err != nil {
 		t.Fatalf("failed to create doc1: %v", err)
 	}
 
-	if err := docRepo.LinkToFeature(ctx, featureID, doc1.ID); err != nil {
+	if err := entityDocRepo.Link(ctx, models.EntityTypeFeature, featureID, doc1.ID, ""); err != nil {
 		t.Fatalf("failed to link doc1 to feature: %v", err)
 	}
 
@@ -583,10 +585,8 @@ func TestPopulateEpicPlanningInfo_FetchesRelatedDocs(t *testing.T) {
 	epicID, _ := seedEpicWithDocs(t, repoDB)
 
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{
-			ID:     epicID,
-			Key:    "E98",
-			Status: "draft",
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: epicID,
+			Key: "E98"}, Status: "draft",
 		},
 		Mode: DisplayModePlanning,
 	}
@@ -611,10 +611,8 @@ func TestPopulateFeaturePlanningInfo_FetchesRelatedDocs(t *testing.T) {
 	featureID, _ := seedFeatureWithDocs(t, repoDB, epicID)
 
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{
-			ID:     featureID,
-			Key:    "E98-F01",
-			Status: "draft",
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: featureID,
+			Key: "E98-F01"}, Status: "draft",
 		},
 		Mode: DisplayModePlanning,
 	}
@@ -647,10 +645,8 @@ func TestPopulateEpicPlanningInfo_NoDocs_EmptySlice(t *testing.T) {
 	epicID, _ := result.LastInsertId()
 
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{
-			ID:     epicID,
-			Key:    "E97",
-			Status: "draft",
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: epicID,
+			Key: "E97"}, Status: "draft",
 		},
 		Mode: DisplayModePlanning,
 	}
@@ -695,10 +691,8 @@ func TestPopulateFeaturePlanningInfo_NoDocs_EmptySlice(t *testing.T) {
 	featureID, _ := result.LastInsertId()
 
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{
-			ID:     featureID,
-			Key:    "E96-F01",
-			Status: "draft",
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: featureID,
+			Key: "E96-F01"}, Status: "draft",
 		},
 		Mode: DisplayModePlanning,
 	}

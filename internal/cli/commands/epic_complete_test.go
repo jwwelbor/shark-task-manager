@@ -30,10 +30,8 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -41,10 +39,9 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 	}
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E01-F01",
-		Title:       "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -53,19 +50,17 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 	}
 
 	// Create test tasks (all in ready_for_review status)
-	task1 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E01-F01-001",
-		Title:     "Test Task 1",
-		Status:    models.TaskStatus("ready_for_review"),
-		Priority:  5,
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+		Title: "Test Task 1"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("ready_for_review"),
+		Priority: 5,
 	}
-	task2 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E01-F01-002",
-		Title:     "Test Task 2",
-		Status:    models.TaskStatus("ready_for_review"),
-		Priority:  5,
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-002",
+		Title: "Test Task 2"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("ready_for_review"),
+		Priority: 5,
 	}
 
 	if err := taskRepo.Create(ctx, task1); err != nil {
@@ -100,7 +95,7 @@ func TestEpicComplete_SetsEpicStatusToCompleted(t *testing.T) {
 
 		// Update feature progress via service layer
 		workflowSvc := workflow.NewService(".")
-		featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, nil)
+		featureSvc := services.NewFeatureService(featureRepo, services.NewEntityService(workflowSvc), nil, taskRepo, nil)
 		if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 			t.Fatalf("Failed to update feature progress: %v", err)
 		}
@@ -139,10 +134,8 @@ func TestEpicComplete_SetsEpicStatusToCompletedEvenWithNoTasks(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(repoDb)
 
 	// Create test epic with no features
-	epic := &models.Epic{
-		Key:      "E02",
-		Title:    "Test Epic No Features",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E02",
+		Title: "Test Epic No Features"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {

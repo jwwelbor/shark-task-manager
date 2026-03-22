@@ -20,10 +20,8 @@ func TestTaskListRejectionIndicators(t *testing.T) {
 	}{
 		{
 			name: "task with no rejections",
-			task: &models.Task{
-				Key:    "E07-F01-001",
-				Title:  "Implement feature",
-				Status: models.TaskStatus("todo"),
+			task: &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001",
+				Title: "Implement feature"}, Status: models.TaskStatus("todo"),
 			},
 			rejectionCount:     0,
 			lastRejectionTime:  nil,
@@ -32,10 +30,8 @@ func TestTaskListRejectionIndicators(t *testing.T) {
 		},
 		{
 			name: "task with one rejection",
-			task: &models.Task{
-				Key:    "E07-F01-002",
-				Title:  "Fix bug",
-				Status: models.TaskStatus("in_progress"),
+			task: &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-002",
+				Title: "Fix bug"}, Status: models.TaskStatus("in_progress"),
 			},
 			rejectionCount:     1,
 			lastRejectionTime:  timePtr(time.Now().Add(-2 * time.Hour)),
@@ -44,10 +40,8 @@ func TestTaskListRejectionIndicators(t *testing.T) {
 		},
 		{
 			name: "task with multiple rejections",
-			task: &models.Task{
-				Key:    "E07-F01-003",
-				Title:  "Update docs",
-				Status: models.TaskStatus("in_progress"),
+			task: &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-003",
+				Title: "Update docs"}, Status: models.TaskStatus("in_progress"),
 			},
 			rejectionCount:     3,
 			lastRejectionTime:  timePtr(time.Now()),
@@ -62,11 +56,9 @@ func TestTaskListRejectionIndicators(t *testing.T) {
 			// The actual implementation will be tested in integration tests
 
 			// Verify Task model can have rejection data
-			taskWithRejections := &models.Task{
-				ID:       tt.task.ID,
-				Key:      tt.task.Key,
-				Title:    tt.task.Title,
-				Status:   tt.task.Status,
+			taskWithRejections := &models.Task{BaseEntity: models.BaseEntity{ID: tt.task.ID,
+				Key:   tt.task.Key,
+				Title: tt.task.Title}, Status: tt.task.Status,
 				Priority: tt.task.Priority,
 			}
 
@@ -152,10 +144,8 @@ func TestTaskListWithRejectionCountField(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a task with rejection metadata
-			task := &models.Task{
-				Key:      "E07-F01-001",
-				Title:    "Test task",
-				Status:   models.TaskStatus("todo"),
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: "E07-F01-001",
+				Title: "Test task"}, Status: models.TaskStatus("todo"),
 				Priority: 5,
 			}
 
@@ -190,8 +180,8 @@ func TestHasRejectionsFilter(t *testing.T) {
 		{
 			name: "no tasks with rejections",
 			tasks: []*models.Task{
-				{Key: "E07-F01-001", Status: models.TaskStatus("todo")},
-				{Key: "E07-F01-002", Status: models.TaskStatus("todo")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-001"}, Status: models.TaskStatus("todo")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-002"}, Status: models.TaskStatus("todo")},
 			},
 			rejectionCounts: map[string]int{
 				"E07-F01-001": 0,
@@ -202,9 +192,9 @@ func TestHasRejectionsFilter(t *testing.T) {
 		{
 			name: "some tasks with rejections",
 			tasks: []*models.Task{
-				{Key: "E07-F01-001", Status: models.TaskStatus("in_progress")},
-				{Key: "E07-F01-002", Status: models.TaskStatus("in_progress")},
-				{Key: "E07-F01-003", Status: models.TaskStatus("todo")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-001"}, Status: models.TaskStatus("in_progress")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-002"}, Status: models.TaskStatus("in_progress")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-003"}, Status: models.TaskStatus("todo")},
 			},
 			rejectionCounts: map[string]int{
 				"E07-F01-001": 1,
@@ -216,8 +206,8 @@ func TestHasRejectionsFilter(t *testing.T) {
 		{
 			name: "all tasks with rejections",
 			tasks: []*models.Task{
-				{Key: "E07-F01-001", Status: models.TaskStatus("in_progress")},
-				{Key: "E07-F01-002", Status: models.TaskStatus("in_progress")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-001"}, Status: models.TaskStatus("in_progress")},
+				{BaseEntity: models.BaseEntity{Key: "E07-F01-002"}, Status: models.TaskStatus("in_progress")},
 			},
 			rejectionCounts: map[string]int{
 				"E07-F01-001": 3,

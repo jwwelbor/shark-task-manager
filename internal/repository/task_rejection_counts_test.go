@@ -49,15 +49,15 @@ func TestGetRejectionCounts(t *testing.T) {
 	}
 
 	// Create test task
-	task := &models.Task{
-		FeatureID: featureID,
-		Key:       "T-E99-F99-001",
-		Title:     "Test task with rejections",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-001",
+		Title: "Test task with rejections",
+
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now()}, FeatureID: featureID,
+
 		Status:    models.TaskStatus("in_progress"),
 		Priority:  5,
 		AgentType: nil,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
 	}
 
 	err = taskRepo.Create(ctx, task)
@@ -175,14 +175,14 @@ func TestGetRejectionCountsMultipleTasks(t *testing.T) {
 	// Create multiple test tasks
 	var taskIDs []int64
 	for i := 1; i <= 3; i++ {
-		task := &models.Task{
-			FeatureID: featureID,
-			Key:       "T-E88-F88-00" + string(rune('0'+i)),
-			Title:     "Test task " + string(rune('0'+i)),
-			Status:    models.TaskStatus("in_progress"),
-			Priority:  5,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E88-F88-00" + string(rune('0'+i)),
+			Title: "Test task " + string(rune('0'+i)),
+
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			UpdatedAt: time.Now()}, FeatureID: featureID,
+
+			Status:   models.TaskStatus("in_progress"),
+			Priority: 5,
 		}
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create task: %v", err)

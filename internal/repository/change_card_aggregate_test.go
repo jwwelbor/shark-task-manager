@@ -30,10 +30,8 @@ func changeCardAggTestSetup(t *testing.T) (*ChangeCardRepository, func()) {
 // key must follow CC-### format (e.g., "CC-801").
 // Priority is set to 5 (mid-range) to satisfy the database CHECK constraint (1-10).
 func newTestChangeCard(key, title, status string) *models.ChangeCard {
-	return &models.ChangeCard{
-		Key:      key,
-		Title:    title,
-		Status:   models.ChangeCardStatus(status),
+	return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key,
+		Title: title}, Status: models.ChangeCardStatus(status),
 		Priority: 5,
 	}
 }

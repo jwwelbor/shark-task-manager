@@ -214,6 +214,15 @@ func needsStatusConstraintRemoval(db *sql.DB) (bool, error) {
 // This migration handles databases where the tasks table was already migrated
 // but task_history still references the old "tasks_old" table
 func migrateTaskHistoryForeignKey(db *sql.DB) error {
+	// Skip if task_history no longer exists (post E21-F08 polymorphic migration)
+	var tableExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_history'`).Scan(&tableExists); err != nil {
+		return fmt.Errorf("failed to check task_history existence: %w", err)
+	}
+	if tableExists == 0 {
+		return nil
+	}
+
 	// Check if task_history has the wrong foreign key
 	var schema string
 	err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_history'").Scan(&schema)

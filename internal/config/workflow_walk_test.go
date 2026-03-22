@@ -26,13 +26,12 @@ func TestWorkflowWalk_TaskHappyPath(t *testing.T) {
 	}
 
 	// Mock task data for template population
-	mockTask := &models.Task{
-		Key:       "T-E07-F01-001",
-		Title:     "Implement JWT Token Validation",
-		Status:    "draft",
-		Priority:  5,
+	mockTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F01-001",
+		Title: "Implement JWT Token Validation",
+
 		CreatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC)}, Status: "draft",
+		Priority: 5,
 	}
 	filePath := "docs/plan/E07-enhancements/E07-F01-auth/tasks/T-E07-F01-001.md"
 	mockTask.FilePath = &filePath
@@ -120,13 +119,12 @@ func TestWorkflowWalk_EpicHappyPath(t *testing.T) {
 		t.Fatalf("epic happy path too short: %v", happyPath)
 	}
 
-	mockEpic := &models.Epic{
-		Key:       "E07",
-		Title:     "User Management Enhancements",
-		Status:    "draft",
-		Priority:  models.PriorityHigh,
+	mockEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E07",
+		Title: "User Management Enhancements",
+
 		CreatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC)}, Status: "draft",
+		Priority: models.PriorityHigh,
 	}
 	filePath := "docs/plan/E07-enhancements/epic.md"
 	mockEpic.FilePath = &filePath
@@ -196,12 +194,11 @@ func TestWorkflowWalk_FeatureHappyPath(t *testing.T) {
 		t.Fatalf("feature happy path too short: %v", happyPath)
 	}
 
-	mockFeature := &models.Feature{
-		Key:       "E07-F01",
-		Title:     "User Authentication",
-		Status:    "draft",
+	mockFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01",
+		Title: "User Authentication",
+
 		CreatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC)}, Status: "draft",
 	}
 	filePath := "docs/plan/E07-enhancements/E07-F01-auth/feature.md"
 	mockFeature.FilePath = &filePath

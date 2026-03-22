@@ -285,18 +285,17 @@ func (s *EpicAnalyticsService) GetEpicDisplayData(ctx context.Context, epic *mod
 	features := make([]*models.Feature, 0, len(featuresRaw))
 	for _, fj := range featuresRaw {
 		statusOverride := fj.StatusOverride != 0
-		f := &models.Feature{
-			ID:             fj.ID,
-			Key:            fj.Key,
-			Title:          fj.Title,
-			Slug:           fj.Slug,
-			Description:    fj.Description,
-			Status:         models.FeatureStatus(fj.Status),
+		f := &models.Feature{BaseEntity: models.BaseEntity{ID: fj.ID,
+			Key:         fj.Key,
+			Title:       fj.Title,
+			Slug:        fj.Slug,
+			Description: fj.Description,
+
+			FilePath:    fj.FilePath,
+			ContextData: fj.ContextData}, Status: models.FeatureStatus(fj.Status),
 			StatusOverride: statusOverride,
 			ProgressPct:    fj.ProgressPct,
 			EpicID:         epic.ID,
-			FilePath:       fj.FilePath,
-			ContextData:    fj.ContextData,
 		}
 		if fj.ExecutionOrder != nil {
 			f.ExecutionOrder = fj.ExecutionOrder
@@ -332,11 +331,11 @@ func (s *EpicAnalyticsService) GetEpicDisplayData(ctx context.Context, epic *mod
 		return nil, fmt.Errorf("failed to unmarshal blocked tasks for epic %s: %w", epic.Key, err)
 	}
 	for _, bt := range blockedRaw {
-		task := &models.Task{
-			ID:            bt.ID,
-			FeatureID:     bt.FeatureID,
-			Key:           bt.Key,
-			Title:         bt.Title,
+		task := &models.Task{BaseEntity: models.BaseEntity{ID: bt.ID,
+
+			Key:   bt.Key,
+			Title: bt.Title}, FeatureID: bt.FeatureID,
+
 			Status:        models.TaskStatus(bt.Status),
 			BlockedReason: bt.BlockedReason,
 		}

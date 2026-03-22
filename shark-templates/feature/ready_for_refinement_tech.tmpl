@@ -1,0 +1,37 @@
+Design technical architecture for feature {{.id}}: "{{.title}}".
+
+LOAD: architecture skill workflows (design-system, design-backend, design-frontend, design-database, design-security) as applicable. LOAD: specification-writing workflow plan/feature-tech-plan.md.
+
+CHECK COMPLEXITY TIER: shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
+
+PLAN GATE — run before creating any document:
+(1) READ: shark feature context get {{.id}} --json
+(2) IF context_data.tech_remaining_steps non-empty: RESUME MODE — skip to ACT with tech_remaining_steps.
+    Log: shark feature note {{.id}} 'Resuming tech. Remaining: [...]. Completed: [...].'
+(3) IF context_data.tech_remaining_steps empty: PLAN MODE — run feature-tech-plan.md decision tree.
+    For each optional tech doc: state INCLUDE or EXCLUDE with specific reason for THIS feature.
+    Default to INCLUDE when uncertain.
+    Store: shark feature context set {{.id}} --field tech_remaining_steps '[...]'
+           shark feature context set {{.id}} --field tech_implementation_decisions '{...}'
+           shark feature context set {{.id}} --field tech_plan_created_at 'TIMESTAMP'
+    Log: shark feature note {{.id}} 'TECH PLAN: Will create N docs: [list]. Excluded: [...].' --type=decision
+
+READ:
+(1) Feature BA docs (just validated by BA check) — use shark related-docs list --feature={{.id}}
+(2) Triage report or research report for codebase patterns and existing implementations
+(3) Parent epic architecture docs for system constraints
+(4) Other feature architectures in this epic for cross-feature consistency
+
+ACT: Create only documents in tech_remaining_steps. 02-architecture.md is always required.
+     API contracts must include full request/response schemas (field names + types).
+     Follow patterns from triage/research — do not reinvent existing patterns.
+     After each doc: update tech_completed_steps.
+
+EXIT GATE varies by tier:
+- SIMPLE (decision rationale clear, existing patterns documented)
+- STANDARD (key decisions documented, contracts complete where applicable, no ambiguity)
+- COMPLEX (all planned docs created, full schemas, architecture skill checklist passes)
+
+---
+## EXIT — REQUIRED
+    shark feature update {{.id}} --status=ready_for_tech_check

@@ -76,11 +76,9 @@ func TestEpicCreate_ExistingFile_ShouldNotOverwrite(t *testing.T) {
 
 	// Create epic in database with relative file path
 	relPath := "docs/plan/existing-epic.md"
-	epic := &models.Epic{
-		Key:      "E99",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
 		Title:    "Test Epic",
-		FilePath: &relPath,
-		Status:   models.EpicStatusDraft,
+		FilePath: &relPath}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 
@@ -171,11 +169,9 @@ func TestEpicCreate_NonExistingFile_ShouldCreate(t *testing.T) {
 	}
 
 	// Create epic in database
-	epic := &models.Epic{
-		Key:      "E98",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
 		Title:    "New Epic",
-		FilePath: &relPath,
-		Status:   models.EpicStatusDraft,
+		FilePath: &relPath}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 

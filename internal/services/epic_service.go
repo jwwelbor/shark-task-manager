@@ -45,23 +45,9 @@ type EpicTaskLister interface {
 	GetTaskCountsForFeatures(ctx context.Context, featureIDs []int64) (map[int64]int, error)
 }
 
-// EpicNoteRepository defines the note repo interface needed by EpicService
-// for creating rejection notes on backward transitions.
-type EpicNoteRepository interface {
-	CreateRejectionNote(ctx context.Context, entityType string, entityID int64,
-		historyID int64, fromStatus, toStatus, reason, rejectedBy, documentPath string) error
-}
-
 // EpicWritableDocumentRepository defines the writable interface for document linking on epics.
 // This interface is satisfied by *repository.DocumentRepository.
-// The existing config.DocumentRepository only exposes read-only List methods; this interface
-// adds the write operations needed by LinkDocument and UnlinkDocument.
-type EpicWritableDocumentRepository interface {
-	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
-	LinkToEpic(ctx context.Context, epicID, documentID int64) error
-	UnlinkFromEpic(ctx context.Context, epicID, documentID int64) error
-}
+// (EpicWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
 
 // EpicFeatureCounter defines the feature counting interface needed by EpicService
 // to count child features for backward transition warnings and epic completion.
@@ -75,31 +61,32 @@ type EpicFeatureCounter interface {
 // EpicService provides business logic for epic operations.
 type EpicService struct {
 	repo             EpicRepository
-	workflowSvc      *workflow.Service
-	noteRepo         EpicNoteRepository
+	entitySvc        *EntityService
+	entityRepo       EntityRepository
 	featureRepo      EpicFeatureCounter
 	taskRepo         EpicTaskLister
 	docRepo          config.DocumentRepository
 	relRepo          config.EpicRelationshipRepository
-	writableDocRepo  EpicWritableDocumentRepository
-	analyticsService *EpicAnalyticsService // optional; lazy-initialized if nil
+	docSvc           *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	analyticsService *EpicAnalyticsService  // optional; lazy-initialized if nil
 	enrichRepo       config.TemplateEnrichmentRepository
 }
 
 // NewEpicService creates a new EpicService.
-// The workflow service is automatically scoped to the epic level.
-// noteRepo and featureRepo can be nil for graceful degradation.
+// The entitySvc provides shared transition logic; it is automatically scoped to epic level.
+// featureRepo and taskRepo can be nil for graceful degradation.
+// Rejection note creation is handled by EntityService (via SetNoteRepo).
 //
 // Panics:
 //   - If repo is nil (required dependency)
-//   - If workflowSvc is nil (required dependency)
-func NewEpicService(repo EpicRepository, workflowSvc *workflow.Service, noteRepo EpicNoteRepository, featureRepo EpicFeatureCounter, taskRepo EpicTaskLister) *EpicService {
+//   - If entitySvc is nil (required dependency)
+func NewEpicService(repo EpicRepository, entitySvc *EntityService, entityRepo EntityRepository, featureRepo EpicFeatureCounter, taskRepo EpicTaskLister) *EpicService {
 	requireNonNil(repo, "EpicService requires a non-nil EpicRepository")
-	requireNonNil(workflowSvc, "EpicService requires a non-nil workflow.Service")
+	requireNonNil(entitySvc, "EpicService requires a non-nil EntityService")
 	return &EpicService{
 		repo:        repo,
-		workflowSvc: workflowSvc.ForLevel(workflow.LevelEpic),
-		noteRepo:    noteRepo,
+		entitySvc:   entitySvc.ForLevel(workflow.LevelEpic),
+		entityRepo:  entityRepo,
 		featureRepo: featureRepo,
 		taskRepo:    taskRepo,
 		docRepo:     nil,
@@ -129,8 +116,18 @@ func (s *EpicService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentReposito
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument and UnlinkDocument operations on epics.
 // The *repository.DocumentRepository type satisfies the EpicWritableDocumentRepository interface.
-func (s *EpicService) SetWritableDocRepo(docRepo EpicWritableDocumentRepository) {
-	s.writableDocRepo = docRepo
+func (s *EpicService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+	s.docSvc = NewEntityDocumentService(
+		writableRepo,
+		linkRepo,
+		func(ctx context.Context, key string) (int64, models.EntityType, error) {
+			epic, err := s.repo.GetByKey(ctx, key)
+			if err != nil {
+				return 0, "", err
+			}
+			return epic.ID, models.EntityTypeEpic, nil
+		},
+	)
 }
 
 // SetAnalyticsService sets the analytics sub-service on EpicService.
@@ -153,64 +150,22 @@ func (s *EpicService) getAnalyticsService() *EpicAnalyticsService {
 }
 
 // LinkDocument creates or retrieves a document by its title and file path, then links it to an epic.
-// If the document already exists, it is reused (no duplicate created).
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - epicKey: the epic key (e.g., "E07")
-//   - docTitle: the title of the document to link
-//   - docPath: the file path of the document
-//
-// Returns:
-//   - error: EpicNotFoundError if epic not found, or repository errors
-//
-// Errors:
-//   - writable document repository not configured
-//   - epic not found
-//   - repository operation failed
+// Delegates to the shared EntityDocumentService.
 func (s *EpicService) LinkDocument(ctx context.Context, epicKey, docTitle, docPath string) error {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-
-	epic, err := s.repo.GetByKey(ctx, epicKey)
-	if err != nil {
-		return fmt.Errorf("epic not found: %w", err)
-	}
-
-	_, err = linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToEpic,
-		epic.ID, docTitle, docPath, "epic", epicKey)
+	_, err := s.docSvc.LinkDocumentByKey(ctx, epicKey, docTitle, docPath)
 	return err
 }
 
 // UnlinkDocument removes a document link from an epic by document title.
-// If the document does not exist, it returns an error.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - epicKey: the epic key (e.g., "E07")
-//   - docTitle: the title of the document to unlink
-//
-// Returns:
-//   - error: EpicNotFoundError if epic not found, or repository errors
-//
-// Errors:
-//   - writable document repository not configured
-//   - epic not found
-//   - document not found
-//   - repository operation failed
+// Delegates to the shared EntityDocumentService.
 func (s *EpicService) UnlinkDocument(ctx context.Context, epicKey, docTitle string) error {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-
-	epic, err := s.repo.GetByKey(ctx, epicKey)
-	if err != nil {
-		return fmt.Errorf("epic not found: %w", err)
-	}
-
-	return unlinkDocumentFromEntity(ctx, s.writableDocRepo, s.writableDocRepo.UnlinkFromEpic,
-		epic.ID, docTitle, "epic", epicKey)
+	return s.docSvc.UnlinkDocumentByKey(ctx, epicKey, docTitle)
 }
 
 // TransitionStatus validates and performs a status transition on an epic.
@@ -225,168 +180,78 @@ func (s *EpicService) UnlinkDocument(ctx context.Context, epicKey, docTitle stri
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
 func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	epic, err := s.repo.GetByKey(ctx, epicKey)
+	// Use entityRepo if available, otherwise create inline adapter from typed repo
+	entityRepo := s.entityRepo
+	if entityRepo == nil {
+		entityRepo = &epicEntityRepoAdapter{repo: s.repo}
+	}
+
+	// Delegate shared logic to EntityService
+	result, err := s.entitySvc.TransitionStatus(
+		ctx, entityRepo, models.EntityTypeEpic, epicKey, targetStatus, opts,
+		DefaultTransitionFeatures(),
+		s.makeResolveActionFn(ctx),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get epic: %w", err)
-	}
-	if epic == nil {
-		return nil, fmt.Errorf("epic not found: %s", epicKey)
+		return nil, err
 	}
 
-	currentStatus := string(epic.Status)
-
-	// Validate transition (unless forced)
-	if !opts.Force {
-		if err := s.workflowSvc.ValidateTransition(currentStatus, targetStatus); err != nil {
-			return nil, err
-		}
-	}
-
-	// Normalize target status (unless forcing, where we accept any string)
-	if !opts.Force {
-		targetStatus = s.workflowSvc.NormalizeStatus(targetStatus)
-	}
-
-	// Enforce reason requirement for forced transitions
-	if opts.Force && opts.Reason == "" {
-		return nil, ErrForceReasonRequired
-	}
-
-	// Detect backward transition
-	isBackward, err := s.workflowSvc.IsBackwardTransition(currentStatus, targetStatus)
-	if err != nil {
-		// If forcing, we might be transitioning to a status not in the workflow.
-		// In this case, we can't determine if it's backward, so we assume it's not.
-		if !opts.Force {
-			return nil, fmt.Errorf("could not determine transition direction: %w", err)
-		}
-		isBackward = false
-	}
-	if isBackward && !opts.Force {
-		wf := s.workflowSvc.GetWorkflow()
-		requireReason := wf == nil || wf.RequireRejectionReason
-		if requireReason && opts.Reason == "" {
-			return nil, &BackwardReasonError{FromStatus: currentStatus, ToStatus: targetStatus}
-		}
-	}
-
-	// Perform update
-	epic.Status = models.EpicStatus(targetStatus)
-	if err := s.repo.Update(ctx, epic); err != nil {
-		return nil, fmt.Errorf("failed to update epic status: %w", err)
-	}
-
-	// Log rejection note for backward transitions with reason
-	if (isBackward || opts.Force) && opts.Reason != "" && s.noteRepo != nil {
-		_ = s.noteRepo.CreateRejectionNote(ctx, "epic", epic.ID,
-			0, currentStatus, targetStatus,
-			opts.Reason, opts.Agent, opts.DocumentPath)
-	}
-
-	// Count child features for warning
-	var childCount int
+	// Post-hook: count child features
 	if s.featureRepo != nil {
-		features, listErr := s.featureRepo.ListByEpic(ctx, epic.ID)
+		features, listErr := s.featureRepo.ListByEpic(ctx, result.EntityID)
 		if listErr == nil {
-			childCount = len(features)
+			result.ChildCount = len(features)
 		}
 	}
 
-	action := s.resolveAction(ctx, epic, targetStatus)
-
-	return &TransitionResult{
-		EntityType:         "epic",
-		EntityKey:          epicKey,
-		FromStatus:         currentStatus,
-		ToStatus:           targetStatus,
-		Transitioned:       true,
-		OrchestratorAction: action,
-		IsBackward:         isBackward,
-		IsForced:           opts.Force,
-		Reason:             opts.Reason,
-		ChildCount:         childCount,
-	}, nil
+	return result, nil
 }
 
 // GetNextStatus returns the available transitions for the current status of an epic.
 func (s *EpicService) GetNextStatus(ctx context.Context, epicKey string) (*NextStatusInfo, error) {
-	epic, err := s.repo.GetByKey(ctx, epicKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get epic: %w", err)
+	entityRepo := s.entityRepo
+	if entityRepo == nil {
+		entityRepo = &epicEntityRepoAdapter{repo: s.repo}
 	}
-	if epic == nil {
-		return nil, fmt.Errorf("epic not found: %s", epicKey)
-	}
-
-	currentStatus := string(epic.Status)
-	transitions := s.workflowSvc.GetTransitionInfo(currentStatus)
-	currentMeta := s.workflowSvc.GetStatusMetadata(currentStatus)
-
-	// Wrap transitions with action support
-	wrapped := make([]TransitionInfoWithAction, 0, len(transitions))
-	for _, t := range transitions {
-		wrapped = append(wrapped, TransitionInfoWithAction{
-			TransitionInfo:     t,
-			OrchestratorAction: s.resolveAction(ctx, epic, t.TargetStatus),
-		})
-	}
-
-	return &NextStatusInfo{
-		EntityType:           "epic",
-		EntityKey:            epicKey,
-		CurrentStatus:        currentStatus,
-		CurrentPhase:         currentMeta.Phase,
-		AvailableTransitions: wrapped,
-		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
-	}, nil
+	return s.entitySvc.GetNextStatus(ctx, entityRepo, models.EntityTypeEpic, epicKey,
+		s.makeResolveActionFn(ctx))
 }
 
 // ValidateStatus checks if a status is valid in the epic workflow.
 func (s *EpicService) ValidateStatus(status string) error {
-	return s.workflowSvc.ValidateStatus(status)
+	return s.entitySvc.GetWorkflowService().ValidateStatus(status)
 }
 
-// resolveAction looks up the orchestrator action for a given status in the workflow config.
-// Returns nil if no action is defined for the status, or if the workflow config is nil.
-// Uses EpicPlaceholdersWithRelated if document and relationship repositories are available,
-// otherwise falls back to basic EpicPlaceholders.
-func (s *EpicService) resolveAction(ctx context.Context, epic *models.Epic, status string) *config.PopulatedAction {
-	wf := s.workflowSvc.GetWorkflow()
-	if wf == nil || wf.StatusMetadata == nil {
-		return nil
-	}
-	meta, exists := wf.StatusMetadata[status]
-	if !exists || meta.OrchestratorAction == nil {
-		return nil
-	}
-
-	// Fetch enrichment data (optional, graceful degradation)
-	var enrichment *config.TemplateEnrichmentData
-	if s.enrichRepo != nil {
-		data, err := s.enrichRepo.GetEpicEnrichment(ctx, epic.ID)
-		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for epic %s: %v", epic.Key, err)
-		} else {
-			enrichment = data
+// makeResolveActionFn returns a ResolveActionFn that generates Epic-specific
+// placeholders including enrichment data, related documents, and related epics.
+func (s *EpicService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
+	return func(entity models.Entity, status string) *config.PopulatedAction {
+		epic, ok := entity.(*models.Epic)
+		if !ok {
+			return nil
 		}
-	}
 
-	// Determine which placeholder function to use based on available repositories
-	var placeholders map[string]string
-	if s.docRepo != nil && s.relRepo != nil {
-		// Use the new function that includes related documents and epics
-		placeholders = config.EpicPlaceholdersWithRelated(epic, s.docRepo, s.relRepo, ctx, enrichment)
-	} else {
-		// Fall back to basic placeholders (backward compatible)
-		placeholders = config.EpicPlaceholders(epic)
-		config.ApplyEnrichmentData(enrichment, placeholders)
-	}
+		// Fetch enrichment data (optional, graceful degradation)
+		var enrichment *config.TemplateEnrichmentData
+		if s.enrichRepo != nil {
+			data, err := s.enrichRepo.GetEpicEnrichment(ctx, epic.ID)
+			if err != nil {
+				log.Printf("WARNING: Failed to fetch enrichment data for epic %s: %v", epic.Key, err)
+			} else {
+				enrichment = data
+			}
+		}
 
-	return &config.PopulatedAction{
-		Action:      meta.OrchestratorAction.Action,
-		AgentType:   meta.OrchestratorAction.AgentType,
-		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+		// Determine which placeholder function to use based on available repositories
+		var placeholders map[string]string
+		if s.docRepo != nil && s.relRepo != nil {
+			placeholders = config.EpicPlaceholdersWithRelated(epic, s.docRepo, s.relRepo, ctx, enrichment)
+		} else {
+			placeholders = config.EpicPlaceholders(epic)
+			config.ApplyEnrichmentData(enrichment, placeholders)
+		}
+
+		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}
 }
 
@@ -482,8 +347,13 @@ func (s *EpicService) GetRelatedDocuments(ctx context.Context, epicID int64) ([]
 }
 
 // ListRelatedDocumentsByKey returns the documents associated with an epic identified by key.
-// Degrades gracefully if docRepo is nil (returns empty slice).
+// Delegates to the shared EntityDocumentService if available, otherwise falls back to
+// GetRelatedDocuments. Degrades gracefully if no document repository is configured.
 func (s *EpicService) ListRelatedDocumentsByKey(ctx context.Context, epicKey string) ([]*models.Document, error) {
+	if s.docSvc != nil {
+		return s.docSvc.ListDocumentsByKey(ctx, epicKey)
+	}
+	// Fallback for when only read-only docRepo is set (no writable doc repo)
 	epic, err := s.repo.GetByKey(ctx, epicKey)
 	if err != nil {
 		return nil, fmt.Errorf("epic not found: %w", err)
@@ -558,13 +428,15 @@ func (s *EpicService) CreateEpic(ctx context.Context, input CreateEpicInput) (*m
 	}
 
 	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         strings.TrimSpace(input.Title),
-		Description:   input.Description,
+		BaseEntity: models.BaseEntity{
+			Key:         epicKey,
+			Title:       strings.TrimSpace(input.Title),
+			Description: input.Description,
+			FilePath:    filePath,
+		},
 		Status:        models.EpicStatus(statusStr),
 		Priority:      models.Priority(priorityStr),
 		BusinessValue: businessValue,
-		FilePath:      filePath,
 	}
 
 	if err := epic.Validate(); err != nil {
@@ -986,5 +858,53 @@ func (s *EpicService) resolveEpicFilePath(ctx context.Context, filePath *string,
 		}
 	}
 
+	return nil
+}
+
+// epicEntityRepoAdapter is a fallback adapter that wraps an EpicRepository as an EntityRepository.
+// Used when entityRepo is nil (e.g., in tests that don't set up the full adapter chain).
+type epicEntityRepoAdapter struct {
+	repo EpicRepository
+}
+
+func (a *epicEntityRepoAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	epic, err := a.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if epic == nil {
+		return nil, nil
+	}
+	return epic, nil
+}
+
+func (a *epicEntityRepoAdapter) GetByID(ctx context.Context, id int64) (models.Entity, error) {
+	epic, err := a.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if epic == nil {
+		return nil, nil
+	}
+	return epic, nil
+}
+
+func (a *epicEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
+	return a.repo.UpdateStatus(ctx, id, models.EpicStatus(status))
+}
+
+func (a *epicEntityRepoAdapter) Update(ctx context.Context, entity models.Entity) error {
+	epic, ok := entity.(*models.Epic)
+	if !ok {
+		return fmt.Errorf("epicEntityRepoAdapter: expected *models.Epic, got %T", entity)
+	}
+	return a.repo.Update(ctx, epic)
+}
+
+func (a *epicEntityRepoAdapter) GetContextData(_ context.Context, _ int64) (*string, error) {
+	return nil, nil
+}
+
+func (a *epicEntityRepoAdapter) UpdateContextData(_ context.Context, _ int64, _ *string) error {
 	return nil
 }

@@ -25,14 +25,13 @@ func TestJSONConsistency_CommonEnrichmentFields(t *testing.T) {
 	}
 
 	t.Run("task JSON has common enrichment fields", func(t *testing.T) {
-		task := &models.Task{
-			ID:        1,
-			Key:       "T-E01-F01-001",
-			Title:     "Test task",
-			Status:    "todo",
-			Priority:  5,
+		task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+			Key:   "T-E01-F01-001",
+			Title: "Test task",
+
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			UpdatedAt: time.Now()}, Status: "todo",
+			Priority: 5,
 		}
 
 		result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
@@ -46,14 +45,15 @@ func TestJSONConsistency_CommonEnrichmentFields(t *testing.T) {
 	})
 
 	t.Run("feature JSON has common enrichment fields", func(t *testing.T) {
-		feature := &models.Feature{
-			ID:        1,
-			EpicID:    1,
-			Key:       "E01-F01",
-			Title:     "Test feature",
-			Status:    "active",
+		feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+			Key:   "E01-F01",
+			Title: "Test feature",
+
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			UpdatedAt: time.Now()}, EpicID: 1,
+
+			Status: "active",
 		}
 		data := &FeatureGetData{}
 		result := buildFeatureGetJSON(feature, data, nil)
@@ -67,13 +67,12 @@ func TestJSONConsistency_CommonEnrichmentFields(t *testing.T) {
 	})
 
 	t.Run("epic JSON has common enrichment fields", func(t *testing.T) {
-		epic := &models.Epic{
-			ID:        1,
-			Key:       "E01",
-			Title:     "Test epic",
-			Status:    "active",
+		epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+			Key:   "E01",
+			Title: "Test epic",
+
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			UpdatedAt: time.Now()}, Status: "active",
 		}
 		data := &EpicGetData{}
 		result := buildEpicGetJSON(epic, data, nil)
@@ -94,17 +93,20 @@ func TestJSONConsistency_FeatureMissingModelFields(t *testing.T) {
 	filePath := "docs/plan/E01/E01-F01/E01-F01.md"
 	execOrder := 3
 
-	feature := &models.Feature{
-		ID:             1,
-		EpicID:         1,
-		Key:            "E01-F01",
-		Title:          "Test feature",
-		Slug:           &slug,
-		Status:         "active",
-		FilePath:       &filePath,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+		Key:   "E01-F01",
+		Title: "Test feature",
+		Slug:  &slug,
+
+		FilePath: &filePath,
+
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now()}, EpicID: 1,
+
+		Status: "active",
+
 		ExecutionOrder: &execOrder,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
 	}
 
 	data := &FeatureGetData{
@@ -150,14 +152,16 @@ func TestJSONConsistency_FeatureMissingModelFields(t *testing.T) {
 // TestJSONConsistency_FeatureOmitsNilOptionals verifies that nil optional fields
 // are omitted from feature JSON (matching task builder behavior).
 func TestJSONConsistency_FeatureOmitsNilOptionals(t *testing.T) {
-	feature := &models.Feature{
-		ID:        1,
-		EpicID:    1,
-		Key:       "E01-F01",
-		Title:     "Test feature",
-		Status:    "active",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+		Key:   "E01-F01",
+		Title: "Test feature",
+
 		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		UpdatedAt: time.Now()}, EpicID: 1,
+
+		Status: "active",
+
 		// Slug, FilePath, ExecutionOrder are nil
 	}
 
@@ -178,16 +182,15 @@ func TestJSONConsistency_FieldNaming(t *testing.T) {
 	t.Run("task fields are snake_case", func(t *testing.T) {
 		agentType := "backend"
 		execOrder := 1
-		task := &models.Task{
-			ID:             1,
-			Key:            "T-E01-F01-001",
-			Title:          "Test",
-			Status:         "todo",
+		task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+			Key:   "T-E01-F01-001",
+			Title: "Test",
+
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now()}, Status: "todo",
 			Priority:       5,
 			AgentType:      &agentType,
 			ExecutionOrder: &execOrder,
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
 		}
 		result := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
 		parsed := marshalAndParse(t, result)
@@ -195,14 +198,15 @@ func TestJSONConsistency_FieldNaming(t *testing.T) {
 	})
 
 	t.Run("feature fields are snake_case", func(t *testing.T) {
-		feature := &models.Feature{
-			ID:        1,
-			EpicID:    1,
-			Key:       "E01-F01",
-			Title:     "Test",
-			Status:    "active",
+		feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+			Key:   "E01-F01",
+			Title: "Test",
+
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			UpdatedAt: time.Now()}, EpicID: 1,
+
+			Status: "active",
 		}
 		data := &FeatureGetData{}
 		result := buildFeatureGetJSON(feature, data, nil)
@@ -211,13 +215,12 @@ func TestJSONConsistency_FieldNaming(t *testing.T) {
 	})
 
 	t.Run("epic fields are snake_case", func(t *testing.T) {
-		epic := &models.Epic{
-			ID:        1,
-			Key:       "E01",
-			Title:     "Test",
-			Status:    "active",
+		epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+			Key:   "E01",
+			Title: "Test",
+
 			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			UpdatedAt: time.Now()}, Status: "active",
 		}
 		data := &EpicGetData{}
 		result := buildEpicGetJSON(epic, data, nil)
@@ -237,24 +240,22 @@ func TestJSONConsistency_FieldFlagAccess(t *testing.T) {
 		"notes", "context_data",
 	}
 
-	task := &models.Task{
-		ID: 1, Key: "T-E01-F01-001", Title: "Test",
-		Status: "todo", Priority: 5,
-		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001", Title: "Test",
+
+		CreatedAt: time.Now(), UpdatedAt: time.Now()}, Status: "todo", Priority: 5,
 	}
 	taskJSON := buildTaskGetJSON(task, nil, nil, nil, nil, nil, nil, nil, nil)
 	taskParsed := marshalAndParse(t, taskJSON)
 
-	feature := &models.Feature{
-		ID: 1, EpicID: 1, Key: "E01-F01", Title: "Test",
-		Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", Title: "Test",
+		CreatedAt: time.Now(), UpdatedAt: time.Now()}, EpicID: 1,
+		Status: "active",
 	}
 	featureJSON := buildFeatureGetJSON(feature, &FeatureGetData{}, nil)
 	featureParsed := marshalAndParse(t, featureJSON)
 
-	epic := &models.Epic{
-		ID: 1, Key: "E01", Title: "Test",
-		Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test",
+		CreatedAt: time.Now(), UpdatedAt: time.Now()}, Status: "active",
 	}
 	epicJSON := buildEpicGetJSON(epic, &EpicGetData{}, nil)
 	epicParsed := marshalAndParse(t, epicJSON)
@@ -282,20 +283,21 @@ func TestBuildFeatureGetJSON_FullPopulated(t *testing.T) {
 	execOrder := 2
 	desc := "Feature description"
 
-	feature := &models.Feature{
-		ID:             1,
-		EpicID:         10,
-		Key:            "E01-F01",
-		Title:          "Test Feature",
-		Slug:           &slug,
-		Description:    &desc,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+		Key:         "E01-F01",
+		Title:       "Test Feature",
+		Slug:        &slug,
+		Description: &desc,
+
+		FilePath:  &filePath,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now()}, EpicID: 10,
+
 		Status:         "active",
 		StatusOverride: true,
 		ProgressPct:    65.5,
 		ExecutionOrder: &execOrder,
-		FilePath:       &filePath,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
 	}
 
 	currentStep := "Implementing core logic"
@@ -306,7 +308,7 @@ func TestBuildFeatureGetJSON_FullPopulated(t *testing.T) {
 	}
 
 	data := &FeatureGetData{
-		Tasks:           []*models.Task{{Key: "T-E01-F01-001", Status: "todo"}},
+		Tasks:           []*models.Task{{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001"}, Status: "todo"}},
 		StatusBreakdown: []workflow.StatusCount{{Status: "todo", Count: 1}},
 		DirPath:         "docs/plan/E01/E01-F01",
 		Filename:        "E01-F01.md",
@@ -386,18 +388,17 @@ func TestBuildEpicGetJSON_FullPopulated(t *testing.T) {
 	desc := "Epic description"
 
 	bv := models.PriorityHigh
-	epic := &models.Epic{
-		ID:            1,
-		Key:           "E01",
-		Title:         "Test Epic",
-		Slug:          &slug,
-		Description:   &desc,
-		Status:        "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+		Key:         "E01",
+		Title:       "Test Epic",
+		Slug:        &slug,
+		Description: &desc,
+
+		FilePath:  &filePath,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now()}, Status: "active",
 		Priority:      models.PriorityHigh,
 		BusinessValue: &bv,
-		FilePath:      &filePath,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
 	}
 
 	data := &EpicGetData{

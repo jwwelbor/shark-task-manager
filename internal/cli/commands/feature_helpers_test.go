@@ -25,9 +25,7 @@ func TestBuildFeaturePlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-planningBasicInfo-001: Minimal feature returns Title, Epic ID, Status",
 			info: &services.FeatureDisplayInfo{
-				Feature: &models.Feature{
-					Title:  "Auth Feature",
-					EpicID: 7,
+				Feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Auth Feature"}, EpicID: 7,
 					Status: models.FeatureStatusActive,
 				},
 			},
@@ -36,11 +34,10 @@ func TestBuildFeaturePlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-planningBasicInfo-002: Feature with phase and description includes all fields",
 			info: &services.FeatureDisplayInfo{
-				Feature: &models.Feature{
-					Title:       "Auth Feature",
-					EpicID:      7,
-					Status:      models.FeatureStatusDraft,
-					Description: &desc,
+				Feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Auth Feature",
+
+					Description: &desc}, EpicID: 7,
+					Status: models.FeatureStatusDraft,
 				},
 				Phase:            "development",
 				PhaseDescription: "Active development phase",
@@ -51,9 +48,7 @@ func TestBuildFeaturePlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-planningBasicInfo-003: Empty optional fields are omitted",
 			info: &services.FeatureDisplayInfo{
-				Feature: &models.Feature{
-					Title:  "Simple Feature",
-					EpicID: 1,
+				Feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Simple Feature"}, EpicID: 1,
 					Status: models.FeatureStatusDraft,
 				},
 				Phase:            "",
@@ -65,11 +60,10 @@ func TestBuildFeaturePlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-planningBasicInfo-004: Nil description is omitted",
 			info: &services.FeatureDisplayInfo{
-				Feature: &models.Feature{
-					Title:       "No Desc Feature",
-					EpicID:      3,
-					Status:      models.FeatureStatusActive,
-					Description: nil,
+				Feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "No Desc Feature",
+
+					Description: nil}, EpicID: 3,
+					Status: models.FeatureStatusActive,
 				},
 			},
 			wantKeys: []string{"Title", "Epic ID", "Status"},
@@ -77,11 +71,10 @@ func TestBuildFeaturePlanningBasicInfo(t *testing.T) {
 		{
 			name: "TC-planningBasicInfo-005: Empty string description is omitted",
 			info: &services.FeatureDisplayInfo{
-				Feature: &models.Feature{
-					Title:       "Empty Desc Feature",
-					EpicID:      3,
-					Status:      models.FeatureStatusActive,
-					Description: strPtr(""),
+				Feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Empty Desc Feature",
+
+					Description: strPtr("")}, EpicID: 3,
+					Status: models.FeatureStatusActive,
 				},
 			},
 			wantKeys: []string{"Title", "Epic ID", "Status"},
@@ -120,11 +113,10 @@ func TestBuildFeaturePlanningBasicInfo(t *testing.T) {
 func TestBuildFeaturePlanningBasicInfo_Values(t *testing.T) {
 	desc := "Test description"
 	info := &services.FeatureDisplayInfo{
-		Feature: &models.Feature{
-			Title:       "User Auth",
-			EpicID:      7,
-			Status:      models.FeatureStatusActive,
-			Description: &desc,
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "User Auth",
+
+			Description: &desc}, EpicID: 7,
+			Status: models.FeatureStatusActive,
 		},
 		Phase:        "development",
 		ResolvedPath: "docs/plan/E07/E07-F01",
@@ -160,9 +152,7 @@ func TestBuildFeatureBasicInfo(t *testing.T) {
 	}{
 		{
 			name: "TC-featureBasicInfo-001: Minimal feature returns Title, Epic ID, Status, Progress",
-			feature: &models.Feature{
-				Title:       "Auth Feature",
-				EpicID:      7,
+			feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Auth Feature"}, EpicID: 7,
 				Status:      models.FeatureStatusActive,
 				ProgressPct: 50.0,
 			},
@@ -175,12 +165,11 @@ func TestBuildFeatureBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-featureBasicInfo-002: Feature with all optional fields",
-			feature: &models.Feature{
-				Title:       "Full Feature",
-				EpicID:      7,
+			feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Full Feature",
+
+				Description: &desc}, EpicID: 7,
 				Status:      models.FeatureStatusActive,
 				ProgressPct: 75.0,
-				Description: &desc,
 			},
 			data: &FeatureGetData{
 				DirPath:  "docs/plan/E07/E07-F01",
@@ -193,9 +182,7 @@ func TestBuildFeatureBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-featureBasicInfo-003: Status override shows '(manual override)' suffix",
-			feature: &models.Feature{
-				Title:          "Override Feature",
-				EpicID:         5,
+			feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Override Feature"}, EpicID: 5,
 				Status:         models.FeatureStatusCompleted,
 				StatusOverride: true,
 				ProgressPct:    100.0,
@@ -209,9 +196,7 @@ func TestBuildFeatureBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-featureBasicInfo-004: Nil ProgressInfo falls back to feature.ProgressPct",
-			feature: &models.Feature{
-				Title:       "Fallback Feature",
-				EpicID:      2,
+			feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Fallback Feature"}, EpicID: 2,
 				Status:      models.FeatureStatusActive,
 				ProgressPct: 42.0,
 			},
@@ -222,22 +207,20 @@ func TestBuildFeatureBasicInfo(t *testing.T) {
 		},
 		{
 			name: "TC-featureBasicInfo-005: Nil description is omitted",
-			feature: &models.Feature{
-				Title:       "No Desc",
-				EpicID:      1,
-				Status:      models.FeatureStatusDraft,
-				Description: nil,
+			feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "No Desc",
+
+				Description: nil}, EpicID: 1,
+				Status: models.FeatureStatusDraft,
 			},
 			data:     &FeatureGetData{},
 			wantKeys: []string{"Title", "Epic ID", "Status", "Progress"},
 		},
 		{
 			name: "TC-featureBasicInfo-006: Empty string description is omitted",
-			feature: &models.Feature{
-				Title:       "Empty Desc",
-				EpicID:      1,
-				Status:      models.FeatureStatusDraft,
-				Description: strPtr(""),
+			feature: &models.Feature{BaseEntity: models.BaseEntity{Title: "Empty Desc",
+
+				Description: strPtr("")}, EpicID: 1,
+				Status: models.FeatureStatusDraft,
 			},
 			data:     &FeatureGetData{},
 			wantKeys: []string{"Title", "Epic ID", "Status", "Progress"},
@@ -278,9 +261,7 @@ func TestBuildFeatureBasicInfo_Values(t *testing.T) {
 	cli.GlobalConfig.NoColor = true
 
 	t.Run("calculated status shows (calculated) suffix", func(t *testing.T) {
-		feature := &models.Feature{
-			Title:          "Test Feature",
-			EpicID:         7,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Title: "Test Feature"}, EpicID: 7,
 			Status:         models.FeatureStatusActive,
 			StatusOverride: false,
 			ProgressPct:    50.0,
@@ -294,9 +275,7 @@ func TestBuildFeatureBasicInfo_Values(t *testing.T) {
 	})
 
 	t.Run("manual override shows (manual override) suffix", func(t *testing.T) {
-		feature := &models.Feature{
-			Title:          "Override Feature",
-			EpicID:         7,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Title: "Override Feature"}, EpicID: 7,
 			Status:         models.FeatureStatusCompleted,
 			StatusOverride: true,
 			ProgressPct:    100.0,
@@ -310,9 +289,7 @@ func TestBuildFeatureBasicInfo_Values(t *testing.T) {
 	})
 
 	t.Run("weighted progress is used when ProgressInfo available", func(t *testing.T) {
-		feature := &models.Feature{
-			Title:       "Progress Feature",
-			EpicID:      7,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Title: "Progress Feature"}, EpicID: 7,
 			Status:      models.FeatureStatusActive,
 			ProgressPct: 50.0,
 		}
@@ -325,9 +302,7 @@ func TestBuildFeatureBasicInfo_Values(t *testing.T) {
 	})
 
 	t.Run("feature ProgressPct used as fallback when ProgressInfo nil", func(t *testing.T) {
-		feature := &models.Feature{
-			Title:       "Fallback Feature",
-			EpicID:      7,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Title: "Fallback Feature"}, EpicID: 7,
 			Status:      models.FeatureStatusActive,
 			ProgressPct: 42.0,
 		}
@@ -769,9 +744,9 @@ func TestFilterFeaturesByCompletedStatus(t *testing.T) {
 func TestSortFeatures(t *testing.T) {
 	t.Run("sort by key", func(t *testing.T) {
 		features := []FeatureWithTaskCount{
-			{Feature: &models.Feature{Key: "E07-F03"}},
-			{Feature: &models.Feature{Key: "E07-F01"}},
-			{Feature: &models.Feature{Key: "E07-F02"}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F03"}}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01"}}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02"}}},
 		}
 		sortFeatures(features, "key")
 		if features[0].Key != "E07-F01" || features[1].Key != "E07-F02" || features[2].Key != "E07-F03" {
@@ -781,9 +756,9 @@ func TestSortFeatures(t *testing.T) {
 
 	t.Run("sort by progress", func(t *testing.T) {
 		features := []FeatureWithTaskCount{
-			{Feature: &models.Feature{Key: "E07-F01", ProgressPct: 80.0}},
-			{Feature: &models.Feature{Key: "E07-F02", ProgressPct: 20.0}},
-			{Feature: &models.Feature{Key: "E07-F03", ProgressPct: 50.0}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01"}, ProgressPct: 80.0}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02"}, ProgressPct: 20.0}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F03"}, ProgressPct: 50.0}},
 		}
 		sortFeatures(features, "progress")
 		if features[0].ProgressPct != 20.0 || features[1].ProgressPct != 50.0 || features[2].ProgressPct != 80.0 {
@@ -794,9 +769,9 @@ func TestSortFeatures(t *testing.T) {
 
 	t.Run("sort by status", func(t *testing.T) {
 		features := []FeatureWithTaskCount{
-			{Feature: &models.Feature{Key: "E07-F01", Status: models.FeatureStatusCompleted}},
-			{Feature: &models.Feature{Key: "E07-F02", Status: models.FeatureStatusDraft}},
-			{Feature: &models.Feature{Key: "E07-F03", Status: models.FeatureStatusActive}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01"}, Status: models.FeatureStatusCompleted}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F02"}, Status: models.FeatureStatusDraft}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F03"}, Status: models.FeatureStatusActive}},
 		}
 		sortFeatures(features, "status")
 		if features[0].Status != models.FeatureStatusDraft ||
@@ -809,8 +784,8 @@ func TestSortFeatures(t *testing.T) {
 
 	t.Run("default sort is by key", func(t *testing.T) {
 		features := []FeatureWithTaskCount{
-			{Feature: &models.Feature{Key: "E07-F03"}},
-			{Feature: &models.Feature{Key: "E07-F01"}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F03"}}},
+			{Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01"}}},
 		}
 		sortFeatures(features, "")
 		if features[0].Key != "E07-F01" {

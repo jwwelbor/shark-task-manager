@@ -36,16 +36,18 @@ func main() {
 	epicRepo := repository.NewEpicRepository(repoDb)
 	featureRepo := repository.NewFeatureRepository(repoDb)
 	taskRepo := repository.NewTaskRepository(repoDb)
-	historyRepo := repository.NewTaskHistoryRepository(repoDb)
+	historyRepo := repository.NewTaskHistoryRepository(repoDb) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 
 	// Test Epic CRUD
 	fmt.Println("\n--- Testing Epic CRUD ---")
 
 	businessValue := models.PriorityHigh
 	epic := &models.Epic{
-		Key:           "E04",
-		Title:         "Task Management CLI - Core Functionality",
-		Description:   strPtr("Complete database schema and repositories"),
+		BaseEntity: models.BaseEntity{
+			Key:         "E04",
+			Title:       "Task Management CLI - Core Functionality",
+			Description: strPtr("Complete database schema and repositories"),
+		},
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &businessValue,
@@ -65,11 +67,10 @@ func main() {
 	// Test Feature CRUD
 	fmt.Println("\n--- Testing Feature CRUD ---")
 
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E04-F01",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E04-F01",
 		Title:       "Database Schema & Core Data Model",
-		Description: strPtr("SQLite database with epics, features, tasks, and history"),
+		Description: strPtr("SQLite database with epics, features, tasks, and history")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -83,15 +84,14 @@ func main() {
 	fmt.Println("\n--- Testing Task CRUD ---")
 
 	agentType := "backend"
-	task := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         "T-E04-F01-001",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E04-F01-001",
 		Title:       "Create ORM Models",
-		Description: strPtr("Define Epic, Feature, Task, TaskHistory models"),
-		Status:      models.TaskStatus("todo"),
-		AgentType:   &agentType,
-		Priority:    3,
-		DependsOn:   strPtr("[]"),
+		Description: strPtr("Define Epic, Feature, Task, TaskHistory models")}, FeatureID: feature.ID,
+
+		Status:    models.TaskStatus("todo"),
+		AgentType: &agentType,
+		Priority:  3,
+		DependsOn: strPtr("[]"),
 	}
 
 	if err := taskRepo.Create(ctx, task); err != nil {
@@ -119,7 +119,7 @@ func main() {
 	// Test Task History
 	fmt.Println("\n--- Testing Task History ---")
 
-	history, err := historyRepo.ListByTask(ctx, task.ID)
+	history, err := historyRepo.ListByTask(ctx, task.ID) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	if err != nil {
 		log.Fatal("Failed to list task history:", err)
 	}
@@ -133,7 +133,8 @@ func main() {
 	fmt.Println("\n--- Testing Progress Calculation ---")
 
 	workflowSvc := workflow.NewService(".")
-	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, epicRepo)
+	entitySvc := services.NewEntityService(workflowSvc)
+	featureSvc := services.NewFeatureService(featureRepo, entitySvc, nil, taskRepo, epicRepo)
 
 	progressInfo, err := featureSvc.GetProgress(ctx, feature.Key)
 	if err != nil {
@@ -157,7 +158,7 @@ func main() {
 	fmt.Printf("✓ Feature progress updated: %.1f%% (1/1 tasks completed)\n", updatedFeature.ProgressPct)
 
 	// Test Epic Progress Calculation via service layer
-	epicSvc := services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo, taskRepo)
+	epicSvc := services.NewEpicService(epicRepo, entitySvc, nil, featureRepo, taskRepo)
 	epicProgressInfo, err := epicSvc.GetProgress(ctx, epic.Key)
 	if err != nil {
 		log.Fatal("Failed to calculate epic progress:", err)

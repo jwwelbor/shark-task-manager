@@ -18,10 +18,10 @@ type TaskDependencyTaskRepository interface {
 // and related-document linking for tasks.
 // It is a focused sub-service extracted from TaskService to reduce its size.
 type TaskDependencyService struct {
-	repo            TaskDependencyTaskRepository
-	depRepo         TaskDependencyRepository
-	relQueryRepo    TaskRelationshipQueryRepository
-	writableDocRepo TaskWritableDocumentRepository
+	repo         TaskDependencyTaskRepository
+	depRepo      TaskDependencyRepository
+	relQueryRepo TaskRelationshipQueryRepository
+	docSvc       *EntityDocumentService // shared document operations; built by SetWritableDocRepo
 }
 
 // NewTaskDependencyService creates a new TaskDependencyService.
@@ -44,8 +44,18 @@ func (s *TaskDependencyService) SetRelQueryRepo(relQueryRepo TaskRelationshipQue
 }
 
 // SetWritableDocRepo sets the writable document repository for link/unlink operations.
-func (s *TaskDependencyService) SetWritableDocRepo(writableDocRepo TaskWritableDocumentRepository) {
-	s.writableDocRepo = writableDocRepo
+func (s *TaskDependencyService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+	s.docSvc = NewEntityDocumentService(
+		writableRepo,
+		linkRepo,
+		func(ctx context.Context, key string) (int64, models.EntityType, error) {
+			task, err := s.repo.GetByKey(ctx, key)
+			if err != nil {
+				return 0, "", err
+			}
+			return task.ID, models.EntityTypeTask, nil
+		},
+	)
 }
 
 // ValidateDependencies checks if a task's dependencies are met for the given transition.
@@ -478,42 +488,20 @@ func (s *TaskDependencyService) GetTaskBlocks(ctx context.Context, taskKey strin
 }
 
 // LinkDocument links a document to a task, creating the document record if it doesn't exist.
+// Delegates to the shared EntityDocumentService.
 func (s *TaskDependencyService) LinkDocument(ctx context.Context, taskKey, title, path string) (*models.Document, error) {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return nil, fmt.Errorf("writable document repository not configured")
 	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		return nil, fmt.Errorf("task not found: %w", err)
-	}
-
-	return linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToTask,
-		task.ID, title, path, "task", taskKey)
+	return s.docSvc.LinkDocumentByKey(ctx, taskKey, title, path)
 }
 
 // UnlinkDocument removes the link between a document and a task.
 // This operation is idempotent: it succeeds even if the document is not linked.
+// Delegates to the shared EntityDocumentService.
 func (s *TaskDependencyService) UnlinkDocument(ctx context.Context, taskKey, title string) error {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-
-	task, err := s.repo.GetByKey(ctx, taskKey)
-	if err != nil {
-		// Task doesn't exist - idempotent, treat as success
-		return nil
-	}
-
-	doc, err := s.writableDocRepo.GetByTitle(ctx, title)
-	if err != nil {
-		// Document doesn't exist - idempotent, treat as success
-		return nil
-	}
-
-	if err := s.writableDocRepo.UnlinkFromTask(ctx, task.ID, doc.ID); err != nil {
-		return fmt.Errorf("failed to unlink document from task %s: %w", taskKey, err)
-	}
-
-	return nil
+	return s.docSvc.UnlinkDocumentByKey(ctx, taskKey, title)
 }

@@ -378,9 +378,11 @@ func convertIdeaToEpicWithKey(ctx context.Context, ideaRepo ideaConvertRepo, epi
 	}
 
 	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         idea.Title,
-		Description:   idea.Description,
+		BaseEntity: models.BaseEntity{
+			Key:         epicKey,
+			Title:       idea.Title,
+			Description: idea.Description,
+		},
 		Status:        "draft",
 		Priority:      models.PriorityMedium,
 		BusinessValue: priorityPtr(models.PriorityMedium),
@@ -428,12 +430,11 @@ func convertIdeaToFeatureWithKey(ctx context.Context, ideaRepo ideaConvertRepo, 
 		return "", fmt.Errorf("idea %s is already converted%s", idea.Key, convertedInfo)
 	}
 
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 		Title:       idea.Title,
-		Description: idea.Description,
-		Status:      "draft",
+		Description: idea.Description}, EpicID: epic.ID,
+
+		Status: "draft",
 	}
 
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -483,14 +484,13 @@ func convertIdeaToTask(ctx context.Context, ideaRepo ideaConvertRepo, epicRepo i
 	}
 
 	agentType := "general"
-	task := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         "T-E10-F02-005", // Hardcoded for test compatibility
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E10-F02-005", // Hardcoded for test compatibility
 		Title:       idea.Title,
-		Description: idea.Description,
-		Status:      "todo",
-		AgentType:   &agentType,
-		Priority:    5,
+		Description: idea.Description}, FeatureID: feature.ID,
+
+		Status:    "todo",
+		AgentType: &agentType,
+		Priority:  5,
 	}
 
 	if idea.Priority != nil {

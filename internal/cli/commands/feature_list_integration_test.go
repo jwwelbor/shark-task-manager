@@ -123,10 +123,8 @@ func TestFeatureListQueryWithDatabase(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id IN (SELECT id FROM epics WHERE key = ?)", testEpicKey)
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", testEpicKey)
 
-	epic := &models.Epic{
-		Key:           testEpicKey,
-		Title:         "Feature List Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: testEpicKey,
+		Title: "Feature List Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: ptrPriority(models.PriorityHigh),
 	}
@@ -144,12 +142,14 @@ func TestFeatureListQueryWithDatabase(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		filePath := fmt.Sprintf("docs/plan/%s/F%02d/feature.md", testEpicKey, i)
 		execOrder := i
-		feature := &models.Feature{
-			Key:            fmt.Sprintf("%s-F%02d", testEpicKey, i),
-			EpicID:         createdEpic.ID,
-			Title:          fmt.Sprintf("Test Feature %d", i),
-			Status:         models.FeatureStatusDraft,
-			FilePath:       &filePath,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F%02d", testEpicKey, i),
+
+			Title: fmt.Sprintf("Test Feature %d", i),
+
+			FilePath: &filePath}, EpicID: createdEpic.ID,
+
+			Status: models.FeatureStatusDraft,
+
 			ExecutionOrder: &execOrder,
 		}
 		if err := featureRepo.Create(ctx, feature); err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -42,8 +43,9 @@ type TransitionOptions struct {
 
 // TransitionResult represents the outcome of a status transition.
 type TransitionResult struct {
-	EntityType         string                  `json:"entity_type"` // "epic", "feature", "task"
+	EntityType         models.EntityType       `json:"entity_type"` // "epic", "feature", "task"
 	EntityKey          string                  `json:"entity_key"`
+	EntityID           int64                   `json:"entity_id,omitempty"`
 	FromStatus         string                  `json:"from_status"`
 	ToStatus           string                  `json:"to_status"`
 	Transitioned       bool                    `json:"transitioned"`
@@ -64,7 +66,7 @@ type TransitionInfoWithAction struct {
 
 // NextStatusInfo contains the available transitions for an entity.
 type NextStatusInfo struct {
-	EntityType           string                     `json:"entity_type"`
+	EntityType           models.EntityType          `json:"entity_type"`
 	EntityKey            string                     `json:"entity_key"`
 	CurrentStatus        string                     `json:"current_status"`
 	CurrentPhase         string                     `json:"current_phase,omitempty"`

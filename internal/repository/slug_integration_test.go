@@ -31,10 +31,8 @@ func TestSlugStorage_AllEntities(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	t.Run("Epic slug storage", func(t *testing.T) {
-		epic := &models.Epic{
-			Key:      "E99",
-			Title:    "Test Epic for Slug Validation",
-			Status:   "active",
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+			Title: "Test Epic for Slug Validation"}, Status: "active",
 			Priority: "high",
 		}
 
@@ -62,19 +60,16 @@ func TestSlugStorage_AllEntities(t *testing.T) {
 
 	t.Run("Feature slug storage", func(t *testing.T) {
 		// Create parent epic first
-		epic := &models.Epic{
-			Key:      "E99",
-			Title:    "Parent Epic",
-			Status:   "active",
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+			Title: "Parent Epic"}, Status: "active",
 			Priority: "high",
 		}
 		err := epicRepo.Create(ctx, epic)
 		require.NoError(t, err)
 
-		feature := &models.Feature{
-			EpicID: epic.ID,
-			Key:    "E99-F01",
-			Title:  "Test Feature with Special Characters: API & UI!",
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+			Title: "Test Feature with Special Characters: API & UI!"}, EpicID: epic.ID,
+
 			Status: "active",
 		}
 
@@ -108,29 +103,25 @@ func TestSlugStorage_AllEntities(t *testing.T) {
 
 	t.Run("Task slug storage", func(t *testing.T) {
 		// Create parent epic and feature
-		epic := &models.Epic{
-			Key:      "E99",
-			Title:    "Parent Epic",
-			Status:   "active",
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+			Title: "Parent Epic"}, Status: "active",
 			Priority: "high",
 		}
 		err := epicRepo.Create(ctx, epic)
 		require.NoError(t, err)
 
-		feature := &models.Feature{
-			EpicID: epic.ID,
-			Key:    "E99-F01",
-			Title:  "Parent Feature",
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+			Title: "Parent Feature"}, EpicID: epic.ID,
+
 			Status: "active",
 		}
 		err = featureRepo.Create(ctx, feature)
 		require.NoError(t, err)
 
 		backendAgent := "backend"
-		task := &models.Task{
-			FeatureID: feature.ID,
-			Key:       "T-E99-F99-001",
-			Title:     "Implement user authentication with OAuth2",
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-001",
+			Title: "Implement user authentication with OAuth2"}, FeatureID: feature.ID,
+
 			Status:    "todo",
 			AgentType: &backendAgent,
 			Priority:  5,
@@ -187,29 +178,26 @@ func TestSlugStorage_EmptyTitle(t *testing.T) {
 
 	t.Run("Task with special-chars-only title gets empty slug", func(t *testing.T) {
 		// Create parent epic and feature
-		epic := &models.Epic{
-			Key:      "E99",
-			Title:    "Parent Epic",
-			Status:   "active",
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+			Title: "Parent Epic"}, Status: "active",
 			Priority: "high",
 		}
 		err := epicRepo.Create(ctx, epic)
 		require.NoError(t, err)
 
-		feature := &models.Feature{
-			EpicID: epic.ID,
-			Key:    "E99-F01",
-			Title:  "Parent Feature",
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+			Title: "Parent Feature"}, EpicID: epic.ID,
+
 			Status: "active",
 		}
 		err = featureRepo.Create(ctx, feature)
 		require.NoError(t, err)
 
 		generalAgent := "general"
-		task := &models.Task{
-			FeatureID: feature.ID,
-			Key:       "T-E99-F99-999",
-			Title:     "!@#$%^&*()", // Only special characters
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-999",
+			Title: "!@#$%^&*()"}, FeatureID: feature.ID,
+
+			// Only special characters
 			Status:    "todo",
 			AgentType: &generalAgent,
 			Priority:  5,
@@ -258,9 +246,8 @@ func TestSlugStorage_UnicodeHandling(t *testing.T) {
 	epicRepo := NewEpicRepository(db)
 
 	t.Run("Epic with unicode characters normalizes correctly", func(t *testing.T) {
-		epic := &models.Epic{
-			Key:      "E99",
-			Title:    "Améliorer la sécurité avec façade", // French with accents
+		epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+			Title: "Améliorer la sécurité avec façade"}, // French with accents
 			Status:   "active",
 			Priority: "high",
 		}
@@ -299,18 +286,16 @@ func TestSlugStorage_Uniqueness(t *testing.T) {
 	epicRepo := NewEpicRepository(db)
 
 	t.Run("Multiple epics can have same slug", func(t *testing.T) {
-		epic1 := &models.Epic{
-			Key:      "E98",
-			Title:    "User Authentication", // Same title -> same slug
+		epic1 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+			Title: "User Authentication"}, // Same title -> same slug
 			Status:   "active",
 			Priority: "high",
 		}
 		err := epicRepo.Create(ctx, epic1)
 		require.NoError(t, err)
 
-		epic2 := &models.Epic{
-			Key:      "E97",
-			Title:    "User Authentication", // Same title -> same slug
+		epic2 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+			Title: "User Authentication"}, // Same title -> same slug
 			Status:   "active",
 			Priority: "high",
 		}
@@ -344,29 +329,25 @@ func TestSlugStorage_Retrieval(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 
 	// Setup: Create epic -> feature -> task hierarchy
-	epic := &models.Epic{
-		Key:      "E99",
-		Title:    "Core Infrastructure",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Core Infrastructure"}, Status: "active",
 		Priority: "high",
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E99-F01",
-		Title:  "Database Optimization",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Database Optimization"}, EpicID: epic.ID,
+
 		Status: "active",
 	}
 	err = featureRepo.Create(ctx, feature)
 	require.NoError(t, err)
 
 	backendAgent := "backend"
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F01-001",
-		Title:     "Add database indexes for performance",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F01-001",
+		Title: "Add database indexes for performance"}, FeatureID: feature.ID,
+
 		Status:    "todo",
 		AgentType: &backendAgent,
 		Priority:  8,

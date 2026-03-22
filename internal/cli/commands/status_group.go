@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
@@ -122,20 +123,28 @@ Examples:
 	RunE: runStatusTransitions,
 }
 
-// statusHistoryCmd shows task status change history.
+// statusHistoryCmd shows entity status change history.
 var statusHistoryCmd = &cobra.Command{
-	Use:   "history <task-key>",
-	Short: "Show task status change history",
-	Long: `Show the status change history for a task. Only tasks have history records;
-epics and features do not track status change history.
+	Use:   "history <key>",
+	Short: "Show entity status change history",
+	Long: `Show the status change history for any entity type. Entity type is auto-detected
+from the key format.
 
 Key Formats:
+  E07                Epic
+  E07-F01            Feature
   E07-F01-001        Task (short format)
   T-E07-F01-001      Task (traditional format)
+  B001               Bug
+  CC-001             Change Card
 
 Examples:
+  shark status history E07                      Show epic history
+  shark status history E07-F01                  Show feature history
   shark status history E07-F01-001              Show task history
-  shark status history E07-F01-001 --limit=10   Show last 10 changes
+  shark status history B001                     Show bug history
+  shark status history CC-001                   Show change-card history
+  shark status history E07-F01 --limit=10       Show last 10 changes
   shark status history E07-F01-001 --json       JSON output`,
 	Args: cobra.ExactArgs(1),
 	RunE: runStatusHistory,
@@ -183,27 +192,18 @@ func dispatchTransition(ctx context.Context, entityType, key, targetStatus strin
 			IsForced:     opts.Force,
 			Reason:       opts.Reason,
 		}, nil
-	case "change":
-		card, err := getChangeCardService().SetChangeCardStatus(ctx, key, targetStatus)
+	case "change", "change_card":
+		card, err := getChangeCardService().SetChangeCardStatus(ctx, key, targetStatus, opts.Force)
 		if err != nil {
 			return nil, err
 		}
 		return &services.TransitionResult{
-			EntityType:   "change",
+			EntityType:   models.EntityType(entityType),
 			EntityKey:    card.Key,
 			ToStatus:     string(card.Status),
 			Transitioned: true,
-		}, nil
-	case "change_card":
-		card, err := cli.GetChangeCardService().SetChangeCardStatus(ctx, key, targetStatus)
-		if err != nil {
-			return nil, err
-		}
-		return &services.TransitionResult{
-			EntityType:   "change_card",
-			EntityKey:    card.Key,
-			ToStatus:     string(card.Status),
-			Transitioned: true,
+			IsForced:     opts.Force,
+			Reason:       opts.Reason,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
@@ -230,24 +230,13 @@ func dispatchNextStatus(ctx context.Context, entityType, key string) (*services.
 			CurrentStatus:        string(bug.Status),
 			AvailableTransitions: nil,
 		}, nil
-	case "change":
+	case "change", "change_card":
 		card, err := getChangeCardService().GetChangeCard(ctx, key)
 		if err != nil {
 			return nil, err
 		}
 		return &services.NextStatusInfo{
-			EntityType:           "change",
-			EntityKey:            card.Key,
-			CurrentStatus:        string(card.Status),
-			AvailableTransitions: nil,
-		}, nil
-	case "change_card":
-		card, err := cli.GetChangeCardService().GetChangeCard(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		return &services.NextStatusInfo{
-			EntityType:           "change_card",
+			EntityType:           models.EntityType(entityType),
 			EntityKey:            card.Key,
 			CurrentStatus:        string(card.Status),
 			AvailableTransitions: nil,
@@ -376,24 +365,13 @@ func dispatchAdvance(ctx context.Context, entityType, key string) (*services.Tra
 			ToStatus:     string(bug.Status),
 			Transitioned: true,
 		}, nil
-	case "change":
+	case "change", "change_card":
 		card, err := getChangeCardService().AdvanceChangeCardStatus(ctx, key)
 		if err != nil {
 			return nil, err
 		}
 		return &services.TransitionResult{
-			EntityType:   "change",
-			EntityKey:    card.Key,
-			ToStatus:     string(card.Status),
-			Transitioned: true,
-		}, nil
-	case "change_card":
-		card, err := cli.GetChangeCardService().AdvanceChangeCardStatus(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		return &services.TransitionResult{
-			EntityType:   "change_card",
+			EntityType:   models.EntityType(entityType),
 			EntityKey:    card.Key,
 			ToStatus:     string(card.Status),
 			Transitioned: true,
@@ -551,43 +529,40 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid key format: %w", err)
 	}
 
-	// Step 2: Validate entity type - only tasks have history
-	if entityType != "task" {
-		cli.Error(fmt.Sprintf("Status history is only available for tasks, not %ss", entityType))
-		cli.Info("Use 'shark status transitions <key>' to see available transitions for any entity type")
-		os.Exit(3)
+	// Step 2: Normalize entity type (ADR-1: change_card -> change)
+	if entityType == "change_card" {
+		entityType = "change"
 	}
 
 	limit, _ := cmd.Flags().GetInt("limit")
 
-	// Step 3: Get task history
-	taskSvc := cli.GetTaskServiceWithHistory()
-	history, err := taskSvc.GetTaskHistory(ctx, key)
+	// Step 3: Get history via EntityHistoryService
+	svc := cli.GetEntityHistoryService()
+	history, err := svc.GetHistory(ctx, models.EntityType(entityType), key)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			cli.Error(fmt.Sprintf("Task %s not found", key))
+			cli.Error(fmt.Sprintf("%s %s not found", displayEntityTypeName(entityType), key))
 			os.Exit(1)
 		}
-		return fmt.Errorf("failed to get task history: %w", err)
+		return fmt.Errorf("failed to get status history: %w", err)
 	}
 
-	// Apply limit
+	// Step 4: Apply limit (keep most recent entries; history is ordered DESC)
 	if limit > 0 && len(history) > limit {
-		history = history[len(history)-limit:]
+		history = history[:limit]
 	}
 
-	// Step 4: Build result
 	entries := make([]StatusHistoryEntry, 0, len(history))
 	for _, h := range history {
 		entry := StatusHistoryEntry{
-			Timestamp: h.Timestamp.Format(time.RFC3339),
-			NewStatus: h.NewStatus,
+			Timestamp: h.ChangedAt.Format(time.RFC3339),
+			NewStatus: h.ToStatus,
 		}
-		if h.OldStatus != nil {
-			entry.OldStatus = *h.OldStatus
+		if h.FromStatus != nil {
+			entry.OldStatus = *h.FromStatus
 		}
-		if h.Agent != nil {
-			entry.Agent = *h.Agent
+		if h.ChangedBy != nil {
+			entry.Agent = *h.ChangedBy
 		}
 		if h.Notes != nil {
 			entry.Notes = *h.Notes
@@ -608,11 +583,11 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(entries) == 0 {
-		cli.Info(fmt.Sprintf("No status history found for task %s", key))
+		cli.Info(fmt.Sprintf("No status history found for %s %s", displayEntityTypeName(entityType), key))
 		return nil
 	}
 
-	fmt.Printf("\nStatus History for %s (%d entries)\n", key, len(entries))
+	fmt.Printf("\nStatus History for %s %s (%d entries)\n", displayEntityTypeName(entityType), key, len(entries))
 	fmt.Println(strings.Repeat("-", 80))
 
 	headers := []string{"Timestamp", "Old Status", "New Status", "Agent", "Notes"}

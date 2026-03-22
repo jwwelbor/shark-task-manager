@@ -47,9 +47,8 @@ func TestService_GetFilePath_Epic(t *testing.T) {
 	filePath := "docs/plan/E01-epic-name/epic.md"
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:      "E01",
-				FilePath: &filePath,
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+				FilePath: &filePath},
 			}, nil
 		},
 	}
@@ -76,9 +75,8 @@ func TestService_GetFilePath_Feature(t *testing.T) {
 	filePath := "docs/plan/E01-epic-name/E01-F01-feature-name/feature.md"
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				Key:      "E01-F01",
-				FilePath: &filePath,
+			return &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+				FilePath: &filePath},
 			}, nil
 		},
 	}
@@ -105,9 +103,8 @@ func TestService_GetFilePath_Task(t *testing.T) {
 	filePath := "docs/plan/E01-epic-name/E01-F01-feature-name/T-E01-F01-001.md"
 	mockTaskRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				Key:      "T-E01-F01-001",
-				FilePath: &filePath,
+			return &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+				FilePath: &filePath},
 			}, nil
 		},
 	}
@@ -154,9 +151,8 @@ func TestService_GetFilePath_EmptyFilePath(t *testing.T) {
 	emptyPath := ""
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:      "E01",
-				FilePath: &emptyPath, // Empty file path
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+				FilePath: &emptyPath}, // Empty file path
 			}, nil
 		},
 	}
@@ -177,9 +173,8 @@ func TestService_GetFilePath_EmptyFilePath(t *testing.T) {
 func TestService_GetFilePath_NilFilePath(t *testing.T) {
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				Key:      "E01",
-				FilePath: nil, // Nil file path
+			return &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+				FilePath: nil}, // Nil file path
 			}, nil
 		},
 	}

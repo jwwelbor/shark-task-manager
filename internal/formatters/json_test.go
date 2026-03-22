@@ -34,15 +34,14 @@ func TestFormatEpicListJSON(t *testing.T) {
 			name: "single epic",
 			epics: []*EpicWithProgress{
 				{
-					Epic: &models.Epic{
-						ID:          1,
+					Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 						Key:         "E01",
 						Title:       "Test Epic",
 						Description: stringPtr("Test Description"),
-						Status:      models.EpicStatusActive,
-						Priority:    models.PriorityHigh,
-						CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-						UpdatedAt:   time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+
+						CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+						UpdatedAt: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)}, Status: models.EpicStatusActive,
+						Priority: models.PriorityHigh,
 					},
 					ProgressPct: 75.5,
 				},
@@ -73,21 +72,17 @@ func TestFormatEpicListJSON(t *testing.T) {
 			name: "multiple epics",
 			epics: []*EpicWithProgress{
 				{
-					Epic: &models.Epic{
-						ID:       1,
-						Key:      "E01",
-						Title:    "Epic 1",
-						Status:   models.EpicStatusActive,
+					Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+						Key:   "E01",
+						Title: "Epic 1"}, Status: models.EpicStatusActive,
 						Priority: models.PriorityHigh,
 					},
 					ProgressPct: 50.0,
 				},
 				{
-					Epic: &models.Epic{
-						ID:       2,
-						Key:      "E02",
-						Title:    "Epic 2",
-						Status:   models.EpicStatusCompleted,
+					Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 2,
+						Key:   "E02",
+						Title: "Epic 2"}, Status: models.EpicStatusCompleted,
 						Priority: models.PriorityMedium,
 					},
 					ProgressPct: 100.0,
@@ -127,11 +122,9 @@ func TestFormatEpicGetJSON(t *testing.T) {
 		{
 			name: "epic with no features",
 			epic: &EpicWithProgress{
-				Epic: &models.Epic{
-					ID:       1,
-					Key:      "E01",
-					Title:    "Test Epic",
-					Status:   models.EpicStatusActive,
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+					Key:   "E01",
+					Title: "Test Epic"}, Status: models.EpicStatusActive,
 					Priority: models.PriorityHigh,
 				},
 				ProgressPct: 0.0,
@@ -151,33 +144,31 @@ func TestFormatEpicGetJSON(t *testing.T) {
 		{
 			name: "epic with features",
 			epic: &EpicWithProgress{
-				Epic: &models.Epic{
-					ID:       1,
-					Key:      "E01",
-					Title:    "Test Epic",
-					Status:   models.EpicStatusActive,
+				Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
+					Key:   "E01",
+					Title: "Test Epic"}, Status: models.EpicStatusActive,
 					Priority: models.PriorityHigh,
 				},
 				ProgressPct: 75.0,
 			},
 			features: []*FeatureWithTaskCount{
 				{
-					Feature: &models.Feature{
-						ID:          1,
-						EpicID:      1,
-						Key:         "E01-F01",
-						Title:       "Feature 1",
+					Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+						Key:   "E01-F01",
+						Title: "Feature 1"}, EpicID: 1,
+
 						Status:      models.FeatureStatusActive,
 						ProgressPct: 50.0,
 					},
 					TaskCount: 10,
 				},
 				{
-					Feature: &models.Feature{
-						ID:          2,
-						EpicID:      1,
-						Key:         "E01-F02",
-						Title:       "Feature 2",
+					Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 2,
+
+						Key:   "E01-F02",
+						Title: "Feature 2"}, EpicID: 1,
+
 						Status:      models.FeatureStatusCompleted,
 						ProgressPct: 100.0,
 					},
@@ -241,16 +232,17 @@ func TestFormatFeatureListJSON(t *testing.T) {
 			name: "single feature",
 			features: []*FeatureWithTaskCount{
 				{
-					Feature: &models.Feature{
-						ID:          1,
-						EpicID:      1,
+					Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
 						Key:         "E01-F01",
 						Title:       "Test Feature",
 						Description: stringPtr("Test Description"),
+
+						CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+						UpdatedAt: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)}, EpicID: 1,
+
 						Status:      models.FeatureStatusActive,
 						ProgressPct: 75.5,
-						CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-						UpdatedAt:   time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
 					},
 					TaskCount: 10,
 				},
@@ -297,11 +289,11 @@ func TestFormatFeatureGetJSON(t *testing.T) {
 	}{
 		{
 			name: "feature with no tasks",
-			feature: &models.Feature{
-				ID:          1,
-				EpicID:      1,
-				Key:         "E01-F01",
-				Title:       "Test Feature",
+			feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "Test Feature"}, EpicID: 1,
+
 				Status:      models.FeatureStatusActive,
 				ProgressPct: 0.0,
 			},
@@ -323,30 +315,26 @@ func TestFormatFeatureGetJSON(t *testing.T) {
 		},
 		{
 			name: "feature with tasks",
-			feature: &models.Feature{
-				ID:          1,
-				EpicID:      1,
-				Key:         "E01-F01",
-				Title:       "Test Feature",
+			feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "Test Feature"}, EpicID: 1,
+
 				Status:      models.FeatureStatusActive,
 				ProgressPct: 70.0,
 			},
 			tasks: []*models.Task{
 				{
-					ID:        1,
-					FeatureID: 1,
-					Key:       "E01-F01-T01",
-					Title:     "Task 1",
-					Status:    models.TaskStatus("completed"),
-					Priority:  5,
+					BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-T01", Title: "Task 1"},
+					FeatureID:  1,
+					Status:     models.TaskStatus("completed"),
+					Priority:   5,
 				},
 				{
-					ID:        2,
-					FeatureID: 1,
-					Key:       "E01-F01-T02",
-					Title:     "Task 2",
-					Status:    models.TaskStatus("in_progress"),
-					Priority:  3,
+					BaseEntity: models.BaseEntity{ID: 2, Key: "E01-F01-T02", Title: "Task 2"},
+					FeatureID:  1,
+					Status:     models.TaskStatus("in_progress"),
+					Priority:   3,
 				},
 			},
 			breakdown: map[models.TaskStatus]int{

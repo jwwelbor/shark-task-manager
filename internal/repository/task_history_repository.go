@@ -9,7 +9,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
-// HistoryFilters defines filters for querying task history
+// Deprecated: Use EntityHistoryFilters instead.
+// HistoryFilters defines filters for querying task history.
 type HistoryFilters struct {
 	Agent      *string    // Filter by agent ID
 	Since      *time.Time // Filter by timestamp (>= since)
@@ -21,17 +22,20 @@ type HistoryFilters struct {
 	Offset     int        // Number of records to skip for pagination
 }
 
-// TaskHistoryRepository handles CRUD operations for task history
+// Deprecated: Use EntityHistoryRepository instead.
+// TaskHistoryRepository handles CRUD operations for task history.
 type TaskHistoryRepository struct {
 	db *DB
 }
 
-// NewTaskHistoryRepository creates a new TaskHistoryRepository
+// Deprecated: Use NewEntityHistoryRepository instead.
+// NewTaskHistoryRepository creates a new TaskHistoryRepository.
 func NewTaskHistoryRepository(db *DB) *TaskHistoryRepository {
 	return &TaskHistoryRepository{db: db}
 }
 
-// Create creates a new task history record
+// Deprecated: Use EntityHistoryRepository.Create instead.
+// Create creates a new task history record.
 func (r *TaskHistoryRepository) Create(ctx context.Context, history *models.TaskHistory) error {
 	if err := history.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -63,7 +67,8 @@ func (r *TaskHistoryRepository) Create(ctx context.Context, history *models.Task
 	return nil
 }
 
-// ListByTask retrieves all history records for a task
+// Deprecated: Use EntityHistoryRepository.ListByEntity instead.
+// ListByTask retrieves all history records for a task.
 func (r *TaskHistoryRepository) ListByTask(ctx context.Context, taskID int64) ([]*models.TaskHistory, error) {
 	query := `
 		SELECT id, task_id, old_status, new_status, agent, notes, rejection_reason, timestamp
@@ -104,7 +109,8 @@ func (r *TaskHistoryRepository) ListByTask(ctx context.Context, taskID int64) ([
 	return histories, nil
 }
 
-// ListRecent retrieves recent history records across all tasks
+// Deprecated: Use EntityHistoryRepository.ListRecent instead.
+// ListRecent retrieves recent history records across all tasks.
 func (r *TaskHistoryRepository) ListRecent(ctx context.Context, limit int) ([]*models.TaskHistory, error) {
 	query := `
 		SELECT id, task_id, old_status, new_status, agent, notes, timestamp
@@ -144,7 +150,8 @@ func (r *TaskHistoryRepository) ListRecent(ctx context.Context, limit int) ([]*m
 	return histories, nil
 }
 
-// ListWithFilters retrieves history records with optional filters
+// Deprecated: Use EntityHistoryRepository.ListWithFilters instead.
+// ListWithFilters retrieves history records with optional filters.
 func (r *TaskHistoryRepository) ListWithFilters(ctx context.Context, filters HistoryFilters) ([]*models.TaskHistory, error) {
 	// Set default limit if not specified
 	if filters.Limit <= 0 {
@@ -249,7 +256,8 @@ func (r *TaskHistoryRepository) ListWithFilters(ctx context.Context, filters His
 	return histories, nil
 }
 
-// GetHistoryByTaskKey retrieves all history records for a task by its key
+// Deprecated: Use EntityHistoryRepository.ListByEntity instead.
+// GetHistoryByTaskKey retrieves all history records for a task by its key.
 func (r *TaskHistoryRepository) GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
 	query := `
 		SELECT th.id, th.task_id, th.old_status, th.new_status, th.agent, th.notes, th.rejection_reason, th.timestamp
@@ -291,7 +299,8 @@ func (r *TaskHistoryRepository) GetHistoryByTaskKey(ctx context.Context, taskKey
 	return histories, nil
 }
 
-// GetByID retrieves a single history record by ID
+// Deprecated: Use EntityHistoryRepository instead.
+// GetByID retrieves a single history record by ID.
 func (r *TaskHistoryRepository) GetByID(ctx context.Context, id int64) (*models.TaskHistory, error) {
 	query := `
 		SELECT id, task_id, old_status, new_status, agent, notes, rejection_reason, timestamp
@@ -317,7 +326,8 @@ func (r *TaskHistoryRepository) GetByID(ctx context.Context, id int64) (*models.
 	return history, nil
 }
 
-// GetRejectionHistoryForTask retrieves all rejection records (records with rejection_reason) for a task
+// Deprecated: Use EntityHistoryRepository instead.
+// GetRejectionHistoryForTask retrieves all rejection records (records with rejection_reason) for a task.
 func (r *TaskHistoryRepository) GetRejectionHistoryForTask(ctx context.Context, taskID int64) ([]*models.TaskHistory, error) {
 	query := `
 		SELECT id, task_id, old_status, new_status, agent, notes, rejection_reason, timestamp

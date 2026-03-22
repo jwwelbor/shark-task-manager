@@ -28,11 +28,9 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", fmt.Sprintf("E%s", suffix))
 
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           fmt.Sprintf("E%s", suffix),
-		Title:         "Test Epic",
-		Description:   stringPtr("Test Description"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E%s", suffix),
+		Title:       "Test Epic",
+		Description: stringPtr("Test Description")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -40,33 +38,30 @@ func TestFeatureRepository_ListByStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create features with different statuses
-	activeFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("E%s-F01", suffix),
+	activeFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E%s-F01", suffix),
 		Title:       "Active Feature",
-		Description: stringPtr("Active"),
+		Description: stringPtr("Active")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
 	err = featureRepo.Create(ctx, activeFeature)
 	require.NoError(t, err)
 
-	completedFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("E%s-F02", suffix),
+	completedFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E%s-F02", suffix),
 		Title:       "Completed Feature",
-		Description: stringPtr("Completed"),
+		Description: stringPtr("Completed")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusCompleted,
 		ProgressPct: 100.0,
 	}
 	err = featureRepo.Create(ctx, completedFeature)
 	require.NoError(t, err)
 
-	draftFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("E%s-F03", suffix),
+	draftFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E%s-F03", suffix),
 		Title:       "Draft Feature",
-		Description: stringPtr("Draft"),
+		Description: stringPtr("Draft")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusDraft,
 		ProgressPct: 0.0,
 	}
@@ -141,11 +136,9 @@ func TestFeatureRepository_ListByEpicAndStatus(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", fmt.Sprintf("E%s", suffix))
 
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           fmt.Sprintf("E%s", suffix),
-		Title:         "Test Epic",
-		Description:   stringPtr("Test Description"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E%s", suffix),
+		Title:       "Test Epic",
+		Description: stringPtr("Test Description")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -153,22 +146,20 @@ func TestFeatureRepository_ListByEpicAndStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create features with different statuses
-	activeFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("E%s-F01", suffix),
+	activeFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E%s-F01", suffix),
 		Title:       "Active Feature",
-		Description: stringPtr("Active"),
+		Description: stringPtr("Active")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
 	err = featureRepo.Create(ctx, activeFeature)
 	require.NoError(t, err)
 
-	completedFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("E%s-F02", suffix),
+	completedFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E%s-F02", suffix),
 		Title:       "Completed Feature",
-		Description: stringPtr("Completed"),
+		Description: stringPtr("Completed")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusCompleted,
 		ProgressPct: 100.0,
 	}
@@ -213,11 +204,9 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Description:   stringPtr("Test Description"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title:       "Test Epic",
+		Description: stringPtr("Test Description")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -225,11 +214,10 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create feature
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         featureKey,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 		Title:       "Test Feature",
-		Description: stringPtr("Test"),
+		Description: stringPtr("Test")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -237,35 +225,32 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create tasks
-	task1 := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         fmt.Sprintf("T-%s-001", featureKey),
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-001", featureKey),
 		Title:       "Task 1",
-		Description: stringPtr("Task 1"),
-		Status:      models.TaskStatus("completed"),
-		Priority:    1,
+		Description: stringPtr("Task 1")}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("completed"),
+		Priority: 1,
 	}
 	err = taskRepo.Create(ctx, task1)
 	require.NoError(t, err)
 
-	task2 := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         fmt.Sprintf("T-%s-002", featureKey),
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-002", featureKey),
 		Title:       "Task 2",
-		Description: stringPtr("Task 2"),
-		Status:      models.TaskStatus("in_progress"),
-		Priority:    2,
+		Description: stringPtr("Task 2")}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 2,
 	}
 	err = taskRepo.Create(ctx, task2)
 	require.NoError(t, err)
 
-	task3 := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         fmt.Sprintf("T-%s-003", featureKey),
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-003", featureKey),
 		Title:       "Task 3",
-		Description: stringPtr("Task 3"),
-		Status:      models.TaskStatus("todo"),
-		Priority:    3,
+		Description: stringPtr("Task 3")}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 3,
 	}
 	err = taskRepo.Create(ctx, task3)
 	require.NoError(t, err)
@@ -279,11 +264,10 @@ func TestFeatureRepository_GetTaskCount(t *testing.T) {
 
 	// Test feature with no tasks
 	t.Run("get task count for feature with no tasks", func(t *testing.T) {
-		emptyFeature := &models.Feature{
-			EpicID:      epic.ID,
-			Key:         fmt.Sprintf("%s-F02", epicKey),
+		emptyFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F02", epicKey),
 			Title:       "Empty Feature",
-			Description: stringPtr("Empty"),
+			Description: stringPtr("Empty")}, EpicID: epic.ID,
+
 			Status:      models.FeatureStatusActive,
 			ProgressPct: 0.0,
 		}

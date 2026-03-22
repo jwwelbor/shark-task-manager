@@ -72,37 +72,37 @@ func TestValidator_ValidateFilePaths(t *testing.T) {
 		{
 			name: "all file paths exist",
 			tasks: []*models.Task{
-				{Key: "T-E01-F01-001", FilePath: strPtr(taskFile)},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", FilePath: strPtr(taskFile)}},
 			},
 			wantBrokenPaths: 0,
 		},
 		{
 			name: "missing task file",
 			tasks: []*models.Task{
-				{Key: "T-E01-F01-001", FilePath: strPtr(filepath.Join(tempDir, "missing-task.md"))},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", FilePath: strPtr(filepath.Join(tempDir, "missing-task.md"))}},
 			},
 			wantBrokenPaths: 1,
 		},
 		{
 			name: "multiple missing files",
 			tasks: []*models.Task{
-				{Key: "T-E01-F01-001", FilePath: strPtr(filepath.Join(tempDir, "missing1.md"))},
-				{Key: "T-E01-F01-002", FilePath: strPtr(filepath.Join(tempDir, "missing2.md"))},
-				{Key: "T-E01-F01-003", FilePath: strPtr(taskFile)}, // This one exists
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", FilePath: strPtr(filepath.Join(tempDir, "missing1.md"))}},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-002", FilePath: strPtr(filepath.Join(tempDir, "missing2.md"))}},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-003", FilePath: strPtr(taskFile)}}, // This one exists
 			},
 			wantBrokenPaths: 2,
 		},
 		{
 			name: "nil file paths are skipped",
 			tasks: []*models.Task{
-				{Key: "T-E01-F01-001", FilePath: nil},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001"}},
 			},
 			wantBrokenPaths: 0,
 		},
 		{
 			name: "empty file paths are skipped",
 			tasks: []*models.Task{
-				{Key: "T-E01-F01-001", FilePath: strPtr("")},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", FilePath: strPtr("")}},
 			},
 			wantBrokenPaths: 0,
 		},
@@ -152,13 +152,13 @@ func TestValidator_ValidateRelationships(t *testing.T) {
 		{
 			name: "all relationships valid",
 			epics: []*models.Epic{
-				{ID: 1, Key: "E01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-test"}},
 			},
 			features: []*models.Feature{
-				{ID: 1, EpicID: 1, Key: "E01-F01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-test"}, EpicID: 1},
 			},
 			tasks: []*models.Task{
-				{ID: 1, FeatureID: 1, Key: "T-E01-F01-001"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001"}, FeatureID: 1},
 			},
 			wantOrphans: 0,
 		},
@@ -166,7 +166,7 @@ func TestValidator_ValidateRelationships(t *testing.T) {
 			name:  "orphaned feature - missing parent epic",
 			epics: []*models.Epic{},
 			features: []*models.Feature{
-				{ID: 1, EpicID: 999, Key: "E99-F01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E99-F01-test"}, EpicID: 999},
 			},
 			tasks:           []*models.Task{},
 			wantOrphans:     1,
@@ -175,11 +175,11 @@ func TestValidator_ValidateRelationships(t *testing.T) {
 		{
 			name: "orphaned task - missing parent feature",
 			epics: []*models.Epic{
-				{ID: 1, Key: "E01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-test"}},
 			},
 			features: []*models.Feature{},
 			tasks: []*models.Task{
-				{ID: 1, FeatureID: 999, Key: "T-E01-F99-001"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F99-001"}, FeatureID: 999},
 			},
 			wantOrphans:     1,
 			wantOrphanTasks: 1,
@@ -187,15 +187,15 @@ func TestValidator_ValidateRelationships(t *testing.T) {
 		{
 			name: "multiple orphaned records",
 			epics: []*models.Epic{
-				{ID: 1, Key: "E01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-test"}},
 			},
 			features: []*models.Feature{
-				{ID: 1, EpicID: 999, Key: "E99-F01-test"},
-				{ID: 2, EpicID: 1, Key: "E01-F01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E99-F01-test"}, EpicID: 999},
+				{BaseEntity: models.BaseEntity{ID: 2, Key: "E01-F01-test"}, EpicID: 1},
 			},
 			tasks: []*models.Task{
-				{ID: 1, FeatureID: 999, Key: "T-E01-F99-001"},
-				{ID: 2, FeatureID: 998, Key: "T-E01-F98-001"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F99-001"}, FeatureID: 999},
+				{BaseEntity: models.BaseEntity{ID: 2, Key: "T-E01-F98-001"}, FeatureID: 998},
 			},
 			wantOrphans:     3,
 			wantOrphanFeats: 1,
@@ -274,13 +274,13 @@ func TestValidator_ValidationSummary(t *testing.T) {
 		{
 			name: "all validations pass",
 			epics: []*models.Epic{
-				{ID: 1, Key: "E01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-test"}},
 			},
 			features: []*models.Feature{
-				{ID: 1, EpicID: 1, Key: "E01-F01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-test"}, EpicID: 1},
 			},
 			tasks: []*models.Task{
-				{ID: 1, FeatureID: 1, Key: "T-E01-F01-001", FilePath: strPtr(validFile)},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001", FilePath: strPtr(validFile)}, FeatureID: 1},
 			},
 			wantTotalChecked: 3,
 			wantTotalIssues:  0,
@@ -291,13 +291,13 @@ func TestValidator_ValidationSummary(t *testing.T) {
 		{
 			name: "mixed validation failures",
 			epics: []*models.Epic{
-				{ID: 1, Key: "E01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-test"}},
 			},
 			features: []*models.Feature{
-				{ID: 1, EpicID: 999, Key: "E99-F01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E99-F01-test"}, EpicID: 999},
 			},
 			tasks: []*models.Task{
-				{ID: 1, FeatureID: 1, Key: "T-E01-F01-001", FilePath: strPtr(filepath.Join(tempDir, "missing.md"))},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "T-E01-F01-001", FilePath: strPtr(filepath.Join(tempDir, "missing.md"))}, FeatureID: 1},
 			},
 			wantTotalChecked: 3,
 			wantTotalIssues:  2, // 1 broken path + 1 orphaned feature
@@ -368,12 +368,12 @@ func TestValidator_CorrectiveActionSuggestions(t *testing.T) {
 	}{
 		{
 			name:  "missing file suggestion",
-			epics: []*models.Epic{{ID: 1, Key: "E01-test"}},
+			epics: []*models.Epic{{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-test"}}},
 			features: []*models.Feature{
-				{ID: 1, EpicID: 1, Key: "E01-F01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-test"}, EpicID: 1},
 			},
 			tasks: []*models.Task{
-				{FeatureID: 1, Key: "T-E01-F01-001", FilePath: strPtr(filepath.Join(tempDir, "missing.md"))},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001", FilePath: strPtr(filepath.Join(tempDir, "missing.md"))}, FeatureID: 1},
 			},
 			wantSuggestions: []string{
 				"re-scan",
@@ -384,7 +384,7 @@ func TestValidator_CorrectiveActionSuggestions(t *testing.T) {
 			name:  "orphaned feature suggestion",
 			epics: []*models.Epic{},
 			features: []*models.Feature{
-				{EpicID: 999, Key: "E99-F01-test"},
+				{BaseEntity: models.BaseEntity{Key: "E99-F01-test"}, EpicID: 999},
 			},
 			tasks: []*models.Task{},
 			wantSuggestions: []string{
@@ -395,11 +395,11 @@ func TestValidator_CorrectiveActionSuggestions(t *testing.T) {
 		{
 			name: "orphaned task suggestion",
 			epics: []*models.Epic{
-				{ID: 1, Key: "E01-test"},
+				{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-test"}},
 			},
 			features: []*models.Feature{},
 			tasks: []*models.Task{
-				{FeatureID: 999, Key: "T-E01-F99-001"},
+				{BaseEntity: models.BaseEntity{Key: "T-E01-F99-001"}, FeatureID: 999},
 			},
 			wantSuggestions: []string{
 				"parent feature",
@@ -462,26 +462,23 @@ func TestValidator_Performance(t *testing.T) {
 	}
 
 	for i := 0; i < 100; i++ {
-		epics[i] = &models.Epic{
-			ID:  int64(i + 1),
-			Key: "E01-test",
+		epics[i] = &models.Epic{BaseEntity: models.BaseEntity{ID: int64(i + 1),
+			Key: "E01-test"},
 		}
 	}
 
 	for i := 0; i < 300; i++ {
-		features[i] = &models.Feature{
-			ID:     int64(i + 1),
-			EpicID: 1,
-			Key:    "E01-F01-test",
+		features[i] = &models.Feature{BaseEntity: models.BaseEntity{ID: int64(i + 1),
+
+			Key: "E01-F01-test"}, EpicID: 1,
 		}
 	}
 
 	for i := 0; i < 600; i++ {
-		tasks[i] = &models.Task{
-			ID:        int64(i + 1),
-			FeatureID: 1,
-			Key:       "T-E01-F01-001",
-			FilePath:  strPtr(validFile),
+		tasks[i] = &models.Task{BaseEntity: models.BaseEntity{ID: int64(i + 1),
+
+			Key:      "T-E01-F01-001",
+			FilePath: strPtr(validFile)}, FeatureID: 1,
 		}
 	}
 

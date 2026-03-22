@@ -5,9 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
 
 // setupAccessorTestDB sets up a temporary database and returns a cleanup function.
@@ -43,173 +40,6 @@ func setupAccessorTestDB(t *testing.T) func() {
 			t.Errorf("Failed to restore working directory: %v", err)
 		}
 	}
-}
-
-// ---------------------------------------------------------------------------
-// entityNoteAdapter unit tests
-//
-// These tests verify the adapter's translation logic:
-//   - empty documentPath string → nil *string passed to underlying repo
-//   - non-empty documentPath string → &documentPath passed to underlying repo
-//   - entityType string is cast to models.EntityType
-//
-// We use the real EntityNoteRepository backed by a temporary database to call
-// CreateRejectionNote so we can verify the arguments without introducing an
-// interface change to the adapter struct.  The entity_notes table may not
-// exist in a fresh DB, so we verify the translation by checking that nil vs
-// non-nil *string is correctly assembled — the DB call may return an error
-// (no seeded entities), but the adapter itself must not panic and must forward
-// the correct argument shape.
-// ---------------------------------------------------------------------------
-
-// TestEpicNoteAdapter_EmptyDocumentPath verifies that passing documentPath=""
-// results in nil *string being forwarded to the underlying repo.
-// We capture this by using a real DB adapter and verifying the translation logic
-// through a custom stub that wraps the adapter at the package level.
-func TestEpicNoteAdapter_EmptyDocumentPath(t *testing.T) {
-	// Test the translation logic directly on the adapter by inspecting its behavior.
-	// Since the adapter calls repo.CreateRejectionNote internally and we cannot
-	// mock repo (it's concrete), we verify the translation by creating a thin
-	// verification wrapper using the same logic as the adapter.
-
-	// Replicate the adapter's documentPath translation logic and verify it:
-	documentPath := ""
-	var dp *string
-	if documentPath != "" {
-		dp = &documentPath
-	}
-
-	if dp != nil {
-		t.Errorf("Expected nil *string for empty documentPath, got non-nil: %q", *dp)
-	}
-}
-
-// TestEpicNoteAdapter_NonEmptyDocumentPath verifies that a non-empty documentPath
-// string results in a non-nil *string with the correct value.
-func TestEpicNoteAdapter_NonEmptyDocumentPath(t *testing.T) {
-	documentPath := "/path/to/doc.md"
-	var dp *string
-	if documentPath != "" {
-		dp = &documentPath
-	}
-
-	if dp == nil {
-		t.Fatal("Expected non-nil *string for non-empty documentPath, got nil")
-	}
-	if *dp != "/path/to/doc.md" {
-		t.Errorf("Expected *string value %q, got %q", "/path/to/doc.md", *dp)
-	}
-}
-
-// TestEpicNoteAdapter_EntityTypeTranslation verifies that the string entityType
-// is correctly cast to models.EntityType in the adapter.
-func TestEpicNoteAdapter_EntityTypeTranslation(t *testing.T) {
-	entityTypeStr := "epic"
-	entityType := models.EntityType(entityTypeStr)
-
-	if entityType != models.EntityType("epic") {
-		t.Errorf("Expected models.EntityType(%q), got %q", "epic", entityType)
-	}
-	// Confirm the cast preserves the underlying string value
-	if string(entityType) != entityTypeStr {
-		t.Errorf("EntityType string value mismatch: expected %q, got %q", entityTypeStr, string(entityType))
-	}
-}
-
-// TestEpicNoteAdapter_CallsCreateRejectionNote verifies that the adapter's
-// CreateRejectionNote method constructs and forwards the call without panicking.
-// Uses a tmpDir database; the call may fail (no entity rows to reference) but
-// should not panic or crash.
-func TestEpicNoteAdapter_CallsCreateRejectionNote(t *testing.T) {
-	cleanup := setupAccessorTestDB(t)
-	defer cleanup()
-
-	db, err := GetDB(context.Background())
-	if err != nil {
-		t.Fatalf("GetDB() failed: %v", err)
-	}
-
-	noteRepo := repository.NewEntityNoteRepository(db)
-	adapter := &entityNoteAdapter{repo: noteRepo}
-
-	ctx := context.Background()
-
-	// Call with empty documentPath — should translate to nil *string internally.
-	// DB call may fail (no seeded entity) but must not panic.
-	_ = adapter.CreateRejectionNote(ctx, "epic", 0, 0,
-		"todo", "in_progress", "test reason", "agent", "")
-
-	// Call with non-empty documentPath — should translate to non-nil *string.
-	_ = adapter.CreateRejectionNote(ctx, "epic", 0, 0,
-		"todo", "in_progress", "test reason", "agent", "/path/to/doc.md")
-}
-
-// ---------------------------------------------------------------------------
-// entityNoteAdapter unit tests
-//
-// Identical translation behavior as entityNoteAdapter — verified separately.
-// ---------------------------------------------------------------------------
-
-// TestFeatureNoteAdapter_EmptyDocumentPath verifies nil *string for empty path.
-func TestFeatureNoteAdapter_EmptyDocumentPath(t *testing.T) {
-	documentPath := ""
-	var dp *string
-	if documentPath != "" {
-		dp = &documentPath
-	}
-
-	if dp != nil {
-		t.Errorf("Expected nil *string for empty documentPath, got non-nil: %q", *dp)
-	}
-}
-
-// TestFeatureNoteAdapter_NonEmptyDocumentPath verifies non-nil *string for non-empty path.
-func TestFeatureNoteAdapter_NonEmptyDocumentPath(t *testing.T) {
-	documentPath := "/docs/feature.md"
-	var dp *string
-	if documentPath != "" {
-		dp = &documentPath
-	}
-
-	if dp == nil {
-		t.Fatal("Expected non-nil *string for non-empty documentPath, got nil")
-	}
-	if *dp != "/docs/feature.md" {
-		t.Errorf("Expected *string value %q, got %q", "/docs/feature.md", *dp)
-	}
-}
-
-// TestFeatureNoteAdapter_EntityTypeTranslation verifies string-to-models.EntityType cast.
-func TestFeatureNoteAdapter_EntityTypeTranslation(t *testing.T) {
-	entityTypeStr := "feature"
-	entityType := models.EntityType(entityTypeStr)
-
-	if string(entityType) != entityTypeStr {
-		t.Errorf("EntityType string value mismatch: expected %q, got %q", entityTypeStr, string(entityType))
-	}
-}
-
-// TestFeatureNoteAdapter_CallsCreateRejectionNote verifies the feature adapter
-// forwards calls without panicking.
-func TestFeatureNoteAdapter_CallsCreateRejectionNote(t *testing.T) {
-	cleanup := setupAccessorTestDB(t)
-	defer cleanup()
-
-	db, err := GetDB(context.Background())
-	if err != nil {
-		t.Fatalf("GetDB() failed: %v", err)
-	}
-
-	noteRepo := repository.NewEntityNoteRepository(db)
-	adapter := &entityNoteAdapter{repo: noteRepo}
-
-	ctx := context.Background()
-
-	// Both empty and non-empty documentPath should translate correctly.
-	_ = adapter.CreateRejectionNote(ctx, "feature", 0, 0,
-		"todo", "in_progress", "test reason", "agent", "")
-	_ = adapter.CreateRejectionNote(ctx, "feature", 0, 0,
-		"todo", "in_progress", "test reason", "agent", "/path/to/doc.md")
 }
 
 // ---------------------------------------------------------------------------
@@ -394,8 +224,8 @@ func TestBuildTaskServiceDeps_WorkflowServiceAvailable(t *testing.T) {
 
 	deps := buildTaskServiceDeps()
 
-	// Verify workflow service is initialized and has the advanced config
-	svcWorkflow := deps.workflowSvc.GetWorkflow()
+	// Verify entity service is initialized and has the advanced config
+	svcWorkflow := deps.entitySvc.GetWorkflowService().GetWorkflow()
 	if svcWorkflow == nil {
 		t.Fatal("WorkflowService workflow is nil; expected non-nil workflow config")
 	}
@@ -431,11 +261,8 @@ func TestBuildTaskServiceDeps_RepoAndServiceInitialized(t *testing.T) {
 	if deps.taskRepo == nil {
 		t.Fatal("TaskRepository is nil")
 	}
-	if deps.workflowSvc == nil {
-		t.Fatal("WorkflowService is nil")
-	}
-	if deps.noteRepo == nil {
-		t.Fatal("NoteRepo is nil")
+	if deps.entitySvc == nil {
+		t.Fatal("EntityService is nil")
 	}
 	if deps.creatorSvc == nil {
 		t.Fatal("CreatorSvc is nil")

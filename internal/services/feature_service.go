@@ -46,13 +46,6 @@ type FeatureEpicLookup interface {
 	Update(ctx context.Context, epic *models.Epic) error
 }
 
-// FeatureNoteRepository defines the note repo interface needed by FeatureService
-// for creating rejection notes on backward transitions.
-type FeatureNoteRepository interface {
-	CreateRejectionNote(ctx context.Context, entityType string, entityID int64,
-		historyID int64, fromStatus, toStatus, reason, rejectedBy, documentPath string) error
-}
-
 // FeatureTaskCounter defines the task counting interface needed by FeatureService
 // to count child tasks for backward transition warnings and feature completion.
 type FeatureTaskCounter interface {
@@ -72,43 +65,37 @@ type FeatureRelationshipRepository = config.FeatureRelationshipRepository
 
 // FeatureWritableDocumentRepository defines the writable interface for document linking on features.
 // This interface is satisfied by *repository.DocumentRepository.
-// The existing DocumentRepository (config.DocumentRepository) only exposes read-only List methods;
-// this interface adds the write operations needed by LinkDocument and UnlinkDocument.
-type FeatureWritableDocumentRepository interface {
-	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
-	GetByTitle(ctx context.Context, title string) (*models.Document, error)
-	LinkToFeature(ctx context.Context, featureID, documentID int64) error
-	UnlinkFromFeature(ctx context.Context, featureID, documentID int64) error
-}
+// (FeatureWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
 
 // FeatureService provides business logic for feature operations.
 type FeatureService struct {
 	repo            FeatureRepository
-	workflowSvc     *workflow.Service
-	noteRepo        FeatureNoteRepository
+	entitySvc       *EntityService
+	entityRepo      EntityRepository
 	taskRepo        FeatureTaskCounter
 	docRepo         DocumentRepository
 	relRepo         FeatureRelationshipRepository
 	epicLookupRepo  FeatureEpicLookup
-	writableDocRepo FeatureWritableDocumentRepository
+	docSvc          *EntityDocumentService // shared document operations; built by SetWritableDocRepo
 	progressService *FeatureProgressService
 	enrichRepo      config.TemplateEnrichmentRepository
 }
 
 // NewFeatureService creates a new FeatureService.
 // The workflow service is automatically scoped to the feature level.
-// noteRepo, taskRepo, epicLookupRepo can be nil for graceful degradation.
+// taskRepo, epicLookupRepo can be nil for graceful degradation.
+// Rejection note creation is handled by EntityService (via SetNoteRepo).
 //
 // Panics:
 //   - If repo is nil (required dependency)
-//   - If workflowSvc is nil (required dependency)
-func NewFeatureService(repo FeatureRepository, workflowSvc *workflow.Service, noteRepo FeatureNoteRepository, taskRepo FeatureTaskCounter, epicLookupRepo FeatureEpicLookup) *FeatureService {
+//   - If entitySvc is nil (required dependency)
+func NewFeatureService(repo FeatureRepository, entitySvc *EntityService, entityRepo EntityRepository, taskRepo FeatureTaskCounter, epicLookupRepo FeatureEpicLookup) *FeatureService {
 	requireNonNil(repo, "FeatureService requires a non-nil FeatureRepository")
-	requireNonNil(workflowSvc, "FeatureService requires a non-nil workflow.Service")
+	requireNonNil(entitySvc, "FeatureService requires a non-nil EntityService")
 	return &FeatureService{
 		repo:           repo,
-		workflowSvc:    workflowSvc.ForLevel(workflow.LevelFeature),
-		noteRepo:       noteRepo,
+		entitySvc:      entitySvc.ForLevel(workflow.LevelFeature),
+		entityRepo:     entityRepo,
 		taskRepo:       taskRepo,
 		docRepo:        nil,
 		relRepo:        nil,
@@ -136,9 +123,18 @@ func (s *FeatureService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepos
 
 // SetWritableDocRepo sets the writable document repository on the service.
 // This enables LinkDocument and UnlinkDocument operations on features.
-// The *repository.DocumentRepository type satisfies the FeatureWritableDocumentRepository interface.
-func (s *FeatureService) SetWritableDocRepo(docRepo FeatureWritableDocumentRepository) {
-	s.writableDocRepo = docRepo
+func (s *FeatureService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
+	s.docSvc = NewEntityDocumentService(
+		writableRepo,
+		linkRepo,
+		func(ctx context.Context, key string) (int64, models.EntityType, error) {
+			feature, err := s.repo.GetByKey(ctx, key)
+			if err != nil {
+				return 0, "", err
+			}
+			return feature.ID, models.EntityTypeFeature, nil
+		},
+	)
 }
 
 // SetProgressService sets the progress sub-service on the feature service.
@@ -155,68 +151,26 @@ func (s *FeatureService) getProgressService() *FeatureProgressService {
 	}
 	// Lazy initialization: build from stored repositories.
 	// workflowSvc is passed unscoped; FeatureProgressService uses ForLevel(LevelTask) internally.
-	return NewFeatureProgressService(s.repo, s.taskRepo, s.workflowSvc)
+	return NewFeatureProgressService(s.repo, s.taskRepo, s.entitySvc.GetWorkflowService())
 }
 
 // LinkDocument creates or retrieves a document by its title and file path, then links it to a feature.
-// If the document already exists, it is reused (no duplicate created).
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - featureKey: the feature key (e.g., "E07-F01")
-//   - docTitle: the title of the document to link
-//   - docPath: the file path of the document
-//
-// Returns:
-//   - error: FeatureNotFoundError if feature not found, or repository errors
-//
-// Errors:
-//   - writable document repository not configured
-//   - feature not found
-//   - repository operation failed
+// Delegates to the shared EntityDocumentService.
 func (s *FeatureService) LinkDocument(ctx context.Context, featureKey, docTitle, docPath string) error {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-
-	feature, err := s.repo.GetByKey(ctx, featureKey)
-	if err != nil {
-		return fmt.Errorf("feature not found: %w", err)
-	}
-
-	_, err = linkDocumentToEntity(ctx, s.writableDocRepo, s.writableDocRepo.LinkToFeature,
-		feature.ID, docTitle, docPath, "feature", featureKey)
+	_, err := s.docSvc.LinkDocumentByKey(ctx, featureKey, docTitle, docPath)
 	return err
 }
 
 // UnlinkDocument removes a document link from a feature by document title.
-// If the document does not exist, it returns an error.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - featureKey: the feature key (e.g., "E07-F01")
-//   - docTitle: the title of the document to unlink
-//
-// Returns:
-//   - error: FeatureNotFoundError if feature not found, or repository errors
-//
-// Errors:
-//   - writable document repository not configured
-//   - feature not found
-//   - document not found
-//   - repository operation failed
+// Delegates to the shared EntityDocumentService.
 func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitle string) error {
-	if s.writableDocRepo == nil {
+	if s.docSvc == nil {
 		return fmt.Errorf("writable document repository not configured")
 	}
-
-	feature, err := s.repo.GetByKey(ctx, featureKey)
-	if err != nil {
-		return fmt.Errorf("feature not found: %w", err)
-	}
-
-	return unlinkDocumentFromEntity(ctx, s.writableDocRepo, s.writableDocRepo.UnlinkFromFeature,
-		feature.ID, docTitle, "feature", featureKey)
+	return s.docSvc.UnlinkDocumentByKey(ctx, featureKey, docTitle)
 }
 
 // TransitionStatus validates and performs a status transition on a feature.
@@ -231,168 +185,130 @@ func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitl
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
 func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	feature, err := s.repo.GetByKey(ctx, featureKey)
+	// Use entityRepo if available, otherwise create inline adapter from typed repo
+	entityRepo := s.entityRepo
+	if entityRepo == nil {
+		entityRepo = &featureEntityRepoAdapter{repo: s.repo}
+	}
+
+	// Delegate shared logic to EntityService
+	result, err := s.entitySvc.TransitionStatus(
+		ctx, entityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
+		DefaultTransitionFeatures(),
+		s.makeResolveActionFn(ctx),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get feature: %w", err)
-	}
-	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", featureKey)
+		return nil, err
 	}
 
-	currentStatus := string(feature.Status)
-
-	// Validate transition (unless forced)
-	if !opts.Force {
-		if err := s.workflowSvc.ValidateTransition(currentStatus, targetStatus); err != nil {
-			return nil, err
-		}
-	}
-
-	// Normalize target status (unless forcing, where we accept any string)
-	if !opts.Force {
-		targetStatus = s.workflowSvc.NormalizeStatus(targetStatus)
-	}
-
-	// Enforce reason requirement for forced transitions
-	if opts.Force && opts.Reason == "" {
-		return nil, ErrForceReasonRequired
-	}
-
-	// Detect backward transition
-	isBackward, err := s.workflowSvc.IsBackwardTransition(currentStatus, targetStatus)
-	if err != nil {
-		// If forcing, we might be transitioning to a status not in the workflow.
-		// In this case, we can't determine if it's backward, so we assume it's not.
-		if !opts.Force {
-			return nil, fmt.Errorf("could not determine transition direction: %w", err)
-		}
-		isBackward = false
-	}
-	if isBackward && !opts.Force {
-		wf := s.workflowSvc.GetWorkflow()
-		requireReason := wf == nil || wf.RequireRejectionReason
-		if requireReason && opts.Reason == "" {
-			return nil, &BackwardReasonError{FromStatus: currentStatus, ToStatus: targetStatus}
-		}
-	}
-
-	// Perform update
-	feature.Status = models.FeatureStatus(targetStatus)
-	if err := s.repo.Update(ctx, feature); err != nil {
-		return nil, fmt.Errorf("failed to update feature status: %w", err)
-	}
-
-	// Log rejection note for backward transitions with reason
-	if (isBackward || opts.Force) && opts.Reason != "" && s.noteRepo != nil {
-		_ = s.noteRepo.CreateRejectionNote(ctx, "feature", feature.ID,
-			0, currentStatus, targetStatus,
-			opts.Reason, opts.Agent, opts.DocumentPath)
-	}
-
-	// Count child tasks for warning
-	var childCount int
+	// Post-hook: count child tasks
 	if s.taskRepo != nil {
-		tasks, listErr := s.taskRepo.ListByFeature(ctx, feature.ID)
+		tasks, listErr := s.taskRepo.ListByFeature(ctx, result.EntityID)
 		if listErr == nil {
-			childCount = len(tasks)
+			result.ChildCount = len(tasks)
 		}
 	}
 
-	action := s.resolveAction(ctx, feature, targetStatus)
-
-	return &TransitionResult{
-		EntityType:         "feature",
-		EntityKey:          featureKey,
-		FromStatus:         currentStatus,
-		ToStatus:           targetStatus,
-		Transitioned:       true,
-		OrchestratorAction: action,
-		IsBackward:         isBackward,
-		IsForced:           opts.Force,
-		Reason:             opts.Reason,
-		ChildCount:         childCount,
-	}, nil
+	return result, nil
 }
 
 // GetNextStatus returns the available transitions for the current status of a feature.
 func (s *FeatureService) GetNextStatus(ctx context.Context, featureKey string) (*NextStatusInfo, error) {
-	feature, err := s.repo.GetByKey(ctx, featureKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get feature: %w", err)
+	entityRepo := s.entityRepo
+	if entityRepo == nil {
+		entityRepo = &featureEntityRepoAdapter{repo: s.repo}
 	}
-	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", featureKey)
-	}
-
-	currentStatus := string(feature.Status)
-	transitions := s.workflowSvc.GetTransitionInfo(currentStatus)
-	currentMeta := s.workflowSvc.GetStatusMetadata(currentStatus)
-
-	// Wrap transitions with action support
-	wrapped := make([]TransitionInfoWithAction, 0, len(transitions))
-	for _, t := range transitions {
-		wrapped = append(wrapped, TransitionInfoWithAction{
-			TransitionInfo:     t,
-			OrchestratorAction: s.resolveAction(ctx, feature, t.TargetStatus),
-		})
-	}
-
-	return &NextStatusInfo{
-		EntityType:           "feature",
-		EntityKey:            featureKey,
-		CurrentStatus:        currentStatus,
-		CurrentPhase:         currentMeta.Phase,
-		AvailableTransitions: wrapped,
-		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
-	}, nil
+	return s.entitySvc.GetNextStatus(ctx, entityRepo, models.EntityTypeFeature, featureKey,
+		s.makeResolveActionFn(ctx))
 }
 
 // ValidateStatus checks if a status is valid in the feature workflow.
 func (s *FeatureService) ValidateStatus(status string) error {
-	return s.workflowSvc.ValidateStatus(status)
+	return s.entitySvc.GetWorkflowService().ValidateStatus(status)
 }
 
-// resolveAction returns a populated orchestrator action for the given status,
-// or nil if no action is defined for that status.
-// Uses FeaturePlaceholdersWithRelated to populate related documents and features if repositories are available.
-func (s *FeatureService) resolveAction(ctx context.Context, feature *models.Feature, status string) *config.PopulatedAction {
-	wf := s.workflowSvc.GetWorkflow()
-	if wf == nil || wf.StatusMetadata == nil {
-		return nil
-	}
-	meta, exists := wf.StatusMetadata[status]
-	if !exists || meta.OrchestratorAction == nil {
-		return nil
-	}
-
-	// Fetch enrichment data (optional, graceful degradation)
-	var enrichment *config.TemplateEnrichmentData
-	if s.enrichRepo != nil {
-		data, err := s.enrichRepo.GetFeatureEnrichment(ctx, feature.ID)
-		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for feature %s: %v", feature.Key, err)
-		} else {
-			enrichment = data
+// makeResolveActionFn returns a ResolveActionFn that generates Feature-specific
+// placeholders including enrichment data, related documents, and related features.
+func (s *FeatureService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
+	return func(entity models.Entity, status string) *config.PopulatedAction {
+		feature, ok := entity.(*models.Feature)
+		if !ok {
+			return nil
 		}
-	}
 
-	// Determine which placeholder function to use based on available repositories
-	var placeholders map[string]string
-	if s.docRepo != nil && s.relRepo != nil {
-		// Use the new function that includes related documents and features
-		placeholders = config.FeaturePlaceholdersWithRelated(ctx, feature, s.docRepo, s.relRepo, enrichment)
-	} else {
-		// Fall back to basic placeholders (backward compatible)
-		placeholders = config.FeaturePlaceholders(feature)
-		config.ApplyEnrichmentData(enrichment, placeholders)
-	}
+		// Fetch enrichment data (optional, graceful degradation)
+		var enrichment *config.TemplateEnrichmentData
+		if s.enrichRepo != nil {
+			data, err := s.enrichRepo.GetFeatureEnrichment(ctx, feature.ID)
+			if err != nil {
+				log.Printf("WARNING: Failed to fetch enrichment data for feature %s: %v", feature.Key, err)
+			} else {
+				enrichment = data
+			}
+		}
 
-	return &config.PopulatedAction{
-		Action:      meta.OrchestratorAction.Action,
-		AgentType:   meta.OrchestratorAction.AgentType,
-		Skills:      meta.OrchestratorAction.Skills,
-		Instruction: meta.OrchestratorAction.PopulateTemplate(placeholders),
+		var placeholders map[string]string
+		if s.docRepo != nil && s.relRepo != nil {
+			placeholders = config.FeaturePlaceholdersWithRelated(ctx, feature, s.docRepo, s.relRepo, enrichment)
+		} else {
+			placeholders = config.FeaturePlaceholders(feature)
+			config.ApplyEnrichmentData(enrichment, placeholders)
+		}
+
+		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}
+}
+
+// featureEntityRepoAdapter is a fallback adapter for when entityRepo is nil.
+type featureEntityRepoAdapter struct {
+	repo FeatureRepository
+}
+
+func (a *featureEntityRepoAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	f, err := a.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if f == nil {
+		return nil, nil
+	}
+	return f, nil
+}
+
+func (a *featureEntityRepoAdapter) GetByID(ctx context.Context, id int64) (models.Entity, error) {
+	f, err := a.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if f == nil {
+		return nil, nil
+	}
+	return f, nil
+}
+
+func (a *featureEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
+	f, err := a.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	f.Status = models.FeatureStatus(status)
+	return a.repo.Update(ctx, f)
+}
+
+func (a *featureEntityRepoAdapter) Update(ctx context.Context, entity models.Entity) error {
+	feature, ok := entity.(*models.Feature)
+	if !ok {
+		return fmt.Errorf("featureEntityRepoAdapter: expected *models.Feature, got %T", entity)
+	}
+	return a.repo.Update(ctx, feature)
+}
+
+func (a *featureEntityRepoAdapter) GetContextData(_ context.Context, _ int64) (*string, error) {
+	return nil, nil
+}
+
+func (a *featureEntityRepoAdapter) UpdateContextData(_ context.Context, _ int64, _ *string) error {
+	return nil
 }
 
 // GetFeature retrieves a feature by key.
@@ -584,8 +500,13 @@ func (s *FeatureService) ListRelatedDocuments(ctx context.Context, featureID int
 }
 
 // ListRelatedDocumentsByKey returns all documents linked to a feature identified by key.
-// Returns an empty slice if the document repository is not available.
+// Delegates to the shared EntityDocumentService if available, otherwise falls back to
+// ListRelatedDocuments. Returns an empty slice if no document repository is configured.
 func (s *FeatureService) ListRelatedDocumentsByKey(ctx context.Context, featureKey string) ([]*models.Document, error) {
+	if s.docSvc != nil {
+		return s.docSvc.ListDocumentsByKey(ctx, featureKey)
+	}
+	// Fallback for when only read-only docRepo is set (no writable doc repo)
 	feature, err := s.repo.GetByKey(ctx, featureKey)
 	if err != nil {
 		return nil, fmt.Errorf("feature not found: %w", err)
@@ -839,14 +760,14 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		filePath = &defaultPath
 	}
 
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            featureKey,
-		Title:          strings.TrimSpace(input.Title),
-		Description:    input.Description,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
+		Title:       strings.TrimSpace(input.Title),
+		Description: input.Description,
+
+		FilePath: filePath}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatus(statusStr),
 		ExecutionOrder: input.ExecutionOrder,
-		FilePath:       filePath,
 	}
 
 	if err := feature.Validate(); err != nil {
@@ -874,7 +795,7 @@ func (s *FeatureService) maybeReopenParentEpic(ctx context.Context, epic *models
 		return
 	}
 
-	epicWf := s.workflowSvc.ForLevel(workflow.LevelEpic)
+	epicWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelEpic)
 	if !epicWf.IsTerminalStatus(string(epic.Status)) {
 		return
 	}
@@ -1083,19 +1004,22 @@ func (s *FeatureService) GetFeatureDisplayData(ctx context.Context, feature *mod
 		return nil, fmt.Errorf("failed to unmarshal tasks for feature %s: %w", feature.Key, err)
 	}
 	for _, tj := range tasksRaw {
-		task := &models.Task{
-			ID:             tj.ID,
-			Key:            tj.Key,
-			Title:          tj.Title,
-			Status:         models.TaskStatus(tj.Status),
-			FeatureID:      feature.ID,
-			Slug:           tj.Slug,
-			Description:    tj.Description,
-			AgentType:      tj.AgentType,
-			FilePath:       tj.FilePath,
+		task := &models.Task{BaseEntity: models.BaseEntity{ID: tj.ID,
+			Key:   tj.Key,
+			Title: tj.Title,
+
+			Slug:        tj.Slug,
+			Description: tj.Description,
+
+			FilePath: tj.FilePath,
+
+			ContextData: tj.ContextData}, Status: models.TaskStatus(tj.Status),
+			FeatureID: feature.ID,
+
+			AgentType: tj.AgentType,
+
 			BlockedReason:  tj.BlockedReason,
 			ExecutionOrder: tj.ExecutionOrder,
-			ContextData:    tj.ContextData,
 		}
 		if tj.Priority != nil {
 			task.Priority = *tj.Priority

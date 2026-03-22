@@ -34,10 +34,8 @@ func TestTaskCriteriaImport(t *testing.T) {
 
 	// Create test epic
 	priority := models.PriorityMedium
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      priority,
 		BusinessValue: &priority,
 	}
@@ -48,10 +46,9 @@ func TestTaskCriteriaImport(t *testing.T) {
 
 	// Create test feature
 	execOrder := 1
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            "E99-F99",
-		Title:          "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F99",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusActive,
 		ExecutionOrder: &execOrder,
 	}
@@ -90,13 +87,13 @@ Some other content here.
 
 	// Create test task
 	filePathStr := taskFilePath
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F99-001",
-		Title:     "Test Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
-		FilePath:  &filePathStr,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-001",
+		Title: "Test Task",
+
+		FilePath: &filePathStr}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	if err != nil {
@@ -208,10 +205,8 @@ func TestTaskCriteriaCheckAndFail(t *testing.T) {
 
 	// Create test epic
 	priority := models.PriorityMedium
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      priority,
 		BusinessValue: &priority,
 	}
@@ -222,10 +217,9 @@ func TestTaskCriteriaCheckAndFail(t *testing.T) {
 
 	// Create test feature
 	execOrder := 1
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            "E99-F99",
-		Title:          "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F99",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusActive,
 		ExecutionOrder: &execOrder,
 	}
@@ -235,12 +229,11 @@ func TestTaskCriteriaCheckAndFail(t *testing.T) {
 	}
 
 	// Create test task
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E99-F99-002",
-		Title:     "Test Task 2",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-002",
+		Title: "Test Task 2"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	if err != nil {
@@ -366,10 +359,8 @@ func TestFeatureCriteriaAggregation(t *testing.T) {
 
 	// Create test epic
 	priority := models.PriorityMedium
-	epic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      priority,
 		BusinessValue: &priority,
 	}
@@ -380,10 +371,9 @@ func TestFeatureCriteriaAggregation(t *testing.T) {
 
 	// Create test feature
 	execOrder := 1
-	feature := &models.Feature{
-		EpicID:         epic.ID,
-		Key:            "E99-F99",
-		Title:          "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F99",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:         models.FeatureStatusActive,
 		ExecutionOrder: &execOrder,
 	}
@@ -394,12 +384,11 @@ func TestFeatureCriteriaAggregation(t *testing.T) {
 
 	// Create test tasks with criteria
 	for i := 1; i <= 3; i++ {
-		task := &models.Task{
-			FeatureID: feature.ID,
-			Key:       fmt.Sprintf("T-E99-F99-%03d", i),
-			Title:     fmt.Sprintf("Test Task %d", i),
-			Status:    models.TaskStatus("todo"),
-			Priority:  5,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-E99-F99-%03d", i),
+			Title: fmt.Sprintf("Test Task %d", i)}, FeatureID: feature.ID,
+
+			Status:   models.TaskStatus("todo"),
+			Priority: 5,
 		}
 		err = taskRepo.Create(ctx, task)
 		if err != nil {

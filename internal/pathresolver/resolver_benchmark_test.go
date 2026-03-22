@@ -15,11 +15,10 @@ func BenchmarkPathResolver_ResolveEpicPath_Default(b *testing.B) {
 	slug := "test-epic"
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
 				Title: "Test Epic",
-				Slug:  &slug,
+				Slug:  &slug},
 			}, nil
 		},
 	}
@@ -42,10 +41,9 @@ func BenchmarkPathResolver_ResolveEpicPath_CustomFolder(b *testing.B) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
-				Title: "Test Epic",
+				Title: "Test Epic"},
 			}, nil
 		},
 	}
@@ -69,11 +67,10 @@ func BenchmarkPathResolver_ResolveEpicPath_ExplicitFilename(b *testing.B) {
 	filename := "docs/special/my-epic.md"
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:       1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:      "E01",
 				Title:    "Test Epic",
-				FilePath: &filename,
+				FilePath: &filename},
 			}, nil
 		},
 	}
@@ -99,23 +96,21 @@ func BenchmarkPathResolver_ResolveFeaturePath_Default(b *testing.B) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
 				Title: "Test Epic",
-				Slug:  &epicSlug,
+				Slug:  &epicSlug},
 			}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E01-F01",
-				Title:  "Test Feature",
-				Slug:   &featureSlug,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "Test Feature",
+				Slug:  &featureSlug}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -140,22 +135,20 @@ func BenchmarkPathResolver_ResolveFeaturePath_InheritedPath(b *testing.B) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
-				Title: "Q1 Epic",
+				Title: "Q1 Epic"},
 			}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E01-F01",
-				Title:  "User Auth",
-				Slug:   &featureSlug,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "User Auth",
+				Slug:  &featureSlug}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -181,23 +174,21 @@ func BenchmarkPathResolver_ResolveTaskPath_Default(b *testing.B) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
 				Title: "Test Epic",
-				Slug:  &epicSlug,
+				Slug:  &epicSlug},
 			}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E01-F01",
-				Title:  "Test Feature",
-				Slug:   &featureSlug,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "Test Feature",
+				Slug:  &featureSlug}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -205,12 +196,11 @@ func BenchmarkPathResolver_ResolveTaskPath_Default(b *testing.B) {
 	mockTaskRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			emptyPath := ""
-			return &models.Task{
-				ID:        1,
-				FeatureID: 1,
-				Key:       "T-E01-F01-001",
-				Title:     "Test Task",
-				FilePath:  &emptyPath,
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:      "T-E01-F01-001",
+				Title:    "Test Task",
+				FilePath: &emptyPath}, FeatureID: 1,
 			}, nil
 		},
 	}
@@ -234,12 +224,11 @@ func BenchmarkPathResolver_ResolveTaskPath_ExplicitPath(b *testing.B) {
 	mockTaskRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			taskPath := "docs/custom/my-task.md"
-			return &models.Task{
-				ID:        1,
-				FeatureID: 1,
-				Key:       "T-E01-F01-001",
-				Title:     "Test Task",
-				FilePath:  &taskPath,
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:      "T-E01-F01-001",
+				Title:    "Test Task",
+				FilePath: &taskPath}, FeatureID: 1,
 			}, nil
 		},
 	}
@@ -265,40 +254,36 @@ func BenchmarkPathResolver_ComplexScenario(b *testing.B) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
 				Title: "Test Epic",
-				Slug:  &epicSlug,
+				Slug:  &epicSlug},
 			}, nil
 		},
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
 				Title: "Test Epic",
-				Slug:  &epicSlug,
+				Slug:  &epicSlug},
 			}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E01-F01",
-				Title:  "Test Feature",
-				Slug:   &featureSlug,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "Test Feature",
+				Slug:  &featureSlug}, EpicID: 1,
 			}, nil
 		},
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E01-F01",
-				Title:  "Test Feature",
-				Slug:   &featureSlug,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "Test Feature",
+				Slug:  &featureSlug}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -306,12 +291,11 @@ func BenchmarkPathResolver_ComplexScenario(b *testing.B) {
 	mockTaskRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			emptyPath := ""
-			return &models.Task{
-				ID:        1,
-				FeatureID: 1,
-				Key:       "T-E01-F01-001",
-				Title:     "Test Task",
-				FilePath:  &emptyPath,
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:      "T-E01-F01-001",
+				Title:    "Test Task",
+				FilePath: &emptyPath}, FeatureID: 1,
 			}, nil
 		},
 	}

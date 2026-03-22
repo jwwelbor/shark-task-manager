@@ -48,13 +48,12 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
-// entityNoteAdapter adapts *repository.EntityNoteRepository to the services.EpicNoteRepository
-// and services.FeatureNoteRepository interfaces (both have identical signatures).
-// The service interfaces use (string, string) for entityType and documentPath,
-// while the repository uses (models.EntityType, *string).
-type entityNoteAdapter struct {
-	repo *repository.EntityNoteRepository
-}
+// Compile-time interface satisfaction checks for adapters.
+// These adapters are prepared for full HTTP API wiring (F02).
+var (
+	_ services.WorkSessionRepository = (*workSessionAdapter)(nil)
+	_ services.TaskHistoryRepository = (*taskHistoryAdapter)(nil)
+)
 
 // workSessionAdapter adapts *repository.WorkSessionRepository to the services.WorkSessionRepository interface.
 // The repository returns *repository.SessionStats but the service interface expects *services.WorkSessionStats.
@@ -95,15 +94,15 @@ func (a *workSessionAdapter) GetSessionAnalyticsByEpic(ctx context.Context, epic
 // taskHistoryAdapter adapts *repository.TaskHistoryRepository to the services.TaskHistoryRepository interface.
 // The two HistoryFilters types have identical fields but different package paths, so an adapter is needed.
 type taskHistoryAdapter struct {
-	repo *repository.TaskHistoryRepository
+	repo *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 }
 
 func (a *taskHistoryAdapter) GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
-	return a.repo.GetHistoryByTaskKey(ctx, taskKey)
+	return a.repo.GetHistoryByTaskKey(ctx, taskKey) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 }
 
 func (a *taskHistoryAdapter) ListWithFilters(ctx context.Context, filters services.HistoryFilters) ([]*models.TaskHistory, error) {
-	return a.repo.ListWithFilters(ctx, repository.HistoryFilters{
+	return a.repo.ListWithFilters(ctx, repository.HistoryFilters{ //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 		Agent:      filters.Agent,
 		Since:      filters.Since,
 		EpicKey:    filters.EpicKey,
@@ -115,31 +114,17 @@ func (a *taskHistoryAdapter) ListWithFilters(ctx context.Context, filters servic
 	})
 }
 
-func (a *entityNoteAdapter) CreateRejectionNote(
-	ctx context.Context,
-	entityType string,
-	entityID int64,
-	historyID int64,
-	fromStatus, toStatus, reason, rejectedBy, documentPath string,
-) error {
-	var dp *string
-	if documentPath != "" {
-		dp = &documentPath
-	}
-	_, err := a.repo.CreateRejectionNote(ctx, models.EntityType(entityType), entityID, historyID,
-		fromStatus, toStatus, reason, rejectedBy, dp)
-	return err
-}
-
 // ServiceContainer holds all initialized services for HTTP handlers.
 // This provides a clean way to pass services to handlers without global state.
 type ServiceContainer struct {
-	TaskService    *services.TaskService
-	FeatureService *services.FeatureService
-	EpicService    *services.EpicService
-	NoteService    *services.NoteService
-	ContextService *services.ContextService
-	ResumeService  *services.ResumeService
+	TaskService       *services.TaskService
+	FeatureService    *services.FeatureService
+	EpicService       *services.EpicService
+	BugService        *services.BugService
+	ChangeCardService *services.ChangeCardService
+	NoteService       *services.NoteService
+	ContextService    *services.ContextService
+	ResumeService     *services.ResumeService
 }
 
 // WireServices constructs all services with their dependencies.
@@ -166,7 +151,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	featureRepo := repository.NewFeatureRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
 	noteRepo := repository.NewEntityNoteRepository(db)
-	historyRepo := repository.NewTaskHistoryRepository(db)
+	historyRepo := repository.NewTaskHistoryRepository(db) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 
 	// Step 2b: Construct taskcreation.Creator for task file creation
 	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
@@ -174,55 +159,38 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	renderer := templates.NewRenderer(templates.NewLoader("")) // use embedded templates
 	creatorSvc := taskcreation.NewCreator(db, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, projectRoot, workflowSvc)
 
-	// Step 3: Construct domain services (business logic layer)
-	taskService := services.NewTaskService(
-		taskRepo,    // Task data access
-		workflowSvc, // Workflow validation
-		creatorSvc,  // Task file creation
-		noteRepo,    // Rejection note tracking (implements TaskNoteRepository)
-	)
+	// Step 3: Construct EntityService and EntityRegistry (shared infrastructure)
+	entitySvc := services.NewEntityService(workflowSvc)
+	entitySvc.SetNoteRepo(noteRepo) // Wire rejection note creation into EntityService
+	registry := services.NewEntityRegistry()
+	registry.Register(models.EntityTypeEpic, services.NewEpicRepositoryAdapter(epicRepo))
+	registry.Register(models.EntityTypeFeature, services.NewFeatureRepositoryAdapter(featureRepo))
+	registry.Register(models.EntityTypeTask, services.NewTaskRepositoryAdapter(taskRepo))
+	bugRepoAdapter := repository.NewBugRepository(db)
+	registry.Register(models.EntityTypeBug, services.NewBugRepositoryAdapter(bugRepoAdapter))
+	changeCardRepoAdapter := repository.NewChangeCardRepository(db)
+	registry.Register(models.EntityTypeChange, services.NewChangeCardRepositoryAdapter(changeCardRepoAdapter))
 
-	noteAdapter := &entityNoteAdapter{repo: noteRepo}
+	// Step 3b: Construct EntityHistoryRepository for polymorphic history recording
+	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
+	entitySvc.SetHistoryRepo(entityHistoryRepo)
+
+	// Step 4: Construct entity-specific services
+	// Rejection note creation is handled by EntityService (via SetNoteRepo above).
+	taskService := services.NewTaskService(taskRepo, entitySvc, creatorSvc)
+	taskService.SetEntityHistoryRepo(entityHistoryRepo)
 
 	featureService := services.NewFeatureService(
-		featureRepo, // Feature data access
-		workflowSvc, // Workflow validation
-		noteAdapter, // Rejection note tracking (adapted to FeatureNoteRepository)
-		taskRepo,    // Child task counting for warnings
-		epicRepo,    // Epic lookup for CreateFeature
+		featureRepo, entitySvc,
+		registry.MustGetRepository(models.EntityTypeFeature),
+		taskRepo, epicRepo,
 	)
 
-	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
-	progressSvc := services.NewFeatureProgressService(featureRepo, taskRepo, workflowSvc)
-	featureService.SetProgressService(progressSvc)
-
-	// Wire featureService into taskService so status mutations trigger progress recalculation.
-	taskService.SetFeatureService(featureService)
-
-	// Wire sub-services for delegation (query, dependency, history).
-	querySvc := services.NewTaskQueryService(taskRepo)
-	taskService.SetQueryService(querySvc)
-
-	relRepo := repository.NewTaskRelationshipRepository(db)
-	docRepo := repository.NewDocumentRepository(db)
-	depSvc := services.NewTaskDependencyService(taskRepo)
-	depSvc.SetDepRepo(relRepo)
-	depSvc.SetRelQueryRepo(relRepo)
-	depSvc.SetWritableDocRepo(docRepo)
-	taskService.SetDependencyService(depSvc)
-
-	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(db)}
-	historySvc := services.NewTaskHistoryService(&taskHistoryAdapter{repo: historyRepo})
-	historySvc.SetSessionRepo(sessionRepo)
-	historySvc.SetFeatureRepo(featureRepo)
-	historySvc.SetEpicRepo(epicRepo)
-	taskService.SetHistoryService(historySvc)
-
 	epicService := services.NewEpicService(
-		epicRepo,    // Epic data access
-		workflowSvc, // Workflow validation
-		noteAdapter, // Rejection note tracking (adapted to EpicNoteRepository)
-		featureRepo, // Child feature counting for warnings
+		epicRepo,  // Epic data access
+		entitySvc, // Shared transition logic
+		registry.MustGetRepository(models.EntityTypeEpic), // Polymorphic adapter
+		featureRepo, // Child feature counting
 		taskRepo,    // Task repository for impediment tracking
 	)
 
@@ -230,19 +198,37 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	analyticsSvc := services.NewEpicAnalyticsService(epicRepo, taskRepo)
 	epicService.SetAnalyticsService(analyticsSvc)
 
-	// Step 4: Construct supporting services
-	noteService := services.NewNoteService(noteRepo, epicRepo, featureRepo, taskRepo)
-	contextService := services.NewContextService(epicRepo, featureRepo, taskRepo)
-	resumeService := services.NewResumeService(epicRepo, featureRepo, taskRepo, noteRepo)
+	bugService := services.NewBugService(
+		bugRepoAdapter,
+		entitySvc,
+		registry.MustGetRepository(models.EntityTypeBug),
+		epicRepo, featureRepo, taskRepo,
+		projectRoot,
+	)
+
+	changeCardService := services.NewChangeCardService(
+		changeCardRepoAdapter,
+		entitySvc,
+		registry.MustGetRepository(models.EntityTypeChange),
+		epicRepo, featureRepo,
+		projectRoot,
+	)
+
+	noteService := services.NewNoteService(noteRepo, registry)
+	contextService := services.NewContextService(registry)
+	resumeService := services.NewResumeService(epicRepo, featureRepo, taskRepo, noteRepo, registry)
 
 	// Step 5: Return container with all services
+	_ = historyRepo // available for future wiring
 	return &ServiceContainer{
-		TaskService:    taskService,
-		FeatureService: featureService,
-		EpicService:    epicService,
-		NoteService:    noteService,
-		ContextService: contextService,
-		ResumeService:  resumeService,
+		TaskService:       taskService,
+		FeatureService:    featureService,
+		EpicService:       epicService,
+		BugService:        bugService,
+		ChangeCardService: changeCardService,
+		NoteService:       noteService,
+		ContextService:    contextService,
+		ResumeService:     resumeService,
 	}
 }
 

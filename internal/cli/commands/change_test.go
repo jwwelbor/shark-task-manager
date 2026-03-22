@@ -29,7 +29,7 @@ type MockChangeCardService struct {
 	UpdateChangeCardFunc        func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
 	DeleteChangeCardFunc        func(ctx context.Context, key string) error
 	ApproveChangeCardFunc       func(ctx context.Context, key string) (*models.ChangeCard, error)
-	SetChangeCardStatusFunc     func(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error)
+	SetChangeCardStatusFunc     func(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error)
 	AdvanceChangeCardStatusFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
 	GetOrchestratorActionFunc   func(card *models.ChangeCard) *config.PopulatedAction
 	GetValidTransitionsFunc     func(status string) []string
@@ -77,9 +77,9 @@ func (m *MockChangeCardService) ApproveChangeCard(ctx context.Context, key strin
 	return nil, fmt.Errorf("ApproveChangeCard not implemented in mock")
 }
 
-func (m *MockChangeCardService) SetChangeCardStatus(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error) {
+func (m *MockChangeCardService) SetChangeCardStatus(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error) {
 	if m.SetChangeCardStatusFunc != nil {
-		return m.SetChangeCardStatusFunc(ctx, key, targetStatus)
+		return m.SetChangeCardStatusFunc(ctx, key, targetStatus, force)
 	}
 	return nil, fmt.Errorf("SetChangeCardStatus not implemented in mock")
 }
@@ -169,7 +169,7 @@ func captureOutput(t *testing.T, fn func()) []byte {
 func TestRunChangeCreate_Success(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		CreateChangeCardFunc: func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
-			return &models.ChangeCard{Key: "CC-001", Title: input.Title, Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001", Title: input.Title}, Status: "proposed"}, nil
 		},
 	})
 	defer restore()
@@ -217,7 +217,7 @@ func TestRunChangeCreate_JSONOutput(t *testing.T) {
 
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		CreateChangeCardFunc: func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
-			return &models.ChangeCard{Key: "CC-001", Title: "Test", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
 		},
 	})
 	defer restore()
@@ -249,7 +249,7 @@ func TestRunChangeGet_Success(t *testing.T) {
 
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{Key: key, Title: "Some change", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key, Title: "Some change"}, Status: "proposed"}, nil
 		},
 	})
 	defer restore()
@@ -289,7 +289,7 @@ func TestRunChangeGet_JSONOutput(t *testing.T) {
 
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{Key: "CC-042", Title: "JSON change", Status: "approved"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-042", Title: "JSON change"}, Status: "approved"}, nil
 		},
 	})
 	defer restore()
@@ -333,8 +333,8 @@ func TestRunChangeList_WithResults(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		ListChangeCardsFunc: func(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error) {
 			return []*models.ChangeCard{
-				{Key: "CC-001", Title: "First change", Status: "proposed"},
-				{Key: "CC-002", Title: "Second change", Status: "approved"},
+				{BaseEntity: models.BaseEntity{Key: "CC-001", Title: "First change"}, Status: "proposed"},
+				{BaseEntity: models.BaseEntity{Key: "CC-002", Title: "Second change"}, Status: "approved"},
 			}, nil
 		},
 	})
@@ -435,7 +435,7 @@ func TestRunChangeList_JSONOutput(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		ListChangeCardsFunc: func(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error) {
 			return []*models.ChangeCard{
-				{Key: "CC-001", Title: "List item", Status: "proposed"},
+				{BaseEntity: models.BaseEntity{Key: "CC-001", Title: "List item"}, Status: "proposed"},
 			}, nil
 		},
 	})
@@ -461,7 +461,7 @@ func TestRunChangeList_JSONOutput(t *testing.T) {
 func TestRunChangeUpdate_Success(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		UpdateChangeCardFunc: func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error) {
-			return &models.ChangeCard{Key: key, Title: "Updated title", Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key, Title: "Updated title"}, Status: "proposed"}, nil
 		},
 	})
 	defer restore()
@@ -511,7 +511,7 @@ func TestRunChangeUpdate_JSONOutput(t *testing.T) {
 	newTitle := "Updated title"
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		UpdateChangeCardFunc: func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error) {
-			return &models.ChangeCard{Key: "CC-005", Title: newTitle, Status: "proposed"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-005", Title: newTitle}, Status: "proposed"}, nil
 		},
 	})
 	defer restore()
@@ -626,7 +626,7 @@ func TestRunChangeDelete_NoForce_NotFound(t *testing.T) {
 func TestRunChangeApprove_Success(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		ApproveChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{Key: key, Title: "Approved change", Status: "approved"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key, Title: "Approved change"}, Status: "approved"}, nil
 		},
 	})
 	defer restore()
@@ -648,7 +648,7 @@ func TestRunChangeApprove_JSONOutput(t *testing.T) {
 
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
 		ApproveChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{Key: "CC-007", Title: "Approve me", Status: "approved"}, nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-007", Title: "Approve me"}, Status: "approved"}, nil
 		},
 	})
 	defer restore()
@@ -672,7 +672,7 @@ func TestRunChangeApprove_JSONOutput(t *testing.T) {
 // by reading the hardcoded headers slice in the implementation).
 func TestPrintChangeCardList_LinkedEntityHeader(t *testing.T) {
 	cards := []*models.ChangeCard{
-		{Key: "CC-001", Title: "A change", Status: "proposed"},
+		{BaseEntity: models.BaseEntity{Key: "CC-001", Title: "A change"}, Status: "proposed"},
 	}
 
 	restore := suppressOutput(t)
@@ -688,8 +688,8 @@ func TestPrintChangeCardList_LinkedEntityHeader(t *testing.T) {
 // without errors.
 func TestPrintChangeCardList_NonEmpty(t *testing.T) {
 	cards := []*models.ChangeCard{
-		{Key: "CC-001", Title: "First", Status: "proposed"},
-		{Key: "CC-002", Title: "Second", Status: "approved"},
+		{BaseEntity: models.BaseEntity{Key: "CC-001", Title: "First"}, Status: "proposed"},
+		{BaseEntity: models.BaseEntity{Key: "CC-002", Title: "Second"}, Status: "approved"},
 	}
 
 	restore := suppressOutput(t)

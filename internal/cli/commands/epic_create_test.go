@@ -174,10 +174,9 @@ func TestBuildEpicModel_FilePathAlwaysSet(t *testing.T) {
 			// relative path of actualFileCreated, but currently it's not
 
 			// Simulate current buggy behavior
-			epic := &models.Epic{
-				Key:      "E01",
+			epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
 				Title:    "Test Epic",
-				FilePath: tt.customFilePath, // BUG: Only set when custom filename provided
+				FilePath: tt.customFilePath}, // BUG: Only set when custom filename provided
 			}
 
 			// Check current behavior (demonstrates the bug)
@@ -228,10 +227,9 @@ func TestBuildFeatureModel_FilePathAlwaysSet(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Simulate current buggy behavior for features
-			feature := &models.Feature{
-				Key:      "E01-F01",
+			feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
 				Title:    "Test Feature",
-				FilePath: tt.customFilePath, // BUG: Only set when custom filename provided
+				FilePath: tt.customFilePath}, // BUG: Only set when custom filename provided
 			}
 
 			if tt.shouldBeNil {

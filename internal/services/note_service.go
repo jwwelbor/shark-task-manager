@@ -16,114 +16,43 @@ type NoteEntityNoteRepository interface {
 	SearchWithTimePeriod(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string, since string, until string) ([]*models.EntityNote, error)
 }
 
-// NoteEpicRepository defines the epic repository interface needed by NoteService.
-type NoteEpicRepository interface {
-	GetByKey(ctx context.Context, key string) (*models.Epic, error)
-	GetByID(ctx context.Context, id int64) (*models.Epic, error)
-}
-
-// NoteFeatureRepository defines the feature repository interface needed by NoteService.
-type NoteFeatureRepository interface {
-	GetByKey(ctx context.Context, key string) (*models.Feature, error)
-	GetByID(ctx context.Context, id int64) (*models.Feature, error)
-}
-
-// NoteTaskRepository defines the task repository interface needed by NoteService.
-type NoteTaskRepository interface {
-	GetByKey(ctx context.Context, key string) (*models.Task, error)
-	GetByID(ctx context.Context, id int64) (*models.Task, error)
-}
-
-// NoteChangeCardRepository defines the change-card repository interface needed by NoteService.
-type NoteChangeCardRepository interface {
-	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
-	GetByID(ctx context.Context, id int64) (*models.ChangeCard, error)
-}
-
-// NoteBugRepository defines the bug repository interface needed by NoteService.
-type NoteBugRepository interface {
-	GetByKey(ctx context.Context, key string) (*models.Bug, error)
-	GetByID(ctx context.Context, id int64) (*models.Bug, error)
-}
-
 // NoteEntityDetails contains the key and name of an entity referenced by a note.
 type NoteEntityDetails struct {
 	Key  string
 	Name string
 }
 
-// GetEntityDetails returns the key and name of the entity referenced by a note.
-// Returns nil if the entity cannot be found (caller should skip or handle gracefully).
-func (s *NoteService) GetEntityDetails(ctx context.Context, entityType models.EntityType, entityID int64) *NoteEntityDetails {
-	switch entityType {
-	case models.EntityTypeTask:
-		task, err := s.taskRepo.GetByID(ctx, entityID)
-		if err != nil {
-			return nil
-		}
-		return &NoteEntityDetails{Key: task.Key, Name: task.Title}
-	case models.EntityTypeEpic:
-		epic, err := s.epicRepo.GetByID(ctx, entityID)
-		if err != nil {
-			return nil
-		}
-		return &NoteEntityDetails{Key: epic.Key, Name: epic.Title}
-	case models.EntityTypeFeature:
-		feature, err := s.featureRepo.GetByID(ctx, entityID)
-		if err != nil {
-			return nil
-		}
-		return &NoteEntityDetails{Key: feature.Key, Name: feature.Title}
-	case models.EntityTypeChange:
-		if s.changeCardRepo == nil {
-			return nil
-		}
-		card, err := s.changeCardRepo.GetByID(ctx, entityID)
-		if err != nil {
-			return nil
-		}
-		return &NoteEntityDetails{Key: card.Key, Name: card.Title}
-	case models.EntityTypeBug:
-		if s.bugRepo == nil {
-			return nil
-		}
-		bug, err := s.bugRepo.GetByID(ctx, entityID)
-		if err != nil {
-			return nil
-		}
-		return &NoteEntityDetails{Key: bug.Key, Name: bug.Title}
-	default:
-		return nil
-	}
-}
-
 // NoteService provides business logic for note operations across all entity types.
 type NoteService struct {
-	noteRepo       NoteEntityNoteRepository
-	epicRepo       NoteEpicRepository
-	featureRepo    NoteFeatureRepository
-	taskRepo       NoteTaskRepository
-	changeCardRepo NoteChangeCardRepository
-	bugRepo        NoteBugRepository
-}
-
-// SetChangeCardRepo sets the optional change-card repository for change entity support.
-func (s *NoteService) SetChangeCardRepo(repo NoteChangeCardRepository) {
-	s.changeCardRepo = repo
-}
-
-// SetBugRepo sets the optional bug repository for bug entity note support.
-func (s *NoteService) SetBugRepo(repo NoteBugRepository) {
-	s.bugRepo = repo
+	noteRepo NoteEntityNoteRepository
+	registry *EntityRegistry
 }
 
 // NewNoteService creates a new NoteService with injected dependencies.
-func NewNoteService(noteRepo NoteEntityNoteRepository, epicRepo NoteEpicRepository, featureRepo NoteFeatureRepository, taskRepo NoteTaskRepository) *NoteService {
+func NewNoteService(noteRepo NoteEntityNoteRepository, registry *EntityRegistry) *NoteService {
+	if registry == nil {
+		panic("NoteService: EntityRegistry must not be nil")
+	}
 	return &NoteService{
-		noteRepo:    noteRepo,
-		epicRepo:    epicRepo,
-		featureRepo: featureRepo,
-		taskRepo:    taskRepo,
+		noteRepo: noteRepo,
+		registry: registry,
+	}
+}
+
+// GetEntityDetails returns the key and name of the entity referenced by a note.
+// Returns nil if the entity cannot be found (caller should skip or handle gracefully).
+func (s *NoteService) GetEntityDetails(ctx context.Context, entityType models.EntityType, entityID int64) *NoteEntityDetails {
+	repo, err := s.registry.GetRepository(entityType)
+	if err != nil {
+		return nil
+	}
+	entity, err := repo.GetByID(ctx, entityID)
+	if err != nil {
+		return nil
+	}
+	return &NoteEntityDetails{
+		Key:  entity.GetKey(),
+		Name: entity.GetTitle(),
 	}
 }
 
@@ -182,46 +111,15 @@ func (s *NoteService) SearchNotesWithTimePeriod(ctx context.Context, query strin
 	return s.noteRepo.SearchWithTimePeriod(ctx, query, noteTypes, epicKey, featureKey, since, until)
 }
 
-// resolveEntityID resolves an entity key to its database ID using the appropriate repository.
+// resolveEntityID resolves an entity key to its database ID using the registry.
 func (s *NoteService) resolveEntityID(ctx context.Context, entityType models.EntityType, key string) (int64, error) {
-	switch entityType {
-	case models.EntityTypeEpic:
-		epic, err := s.epicRepo.GetByKey(ctx, key)
-		if err != nil {
-			return 0, fmt.Errorf("epic not found: %s: %w", key, err)
-		}
-		return epic.ID, nil
-	case models.EntityTypeFeature:
-		feature, err := s.featureRepo.GetByKey(ctx, key)
-		if err != nil {
-			return 0, fmt.Errorf("feature not found: %s: %w", key, err)
-		}
-		return feature.ID, nil
-	case models.EntityTypeTask:
-		task, err := s.taskRepo.GetByKey(ctx, key)
-		if err != nil {
-			return 0, fmt.Errorf("task not found: %s: %w", key, err)
-		}
-		return task.ID, nil
-	case models.EntityTypeChange:
-		if s.changeCardRepo == nil {
-			return 0, fmt.Errorf("change-card support not configured")
-		}
-		card, err := s.changeCardRepo.GetByKey(ctx, key)
-		if err != nil {
-			return 0, fmt.Errorf("change-card not found: %s: %w", key, err)
-		}
-		return card.ID, nil
-	case models.EntityTypeBug:
-		if s.bugRepo == nil {
-			return 0, fmt.Errorf("bug repository not configured for note operations")
-		}
-		bug, err := s.bugRepo.GetByKey(ctx, key)
-		if err != nil {
-			return 0, fmt.Errorf("bug not found: %s: %w", key, err)
-		}
-		return bug.ID, nil
-	default:
-		return 0, fmt.Errorf("unsupported entity type: %s", entityType)
+	repo, err := s.registry.GetRepository(entityType)
+	if err != nil {
+		return 0, fmt.Errorf("failed to resolve entity for note operation: %w", err)
 	}
+	entity, err := repo.GetByKey(ctx, key)
+	if err != nil {
+		return 0, fmt.Errorf("%s not found: %s: %w", entityType, key, err)
+	}
+	return entity.GetID(), nil
 }

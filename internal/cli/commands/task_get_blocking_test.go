@@ -32,10 +32,8 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	// Task B blocks Task A (T-E99-F99-020 blocks T-E99-F99-021)
 	// Task A blocks Task C (T-E99-F99-021 blocks T-E99-F99-022)
 
-	taskA := &models.Task{
-		Key:       "T-E99-F99-021",
-		Title:     "Task A",
-		Status:    "todo",
+	taskA := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-021",
+		Title: "Task A"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -45,10 +43,8 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 		t.Fatalf("Failed to create task A (featureID=%d): %v", featureID, err)
 	}
 
-	taskB := &models.Task{
-		Key:       "T-E99-F99-020",
-		Title:     "Task B - Blocks Task A",
-		Status:    "in_progress",
+	taskB := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-020",
+		Title: "Task B - Blocks Task A"}, Status: "in_progress",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -57,10 +53,8 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 		t.Fatalf("Failed to create task B: %v", err)
 	}
 
-	taskC := &models.Task{
-		Key:       "T-E99-F99-022",
-		Title:     "Task C - Blocked by Task A",
-		Status:    "todo",
+	taskC := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-022",
+		Title: "Task C - Blocked by Task A"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -201,10 +195,8 @@ func TestTaskGetNoBlockingRelationships(t *testing.T) {
 	relationshipRepo := repository.NewTaskRelationshipRepository(db)
 
 	// Create a single task with no relationships
-	task := &models.Task{
-		Key:       "T-E99-F99-030",
-		Title:     "Isolated Task",
-		Status:    "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-030",
+		Title: "Isolated Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}

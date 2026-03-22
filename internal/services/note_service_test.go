@@ -54,61 +54,86 @@ func (m *mockNoteEntityNoteRepo) SearchWithTimePeriod(ctx context.Context, query
 	return nil, nil
 }
 
-type mockNoteEpicRepo struct {
-	getByKeyFunc func(ctx context.Context, key string) (*models.Epic, error)
-	getByIDFunc  func(ctx context.Context, id int64) (*models.Epic, error)
+// mockNoteEntityRepo provides a configurable mock EntityRepository for NoteService tests.
+type mockNoteEntityRepo struct {
+	getByKeyFunc func(ctx context.Context, key string) (models.Entity, error)
+	getByIDFunc  func(ctx context.Context, id int64) (models.Entity, error)
 }
 
-func (m *mockNoteEpicRepo) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+func (m *mockNoteEntityRepo) GetByKey(ctx context.Context, key string) (models.Entity, error) {
 	if m.getByKeyFunc != nil {
 		return m.getByKeyFunc(ctx, key)
 	}
-	return &models.Epic{ID: 1, Key: key}, nil
+	return nil, fmt.Errorf("GetByKey not implemented")
 }
 
-func (m *mockNoteEpicRepo) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
+func (m *mockNoteEntityRepo) GetByID(ctx context.Context, id int64) (models.Entity, error) {
 	if m.getByIDFunc != nil {
 		return m.getByIDFunc(ctx, id)
 	}
-	return &models.Epic{ID: id, Key: "E01"}, nil
+	return nil, fmt.Errorf("GetByID not implemented")
 }
 
-type mockNoteFeatureRepo struct {
-	getByKeyFunc func(ctx context.Context, key string) (*models.Feature, error)
-	getByIDFunc  func(ctx context.Context, id int64) (*models.Feature, error)
+func (m *mockNoteEntityRepo) UpdateStatus(_ context.Context, _ int64, _ string) error {
+	return nil
 }
 
-func (m *mockNoteFeatureRepo) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
-	if m.getByKeyFunc != nil {
-		return m.getByKeyFunc(ctx, key)
-	}
-	return &models.Feature{ID: 2, Key: key}, nil
+func (m *mockNoteEntityRepo) Update(_ context.Context, _ models.Entity) error {
+	return nil
 }
 
-func (m *mockNoteFeatureRepo) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
-	if m.getByIDFunc != nil {
-		return m.getByIDFunc(ctx, id)
-	}
-	return &models.Feature{ID: id, Key: "E01-F01"}, nil
+func (m *mockNoteEntityRepo) GetContextData(_ context.Context, _ int64) (*string, error) {
+	return nil, nil
 }
 
-type mockNoteTaskRepo struct {
-	getByKeyFunc func(ctx context.Context, key string) (*models.Task, error)
-	getByIDFunc  func(ctx context.Context, id int64) (*models.Task, error)
+func (m *mockNoteEntityRepo) UpdateContextData(_ context.Context, _ int64, _ *string) error {
+	return nil
 }
 
-func (m *mockNoteTaskRepo) GetByKey(ctx context.Context, key string) (*models.Task, error) {
-	if m.getByKeyFunc != nil {
-		return m.getByKeyFunc(ctx, key)
-	}
-	return &models.Task{ID: 3, Key: key}, nil
-}
-
-func (m *mockNoteTaskRepo) GetByID(ctx context.Context, id int64) (*models.Task, error) {
-	if m.getByIDFunc != nil {
-		return m.getByIDFunc(ctx, id)
-	}
-	return &models.Task{ID: id, Key: "E01-F01-001"}, nil
+// newNoteTestRegistry creates a registry with all 5 entity types using the given defaults.
+func newNoteTestRegistry() *EntityRegistry {
+	reg := NewEntityRegistry()
+	reg.Register(models.EntityTypeEpic, &mockNoteEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Test Epic"}}, nil
+		},
+		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: id, Key: "E01", Title: "Test Epic"}}, nil
+		},
+	})
+	reg.Register(models.EntityTypeFeature, &mockNoteEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 2, Key: key, Title: "Test Feature"}}, nil
+		},
+		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: id, Key: "E01-F01", Title: "Test Feature"}}, nil
+		},
+	})
+	reg.Register(models.EntityTypeTask, &mockNoteEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 3, Key: key, Title: "Test Task"}}, nil
+		},
+		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
+			return &models.Task{BaseEntity: models.BaseEntity{ID: id, Key: "E01-F01-001", Title: "Test Task"}}, nil
+		},
+	})
+	reg.Register(models.EntityTypeBug, &mockNoteEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 4, Key: key, Title: "Test Bug"}}, nil
+		},
+		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: id, Key: "B001", Title: "Test Bug"}}, nil
+		},
+	})
+	reg.Register(models.EntityTypeChange, &mockNoteEntityRepo{
+		getByKeyFunc: func(_ context.Context, key string) (models.Entity, error) {
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 5, Key: key, Title: "Test Change"}}, nil
+		},
+		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: id, Key: "CC-001", Title: "Test Change"}}, nil
+		},
+	})
+	return reg
 }
 
 func TestNoteService_AddNote_Epic(t *testing.T) {
@@ -124,8 +149,7 @@ func TestNoteService_AddNote_Epic(t *testing.T) {
 			return nil
 		},
 	}
-	epicRepo := &mockNoteEpicRepo{}
-	svc := NewNoteService(noteRepo, epicRepo, &mockNoteFeatureRepo{}, &mockNoteTaskRepo{})
+	svc := NewNoteService(noteRepo, newNoteTestRegistry())
 
 	note, err := svc.AddNote(context.Background(), models.EntityTypeEpic, "E16", "comment", "Test note", "test-agent")
 	if err != nil {
@@ -152,8 +176,7 @@ func TestNoteService_AddNote_Feature(t *testing.T) {
 			return nil
 		},
 	}
-	featureRepo := &mockNoteFeatureRepo{}
-	svc := NewNoteService(noteRepo, &mockNoteEpicRepo{}, featureRepo, &mockNoteTaskRepo{})
+	svc := NewNoteService(noteRepo, newNoteTestRegistry())
 
 	note, err := svc.AddNote(context.Background(), models.EntityTypeFeature, "E16-F01", "decision", "Use polymorphic table", "dev")
 	if err != nil {
@@ -177,8 +200,7 @@ func TestNoteService_AddNote_Task(t *testing.T) {
 			return nil
 		},
 	}
-	taskRepo := &mockNoteTaskRepo{}
-	svc := NewNoteService(noteRepo, &mockNoteEpicRepo{}, &mockNoteFeatureRepo{}, taskRepo)
+	svc := NewNoteService(noteRepo, newNoteTestRegistry())
 
 	note, err := svc.AddNote(context.Background(), models.EntityTypeTask, "E16-F01-001", "blocker", "Blocked on API", "")
 	if err != nil {
@@ -192,13 +214,85 @@ func TestNoteService_AddNote_Task(t *testing.T) {
 	}
 }
 
+func TestNoteService_AddNote_AllEntityTypes(t *testing.T) {
+	entityTypes := []struct {
+		entityType models.EntityType
+		key        string
+		expectedID int64
+	}{
+		{models.EntityTypeEpic, "E01", 1},
+		{models.EntityTypeFeature, "E01-F01", 2},
+		{models.EntityTypeTask, "E01-F01-001", 3},
+		{models.EntityTypeBug, "B001", 4},
+		{models.EntityTypeChange, "CC-001", 5},
+	}
+
+	for _, et := range entityTypes {
+		t.Run(string(et.entityType), func(t *testing.T) {
+			noteRepo := &mockNoteEntityNoteRepo{
+				createFunc: func(ctx context.Context, note *models.EntityNote) error {
+					note.ID = 100
+					if note.EntityID != et.expectedID {
+						t.Errorf("expected entity ID %d, got %d", et.expectedID, note.EntityID)
+					}
+					if note.EntityType != et.entityType {
+						t.Errorf("expected entity type %s, got %s", et.entityType, note.EntityType)
+					}
+					return nil
+				},
+			}
+			svc := NewNoteService(noteRepo, newNoteTestRegistry())
+
+			note, err := svc.AddNote(context.Background(), et.entityType, et.key, "comment", "test content", "agent")
+			if err != nil {
+				t.Fatalf("AddNote() error = %v", err)
+			}
+			if note.EntityID != et.expectedID {
+				t.Errorf("expected entity ID %d, got %d", et.expectedID, note.EntityID)
+			}
+		})
+	}
+}
+
+func TestNoteService_GetEntityDetails_AllEntityTypes(t *testing.T) {
+	registry := newNoteTestRegistry()
+	svc := NewNoteService(&mockNoteEntityNoteRepo{}, registry)
+
+	tests := []struct {
+		entityType models.EntityType
+		entityID   int64
+	}{
+		{models.EntityTypeEpic, 1},
+		{models.EntityTypeFeature, 2},
+		{models.EntityTypeTask, 3},
+		{models.EntityTypeBug, 4},
+		{models.EntityTypeChange, 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.entityType), func(t *testing.T) {
+			details := svc.GetEntityDetails(context.Background(), tt.entityType, tt.entityID)
+			if details == nil {
+				t.Fatal("expected non-nil details")
+			}
+			if details.Key == "" {
+				t.Error("expected non-empty key")
+			}
+			if details.Name == "" {
+				t.Error("expected non-empty name")
+			}
+		})
+	}
+}
+
 func TestNoteService_AddNote_InvalidKey(t *testing.T) {
-	epicRepo := &mockNoteEpicRepo{
-		getByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
+	reg := NewEntityRegistry()
+	reg.Register(models.EntityTypeEpic, &mockNoteEntityRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (models.Entity, error) {
 			return nil, fmt.Errorf("not found")
 		},
-	}
-	svc := NewNoteService(&mockNoteEntityNoteRepo{}, epicRepo, &mockNoteFeatureRepo{}, &mockNoteTaskRepo{})
+	})
+	svc := NewNoteService(&mockNoteEntityNoteRepo{}, reg)
 
 	_, err := svc.AddNote(context.Background(), models.EntityTypeEpic, "E999", "comment", "Test", "agent")
 	if err == nil {
@@ -207,7 +301,7 @@ func TestNoteService_AddNote_InvalidKey(t *testing.T) {
 }
 
 func TestNoteService_AddNote_InvalidNoteType(t *testing.T) {
-	svc := NewNoteService(&mockNoteEntityNoteRepo{}, &mockNoteEpicRepo{}, &mockNoteFeatureRepo{}, &mockNoteTaskRepo{})
+	svc := NewNoteService(&mockNoteEntityNoteRepo{}, newNoteTestRegistry())
 
 	_, err := svc.AddNote(context.Background(), models.EntityTypeEpic, "E16", "invalid_type", "Test", "agent")
 	if err == nil {
@@ -226,7 +320,7 @@ func TestNoteService_ListNotes(t *testing.T) {
 			return expectedNotes, nil
 		},
 	}
-	svc := NewNoteService(noteRepo, &mockNoteEpicRepo{}, &mockNoteFeatureRepo{}, &mockNoteTaskRepo{})
+	svc := NewNoteService(noteRepo, newNoteTestRegistry())
 
 	notes, err := svc.ListNotes(context.Background(), models.EntityTypeEpic, "E16", nil)
 	if err != nil {
@@ -248,7 +342,7 @@ func TestNoteService_ListNotes_WithTypeFilter(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewNoteService(noteRepo, &mockNoteEpicRepo{}, &mockNoteFeatureRepo{}, &mockNoteTaskRepo{})
+	svc := NewNoteService(noteRepo, newNoteTestRegistry())
 
 	notes, err := svc.ListNotes(context.Background(), models.EntityTypeEpic, "E16", []string{"decision"})
 	if err != nil {
@@ -270,7 +364,7 @@ func TestNoteService_SearchNotes(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewNoteService(noteRepo, &mockNoteEpicRepo{}, &mockNoteFeatureRepo{}, &mockNoteTaskRepo{})
+	svc := NewNoteService(noteRepo, newNoteTestRegistry())
 
 	notes, err := svc.SearchNotes(context.Background(), "API", nil, nil, "", "")
 	if err != nil {
@@ -282,10 +376,25 @@ func TestNoteService_SearchNotes(t *testing.T) {
 }
 
 func TestNoteService_ResolveEntityID_UnsupportedType(t *testing.T) {
-	svc := NewNoteService(&mockNoteEntityNoteRepo{}, &mockNoteEpicRepo{}, &mockNoteFeatureRepo{}, &mockNoteTaskRepo{})
+	svc := NewNoteService(&mockNoteEntityNoteRepo{}, newNoteTestRegistry())
 
 	_, err := svc.AddNote(context.Background(), models.EntityType("unknown"), "key", "comment", "Test", "agent")
 	if err == nil {
 		t.Fatal("expected error for unsupported entity type")
 	}
+}
+
+func TestNoteService_NilRegistry_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nil registry")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "NoteService: EntityRegistry must not be nil" {
+			t.Errorf("unexpected panic message: %v", r)
+		}
+	}()
+
+	NewNoteService(&mockNoteEntityNoteRepo{}, nil)
 }

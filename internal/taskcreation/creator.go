@@ -26,7 +26,7 @@ type Creator struct {
 	validator       *Validator
 	renderer        *templates.Renderer
 	taskRepo        *repository.TaskRepository
-	historyRepo     *repository.TaskHistoryRepository
+	historyRepo     *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	epicRepo        *repository.EpicRepository
 	featureRepo     *repository.FeatureRepository
 	pathResolver    *pathresolver.PathResolver
@@ -43,7 +43,7 @@ func NewCreator(
 	validator *Validator,
 	renderer *templates.Renderer,
 	taskRepo *repository.TaskRepository,
-	historyRepo *repository.TaskHistoryRepository,
+	historyRepo *repository.TaskHistoryRepository, //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 	epicRepo *repository.EpicRepository,
 	featureRepo *repository.FeatureRepository,
 	projectRoot string,
@@ -238,19 +238,21 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	initialStatus := c.workflowService.GetInitialStatus()
 
 	// Create task record
-	task := &models.Task{
-		FeatureID:      validated.FeatureID,
-		Key:            key,
-		Title:          input.Title,
-		Description:    description,
-		Status:         initialStatus,
-		AgentType:      &validated.AgentType,
-		Priority:       input.Priority,
-		DependsOn:      dependsOnJSON,
-		FilePath:       &filePath,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: key,
+		Title:       input.Title,
+		Description: description,
+
+		FilePath: &filePath,
+
+		CreatedAt: now,
+		UpdatedAt: now}, FeatureID: validated.FeatureID,
+
+		Status:    initialStatus,
+		AgentType: &validated.AgentType,
+		Priority:  input.Priority,
+		DependsOn: dependsOnJSON,
+
 		ExecutionOrder: executionOrder,
-		CreatedAt:      now,
-		UpdatedAt:      now,
 	}
 
 	// 5. Insert task into database

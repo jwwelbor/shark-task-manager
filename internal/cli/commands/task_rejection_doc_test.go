@@ -27,10 +27,8 @@ func TestTaskUpdateWithReasonDoc(t *testing.T) {
 
 	// Create test epic and feature
 	epicRepo := repository.NewEpicRepository(db)
-	epic := &models.Epic{
-		Key:      "E99",
-		Title:    "Test Epic for Rejection Doc",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic for Rejection Doc"}, Status: "active",
 		Priority: "medium",
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -42,10 +40,10 @@ func TestTaskUpdateWithReasonDoc(t *testing.T) {
 	}()
 
 	featureRepo := repository.NewFeatureRepository(db)
-	feature := &models.Feature{
-		Key:    "E99-F99",
-		Status: "active",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F99",
+
+		Title: "Test Feature"}, Status: "active",
+
 		EpicID: epic.ID,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -58,10 +56,8 @@ func TestTaskUpdateWithReasonDoc(t *testing.T) {
 
 	// Create test task
 	taskRepo := repository.NewTaskRepository(db)
-	task := &models.Task{
-		Key:       "T-E99-F99-001",
-		Title:     "Test Task for Rejection Doc",
-		Status:    models.TaskStatus("in_progress"),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-001",
+		Title: "Test Task for Rejection Doc"}, Status: models.TaskStatus("in_progress"),
 		FeatureID: feature.ID,
 		Priority:  5,
 	}
@@ -153,10 +149,8 @@ func TestTaskNextStatusWithReasonDoc(t *testing.T) {
 
 	// Create test epic and feature
 	epicRepo := repository.NewEpicRepository(db)
-	epic := &models.Epic{
-		Key:      "E98",
-		Title:    "Test Epic for Next Status Doc",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Next Status Doc"}, Status: "active",
 		Priority: "medium",
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -168,10 +162,10 @@ func TestTaskNextStatusWithReasonDoc(t *testing.T) {
 	}()
 
 	featureRepo := repository.NewFeatureRepository(db)
-	feature := &models.Feature{
-		Key:    "E98-F98",
-		Status: "active",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F98",
+
+		Title: "Test Feature"}, Status: "active",
+
 		EpicID: epic.ID,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -184,10 +178,8 @@ func TestTaskNextStatusWithReasonDoc(t *testing.T) {
 
 	// Create test task
 	taskRepo := repository.NewTaskRepository(db)
-	task := &models.Task{
-		Key:       "T-E98-F98-001",
-		Title:     "Test Task for Next Status Doc",
-		Status:    models.TaskStatus("in_progress"),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F98-001",
+		Title: "Test Task for Next Status Doc"}, Status: models.TaskStatus("in_progress"),
 		FeatureID: feature.ID,
 		Priority:  5,
 	}

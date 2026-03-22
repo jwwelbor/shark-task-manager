@@ -47,10 +47,8 @@ func TestTaskGetPathDisplay(t *testing.T) {
 	}
 
 	// Create base epic for all tests
-	epic := &models.Epic{
-		Key:      "E99",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err = epicRepo.Create(ctx, epic)
@@ -88,10 +86,9 @@ func TestTaskGetPathDisplay(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create feature
 			featureKey := "E99-F" + getFeatureNum(i+1)
-			feature := &models.Feature{
-				EpicID: epic.ID,
-				Key:    featureKey,
-				Title:  "Test Feature " + tt.name,
+			feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
+				Title: "Test Feature " + tt.name}, EpicID: epic.ID,
+
 				Status: models.FeatureStatusActive,
 			}
 			err = featureRepo.Create(ctx, feature)
@@ -101,12 +98,11 @@ func TestTaskGetPathDisplay(t *testing.T) {
 
 			// Create task with custom filename if specified
 			taskKey := "T-" + featureKey + "-001"
-			task := &models.Task{
-				FeatureID: feature.ID,
-				Key:       taskKey,
-				Title:     "Test Task " + tt.name,
-				Status:    models.TaskStatus("todo"),
-				Priority:  5,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
+				Title: "Test Task " + tt.name}, FeatureID: feature.ID,
+
+				Status:   models.TaskStatus("todo"),
+				Priority: 5,
 			}
 			if tt.customTaskFilename != nil {
 				task.FilePath = tt.customTaskFilename
@@ -210,10 +206,8 @@ func TestEpicGetPathDisplay(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create epic
 			epicKey := "E" + getEpicNum(98-i)
-			epic := &models.Epic{
-				Key:      epicKey,
-				Title:    "Test Epic " + tt.name,
-				Status:   models.EpicStatusActive,
+			epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+				Title: "Test Epic " + tt.name}, Status: models.EpicStatusActive,
 				Priority: models.PriorityMedium,
 			}
 			if tt.customFilename != nil {
@@ -289,10 +283,8 @@ func TestFeatureGetPathDisplay(t *testing.T) {
 	}
 
 	// Create base epic for all tests
-	epic := &models.Epic{
-		Key:      "E96",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err = epicRepo.Create(ctx, epic)
@@ -332,10 +324,9 @@ func TestFeatureGetPathDisplay(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create feature
 			featureKey := "E96-F" + getFeatureNum(i+1)
-			feature := &models.Feature{
-				EpicID: epic.ID,
-				Key:    featureKey,
-				Title:  "Test Feature " + tt.name,
+			feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
+				Title: "Test Feature " + tt.name}, EpicID: epic.ID,
+
 				Status: models.FeatureStatusActive,
 			}
 			if tt.customFilename != nil {

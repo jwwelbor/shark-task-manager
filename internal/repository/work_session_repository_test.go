@@ -425,10 +425,8 @@ func TestEndSessionAlreadyEnded(t *testing.T) {
 	_, _ = database.Exec("DELETE FROM epics WHERE key = 'E97'")
 
 	// Create our own test data to avoid test isolation issues
-	epic := &models.Epic{
-		Key:      "E97",
-		Title:    "Test Epic for End Session",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Test Epic for End Session"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -436,10 +434,9 @@ func TestEndSessionAlreadyEnded(t *testing.T) {
 		t.Fatalf("Failed to create test epic: %v", err)
 	}
 
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E97-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E97-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -447,12 +444,11 @@ func TestEndSessionAlreadyEnded(t *testing.T) {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E97-F01-001",
-		Title:     "Test Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F01-001",
+		Title: "Test Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	if err != nil {
@@ -673,10 +669,8 @@ func TestGetSessionAnalyticsByEpic(t *testing.T) {
 	_, _ = database.Exec("DELETE FROM epics WHERE key = 'E98'")
 
 	// Create our own test data to avoid test isolation issues
-	epic := &models.Epic{
-		Key:      "E98",
-		Title:    "Test Epic for Analytics",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Analytics"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -684,10 +678,9 @@ func TestGetSessionAnalyticsByEpic(t *testing.T) {
 		t.Fatalf("Failed to create test epic: %v", err)
 	}
 
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E98-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = featureRepo.Create(ctx, feature)
@@ -695,12 +688,11 @@ func TestGetSessionAnalyticsByEpic(t *testing.T) {
 		t.Fatalf("Failed to create test feature: %v", err)
 	}
 
-	task := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E98-F01-001",
-		Title:     "Test Task",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-001",
+		Title: "Test Task"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 	err = taskRepo.Create(ctx, task)
 	if err != nil {

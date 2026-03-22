@@ -31,10 +31,8 @@ func TestEpicRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create an epic with a title that should generate a slug
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Test Epic With Spaces",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic With Spaces"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 
@@ -72,10 +70,8 @@ func TestEpicRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic with title containing special characters
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Fix Bug: API Endpoint (v2)",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Fix Bug: API Endpoint (v2)"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityHigh,
 	}
 
@@ -110,10 +106,8 @@ func TestEpicRepository_GetByKey_NumericFormat(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic with slug
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Epic With Slug",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Epic With Slug"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 
@@ -147,10 +141,8 @@ func TestEpicRepository_GetByKey_SluggedFormat(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic with slug
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Epic With Slug",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Epic With Slug"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 
@@ -201,10 +193,8 @@ func TestEpicRepository_GetByKey_PreferNumericLookup(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic with specific title/slug
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "My Epic Title",
-		Status:   models.EpicStatusDraft,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "My Epic Title"}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 
@@ -299,10 +289,8 @@ func TestEpicRepository_GetFeatureStatusRollup_WithMultipleFeatures(t *testing.T
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Test Epic - Feature Rollup",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic - Feature Rollup"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -318,10 +306,9 @@ func TestEpicRepository_GetFeatureStatusRollup_WithMultipleFeatures(t *testing.T
 	i := 1
 	for status, count := range statusCounts {
 		for j := 0; j < count; j++ {
-			feature := &models.Feature{
-				EpicID:      epic.ID,
-				Key:         fmt.Sprintf("%s-F%02d", epicKey, i),
-				Title:       fmt.Sprintf("Feature %s %d", status, i),
+			feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F%02d", epicKey, i),
+				Title: fmt.Sprintf("Feature %s %d", status, i)}, EpicID: epic.ID,
+
 				Status:      status,
 				ProgressPct: 50.0,
 			}
@@ -363,10 +350,8 @@ func TestEpicRepository_GetFeatureStatusRollup_EmptyEpic(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Test Epic - Empty",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic - Empty"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -401,20 +386,17 @@ func TestEpicRepository_GetTaskStatusRollup_WithMultipleTasks(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Test Epic - Task Rollup",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic - Task Rollup"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
 	require.NoError(t, err)
 
 	// Create feature
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         fmt.Sprintf("%s-F01", epicKey),
-		Title:       "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F01", epicKey),
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
@@ -432,12 +414,11 @@ func TestEpicRepository_GetTaskStatusRollup_WithMultipleTasks(t *testing.T) {
 	i := 1
 	for status, count := range statusCounts {
 		for j := 0; j < count; j++ {
-			task := &models.Task{
-				FeatureID: feature.ID,
-				Key:       fmt.Sprintf("T-%s-%03d", feature.Key, i),
-				Title:     fmt.Sprintf("Task %s %d", status, i),
-				Status:    status,
-				Priority:  5,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-%03d", feature.Key, i),
+				Title: fmt.Sprintf("Task %s %d", status, i)}, FeatureID: feature.ID,
+
+				Status:   status,
+				Priority: 5,
 			}
 			err = taskRepo.Create(ctx, task)
 			require.NoError(t, err)
@@ -481,10 +462,8 @@ func TestEpicRepository_GetTaskStatusRollup_MultipleFeatures(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Test Epic - Multi-Feature Task Rollup",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic - Multi-Feature Task Rollup"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -493,10 +472,9 @@ func TestEpicRepository_GetTaskStatusRollup_MultipleFeatures(t *testing.T) {
 	// Create 2 features
 	var features []*models.Feature
 	for f := 1; f <= 2; f++ {
-		feature := &models.Feature{
-			EpicID:      epic.ID,
-			Key:         fmt.Sprintf("%s-F%02d", epicKey, f),
-			Title:       fmt.Sprintf("Feature %d", f),
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F%02d", epicKey, f),
+			Title: fmt.Sprintf("Feature %d", f)}, EpicID: epic.ID,
+
 			Status:      models.FeatureStatusActive,
 			ProgressPct: 50.0,
 		}
@@ -510,12 +488,11 @@ func TestEpicRepository_GetTaskStatusRollup_MultipleFeatures(t *testing.T) {
 	for _, feature := range features {
 		// Create 3 completed tasks in each feature
 		for taskNum := 1; taskNum <= 3; taskNum++ {
-			task := &models.Task{
-				FeatureID: feature.ID,
-				Key:       fmt.Sprintf("T-%s-%03d", feature.Key, taskNum),
-				Title:     fmt.Sprintf("Task %d", taskNum),
-				Status:    models.TaskStatus("completed"),
-				Priority:  5,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-%03d", feature.Key, taskNum),
+				Title: fmt.Sprintf("Task %d", taskNum)}, FeatureID: feature.ID,
+
+				Status:   models.TaskStatus("completed"),
+				Priority: 5,
 			}
 			err = taskRepo.Create(ctx, task)
 			require.NoError(t, err)
@@ -552,10 +529,8 @@ func TestEpicRepository_GetTaskStatusRollup_EmptyEpic(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic with no features
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Test Epic - Empty Tasks",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic - Empty Tasks"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -590,10 +565,8 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
 
 	// Create epic
-	epic := &models.Epic{
-		Key:      epicKey,
-		Title:    "Test Epic - Performance",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title: "Test Epic - Performance"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, epic)
@@ -604,10 +577,9 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 
 	// Create multiple features with tasks
 	for f := 1; f <= 5; f++ {
-		feature := &models.Feature{
-			EpicID:      epic.ID,
-			Key:         fmt.Sprintf("%s-F%02d", epicKey, f),
-			Title:       fmt.Sprintf("Feature %d", f),
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("%s-F%02d", epicKey, f),
+			Title: fmt.Sprintf("Feature %d", f)}, EpicID: epic.ID,
+
 			Status:      models.FeatureStatusActive,
 			ProgressPct: 50.0,
 		}
@@ -616,12 +588,11 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 
 		// Create tasks in each feature
 		for taskNum := 1; taskNum <= 10; taskNum++ {
-			task := &models.Task{
-				FeatureID: feature.ID,
-				Key:       fmt.Sprintf("T-%s-%03d", feature.Key, taskNum),
-				Title:     fmt.Sprintf("Task %d", taskNum),
-				Status:    models.TaskStatus("completed"),
-				Priority:  5,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-%s-%03d", feature.Key, taskNum),
+				Title: fmt.Sprintf("Task %d", taskNum)}, FeatureID: feature.ID,
+
+				Status:   models.TaskStatus("completed"),
+				Priority: 5,
 			}
 			err = taskRepo.Create(ctx, task)
 			require.NoError(t, err)

@@ -1,0 +1,45 @@
+{{template "_resume_preamble" .}}RESUME technical refinement for task {{.task_id}}: "{{.title}}".
+
+Check task spec at {{.file_path}} for existing technical specifications (API contracts, data models, architecture decisions). If spec is complete with no TBDs and is consistent with feature architecture, advance immediately.
+
+---
+
+Launch architect with architecture and specification-writing skills for task {{.task_id}}: "{{.title}}".
+
+LOAD: specification-writing workflow refine-task-requirements.md (architect path).
+
+READ:
+(1) Task spec at {{.file_path}}
+(2) BA-refined requirements
+(3) Feature architecture docs (02-08 series)
+(4) Feature research report for patterns and integration points
+(5) Blocker notes if returning from dev/review
+{{- if .related_docs}}
+(6) Related docs: {{.related_docs}}
+{{- end}}
+{{- if .related_tasks}}
+({{if .related_docs}}7{{else}}6{{end}}) Related tasks: {{.related_tasks}}
+{{- end}}
+
+PRODUCE:
+- Updated task spec or PRP with API contracts
+- Data models and schema updates
+- Architecture decisions with rationale
+- Security/performance considerations
+
+VERIFY:
+- Contracts consistent with feature architecture
+- Codebase patterns from feature research referenced
+- No ambiguity in specifications
+
+EXIT GATE:
+- Contracts defined
+- Models specified
+- Decisions documented
+- No TBDs
+- Consistent with feature architecture
+- Task implementable without ambiguity
+
+---
+## EXIT — REQUIRED
+    {{template "advance" .}}

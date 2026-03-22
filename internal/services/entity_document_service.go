@@ -8,101 +8,115 @@ import (
 )
 
 // EntityDocumentRepository defines the minimal interface for document operations
-// shared across all entity types (Task, Feature, Epic).
-// This replaces the DocumentRepo interface from the removed document_helpers.go.
+// shared across all entity types (Task, Feature, Epic, Bug, ChangeCard).
 type EntityDocumentRepository interface {
 	CreateOrGet(ctx context.Context, title, filePath string) (*models.Document, error)
 	GetByTitle(ctx context.Context, title string) (*models.Document, error)
 }
 
-// EntityDocumentService provides shared document link/unlink/list operations
-// parameterized by entity type. It is used by TaskService, FeatureService, and
-// EpicService to avoid duplicating document management logic.
-//
-// Each entity service creates an EntityDocumentService with the appropriate
-// writable repository and read-only list repository for its entity type.
-type EntityDocumentService struct {
-	writableRepo EntityDocumentRepository
-	linkFn       func(ctx context.Context, entityID, documentID int64) error
-	unlinkFn     func(ctx context.Context, entityID, documentID int64) error
+// EntityDocumentLinkRepository defines the polymorphic document linking interface.
+// It handles Link/Unlink/ListForEntity for any entity type via entity_type + entity_id.
+// The concrete *repository.EntityDocumentRepository satisfies this interface.
+type EntityDocumentLinkRepository interface {
+	Link(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64, linkType string) error
+	Unlink(ctx context.Context, entityType models.EntityType, entityID int64, documentID int64) error
+	ListForEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error)
 }
 
-// NewEntityDocumentService creates a new EntityDocumentService for a specific entity type.
+// EntityDocumentService provides shared document link/unlink/list operations
+// for all entity types. It uses the polymorphic EntityDocumentLinkRepository
+// to handle document associations and an entityLookupFn to resolve entity keys
+// to (entityID, entityType) pairs.
+type EntityDocumentService struct {
+	writableRepo   EntityDocumentRepository
+	linkRepo       EntityDocumentLinkRepository
+	entityLookupFn func(ctx context.Context, key string) (int64, models.EntityType, error)
+}
+
+// NewEntityDocumentService creates a new EntityDocumentService.
 //
 // Parameters:
 //   - writableRepo: repository supporting CreateOrGet and GetByTitle operations
-//   - linkFn: entity-specific function to link a document (e.g., LinkToTask, LinkToFeature, LinkToEpic)
-//   - unlinkFn: entity-specific function to unlink a document
+//   - linkRepo: polymorphic repository for Link/Unlink/ListForEntity operations
+//   - entityLookupFn: function to resolve an entity key to (entityID, entityType)
 func NewEntityDocumentService(
 	writableRepo EntityDocumentRepository,
-	linkFn func(ctx context.Context, entityID, documentID int64) error,
-	unlinkFn func(ctx context.Context, entityID, documentID int64) error,
+	linkRepo EntityDocumentLinkRepository,
+	entityLookupFn func(ctx context.Context, key string) (int64, models.EntityType, error),
 ) *EntityDocumentService {
 	return &EntityDocumentService{
-		writableRepo: writableRepo,
-		linkFn:       linkFn,
-		unlinkFn:     unlinkFn,
+		writableRepo:   writableRepo,
+		linkRepo:       linkRepo,
+		entityLookupFn: entityLookupFn,
 	}
 }
 
-// LinkDocument links a document to an entity, creating the document record if it doesn't exist.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - entityID: the database ID of the entity to link the document to
-//   - title: document title
-//   - path: document file path
-//   - entityType: human-readable entity type for error messages (e.g., "task", "feature", "epic")
-//   - entityKey: human-readable entity key for error messages (e.g., "E07-F01-001")
+// LinkDocumentByKey links a document to an entity identified by key.
+// Creates the document record if it doesn't exist.
 //
 // Returns:
 //   - *models.Document: the created or retrieved document
-//   - error: if document creation/retrieval or linking fails
-func (s *EntityDocumentService) LinkDocument(
-	ctx context.Context,
-	entityID int64,
-	title, path string,
-	entityType, entityKey string,
-) (*models.Document, error) {
+//   - error: if entity not found, or document creation/linking fails
+func (s *EntityDocumentService) LinkDocumentByKey(ctx context.Context, entityKey, title, path string) (*models.Document, error) {
+	entityID, entityType, err := s.entityLookupFn(ctx, entityKey)
+	if err != nil {
+		return nil, fmt.Errorf("entity not found: %w", err)
+	}
+
 	doc, err := s.writableRepo.CreateOrGet(ctx, title, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create or get document: %w", err)
 	}
 
-	if err := s.linkFn(ctx, entityID, doc.ID); err != nil {
+	if err := s.linkRepo.Link(ctx, entityType, entityID, doc.ID, "general"); err != nil {
 		return nil, fmt.Errorf("failed to link document to %s %s: %w", entityType, entityKey, err)
 	}
 
 	return doc, nil
 }
 
-// UnlinkDocument removes the link between a document and an entity.
-// This operation is idempotent: it succeeds even if the document is not linked.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - entityID: the database ID of the entity to unlink the document from
-//   - title: document title to look up and unlink
-//   - entityType: human-readable entity type for error messages
-//   - entityKey: human-readable entity key for error messages
+// UnlinkDocumentByKey removes a document link from an entity identified by key.
+// This operation is idempotent for missing documents.
 //
 // Returns:
-//   - error: if document lookup or unlinking fails (missing document is treated as success)
-func (s *EntityDocumentService) UnlinkDocument(
-	ctx context.Context,
-	entityID int64,
-	title string,
-	entityType, entityKey string,
-) error {
+//   - error: if entity not found, or unlinking fails
+func (s *EntityDocumentService) UnlinkDocumentByKey(ctx context.Context, entityKey, title string) error {
+	entityID, entityType, err := s.entityLookupFn(ctx, entityKey)
+	if err != nil {
+		return fmt.Errorf("entity not found: %w", err)
+	}
+
 	doc, err := s.writableRepo.GetByTitle(ctx, title)
 	if err != nil {
-		// Document doesn't exist — idempotent, treat as success
+		// Document doesn't exist -- idempotent, treat as success
 		return nil
 	}
 
-	if err := s.unlinkFn(ctx, entityID, doc.ID); err != nil {
+	if err := s.linkRepo.Unlink(ctx, entityType, entityID, doc.ID); err != nil {
 		return fmt.Errorf("failed to unlink document from %s %s: %w", entityType, entityKey, err)
 	}
 
 	return nil
+}
+
+// ListDocumentsByKey returns all documents linked to an entity identified by key.
+// Returns an empty non-nil slice if no documents exist.
+//
+// Returns:
+//   - []*models.Document: list of linked documents (never nil)
+//   - error: if entity not found or listing fails
+func (s *EntityDocumentService) ListDocumentsByKey(ctx context.Context, entityKey string) ([]*models.Document, error) {
+	entityID, entityType, err := s.entityLookupFn(ctx, entityKey)
+	if err != nil {
+		return nil, fmt.Errorf("entity not found: %w", err)
+	}
+
+	docs, err := s.linkRepo.ListForEntity(ctx, entityType, entityID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list documents for %s %s: %w", entityType, entityKey, err)
+	}
+	if docs == nil {
+		return []*models.Document{}, nil
+	}
+	return docs, nil
 }
