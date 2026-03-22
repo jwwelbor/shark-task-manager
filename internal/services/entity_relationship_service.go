@@ -54,16 +54,26 @@ type EntityRelationshipRepository interface {
 	) ([]*models.EntityRelationship, error)
 }
 
+// TaskByIDResolver resolves task IDs to task models.
+// Used by EntityRelationshipService for enriching relationships with task details.
+type TaskByIDResolver interface {
+	GetByID(ctx context.Context, id int64) (*models.Task, error)
+}
+
 // EntityRelationshipService manages polymorphic entity relationships
 // with cycle detection for dependency-type relationships.
 type EntityRelationshipService struct {
-	repo EntityRelationshipRepository
+	repo         EntityRelationshipRepository
+	taskResolver TaskByIDResolver // optional: for enriching task relationships
 }
 
 // NewEntityRelationshipService creates a new EntityRelationshipService.
-func NewEntityRelationshipService(repo EntityRelationshipRepository) *EntityRelationshipService {
+// The taskResolver parameter is optional (can be nil) for callers that only use
+// basic relationship CRUD. The task-specific methods (GetTaskRelationships,
+// GetTaskBlockedBy, GetTaskBlocks) return an error if called without a resolver.
+func NewEntityRelationshipService(repo EntityRelationshipRepository, taskResolver TaskByIDResolver) *EntityRelationshipService {
 	requireNonNil(repo, "EntityRelationshipService requires a non-nil EntityRelationshipRepository")
-	return &EntityRelationshipService{repo: repo}
+	return &EntityRelationshipService{repo: repo, taskResolver: taskResolver}
 }
 
 // CreateRelationship validates and creates a new relationship between two entities.
@@ -229,4 +239,118 @@ func (s *EntityRelationshipService) DetectCycle(
 	}
 
 	return false, nil
+}
+
+// GetTaskRelationships returns all task-to-task relationships for a task,
+// enriched with task details, optionally filtered by relationship type.
+func (s *EntityRelationshipService) GetTaskRelationships(
+	ctx context.Context, taskID int64, typeFilter []string,
+) ([]RelationshipWithTask, error) {
+	if s.taskResolver == nil {
+		return nil, fmt.Errorf("task resolver not configured on EntityRelationshipService")
+	}
+
+	allRels, err := s.repo.GetByEntity(ctx, models.EntityTypeTask, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get relationships for task(%d): %w", taskID, err)
+	}
+
+	return s.resolveTaskRelationships(ctx, allRels, taskID, typeFilter)
+}
+
+// GetTaskBlockedBy returns tasks that this task depends on (outgoing depends_on).
+func (s *EntityRelationshipService) GetTaskBlockedBy(
+	ctx context.Context, taskID int64,
+) ([]RelationshipWithTask, error) {
+	if s.taskResolver == nil {
+		return nil, fmt.Errorf("task resolver not configured on EntityRelationshipService")
+	}
+
+	deps, err := s.repo.GetOutgoing(ctx, models.EntityTypeTask, taskID,
+		[]models.EntityRelationshipType{models.EntityRelDependsOn})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dependencies for task(%d): %w", taskID, err)
+	}
+
+	return s.resolveTaskRelationships(ctx, deps, taskID, nil)
+}
+
+// GetTaskBlocks returns tasks that depend on this task (incoming depends_on + outgoing blocks).
+func (s *EntityRelationshipService) GetTaskBlocks(
+	ctx context.Context, taskID int64,
+) ([]RelationshipWithTask, error) {
+	if s.taskResolver == nil {
+		return nil, fmt.Errorf("task resolver not configured on EntityRelationshipService")
+	}
+
+	// Incoming depends_on: other tasks that depend on this task
+	incoming, err := s.repo.GetIncoming(ctx, models.EntityTypeTask, taskID,
+		[]models.EntityRelationshipType{models.EntityRelDependsOn})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get incoming dependencies for task(%d): %w", taskID, err)
+	}
+
+	// Outgoing blocks: this task explicitly blocks other tasks
+	outgoing, err := s.repo.GetOutgoing(ctx, models.EntityTypeTask, taskID,
+		[]models.EntityRelationshipType{models.EntityRelBlocks})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get explicit blocks for task(%d): %w", taskID, err)
+	}
+
+	allBlocked := append(incoming, outgoing...)
+
+	return s.resolveTaskRelationships(ctx, allBlocked, taskID, nil)
+}
+
+// resolveTaskRelationships filters entity relationships to task-to-task only,
+// resolves related task IDs, and returns enriched RelationshipWithTask results.
+func (s *EntityRelationshipService) resolveTaskRelationships(
+	ctx context.Context,
+	rels []*models.EntityRelationship,
+	selfTaskID int64,
+	typeFilter []string,
+) ([]RelationshipWithTask, error) {
+	var result []RelationshipWithTask
+	for _, rel := range rels {
+		// Only show task-to-task relationships
+		if rel.FromEntityType != models.EntityTypeTask || rel.ToEntityType != models.EntityTypeTask {
+			continue
+		}
+
+		// Apply type filter
+		if len(typeFilter) > 0 {
+			found := false
+			for _, ft := range typeFilter {
+				if string(rel.RelationshipType) == ft {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
+		direction := "outgoing"
+		relatedTaskID := rel.ToEntityID
+		if rel.FromEntityID != selfTaskID {
+			direction = "incoming"
+			relatedTaskID = rel.FromEntityID
+		}
+
+		relatedTask, err := s.taskResolver.GetByID(ctx, relatedTaskID)
+		if err != nil {
+			continue
+		}
+
+		result = append(result, RelationshipWithTask{
+			RelationshipType: string(rel.RelationshipType),
+			Direction:        direction,
+			TaskKey:          relatedTask.Key,
+			TaskTitle:        relatedTask.Title,
+			TaskStatus:       string(relatedTask.Status),
+		})
+	}
+
+	return result, nil
 }
