@@ -454,7 +454,8 @@ func GetEntityRelationshipService() *services.EntityRelationshipService {
 		panic(fmt.Sprintf("failed to get database for EntityRelationshipService: %v", err))
 	}
 	repo := repository.NewEntityRelationshipRepository(db)
-	return services.NewEntityRelationshipService(repo)
+	taskRepo := repository.NewTaskRepository(db)
+	return services.NewEntityRelationshipService(repo, taskRepo)
 }
 
 // ResetServices clears global service state. For testing only.

@@ -184,7 +184,7 @@ func runTaskDeps(cmd *cobra.Command, args []string) error {
 		return runTaskDepsTree(cmd.Context(), task, taskRepo, adapter, opts.upstream, opts.downstream, opts.maxDepth)
 	}
 
-	relWithTasks, err := getTaskRelationshipsViaEntityRel(cmd.Context(), relSvc, taskSvc, task, opts.typeFilter)
+	relWithTasks, err := relSvc.GetTaskRelationships(cmd.Context(), task.ID, opts.typeFilter)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error retrieving relationships for %s", taskKey))
 		return fmt.Errorf("error retrieving relationships for %s: %w", taskKey, err)
@@ -197,145 +197,6 @@ func runTaskDeps(cmd *cobra.Command, args []string) error {
 	}
 
 	return printTaskDeps(taskKey, task.Title, relWithTasks)
-}
-
-// getTaskRelationshipsViaEntityRel fetches all relationships for a task using EntityRelationshipService
-// and enriches them with task details.
-func getTaskRelationshipsViaEntityRel(
-	ctx context.Context,
-	relSvc *services.EntityRelationshipService,
-	taskSvc *services.TaskService,
-	task *models.Task,
-	typeFilter []string,
-) ([]services.RelationshipWithTask, error) {
-	allRels, err := relSvc.GetRelationships(ctx, models.EntityTypeTask, task.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get relationships for %s: %w", task.Key, err)
-	}
-
-	var result []services.RelationshipWithTask
-	for _, rel := range allRels {
-		// Only show task-to-task relationships
-		if rel.FromEntityType != models.EntityTypeTask || rel.ToEntityType != models.EntityTypeTask {
-			continue
-		}
-
-		// Apply type filter
-		if len(typeFilter) > 0 && !slices.Contains(typeFilter, string(rel.RelationshipType)) {
-			continue
-		}
-
-		direction := "outgoing"
-		relatedTaskID := rel.ToEntityID
-		if rel.FromEntityID != task.ID {
-			direction = "incoming"
-			relatedTaskID = rel.FromEntityID
-		}
-
-		relatedTask, err := taskSvc.GetTaskByID(ctx, relatedTaskID)
-		if err != nil {
-			continue
-		}
-
-		result = append(result, services.RelationshipWithTask{
-			RelationshipType: string(rel.RelationshipType),
-			Direction:        direction,
-			TaskKey:          relatedTask.Key,
-			TaskTitle:        relatedTask.Title,
-			TaskStatus:       string(relatedTask.Status),
-		})
-	}
-
-	return result, nil
-}
-
-// getTaskBlockedByViaEntityRel fetches tasks that this task depends on via entity_relationships.
-func getTaskBlockedByViaEntityRel(
-	ctx context.Context,
-	relSvc *services.EntityRelationshipService,
-	taskSvc *services.TaskService,
-	task *models.Task,
-) ([]services.RelationshipWithTask, error) {
-	deps, err := relSvc.GetOutgoing(ctx, models.EntityTypeTask, task.ID,
-		[]models.EntityRelationshipType{models.EntityRelDependsOn})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dependencies for %s: %w", task.Key, err)
-	}
-
-	var result []services.RelationshipWithTask
-	for _, rel := range deps {
-		if rel.ToEntityType != models.EntityTypeTask {
-			continue
-		}
-		depTask, err := taskSvc.GetTaskByID(ctx, rel.ToEntityID)
-		if err != nil {
-			continue
-		}
-		result = append(result, services.RelationshipWithTask{
-			RelationshipType: models.RelDependsOn,
-			Direction:        "outgoing",
-			TaskKey:          depTask.Key,
-			TaskTitle:        depTask.Title,
-			TaskStatus:       string(depTask.Status),
-		})
-	}
-	return result, nil
-}
-
-// getTaskBlocksViaEntityRel fetches tasks that depend on this task via entity_relationships.
-func getTaskBlocksViaEntityRel(
-	ctx context.Context,
-	relSvc *services.EntityRelationshipService,
-	taskSvc *services.TaskService,
-	task *models.Task,
-) ([]services.RelationshipWithTask, error) {
-	// Incoming depends_on: other tasks that depend on this task
-	incoming, err := relSvc.GetIncoming(ctx, models.EntityTypeTask, task.ID,
-		[]models.EntityRelationshipType{models.EntityRelDependsOn})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get incoming dependencies for %s: %w", task.Key, err)
-	}
-
-	// Outgoing blocks: this task explicitly blocks other tasks
-	outgoing, err := relSvc.GetOutgoing(ctx, models.EntityTypeTask, task.ID,
-		[]models.EntityRelationshipType{models.EntityRelBlocks})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get explicit blocks for %s: %w", task.Key, err)
-	}
-
-	allBlocked := append(incoming, outgoing...)
-
-	var result []services.RelationshipWithTask
-	for _, rel := range allBlocked {
-		var blockedTaskID int64
-		var direction string
-		if rel.FromEntityID != task.ID {
-			blockedTaskID = rel.FromEntityID
-			direction = "incoming"
-		} else {
-			blockedTaskID = rel.ToEntityID
-			direction = "outgoing"
-		}
-
-		if (direction == "incoming" && rel.FromEntityType != models.EntityTypeTask) ||
-			(direction == "outgoing" && rel.ToEntityType != models.EntityTypeTask) {
-			continue
-		}
-
-		blockedTask, err := taskSvc.GetTaskByID(ctx, blockedTaskID)
-		if err != nil {
-			continue
-		}
-		result = append(result, services.RelationshipWithTask{
-			RelationshipType: string(rel.RelationshipType),
-			Direction:        direction,
-			TaskKey:          blockedTask.Key,
-			TaskTitle:        blockedTask.Title,
-			TaskStatus:       string(blockedTask.Status),
-		})
-	}
-
-	return result, nil
 }
 
 // parseTypeFilter splits a comma-separated type filter string into a slice.
@@ -407,7 +268,7 @@ func runTaskBlockedBy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	blockers, err := getTaskBlockedByViaEntityRel(cmd.Context(), relSvc, taskSvc, task)
+	blockers, err := relSvc.GetTaskBlockedBy(cmd.Context(), task.ID)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error retrieving dependencies for %s", taskKey))
 		return fmt.Errorf("error retrieving dependencies for %s: %w", taskKey, err)
@@ -449,7 +310,7 @@ func runTaskBlocks(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	blocked, err := getTaskBlocksViaEntityRel(cmd.Context(), relSvc, taskSvc, task)
+	blocked, err := relSvc.GetTaskBlocks(cmd.Context(), task.ID)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error retrieving blocks for %s", taskKey))
 		return fmt.Errorf("error retrieving blocks for %s: %w", taskKey, err)
