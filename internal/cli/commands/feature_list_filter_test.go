@@ -27,10 +27,8 @@ func TestFeatureList_HidesCompletedFeaturesByDefault(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -38,10 +36,9 @@ func TestFeatureList_HidesCompletedFeaturesByDefault(t *testing.T) {
 	}
 
 	// Create active feature
-	activeFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E01-F01",
-		Title:       "Active Feature",
+	activeFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Active Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
@@ -50,10 +47,9 @@ func TestFeatureList_HidesCompletedFeaturesByDefault(t *testing.T) {
 	}
 
 	// Create completed feature
-	completedFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E01-F02",
-		Title:       "Completed Feature",
+	completedFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F02",
+		Title: "Completed Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusCompleted,
 		ProgressPct: 100.0,
 	}
@@ -107,10 +103,8 @@ func TestFeatureList_ShowsAllFeaturesWithShowAllFlag(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -118,10 +112,9 @@ func TestFeatureList_ShowsAllFeaturesWithShowAllFlag(t *testing.T) {
 	}
 
 	// Create active feature
-	activeFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E01-F01",
-		Title:       "Active Feature",
+	activeFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Active Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 50.0,
 	}
@@ -130,10 +123,9 @@ func TestFeatureList_ShowsAllFeaturesWithShowAllFlag(t *testing.T) {
 	}
 
 	// Create completed feature
-	completedFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E01-F02",
-		Title:       "Completed Feature",
+	completedFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F02",
+		Title: "Completed Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusCompleted,
 		ProgressPct: 100.0,
 	}
@@ -183,10 +175,8 @@ func TestFeatureList_ShowsCompletedFeaturesWithExplicitStatusFilter(t *testing.T
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -194,10 +184,9 @@ func TestFeatureList_ShowsCompletedFeaturesWithExplicitStatusFilter(t *testing.T
 	}
 
 	// Create completed feature
-	completedFeature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E01-F02",
-		Title:       "Completed Feature",
+	completedFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F02",
+		Title: "Completed Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusCompleted,
 		ProgressPct: 100.0,
 	}

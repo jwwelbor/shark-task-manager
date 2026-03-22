@@ -64,12 +64,10 @@ func TestEpicUpdate_StatusCascadeWithForce(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E97'")
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:         "E97",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
 		Title:       "Test Epic",
-		Description: test.StringPtr("Test"),
-		Status:      models.EpicStatusActive,
-		Priority:    models.PriorityHigh,
+		Description: test.StringPtr("Test")}, Status: models.EpicStatusActive,
+		Priority: models.PriorityHigh,
 	}
 	err := epicRepo.Create(ctx, epic)
 	if err != nil {
@@ -78,11 +76,10 @@ func TestEpicUpdate_StatusCascadeWithForce(t *testing.T) {
 
 	// Create test features with tasks
 	for i := 1; i <= 2; i++ {
-		feature := &models.Feature{
-			EpicID:      epic.ID,
-			Key:         test.GenerateUniqueKey("E97", i)[2:], // Remove "T-" prefix, yields "E97-001" format
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: test.GenerateUniqueKey("E97", i)[2:], // Remove "T-" prefix, yields "E97-001" format
 			Title:       "Test Feature",
-			Description: test.StringPtr("Test"),
+			Description: test.StringPtr("Test")}, EpicID: epic.ID,
+
 			Status:      models.FeatureStatusActive,
 			ProgressPct: 0.0,
 		}
@@ -102,12 +99,11 @@ func TestEpicUpdate_StatusCascadeWithForce(t *testing.T) {
 		}
 
 		for j, status := range statuses {
-			task := &models.Task{
-				FeatureID: feature.ID,
-				Key:       test.GenerateUniqueKey(feature.Key, j+1),
-				Title:     "Test Task " + string(status),
-				Status:    status,
-				Priority:  5,
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: test.GenerateUniqueKey(feature.Key, j+1),
+				Title: "Test Task " + string(status)}, FeatureID: feature.ID,
+
+				Status:   status,
+				Priority: 5,
 			}
 			err = taskRepo.Create(ctx, task)
 			if err != nil {

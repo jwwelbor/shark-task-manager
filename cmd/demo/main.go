@@ -38,9 +38,11 @@ func main() {
 	fmt.Println("1️⃣  Creating Epic...")
 	businessValue := models.PriorityHigh
 	epic := &models.Epic{
-		Key:           "E04",
-		Title:         "Task Management CLI - Core Functionality",
-		Description:   strPtr("Complete database schema and repository implementation"),
+		BaseEntity: models.BaseEntity{
+			Key:         "E04",
+			Title:       "Task Management CLI - Core Functionality",
+			Description: strPtr("Complete database schema and repository implementation"),
+		},
 		Status:        models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &businessValue,
@@ -60,11 +62,10 @@ func main() {
 
 	// Create sample feature
 	fmt.Println("\n2️⃣  Creating Feature...")
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E04-F01",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E04-F01",
 		Title:       "Database Schema & Core Data Model",
-		Description: strPtr("SQLite database with full schema implementation"),
+		Description: strPtr("SQLite database with full schema implementation")}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -106,15 +107,14 @@ func main() {
 			continue
 		}
 
-		task := &models.Task{
-			FeatureID:   feature.ID,
-			Key:         t.key,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: t.key,
 			Title:       t.title,
-			Description: strPtr(t.description),
-			Status:      models.TaskStatus("todo"),
-			AgentType:   &t.agentType,
-			Priority:    t.priority,
-			DependsOn:   strPtr("[]"),
+			Description: strPtr(t.description)}, FeatureID: feature.ID,
+
+			Status:    models.TaskStatus("todo"),
+			AgentType: &t.agentType,
+			Priority:  t.priority,
+			DependsOn: strPtr("[]"),
 		}
 
 		if err := taskRepo.Create(ctx, task); err != nil {
@@ -149,7 +149,8 @@ func main() {
 
 	// Update feature progress via service layer
 	workflowSvc := workflow.NewService(".")
-	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, epicRepo)
+	entitySvc := services.NewEntityService(workflowSvc)
+	featureSvc := services.NewFeatureService(featureRepo, entitySvc, services.NewNoopEntityRepository(), taskRepo, epicRepo)
 	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		log.Fatal("Failed to update feature progress:", err)
 	}
@@ -181,7 +182,7 @@ func main() {
 	}
 
 	// Show epic progress via service layer
-	epicSvc := services.NewEpicService(epicRepo, workflowSvc, nil, featureRepo, taskRepo)
+	epicSvc := services.NewEpicService(epicRepo, entitySvc, services.NewNoopEntityRepository(), featureRepo, taskRepo)
 	epicProgressInfo, err := epicSvc.GetProgress(ctx, epic.Key)
 	if err != nil {
 		log.Fatal("Failed to get epic progress:", err)

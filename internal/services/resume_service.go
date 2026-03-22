@@ -102,16 +102,6 @@ type TaskSummary struct {
 	Priority int    `json:"priority"`
 }
 
-// ResumeBugRepository defines the bug repository interface needed by ResumeService.
-type ResumeBugRepository interface {
-	GetByKey(ctx context.Context, key string) (*models.Bug, error)
-}
-
-// ResumeChangeCardRepository defines the change-card repository interface needed by ResumeService.
-type ResumeChangeCardRepository interface {
-	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
-}
-
 // BugResumeContext aggregates all context needed to resume work on a bug.
 type BugResumeContext struct {
 	Bug         *models.Bug          `json:"bug"`
@@ -128,22 +118,25 @@ type ChangeResumeContext struct {
 
 // ResumeService provides context aggregation for resuming work on entities.
 type ResumeService struct {
-	epicRepo       ResumeEpicRepository
-	featureRepo    ResumeFeatureRepository
-	taskRepo       ResumeTaskRepository
-	noteRepo       ResumeEntityNoteRepository
-	sessionRepo    ResumeWorkSessionRepository
-	bugRepo        ResumeBugRepository
-	changeCardRepo ResumeChangeCardRepository
+	epicRepo    ResumeEpicRepository
+	featureRepo ResumeFeatureRepository
+	taskRepo    ResumeTaskRepository
+	noteRepo    ResumeEntityNoteRepository
+	sessionRepo ResumeWorkSessionRepository
+	registry    *EntityRegistry
 }
 
 // NewResumeService creates a new ResumeService with injected dependencies.
-func NewResumeService(epicRepo ResumeEpicRepository, featureRepo ResumeFeatureRepository, taskRepo ResumeTaskRepository, noteRepo ResumeEntityNoteRepository) *ResumeService {
+func NewResumeService(epicRepo ResumeEpicRepository, featureRepo ResumeFeatureRepository, taskRepo ResumeTaskRepository, noteRepo ResumeEntityNoteRepository, registry *EntityRegistry) *ResumeService {
+	if registry == nil {
+		panic("ResumeService: EntityRegistry must not be nil")
+	}
 	return &ResumeService{
 		epicRepo:    epicRepo,
 		featureRepo: featureRepo,
 		taskRepo:    taskRepo,
 		noteRepo:    noteRepo,
+		registry:    registry,
 	}
 }
 
@@ -152,25 +145,19 @@ func (s *ResumeService) SetSessionRepo(repo ResumeWorkSessionRepository) {
 	s.sessionRepo = repo
 }
 
-// SetBugRepo sets the optional bug repository for bug resume support.
-func (s *ResumeService) SetBugRepo(repo ResumeBugRepository) {
-	s.bugRepo = repo
-}
-
-// SetChangeCardRepo sets the optional change-card repository for change resume support.
-func (s *ResumeService) SetChangeCardRepo(repo ResumeChangeCardRepository) {
-	s.changeCardRepo = repo
-}
-
 // GetBugResume aggregates all context needed to resume work on a bug.
 func (s *ResumeService) GetBugResume(ctx context.Context, bugKey string) (*BugResumeContext, error) {
-	if s.bugRepo == nil {
-		return nil, fmt.Errorf("bug repository not configured")
+	repo, err := s.registry.GetRepository(models.EntityTypeBug)
+	if err != nil {
+		return nil, fmt.Errorf("bug support not configured: %w", err)
 	}
-
-	bug, err := s.bugRepo.GetByKey(ctx, bugKey)
+	entity, err := repo.GetByKey(ctx, bugKey)
 	if err != nil {
 		return nil, fmt.Errorf("bug not found: %s: %w", bugKey, err)
+	}
+	bug, ok := entity.(*models.Bug)
+	if !ok {
+		return nil, fmt.Errorf("unexpected entity type for bug: %T", entity)
 	}
 
 	resumeCtx := &BugResumeContext{
@@ -188,21 +175,25 @@ func (s *ResumeService) GetBugResume(ctx context.Context, bugKey string) (*BugRe
 
 // GetChangeResume aggregates all context needed to resume work on a change-card.
 func (s *ResumeService) GetChangeResume(ctx context.Context, changeKey string) (*ChangeResumeContext, error) {
-	if s.changeCardRepo == nil {
-		return nil, fmt.Errorf("change repository not configured")
+	repo, err := s.registry.GetRepository(models.EntityTypeChange)
+	if err != nil {
+		return nil, fmt.Errorf("change support not configured: %w", err)
 	}
-
-	changeCard, err := s.changeCardRepo.GetByKey(ctx, changeKey)
+	entity, err := repo.GetByKey(ctx, changeKey)
 	if err != nil {
 		return nil, fmt.Errorf("change not found: %s: %w", changeKey, err)
 	}
+	card, ok := entity.(*models.ChangeCard)
+	if !ok {
+		return nil, fmt.Errorf("unexpected entity type for change: %T", entity)
+	}
 
 	resumeCtx := &ChangeResumeContext{
-		ChangeCard: changeCard,
+		ChangeCard: card,
 	}
 
 	// Get notes
-	notes, err := s.noteRepo.GetByEntity(ctx, models.EntityTypeChange, changeCard.ID)
+	notes, err := s.noteRepo.GetByEntity(ctx, models.EntityTypeChange, card.ID)
 	if err == nil {
 		resumeCtx.Notes = notes
 	}

@@ -45,4 +45,9 @@ func GetWorkflowService() *workflow.Service {
 func ResetWorkflowService() {
 	globalWorkflowService = nil
 	workflowInitOnce = sync.Once{}
+
+	// EntityService depends on WorkflowService, so reset it too
+	// to avoid returning a stale singleton built from the old workflow.
+	globalEntityService = nil
+	entityServiceOnce = sync.Once{}
 }

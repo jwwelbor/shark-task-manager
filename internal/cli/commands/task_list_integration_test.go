@@ -173,10 +173,8 @@ func TestTaskListQueryWithDatabase(t *testing.T) {
 
 	// Create test epic with unique key
 	testEpicKey := "E73"
-	epic := &models.Epic{
-		Key:           testEpicKey,
-		Title:         "Task List Test Epic",
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: testEpicKey,
+		Title: "Task List Test Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: ptrPriority(models.PriorityHigh),
 	}
@@ -198,12 +196,14 @@ func TestTaskListQueryWithDatabase(t *testing.T) {
 	testFeatureKey := fmt.Sprintf("%s-F01", testEpicKey)
 	featureFilePath := fmt.Sprintf("docs/plan/%s/F01/feature.md", testEpicKey)
 	execOrder := 1
-	feature := &models.Feature{
-		Key:            testFeatureKey,
-		EpicID:         createdEpic.ID,
-		Title:          "Task List Test Feature",
-		Status:         models.FeatureStatusDraft,
-		FilePath:       &featureFilePath,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: testFeatureKey,
+
+		Title: "Task List Test Feature",
+
+		FilePath: &featureFilePath}, EpicID: createdEpic.ID,
+
+		Status: models.FeatureStatusDraft,
+
 		ExecutionOrder: &execOrder,
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
@@ -220,15 +220,16 @@ func TestTaskListQueryWithDatabase(t *testing.T) {
 		taskKey := fmt.Sprintf("T-%s-%03d", testFeatureKey, i)
 		agentType := "general"
 		taskFilePath := fmt.Sprintf("docs/plan/%s/tasks/%s.md", testFeatureKey, taskKey)
-		task := &models.Task{
-			Key:         taskKey,
-			FeatureID:   createdFeature.ID,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
+
 			Title:       fmt.Sprintf("Test Task %d", i),
 			Description: strPtr("Task for integration testing"),
-			Status:      models.TaskStatus("todo"),
-			AgentType:   &agentType,
-			Priority:    i,
-			FilePath:    &taskFilePath,
+
+			FilePath: &taskFilePath}, FeatureID: createdFeature.ID,
+
+			Status:    models.TaskStatus("todo"),
+			AgentType: &agentType,
+			Priority:  i,
 		}
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create test task: %v", err)

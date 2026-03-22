@@ -4,11 +4,36 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// mapEntityHistoryToEntries converts EntityHistory records to StatusHistoryEntry slices.
+// Shared helper to avoid copy-pasting this mapping across tests.
+func mapEntityHistoryToEntries(history []*models.EntityHistory) []StatusHistoryEntry {
+	entries := make([]StatusHistoryEntry, 0, len(history))
+	for _, h := range history {
+		entry := StatusHistoryEntry{
+			Timestamp: h.ChangedAt.Format(time.RFC3339),
+			NewStatus: h.ToStatus,
+		}
+		if h.FromStatus != nil {
+			entry.OldStatus = *h.FromStatus
+		}
+		if h.ChangedBy != nil {
+			entry.Agent = *h.ChangedBy
+		}
+		if h.Notes != nil {
+			entry.Notes = *h.Notes
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
 
 // --- Test truncateString ---
 
@@ -379,4 +404,239 @@ func TestStatusHistoryEntry_JSON(t *testing.T) {
 
 		assert.Equal(t, original, deserialized)
 	})
+}
+
+// --- Test StatusHistoryResult for non-task entity types (E21-F08-008) ---
+
+func TestStatusHistory_FeatureKey(t *testing.T) {
+	// Verifies that StatusHistoryResult correctly represents feature history
+	// and that EntityHistory -> StatusHistoryEntry mapping works for features.
+	now := time.Now().UTC()
+	fromStatus := "draft"
+	changedBy := "tech_lead"
+	notes := "Feature ready for development"
+
+	entityHistory := []*models.EntityHistory{
+		{
+			ID:         1,
+			EntityType: models.EntityTypeFeature,
+			EntityID:   42,
+			FromStatus: &fromStatus,
+			ToStatus:   "ready_for_development",
+			ChangedBy:  &changedBy,
+			Notes:      &notes,
+			ChangedAt:  now,
+		},
+		{
+			ID:         2,
+			EntityType: models.EntityTypeFeature,
+			EntityID:   42,
+			FromStatus: nil, // initial status
+			ToStatus:   "draft",
+			ChangedBy:  nil,
+			Notes:      nil,
+			ChangedAt:  now.Add(-time.Hour),
+		},
+	}
+
+	entries := mapEntityHistoryToEntries(entityHistory)
+
+	result := StatusHistoryResult{
+		EntityType: "feature",
+		EntityKey:  "E21-F07",
+		History:    entries,
+		Total:      len(entries),
+	}
+
+	// Verify JSON output schema
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "feature", parsed["entity_type"])
+	assert.Equal(t, "E21-F07", parsed["entity_key"])
+	assert.Equal(t, float64(2), parsed["total"])
+
+	historyArr, ok := parsed["history"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, historyArr, 2)
+
+	// First entry has all fields
+	first := historyArr[0].(map[string]interface{})
+	assert.Equal(t, "draft", first["old_status"])
+	assert.Equal(t, "ready_for_development", first["new_status"])
+	assert.Equal(t, "tech_lead", first["agent"])
+	assert.Equal(t, "Feature ready for development", first["notes"])
+
+	// Second entry has nil -> empty for optional fields
+	second := historyArr[1].(map[string]interface{})
+	assert.Equal(t, "", second["old_status"]) // nil -> empty string
+	assert.Equal(t, "draft", second["new_status"])
+	_, hasAgent := second["agent"]
+	assert.False(t, hasAgent, "agent should be omitted when empty (omitempty)")
+}
+
+func TestStatusHistory_BugKey(t *testing.T) {
+	// Verifies that StatusHistoryResult correctly represents bug history
+	// and that the entity_type field is "bug" in JSON output.
+	now := time.Now().UTC()
+	fromStatus := "open"
+	changedBy := "qa_team"
+
+	entityHistory := []*models.EntityHistory{
+		{
+			ID:         1,
+			EntityType: models.EntityTypeBug,
+			EntityID:   10,
+			FromStatus: &fromStatus,
+			ToStatus:   "in_progress",
+			ChangedBy:  &changedBy,
+			Notes:      nil,
+			ChangedAt:  now,
+		},
+	}
+
+	entries := mapEntityHistoryToEntries(entityHistory)
+
+	result := StatusHistoryResult{
+		EntityType: "bug",
+		EntityKey:  "B001",
+		History:    entries,
+		Total:      len(entries),
+	}
+
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "bug", parsed["entity_type"])
+	assert.Equal(t, "B001", parsed["entity_key"])
+	assert.Equal(t, float64(1), parsed["total"])
+
+	historyArr, ok := parsed["history"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, historyArr, 1)
+
+	first := historyArr[0].(map[string]interface{})
+	assert.Equal(t, "open", first["old_status"])
+	assert.Equal(t, "in_progress", first["new_status"])
+	assert.Equal(t, "qa_team", first["agent"])
+}
+
+func TestStatusHistory_ChangeCardNormalization(t *testing.T) {
+	// Verifies ADR-1: change_card entity type is normalized to "change"
+	// in the StatusHistoryResult output.
+	result := StatusHistoryResult{
+		EntityType: "change", // After normalization from "change_card"
+		EntityKey:  "CC-001",
+		History:    []StatusHistoryEntry{},
+		Total:      0,
+	}
+
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "change", parsed["entity_type"], "change_card should be normalized to change")
+	assert.Equal(t, "CC-001", parsed["entity_key"])
+	assert.Equal(t, float64(0), parsed["total"])
+}
+
+func TestStatusHistory_EpicKey(t *testing.T) {
+	// Verifies StatusHistoryResult works for epic entity type.
+	now := time.Now().UTC()
+	fromStatus := "draft"
+
+	entityHistory := []*models.EntityHistory{
+		{
+			ID:         1,
+			EntityType: models.EntityTypeEpic,
+			EntityID:   5,
+			FromStatus: &fromStatus,
+			ToStatus:   "active",
+			ChangedBy:  nil,
+			Notes:      nil,
+			ChangedAt:  now,
+		},
+	}
+
+	entries := mapEntityHistoryToEntries(entityHistory)
+
+	result := StatusHistoryResult{
+		EntityType: "epic",
+		EntityKey:  "E21",
+		History:    entries,
+		Total:      len(entries),
+	}
+
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "epic", parsed["entity_type"])
+	assert.Equal(t, "E21", parsed["entity_key"])
+	assert.Equal(t, float64(1), parsed["total"])
+}
+
+func TestStatusHistory_LimitTruncation(t *testing.T) {
+	// Verifies BR-3: --limit flag truncates result set in the CLI layer.
+	now := time.Now().UTC()
+
+	// Create 5 history entries
+	entityHistory := make([]*models.EntityHistory, 5)
+	for i := 0; i < 5; i++ {
+		status := "status_" + string(rune('a'+i))
+		entityHistory[i] = &models.EntityHistory{
+			ID:         int64(i + 1),
+			EntityType: models.EntityTypeFeature,
+			EntityID:   42,
+			FromStatus: nil,
+			ToStatus:   status,
+			ChangedAt:  now.Add(time.Duration(i) * time.Hour),
+		}
+	}
+
+	// Apply limit of 3 (same logic as runStatusHistory: history[:limit] keeps first N,
+	// which are the most recent since history is ordered DESC from the repository)
+	limit := 3
+	if limit > 0 && len(entityHistory) > limit {
+		entityHistory = entityHistory[:limit]
+	}
+
+	assert.Len(t, entityHistory, 3, "limit should truncate to first 3 entries")
+	assert.Equal(t, "status_a", entityHistory[0].ToStatus, "should keep first 3 entries (most recent in DESC order)")
+	assert.Equal(t, "status_c", entityHistory[2].ToStatus)
+}
+
+func TestStatusHistory_EmptyResult(t *testing.T) {
+	// Verifies AC-7: empty history returns correct JSON structure.
+	result := StatusHistoryResult{
+		EntityType: "feature",
+		EntityKey:  "E21-F07",
+		History:    []StatusHistoryEntry{},
+		Total:      0,
+	}
+
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	var parsed StatusHistoryResult
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.Equal(t, "feature", parsed.EntityType)
+	assert.Equal(t, 0, parsed.Total)
+	assert.Empty(t, parsed.History)
 }

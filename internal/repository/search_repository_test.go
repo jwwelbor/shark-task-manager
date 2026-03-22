@@ -34,20 +34,17 @@ func skipIfNoFTS5(t *testing.T, db *DB) {
 func createTestDataForSearch(t *testing.T, db *DB) (int64, int64) {
 	// Create epic
 	epicRepo := NewEpicRepository(db)
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Database Features",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Database Features"}, Status: "active",
 		Priority: "high",
 	}
 	require.NoError(t, epicRepo.Create(context.Background(), epic))
 
 	// Create feature
 	featureRepo := NewFeatureRepository(db)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E01-F01",
-		Title:  "Migration Tools",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Migration Tools"}, EpicID: epic.ID,
+
 		Status: "active",
 	}
 	require.NoError(t, featureRepo.Create(context.Background(), feature))
@@ -56,40 +53,37 @@ func createTestDataForSearch(t *testing.T, db *DB) (int64, int64) {
 	taskRepo := NewTaskRepository(db)
 	desc1 := "Implement automated database schema migrations"
 	agent1 := "backend"
-	task1 := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         "T-E01-F01-001",
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
 		Title:       "Database migration system",
-		Description: &desc1,
-		Status:      "todo",
-		Priority:    5,
-		AgentType:   &agent1,
+		Description: &desc1}, FeatureID: feature.ID,
+
+		Status:    "todo",
+		Priority:  5,
+		AgentType: &agent1,
 	}
 	require.NoError(t, taskRepo.Create(context.Background(), task1))
 
 	desc2 := "Add full-text search using FTS5"
 	agent2 := "backend"
-	task2 := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         "T-E01-F01-002",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-002",
 		Title:       "Search functionality",
-		Description: &desc2,
-		Status:      "in_progress",
-		Priority:    8,
-		AgentType:   &agent2,
+		Description: &desc2}, FeatureID: feature.ID,
+
+		Status:    "in_progress",
+		Priority:  8,
+		AgentType: &agent2,
 	}
 	require.NoError(t, taskRepo.Create(context.Background(), task2))
 
 	desc3 := "Create admin dashboard for monitoring"
 	agent3 := "frontend"
-	task3 := &models.Task{
-		FeatureID:   feature.ID,
-		Key:         "T-E01-F01-003",
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-003",
 		Title:       "Frontend dashboard",
-		Description: &desc3,
-		Status:      "todo",
-		Priority:    3,
-		AgentType:   &agent3,
+		Description: &desc3}, FeatureID: feature.ID,
+
+		Status:    "todo",
+		Priority:  3,
+		AgentType: &agent3,
 	}
 	require.NoError(t, taskRepo.Create(context.Background(), task3))
 
@@ -103,9 +97,8 @@ func TestSearchRepository_RebuildIndex(t *testing.T) {
 
 	task1ID, task2ID := createTestDataForSearch(t, db)
 
-	// Add some notes and criteria
+	// Add some notes
 	noteRepo := NewEntityNoteRepository(db)
-	criteriaRepo := NewTaskCriteriaRepository(db)
 	ctx := context.Background()
 
 	note1 := &models.EntityNote{
@@ -116,12 +109,8 @@ func TestSearchRepository_RebuildIndex(t *testing.T) {
 	}
 	require.NoError(t, noteRepo.Create(ctx, note1))
 
-	criteria1 := &models.TaskCriteria{
-		TaskID:    task2ID,
-		Criterion: "FTS5 index created",
-		Status:    models.CriteriaStatusComplete,
-	}
-	require.NoError(t, criteriaRepo.Create(ctx, criteria1))
+	// Use task2ID to avoid unused variable
+	_ = task2ID
 
 	// Rebuild index
 	searchRepo := NewSearchRepository(db)
@@ -231,19 +220,16 @@ func TestSearchRepository_SearchByEpic(t *testing.T) {
 
 	// Create another epic with different tasks
 	epicRepo := NewEpicRepository(db)
-	epic2 := &models.Epic{
-		Key:      "E02",
-		Title:    "User Features",
-		Status:   "active",
+	epic2 := &models.Epic{BaseEntity: models.BaseEntity{Key: "E02",
+		Title: "User Features"}, Status: "active",
 		Priority: "medium",
 	}
 	require.NoError(t, epicRepo.Create(context.Background(), epic2))
 
 	featureRepo := NewFeatureRepository(db)
-	feature2 := &models.Feature{
-		EpicID: epic2.ID,
-		Key:    "E02-F01",
-		Title:  "Authentication",
+	feature2 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E02-F01",
+		Title: "Authentication"}, EpicID: epic2.ID,
+
 		Status: "active",
 	}
 	require.NoError(t, featureRepo.Create(context.Background(), feature2))
@@ -251,14 +237,13 @@ func TestSearchRepository_SearchByEpic(t *testing.T) {
 	taskRepo := NewTaskRepository(db)
 	desc4 := "Optimize database connections"
 	agent4 := "backend"
-	task4 := &models.Task{
-		FeatureID:   feature2.ID,
-		Key:         "T-E02-F01-001",
+	task4 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E02-F01-001",
 		Title:       "Database connection pooling",
-		Description: &desc4,
-		Status:      "todo",
-		Priority:    5,
-		AgentType:   &agent4,
+		Description: &desc4}, FeatureID: feature2.ID,
+
+		Status:    "todo",
+		Priority:  5,
+		AgentType: &agent4,
 	}
 	require.NoError(t, taskRepo.Create(context.Background(), task4))
 
@@ -330,19 +315,16 @@ func TestSearchRepository_Search_Limit(t *testing.T) {
 
 	// Create many tasks
 	epicRepo := NewEpicRepository(db)
-	epic := &models.Epic{
-		Key:      "E10",
-		Title:    "Test Epic",
-		Status:   "active",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E10",
+		Title: "Test Epic"}, Status: "active",
 		Priority: "high",
 	}
 	require.NoError(t, epicRepo.Create(context.Background(), epic))
 
 	featureRepo := NewFeatureRepository(db)
-	feature := &models.Feature{
-		EpicID: epic.ID,
-		Key:    "E10-F01",
-		Title:  "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E10-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status: "active",
 	}
 	require.NoError(t, featureRepo.Create(context.Background(), feature))
@@ -351,14 +333,13 @@ func TestSearchRepository_Search_Limit(t *testing.T) {
 	desc := "This is a common description"
 	agent := "backend"
 	for i := 1; i <= 10; i++ {
-		task := &models.Task{
-			FeatureID:   feature.ID,
-			Key:         fmt.Sprintf("T-E10-F01-%03d", i),
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-E10-F01-%03d", i),
 			Title:       fmt.Sprintf("Common task %d", i),
-			Description: &desc,
-			Status:      "todo",
-			Priority:    5,
-			AgentType:   &agent,
+			Description: &desc}, FeatureID: feature.ID,
+
+			Status:    "todo",
+			Priority:  5,
+			AgentType: &agent,
 		}
 		require.NoError(t, taskRepo.Create(context.Background(), task))
 	}

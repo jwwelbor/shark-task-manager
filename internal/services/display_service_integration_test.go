@@ -474,10 +474,8 @@ func TestJSONOutput_EpicSummary_AggregationMode(t *testing.T) {
 
 func TestJSONOutput_EpicDisplayInfo_PlanningMode(t *testing.T) {
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{
-			Key:    "E16",
-			Title:  "Multi-Level Workflow",
-			Status: "draft",
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{Key: "E16",
+			Title: "Multi-Level Workflow"}, Status: "draft",
 		},
 		Mode:             DisplayModePlanning,
 		Phase:            "planning",
@@ -521,10 +519,8 @@ func TestJSONOutput_EpicDisplayInfo_PlanningMode(t *testing.T) {
 
 func TestJSONOutput_FeatureDisplayInfo_AggregationMode(t *testing.T) {
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{
-			Key:    "E07-F01",
-			Title:  "Authentication",
-			Status: "active",
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{Key: "E07-F01",
+			Title: "Authentication"}, Status: "active",
 		},
 		Mode:         DisplayModeAggregation,
 		StatusSource: "calculated",

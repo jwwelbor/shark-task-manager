@@ -186,11 +186,9 @@ func createEpicWithFilePath(ctx context.Context, repo *repository.EpicRepository
 
 	epicKey := fmt.Sprintf("E%02d", epicNum)
 
-	epic := &models.Epic{
-		Key:      epicKey,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
 		Title:    title,
-		FilePath: filePathPtr,
-		Status:   models.EpicStatusDraft,
+		FilePath: filePathPtr}, Status: models.EpicStatusDraft,
 		Priority: models.PriorityMedium,
 	}
 
@@ -239,12 +237,11 @@ func createFeatureWithFilePath(ctx context.Context, repo *repository.FeatureRepo
 	featureNum := len(existingFeatures) + 1
 	featureKey := fmt.Sprintf("%s-F%02d", epic.Key, featureNum)
 
-	feature := &models.Feature{
-		EpicID:   epicID,
-		Key:      featureKey,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: featureKey,
 		Title:    title,
-		FilePath: filePathPtr,
-		Status:   models.FeatureStatusDraft,
+		FilePath: filePathPtr}, EpicID: epicID,
+
+		Status: models.FeatureStatusDraft,
 	}
 
 	err = repo.Create(ctx, feature)
@@ -301,13 +298,12 @@ func createTaskWithFilePath(ctx context.Context, repo *repository.TaskRepository
 
 	taskKey := fmt.Sprintf("T-%s-%s-%03d", epic.Key, featureNumStr, taskNum)
 
-	task := &models.Task{
-		FeatureID: featureID,
-		Key:       taskKey,
-		Title:     title,
-		FilePath:  filePathPtr,
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
+		Title:    title,
+		FilePath: filePathPtr}, FeatureID: featureID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 
 	err = repo.Create(ctx, task)

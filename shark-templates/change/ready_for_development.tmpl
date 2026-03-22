@@ -1,0 +1,20 @@
+{{template "_resume_preamble" .}}Implement change {{.id}}: "{{.title}}".
+
+Check for existing implementation. If changes exist and quality gate passes, advance immediately.
+
+---
+
+READ:
+(1) Change card description at {{.file_path}}
+(2) CLAUDE.md for coding standards
+
+IMPLEMENT the change with appropriate testing. Run quality gate: make fmt && make lint && make test
+
+EXIT GATE:
+- Change implemented per description
+- Tests pass
+- Quality gate passes
+
+---
+## EXIT — REQUIRED
+    {{template "advance" .}}

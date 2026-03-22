@@ -12,46 +12,31 @@ func TestChangeCard_Validate(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "valid change-card",
-			card: ChangeCard{
-				Title:  "Add dark mode toggle",
-				Status: ChangeCardStatus("proposed"),
-			},
+			name:    "valid change-card",
+			card:    ChangeCard{BaseEntity: BaseEntity{Title: "Add dark mode toggle"}, Status: ChangeCardStatus("proposed")},
 			wantErr: false,
 		},
 		{
-			name: "empty title",
-			card: ChangeCard{
-				Title:  "",
-				Status: ChangeCardStatus("proposed"),
-			},
+			name:    "empty title",
+			card:    ChangeCard{BaseEntity: BaseEntity{Title: ""}, Status: ChangeCardStatus("proposed")},
 			wantErr: true,
 			errMsg:  "change-card title cannot be empty",
 		},
 		{
-			name: "whitespace title",
-			card: ChangeCard{
-				Title:  "   ",
-				Status: ChangeCardStatus("proposed"),
-			},
+			name:    "whitespace title",
+			card:    ChangeCard{BaseEntity: BaseEntity{Title: "   "}, Status: ChangeCardStatus("proposed")},
 			wantErr: true,
 			errMsg:  "change-card title cannot be empty",
 		},
 		{
-			name: "empty status",
-			card: ChangeCard{
-				Title:  "Valid Title",
-				Status: ChangeCardStatus(""),
-			},
+			name:    "empty status",
+			card:    ChangeCard{BaseEntity: BaseEntity{Title: "Valid Title"}, Status: ChangeCardStatus("")},
 			wantErr: true,
 			errMsg:  "change-card status cannot be empty",
 		},
 		{
-			name: "whitespace status",
-			card: ChangeCard{
-				Title:  "Valid Title",
-				Status: ChangeCardStatus("   "),
-			},
+			name:    "whitespace status",
+			card:    ChangeCard{BaseEntity: BaseEntity{Title: "Valid Title"}, Status: ChangeCardStatus("   ")},
 			wantErr: true,
 			errMsg:  "change-card status cannot be empty",
 		},

@@ -2,13 +2,14 @@ package commands
 
 import (
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestFeatureSetStatusCmd_Registration(t *testing.T) {
-	// Verify the command is properly registered as subcommand of featureCmd
 	found := false
 	for _, cmd := range featureCmd.Commands() {
-		if cmd.Use == "set-status <feature-key> <status>" {
+		if cmd.Name() == "set-status" {
 			found = true
 			break
 		}
@@ -19,9 +20,17 @@ func TestFeatureSetStatusCmd_Registration(t *testing.T) {
 }
 
 func TestFeatureSetStatusCmd_Args(t *testing.T) {
-	cmd := featureSetStatusCmd
+	var cmd *cobra.Command
+	for _, c := range featureCmd.Commands() {
+		if c.Name() == "set-status" {
+			cmd = c
+			break
+		}
+	}
+	if cmd == nil {
+		t.Fatal("set-status command not found")
+	}
 
-	// Verify exact 2 args required
 	if err := cmd.Args(cmd, []string{"E16-F01"}); err == nil {
 		t.Error("expected error with 1 arg, got nil")
 	}
@@ -36,9 +45,17 @@ func TestFeatureSetStatusCmd_Args(t *testing.T) {
 }
 
 func TestFeatureSetStatusCmd_Flags(t *testing.T) {
-	cmd := featureSetStatusCmd
+	var cmd *cobra.Command
+	for _, c := range featureCmd.Commands() {
+		if c.Name() == "set-status" {
+			cmd = c
+			break
+		}
+	}
+	if cmd == nil {
+		t.Fatal("set-status command not found")
+	}
 
-	// Verify flags are registered
 	flags := []string{"reason", "force", "agent"}
 	for _, flag := range flags {
 		if cmd.Flags().Lookup(flag) == nil {

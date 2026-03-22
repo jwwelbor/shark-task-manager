@@ -117,72 +117,6 @@ Examples:
 	RunE: runBugTriage,
 }
 
-// bugNoteCmd is the parent for note subcommands.
-var bugNoteCmd = &cobra.Command{
-	Use:   "note",
-	Short: "Manage notes on a bug",
-	Long:  `Add and manage notes attached to a bug.`,
-}
-
-// bugNoteAddCmd adds a note to a bug.
-var bugNoteAddCmd = &cobra.Command{
-	Use:   "add <key> <content>",
-	Short: "Add a note to a bug",
-	Long: `Add a note to a bug with a specified type.
-
-Note types: comment, decision, blocker, solution, reference, implementation, testing, future, question, requirement
-
-Examples:
-  shark bug note add B001 --type=comment "Reproduced on Safari 17.2"
-  shark bug note add B001 --type=decision "Root cause is race condition"`,
-	Args: cobra.ExactArgs(2),
-	RunE: runBugNoteAdd,
-}
-
-// bugNotesCmd lists notes for a bug.
-var bugNotesCmd = &cobra.Command{
-	Use:   "notes <key>",
-	Short: "List notes for a bug",
-	Long: `Display all notes for a specific bug.
-
-Examples:
-  shark bug notes B001
-  shark bug notes B001 --json`,
-	Args: cobra.ExactArgs(1),
-	RunE: runBugNotes,
-}
-
-// bugContextCmd is the parent for context subcommands.
-var bugContextCmd = &cobra.Command{
-	Use:   "context",
-	Short: "Manage context fields on a bug",
-	Long:  `Get, set, and clear context fields on a bug.`,
-}
-
-// bugContextSetCmd sets a context field on a bug.
-var bugContextSetCmd = &cobra.Command{
-	Use:   "set <key> --field F --value V",
-	Short: "Set a context field on a bug",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBugContextSet,
-}
-
-// bugContextGetCmd retrieves context for a bug.
-var bugContextGetCmd = &cobra.Command{
-	Use:   "get <key>",
-	Short: "Get context for a bug",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBugContextGet,
-}
-
-// bugContextClearCmd clears a context field on a bug.
-var bugContextClearCmd = &cobra.Command{
-	Use:   "clear <key> --field F",
-	Short: "Clear a context field on a bug",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runBugContextClear,
-}
-
 // Command flag variables
 var (
 	bugSeverity string
@@ -190,9 +124,6 @@ var (
 	bugTitle    string
 	bugStatus   string
 	bugForce    bool
-	bugField    string
-	bugValue    string
-	bugNoteType string
 	bugFilePath string
 )
 
@@ -205,17 +136,9 @@ func init() {
 	bugCmd.AddCommand(bugUpdateCmd)
 	bugCmd.AddCommand(bugDeleteCmd)
 	bugCmd.AddCommand(bugTriageCmd)
-	bugCmd.AddCommand(bugNoteCmd)
-	bugCmd.AddCommand(bugNotesCmd)
-	bugCmd.AddCommand(bugContextCmd)
-
-	// Note subcommands
-	bugNoteCmd.AddCommand(bugNoteAddCmd)
-
-	// Context subcommands
-	bugContextCmd.AddCommand(bugContextSetCmd)
-	bugContextCmd.AddCommand(bugContextGetCmd)
-	bugContextCmd.AddCommand(bugContextClearCmd)
+	bugCmd.AddCommand(makeNoteCmd("bug"))
+	bugCmd.AddCommand(makeNotesCmd("bug"))
+	bugCmd.AddCommand(makeContextCmd("bug"))
 
 	// Create flags
 	bugCreateCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (critical, high, medium, low)")
@@ -244,19 +167,6 @@ func init() {
 	bugTriageCmd.Flags().StringVar(&bugSeverity, "severity", "", "Bug severity (required)")
 	_ = bugTriageCmd.MarkFlagRequired("severity")
 
-	// Note add flags
-	bugNoteAddCmd.Flags().StringVar(&bugNoteType, "type", "", "Note type (comment, decision, progress, blocker, reference, implementation, future)")
-	_ = bugNoteAddCmd.MarkFlagRequired("type")
-
-	// Context set flags
-	bugContextSetCmd.Flags().StringVar(&bugField, "field", "", "Context field name")
-	bugContextSetCmd.Flags().StringVar(&bugValue, "value", "", "Context field value")
-	_ = bugContextSetCmd.MarkFlagRequired("field")
-	_ = bugContextSetCmd.MarkFlagRequired("value")
-
-	// Context clear flags
-	bugContextClearCmd.Flags().StringVar(&bugField, "field", "", "Context field to clear")
-	_ = bugContextClearCmd.MarkFlagRequired("field")
 }
 
 // runBugCreate handles the `shark bug create` command.
@@ -322,7 +232,7 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 	}
 
 	var contextData *models.ContextData
-	if ctxSvc, cErr := cli.GetContextService(ctx); cErr == nil && ctxSvc != nil {
+	if ctxSvc := cli.GetContextService(); ctxSvc != nil {
 		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeBug, key)
 	}
 
@@ -487,170 +397,6 @@ func runBugTriage(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(bug)
 	}
 	cli.Success(fmt.Sprintf("Triaged bug %s (severity: %s, status: %s)", bug.Key, bug.Severity, bug.Status))
-	return nil
-}
-
-// runBugNoteAdd handles the `shark bug note add` command.
-func runBugNoteAdd(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-	content := args[1]
-	noteType, _ := cmd.Flags().GetString("type")
-
-	// Step 2: Call service
-	noteSvc, err := cli.GetNoteService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get note service: %w", err)
-	}
-
-	if _, err := noteSvc.AddNote(cmd.Context(), models.EntityTypeBug, key, noteType, content, ""); err != nil {
-		return fmt.Errorf("failed to add note to bug %s: %w", key, err)
-	}
-
-	// Step 3: Format output
-	cli.Success(fmt.Sprintf("Note added to bug %s", key))
-	return nil
-}
-
-// runBugNotes handles the `shark bug notes` command.
-func runBugNotes(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-
-	// Step 2: Call service
-	noteSvc, err := cli.GetNoteService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get note service: %w", err)
-	}
-
-	notes, err := noteSvc.ListNotes(cmd.Context(), models.EntityTypeBug, key, nil)
-	if err != nil {
-		return fmt.Errorf("failed to list notes for bug %s: %w", key, err)
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(notes)
-	}
-
-	if len(notes) == 0 {
-		fmt.Printf("No notes found for bug %s\n", key)
-		return nil
-	}
-
-	fmt.Printf("Notes for bug %s\n\n", key)
-	for _, n := range notes {
-		creator := ""
-		if n.CreatedBy != nil {
-			creator = " (" + *n.CreatedBy + ")"
-		}
-		fmt.Printf("[%s] %s%s\n", strings.ToUpper(string(n.NoteType)), n.CreatedAt.Format("2006-01-02 15:04"), creator)
-		fmt.Printf("  %s\n\n", n.Content)
-	}
-	return nil
-}
-
-// runBugContextSet handles the `shark bug context set` command.
-func runBugContextSet(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-	field, _ := cmd.Flags().GetString("field")
-	value, _ := cmd.Flags().GetString("value")
-
-	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
-
-	if err := ctxSvc.SetContextField(cmd.Context(), models.EntityTypeBug, key, field, value); err != nil {
-		return fmt.Errorf("failed to set context field for bug %s: %w", key, err)
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"entity_type": "bug",
-			"entity_key":  key,
-			"field":       field,
-			"success":     true,
-		})
-	}
-	cli.Success(fmt.Sprintf("Updated context field '%s' for bug %s", field, key))
-	return nil
-}
-
-// runBugContextGet handles the `shark bug context get` command.
-func runBugContextGet(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-
-	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
-
-	contextData, err := ctxSvc.GetContext(cmd.Context(), models.EntityTypeBug, key)
-	if err != nil {
-		return fmt.Errorf("failed to get context for bug %s: %w", key, err)
-	}
-
-	if contextData == nil {
-		contextData = &models.ContextData{}
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"entity_type":  "bug",
-			"entity_key":   key,
-			"context_data": contextData,
-		})
-	}
-
-	fmt.Printf("Context for bug %s\n\n", key)
-	printContextData(contextData)
-	return nil
-}
-
-// runBugContextClear handles the `shark bug context clear` command.
-func runBugContextClear(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-	field, _ := cmd.Flags().GetString("field")
-
-	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
-
-	// Clear the specific field (or all context if field is empty)
-	if field != "" {
-		// Set field to empty to clear it
-		if err := ctxSvc.SetContextField(cmd.Context(), models.EntityTypeBug, key, field, ""); err != nil {
-			return fmt.Errorf("failed to clear context field for bug %s: %w", key, err)
-		}
-	} else {
-		if err := ctxSvc.ClearContext(cmd.Context(), models.EntityTypeBug, key); err != nil {
-			return fmt.Errorf("failed to clear context for bug %s: %w", key, err)
-		}
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"entity_type": "bug",
-			"entity_key":  key,
-			"success":     true,
-		})
-	}
-	if field != "" {
-		cli.Success(fmt.Sprintf("Cleared context field '%s' for bug %s", field, key))
-	} else {
-		cli.Success(fmt.Sprintf("Cleared context data for bug %s", key))
-	}
 	return nil
 }
 

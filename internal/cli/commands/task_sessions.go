@@ -40,7 +40,7 @@ func runTaskSessions(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
 
 	// Step 2: Call service
-	svc := cli.GetTaskServiceWithDeps()
+	svc := cli.GetTaskServiceWithDocs()
 	result, err := svc.GetWorkSessions(cmd.Context(), taskKey)
 	if err != nil {
 		return fmt.Errorf("failed to get work sessions for %s: %w", taskKey, err)

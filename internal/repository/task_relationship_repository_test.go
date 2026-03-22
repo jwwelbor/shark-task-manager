@@ -728,24 +728,18 @@ func TestListRelatedTaskKeys_BidirectionalRelationships(t *testing.T) {
 	_, featureID := test.SeedTestData()
 
 	// Create 3 tasks
-	task1 := &models.Task{
-		Key:       "T-E07-F29-001",
-		Title:     "Task 1",
-		Status:    "todo",
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-001",
+		Title: "Task 1"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
-	task2 := &models.Task{
-		Key:       "T-E07-F29-002",
-		Title:     "Task 2",
-		Status:    "todo",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-002",
+		Title: "Task 2"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
-	task3 := &models.Task{
-		Key:       "T-E07-F29-003",
-		Title:     "Task 3",
-		Status:    "todo",
+	task3 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-003",
+		Title: "Task 3"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -842,10 +836,8 @@ func TestListRelatedTaskKeys_EmptyArray(t *testing.T) {
 	_, featureID := test.SeedTestData()
 
 	// Create task with zero relationships
-	task := &models.Task{
-		Key:       "T-E07-F29-004",
-		Title:     "Standalone Task",
-		Status:    "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-004",
+		Title: "Standalone Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -893,10 +885,8 @@ func TestListRelatedTaskKeys_AllRelationshipTypes(t *testing.T) {
 	_, featureID := test.SeedTestData()
 
 	// Create main task
-	mainTask := &models.Task{
-		Key:       "T-E07-F29-007",
-		Title:     "Main Task",
-		Status:    "todo",
+	mainTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-007",
+		Title: "Main Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -916,10 +906,8 @@ func TestListRelatedTaskKeys_AllRelationshipTypes(t *testing.T) {
 
 	taskIDs := []int64{mainTask.ID}
 	for i, key := range relatedTaskKeys {
-		task := &models.Task{
-			Key:       key,
-			Title:     "Related Task",
-			Status:    "todo",
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: key,
+			Title: "Related Task"}, Status: "todo",
 			Priority:  5,
 			FeatureID: featureID,
 		}
@@ -991,10 +979,8 @@ func TestListRelatedTaskKeys_ExcludeSelfReferences(t *testing.T) {
 	_, featureID := test.SeedTestData()
 
 	// Create task
-	task := &models.Task{
-		Key:       "T-E07-F29-005",
-		Title:     "Task 5",
-		Status:    "todo",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-005",
+		Title: "Task 5"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -1004,10 +990,8 @@ func TestListRelatedTaskKeys_ExcludeSelfReferences(t *testing.T) {
 	}
 
 	// Create a related task
-	relatedTask := &models.Task{
-		Key:       "T-E07-F29-006",
-		Title:     "Related Task",
-		Status:    "todo",
+	relatedTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-006",
+		Title: "Related Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -1075,10 +1059,8 @@ func TestListRelatedTaskKeys_AlphabeticallySorted(t *testing.T) {
 	_, featureID := test.SeedTestData()
 
 	// Create main task
-	mainTask := &models.Task{
-		Key:       "T-E07-F29-200",
-		Title:     "Main Task",
-		Status:    "todo",
+	mainTask := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E07-F29-200",
+		Title: "Main Task"}, Status: "todo",
 		Priority:  5,
 		FeatureID: featureID,
 	}
@@ -1092,10 +1074,8 @@ func TestListRelatedTaskKeys_AlphabeticallySorted(t *testing.T) {
 	taskIDs := []int64{mainTask.ID}
 
 	for _, key := range relatedKeys {
-		task := &models.Task{
-			Key:       key,
-			Title:     "Related Task",
-			Status:    "todo",
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: key,
+			Title: "Related Task"}, Status: "todo",
 			Priority:  5,
 			FeatureID: featureID,
 		}

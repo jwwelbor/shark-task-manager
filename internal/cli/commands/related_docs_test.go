@@ -17,10 +17,9 @@ func TestRelatedDocsAddEpic(t *testing.T) {
 	mockTaskRepo := NewMockTaskRepository()
 
 	// Setup test data
-	mockEpicRepo.AddEpic(&models.Epic{
-		ID:    1,
+	mockEpicRepo.AddEpic(&models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 		Key:   "E01",
-		Title: "Test Epic",
+		Title: "Test Epic"},
 	})
 
 	// Create command with mocks
@@ -56,10 +55,9 @@ func TestRelatedDocsAddFeature(t *testing.T) {
 	mockTaskRepo := NewMockTaskRepository()
 
 	// Setup test data
-	mockFeatureRepo.AddFeature(&models.Feature{
-		ID:    1,
+	mockFeatureRepo.AddFeature(&models.Feature{BaseEntity: models.BaseEntity{ID: 1,
 		Key:   "E01-F01",
-		Title: "Test Feature",
+		Title: "Test Feature"},
 	})
 
 	cmd := createRelatedDocsAddCmd(mockDocRepo, mockEpicRepo, mockFeatureRepo, mockTaskRepo)
@@ -82,12 +80,10 @@ func TestRelatedDocsAddTask(t *testing.T) {
 	mockTaskRepo := NewMockTaskRepository()
 
 	agentType := "backend"
-	mockTaskRepo.AddTask(&models.Task{
-		ID:        1,
-		Key:       "T-E01-F01-001",
-		Title:     "Test Task",
-		AgentType: &agentType,
-		Priority:  1,
+	mockTaskRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E01-F01-001",
+		Title: "Test Task"}, AgentType: &agentType,
+		Priority: 1,
 	})
 
 	cmd := createRelatedDocsAddCmd(mockDocRepo, mockEpicRepo, mockFeatureRepo, mockTaskRepo)
@@ -142,8 +138,8 @@ func TestRelatedDocsAddMultipleParents(t *testing.T) {
 	mockFeatureRepo := NewMockFeatureRepository()
 	mockTaskRepo := NewMockTaskRepository()
 
-	mockEpicRepo.AddEpic(&models.Epic{ID: 1, Key: "E01", Title: "Epic"})
-	mockFeatureRepo.AddFeature(&models.Feature{ID: 1, Key: "E01-F01", Title: "Feature"})
+	mockEpicRepo.AddEpic(&models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}})
+	mockFeatureRepo.AddFeature(&models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", Title: "Feature"}})
 
 	cmd := createRelatedDocsAddCmd(mockDocRepo, mockEpicRepo, mockFeatureRepo, mockTaskRepo)
 	cmd.SetArgs([]string{"Doc", "docs/doc.md", "--epic=E01", "--feature=E01-F01"})
@@ -161,7 +157,7 @@ func TestRelatedDocsDeleteEpic(t *testing.T) {
 	mockFeatureRepo := NewMockFeatureRepository()
 	mockTaskRepo := NewMockTaskRepository()
 
-	mockEpicRepo.AddEpic(&models.Epic{ID: 1, Key: "E01", Title: "Epic"})
+	mockEpicRepo.AddEpic(&models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}})
 	mockDocRepo.AddDocument(&models.Document{
 		ID:       1,
 		Title:    "OAuth Spec",
@@ -187,7 +183,7 @@ func TestRelatedDocsDeleteIdempotent(t *testing.T) {
 	mockFeatureRepo := NewMockFeatureRepository()
 	mockTaskRepo := NewMockTaskRepository()
 
-	mockEpicRepo.AddEpic(&models.Epic{ID: 1, Key: "E01", Title: "Epic"})
+	mockEpicRepo.AddEpic(&models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}})
 
 	cmd := createRelatedDocsDeleteCmd(mockDocRepo, mockEpicRepo, mockFeatureRepo, mockTaskRepo)
 	cmd.SetArgs([]string{"delete", "NonExistent", "--epic=E01"})
@@ -203,7 +199,7 @@ func TestRelatedDocsListEpic(t *testing.T) {
 	mockFeatureRepo := NewMockFeatureRepository()
 	mockTaskRepo := NewMockTaskRepository()
 
-	mockEpicRepo.AddEpic(&models.Epic{ID: 1, Key: "E01", Title: "Epic"})
+	mockEpicRepo.AddEpic(&models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}})
 	mockDocRepo.AddDocument(&models.Document{
 		ID:       1,
 		Title:    "Doc1",
@@ -232,7 +228,7 @@ func TestRelatedDocsListFeature(t *testing.T) {
 	mockFeatureRepo := NewMockFeatureRepository()
 	mockTaskRepo := NewMockTaskRepository()
 
-	mockFeatureRepo.AddFeature(&models.Feature{ID: 1, Key: "E01-F01", Title: "Feature"})
+	mockFeatureRepo.AddFeature(&models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01", Title: "Feature"}})
 	mockDocRepo.FeatureDocuments[int64(1)] = []*models.Document{}
 
 	cmd := createRelatedDocsListCmd(mockDocRepo, mockEpicRepo, mockFeatureRepo, mockTaskRepo)
@@ -255,11 +251,9 @@ func TestRelatedDocsListTask(t *testing.T) {
 	mockTaskRepo := NewMockTaskRepository()
 
 	agentType := "backend"
-	mockTaskRepo.AddTask(&models.Task{
-		ID:        1,
-		Key:       "T-E01-F01-001",
-		AgentType: &agentType,
-		Priority:  1,
+	mockTaskRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key: "T-E01-F01-001"}, AgentType: &agentType,
+		Priority: 1,
 	})
 	mockDocRepo.TaskDocuments[int64(1)] = []*models.Document{}
 
@@ -282,7 +276,7 @@ func TestRelatedDocsListJSON(t *testing.T) {
 	mockFeatureRepo := NewMockFeatureRepository()
 	mockTaskRepo := NewMockTaskRepository()
 
-	mockEpicRepo.AddEpic(&models.Epic{ID: 1, Key: "E01", Title: "Epic"})
+	mockEpicRepo.AddEpic(&models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Epic"}})
 	mockDocRepo.EpicDocuments[int64(1)] = []*models.Document{
 		{ID: 1, Title: "Doc", FilePath: "docs/doc.md"},
 	}

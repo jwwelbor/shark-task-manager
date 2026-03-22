@@ -8,12 +8,11 @@ import (
 
 // ContextData represents structured resume context for a task
 type ContextData struct {
-	Progress                 *ProgressContext             `json:"progress,omitempty"`
-	ImplementationDecisions  map[string]string            `json:"implementation_decisions,omitempty"`
-	OpenQuestions            []string                     `json:"open_questions,omitempty"`
-	Blockers                 []BlockerContext             `json:"blockers,omitempty"`
-	AcceptanceCriteriaStatus []AcceptanceCriterionContext `json:"acceptance_criteria_status,omitempty"`
-	Metadata                 map[string]interface{}       `json:"metadata,omitempty"` // User-defined fields available to templates
+	Progress                *ProgressContext       `json:"progress,omitempty"`
+	ImplementationDecisions map[string]string      `json:"implementation_decisions,omitempty"`
+	OpenQuestions           []string               `json:"open_questions,omitempty"`
+	Blockers                []BlockerContext       `json:"blockers,omitempty"`
+	Metadata                map[string]interface{} `json:"metadata,omitempty"` // User-defined fields available to templates
 }
 
 // ProgressContext tracks what's done, what's current, and what remains
@@ -30,12 +29,6 @@ type BlockerContext struct {
 	BlockedSince time.Time `json:"blocked_since"`
 }
 
-// AcceptanceCriterionContext tracks individual acceptance criteria status
-type AcceptanceCriterionContext struct {
-	Criterion string `json:"criterion"`
-	Status    string `json:"status"` // pending, in_progress, complete, failed, na
-}
-
 // Validate validates the ContextData structure
 func (cd *ContextData) Validate() error {
 	// Validate blocker types if any
@@ -48,23 +41,6 @@ func (cd *ContextData) Validate() error {
 		}
 		if blocker.BlockedSince.IsZero() {
 			return fmt.Errorf("blocker blocked_since timestamp is required")
-		}
-	}
-
-	// Validate acceptance criteria status if any
-	validACStatuses := map[string]bool{
-		"pending":     true,
-		"in_progress": true,
-		"complete":    true,
-		"failed":      true,
-		"na":          true,
-	}
-	for _, ac := range cd.AcceptanceCriteriaStatus {
-		if ac.Criterion == "" {
-			return fmt.Errorf("acceptance criterion cannot be empty")
-		}
-		if !validACStatuses[ac.Status] {
-			return fmt.Errorf("invalid acceptance criterion status: %s (must be one of: pending, in_progress, complete, failed, na)", ac.Status)
 		}
 	}
 
@@ -134,10 +110,6 @@ func (cd *ContextData) Merge(other *ContextData) {
 
 	if other.Blockers != nil {
 		cd.Blockers = other.Blockers
-	}
-
-	if other.AcceptanceCriteriaStatus != nil {
-		cd.AcceptanceCriteriaStatus = other.AcceptanceCriteriaStatus
 	}
 
 	if other.Metadata != nil {

@@ -148,6 +148,19 @@ func (oa *OrchestratorAction) ValidateWithContext(statusName string) error {
 	return nil
 }
 
+// ToPopulatedAction constructs a PopulatedAction from this OrchestratorAction,
+// populating the instruction template with the given placeholder values.
+func (oa *OrchestratorAction) ToPopulatedAction(placeholders map[string]string) *PopulatedAction {
+	return &PopulatedAction{
+		Action:      oa.Action,
+		AgentType:   oa.AgentType,
+		Provider:    oa.Provider,
+		Model:       oa.Model,
+		Skills:      oa.Skills,
+		Instruction: oa.PopulateTemplate(placeholders),
+	}
+}
+
 // PopulateTemplate replaces template placeholders with actual values from the vars map.
 // Each key in vars corresponds to a placeholder name (without braces).
 // For example, vars["title"] replaces all occurrences of {title} in the template.

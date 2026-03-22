@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -26,10 +27,59 @@ type TaskRepositoryInterfaceWithID interface {
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
 }
 
-// RelationshipRepositoryInterface defines the interface for relationship repository operations
+// RelationshipRepositoryInterface defines the interface for relationship repository operations.
+// This is now implemented by entityRelRepoAdapter which wraps EntityRelationshipService.
 type RelationshipRepositoryInterface interface {
 	GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
 	GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
+}
+
+// entityRelRepoAdapter adapts EntityRelationshipService to RelationshipRepositoryInterface
+// for use by the tree-building code, which expects TaskRelationship results.
+type entityRelRepoAdapter struct {
+	svc *services.EntityRelationshipService
+}
+
+func (a *entityRelRepoAdapter) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
+	rels, err := a.svc.GetOutgoing(ctx, models.EntityTypeTask, taskID, toEntityRelTypes(relTypes))
+	if err != nil {
+		return nil, err
+	}
+	return entityRelsToTaskRels(rels), nil
+}
+
+func (a *entityRelRepoAdapter) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
+	rels, err := a.svc.GetIncoming(ctx, models.EntityTypeTask, taskID, toEntityRelTypes(relTypes))
+	if err != nil {
+		return nil, err
+	}
+	return entityRelsToTaskRels(rels), nil
+}
+
+// toEntityRelTypes converts a string slice to EntityRelationshipType slice.
+func toEntityRelTypes(relTypes []string) []models.EntityRelationshipType {
+	result := make([]models.EntityRelationshipType, len(relTypes))
+	for i, rt := range relTypes {
+		result[i] = models.EntityRelationshipType(rt)
+	}
+	return result
+}
+
+// entityRelsToTaskRels converts EntityRelationship slice to TaskRelationship slice
+// for task-to-task relationships only.
+func entityRelsToTaskRels(rels []*models.EntityRelationship) []*models.TaskRelationship {
+	result := make([]*models.TaskRelationship, 0, len(rels))
+	for _, rel := range rels {
+		if rel.FromEntityType == models.EntityTypeTask && rel.ToEntityType == models.EntityTypeTask {
+			result = append(result, &models.TaskRelationship{
+				ID:               rel.ID,
+				FromTaskID:       rel.FromEntityID,
+				ToTaskID:         rel.ToEntityID,
+				RelationshipType: models.RelationshipType(rel.RelationshipType),
+			})
+		}
+	}
+	return result
 }
 
 // taskDepsCmd shows all relationships for a task
@@ -118,21 +168,26 @@ func parseTaskDepsOptions(cmd *cobra.Command) taskDepsOptions {
 func runTaskDeps(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
 	opts := parseTaskDepsOptions(cmd)
-	svc := cli.GetTaskServiceWithDeps()
 
-	if opts.showTree {
-		return runTaskDepsTreeViaService(cmd.Context(), svc, taskKey, opts.upstream, opts.downstream, opts.maxDepth)
-	}
+	taskSvc := cli.GetTaskService()
+	relSvc := cli.GetEntityRelationshipService()
 
-	relWithTasks, err := svc.GetTaskRelationships(cmd.Context(), taskKey, opts.typeFilter)
+	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found or error retrieving relationships: %w", taskKey, err)
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	task, err := svc.GetTask(cmd.Context(), taskKey)
+	if opts.showTree {
+		adapter := &entityRelRepoAdapter{svc: relSvc}
+		taskRepo := taskSvc.GetTaskRepository()
+		return runTaskDepsTree(cmd.Context(), task, taskRepo, adapter, opts.upstream, opts.downstream, opts.maxDepth)
+	}
+
+	relWithTasks, err := relSvc.GetTaskRelationships(cmd.Context(), task.ID, opts.typeFilter)
 	if err != nil {
-		return fmt.Errorf("task %s not found: %w", taskKey, err)
+		cli.Error(fmt.Sprintf("Error retrieving relationships for %s", taskKey))
+		return fmt.Errorf("error retrieving relationships for %s: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -175,7 +230,10 @@ func printTaskDeps(taskKey, taskTitle string, relWithTasks []services.Relationsh
 		}
 	}
 
-	relationshipOrder := []string{"depends_on", "blocks", "related_to", "follows", "spawned_from", "duplicates", "references"}
+	relationshipOrder := []string{
+		models.RelDependsOn, models.RelBlocks, models.RelRelatedTo, models.RelFollows,
+		models.RelSpawnedFrom, models.RelDuplicates, models.RelReferences,
+	}
 	printRelationshipGroup(outgoingByType, relationshipOrder, "outgoing")
 	printRelationshipGroup(incomingByType, relationshipOrder, "incoming")
 	fmt.Println("Legend: ✓ completed | • in_progress | ○ todo | ✗ blocked")
@@ -201,17 +259,19 @@ func printRelationshipGroup(byType map[string][]services.RelationshipWithTask, o
 // runTaskBlockedBy shows incoming dependencies
 func runTaskBlockedBy(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
-	svc := cli.GetTaskServiceWithDeps()
+	taskSvc := cli.GetTaskService()
+	relSvc := cli.GetEntityRelationshipService()
 
-	blockers, err := svc.GetTaskBlockedBy(cmd.Context(), taskKey)
+	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found or error retrieving dependencies: %w", taskKey, err)
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	task, err := svc.GetTask(cmd.Context(), taskKey)
+	blockers, err := relSvc.GetTaskBlockedBy(cmd.Context(), task.ID)
 	if err != nil {
-		return fmt.Errorf("task %s not found: %w", taskKey, err)
+		cli.Error(fmt.Sprintf("Error retrieving dependencies for %s", taskKey))
+		return fmt.Errorf("error retrieving dependencies for %s: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -241,17 +301,19 @@ func printBlockedBy(taskKey, taskTitle string, blockers []services.RelationshipW
 // runTaskBlocks shows outgoing blocks
 func runTaskBlocks(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
-	svc := cli.GetTaskServiceWithDeps()
+	taskSvc := cli.GetTaskService()
+	relSvc := cli.GetEntityRelationshipService()
 
-	blocked, err := svc.GetTaskBlocks(cmd.Context(), taskKey)
+	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found or error retrieving blocks: %w", taskKey, err)
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	task, err := svc.GetTask(cmd.Context(), taskKey)
+	blocked, err := relSvc.GetTaskBlocks(cmd.Context(), task.ID)
 	if err != nil {
-		return fmt.Errorf("task %s not found: %w", taskKey, err)
+		cli.Error(fmt.Sprintf("Error retrieving blocks for %s", taskKey))
+		return fmt.Errorf("error retrieving blocks for %s: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -363,7 +425,7 @@ func buildDependencyTree(
 	}
 
 	// Get dependencies (tasks this task depends on)
-	deps, err := relRepo.GetOutgoing(ctx, task.ID, []string{"depends_on"})
+	deps, err := relRepo.GetOutgoing(ctx, task.ID, []string{models.RelDependsOn})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dependencies: %w", err)
 	}
@@ -427,7 +489,7 @@ func buildDependentsTree(
 	}
 
 	// Get dependents (tasks that depend on this task)
-	dependents, err := relRepo.GetIncoming(ctx, task.ID, []string{"depends_on"})
+	dependents, err := relRepo.GetIncoming(ctx, task.ID, []string{models.RelDependsOn})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dependents: %w", err)
 	}
@@ -528,30 +590,6 @@ func renderTree(tree *DependencyTree, prefix string, isLast bool) string {
 	}
 
 	return output.String()
-}
-
-// runTaskDepsTreeViaService handles tree visualization mode using the service for task lookup
-// and repository interfaces for recursive tree traversal.
-func runTaskDepsTreeViaService(
-	ctx context.Context,
-	svc *services.TaskService,
-	taskKey string,
-	showUpstream bool,
-	showDownstream bool,
-	maxDepth int,
-) error {
-	task, err := svc.GetTask(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found: %w", taskKey, err)
-	}
-
-	taskRepo := svc.GetTaskRepository()
-	relRepo := svc.GetRelQueryRepo()
-	if taskRepo == nil || relRepo == nil {
-		return fmt.Errorf("relationship repositories not available")
-	}
-
-	return runTaskDepsTree(ctx, task, taskRepo, relRepo, showUpstream, showDownstream, maxDepth)
 }
 
 // runTaskDepsTree handles tree visualization mode for task deps

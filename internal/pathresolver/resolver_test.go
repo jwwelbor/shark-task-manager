@@ -77,11 +77,10 @@ func TestResolveEpicPath_DefaultPath(t *testing.T) {
 	slug := "test-epic"
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
 				Title: "Test Epic",
-				Slug:  &slug,
+				Slug:  &slug},
 			}, nil
 		},
 	}
@@ -109,11 +108,10 @@ func TestResolveEpicPath_ExplicitFilename(t *testing.T) {
 	filename := "docs/special/my-epic.md"
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:       1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:      "E01",
 				Title:    "Test Epic",
-				FilePath: &filename,
+				FilePath: &filename},
 			}, nil
 		},
 	}
@@ -160,23 +158,21 @@ func TestResolveFeaturePath_DefaultPath(t *testing.T) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
 				Title: "Test Epic",
-				Slug:  &epicSlug,
+				Slug:  &epicSlug},
 			}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E01-F01",
-				Title:  "Test Feature",
-				Slug:   &featureSlug,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "Test Feature",
+				Slug:  &featureSlug}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -207,22 +203,20 @@ func TestResolveFeaturePath_ExplicitFilename(t *testing.T) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
-				Title: "Test Epic",
+				Title: "Test Epic"},
 			}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:       1,
-				EpicID:   1,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
 				Key:      "E01-F01",
 				Title:    "Test Feature",
-				FilePath: &filename,
+				FilePath: &filename}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -250,23 +244,21 @@ func TestResolveTaskPath_DefaultPath(t *testing.T) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E01",
 				Title: "Test Epic",
-				Slug:  &epicSlug,
+				Slug:  &epicSlug},
 			}, nil
 		},
 	}
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByIDFunc: func(ctx context.Context, id int64) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E01-F01",
-				Title:  "Test Feature",
-				Slug:   &featureSlug,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E01-F01",
+				Title: "Test Feature",
+				Slug:  &featureSlug}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -274,12 +266,11 @@ func TestResolveTaskPath_DefaultPath(t *testing.T) {
 	mockTaskRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			emptyPath := ""
-			return &models.Task{
-				ID:        1,
-				FeatureID: 1,
-				Key:       "T-E01-F01-001",
-				Title:     "Test Task",
-				FilePath:  &emptyPath,
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:      "T-E01-F01-001",
+				Title:    "Test Task",
+				FilePath: &emptyPath}, FeatureID: 1,
 			}, nil
 		},
 	}
@@ -308,12 +299,11 @@ func TestResolveTaskPath_ExplicitFilePath(t *testing.T) {
 	mockTaskRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			taskPath := "docs/custom/my-task.md"
-			return &models.Task{
-				ID:        1,
-				FeatureID: 1,
-				Key:       "T-E01-F01-001",
-				Title:     "Test Task",
-				FilePath:  &taskPath,
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:      "T-E01-F01-001",
+				Title:    "Test Task",
+				FilePath: &taskPath}, FeatureID: 1,
 			}, nil
 		},
 	}
@@ -342,12 +332,11 @@ func TestPathPrecedence_EpicWithAllOptions(t *testing.T) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:       1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:      "E01",
 				Title:    "Test Epic",
 				FilePath: &explicitPath,
-				Slug:     &slug,
+				Slug:     &slug},
 			}, nil
 		},
 	}
@@ -374,11 +363,10 @@ func TestResolveFeatureBaseDir_EpicWithFilePath(t *testing.T) {
 	epicPath := "docs/plan/E01-my-epic/epic.md"
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:       1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:      "E01",
 				Title:    "My Epic",
-				FilePath: &epicPath,
+				FilePath: &epicPath},
 			}, nil
 		},
 	}
@@ -402,11 +390,10 @@ func TestResolveFeatureBaseDir_EpicWithCustomPath(t *testing.T) {
 	epicPath := "backend/docs/roadmap/epic.md"
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:       1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:      "E01",
 				Title:    "My Epic",
-				FilePath: &epicPath,
+				FilePath: &epicPath},
 			}, nil
 		},
 	}
@@ -429,10 +416,9 @@ func TestResolveFeatureBaseDir_EpicWithNoFilePath_ReturnsError(t *testing.T) {
 
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:    1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:   "E07",
-				Title: "Epic Without Path",
+				Title: "Epic Without Path"},
 			}, nil
 		},
 	}
@@ -464,11 +450,10 @@ func TestResolveFeatureBaseDir_EpicWithEmptyFilePath_ReturnsError(t *testing.T) 
 	emptyPath := ""
 	mockEpicRepo := &MockEpicRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				ID:       1,
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1,
 				Key:      "E07",
 				Title:    "Epic With Empty Path",
-				FilePath: &emptyPath,
+				FilePath: &emptyPath},
 			}, nil
 		},
 	}
@@ -509,12 +494,11 @@ func TestResolveTaskBaseDir_FeatureWithFilePath(t *testing.T) {
 	featurePath := "docs/plan/E01-my-epic/E01-F01-auth/feature.md"
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:       1,
-				EpicID:   1,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
 				Key:      "E01-F01",
 				Title:    "Auth Feature",
-				FilePath: &featurePath,
+				FilePath: &featurePath}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -538,12 +522,11 @@ func TestResolveTaskBaseDir_FeatureAtCustomPath(t *testing.T) {
 	featurePath := "backend/docs/features/auth-feature.md"
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:       1,
-				EpicID:   1,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
 				Key:      "E01-F01",
 				Title:    "Auth Feature",
-				FilePath: &featurePath,
+				FilePath: &featurePath}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -569,12 +552,11 @@ func TestResolveTaskBaseDir_StandaloneFeatureFile(t *testing.T) {
 	featurePath := "docs/plan/E01-my-epic/F11-technical-architecture.md"
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:       1,
-				EpicID:   1,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
 				Key:      "E01-F11",
 				Title:    "Technical Architecture",
-				FilePath: &featurePath,
+				FilePath: &featurePath}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -598,11 +580,10 @@ func TestResolveTaskBaseDir_FeatureWithNoFilePath_ReturnsError(t *testing.T) {
 
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:     1,
-				EpicID: 1,
-				Key:    "E07-F03",
-				Title:  "Feature Without Path",
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
+				Key:   "E07-F03",
+				Title: "Feature Without Path"}, EpicID: 1,
 			}, nil
 		},
 	}
@@ -634,12 +615,11 @@ func TestResolveTaskBaseDir_FeatureWithEmptyFilePath_ReturnsError(t *testing.T) 
 	emptyPath := ""
 	mockFeatureRepo := &MockFeatureRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
-			return &models.Feature{
-				ID:       1,
-				EpicID:   1,
+			return &models.Feature{BaseEntity: models.BaseEntity{ID: 1,
+
 				Key:      "E07-F03",
 				Title:    "Feature With Empty Path",
-				FilePath: &emptyPath,
+				FilePath: &emptyPath}, EpicID: 1,
 			}, nil
 		},
 	}

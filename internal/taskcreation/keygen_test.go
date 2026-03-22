@@ -39,11 +39,9 @@ func createTestEpic(t *testing.T, db *repository.DB, key string) *models.Epic {
 	epicRepo := repository.NewEpicRepository(db)
 	description := "Test Description"
 	businessValue := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           key,
-		Title:         "Test Epic",
-		Description:   &description,
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: key,
+		Title:       "Test Epic",
+		Description: &description}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &businessValue,
 	}
@@ -59,11 +57,10 @@ func createTestFeature(t *testing.T, db *repository.DB, epicID int64, key string
 
 	featureRepo := repository.NewFeatureRepository(db)
 	description := "Test Description"
-	feature := &models.Feature{
-		EpicID:      epicID,
-		Key:         key,
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: key,
 		Title:       "Test Feature",
-		Description: &description,
+		Description: &description}, EpicID: epicID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -79,18 +76,18 @@ func createTestTask(t *testing.T, db *repository.DB, featureID int64, key, title
 
 	taskRepo := repository.NewTaskRepository(db)
 	agentType := "general"
-	task := &models.Task{
-		FeatureID:   featureID,
-		Key:         key,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: key,
 		Title:       title,
 		Description: nil,
-		Status:      models.TaskStatus("todo"),
-		AgentType:   &agentType,
-		Priority:    5,
-		DependsOn:   nil,
-		FilePath:    nil,
-		CreatedAt:   time.Now().UTC(),
-		UpdatedAt:   time.Now().UTC(),
+
+		FilePath:  nil,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC()}, FeatureID: featureID,
+
+		Status:    models.TaskStatus("todo"),
+		AgentType: &agentType,
+		Priority:  5,
+		DependsOn: nil,
 	}
 
 	err := taskRepo.Create(context.Background(), task)

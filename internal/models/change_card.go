@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // changeCardKeyPattern matches CC-### format (CC- followed by exactly 3 digits).
@@ -30,61 +29,33 @@ type ChangeCardStatus string
 
 // ChangeCard represents a lightweight enhancement proposal or change request.
 type ChangeCard struct {
-	ID             int64            `json:"id" db:"id"`
-	Key            string           `json:"key" db:"key"`
-	Title          string           `json:"title" db:"title"`
-	Description    *string          `json:"description,omitempty" db:"description"`
-	Status         ChangeCardStatus `json:"status" db:"status"`
-	Priority       int              `json:"priority" db:"priority"`
-	RequestedBy    *string          `json:"requested_by,omitempty" db:"requested_by"`
-	AssignedTo     *string          `json:"assigned_to,omitempty" db:"assigned_to"`
-	EpicID         *int64           `json:"epic_id,omitempty" db:"epic_id"`
-	FeatureID      *int64           `json:"feature_id,omitempty" db:"feature_id"`
-	RelatedTaskID  *int64           `json:"related_task_id,omitempty" db:"related_task_id"`
-	Justification  *string          `json:"justification,omitempty" db:"justification"`
-	ImpactAnalysis *string          `json:"impact_analysis,omitempty" db:"impact_analysis"`
-	RollbackPlan   *string          `json:"rollback_plan,omitempty" db:"rollback_plan"`
-	Slug           *string          `json:"slug,omitempty" db:"slug"`
-	FilePath       *string          `json:"file_path,omitempty" db:"file_path"`
-	ContextData    *string          `json:"context_data,omitempty" db:"context_data"` // JSON
-	CreatedAt      time.Time        `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time        `json:"updated_at" db:"updated_at"`
+	BaseEntity                   // 9 shared fields + 10 accessor methods
+	Status      ChangeCardStatus `json:"status" db:"status"`
+	Priority    int              `json:"priority" db:"priority"`
+	RequestedBy *string          `json:"requested_by,omitempty" db:"requested_by"`
+	AssignedTo  *string          `json:"assigned_to,omitempty" db:"assigned_to"`
+	// LEGACY: EpicID is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	EpicID *int64 `json:"epic_id,omitempty" db:"epic_id"`
+	// LEGACY: FeatureID is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	FeatureID *int64 `json:"feature_id,omitempty" db:"feature_id"`
+	// LEGACY: RelatedTaskID is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	RelatedTaskID  *int64  `json:"related_task_id,omitempty" db:"related_task_id"`
+	Justification  *string `json:"justification,omitempty" db:"justification"`
+	ImpactAnalysis *string `json:"impact_analysis,omitempty" db:"impact_analysis"`
+	RollbackPlan   *string `json:"rollback_plan,omitempty" db:"rollback_plan"`
 }
 
 // Entity interface implementation for ChangeCard.
 
-func (c *ChangeCard) GetID() int64              { return c.ID }
-func (c *ChangeCard) GetKey() string            { return c.Key }
-func (c *ChangeCard) GetTitle() string          { return c.Title }
 func (c *ChangeCard) GetEntityType() EntityType { return EntityTypeChange }
 func (c *ChangeCard) GetStatus() string         { return string(c.Status) }
 func (c *ChangeCard) SetStatus(status string)   { c.Status = ChangeCardStatus(status) }
-func (c *ChangeCard) GetCreatedAt() time.Time   { return c.CreatedAt }
-func (c *ChangeCard) GetUpdatedAt() time.Time   { return c.UpdatedAt }
-
-func (c *ChangeCard) GetSlug() string {
-	if c.Slug != nil {
-		return *c.Slug
-	}
-	return ""
-}
-
-func (c *ChangeCard) GetDescription() string {
-	if c.Description != nil {
-		return *c.Description
-	}
-	return ""
-}
-
-func (c *ChangeCard) GetFilePath() string {
-	if c.FilePath != nil {
-		return *c.FilePath
-	}
-	return ""
-}
-
-func (c *ChangeCard) GetContextData() *string     { return c.ContextData }
-func (c *ChangeCard) SetContextData(data *string) { c.ContextData = data }
 
 // Validate performs structural validation only.
 // Does NOT validate status against workflow -- that is the service layer's responsibility.

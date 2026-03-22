@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -23,7 +22,7 @@ type changeCardServicer interface {
 	UpdateChangeCard(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
 	DeleteChangeCard(ctx context.Context, key string) error
 	ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
-	SetChangeCardStatus(ctx context.Context, key, targetStatus string) (*models.ChangeCard, error)
+	SetChangeCardStatus(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error)
 	AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error)
 	GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction
 	GetValidTransitions(status string) []string
@@ -149,95 +148,6 @@ Examples:
 	RunE: runChangeApprove,
 }
 
-// changeNoteCmd is the parent for note operations.
-var changeNoteCmd = &cobra.Command{
-	Use:   "note",
-	Short: "Manage change-card notes",
-	Long:  `Add and manage typed notes for change-cards.`,
-}
-
-// changeNoteAddCmd adds a note to a change-card.
-var changeNoteAddCmd = &cobra.Command{
-	Use:   "add <key> <content>",
-	Short: "Add a typed note to a change-card",
-	Long: `Add a typed note to a change-card for context, decisions, and documentation.
-
-Note Types:
-  comment        - General observation
-  decision       - Why we chose X over Y
-  blocker        - What is blocking progress
-  solution       - How we solved a problem
-  reference      - External links, documentation
-  implementation - What we actually built
-  question       - Unanswered questions
-
-Examples:
-  shark change note add C-001 "Needs design approval" --type=comment
-  shark change note add C-001 "Chose dark mode over light" --type=decision
-  shark change note add C-001 --type=blocker "Waiting on UX sign-off"`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runChangeNoteAdd,
-}
-
-// changeNotesCmd lists notes for a change-card.
-var changeNotesCmd = &cobra.Command{
-	Use:   "notes <key>",
-	Short: "List notes for a change-card",
-	Long: `List all notes for a change-card, optionally filtered by type.
-
-Examples:
-  shark change notes C-001
-  shark change notes C-001 --type=decision
-  shark change notes C-001 --json`,
-	Args: cobra.ExactArgs(1),
-	RunE: runChangeNotes,
-}
-
-// changeContextCmd is the parent for context operations.
-var changeContextCmd = &cobra.Command{
-	Use:   "context",
-	Short: "Manage change-card context data",
-	Long:  `Get, set, and clear structured context data for change-cards.`,
-}
-
-// changeContextSetCmd sets a context field on a change-card.
-var changeContextSetCmd = &cobra.Command{
-	Use:   "set <key>",
-	Short: "Set a context field on a change-card",
-	Long: `Set or update a specific field in change-card context data.
-
-Examples:
-  shark change context set C-001 --field current_step --value "Awaiting approval"
-  shark change context set C-001 --field completed_steps --value '["Design","Review"]'`,
-	Args: cobra.ExactArgs(1),
-	RunE: runChangeContextSet,
-}
-
-// changeContextGetCmd gets context data for a change-card.
-var changeContextGetCmd = &cobra.Command{
-	Use:   "get <key>",
-	Short: "Get context data for a change-card",
-	Long: `Display the current context data for a change-card.
-
-Examples:
-  shark change context get C-001
-  shark change context get C-001 --json`,
-	Args: cobra.ExactArgs(1),
-	RunE: runChangeContextGet,
-}
-
-// changeContextClearCmd clears context data for a change-card.
-var changeContextClearCmd = &cobra.Command{
-	Use:   "clear <key>",
-	Short: "Clear context data for a change-card",
-	Long: `Remove all context data from a change-card.
-
-Examples:
-  shark change context clear C-001`,
-	Args: cobra.ExactArgs(1),
-	RunE: runChangeContextClear,
-}
-
 // Command flag variables
 var (
 	changeLinkKey      string
@@ -249,9 +159,6 @@ var (
 	changeRequestedBy  string
 	changeAssignedTo   string
 	changeForce        bool
-	changeNoteType     string
-	changeCtxField     string
-	changeCtxValue     string
 )
 
 func init() {
@@ -266,16 +173,12 @@ func init() {
 	changeCmd.AddCommand(changeDeleteCmd)
 	changeCmd.AddCommand(changeApproveCmd)
 
-	// Notes
-	changeCmd.AddCommand(changeNoteCmd)
-	changeNoteCmd.AddCommand(changeNoteAddCmd)
-	changeCmd.AddCommand(changeNotesCmd)
+	// Notes (generic handlers)
+	changeCmd.AddCommand(makeNoteCmd("change"))
+	changeCmd.AddCommand(makeNotesCmd("change"))
 
-	// Context
-	changeCmd.AddCommand(changeContextCmd)
-	changeContextCmd.AddCommand(changeContextSetCmd)
-	changeContextCmd.AddCommand(changeContextGetCmd)
-	changeContextCmd.AddCommand(changeContextClearCmd)
+	// Context (generic handler)
+	changeCmd.AddCommand(makeContextCmd("change"))
 
 	// Create flags
 	changeCreateCmd.Flags().StringVar(&changeLinkKey, "link", "", "Link to epic or feature (E## or E##-F##)")
@@ -302,16 +205,6 @@ func init() {
 	// Delete flags
 	changeDeleteCmd.Flags().BoolVar(&changeForce, "force", false, "Skip confirmation prompt")
 
-	// Note flags
-	changeNoteAddCmd.Flags().StringVar(&changeNoteType, "type", "comment", "Note type (comment, decision, blocker, solution, reference, implementation, question)")
-
-	// Context flags
-	changeContextSetCmd.Flags().StringVar(&changeCtxField, "field", "", "Context field name (required)")
-	changeContextSetCmd.Flags().StringVar(&changeCtxValue, "value", "", "Context field value (required)")
-	_ = changeContextSetCmd.MarkFlagRequired("field")
-	_ = changeContextSetCmd.MarkFlagRequired("value")
-
-	changeContextClearCmd.Flags().StringVar(&changeCtxField, "field", "", "Specific field to clear (optional; clears all if omitted)")
 }
 
 // runChangeCreate handles the `shark change create` command.
@@ -358,7 +251,7 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 	}
 
 	var contextData *models.ContextData
-	if ctxSvc, cErr := cli.GetContextService(ctx); cErr == nil && ctxSvc != nil {
+	if ctxSvc := cli.GetContextService(); ctxSvc != nil {
 		contextData, _ = ctxSvc.GetContext(ctx, models.EntityTypeChange, key)
 	}
 
@@ -499,191 +392,6 @@ func runChangeApprove(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(card)
 	}
 	cli.Success(fmt.Sprintf("Approved change-card %s", card.Key))
-	return nil
-}
-
-// runChangeNoteAdd handles the `shark change note add` command.
-func runChangeNoteAdd(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-	content := strings.Join(args[1:], " ")
-	if content == "" {
-		return fmt.Errorf("note content is required")
-	}
-
-	// Step 2: Call services
-	noteSvc, err := cli.GetNoteService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get note service: %w", err)
-	}
-
-	note, err := noteSvc.AddNote(cmd.Context(), models.EntityTypeChange, key, changeNoteType, content, "")
-	if err != nil {
-		return fmt.Errorf("failed to add note to change-card %s: %w", key, err)
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(note)
-	}
-
-	ts := note.CreatedAt
-	if ts.IsZero() {
-		ts = time.Now()
-	}
-	creator := ""
-	if note.CreatedBy != nil {
-		creator = *note.CreatedBy
-	}
-
-	fmt.Printf("Note added to change-card %s\n\n", key)
-	if creator != "" {
-		fmt.Printf("[%s] %s (%s)\n", strings.ToUpper(changeNoteType), ts.Format("2006-01-02 15:04"), creator)
-	} else {
-		fmt.Printf("[%s] %s\n", strings.ToUpper(changeNoteType), ts.Format("2006-01-02 15:04"))
-	}
-	fmt.Println(content)
-	return nil
-}
-
-// runChangeNotes handles the `shark change notes` command.
-func runChangeNotes(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-
-	// Step 2: Call service
-	noteSvc, err := cli.GetNoteService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get note service: %w", err)
-	}
-
-	notes, err := noteSvc.ListNotes(cmd.Context(), models.EntityTypeChange, key, nil)
-	if err != nil {
-		return fmt.Errorf("failed to list notes for change-card %s: %w", key, err)
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(notes)
-	}
-
-	if len(notes) == 0 {
-		fmt.Printf("No notes found for change-card %s\n", key)
-		return nil
-	}
-
-	fmt.Printf("Notes for change-card %s\n\n", key)
-	for _, n := range notes {
-		creator := ""
-		if n.CreatedBy != nil {
-			creator = " (" + *n.CreatedBy + ")"
-		}
-		fmt.Printf("[%s] %s%s\n", strings.ToUpper(string(n.NoteType)), n.CreatedAt.Format("2006-01-02 15:04"), creator)
-		fmt.Printf("  %s\n\n", n.Content)
-	}
-	return nil
-}
-
-// runChangeContextSet handles the `shark change context set` command.
-func runChangeContextSet(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-	field, _ := cmd.Flags().GetString("field")
-	value, _ := cmd.Flags().GetString("value")
-
-	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
-
-	if err := ctxSvc.SetContextField(cmd.Context(), models.EntityTypeChange, key, field, value); err != nil {
-		return fmt.Errorf("failed to set context field for change-card %s: %w", key, err)
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"entity_type": "change",
-			"entity_key":  key,
-			"field":       field,
-			"success":     true,
-		})
-	}
-	cli.Success(fmt.Sprintf("Updated context field '%s' for change-card %s", field, key))
-	return nil
-}
-
-// runChangeContextGet handles the `shark change context get` command.
-func runChangeContextGet(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-
-	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
-
-	contextData, err := ctxSvc.GetContext(cmd.Context(), models.EntityTypeChange, key)
-	if err != nil {
-		return fmt.Errorf("failed to get context for change-card %s: %w", key, err)
-	}
-
-	if contextData == nil {
-		contextData = &models.ContextData{}
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"entity_type":  "change",
-			"entity_key":   key,
-			"context_data": contextData,
-		})
-	}
-
-	fmt.Printf("Context for change-card %s\n\n", key)
-	printContextData(contextData)
-	return nil
-}
-
-// runChangeContextClear handles the `shark change context clear` command.
-func runChangeContextClear(cmd *cobra.Command, args []string) error {
-	// Step 1: Parse
-	key := args[0]
-	field, _ := cmd.Flags().GetString("field")
-
-	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
-
-	// Clear specific field or all context depending on --field flag
-	if field != "" {
-		if err := ctxSvc.SetContextField(cmd.Context(), models.EntityTypeChange, key, field, ""); err != nil {
-			return fmt.Errorf("failed to clear context field for change-card %s: %w", key, err)
-		}
-	} else {
-		if err := ctxSvc.ClearContext(cmd.Context(), models.EntityTypeChange, key); err != nil {
-			return fmt.Errorf("failed to clear context for change-card %s: %w", key, err)
-		}
-	}
-
-	// Step 3: Format output
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(map[string]interface{}{
-			"entity_type": "change",
-			"entity_key":  key,
-			"success":     true,
-		})
-	}
-	if field != "" {
-		cli.Success(fmt.Sprintf("Cleared context field '%s' for change-card %s", field, key))
-	} else {
-		cli.Success(fmt.Sprintf("Cleared context data for change-card %s", key))
-	}
 	return nil
 }
 

@@ -200,6 +200,78 @@ func TestService_GetTerminalStatuses(t *testing.T) {
 	assert.Equal(t, []string{"completed", "cancelled", "archived"}, statuses)
 }
 
+func TestService_GetAggregationStatuses(t *testing.T) {
+	projectRoot := createTestConfig(t, map[string]interface{}{
+		"status_flow_version": "1.0",
+		"special_statuses": map[string][]string{
+			"_start_":       {"draft"},
+			"_complete_":    {"completed", "cancelled"},
+			"_aggregation_": {"active", "tracking"},
+		},
+		"status_flow": map[string][]string{
+			"draft":     {},
+			"active":    {},
+			"tracking":  {},
+			"completed": {},
+			"cancelled": {},
+		},
+	})
+
+	defer config.ClearWorkflowCache()
+
+	svc := NewService(projectRoot)
+
+	statuses := svc.GetAggregationStatuses()
+	assert.Equal(t, []string{"active", "tracking"}, statuses)
+}
+
+func TestService_GetAggregationStatuses_NotConfigured(t *testing.T) {
+	// Config without _aggregation_ key
+	projectRoot := createTestConfig(t, map[string]interface{}{
+		"status_flow_version": "1.0",
+		"special_statuses": map[string][]string{
+			"_start_":    {"draft"},
+			"_complete_": {"completed"},
+		},
+		"status_flow": map[string][]string{
+			"draft":     {},
+			"completed": {},
+		},
+	})
+
+	defer config.ClearWorkflowCache()
+
+	svc := NewService(projectRoot)
+
+	// Should fall back to ["active"]
+	statuses := svc.GetAggregationStatuses()
+	assert.Equal(t, []string{"active"}, statuses)
+}
+
+func TestService_GetAggregationStatuses_Empty(t *testing.T) {
+	// Config with empty _aggregation_ list
+	projectRoot := createTestConfig(t, map[string]interface{}{
+		"status_flow_version": "1.0",
+		"special_statuses": map[string][]string{
+			"_start_":       {"draft"},
+			"_complete_":    {"completed"},
+			"_aggregation_": {},
+		},
+		"status_flow": map[string][]string{
+			"draft":     {},
+			"completed": {},
+		},
+	})
+
+	defer config.ClearWorkflowCache()
+
+	svc := NewService(projectRoot)
+
+	// Should fall back to ["active"] when empty
+	statuses := svc.GetAggregationStatuses()
+	assert.Equal(t, []string{"active"}, statuses)
+}
+
 func TestService_IsTerminalStatus(t *testing.T) {
 	projectRoot := createTestConfig(t, map[string]interface{}{
 		"status_flow_version": "1.0",

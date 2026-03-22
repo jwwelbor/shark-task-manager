@@ -29,10 +29,8 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithNoTasks(t *testing.T) {
 	featureRepo := repository.NewFeatureRepository(repoDb)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -40,10 +38,9 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithNoTasks(t *testing.T) {
 	}
 
 	// Create test feature with no tasks
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E01-F01",
-		Title:       "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -87,10 +84,8 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 	taskRepo := repository.NewTaskRepository(repoDb)
 
 	// Create test epic
-	epic := &models.Epic{
-		Key:      "E01",
-		Title:    "Test Epic",
-		Status:   models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E01",
+		Title: "Test Epic"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
@@ -98,10 +93,9 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 	}
 
 	// Create test feature
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E01-F01",
-		Title:       "Test Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E01-F01",
+		Title: "Test Feature"}, EpicID: epic.ID,
+
 		Status:      models.FeatureStatusActive,
 		ProgressPct: 0.0,
 	}
@@ -110,12 +104,11 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 	}
 
 	// Create test tasks
-	task1 := &models.Task{
-		FeatureID: feature.ID,
-		Key:       "T-E01-F01-001",
-		Title:     "Test Task 1",
-		Status:    models.TaskStatus("ready_for_review"),
-		Priority:  5,
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E01-F01-001",
+		Title: "Test Task 1"}, FeatureID: feature.ID,
+
+		Status:   models.TaskStatus("ready_for_review"),
+		Priority: 5,
 	}
 	if err := taskRepo.Create(ctx, task1); err != nil {
 		t.Fatalf("Failed to create task1: %v", err)
@@ -129,7 +122,7 @@ func TestFeatureComplete_SetsFeatureStatusToCompletedWithTasks(t *testing.T) {
 
 	// Update feature progress via service layer
 	workflowSvc := workflow.NewService(".")
-	featureSvc := services.NewFeatureService(featureRepo, workflowSvc, nil, taskRepo, nil)
+	featureSvc := services.NewFeatureService(featureRepo, services.NewEntityService(workflowSvc), services.NewNoopEntityRepository(), taskRepo, nil)
 	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		t.Fatalf("Failed to update feature progress: %v", err)
 	}

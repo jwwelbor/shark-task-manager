@@ -36,28 +36,28 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 	filePath2 := "docs/test/task2.md"
 	dependsOn := "[]"
 
-	task1 := &models.Task{
-		FeatureID: featureID,
-		Key:       "T-E99-F99-901",
-		Title:     "History Test Task 1",
+	task1 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-901",
+		Title: "History Test Task 1",
+
+		FilePath: &filePath1}, FeatureID: featureID,
+
 		Status:    models.TaskStatus("todo"),
 		AgentType: &agentBackend,
 		Priority:  5,
 		DependsOn: &dependsOn,
-		FilePath:  &filePath1,
 	}
 	err := taskRepo.Create(ctx, task1)
 	require.NoError(t, err)
 
-	task2 := &models.Task{
-		FeatureID: featureID,
-		Key:       "T-E99-F99-902",
-		Title:     "History Test Task 2",
+	task2 := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-902",
+		Title: "History Test Task 2",
+
+		FilePath: &filePath2}, FeatureID: featureID,
+
 		Status:    models.TaskStatus("todo"),
 		AgentType: &agentFrontend,
 		Priority:  5,
 		DependsOn: &dependsOn,
-		FilePath:  &filePath2,
 	}
 	err = taskRepo.Create(ctx, task2)
 	require.NoError(t, err)
@@ -433,15 +433,15 @@ func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 	agentBackend := "backend"
 	filePath := "docs/test/rejection_task.md"
 	dependsOn := "[]"
-	task := &models.Task{
-		FeatureID: featureID,
-		Key:       "T-E98-F98-101",
-		Title:     "Task to be rejected",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F98-101",
+		Title: "Task to be rejected",
+
+		FilePath: &filePath}, FeatureID: featureID,
+
 		Status:    models.TaskStatus("ready_for_review"),
 		AgentType: &agentBackend,
 		Priority:  5,
 		DependsOn: &dependsOn,
-		FilePath:  &filePath,
 	}
 	err := taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -499,15 +499,15 @@ func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
 	agentBackend := "backend"
 	filePath := "docs/test/normal_task.md"
 	dependsOn := "[]"
-	task := &models.Task{
-		FeatureID: featureID,
-		Key:       "T-E97-F97-101",
-		Title:     "Normal task",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E97-F97-101",
+		Title: "Normal task",
+
+		FilePath: &filePath}, FeatureID: featureID,
+
 		Status:    models.TaskStatus("todo"),
 		AgentType: &agentBackend,
 		Priority:  5,
 		DependsOn: &dependsOn,
-		FilePath:  &filePath,
 	}
 	err := taskRepo.Create(ctx, task)
 	require.NoError(t, err)
@@ -559,15 +559,15 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 	agentBackend := "backend"
 	filePath := "docs/test/rejection_history_task.md"
 	dependsOn := "[]"
-	task := &models.Task{
-		FeatureID: featureID,
-		Key:       "T-E96-F96-101",
-		Title:     "Task with rejection history",
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E96-F96-101",
+		Title: "Task with rejection history",
+
+		FilePath: &filePath}, FeatureID: featureID,
+
 		Status:    models.TaskStatus("in_progress"),
 		AgentType: &agentBackend,
 		Priority:  5,
 		DependsOn: &dependsOn,
-		FilePath:  &filePath,
 	}
 	err := taskRepo.Create(ctx, task)
 	require.NoError(t, err)

@@ -119,16 +119,7 @@ func (s *DefaultActionService) GetStatusActionPopulated(ctx context.Context, sta
 		vars = make(map[string]string)
 	}
 
-	instruction := action.PopulateTemplate(vars)
-
-	return &PopulatedAction{
-		Action:      action.Action,
-		AgentType:   action.AgentType,
-		Provider:    action.Provider,
-		Model:       action.Model,
-		Skills:      action.Skills,
-		Instruction: instruction,
-	}, nil
+	return action.ToPopulatedAction(vars), nil
 }
 
 // GetAllActions returns all actions indexed by status

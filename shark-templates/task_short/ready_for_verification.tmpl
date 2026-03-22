@@ -1,0 +1,41 @@
+{{template "_resume_preamble" .}}Verify task {{.id}}: "{{.title}}".
+
+Check for existing verification report in code_review/ directory. If report exists with PASS verdict, advance immediately. If FAIL, send back to ready_for_development.
+
+---
+
+COMBINED CODE REVIEW + QA VERIFICATION
+
+READ:
+(1) Task spec at {{.file_path}} for acceptance criteria references
+(2) Feature spec.md for architecture decisions and requirements
+(3) Feature test-plan.md for expected test cases
+(4) Git diff of changes: git log --oneline -5 && git diff HEAD~1
+(5) CLAUDE.md for coding standards
+
+VERIFY:
+
+## Code Review Checklist
+- [ ] Changes match task scope (no unrelated modifications)
+- [ ] Code follows CLAUDE.md patterns (service layer, error handling, etc.)
+- [ ] Architecture aligns with feature spec.md decisions
+- [ ] No hardcoded values that should be configurable
+- [ ] Error handling follows project conventions (wrapped errors, proper types)
+- [ ] No security vulnerabilities (injection, XSS, etc.)
+
+## QA Checklist
+- [ ] Run full test suite: `make fmt && make lint && make test`
+- [ ] All tests pass (zero failures)
+- [ ] Test coverage adequate for changes
+- [ ] Acceptance criteria from task spec verified
+- [ ] No regressions in existing functionality
+
+PRODUCE verification report at code_review/<timestamp>-{{.id}}-review.md:
+- Verdict: PASS or FAIL
+- Code review findings (if any)
+- Test results summary
+- AC verification status
+
+DECISION:
+- ALL PASS → shark status advance {{.id}}
+- ANY FAIL → shark status set {{.id}} ready_for_development --reason "<specific findings to fix>"

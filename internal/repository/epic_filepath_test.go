@@ -27,11 +27,9 @@ func TestEpicRepository_GetByFilePath(t *testing.T) {
 
 	// Create epic without file path
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Description:   stringPtr("Test Description"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title:       "Test Epic",
+		Description: stringPtr("Test Description")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
 	}
@@ -83,11 +81,9 @@ func TestEpicRepository_UpdateFilePath(t *testing.T) {
 
 	// Create epic without file path
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Description:   stringPtr("Test Description"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title:       "Test Epic",
+		Description: stringPtr("Test Description")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
 	}
@@ -125,11 +121,9 @@ func TestEpicRepository_UpdateFilePath_Clear(t *testing.T) {
 
 	// Create epic without file path
 	highPriority := models.PriorityHigh
-	epic := &models.Epic{
-		Key:           epicKey,
-		Title:         "Test Epic",
-		Description:   stringPtr("Test Description"),
-		Status:        models.EpicStatusActive,
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey,
+		Title:       "Test Epic",
+		Description: stringPtr("Test Description")}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
 	}
@@ -192,10 +186,8 @@ func TestEpicRepository_GetByFilePath_Collision_Detection(t *testing.T) {
 	sharedPath := "docs/shared-epic-path.md"
 	highPriority := models.PriorityHigh
 
-	epic1 := &models.Epic{
-		Key:           epicKey1,
-		Title:         "Epic 1",
-		Status:        models.EpicStatusActive,
+	epic1 := &models.Epic{BaseEntity: models.BaseEntity{Key: epicKey1,
+		Title: "Epic 1"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityMedium,
 		BusinessValue: &highPriority,
 	}

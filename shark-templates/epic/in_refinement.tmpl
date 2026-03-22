@@ -1,0 +1,27 @@
+{{template "_resume_preamble" .}}RESUME epic refinement for {{.id}}: "{{.title}}".
+
+Check context_data: shark epic context get {{.id}} --json
+- If remaining_steps non-empty AND completed_steps contains all items in remaining_steps → all docs done → advance to ready_for_ba_check: {{template "advance" .}}.
+- If remaining_steps non-empty AND completed_steps ≠ remaining_steps → continue with items in remaining_steps not yet in completed_steps.
+- If remaining_steps empty → full re-run needed, proceed with ready_for_refinement instructions below (re-run the PLAN gate).
+
+---
+
+Write epic PRD for {{.id}}: "{{.title}}".
+
+LOAD: specification-writing workflow write-epic.md -- follow multi-file architecture.
+
+READ:
+(1) Draft epic document at {{.file_path}} and any vision notes
+(2) Other epic PRDs under docs/plan/ for consistency and overlap awareness
+
+PRODUCE: 6 PRD files per write-epic.md (epic.md, personas.md, user-journeys.md, requirements.md, success-metrics.md, scope.md). Define clear scope boundaries to guide research. Success metrics must be measurable.
+
+EXIT GATE:
+- All 6 files created and cross-referenced
+- Write-epic.md checklist passes
+- No vague language or TBDs
+
+---
+## EXIT — REQUIRED
+    {{template "advance" .}}

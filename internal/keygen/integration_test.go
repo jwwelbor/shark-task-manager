@@ -37,12 +37,10 @@ func TestEndToEndKeyGeneration(t *testing.T) {
 
 	// Create test epic
 	testDesc := "Test epic"
-	epic := &models.Epic{
-		Key:         "E04",
+	epic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E04",
 		Title:       "Task Management CLI Core",
-		Description: &testDesc,
-		Status:      models.EpicStatusActive,
-		Priority:    models.PriorityMedium,
+		Description: &testDesc}, Status: models.EpicStatusActive,
+		Priority: models.PriorityMedium,
 	}
 	if err := epicRepo.Create(ctx, epic); err != nil {
 		t.Fatalf("Failed to create test epic: %v", err)
@@ -50,12 +48,11 @@ func TestEndToEndKeyGeneration(t *testing.T) {
 
 	// Create test feature
 	testFeatureDesc := "Test feature"
-	feature := &models.Feature{
-		EpicID:      epic.ID,
-		Key:         "E04-F02",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E04-F02",
 		Title:       "CLI Infrastructure",
-		Description: &testFeatureDesc,
-		Status:      models.FeatureStatusActive,
+		Description: &testFeatureDesc}, EpicID: epic.ID,
+
+		Status: models.FeatureStatusActive,
 	}
 	if err := featureRepo.Create(ctx, feature); err != nil {
 		t.Fatalf("Failed to create test feature: %v", err)
@@ -63,14 +60,13 @@ func TestEndToEndKeyGeneration(t *testing.T) {
 
 	// Create some existing tasks to test sequence generation
 	for i := 1; i <= 3; i++ {
-		task := &models.Task{
-			FeatureID:   feature.ID,
-			Key:         fmt.Sprintf("T-E04-F02-%03d", i),
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-E04-F02-%03d", i),
 			Title:       fmt.Sprintf("Task %d", i),
-			Description: nil,
-			Status:      models.TaskStatus("todo"),
-			AgentType:   nil,
-			Priority:    2,
+			Description: nil}, FeatureID: feature.ID,
+
+			Status:    models.TaskStatus("todo"),
+			AgentType: nil,
+			Priority:  2,
 		}
 		if err := taskRepo.Create(ctx, task); err != nil {
 			t.Fatalf("Failed to create test task: %v", err)

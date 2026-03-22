@@ -10,30 +10,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 )
 
-// entityNoteAdapter adapts *repository.EntityNoteRepository to the services.EpicNoteRepository
-// and services.FeatureNoteRepository interfaces (both have identical signatures).
-// The service interfaces use (string, string) for entityType and documentPath,
-// while the repository uses (models.EntityType, *string).
-type entityNoteAdapter struct {
-	repo *repository.EntityNoteRepository
-}
-
-func (a *entityNoteAdapter) CreateRejectionNote(
-	ctx context.Context,
-	entityType string,
-	entityID int64,
-	historyID int64,
-	fromStatus, toStatus, reason, rejectedBy, documentPath string,
-) error {
-	var dp *string
-	if documentPath != "" {
-		dp = &documentPath
-	}
-	_, err := a.repo.CreateRejectionNote(ctx, models.EntityType(entityType), entityID, historyID,
-		fromStatus, toStatus, reason, rejectedBy, dp)
-	return err
-}
-
 // workSessionAdapter adapts *repository.WorkSessionRepository to the services.WorkSessionRepository interface.
 // The repository returns *repository.SessionStats but the service interface expects *services.WorkSessionStats.
 type workSessionAdapter struct {
@@ -73,15 +49,15 @@ func (a *workSessionAdapter) GetSessionAnalyticsByEpic(ctx context.Context, epic
 // taskHistoryAdapter adapts *repository.TaskHistoryRepository to the services.TaskHistoryRepository interface.
 // The two HistoryFilters types have identical fields but different package paths, so an adapter is needed.
 type taskHistoryAdapter struct {
-	repo *repository.TaskHistoryRepository
+	repo *repository.TaskHistoryRepository //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 }
 
 func (a *taskHistoryAdapter) GetHistoryByTaskKey(ctx context.Context, taskKey string) ([]*models.TaskHistory, error) {
-	return a.repo.GetHistoryByTaskKey(ctx, taskKey)
+	return a.repo.GetHistoryByTaskKey(ctx, taskKey) //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 }
 
 func (a *taskHistoryAdapter) ListWithFilters(ctx context.Context, filters services.HistoryFilters) ([]*models.TaskHistory, error) {
-	return a.repo.ListWithFilters(ctx, repository.HistoryFilters{
+	return a.repo.ListWithFilters(ctx, repository.HistoryFilters{ //nolint:staticcheck // Deprecated: will migrate to EntityHistoryRepository
 		Agent:      filters.Agent,
 		Since:      filters.Since,
 		EpicKey:    filters.EpicKey,
@@ -143,11 +119,14 @@ func GetEpicService() *services.EpicService {
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
 	docRepo := repository.NewDocumentRepository(db)
-	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	enrichRepo := repository.NewTemplateEnrichmentRepository(db)
-	svc := services.NewEpicService(epicRepo, workflowSvc, noteRepo, featureRepo, taskRepo)
-	svc.SetDocRepo(docRepo)
-	svc.SetWritableDocRepo(docRepo)
+	entitySvc := GetEntityService()
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeEpic)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
+	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
+	svc := services.NewEpicService(epicRepo, entitySvc, entityRepo, featureRepo, taskRepo)
+	svc.SetDocRepo(docAdapter)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
 
 	// Wire the analytics sub-service explicitly to avoid lazy-init on every call.
@@ -180,13 +159,18 @@ func GetFeatureService() *services.FeatureService {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
-	noteRepo := &entityNoteAdapter{repo: repository.NewEntityNoteRepository(db)}
 	docRepo := repository.NewDocumentRepository(db)
 	enrichRepo := repository.NewTemplateEnrichmentRepository(db)
-	svc := services.NewFeatureService(featureRepo, workflowSvc, noteRepo, taskRepo, epicRepo)
-	svc.SetDocRepo(docRepo)
-	svc.SetWritableDocRepo(docRepo)
+	entitySvc := GetEntityService()
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeFeature)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
+	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
+	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
+	svc := services.NewFeatureService(featureRepo, entitySvc, entityRepo, taskRepo, epicRepo)
+	svc.SetDocRepo(docAdapter)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
+	svc.SetEntityHistoryRepo(entityHistoryRepo)
 
 	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
 	progressSvc := services.NewFeatureProgressService(featureRepo, taskRepo, workflowSvc)

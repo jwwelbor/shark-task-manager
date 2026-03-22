@@ -63,11 +63,8 @@ func TestGetActionItems(t *testing.T) {
 			name: "single ready_for_approval task",
 			tasks: []*models.Task{
 				{
-					ID:        1,
-					Key:       "E07-F01-001",
-					Title:     "Task 1",
-					Status:    "ready_for_approval",
-					UpdatedAt: now.Add(-24 * time.Hour),
+					BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001", Title: "Task 1", UpdatedAt: now.Add(-24 * time.Hour)},
+					Status:     "ready_for_approval",
 				},
 			},
 			expectedAwaitingCount:   1,
@@ -78,11 +75,8 @@ func TestGetActionItems(t *testing.T) {
 			name: "single ready_for_code_review task",
 			tasks: []*models.Task{
 				{
-					ID:        2,
-					Key:       "E07-F01-002",
-					Title:     "Task 2",
-					Status:    "ready_for_code_review",
-					UpdatedAt: now.Add(-48 * time.Hour),
+					BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002", Title: "Task 2", UpdatedAt: now.Add(-48 * time.Hour)},
+					Status:     "ready_for_code_review",
 				},
 			},
 			expectedAwaitingCount:   0, // ready_for_code_review is NOT awaiting approval
@@ -93,11 +87,8 @@ func TestGetActionItems(t *testing.T) {
 			name: "single blocked task",
 			tasks: []*models.Task{
 				{
-					ID:        3,
-					Key:       "E07-F01-003",
-					Title:     "Task 3",
-					Status:    "blocked",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 3, Key: "E07-F01-003", Title: "Task 3", UpdatedAt: now},
+					Status:     "blocked",
 				},
 			},
 			expectedAwaitingCount:   0,
@@ -108,11 +99,8 @@ func TestGetActionItems(t *testing.T) {
 			name: "single in_progress task",
 			tasks: []*models.Task{
 				{
-					ID:        4,
-					Key:       "E07-F01-004",
-					Title:     "Task 4",
-					Status:    "in_progress",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 4, Key: "E07-F01-004", Title: "Task 4", UpdatedAt: now},
+					Status:     "in_progress",
 				},
 			},
 			expectedAwaitingCount:   0,
@@ -123,11 +111,8 @@ func TestGetActionItems(t *testing.T) {
 			name: "single in_development task",
 			tasks: []*models.Task{
 				{
-					ID:        5,
-					Key:       "E07-F01-005",
-					Title:     "Task 5",
-					Status:    "in_development",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 5, Key: "E07-F01-005", Title: "Task 5", UpdatedAt: now},
+					Status:     "in_development",
 				},
 			},
 			expectedAwaitingCount:   0,
@@ -138,39 +123,24 @@ func TestGetActionItems(t *testing.T) {
 			name: "mixed task statuses",
 			tasks: []*models.Task{
 				{
-					ID:        1,
-					Key:       "E07-F01-001",
-					Title:     "Task 1",
-					Status:    "ready_for_approval",
-					UpdatedAt: now.Add(-1 * time.Hour),
+					BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001", Title: "Task 1", UpdatedAt: now.Add(-1 * time.Hour)},
+					Status:     "ready_for_approval",
 				},
 				{
-					ID:        2,
-					Key:       "E07-F01-002",
-					Title:     "Task 2",
-					Status:    "blocked",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002", Title: "Task 2", UpdatedAt: now},
+					Status:     "blocked",
 				},
 				{
-					ID:        3,
-					Key:       "E07-F01-003",
-					Title:     "Task 3",
-					Status:    "in_progress",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 3, Key: "E07-F01-003", Title: "Task 3", UpdatedAt: now},
+					Status:     "in_progress",
 				},
 				{
-					ID:        4,
-					Key:       "E07-F01-004",
-					Title:     "Task 4",
-					Status:    "todo",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 4, Key: "E07-F01-004", Title: "Task 4", UpdatedAt: now},
+					Status:     "todo",
 				},
 				{
-					ID:        5,
-					Key:       "E07-F01-005",
-					Title:     "Task 5",
-					Status:    "ready_for_code_review",
-					UpdatedAt: now.Add(-2 * time.Hour),
+					BaseEntity: models.BaseEntity{ID: 5, Key: "E07-F01-005", Title: "Task 5", UpdatedAt: now.Add(-2 * time.Hour)},
+					Status:     "ready_for_code_review",
 				},
 			},
 			expectedAwaitingCount:   1, // Only ready_for_approval, not ready_for_code_review
@@ -181,25 +151,16 @@ func TestGetActionItems(t *testing.T) {
 			name: "multiple in_progress tasks",
 			tasks: []*models.Task{
 				{
-					ID:        1,
-					Key:       "E07-F01-001",
-					Title:     "Task 1",
-					Status:    "in_progress",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001", Title: "Task 1", UpdatedAt: now},
+					Status:     "in_progress",
 				},
 				{
-					ID:        2,
-					Key:       "E07-F01-002",
-					Title:     "Task 2",
-					Status:    "in_progress",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002", Title: "Task 2", UpdatedAt: now},
+					Status:     "in_progress",
 				},
 				{
-					ID:        3,
-					Key:       "E07-F01-003",
-					Title:     "Task 3",
-					Status:    "in_development",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 3, Key: "E07-F01-003", Title: "Task 3", UpdatedAt: now},
+					Status:     "in_development",
 				},
 			},
 			expectedAwaitingCount:   0,
@@ -210,25 +171,16 @@ func TestGetActionItems(t *testing.T) {
 			name: "todo and completed tasks ignored",
 			tasks: []*models.Task{
 				{
-					ID:        1,
-					Key:       "E07-F01-001",
-					Title:     "Task 1",
-					Status:    "todo",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001", Title: "Task 1", UpdatedAt: now},
+					Status:     "todo",
 				},
 				{
-					ID:        2,
-					Key:       "E07-F01-002",
-					Title:     "Task 2",
-					Status:    "completed",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002", Title: "Task 2", UpdatedAt: now},
+					Status:     "completed",
 				},
 				{
-					ID:        3,
-					Key:       "E07-F01-003",
-					Title:     "Task 3",
-					Status:    "draft",
-					UpdatedAt: now,
+					BaseEntity: models.BaseEntity{ID: 3, Key: "E07-F01-003", Title: "Task 3", UpdatedAt: now},
+					Status:     "draft",
 				},
 			},
 			expectedAwaitingCount:   0,
@@ -272,44 +224,36 @@ func TestGetActionItems_AgeDays(t *testing.T) {
 	}{
 		{
 			name: "task updated today",
-			task: &models.Task{
-				ID:     1,
-				Key:    "E07-F01-001",
-				Title:  "Task 1",
-				Status: "ready_for_approval",
+			task: &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "E07-F01-001",
+				Title: "Task 1"}, Status: "ready_for_approval",
 			},
 			hoursAgo:        1,
 			expectedAgeDays: 0,
 		},
 		{
 			name: "task updated 1 day ago",
-			task: &models.Task{
-				ID:     2,
-				Key:    "E07-F01-002",
-				Title:  "Task 2",
-				Status: "ready_for_approval",
+			task: &models.Task{BaseEntity: models.BaseEntity{ID: 2,
+				Key:   "E07-F01-002",
+				Title: "Task 2"}, Status: "ready_for_approval",
 			},
 			hoursAgo:        24,
 			expectedAgeDays: 1,
 		},
 		{
 			name: "task updated 5 days ago",
-			task: &models.Task{
-				ID:     3,
-				Key:    "E07-F01-003",
-				Title:  "Task 3",
-				Status: "ready_for_approval",
+			task: &models.Task{BaseEntity: models.BaseEntity{ID: 3,
+				Key:   "E07-F01-003",
+				Title: "Task 3"}, Status: "ready_for_approval",
 			},
 			hoursAgo:        120,
 			expectedAgeDays: 5,
 		},
 		{
 			name: "task updated 10 days ago",
-			task: &models.Task{
-				ID:     4,
-				Key:    "E07-F01-004",
-				Title:  "Task 4",
-				Status: "ready_for_approval", // Changed to ready_for_approval since ready_for_code_review doesn't count
+			task: &models.Task{BaseEntity: models.BaseEntity{ID: 4,
+				Key:   "E07-F01-004",
+				Title: "Task 4"}, Status: "ready_for_approval", // Changed to ready_for_approval since ready_for_code_review doesn't count
 			},
 			hoursAgo:        240,
 			expectedAgeDays: 10,
@@ -340,12 +284,11 @@ func TestGetActionItems_AgeDays(t *testing.T) {
 }
 
 func TestGetActionItems_TaskMetadata(t *testing.T) {
-	task := &models.Task{
-		ID:        1,
-		Key:       "E07-F01-001",
-		Title:     "Implement feature",
-		Status:    "ready_for_approval",
-		UpdatedAt: time.Now().Add(-24 * time.Hour),
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "E07-F01-001",
+		Title: "Implement feature",
+
+		UpdatedAt: time.Now().Add(-24 * time.Hour)}, Status: "ready_for_approval",
 	}
 
 	items := GetActionItems([]*models.Task{task}, testWorkflowConfig())
@@ -374,12 +317,11 @@ func TestGetActionItems_TaskMetadata(t *testing.T) {
 }
 
 func TestGetActionItems_BlockedTaskMetadata(t *testing.T) {
-	task := &models.Task{
-		ID:        1,
-		Key:       "E07-F01-001",
-		Title:     "Blocked task",
-		Status:    "blocked",
-		UpdatedAt: time.Now(),
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "E07-F01-001",
+		Title: "Blocked task",
+
+		UpdatedAt: time.Now()}, Status: "blocked",
 	}
 
 	items := GetActionItems([]*models.Task{task}, testWorkflowConfig())
@@ -410,18 +352,12 @@ func TestGetActionItems_BlockedTaskMetadata(t *testing.T) {
 func TestGetActionItems_InProgressTaskMetadata(t *testing.T) {
 	tasks := []*models.Task{
 		{
-			ID:        1,
-			Key:       "E07-F01-001",
-			Title:     "In progress task",
-			Status:    "in_progress",
-			UpdatedAt: time.Now(),
+			BaseEntity: models.BaseEntity{ID: 1, Key: "E07-F01-001", Title: "In progress task", UpdatedAt: time.Now()},
+			Status:     "in_progress",
 		},
 		{
-			ID:        2,
-			Key:       "E07-F01-002",
-			Title:     "In development task",
-			Status:    "in_development",
-			UpdatedAt: time.Now(),
+			BaseEntity: models.BaseEntity{ID: 2, Key: "E07-F01-002", Title: "In development task", UpdatedAt: time.Now()},
+			Status:     "in_development",
 		},
 	}
 

@@ -24,10 +24,8 @@ func TestFeatureRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E89'")
 
 	// Create dedicated epic for this test
-	testEpic := &models.Epic{
-		Key:      "E89",
-		Title:    "Test Epic for Feature Slug",
-		Status:   models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E89",
+		Title: "Test Epic for Feature Slug"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, testEpic)
@@ -39,10 +37,9 @@ func TestFeatureRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	}()
 
 	// Create feature
-	feature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E89-F01",
-		Title:  "Implement User Authentication System",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E89-F01",
+		Title: "Implement User Authentication System"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 
@@ -80,10 +77,8 @@ func TestFeatureRepository_GetByKey_WithTaskKeySuffix(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E88-F01'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E88'")
 
-	testEpic := &models.Epic{
-		Key:      "E88",
-		Title:    "Test Epic for Task Key Suffix",
-		Status:   models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E88",
+		Title: "Test Epic for Task Key Suffix"}, Status: models.EpicStatusActive,
 		Priority: models.PriorityMedium,
 	}
 	err := epicRepo.Create(ctx, testEpic)
@@ -92,10 +87,9 @@ func TestFeatureRepository_GetByKey_WithTaskKeySuffix(t *testing.T) {
 		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
 	}()
 
-	feature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E88-F01",
-		Title:  "My Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E88-F01",
+		Title: "My Feature"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusActive,
 	}
 	err = repo.Create(ctx, feature)
@@ -160,10 +154,8 @@ func TestFeatureRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 
 	// Create a dedicated test epic for this test
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E98",
-		Title:         "Test Epic for Slug Special Characters",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Slug Special Characters"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -197,10 +189,9 @@ func TestFeatureRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		feature := &models.Feature{
-			EpicID: epicID,
-			Key:    fmt.Sprintf("E98-F%02d", 10+i),
-			Title:  tc.title,
+		feature := &models.Feature{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E98-F%02d", 10+i),
+			Title: tc.title}, EpicID: epicID,
+
 			Status: models.FeatureStatusDraft,
 		}
 
@@ -233,10 +224,8 @@ func TestFeatureRepository_GetByKey_NumericAndSluggedKeys(t *testing.T) {
 
 	// Create test epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E97",
-		Title:         "Test Epic for Dual Key Lookup",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Test Epic for Dual Key Lookup"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -245,10 +234,9 @@ func TestFeatureRepository_GetByKey_NumericAndSluggedKeys(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create test feature with slug
-	feature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E97-F15",
-		Title:  "User Authentication Feature",
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E97-F15",
+		Title: "User Authentication Feature"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = repo.Create(ctx, feature)
@@ -356,10 +344,8 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 
 	// Create test epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E96",
-		Title:         "Test Epic for Multiple Features",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E96",
+		Title: "Test Epic for Multiple Features"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -368,20 +354,18 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create two features with same numeric part but different epic
-	feature1 := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E96-F20",
-		Title:  "First Feature",
+	feature1 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F20",
+		Title: "First Feature"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = repo.Create(ctx, feature1)
 	require.NoError(t, err)
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature1.ID) }()
 
-	feature2 := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E96-F21",
-		Title:  "Second Feature",
+	feature2 := &models.Feature{BaseEntity: models.BaseEntity{Key: "E96-F21",
+		Title: "Second Feature"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = repo.Create(ctx, feature2)
@@ -408,6 +392,66 @@ func TestFeatureRepository_GetByKey_MultipleFeaturesSameEpic(t *testing.T) {
 	}
 }
 
+// TestFeatureRepository_UpdateStatus verifies atomic status updates via UpdateStatus.
+func TestFeatureRepository_UpdateStatus(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := NewEpicRepository(db)
+
+	// Clean up test data first (use E87 to avoid conflict with other tests)
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = 'E87-F01'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E87'")
+
+	// Create dedicated epic for this test
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E87",
+		Title: "Test Epic for UpdateStatus"}, Status: models.EpicStatusActive,
+		Priority: models.PriorityMedium,
+	}
+	err := epicRepo.Create(ctx, testEpic)
+	require.NoError(t, err, "Failed to create test epic")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	}()
+
+	// Create feature with initial status
+	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E87-F01",
+		Title: "Feature for Status Update Test"}, EpicID: testEpic.ID,
+		Status: models.FeatureStatusDraft,
+	}
+	err = repo.Create(ctx, feature)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+	}()
+
+	t.Run("successful status update", func(t *testing.T) {
+		err := repo.UpdateStatus(ctx, feature.ID, models.FeatureStatusActive)
+		require.NoError(t, err)
+
+		// Verify status was updated
+		updated, err := repo.GetByID(ctx, feature.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.FeatureStatusActive, updated.Status)
+	})
+
+	t.Run("update to completed status", func(t *testing.T) {
+		err := repo.UpdateStatus(ctx, feature.ID, models.FeatureStatusCompleted)
+		require.NoError(t, err)
+
+		updated, err := repo.GetByID(ctx, feature.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.FeatureStatusCompleted, updated.Status)
+	})
+
+	t.Run("non-existent feature returns error", func(t *testing.T) {
+		err := repo.UpdateStatus(ctx, 999999, models.FeatureStatusActive)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "feature not found")
+	})
+}
+
 // TestFeatureRepository_UpdateCustomPath removed - custom_folder_path feature no longer supported
 
 // TestFeatureRepository_UpdateCascadesOrder verifies that updating a feature's execution order
@@ -425,10 +469,8 @@ func TestFeatureRepository_UpdateCascadesOrder(t *testing.T) {
 
 	// Create test epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E99",
-		Title:         "Test Epic for Feature Order Cascade",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E99",
+		Title: "Test Epic for Feature Order Cascade"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -438,31 +480,27 @@ func TestFeatureRepository_UpdateCascadesOrder(t *testing.T) {
 
 	// Create four features with sequential orders: a-1, b-2, c-3, d-4
 	order1, order2, order3, order4 := 1, 2, 3, 4
-	featureA := &models.Feature{
-		EpicID:         testEpic.ID,
-		Key:            "E99-F01",
-		Title:          "Feature A",
+	featureA := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F01",
+		Title: "Feature A"}, EpicID: testEpic.ID,
+
 		Status:         models.FeatureStatusDraft,
 		ExecutionOrder: &order1,
 	}
-	featureB := &models.Feature{
-		EpicID:         testEpic.ID,
-		Key:            "E99-F02",
-		Title:          "Feature B",
+	featureB := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F02",
+		Title: "Feature B"}, EpicID: testEpic.ID,
+
 		Status:         models.FeatureStatusDraft,
 		ExecutionOrder: &order2,
 	}
-	featureC := &models.Feature{
-		EpicID:         testEpic.ID,
-		Key:            "E99-F03",
-		Title:          "Feature C",
+	featureC := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F03",
+		Title: "Feature C"}, EpicID: testEpic.ID,
+
 		Status:         models.FeatureStatusDraft,
 		ExecutionOrder: &order3,
 	}
-	featureD := &models.Feature{
-		EpicID:         testEpic.ID,
-		Key:            "E99-F04",
-		Title:          "Feature D",
+	featureD := &models.Feature{BaseEntity: models.BaseEntity{Key: "E99-F04",
+		Title: "Feature D"}, EpicID: testEpic.ID,
+
 		Status:         models.FeatureStatusDraft,
 		ExecutionOrder: &order4,
 	}

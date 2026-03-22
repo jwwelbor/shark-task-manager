@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // BugStatus represents the workflow status of a bug.
@@ -32,19 +31,17 @@ var ValidBugSeverities = map[BugSeverity]bool{
 
 // Bug represents a bug report entity.
 type Bug struct {
-	ID               int64       `json:"id" db:"id"`
-	Key              string      `json:"key" db:"key"` // Format: B###
-	Title            string      `json:"title" db:"title"`
-	Slug             *string     `json:"slug,omitempty" db:"slug"`
-	Description      *string     `json:"description,omitempty" db:"description"`
-	Status           BugStatus   `json:"status" db:"status"`
-	Severity         BugSeverity `json:"severity" db:"severity"`
-	LinkedEntityType *string     `json:"linked_entity_type,omitempty" db:"linked_entity_type"` // "epic", "feature", "task"
-	LinkedEntityKey  *string     `json:"linked_entity_key,omitempty" db:"linked_entity_key"`
-	ContextData      *string     `json:"context_data,omitempty" db:"context_data"` // JSON
-	FilePath         *string     `json:"file_path,omitempty" db:"file_path"`
-	CreatedAt        time.Time   `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at" db:"updated_at"`
+	BaseEntity             // 9 shared fields + 10 accessor methods
+	Status     BugStatus   `json:"status" db:"status"`
+	Severity   BugSeverity `json:"severity" db:"severity"`
+	// LEGACY: LinkedEntityType is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	LinkedEntityType *string `json:"linked_entity_type,omitempty" db:"linked_entity_type"` // "epic", "feature", "task"
+	// LEGACY: LinkedEntityKey is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	LinkedEntityKey *string `json:"linked_entity_key,omitempty" db:"linked_entity_key"`
 }
 
 // bugKeyPattern matches B followed by exactly 3 digits.
@@ -55,38 +52,9 @@ var ErrInvalidBugKey = errors.New("invalid bug key format: must match B### (e.g.
 
 // Entity interface implementation for Bug.
 
-func (b *Bug) GetID() int64              { return b.ID }
-func (b *Bug) GetKey() string            { return b.Key }
-func (b *Bug) GetTitle() string          { return b.Title }
 func (b *Bug) GetEntityType() EntityType { return EntityTypeBug }
 func (b *Bug) GetStatus() string         { return string(b.Status) }
 func (b *Bug) SetStatus(status string)   { b.Status = BugStatus(status) }
-func (b *Bug) GetCreatedAt() time.Time   { return b.CreatedAt }
-func (b *Bug) GetUpdatedAt() time.Time   { return b.UpdatedAt }
-
-func (b *Bug) GetSlug() string {
-	if b.Slug != nil {
-		return *b.Slug
-	}
-	return ""
-}
-
-func (b *Bug) GetDescription() string {
-	if b.Description != nil {
-		return *b.Description
-	}
-	return ""
-}
-
-func (b *Bug) GetFilePath() string {
-	if b.FilePath != nil {
-		return *b.FilePath
-	}
-	return ""
-}
-
-func (b *Bug) GetContextData() *string     { return b.ContextData }
-func (b *Bug) SetContextData(data *string) { b.ContextData = data }
 
 // Validate performs structural validation on the Bug model.
 // It does NOT check workflow status validity (that is the service layer's job).

@@ -279,8 +279,7 @@ func renderContextData(contextData *models.ContextData) {
 	hasContent := contextData.Progress != nil ||
 		len(contextData.ImplementationDecisions) > 0 ||
 		len(contextData.OpenQuestions) > 0 ||
-		len(contextData.Blockers) > 0 ||
-		len(contextData.AcceptanceCriteriaStatus) > 0
+		len(contextData.Blockers) > 0
 
 	if !hasContent {
 		return

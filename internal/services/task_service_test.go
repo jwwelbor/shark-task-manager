@@ -4,13 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ============================================================================
@@ -172,7 +179,7 @@ func TestTaskService_CreateTask_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -195,7 +202,7 @@ func TestTaskService_CreateTask_Happy_Path(t *testing.T) {
 
 func TestTaskService_CreateTask_Empty_Title(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -214,7 +221,7 @@ func TestTaskService_CreateTask_Empty_Title(t *testing.T) {
 
 func TestTaskService_CreateTask_Missing_Epic_Key(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "", // Missing epic key
@@ -233,7 +240,7 @@ func TestTaskService_CreateTask_Missing_Epic_Key(t *testing.T) {
 
 func TestTaskService_CreateTask_Missing_Feature_Key(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -252,7 +259,7 @@ func TestTaskService_CreateTask_Missing_Feature_Key(t *testing.T) {
 
 func TestTaskService_CreateTask_Invalid_Priority(t *testing.T) {
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -277,7 +284,7 @@ func TestTaskService_CreateTask_Default_Priority(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -300,7 +307,7 @@ func TestTaskService_CreateTask_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	input := CreateTaskInput{
 		EpicKey:    "E07",
@@ -322,11 +329,9 @@ func TestTaskService_CreateTask_Repository_Error(t *testing.T) {
 // ============================================================================
 
 func TestTaskService_GetTask_Found(t *testing.T) {
-	expectedTask := &models.Task{
-		ID:     1,
-		Key:    "T-E07-F01-001",
-		Title:  "Test Task",
-		Status: models.TaskStatus("todo"),
+	expectedTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Test Task"}, Status: models.TaskStatus("todo"),
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -336,7 +341,7 @@ func TestTaskService_GetTask_Found(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	task, err := svc.GetTask(context.Background(), "E07-F01-001")
 
@@ -353,7 +358,7 @@ func TestTaskService_GetTask_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	task, err := svc.GetTask(context.Background(), "E07-F01-999")
 
@@ -367,12 +372,10 @@ func TestTaskService_GetTask_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestTaskService_UpdateTask_Update_Title(t *testing.T) {
-	existingTask := &models.Task{
-		ID:       1,
-		Key:      "T-E07-F01-001",
-		Title:    "Old Title",
-		Priority: 5,
-		Status:   models.TaskStatus("todo"),
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Old Title"}, Priority: 5,
+		Status: models.TaskStatus("todo"),
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -385,7 +388,7 @@ func TestTaskService_UpdateTask_Update_Title(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	updates := TaskUpdates{
@@ -401,12 +404,10 @@ func TestTaskService_UpdateTask_Update_Title(t *testing.T) {
 }
 
 func TestTaskService_UpdateTask_Multiple_Fields(t *testing.T) {
-	existingTask := &models.Task{
-		ID:       1,
-		Key:      "T-E07-F01-001",
-		Title:    "Old Title",
-		Priority: 5,
-		Status:   models.TaskStatus("todo"),
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Old Title"}, Priority: 5,
+		Status: models.TaskStatus("todo"),
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -418,7 +419,7 @@ func TestTaskService_UpdateTask_Multiple_Fields(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	newPriority := 8
@@ -435,12 +436,10 @@ func TestTaskService_UpdateTask_Multiple_Fields(t *testing.T) {
 }
 
 func TestTaskService_UpdateTask_Partial_Update(t *testing.T) {
-	existingTask := &models.Task{
-		ID:       1,
-		Key:      "T-E07-F01-001",
-		Title:    "Old Title",
-		Priority: 5,
-		Status:   models.TaskStatus("todo"),
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Old Title"}, Priority: 5,
+		Status: models.TaskStatus("todo"),
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -452,7 +451,7 @@ func TestTaskService_UpdateTask_Partial_Update(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	updates := TaskUpdates{
@@ -468,12 +467,10 @@ func TestTaskService_UpdateTask_Partial_Update(t *testing.T) {
 }
 
 func TestTaskService_UpdateTask_FilePath(t *testing.T) {
-	existingTask := &models.Task{
-		ID:       1,
-		Key:      "T-E07-F01-001",
-		Title:    "Task With File",
-		Priority: 5,
-		Status:   models.TaskStatus("todo"),
+	existingTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-E07-F01-001",
+		Title: "Task With File"}, Priority: 5,
+		Status: models.TaskStatus("todo"),
 	}
 
 	var capturedTask *models.Task
@@ -487,7 +484,7 @@ func TestTaskService_UpdateTask_FilePath(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newPath := "docs/plan/E07/F01/tasks/custom-path.md"
 	updates := TaskUpdates{
@@ -512,7 +509,7 @@ func TestTaskService_UpdateTask_Not_Found(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	updates := TaskUpdates{
@@ -530,9 +527,8 @@ func TestTaskService_UpdateTask_Not_Found(t *testing.T) {
 // ============================================================================
 
 func TestTaskService_DeleteTask_Success(t *testing.T) {
-	taskToDelete := &models.Task{
-		ID:  1,
-		Key: "E07-F01-001",
+	taskToDelete := &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key: "E07-F01-001"},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -548,7 +544,7 @@ func TestTaskService_DeleteTask_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	err := svc.DeleteTask(context.Background(), "E07-F01-001")
 
@@ -562,7 +558,7 @@ func TestTaskService_DeleteTask_Not_Found(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	err := svc.DeleteTask(context.Background(), "E07-F01-999")
 
@@ -576,9 +572,9 @@ func TestTaskService_DeleteTask_Not_Found(t *testing.T) {
 
 func TestTaskService_ListTasks_No_Filters(t *testing.T) {
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 5},
-		{Key: "E07-F01-002", Title: "Task 2", Status: models.TaskStatus("in_progress"), Priority: 8},
-		{Key: "E07-F01-003", Title: "Task 3", Status: models.TaskStatus("completed"), Priority: 3},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002", Title: "Task 2"}, Status: models.TaskStatus("in_progress"), Priority: 8},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-003", Title: "Task 3"}, Status: models.TaskStatus("completed"), Priority: 3},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -587,7 +583,7 @@ func TestTaskService_ListTasks_No_Filters(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{})
 
@@ -599,8 +595,8 @@ func TestTaskService_ListTasks_No_Filters(t *testing.T) {
 
 func TestTaskService_ListTasks_Show_All(t *testing.T) {
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 5},
-		{Key: "E07-F01-002", Title: "Task 2", Status: models.TaskStatus("completed"), Priority: 8},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002", Title: "Task 2"}, Status: models.TaskStatus("completed"), Priority: 8},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -609,7 +605,7 @@ func TestTaskService_ListTasks_Show_All(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{ShowAll: true})
 
@@ -619,9 +615,9 @@ func TestTaskService_ListTasks_Show_All(t *testing.T) {
 
 func TestTaskService_ListTasks_Filter_By_Status(t *testing.T) {
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 5},
-		{Key: "E07-F01-002", Title: "Task 2", Status: models.TaskStatus("in_progress"), Priority: 8},
-		{Key: "E07-F01-003", Title: "Task 3", Status: models.TaskStatus("todo"), Priority: 3},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 5},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002", Title: "Task 2"}, Status: models.TaskStatus("in_progress"), Priority: 8},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-003", Title: "Task 3"}, Status: models.TaskStatus("todo"), Priority: 3},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -630,7 +626,7 @@ func TestTaskService_ListTasks_Filter_By_Status(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{Status: "todo"})
 
@@ -645,9 +641,9 @@ func TestTaskService_ListTasks_Sorting(t *testing.T) {
 	ord1 := 1
 	ord2 := 2
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Title: "Task 1", Status: models.TaskStatus("todo"), Priority: 3, ExecutionOrder: &ord2},
-		{Key: "E07-F01-002", Title: "Task 2", Status: models.TaskStatus("todo"), Priority: 8, ExecutionOrder: &ord1},
-		{Key: "E07-F01-003", Title: "Task 3", Status: models.TaskStatus("todo"), Priority: 5, ExecutionOrder: &ord1},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001", Title: "Task 1"}, Status: models.TaskStatus("todo"), Priority: 3, ExecutionOrder: &ord2},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002", Title: "Task 2"}, Status: models.TaskStatus("todo"), Priority: 8, ExecutionOrder: &ord1},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-003", Title: "Task 3"}, Status: models.TaskStatus("todo"), Priority: 5, ExecutionOrder: &ord1},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -656,7 +652,7 @@ func TestTaskService_ListTasks_Sorting(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{ShowAll: true})
 
@@ -672,7 +668,7 @@ func TestTaskService_ListTasks_Sorting(t *testing.T) {
 // ============================================================================
 
 func TestTaskService_ValidateStatus_Valid_Status(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate valid status
 	err := svc.ValidateStatus("todo")
@@ -682,7 +678,7 @@ func TestTaskService_ValidateStatus_Valid_Status(t *testing.T) {
 }
 
 func TestTaskService_ValidateStatus_Invalid_Status(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate invalid status
 	err := svc.ValidateStatus("invalid_status_xyz")
@@ -699,22 +695,22 @@ func TestTaskService_ValidateStatus_Invalid_Status(t *testing.T) {
 func TestNewTaskService_Requires_Repository(t *testing.T) {
 	// Arrange & Act & Assert: Should panic without repository
 	assert.Panics(t, func() {
-		NewTaskService(nil, newMockWorkflowService(), nil, nil)
+		NewTaskService(nil, NewEntityService(newMockWorkflowService()), nil)
 	})
 }
 
-func TestNewTaskService_Requires_WorkflowService(t *testing.T) {
-	// Arrange & Act & Assert: Should panic without workflow service
+func TestNewTaskService_Requires_EntityService(t *testing.T) {
+	// Arrange & Act & Assert: Should panic without entity service
 	mockRepo := &MockTaskRepository{}
 	assert.Panics(t, func() {
-		NewTaskService(mockRepo, nil, nil, nil)
+		NewTaskService(mockRepo, nil, nil)
 	})
 }
 
 func TestNewTaskService_Optional_Dependencies(t *testing.T) {
 	// Arrange & Act: Create service with only required dependencies
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Assert: Service created successfully
 	assert.NotNil(t, svc)
@@ -732,17 +728,15 @@ func TestTaskService_UpdateTask_Invalid_Priority(t *testing.T) {
 	// Arrange: Update with invalid priority
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:       1,
-				Key:      "T-E07-F01-001",
-				Title:    "Test Task",
-				Priority: 5,
-				Status:   models.TaskStatus("todo"),
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "T-E07-F01-001",
+				Title: "Test Task"}, Priority: 5,
+				Status: models.TaskStatus("todo"),
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	invalidPriority := 15 // > 10
 	updates := TaskUpdates{
@@ -762,12 +756,10 @@ func TestTaskService_UpdateTask_Update_Error(t *testing.T) {
 	// Arrange: Repository update fails
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:       1,
-				Key:      "T-E07-F01-001",
-				Title:    "Old Title",
-				Priority: 5,
-				Status:   models.TaskStatus("todo"),
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key:   "T-E07-F01-001",
+				Title: "Old Title"}, Priority: 5,
+				Status: models.TaskStatus("todo"),
 			}, nil
 		},
 		UpdateFunc: func(ctx context.Context, task *models.Task) error {
@@ -775,7 +767,7 @@ func TestTaskService_UpdateTask_Update_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	newTitle := "New Title"
 	updates := TaskUpdates{
@@ -795,20 +787,19 @@ func TestTaskService_DeleteTask_Has_Dependents(t *testing.T) {
 	// Arrange: Task has dependents
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:  1,
-				Key: "T-E07-F01-001",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key: "T-E07-F01-001"},
 			}, nil
 		},
 		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
 			// Return dependent tasks
 			return []*models.Task{
-				{Key: "T-E07-F01-002", Status: models.TaskStatus("todo")},
+				{BaseEntity: models.BaseEntity{Key: "T-E07-F01-002"}, Status: models.TaskStatus("todo")},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Attempt to delete task with dependents
 	err := svc.DeleteTask(context.Background(), "T-E07-F01-001")
@@ -822,9 +813,8 @@ func TestTaskService_DeleteTask_Delete_Error(t *testing.T) {
 	// Arrange: Delete operation fails
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:  1,
-				Key: "E07-F01-001",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1,
+				Key: "E07-F01-001"},
 			}, nil
 		},
 		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
@@ -835,7 +825,7 @@ func TestTaskService_DeleteTask_Delete_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Attempt to delete
 	err := svc.DeleteTask(context.Background(), "E07-F01-001")
@@ -854,9 +844,9 @@ func TestTaskService_ListTasks_Filter_By_Agent(t *testing.T) {
 	backend := "backend"
 	frontend := "frontend"
 	allTasks := []*models.Task{
-		{Key: "E07-F01-001", Status: models.TaskStatus("todo"), AgentType: &backend},
-		{Key: "E07-F01-002", Status: models.TaskStatus("todo"), AgentType: &frontend},
-		{Key: "E07-F01-003", Status: models.TaskStatus("todo"), AgentType: &backend},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-001"}, Status: models.TaskStatus("todo"), AgentType: &backend},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-002"}, Status: models.TaskStatus("todo"), AgentType: &frontend},
+		{BaseEntity: models.BaseEntity{Key: "E07-F01-003"}, Status: models.TaskStatus("todo"), AgentType: &backend},
 	}
 
 	mockRepo := &MockTaskRepository{
@@ -865,7 +855,7 @@ func TestTaskService_ListTasks_Filter_By_Agent(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: List tasks filtered by agent
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{AgentType: "backend"})
@@ -886,7 +876,7 @@ func TestTaskService_ListTasks_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Attempt to list tasks
 	tasks, err := svc.ListTasks(context.Background(), TaskFilters{})
@@ -909,10 +899,8 @@ func TestTaskService_ListTasks_Pagination(t *testing.T) {
 			tasks := make([]*models.Task, 100)
 			for i := 0; i < 100; i++ {
 				agentType := "backend"
-				tasks[i] = &models.Task{
-					Key:       fmt.Sprintf("E15-F04-%03d", i+1),
-					Title:     fmt.Sprintf("Task %d", i+1),
-					Status:    "todo",
+				tasks[i] = &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E15-F04-%03d", i+1),
+					Title: fmt.Sprintf("Task %d", i+1)}, Status: "todo",
 					Priority:  5,
 					AgentType: &agentType,
 				}
@@ -921,7 +909,7 @@ func TestTaskService_ListTasks_Pagination(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	tests := []struct {
 		name         string
@@ -1003,16 +991,16 @@ func TestTaskService_GetTasksByStatus(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-002", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-003", Status: "in_development", AgentType: &agentType},
-				{Key: "E15-F04-004", Status: "completed", AgentType: &agentType},
-				{Key: "E15-F04-005", Status: "blocked", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "in_development", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004"}, Status: "completed", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-005"}, Status: "blocked", AgentType: &agentType},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Get tasks by status
 	statusMap, err := svc.GetTasksByStatus(context.Background(), TaskFilters{})
@@ -1035,15 +1023,15 @@ func TestTaskService_GetTasksByAgent(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", Priority: 5, AgentType: &backend},
-				{Key: "E15-F04-002", Status: "todo", Priority: 8, AgentType: &backend},
-				{Key: "E15-F04-003", Status: "in_development", Priority: 7, AgentType: &frontend},
-				{Key: "E15-F04-004", Status: "completed", Priority: 6, AgentType: &qa},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", Priority: 5, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "todo", Priority: 8, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "in_development", Priority: 7, AgentType: &frontend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004"}, Status: "completed", Priority: 6, AgentType: &qa},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Get tasks by agent
 	agentMap, err := svc.GetTasksByAgent(context.Background(), TaskFilters{})
@@ -1064,15 +1052,15 @@ func TestTaskService_GetBlockedTasks(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-002", Status: "blocked", AgentType: &agentType},
-				{Key: "E15-F04-003", Status: "in_development", AgentType: &agentType},
-				{Key: "E15-F04-004", Status: "blocked", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "blocked", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "in_development", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004"}, Status: "blocked", AgentType: &agentType},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Get blocked tasks
 	blockedTasks, err := svc.GetBlockedTasks(context.Background(), TaskFilters{})
@@ -1095,14 +1083,14 @@ func TestTaskQueryBuilder_WithStatus(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", Priority: 5, AgentType: &agentType},
-				{Key: "E15-F04-002", Status: "in_development", Priority: 8, AgentType: &agentType},
-				{Key: "E15-F04-003", Status: "todo", Priority: 3, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", Priority: 5, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "in_development", Priority: 8, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "todo", Priority: 3, AgentType: &agentType},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with status filter
 	tasks, total, err := svc.Query().
@@ -1125,14 +1113,14 @@ func TestTaskQueryBuilder_WithAgent(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", AgentType: &backend},
-				{Key: "E15-F04-002", Status: "todo", AgentType: &frontend},
-				{Key: "E15-F04-003", Status: "todo", AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "todo", AgentType: &frontend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "todo", AgentType: &backend},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with agent filter
 	tasks, total, err := svc.Query().
@@ -1154,15 +1142,15 @@ func TestTaskQueryBuilder_WithPriorityRange(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", Priority: 3, AgentType: &agentType},
-				{Key: "E15-F04-002", Status: "todo", Priority: 5, AgentType: &agentType},
-				{Key: "E15-F04-003", Status: "todo", Priority: 8, AgentType: &agentType},
-				{Key: "E15-F04-004", Status: "todo", Priority: 10, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001"}, Status: "todo", Priority: 3, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002"}, Status: "todo", Priority: 5, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003"}, Status: "todo", Priority: 8, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004"}, Status: "todo", Priority: 10, AgentType: &agentType},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with priority range 5-8
 	tasks, total, err := svc.Query().
@@ -1185,14 +1173,14 @@ func TestTaskQueryBuilder_WithTitleSearch(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Title: "Implement user authentication", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-002", Title: "Add database migration", Status: "todo", AgentType: &agentType},
-				{Key: "E15-F04-003", Title: "Implement JWT token validation", Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001", Title: "Implement user authentication"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002", Title: "Add database migration"}, Status: "todo", AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003", Title: "Implement JWT token validation"}, Status: "todo", AgentType: &agentType},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with title search
 	tasks, total, err := svc.Query().
@@ -1214,14 +1202,14 @@ func TestTaskQueryBuilder_SortBy(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Title: "Task A", Status: "todo", Priority: 5, AgentType: &agentType},
-				{Key: "E15-F04-002", Title: "Task B", Status: "todo", Priority: 8, AgentType: &agentType},
-				{Key: "E15-F04-003", Title: "Task C", Status: "todo", Priority: 3, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001", Title: "Task A"}, Status: "todo", Priority: 5, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002", Title: "Task B"}, Status: "todo", Priority: 8, AgentType: &agentType},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003", Title: "Task C"}, Status: "todo", Priority: 3, AgentType: &agentType},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with priority DESC sort
 	tasks, _, err := svc.Query().
@@ -1242,9 +1230,7 @@ func TestTaskQueryBuilder_Paginate(t *testing.T) {
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			tasks := make([]*models.Task, 50)
 			for i := 0; i < 50; i++ {
-				tasks[i] = &models.Task{
-					Key:       fmt.Sprintf("E15-F04-%03d", i+1),
-					Status:    "todo",
+				tasks[i] = &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E15-F04-%03d", i+1)}, Status: "todo",
 					Priority:  5,
 					AgentType: &agentType,
 				}
@@ -1253,7 +1239,7 @@ func TestTaskQueryBuilder_Paginate(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Query with pagination (offset 10, limit 10)
 	tasks, total, err := svc.Query().
@@ -1274,15 +1260,15 @@ func TestTaskQueryBuilder_ChainedFilters(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 			return []*models.Task{
-				{Key: "E15-F04-001", Title: "Implement API", Status: "todo", Priority: 5, AgentType: &backend},
-				{Key: "E15-F04-002", Title: "Implement UI", Status: "todo", Priority: 8, AgentType: &frontend},
-				{Key: "E15-F04-003", Title: "Add tests", Status: "in_development", Priority: 7, AgentType: &backend},
-				{Key: "E15-F04-004", Title: "Implement auth", Status: "todo", Priority: 9, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-001", Title: "Implement API"}, Status: "todo", Priority: 5, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-002", Title: "Implement UI"}, Status: "todo", Priority: 8, AgentType: &frontend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-003", Title: "Add tests"}, Status: "in_development", Priority: 7, AgentType: &backend},
+				{BaseEntity: models.BaseEntity{Key: "E15-F04-004", Title: "Implement auth"}, Status: "todo", Priority: 9, AgentType: &backend},
 			}, nil
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Chain multiple filters
 	tasks, total, err := svc.Query().
@@ -1312,540 +1298,13 @@ func TestTaskService_ValidateDependencies_NoDependencies(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act: Validate task with no dependencies
 	err := svc.ValidateDependencies(context.Background(), "E15-F04-001", "in_development")
 
 	// Assert: Validation passes
 	assert.NoError(t, err)
-}
-
-// TestTaskService_ValidateDependencies_CircularDependency tests circular dependency detection
-func TestTaskService_ValidateDependencies_CircularDependency(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
-			// Create circular dependency: A -> B -> C -> A
-			// All dependencies are completed so we can reach the circular check
-			// DependsOn is stored as JSON array string in DB
-			dep1 := `["E15-F04-001"]`
-			dep2 := `["E15-F04-002"]`
-			dep3 := `["E15-F04-003"]`
-			switch taskKey {
-			case "E15-F04-001":
-				return []*models.Task{
-					{Key: "E15-F04-002", Status: "completed", DependsOn: &dep1}, // Completed to pass first check
-				}, nil
-			case "E15-F04-002":
-				return []*models.Task{
-					{Key: "E15-F04-003", Status: "completed", DependsOn: &dep2}, // Completed to pass first check
-				}, nil
-			case "E15-F04-003":
-				return []*models.Task{
-					{Key: "E15-F04-001", Status: "completed", DependsOn: &dep3}, // Completed to pass first check
-				}, nil
-			}
-			return []*models.Task{}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Validate task that's part of circular dependency
-	err := svc.ValidateDependencies(context.Background(), "E15-F04-001", "in_development")
-
-	// Assert: Circular dependency error
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "circular")
-}
-
-// TestTaskService_ValidateDependencies_DependencyNotCompleted tests incomplete dependencies
-func TestTaskService_ValidateDependencies_DependencyNotCompleted(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
-			emptyDeps := "[]"
-			return []*models.Task{
-				{Key: "E15-F04-001", Status: "todo", DependsOn: &emptyDeps}, // Dependency not completed
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Validate task with incomplete dependency
-	err := svc.ValidateDependencies(context.Background(), "E15-F04-002", "in_development")
-
-	// Assert: Dependency error - check for "must be completed" message
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "must be completed")
-}
-
-// ============================================================================
-// GetDependencyTree Tests (T-E15-F04-002)
-// ============================================================================
-
-// TestTaskService_GetDependencyTree tests dependency tree retrieval
-func TestTaskService_GetDependencyTree(t *testing.T) {
-	emptyDeps := "[]"
-	dep1 := `["E15-F04-001"]`
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			switch key {
-			case "E15-F04-001":
-				return &models.Task{
-					Key:       "E15-F04-001",
-					Title:     "Task 1",
-					Status:    "todo",
-					Priority:  5,
-					DependsOn: &emptyDeps,
-				}, nil
-			case "E15-F04-002":
-				return &models.Task{
-					Key:       "E15-F04-002",
-					Title:     "Task 2",
-					Status:    "todo",
-					Priority:  5,
-					DependsOn: &dep1,
-				}, nil
-			}
-			return nil, fmt.Errorf("not found")
-		},
-		GetTaskDependentsFunc: func(ctx context.Context, taskKey string) ([]*models.Task, error) {
-			// GetTaskDependents returns tasks that taskKey depends on
-			switch taskKey {
-			case "E15-F04-002":
-				// Task 2 depends on Task 1 (has it in DependsOn field)
-				return []*models.Task{
-					{Key: "E15-F04-001", Title: "Task 1", Status: "completed", Priority: 5},
-				}, nil
-			case "E15-F04-001":
-				// Task 1 has no dependencies
-				return []*models.Task{}, nil
-			}
-			return []*models.Task{}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-
-	// Act: Get dependency tree
-	tree, err := svc.GetDependencyTree(context.Background(), "E15-F04-002")
-
-	// Assert: Tree structure is correct
-	assert.NoError(t, err)
-	assert.NotNil(t, tree)
-	assert.Equal(t, "E15-F04-002", tree.Task.Key)
-	assert.Len(t, tree.Dependencies, 1)
-	assert.Equal(t, "E15-F04-001", tree.Dependencies[0].Key)
-	assert.True(t, tree.CanStart) // Dependency completed, can start
-}
-
-// ============================================================================
-// MockTaskDependencyRepository
-// ============================================================================
-
-// MockTaskDependencyRepository implements TaskDependencyRepository for testing.
-type MockTaskDependencyRepository struct {
-	CreateFunc               func(ctx context.Context, rel *models.TaskRelationship) error
-	GetOutgoingFunc          func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
-	GetIncomingFunc          func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
-	DeleteByTasksAndTypeFunc func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
-	DetectCycleFunc          func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
-}
-
-func (m *MockTaskDependencyRepository) Create(ctx context.Context, rel *models.TaskRelationship) error {
-	if m.CreateFunc != nil {
-		return m.CreateFunc(ctx, rel)
-	}
-	return fmt.Errorf("Create not implemented in MockTaskDependencyRepository")
-}
-
-func (m *MockTaskDependencyRepository) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-	if m.GetOutgoingFunc != nil {
-		return m.GetOutgoingFunc(ctx, taskID, relTypes)
-	}
-	return nil, fmt.Errorf("GetOutgoing not implemented in MockTaskDependencyRepository")
-}
-
-func (m *MockTaskDependencyRepository) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-	if m.GetIncomingFunc != nil {
-		return m.GetIncomingFunc(ctx, taskID, relTypes)
-	}
-	return nil, fmt.Errorf("GetIncoming not implemented in MockTaskDependencyRepository")
-}
-
-func (m *MockTaskDependencyRepository) DeleteByTasksAndType(ctx context.Context, fromTaskID, toTaskID int64, relType string) error {
-	if m.DeleteByTasksAndTypeFunc != nil {
-		return m.DeleteByTasksAndTypeFunc(ctx, fromTaskID, toTaskID, relType)
-	}
-	return fmt.Errorf("DeleteByTasksAndType not implemented in MockTaskDependencyRepository")
-}
-
-func (m *MockTaskDependencyRepository) Delete(ctx context.Context, id int64) error {
-	return fmt.Errorf("Delete not implemented in MockTaskDependencyRepository")
-}
-
-func (m *MockTaskDependencyRepository) DetectCycle(ctx context.Context, fromTaskID, toTaskID int64, relType string) error {
-	if m.DetectCycleFunc != nil {
-		return m.DetectCycleFunc(ctx, fromTaskID, toTaskID, relType)
-	}
-	return nil
-}
-
-// ============================================================================
-// AddDependency Tests
-// ============================================================================
-
-func TestTaskService_AddDependency_Happy_Path(t *testing.T) {
-	var capturedRel *models.TaskRelationship
-
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			switch key {
-			case "E07-F01-002":
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
-			case "E07-F01-001":
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
-			}
-			return nil, fmt.Errorf("task not found: %s", key)
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{
-		CreateFunc: func(ctx context.Context, rel *models.TaskRelationship) error {
-			capturedRel = rel
-			return nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
-
-	assert.NoError(t, err)
-	assert.NotNil(t, capturedRel)
-	assert.Equal(t, int64(2), capturedRel.FromTaskID)
-	assert.Equal(t, int64(1), capturedRel.ToTaskID)
-	assert.Equal(t, "depends_on", string(capturedRel.RelationshipType))
-}
-
-func TestTaskService_AddDependency_NoDepRepo(t *testing.T) {
-	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	// depRepo not set
-
-	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "dependency repository not configured")
-}
-
-func TestTaskService_AddDependency_TaskNotFound(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "task not found")
-}
-
-func TestTaskService_AddDependency_SelfDependency(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			// Both keys resolve to same task ID
-			return &models.Task{ID: 1, Key: key}, nil
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.AddDependency(context.Background(), "E07-F01-001", "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "task cannot depend on itself")
-}
-
-func TestTaskService_AddDependency_DepRepoError(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			switch key {
-			case "E07-F01-002":
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
-			case "E07-F01-001":
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
-			}
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{
-		CreateFunc: func(ctx context.Context, rel *models.TaskRelationship) error {
-			return fmt.Errorf("database error")
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.AddDependency(context.Background(), "E07-F01-002", "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to add dependency")
-}
-
-// ============================================================================
-// RemoveDependency Tests
-// ============================================================================
-
-func TestTaskService_RemoveDependency_Happy_Path(t *testing.T) {
-	var capturedFromID, capturedToID int64
-	var capturedRelType string
-
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			switch key {
-			case "E07-F01-002":
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
-			case "E07-F01-001":
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
-			}
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{
-		DeleteByTasksAndTypeFunc: func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error {
-			capturedFromID = fromTaskID
-			capturedToID = toTaskID
-			capturedRelType = relType
-			return nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
-
-	assert.NoError(t, err)
-	assert.Equal(t, int64(2), capturedFromID)
-	assert.Equal(t, int64(1), capturedToID)
-	assert.Equal(t, "depends_on", capturedRelType)
-}
-
-func TestTaskService_RemoveDependency_NoDepRepo(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
-
-	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "dependency repository not configured")
-}
-
-func TestTaskService_RemoveDependency_TaskNotFound(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.RemoveDependency(context.Background(), "E07-F01-002", "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "task not found")
-}
-
-// ============================================================================
-// ListDependencies Tests
-// ============================================================================
-
-func TestTaskService_ListDependencies_Happy_Path(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			if key == "E07-F01-002" {
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
-			}
-			return nil, fmt.Errorf("not found")
-		},
-		GetByIDFunc: func(ctx context.Context, id int64) (*models.Task, error) {
-			if id == 1 {
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
-			}
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{
-		GetOutgoingFunc: func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-			assert.Equal(t, int64(2), taskID)
-			assert.Equal(t, []string{"depends_on"}, relTypes)
-			return []*models.TaskRelationship{
-				{FromTaskID: 2, ToTaskID: 1, RelationshipType: "depends_on"},
-			}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-002")
-
-	assert.NoError(t, err)
-	assert.Len(t, tasks, 1)
-	assert.Equal(t, "E07-F01-001", tasks[0].Key)
-}
-
-func TestTaskService_ListDependencies_NoDependencies(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: 1, Key: key}, nil
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{
-		GetOutgoingFunc: func(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-			return []*models.TaskRelationship{}, nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
-
-	assert.NoError(t, err)
-	assert.Empty(t, tasks)
-}
-
-func TestTaskService_ListDependencies_NoDepRepo(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
-
-	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Nil(t, tasks)
-	assert.Contains(t, err.Error(), "dependency repository not configured")
-}
-
-func TestTaskService_ListDependencies_TaskNotFound(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	tasks, err := svc.ListDependencies(context.Background(), "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Nil(t, tasks)
-	assert.Contains(t, err.Error(), "task not found")
-}
-
-// ============================================================================
-// UnlinkFile Tests
-// ============================================================================
-
-func TestTaskService_UnlinkFile_Happy_Path(t *testing.T) {
-	var capturedFromID, capturedToID int64
-	var capturedRelType string
-
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			switch key {
-			case "E07-F01-002":
-				return &models.Task{ID: 2, Key: "E07-F01-002"}, nil
-			case "E07-F01-001":
-				return &models.Task{ID: 1, Key: "E07-F01-001"}, nil
-			}
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{
-		DeleteByTasksAndTypeFunc: func(ctx context.Context, fromTaskID, toTaskID int64, relType string) error {
-			capturedFromID = fromTaskID
-			capturedToID = toTaskID
-			capturedRelType = relType
-			return nil
-		},
-	}
-
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
-
-	assert.NoError(t, err)
-	assert.Equal(t, int64(2), capturedFromID)
-	assert.Equal(t, int64(1), capturedToID)
-	assert.Equal(t, "blocks", capturedRelType)
-}
-
-func TestTaskService_UnlinkFile_NoDepRepo(t *testing.T) {
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
-
-	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "dependency repository not configured")
-}
-
-func TestTaskService_UnlinkFile_TaskNotFound(t *testing.T) {
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return nil, fmt.Errorf("not found")
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-001")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "task not found")
-}
-
-func TestTaskService_UnlinkFile_TargetTaskNotFound(t *testing.T) {
-	callCount := 0
-	mockRepo := &MockTaskRepository{
-		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			callCount++
-			if callCount == 1 {
-				return &models.Task{ID: 2, Key: key}, nil // First call succeeds (taskKey)
-			}
-			return nil, fmt.Errorf("not found") // Second call fails (targetKey)
-		},
-	}
-
-	mockDepRepo := &MockTaskDependencyRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	svc.SetDepRepo(mockDepRepo)
-
-	err := svc.UnlinkFile(context.Background(), "E07-F01-002", "blocks", "E07-F01-999")
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "target task not found")
 }
 
 // ============================================================================
@@ -1915,7 +1374,7 @@ func TestTaskService_GetWorkSessions_Happy_Path(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
 			assert.Equal(t, "E07-F01-001", key)
-			return &models.Task{ID: 42, Key: "E07-F01-001", Title: "Test Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 42, Key: "E07-F01-001", Title: "Test Task"}}, nil
 		},
 	}
 	mockSessionRepo := &MockWorkSessionRepository{
@@ -1929,7 +1388,7 @@ func TestTaskService_GetWorkSessions_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -1948,7 +1407,7 @@ func TestTaskService_GetWorkSessions_Happy_Path(t *testing.T) {
 func TestTaskService_GetWorkSessions_Nil_Session_Repo(t *testing.T) {
 	// Arrange: service constructed without session repo
 	mockRepo := &MockTaskRepository{}
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act
 	result, err := svc.GetWorkSessions(context.Background(), "E07-F01-001")
@@ -1968,7 +1427,7 @@ func TestTaskService_GetWorkSessions_Task_Not_Found(t *testing.T) {
 	}
 	mockSessionRepo := &MockWorkSessionRepository{}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -1984,7 +1443,7 @@ func TestTaskService_GetWorkSessions_Sessions_Repository_Error(t *testing.T) {
 	// Arrange
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: 1, Key: key, Title: "Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Task"}}, nil
 		},
 	}
 	mockSessionRepo := &MockWorkSessionRepository{
@@ -1993,7 +1452,7 @@ func TestTaskService_GetWorkSessions_Sessions_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -2009,7 +1468,7 @@ func TestTaskService_GetWorkSessions_Stats_Repository_Error(t *testing.T) {
 	// Arrange
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: 1, Key: key, Title: "Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Task"}}, nil
 		},
 	}
 	mockSessionRepo := &MockWorkSessionRepository{
@@ -2021,7 +1480,7 @@ func TestTaskService_GetWorkSessions_Stats_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -2037,7 +1496,7 @@ func TestTaskService_GetWorkSessions_Empty_Sessions(t *testing.T) {
 	// Arrange: task exists but has no sessions
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{ID: 5, Key: key, Title: "New Task"}, nil
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 5, Key: key, Title: "New Task"}}, nil
 		},
 	}
 	mockSessionRepo := &MockWorkSessionRepository{
@@ -2049,7 +1508,7 @@ func TestTaskService_GetWorkSessions_Empty_Sessions(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetSessionRepo(mockSessionRepo)
 
 	// Act
@@ -2098,7 +1557,7 @@ func TestTaskService_GetTaskHistory_Happy_Path(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetHistoryRepo(mockHistoryRepo)
 
 	// Act
@@ -2116,7 +1575,7 @@ func TestTaskService_GetTaskHistory_Happy_Path(t *testing.T) {
 
 func TestTaskService_GetTaskHistory_Nil_History_Repo(t *testing.T) {
 	// Arrange: service constructed without history repo and SetHistoryRepo not called
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 
 	// Act
 	result, err := svc.GetTaskHistory(context.Background(), "E07-F01-001")
@@ -2135,7 +1594,7 @@ func TestTaskService_GetTaskHistory_Repository_Error(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetHistoryRepo(mockHistoryRepo)
 
 	// Act
@@ -2156,7 +1615,7 @@ func TestTaskService_GetTaskHistory_Empty_History(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(&MockTaskRepository{}, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(&MockTaskRepository{}, NewEntityService(newMockWorkflowService()), nil)
 	svc.SetHistoryRepo(mockHistoryRepo)
 
 	// Act
@@ -2176,10 +1635,8 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 	var capturedParams models.StatusUpdateParams
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        6,
-				Key:       "T-E07-F01-006",
-				Status:    "todo",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 6,
+				Key: "T-E07-F01-006"}, Status: "todo",
 				FeatureID: 10,
 			}, nil
 		},
@@ -2189,7 +1646,7 @@ func TestTaskService_TransitionStatus_UsesStatusUpdateRaw(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-006", "in_progress", TransitionOptions{
 		Agent:  "my-agent",
 		Reason: "starting work",
@@ -2213,10 +1670,8 @@ func TestTaskService_TransitionStatus_Forced_UsesStatusUpdateRaw(t *testing.T) {
 	var capturedParams models.StatusUpdateParams
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        7,
-				Key:       "T-E07-F01-007",
-				Status:    "completed",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 7,
+				Key: "T-E07-F01-007"}, Status: "completed",
 				FeatureID: 10,
 			}, nil
 		},
@@ -2226,7 +1681,7 @@ func TestTaskService_TransitionStatus_Forced_UsesStatusUpdateRaw(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-007", "todo", TransitionOptions{
 		Force:  true,
 		Reason: "reopening for rework",
@@ -2244,10 +1699,8 @@ func TestTaskService_TransitionStatus_BackwardRequiresReason(t *testing.T) {
 	// when going through TransitionStatus (not the named lifecycle methods)
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        8,
-				Key:       "T-E07-F01-008",
-				Status:    "ready_for_review",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 8,
+				Key: "T-E07-F01-008"}, Status: "ready_for_review",
 				FeatureID: 10,
 			}, nil
 		},
@@ -2256,7 +1709,7 @@ func TestTaskService_TransitionStatus_BackwardRequiresReason(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 
 	// Attempt backward transition without reason
 	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-008", "in_progress", TransitionOptions{
@@ -2277,10 +1730,8 @@ func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 	// Verify that auto-unblocked keys are included in the TransitionResult message
 	mockRepo := &MockTaskRepository{
 		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
-			return &models.Task{
-				ID:        11,
-				Key:       "T-E07-F01-011",
-				Status:    "in_progress",
+			return &models.Task{BaseEntity: models.BaseEntity{ID: 11,
+				Key: "T-E07-F01-011"}, Status: "in_progress",
 				FeatureID: 10,
 			}, nil
 		},
@@ -2289,7 +1740,7 @@ func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
 	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-011", "ready_for_review", TransitionOptions{})
 
 	assert.NoError(t, err)
@@ -2297,6 +1748,308 @@ func TestTaskService_TransitionStatus_AutoUnblockInResult(t *testing.T) {
 	assert.Contains(t, result.Message, "auto-unblocked")
 	assert.Contains(t, result.Message, "T-E07-F01-012")
 	assert.Contains(t, result.Message, "T-E07-F01-013")
+}
+
+// ============================================================================
+// TC-F09-035..047: TaskService Full TransitionStatus Delegation Tests
+// ============================================================================
+
+// TC-F09-035: TransitionStatus delegates to entitySvc.TransitionStatus
+func TestTaskService_TransitionStatus_DelegatesToEntityService(t *testing.T) {
+	// Verifies that TransitionStatus uses DefaultTransitionFeatures
+	// and routes through the taskEntityRepoAdapter
+	var capturedParams models.StatusUpdateParams
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 20, Key: "T-E07-F01-020"},
+				Status:     "todo",
+				FeatureID:  10,
+			}, nil
+		},
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			capturedParams = params
+			return nil, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-020", "in_progress", TransitionOptions{
+		Agent: "dev-agent",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, models.EntityTypeTask, result.EntityType)
+	assert.Equal(t, "todo", result.FromStatus)
+	assert.Equal(t, "in_progress", result.ToStatus)
+	assert.True(t, result.Transitioned)
+	// Verify StatusUpdateRaw was called via adapter
+	assert.Equal(t, int64(20), capturedParams.TaskID)
+	assert.Equal(t, models.TaskStatus("in_progress"), capturedParams.NewStatus)
+}
+
+// TC-F09-036: taskEntityRepoAdapter routes UpdateStatus through StatusUpdateRaw
+func TestTaskService_TransitionStatus_AdapterUsesStatusUpdateRaw(t *testing.T) {
+	statusUpdateRawCalled := false
+	var capturedParams models.StatusUpdateParams
+
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 21, Key: "T-E07-F01-021"},
+				Status:     "todo",
+				FeatureID:  10,
+			}, nil
+		},
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			statusUpdateRawCalled = true
+			capturedParams = params
+			return nil, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-021", "in_progress", TransitionOptions{
+		Agent:        "test-agent",
+		Reason:       "test-reason",
+		DocumentPath: "/docs/test.md",
+	})
+
+	assert.NoError(t, err)
+	assert.True(t, statusUpdateRawCalled, "StatusUpdateRaw should be called via adapter")
+	assert.NotNil(t, capturedParams.Agent)
+	assert.Equal(t, "test-agent", *capturedParams.Agent)
+	assert.NotNil(t, capturedParams.RejectionReason)
+	assert.Equal(t, "test-reason", *capturedParams.RejectionReason)
+	assert.NotNil(t, capturedParams.DocumentPath)
+	assert.Equal(t, "/docs/test.md", *capturedParams.DocumentPath)
+}
+
+// TC-F09-037: TransitionStatus propagates EntityService errors
+func TestTaskService_TransitionStatus_PropagatesErrors(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 22, Key: "T-E07-F01-022"},
+				Status:     "completed",
+				FeatureID:  10,
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	// Attempt invalid transition (completed -> todo without force)
+	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-022", "todo", TransitionOptions{})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "transition")
+}
+
+// TC-F09-038: TransitionStatus with force=true and reason
+func TestTaskService_TransitionStatus_ForceWithReason(t *testing.T) {
+	var capturedParams models.StatusUpdateParams
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 23, Key: "T-E07-F01-023"},
+				Status:     "completed",
+				FeatureID:  10,
+			}, nil
+		},
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			capturedParams = params
+			return nil, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-023", "todo", TransitionOptions{
+		Force:  true,
+		Reason: "reopening for rework",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.True(t, result.IsForced)
+	assert.True(t, capturedParams.Force)
+}
+
+// TC-F09-039: Auto-unblock runs after successful transition
+func TestTaskService_TransitionStatus_AutoUnblockPostHook(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 24, Key: "T-E07-F01-024"},
+				Status:     "in_progress",
+				FeatureID:  10,
+			}, nil
+		},
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			return []string{"T-E07-F01-025", "T-E07-F01-026"}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-024", "ready_for_review", TransitionOptions{})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Contains(t, result.Message, "auto-unblocked")
+	assert.Contains(t, result.Message, "T-E07-F01-025")
+	assert.Contains(t, result.Message, "T-E07-F01-026")
+}
+
+// TC-F09-040: Auto-unblock does NOT run on failed transition
+func TestTaskService_TransitionStatus_NoAutoUnblockOnError(t *testing.T) {
+	statusUpdateRawCalled := false
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 25, Key: "T-E07-F01-025"},
+				Status:     "completed",
+				FeatureID:  10,
+			}, nil
+		},
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			statusUpdateRawCalled = true
+			return []string{"should-not-appear"}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	// Invalid transition without force
+	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-025", "todo", TransitionOptions{})
+
+	assert.Error(t, err)
+	assert.False(t, statusUpdateRawCalled, "StatusUpdateRaw should not be called on failed transition")
+}
+
+// TC-F09-041: Auto-unblock with no dependents
+func TestTaskService_TransitionStatus_NoAutoUnblockNoDependents(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 26, Key: "T-E07-F01-026"},
+				Status:     "in_progress",
+				FeatureID:  10,
+			}, nil
+		},
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			return nil, nil // No dependents unblocked
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	result, err := svc.TransitionStatus(context.Background(), "T-E07-F01-026", "ready_for_review", TransitionOptions{})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.NotContains(t, result.Message, "auto-unblocked")
+}
+
+// TC-F09-043: ErrForceReasonRequired handled by EntityService (not inline)
+func TestTaskService_TransitionStatus_ForceWithoutReasonReturnsError(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 27, Key: "T-E07-F01-027"},
+				Status:     "completed",
+				FeatureID:  10,
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	// Force without reason
+	_, err := svc.TransitionStatus(context.Background(), "T-E07-F01-027", "todo", TransitionOptions{
+		Force: true,
+		// No reason
+	})
+
+	// Should get ErrForceReasonRequired from EntityService
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrForceReasonRequired)
+}
+
+// TC-F09-045: makeResolveActionFn returns callback with task placeholders
+func TestTaskService_makeResolveActionFn_TaskEntity(t *testing.T) {
+	mockRepo := &MockTaskRepository{}
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	fn := svc.makeResolveActionFn(context.Background())
+	assert.NotNil(t, fn)
+
+	task := &models.Task{
+		BaseEntity: models.BaseEntity{ID: 28, Key: "T-E07-F01-028", Title: "Test Task"},
+		Status:     "todo",
+	}
+
+	// Without configured actions, should return nil (no panic)
+	result := fn(task, "in_progress")
+	// Result is nil because no action is configured in the test workflow
+	_ = result
+}
+
+// TC-F09-046: makeResolveActionFn callback handles non-Task entity
+func TestTaskService_makeResolveActionFn_NonTaskEntity(t *testing.T) {
+	mockRepo := &MockTaskRepository{}
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	fn := svc.makeResolveActionFn(context.Background())
+	assert.NotNil(t, fn)
+
+	// Pass an Epic instead of Task
+	epic := &models.Epic{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "E01"},
+		Status:     "todo",
+	}
+
+	result := fn(epic, "in_progress")
+	assert.Nil(t, result, "makeResolveActionFn should return nil for non-Task entity")
+}
+
+// TC-F09-048: GetNextStatus delegates to entitySvc.GetNextStatus
+func TestTaskService_GetNextStatus_DelegatesToEntityService(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 30, Key: "T-E07-F01-030"},
+				Status:     "todo",
+				FeatureID:  10,
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	info, err := svc.GetNextStatus(context.Background(), "T-E07-F01-030")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, info)
+	assert.Equal(t, models.EntityTypeTask, info.EntityType)
+	assert.Equal(t, "T-E07-F01-030", info.EntityKey)
+	assert.Equal(t, "todo", info.CurrentStatus)
+}
+
+// TC-F09-050: GetNextStatus for terminal status
+func TestTaskService_GetNextStatus_TerminalStatus(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 31, Key: "T-E07-F01-031"},
+				Status:     "completed",
+				FeatureID:  10,
+			}, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	info, err := svc.GetNextStatus(context.Background(), "T-E07-F01-031")
+
+	assert.NoError(t, err)
+	assert.NotNil(t, info)
+	assert.True(t, info.IsTerminal)
+	assert.Empty(t, info.AvailableTransitions)
 }
 
 // ============================================================================
@@ -2317,8 +2070,8 @@ func TestTaskService_GetTaskDisplayData_ValidJSON(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task := &models.Task{ID: 42, Key: "E01-F01-002"}
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 42, Key: "E01-F01-002"}}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
 
@@ -2364,8 +2117,8 @@ func TestTaskService_GetTaskDisplayData_EmptyArrays(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task := &models.Task{ID: 1, Key: "E01-F01-001"}
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"}}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
 
@@ -2391,8 +2144,8 @@ func TestTaskService_GetTaskDisplayData_RepoError(t *testing.T) {
 		},
 	}
 
-	svc := NewTaskService(mockRepo, newMockWorkflowService(), nil, nil)
-	task := &models.Task{ID: 1, Key: "E01-F01-001"}
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	task := &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"}}
 
 	data, err := svc.GetTaskDisplayData(context.Background(), task)
 
@@ -2400,4 +2153,453 @@ func TestTaskService_GetTaskDisplayData_RepoError(t *testing.T) {
 	assert.Nil(t, data)
 	assert.Contains(t, err.Error(), "failed to get display data for task E01-F01-001")
 	assert.Contains(t, err.Error(), "database connection lost")
+}
+
+// ============================================================================
+// Auto-Reopen Parent Feature Tests (maybeReopenParentFeature via CreateTask)
+// ============================================================================
+
+// mockFeatureServiceForReopen is a minimal mock of FeatureService for testing
+// the auto-reopen behavior in TaskService.CreateTask.
+// We create a real FeatureService with mocked repos so we can wire it via SetFeatureService.
+func newFeatureServiceForReopenTest(t *testing.T, featureStatus models.FeatureStatus, updateErr error) (*FeatureService, *bool) {
+	t.Helper()
+	featureUpdated := false
+
+	repo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Test Feature"},
+				Status:     featureStatus,
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			featureUpdated = true
+			if updateErr != nil {
+				return updateErr
+			}
+			return nil
+		},
+	}
+
+	wfSvc := workflow.NewService("")
+	svc := NewFeatureService(repo, NewEntityService(wfSvc), nil, nil, nil)
+	return svc, &featureUpdated
+}
+
+func TestTaskService_CreateTask_ReopensTerminalFeature(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "completed", nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "New task under completed feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.True(t, *featureUpdated, "feature should have been updated (reopened)")
+}
+
+// TestTaskService_CreateTask_ReopenRecordsHistory verifies that auto-reopen
+// creates an entity_history record with "auto-reopened" in notes (AC-1 audit trail).
+func TestTaskService_CreateTask_ReopenRecordsHistory(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	featureSvc, _ := newFeatureServiceForReopenTest(t, "completed", nil)
+	svc.SetFeatureService(featureSvc)
+
+	historyRecorder := &mockEntityHistoryRecorder{}
+	svc.SetEntityHistoryRepo(historyRecorder)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task triggering history record",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.Len(t, historyRecorder.created, 1, "should create one entity_history record")
+
+	h := historyRecorder.created[0]
+	assert.Equal(t, models.EntityTypeFeature, h.EntityType)
+	assert.Equal(t, int64(10), h.EntityID)
+	assert.NotNil(t, h.FromStatus)
+	assert.Equal(t, "completed", *h.FromStatus)
+	assert.Equal(t, "active", h.ToStatus)
+	assert.NotNil(t, h.Notes)
+	assert.Contains(t, *h.Notes, "auto-reopened")
+}
+
+func TestTaskService_CreateTask_ReopensArchivedFeature(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	// "archived" is in default feature _complete_ list: ["completed", "archived"]
+	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "archived", nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Revived task under archived feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.True(t, *featureUpdated, "feature should have been updated (reopened from archived)")
+}
+
+func TestTaskService_CreateTask_NoReopenNonTerminalFeature(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	featureSvc, featureUpdated := newFeatureServiceForReopenTest(t, "active", nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task under active feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.False(t, *featureUpdated, "feature should NOT have been updated (already non-terminal)")
+}
+
+func TestTaskService_CreateTask_NoReopenNilFeatureService(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+	// Do NOT set featureService -- it remains nil
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task with nil featureService",
+		AgentType:  "developer",
+	})
+
+	// Task creation should still succeed
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+}
+
+func TestTaskService_CreateTask_ReopenFailureDoesNotFailCreate(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	// Feature service will fail on update
+	featureSvc, _ := newFeatureServiceForReopenTest(t, "completed", fmt.Errorf("simulated DB error"))
+	svc.SetFeatureService(featureSvc)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task when feature update fails",
+		AgentType:  "developer",
+	})
+
+	// Task creation should STILL succeed despite feature update failure
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+}
+
+func TestTaskService_CreateTask_CustomAggregationStatus(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	// Create a custom workflow config with custom _aggregation_ status
+	tempDir := t.TempDir()
+	configData := `{
+		"task_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["todo"],
+				"_complete_": ["completed"]
+			},
+			"status_flow": {
+				"todo": ["completed"],
+				"completed": []
+			}
+		},
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["done", "abandoned"],
+				"_aggregation_": ["tracking"]
+			},
+			"status_flow": {
+				"draft": ["tracking"],
+				"tracking": ["done"],
+				"done": [],
+				"abandoned": []
+			}
+		}
+	}`
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configData), 0644)
+	assert.NoError(t, err)
+	config.ClearWorkflowCache()
+	defer config.ClearWorkflowCache()
+
+	customWf := workflow.NewService(tempDir)
+	svc := NewTaskService(mockRepo, NewEntityService(customWf), nil)
+
+	// Create feature service with custom workflow and "done" status (terminal)
+	var capturedFeatureStatus models.FeatureStatus
+	featureRepo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Test Feature"},
+				Status:     "done",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeatureStatus = feature.Status
+			return nil
+		},
+	}
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), nil, nil, nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task under done feature with custom aggregation",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, createErr)
+	assert.NotNil(t, task)
+	assert.Equal(t, models.FeatureStatus("tracking"), capturedFeatureStatus,
+		"feature should be reopened to custom aggregation status 'tracking'")
+}
+
+// TestTaskService_CreateTask_ReopensCancelledFeature verifies AC-2: task creation
+// reopens a feature with status "cancelled" when _complete_ includes "cancelled".
+func TestTaskService_CreateTask_ReopensCancelledFeature(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	// Create a custom workflow config where _complete_ includes "cancelled"
+	tempDir := t.TempDir()
+	configData := `{
+		"task_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["todo"],
+				"_complete_": ["completed"]
+			},
+			"status_flow": {
+				"todo": ["completed"],
+				"completed": []
+			}
+		},
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed", "cancelled"],
+				"_aggregation_": ["active"]
+			},
+			"status_flow": {
+				"draft": ["active"],
+				"active": ["completed", "cancelled"],
+				"completed": [],
+				"cancelled": []
+			}
+		}
+	}`
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configData), 0644)
+	assert.NoError(t, err)
+	config.ClearWorkflowCache()
+	defer config.ClearWorkflowCache()
+
+	customWf := workflow.NewService(tempDir)
+	svc := NewTaskService(mockRepo, NewEntityService(customWf), nil)
+
+	// Create feature service with "cancelled" status (terminal per custom config)
+	var capturedFeatureStatus models.FeatureStatus
+	featureRepo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Test Feature"},
+				Status:     "cancelled",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeatureStatus = feature.Status
+			return nil
+		},
+	}
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), nil, nil, nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Revived task under cancelled feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, createErr)
+	assert.NotNil(t, task)
+	assert.Equal(t, models.FeatureStatus("active"), capturedFeatureStatus,
+		"cancelled feature should be reopened to 'active'")
+}
+
+// TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature verifies AC-8:
+// the creatorSvc primary path (non-nil creatorSvc) also triggers auto-reopen.
+// Uses a real DB + Creator since Creator is a concrete type.
+func TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature(t *testing.T) {
+	// Set up a temp SQLite DB
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	sqlDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	repoDB := repository.NewDB(sqlDB)
+	ctx := context.Background()
+
+	// Seed epic and feature directly via SQL
+	res, err := sqlDB.ExecContext(ctx, `INSERT INTO epics (key, title, status, priority) VALUES ('E98', 'Test Epic', 'active', 'medium')`)
+	require.NoError(t, err)
+	epicID, _ := res.LastInsertId()
+
+	_, err = sqlDB.ExecContext(ctx, `INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E98-F01', 'Test Feature', 'completed', ?, 'docs/plan/E98/E98-F01/feature.md')`, epicID)
+	require.NoError(t, err)
+
+	// Build Creator with real repos
+	taskRepo := repository.NewTaskRepository(repoDB)
+	featureRepo := repository.NewFeatureRepository(repoDB)
+	epicRepo := repository.NewEpicRepository(repoDB)
+	historyRepo := repository.NewTaskHistoryRepository(repoDB) //nolint:staticcheck // Required by taskcreation.Creator constructor
+
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	wfSvc := workflow.NewService(tempDir)
+
+	creator := taskcreation.NewCreator(repoDB, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, wfSvc)
+
+	// Build TaskService with the real Creator
+	entitySvc := NewEntityService(wfSvc)
+	svc := NewTaskService(taskRepo, entitySvc, creator)
+
+	// Wire FeatureService that reads from the same DB so reopen can find the feature
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(wfSvc), nil, nil, epicRepo)
+	svc.SetFeatureService(featureSvc)
+
+	// Wire history recorder to capture audit trail
+	historyRecorder := &mockEntityHistoryRecorder{}
+	svc.SetEntityHistoryRepo(historyRecorder)
+
+	// Create task via the creatorSvc path (creatorSvc != nil)
+	task, err := svc.CreateTask(ctx, CreateTaskInput{
+		EpicKey:    "E98",
+		FeatureKey: "F01",
+		Title:      "Task via creatorSvc path",
+		AgentType:  "developer",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	assert.Equal(t, "T-E98-F01-001", task.Key)
+
+	// Verify feature was reopened
+	feature, err := featureRepo.GetByKey(ctx, "E98-F01")
+	require.NoError(t, err)
+	assert.Equal(t, models.FeatureStatus("active"), feature.Status,
+		"feature should be reopened to 'active' via creatorSvc path")
+
+	// Verify history was recorded
+	assert.Len(t, historyRecorder.created, 1, "should record entity_history for auto-reopen")
+	if len(historyRecorder.created) > 0 {
+		h := historyRecorder.created[0]
+		assert.Equal(t, models.EntityTypeFeature, h.EntityType)
+		assert.Contains(t, *h.Notes, "auto-reopened")
+	}
 }

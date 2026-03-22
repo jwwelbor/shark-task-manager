@@ -70,7 +70,6 @@ Supported fields:
   - implementation_decisions: JSON object with decision key-value pairs
   - open_questions: JSON array of question strings
   - blockers: JSON array of blocker objects
-  - acceptance_criteria_status: JSON array of criterion objects
 
 Examples:
   shark context set E07-F01-001 --field current_step --value "Implementing API endpoint"
@@ -121,10 +120,7 @@ func runContextGet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
+	ctxSvc := cli.GetContextService()
 
 	contextData, err := ctxSvc.GetContext(cmd.Context(), modelEntityType, key)
 	if err != nil {
@@ -168,10 +164,7 @@ func runContextSet(cmd *cobra.Command, args []string) error {
 	value, _ := cmd.Flags().GetString("value")
 
 	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
+	ctxSvc := cli.GetContextService()
 
 	if err := ctxSvc.SetContextField(cmd.Context(), modelEntityType, key, field, value); err != nil {
 		return fmt.Errorf("failed to set context field for %s %s: %w", entityType, key, err)
@@ -206,10 +199,7 @@ func runContextClear(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	ctxSvc, err := cli.GetContextService(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to initialize context service: %w", err)
-	}
+	ctxSvc := cli.GetContextService()
 
 	if err := ctxSvc.ClearContext(cmd.Context(), modelEntityType, key); err != nil {
 		return fmt.Errorf("failed to clear context for %s %s: %w", entityType, key, err)

@@ -7,8 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMigration_RejectionReason verifies that database migration adds rejection_reason
-// column to task_history table and creates the appropriate index (E07-F22)
+// TestMigration_RejectionReason verifies that the database schema includes rejection_reason
+// column in entity_history table (originally E07-F22 for task_history, now in
+// polymorphic entity_history via E21-F08).
 func TestMigration_RejectionReason(t *testing.T) {
 	// Create temporary database file
 	tmpDir := t.TempDir()
@@ -19,35 +20,26 @@ func TestMigration_RejectionReason(t *testing.T) {
 	require.NoError(t, err, "migration failed")
 	defer db.Close()
 
-	// Verify rejection_reason column exists in task_history table
+	// Verify rejection_reason column exists in entity_history table
+	// (post E21-F08: task_history is replaced by entity_history)
 	var columnCount int
 	err = db.QueryRow(`
 		SELECT COUNT(*)
-		FROM pragma_table_info('task_history')
+		FROM pragma_table_info('entity_history')
 		WHERE name = 'rejection_reason'
 	`).Scan(&columnCount)
 	require.NoError(t, err, "failed to query rejection_reason column")
-	assert.Equal(t, 1, columnCount, "rejection_reason column not found in task_history table")
+	assert.Equal(t, 1, columnCount, "rejection_reason column not found in entity_history table")
 
 	// Verify column is TEXT type
 	var columnType string
 	err = db.QueryRow(`
 		SELECT type
-		FROM pragma_table_info('task_history')
+		FROM pragma_table_info('entity_history')
 		WHERE name = 'rejection_reason'
 	`).Scan(&columnType)
 	require.NoError(t, err, "failed to query rejection_reason column type")
 	assert.Equal(t, "TEXT", columnType, "rejection_reason column should be TEXT type")
-
-	// Verify idx_task_history_rejection_reason index exists
-	var indexCount int
-	err = db.QueryRow(`
-		SELECT COUNT(*)
-		FROM sqlite_master
-		WHERE type='index' AND name='idx_task_history_rejection_reason'
-	`).Scan(&indexCount)
-	require.NoError(t, err, "failed to query index")
-	assert.Equal(t, 1, indexCount, "idx_task_history_rejection_reason index not found")
 
 	// Verify entity_notes table has 'rejection' in note_type constraint
 	// (task_notes is renamed to task_notes_backup after entity_notes migration)
@@ -61,7 +53,7 @@ func TestMigration_RejectionReason(t *testing.T) {
 }
 
 // TestMigration_RejectionReason_Idempotent verifies that the migration can be run
-// multiple times safely without errors (E07-F22)
+// multiple times safely without errors (E07-F22, updated for E21-F08 polymorphic schema)
 func TestMigration_RejectionReason_Idempotent(t *testing.T) {
 	// Create temporary database file
 	tmpDir := t.TempDir()
@@ -72,11 +64,11 @@ func TestMigration_RejectionReason_Idempotent(t *testing.T) {
 	require.NoError(t, err, "first migration failed")
 	defer db.Close()
 
-	// Get initial rejection_reason column count
+	// Verify rejection_reason column exists in entity_history
 	var initialCount int
 	err = db.QueryRow(`
 		SELECT COUNT(*)
-		FROM pragma_table_info('task_history')
+		FROM pragma_table_info('entity_history')
 		WHERE name = 'rejection_reason'
 	`).Scan(&initialCount)
 	require.NoError(t, err, "failed to query initial column count")
@@ -93,7 +85,7 @@ func TestMigration_RejectionReason_Idempotent(t *testing.T) {
 	var finalCount int
 	err = db.QueryRow(`
 		SELECT COUNT(*)
-		FROM pragma_table_info('task_history')
+		FROM pragma_table_info('entity_history')
 		WHERE name = 'rejection_reason'
 	`).Scan(&finalCount)
 	require.NoError(t, err, "failed to query final column count")

@@ -28,10 +28,8 @@ func TestTaskRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 
 	// Create dedicated epic for this test
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E95",
-		Title:         "Test Epic for Slug Generation",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E95",
+		Title: "Test Epic for Slug Generation"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -44,10 +42,9 @@ func TestTaskRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	}()
 
 	// Create dedicated feature for this test
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E95-F01",
-		Title:  "Test Feature for Slug Generation",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E95-F01",
+		Title: "Test Feature for Slug Generation"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -59,12 +56,11 @@ func TestTaskRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	}()
 
 	// Create task
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E95-F01-001",
-		Title:     "Implement User Authentication System",
-		Status:    models.TaskStatus("todo"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E95-F01-001",
+		Title: "Implement User Authentication System"}, FeatureID: testFeature.ID,
+
+		Status:   models.TaskStatus("todo"),
+		Priority: 5,
 	}
 
 	err = repo.Create(ctx, task)
@@ -101,10 +97,8 @@ func TestTaskRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 
 	// Create a dedicated test epic for this test
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E97",
-		Title:         "Test Epic for Task Slug Special Characters",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E97",
+		Title: "Test Epic for Task Slug Special Characters"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -118,10 +112,9 @@ func TestTaskRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 
 	// Create a dedicated test feature
 	featureRepo := NewFeatureRepository(db)
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E97-F01",
-		Title:  "Test Feature for Task Slugs",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E97-F01",
+		Title: "Test Feature for Task Slugs"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -151,12 +144,11 @@ func TestTaskRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		task := &models.Task{
-			FeatureID: testFeature.ID,
-			Key:       fmt.Sprintf("T-E97-F01-%03d", i+1),
-			Title:     tc.title,
-			Status:    models.TaskStatus("todo"),
-			Priority:  5,
+		task := &models.Task{BaseEntity: models.BaseEntity{Key: fmt.Sprintf("T-E97-F01-%03d", i+1),
+			Title: tc.title}, FeatureID: testFeature.ID,
+
+			Status:   models.TaskStatus("todo"),
+			Priority: 5,
 		}
 
 		err := repo.Create(ctx, task)
@@ -191,10 +183,8 @@ func TestTaskRepository_UpdateCascadesOrder(t *testing.T) {
 
 	// Create test epic
 	highPriority := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E98",
-		Title:         "Test Epic for Order Cascade",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Epic for Order Cascade"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highPriority,
 	}
@@ -203,10 +193,9 @@ func TestTaskRepository_UpdateCascadesOrder(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create test feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E98-F01",
-		Title:  "Test Feature for Order Cascade",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F01",
+		Title: "Test Feature for Order Cascade"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -215,34 +204,30 @@ func TestTaskRepository_UpdateCascadesOrder(t *testing.T) {
 
 	// Create four tasks with sequential orders: a-1, b-2, c-3, d-4
 	order1, order2, order3, order4 := 1, 2, 3, 4
-	taskA := &models.Task{
-		FeatureID:      testFeature.ID,
-		Key:            "T-E98-F01-001",
-		Title:          "Task A",
+	taskA := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-001",
+		Title: "Task A"}, FeatureID: testFeature.ID,
+
 		Status:         models.TaskStatus("todo"),
 		Priority:       5,
 		ExecutionOrder: &order1,
 	}
-	taskB := &models.Task{
-		FeatureID:      testFeature.ID,
-		Key:            "T-E98-F01-002",
-		Title:          "Task B",
+	taskB := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-002",
+		Title: "Task B"}, FeatureID: testFeature.ID,
+
 		Status:         models.TaskStatus("todo"),
 		Priority:       5,
 		ExecutionOrder: &order2,
 	}
-	taskC := &models.Task{
-		FeatureID:      testFeature.ID,
-		Key:            "T-E98-F01-003",
-		Title:          "Task C",
+	taskC := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-003",
+		Title: "Task C"}, FeatureID: testFeature.ID,
+
 		Status:         models.TaskStatus("todo"),
 		Priority:       5,
 		ExecutionOrder: &order3,
 	}
-	taskD := &models.Task{
-		FeatureID:      testFeature.ID,
-		Key:            "T-E98-F01-004",
-		Title:          "Task D",
+	taskD := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F01-004",
+		Title: "Task D"}, FeatureID: testFeature.ID,
+
 		Status:         models.TaskStatus("todo"),
 		Priority:       5,
 		ExecutionOrder: &order4,
@@ -307,10 +292,8 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 
 	// Create test epic
 	highValue := models.PriorityHigh
-	testEpic := &models.Epic{
-		Key:           "E98",
-		Title:         "Test Rejection Reasons Epic",
-		Status:        models.EpicStatusActive,
+	testEpic := &models.Epic{BaseEntity: models.BaseEntity{Key: "E98",
+		Title: "Test Rejection Reasons Epic"}, Status: models.EpicStatusActive,
 		Priority:      models.PriorityHigh,
 		BusinessValue: &highValue,
 	}
@@ -319,10 +302,9 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID) }()
 
 	// Create test feature
-	testFeature := &models.Feature{
-		EpicID: testEpic.ID,
-		Key:    "E98-F98",
-		Title:  "Test Rejection Reasons Feature",
+	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E98-F98",
+		Title: "Test Rejection Reasons Feature"}, EpicID: testEpic.ID,
+
 		Status: models.FeatureStatusDraft,
 	}
 	err = featureRepo.Create(ctx, testFeature)
@@ -330,12 +312,11 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", testFeature.ID) }()
 
 	// Create a test task in in_progress status (development phase)
-	task := &models.Task{
-		FeatureID: testFeature.ID,
-		Key:       "T-E98-F98-001",
-		Title:     "Test Rejection Reason Task",
-		Status:    models.TaskStatus("in_progress"),
-		Priority:  5,
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E98-F98-001",
+		Title: "Test Rejection Reason Task"}, FeatureID: testFeature.ID,
+
+		Status:   models.TaskStatus("in_progress"),
+		Priority: 5,
 	}
 	err = repo.Create(ctx, task)
 	require.NoError(t, err)
@@ -497,10 +478,8 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	timestamp := time.Now().UnixNano() % 1000
 	taskKey := fmt.Sprintf("T-E99-F99-%03d", timestamp)
 	priority := 5
-	task := &models.Task{
-		Key:       taskKey,
-		Title:     "Test Rejection Reason Storage",
-		Status:    models.TaskStatus("ready_for_review"),
+	task := &models.Task{BaseEntity: models.BaseEntity{Key: taskKey,
+		Title: "Test Rejection Reason Storage"}, Status: models.TaskStatus("ready_for_review"),
 		FeatureID: featureID,
 		Priority:  priority,
 	}

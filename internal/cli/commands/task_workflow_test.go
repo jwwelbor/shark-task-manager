@@ -48,41 +48,33 @@ func TestTaskAvailability(t *testing.T) {
 	agentType := "backend"
 
 	// Add test tasks to mock repository
-	mockRepo.AddTask(&models.Task{
-		ID:        1,
-		Key:       "T-TEST-001",
-		Title:     "Completed Task",
-		Status:    models.TaskStatus("completed"),
+	mockRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-TEST-001",
+		Title: "Completed Task"}, Status: models.TaskStatus("completed"),
 		AgentType: &agentType,
 		Priority:  1,
 		DependsOn: &emptyDeps,
 	})
 
-	mockRepo.AddTask(&models.Task{
-		ID:        2,
-		Key:       "T-TEST-002",
-		Title:     "Todo Task",
-		Status:    models.TaskStatus("todo"),
+	mockRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 2,
+		Key:   "T-TEST-002",
+		Title: "Todo Task"}, Status: models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  2,
 		DependsOn: &emptyDeps,
 	})
 
-	mockRepo.AddTask(&models.Task{
-		ID:        3,
-		Key:       "T-TEST-003",
-		Title:     "Task with Dependency",
-		Status:    models.TaskStatus("todo"),
+	mockRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 3,
+		Key:   "T-TEST-003",
+		Title: "Task with Dependency"}, Status: models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  3,
 		DependsOn: &completedDep,
 	})
 
-	mockRepo.AddTask(&models.Task{
-		ID:        4,
-		Key:       "T-TEST-004",
-		Title:     "Task with Incomplete Dependency",
-		Status:    models.TaskStatus("todo"),
+	mockRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 4,
+		Key:   "T-TEST-004",
+		Title: "Task with Incomplete Dependency"}, Status: models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  4,
 		DependsOn: &incompleteDep,
@@ -164,10 +156,9 @@ func TestDependencyParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			task := &models.Task{
-				FeatureID: 1,
-				Key:       "T-PARSE-TEST",
-				Title:     "Parsing Test",
+			task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-PARSE-TEST",
+				Title: "Parsing Test"}, FeatureID: 1,
+
 				Status:    models.TaskStatus("todo"),
 				AgentType: &agentType,
 				Priority:  1,
@@ -259,31 +250,25 @@ func TestNextTaskSelection(t *testing.T) {
 	agentType := "backend"
 
 	// Add test tasks to mock repository
-	mockRepo.AddTask(&models.Task{
-		ID:        1,
-		Key:       "T-TEST-001",
-		Title:     "Completed Task",
-		Status:    models.TaskStatus("completed"),
+	mockRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 1,
+		Key:   "T-TEST-001",
+		Title: "Completed Task"}, Status: models.TaskStatus("completed"),
 		AgentType: &agentType,
 		Priority:  1,
 		DependsOn: &emptyDeps,
 	})
 
-	mockRepo.AddTask(&models.Task{
-		ID:        2,
-		Key:       "T-TEST-002",
-		Title:     "Todo Task",
-		Status:    models.TaskStatus("todo"),
+	mockRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 2,
+		Key:   "T-TEST-002",
+		Title: "Todo Task"}, Status: models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  2,
 		DependsOn: &emptyDeps,
 	})
 
-	mockRepo.AddTask(&models.Task{
-		ID:        3,
-		Key:       "T-TEST-003",
-		Title:     "Task with Dependency",
-		Status:    models.TaskStatus("todo"),
+	mockRepo.AddTask(&models.Task{BaseEntity: models.BaseEntity{ID: 3,
+		Key:   "T-TEST-003",
+		Title: "Task with Dependency"}, Status: models.TaskStatus("todo"),
 		AgentType: &agentType,
 		Priority:  3,
 		DependsOn: &completedDep,

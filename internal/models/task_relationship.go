@@ -30,7 +30,12 @@ func ValidRelationshipTypes() []RelationshipType {
 	}
 }
 
-// TaskRelationship represents a typed relationship between two tasks
+// TaskRelationship represents a typed relationship between two tasks.
+//
+// LEGACY: TaskRelationship uses the legacy task_relationships table.
+// New code should use EntityRelationship (entity_relationships table) which
+// supports polymorphic cross-entity-type linking. This model will be removed
+// once all callers are migrated to EntityRelationship.
 type TaskRelationship struct {
 	ID               int64            `json:"id" db:"id"`
 	FromTaskID       int64            `json:"from_task_id" db:"from_task_id"`
