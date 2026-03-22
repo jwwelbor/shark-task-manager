@@ -899,6 +899,7 @@ func loadWorkflowFileData(t *testing.T) map[string]interface{} {
 	}
 
 	// Resolve relative to project root
+	workflowConfigPath = expandHome(workflowConfigPath)
 	if !filepath.IsAbs(workflowConfigPath) {
 		workflowConfigPath = filepath.Join(projectRoot, workflowConfigPath)
 	}
@@ -937,6 +938,7 @@ func TestPhase2TemplateReferenceCountInConfig(t *testing.T) {
 		t.Fatal("workflow_config not found or empty in .sharkconfig.json")
 	}
 
+	workflowConfigPath = expandHome(workflowConfigPath)
 	if !filepath.IsAbs(workflowConfigPath) {
 		workflowConfigPath = filepath.Join(projectRoot, workflowConfigPath)
 	}

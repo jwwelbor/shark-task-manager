@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -40,11 +41,7 @@ type entityRelRepoAdapter struct {
 }
 
 func (a *entityRelRepoAdapter) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-	entityRelTypes := make([]models.EntityRelationshipType, len(relTypes))
-	for i, rt := range relTypes {
-		entityRelTypes[i] = models.EntityRelationshipType(rt)
-	}
-	rels, err := a.svc.GetOutgoing(ctx, models.EntityTypeTask, taskID, entityRelTypes)
+	rels, err := a.svc.GetOutgoing(ctx, models.EntityTypeTask, taskID, toEntityRelTypes(relTypes))
 	if err != nil {
 		return nil, err
 	}
@@ -52,15 +49,20 @@ func (a *entityRelRepoAdapter) GetOutgoing(ctx context.Context, taskID int64, re
 }
 
 func (a *entityRelRepoAdapter) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-	entityRelTypes := make([]models.EntityRelationshipType, len(relTypes))
-	for i, rt := range relTypes {
-		entityRelTypes[i] = models.EntityRelationshipType(rt)
-	}
-	rels, err := a.svc.GetIncoming(ctx, models.EntityTypeTask, taskID, entityRelTypes)
+	rels, err := a.svc.GetIncoming(ctx, models.EntityTypeTask, taskID, toEntityRelTypes(relTypes))
 	if err != nil {
 		return nil, err
 	}
 	return entityRelsToTaskRels(rels), nil
+}
+
+// toEntityRelTypes converts a string slice to EntityRelationshipType slice.
+func toEntityRelTypes(relTypes []string) []models.EntityRelationshipType {
+	result := make([]models.EntityRelationshipType, len(relTypes))
+	for i, rt := range relTypes {
+		result[i] = models.EntityRelationshipType(rt)
+	}
+	return result
 }
 
 // entityRelsToTaskRels converts EntityRelationship slice to TaskRelationship slice
@@ -184,8 +186,8 @@ func runTaskDeps(cmd *cobra.Command, args []string) error {
 
 	relWithTasks, err := getTaskRelationshipsViaEntityRel(cmd.Context(), relSvc, taskSvc, task, opts.typeFilter)
 	if err != nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found or error retrieving relationships: %w", taskKey, err)
+		cli.Error(fmt.Sprintf("Error retrieving relationships for %s", taskKey))
+		return fmt.Errorf("error retrieving relationships for %s: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -219,17 +221,8 @@ func getTaskRelationshipsViaEntityRel(
 		}
 
 		// Apply type filter
-		if len(typeFilter) > 0 {
-			found := false
-			for _, ft := range typeFilter {
-				if string(rel.RelationshipType) == ft {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
+		if len(typeFilter) > 0 && !slices.Contains(typeFilter, string(rel.RelationshipType)) {
+			continue
 		}
 
 		direction := "outgoing"
@@ -279,7 +272,7 @@ func getTaskBlockedByViaEntityRel(
 			continue
 		}
 		result = append(result, services.RelationshipWithTask{
-			RelationshipType: "depends_on",
+			RelationshipType: models.RelDependsOn,
 			Direction:        "outgoing",
 			TaskKey:          depTask.Key,
 			TaskTitle:        depTask.Title,
@@ -376,7 +369,10 @@ func printTaskDeps(taskKey, taskTitle string, relWithTasks []services.Relationsh
 		}
 	}
 
-	relationshipOrder := []string{"depends_on", "blocks", "related_to", "follows", "spawned_from", "duplicates", "references"}
+	relationshipOrder := []string{
+		models.RelDependsOn, models.RelBlocks, models.RelRelatedTo, models.RelFollows,
+		models.RelSpawnedFrom, models.RelDuplicates, models.RelReferences,
+	}
 	printRelationshipGroup(outgoingByType, relationshipOrder, "outgoing")
 	printRelationshipGroup(incomingByType, relationshipOrder, "incoming")
 	fmt.Println("Legend: ✓ completed | • in_progress | ○ todo | ✗ blocked")
@@ -413,8 +409,8 @@ func runTaskBlockedBy(cmd *cobra.Command, args []string) error {
 
 	blockers, err := getTaskBlockedByViaEntityRel(cmd.Context(), relSvc, taskSvc, task)
 	if err != nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found or error retrieving dependencies: %w", taskKey, err)
+		cli.Error(fmt.Sprintf("Error retrieving dependencies for %s", taskKey))
+		return fmt.Errorf("error retrieving dependencies for %s: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -455,8 +451,8 @@ func runTaskBlocks(cmd *cobra.Command, args []string) error {
 
 	blocked, err := getTaskBlocksViaEntityRel(cmd.Context(), relSvc, taskSvc, task)
 	if err != nil {
-		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
-		return fmt.Errorf("task %s not found or error retrieving blocks: %w", taskKey, err)
+		cli.Error(fmt.Sprintf("Error retrieving blocks for %s", taskKey))
+		return fmt.Errorf("error retrieving blocks for %s: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -568,7 +564,7 @@ func buildDependencyTree(
 	}
 
 	// Get dependencies (tasks this task depends on)
-	deps, err := relRepo.GetOutgoing(ctx, task.ID, []string{"depends_on"})
+	deps, err := relRepo.GetOutgoing(ctx, task.ID, []string{models.RelDependsOn})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dependencies: %w", err)
 	}
@@ -632,7 +628,7 @@ func buildDependentsTree(
 	}
 
 	// Get dependents (tasks that depend on this task)
-	dependents, err := relRepo.GetIncoming(ctx, task.ID, []string{"depends_on"})
+	dependents, err := relRepo.GetIncoming(ctx, task.ID, []string{models.RelDependsOn})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dependents: %w", err)
 	}

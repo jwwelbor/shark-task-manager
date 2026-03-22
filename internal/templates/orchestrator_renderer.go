@@ -41,18 +41,34 @@ func SetConfiguredTemplateDir(dir string) {
 // GetTemplateDirName returns the configured template directory name, falling
 // back to "shark-templates" if not configured. This is safe to call after
 // CLI initialization has run (PersistentPreRunE sets it via SetConfiguredTemplateDir).
+// Paths starting with "~/" are expanded to the user's home directory.
 func GetTemplateDirName() string {
-	if configuredTemplateDir != "" {
-		return configuredTemplateDir
+	dir := configuredTemplateDir
+	if dir == "" {
+		return defaultTemplateDir
 	}
-	return defaultTemplateDir
+	if strings.HasPrefix(dir, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, dir[2:])
+		}
+	}
+	return dir
 }
 
 // findTemplateDir locates the template directory by walking up from the
 // working directory. Returns the first directory containing a matching
 // subdirectory with .tmpl files, or falls back to the configured directory name.
+//
+// If the configured template directory is an absolute path, it is used directly
+// without walking up the directory tree. This allows pointing at a shared
+// template repository outside the project (e.g. ~/projects/shark-templates).
 func findTemplateDir() string {
 	dirName := GetTemplateDirName()
+
+	// Absolute paths are used directly — no walk-up needed.
+	if filepath.IsAbs(dirName) {
+		return dirName
+	}
 
 	wd, err := os.Getwd()
 	if err != nil {

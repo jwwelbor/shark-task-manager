@@ -271,7 +271,7 @@ func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 	configData, configErr := readRawConfigKeys(configPath)
 	var workflowFilePath string
 	if configErr == nil {
-		workflowFilePath = resolveWorkflowFilePath(configPath, configData)
+		workflowFilePath, _ = resolveWorkflowFilePath(configPath, configData)
 	}
 	if workflowFilePath != "" {
 		workflowData, workflowErr := readRawConfigKeys(workflowFilePath)
