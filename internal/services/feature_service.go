@@ -38,12 +38,13 @@ type FeatureRepository interface {
 }
 
 // FeatureEpicLookup defines the minimal epic repository interface needed by FeatureService
-// when creating features (to look up the parent epic by key).
+// when creating features (to look up the parent epic by key) and auto-reopening epics.
 type FeatureEpicLookup interface {
 	GetByKey(ctx context.Context, key string) (*models.Epic, error)
 	GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error)
 	UpdateFilePath(ctx context.Context, epicKey string, newFilePath *string) error
 	List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error)
+	Update(ctx context.Context, epic *models.Epic) error
 }
 
 // FeatureTaskCounter defines the task counting interface needed by FeatureService
@@ -69,16 +70,17 @@ type FeatureRelationshipRepository = config.FeatureRelationshipRepository
 
 // FeatureService provides business logic for feature operations.
 type FeatureService struct {
-	repo            FeatureRepository
-	entitySvc       *EntityService
-	entityRepo      EntityRepository
-	taskRepo        FeatureTaskCounter
-	docRepo         DocumentRepository
-	relRepo         FeatureRelationshipRepository
-	epicLookupRepo  FeatureEpicLookup
-	docSvc          *EntityDocumentService // shared document operations; built by SetWritableDocRepo
-	progressService *FeatureProgressService
-	enrichRepo      config.TemplateEnrichmentRepository
+	repo              FeatureRepository
+	entitySvc         *EntityService
+	entityRepo        EntityRepository
+	taskRepo          FeatureTaskCounter
+	docRepo           DocumentRepository
+	relRepo           FeatureRelationshipRepository
+	epicLookupRepo    FeatureEpicLookup
+	docSvc            *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	progressService   *FeatureProgressService
+	enrichRepo        config.TemplateEnrichmentRepository
+	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -120,6 +122,13 @@ func (s *FeatureService) SetRelRepo(relRepo FeatureRelationshipRepository) {
 // This enables enrichment data population for template rendering.
 func (s *FeatureService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepository) {
 	s.enrichRepo = enrichRepo
+}
+
+// SetEntityHistoryRepo sets the entity history recorder for audit trail recording.
+// When set, auto-reopen operations will create entity_history records.
+// The *repository.EntityHistoryRepository satisfies EntityHistoryRecorder directly.
+func (s *FeatureService) SetEntityHistoryRepo(repo EntityHistoryRecorder) {
+	s.entityHistoryRepo = repo
 }
 
 // SetWritableDocRepo sets the writable document repository on the service.
@@ -711,7 +720,44 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		return nil, fmt.Errorf("failed to create feature %s: %w", featureKey, err)
 	}
 
+	s.maybeReopenParentEpic(ctx, epic, feature.Key)
 	return feature, nil
+}
+
+// maybeReopenParentEpic checks if the parent epic is in a terminal status
+// and reopens it to the first aggregation status. Best-effort: logs a warning
+// on failure, never fails the caller.
+//
+// Parameters:
+//   - ctx: context for cancellation
+//   - epic: the parent epic model (already retrieved during feature creation)
+//   - featureKey: key of the newly created feature (for audit logging)
+func (s *FeatureService) maybeReopenParentEpic(ctx context.Context, epic *models.Epic, featureKey string) {
+	if s.epicLookupRepo == nil {
+		return
+	}
+
+	epicWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelEpic)
+	if !epicWf.IsTerminalStatus(string(epic.Status)) {
+		return
+	}
+
+	aggStatuses := epicWf.GetAggregationStatuses()
+	oldStatus := string(epic.Status)
+	epic.Status = models.EpicStatus(aggStatuses[0])
+
+	if err := s.epicLookupRepo.Update(ctx, epic); err != nil {
+		log.Printf("warning: auto-reopen of epic %s failed: %v", epic.Key, err)
+		return
+	}
+
+	// Record history for the auto-reopen
+	notes := fmt.Sprintf("auto-reopened: new feature %s created under terminal epic", featureKey)
+	recordEntityHistory(ctx, s.entityHistoryRepo, models.EntityTypeEpic, epic.ID,
+		oldStatus, string(epic.Status), false, EntityHistoryOpts{
+			Agent:  "system",
+			Reason: notes,
+		})
 }
 
 // UpdateFeature updates fields on an existing feature.

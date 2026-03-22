@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}RESUME feature test planning for {{.id}}: "{{.title}}".
 
-COMPLEXITY TIER: {{.complexity_tier}}
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
 
 Check for existing test plan at {{.file_path}}/09-test-plan.md. If test plan exists and meets exit gate criteria for the complexity tier, advance immediately.
 
@@ -8,7 +8,7 @@ Check for existing test plan at {{.file_path}}/09-test-plan.md. If test plan exi
 
 Create feature test plan for {{.id}}: "{{.title}}".
 
-COMPLEXITY TIER: {{.complexity_tier}}
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
 
 READ:
 (1) Parent epic UAT acceptance plan for acceptance scenarios this feature must satisfy

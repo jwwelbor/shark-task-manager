@@ -277,6 +277,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		if err != nil {
 			return nil, fmt.Errorf("failed to create task: %w", err)
 		}
+		s.maybeReopenParentFeature(ctx, input.FeatureKey, result.Task.Key)
 		return result.Task, nil
 	}
 
@@ -338,6 +339,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
 
+	s.maybeReopenParentFeature(ctx, input.FeatureKey, task.Key)
 	return task, nil
 }
 
@@ -954,6 +956,54 @@ func (s *TaskService) recalculateFeatureProgress(ctx context.Context, featureID 
 		return
 	}
 	_ = s.featureService.RecalculateAndSetProgress(ctx, featureID)
+}
+
+// maybeReopenParentFeature checks if the parent feature is in a terminal status
+// and reopens it to the first aggregation status. Best-effort: logs a warning
+// on failure, never fails the caller.
+//
+// Parameters:
+//   - ctx: context for cancellation
+//   - featureKey: key of the parent feature (e.g., "E01-F01")
+//   - taskKey: key of the newly created task (for audit logging)
+func (s *TaskService) maybeReopenParentFeature(ctx context.Context, featureKey string, taskKey string) {
+	if s.featureService == nil {
+		return
+	}
+
+	feature, err := s.featureService.GetFeature(ctx, featureKey)
+	if err != nil {
+		log.Printf("warning: auto-reopen check for feature %s failed: %v", featureKey, err)
+		return
+	}
+	if feature == nil {
+		return
+	}
+
+	featureWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelFeature)
+	if !featureWf.IsTerminalStatus(string(feature.Status)) {
+		return
+	}
+
+	aggStatuses := featureWf.GetAggregationStatuses()
+	targetStatus := models.FeatureStatus(aggStatuses[0])
+
+	oldStatus := string(feature.Status)
+	_, err = s.featureService.UpdateFeature(ctx, feature.Key, FeatureUpdates{
+		Status: &targetStatus,
+	})
+	if err != nil {
+		log.Printf("warning: auto-reopen of feature %s failed: %v", featureKey, err)
+		return
+	}
+
+	// Record history for the auto-reopen
+	notes := fmt.Sprintf("auto-reopened: new task %s created under terminal feature", taskKey)
+	recordEntityHistory(ctx, s.entityHistoryRepo, models.EntityTypeFeature, feature.ID,
+		oldStatus, string(targetStatus), false, EntityHistoryOpts{
+			Agent:  "system",
+			Reason: notes,
+		})
 }
 
 // statusTransitionOpts bundles metadata for routing through StatusUpdateRaw

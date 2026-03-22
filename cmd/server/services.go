@@ -185,6 +185,10 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		registry.MustGetRepository(models.EntityTypeFeature),
 		taskRepo, epicRepo,
 	)
+	featureService.SetEntityHistoryRepo(entityHistoryRepo)
+
+	// Wire FeatureService into TaskService for auto-reopen behavior
+	taskService.SetFeatureService(featureService)
 
 	epicService := services.NewEpicService(
 		epicRepo,  // Epic data access

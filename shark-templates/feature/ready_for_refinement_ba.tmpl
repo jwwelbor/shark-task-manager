@@ -2,7 +2,7 @@ Write feature PRD for {{.id}}: "{{.title}}".
 
 LOAD: specification-writing workflows write-feature-prd.md, plan/feature-ba-plan.md.
 
-COMPLEXITY TIER: {{.complexity_tier}}
+CHECK COMPLEXITY TIER: shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier' (values: SIMPLE, STANDARD, COMPLEX).
 
 PLAN GATE — run before creating any document:
 (1) READ: shark feature context get {{.id}} --json

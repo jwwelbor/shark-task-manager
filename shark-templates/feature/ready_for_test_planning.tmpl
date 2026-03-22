@@ -1,6 +1,6 @@
 Create feature test plan for {{.id}}: "{{.title}}".
 
-COMPLEXITY TIER: {{.complexity_tier}}
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
 
 READ:
 (1) Parent epic UAT acceptance plan for acceptance scenarios this feature must satisfy

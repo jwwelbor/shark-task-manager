@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}RESUME technical refinement for feature {{.id}}: "{{.title}}".
 
-COMPLEXITY TIER: {{.complexity_tier}}
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
 
 Check for existing architecture docs at {{.file_path}} (02-architecture.md and related). If architecture docs exist and meet exit gate criteria for the complexity tier, advance immediately.
 
@@ -8,7 +8,7 @@ Check for existing architecture docs at {{.file_path}} (02-architecture.md and r
 
 Design technical architecture for feature {{.id}}: "{{.title}}".
 
-COMPLEXITY TIER: {{.complexity_tier}}
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
 
 LOAD: architecture skill workflows (design-system, design-backend, design-frontend, design-database, design-security) as applicable.
 

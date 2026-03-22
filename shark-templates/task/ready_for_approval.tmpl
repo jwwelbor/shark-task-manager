@@ -1,17 +1,1 @@
 Launch UAT agent to include {{.id}} in the UAT documentation.
-
-CODEX RED-TEAM ASSESSMENT (Phase 3):
-- This phase is MANDATORY. If codex fails or is skipped, verdict = "Insufficient Evidence".
-- Run independent codex cross-check of the full implementation against the spec and PRD.
-- Codex findings OVERRIDE the UAT agent's own assessment — codex is the tiebreaker.
-- The UAT agent must NOT auto-complete the task; user approval is always required.
-
-E2E WIRING VERIFICATION TABLE:
-- Include a table in the UAT report with columns: Component | Entry Point Call Chain | Verified (Y/N)
-- Every new component/function must have a verified call chain from the application entry point.
-- Any row with Verified = N is a blocking finding.
-
-VERDICTS:
-- "Approved" — codex red-team passed, E2E wiring verified, user approved
-- "Insufficient Evidence" — codex red-team was skipped, failed to run, or inconclusive
-- "Rejected" — codex or UAT agent found spec gaps, wiring failures, or user rejected

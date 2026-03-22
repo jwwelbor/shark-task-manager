@@ -21,7 +21,7 @@ For each document in tech_remaining_steps (or remaining_steps for tech docs):
   (2) Does it meet the minimum depth requirement?
   (3) Is it registered: shark related-docs list --feature={{.id}}
 
-COMPLEXITY TIER: {{.complexity_tier}}
+COMPLEXITY TIER: shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'
 
 MINIMUM DEPTH REQUIREMENTS BY TIER:
 

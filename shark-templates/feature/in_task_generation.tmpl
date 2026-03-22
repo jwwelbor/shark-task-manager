@@ -15,7 +15,7 @@ CRITICAL CONSTRAINTS — READ BEFORE STARTING:
 - Also register feature-level docs if not already registered: shark related-docs add "<title>" <doc-path> --feature={{.id}}
 - READ docs/plan/RULES.md for documentation standards.
 
-COMPLEXITY TIER: {{.complexity_tier}}
+CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
 
 LOAD: specification-writing workflow write-task.md.
 

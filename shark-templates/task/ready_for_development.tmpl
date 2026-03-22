@@ -1,7 +1,4 @@
 Launch developer with test-driven-development skill for task {{.task_id}}: "{{.title}}".
-{{- if ne .priority "0"}}
-PRIORITY: {{.priority}}/10.
-{{- end}}
 
 LOAD: test-driven-development + implementation skills.
 
@@ -14,12 +11,6 @@ READ:
 {{- end}}
 {{- if .related_tasks}}
 ({{if .related_docs}}5{{else}}4{{end}}) Related tasks: {{.related_tasks}}
-{{- end}}
-{{- if .depends_on}}
-DEPENDENCIES: {{.depends_on}} — verify these tasks are completed before proceeding.
-{{- end}}
-{{- if .completion_notes}}
-PREVIOUS PHASE NOTES: {{.completion_notes}}
 {{- end}}
 
 {{template "_tdd_process" .}}
