@@ -165,10 +165,12 @@ func GetFeatureService() *services.FeatureService {
 	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeFeature)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
+	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
 	svc := services.NewFeatureService(featureRepo, entitySvc, entityRepo, taskRepo, epicRepo)
 	svc.SetDocRepo(docAdapter)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
+	svc.SetEntityHistoryRepo(entityHistoryRepo)
 
 	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
 	progressSvc := services.NewFeatureProgressService(featureRepo, taskRepo, workflowSvc)

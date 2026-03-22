@@ -3401,6 +3401,69 @@ func TestFeatureService_CreateFeature_ReopensTerminalEpic(t *testing.T) {
 	}
 }
 
+// TestFeatureService_CreateFeature_ReopenRecordsHistory verifies that auto-reopen
+// creates an entity_history record with "auto-reopened" in notes (AC-3 audit trail).
+func TestFeatureService_CreateFeature_ReopenRecordsHistory(t *testing.T) {
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			return &models.Epic{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"},
+				Status:     "completed",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, epic *models.Epic) error {
+			return nil
+		},
+	}
+
+	featureRepo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			feature.ID = 100
+			return nil
+		},
+	}
+
+	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), nil, nil, epicLookup)
+
+	historyRecorder := &mockEntityHistoryRecorder{}
+	svc.SetEntityHistoryRepo(historyRecorder)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "Feature triggering epic history record",
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if len(historyRecorder.created) != 1 {
+		t.Fatalf("expected 1 entity_history record, got %d", len(historyRecorder.created))
+	}
+
+	h := historyRecorder.created[0]
+	if h.EntityType != models.EntityTypeEpic {
+		t.Errorf("expected entity_type 'epic', got %q", h.EntityType)
+	}
+	if h.EntityID != 1 {
+		t.Errorf("expected entity_id 1, got %d", h.EntityID)
+	}
+	if h.FromStatus == nil || *h.FromStatus != "completed" {
+		t.Errorf("expected from_status 'completed', got %v", h.FromStatus)
+	}
+	if h.ToStatus != "active" {
+		t.Errorf("expected to_status 'active', got %q", h.ToStatus)
+	}
+	if h.Notes == nil || !strings.Contains(*h.Notes, "auto-reopened") {
+		t.Errorf("expected notes to contain 'auto-reopened', got %v", h.Notes)
+	}
+}
+
 func TestFeatureService_CreateFeature_NoReopenNonTerminalEpic(t *testing.T) {
 	epicUpdated := false
 

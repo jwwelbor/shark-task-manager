@@ -1214,12 +1214,22 @@ func (s *TaskService) maybeReopenParentFeature(ctx context.Context, featureKey s
 	aggStatuses := featureWf.GetAggregationStatuses()
 	targetStatus := models.FeatureStatus(aggStatuses[0])
 
+	oldStatus := string(feature.Status)
 	_, err = s.featureService.UpdateFeature(ctx, feature.Key, FeatureUpdates{
 		Status: &targetStatus,
 	})
 	if err != nil {
 		log.Printf("warning: auto-reopen of feature %s failed: %v", featureKey, err)
+		return
 	}
+
+	// Record history for the auto-reopen
+	notes := fmt.Sprintf("auto-reopened: new task %s created under terminal feature", taskKey)
+	recordEntityHistory(ctx, s.entityHistoryRepo, models.EntityTypeFeature, feature.ID,
+		oldStatus, string(targetStatus), false, EntityHistoryOpts{
+			Agent:  "system",
+			Reason: notes,
+		})
 }
 
 // statusTransitionOpts bundles metadata for routing through StatusUpdateRaw

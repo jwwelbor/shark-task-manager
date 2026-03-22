@@ -69,16 +69,17 @@ type FeatureRelationshipRepository = config.FeatureRelationshipRepository
 
 // FeatureService provides business logic for feature operations.
 type FeatureService struct {
-	repo            FeatureRepository
-	entitySvc       *EntityService
-	entityRepo      EntityRepository
-	taskRepo        FeatureTaskCounter
-	docRepo         DocumentRepository
-	relRepo         FeatureRelationshipRepository
-	epicLookupRepo  FeatureEpicLookup
-	docSvc          *EntityDocumentService // shared document operations; built by SetWritableDocRepo
-	progressService *FeatureProgressService
-	enrichRepo      config.TemplateEnrichmentRepository
+	repo              FeatureRepository
+	entitySvc         *EntityService
+	entityRepo        EntityRepository
+	taskRepo          FeatureTaskCounter
+	docRepo           DocumentRepository
+	relRepo           FeatureRelationshipRepository
+	epicLookupRepo    FeatureEpicLookup
+	docSvc            *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	progressService   *FeatureProgressService
+	enrichRepo        config.TemplateEnrichmentRepository
+	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -119,6 +120,13 @@ func (s *FeatureService) SetRelRepo(relRepo FeatureRelationshipRepository) {
 // This enables enrichment data population for template rendering.
 func (s *FeatureService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepository) {
 	s.enrichRepo = enrichRepo
+}
+
+// SetEntityHistoryRepo sets the entity history recorder for audit trail recording.
+// When set, auto-reopen operations will create entity_history records.
+// The *repository.EntityHistoryRepository satisfies EntityHistoryRecorder directly.
+func (s *FeatureService) SetEntityHistoryRepo(repo EntityHistoryRecorder) {
+	s.entityHistoryRepo = repo
 }
 
 // SetWritableDocRepo sets the writable document repository on the service.
@@ -801,11 +809,21 @@ func (s *FeatureService) maybeReopenParentEpic(ctx context.Context, epic *models
 	}
 
 	aggStatuses := epicWf.GetAggregationStatuses()
+	oldStatus := string(epic.Status)
 	epic.Status = models.EpicStatus(aggStatuses[0])
 
 	if err := s.epicLookupRepo.Update(ctx, epic); err != nil {
 		log.Printf("warning: auto-reopen of epic %s failed: %v", epic.Key, err)
+		return
 	}
+
+	// Record history for the auto-reopen
+	notes := fmt.Sprintf("auto-reopened: new feature %s created under terminal epic", featureKey)
+	recordEntityHistory(ctx, s.entityHistoryRepo, models.EntityTypeEpic, epic.ID,
+		oldStatus, string(epic.Status), false, EntityHistoryOpts{
+			Agent:  "system",
+			Reason: notes,
+		})
 }
 
 // UpdateFeature updates fields on an existing feature.

@@ -10,10 +10,14 @@ import (
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
+	"github.com/jwwelbor/shark-task-manager/internal/templates"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ============================================================================
@@ -2734,6 +2738,48 @@ func TestTaskService_CreateTask_ReopensTerminalFeature(t *testing.T) {
 	assert.True(t, *featureUpdated, "feature should have been updated (reopened)")
 }
 
+// TestTaskService_CreateTask_ReopenRecordsHistory verifies that auto-reopen
+// creates an entity_history record with "auto-reopened" in notes (AC-1 audit trail).
+func TestTaskService_CreateTask_ReopenRecordsHistory(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	featureSvc, _ := newFeatureServiceForReopenTest(t, "completed", nil)
+	svc.SetFeatureService(featureSvc)
+
+	historyRecorder := &mockEntityHistoryRecorder{}
+	svc.SetEntityHistoryRepo(historyRecorder)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Task triggering history record",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.Len(t, historyRecorder.created, 1, "should create one entity_history record")
+
+	h := historyRecorder.created[0]
+	assert.Equal(t, models.EntityTypeFeature, h.EntityType)
+	assert.Equal(t, int64(10), h.EntityID)
+	assert.NotNil(t, h.FromStatus)
+	assert.Equal(t, "completed", *h.FromStatus)
+	assert.Equal(t, "active", h.ToStatus)
+	assert.NotNil(t, h.Notes)
+	assert.Contains(t, *h.Notes, "auto-reopened")
+}
+
 func TestTaskService_CreateTask_ReopensArchivedFeature(t *testing.T) {
 	mockRepo := &MockTaskRepository{
 		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
@@ -2923,4 +2969,160 @@ func TestTaskService_CreateTask_CustomAggregationStatus(t *testing.T) {
 	assert.NotNil(t, task)
 	assert.Equal(t, models.FeatureStatus("tracking"), capturedFeatureStatus,
 		"feature should be reopened to custom aggregation status 'tracking'")
+}
+
+// TestTaskService_CreateTask_ReopensCancelledFeature verifies AC-2: task creation
+// reopens a feature with status "cancelled" when _complete_ includes "cancelled".
+func TestTaskService_CreateTask_ReopensCancelledFeature(t *testing.T) {
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			task.ID = 1
+			return nil
+		},
+	}
+
+	// Create a custom workflow config where _complete_ includes "cancelled"
+	tempDir := t.TempDir()
+	configData := `{
+		"task_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["todo"],
+				"_complete_": ["completed"]
+			},
+			"status_flow": {
+				"todo": ["completed"],
+				"completed": []
+			}
+		},
+		"feature_workflow": {
+			"status_flow_version": "1.0",
+			"special_statuses": {
+				"_start_": ["draft"],
+				"_complete_": ["completed", "cancelled"],
+				"_aggregation_": ["active"]
+			},
+			"status_flow": {
+				"draft": ["active"],
+				"active": ["completed", "cancelled"],
+				"completed": [],
+				"cancelled": []
+			}
+		}
+	}`
+	configPath := filepath.Join(tempDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configData), 0644)
+	assert.NoError(t, err)
+	config.ClearWorkflowCache()
+	defer config.ClearWorkflowCache()
+
+	customWf := workflow.NewService(tempDir)
+	svc := NewTaskService(mockRepo, NewEntityService(customWf), nil)
+
+	// Create feature service with "cancelled" status (terminal per custom config)
+	var capturedFeatureStatus models.FeatureStatus
+	featureRepo := &mockFeatureRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Feature, error) {
+			return &models.Feature{
+				BaseEntity: models.BaseEntity{ID: 10, Key: "E01-F01", Title: "Test Feature"},
+				Status:     "cancelled",
+			}, nil
+		},
+		updateFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeatureStatus = feature.Status
+			return nil
+		},
+	}
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(customWf), nil, nil, nil)
+	svc.SetFeatureService(featureSvc)
+
+	task, createErr := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E01",
+		FeatureKey: "F01",
+		Title:      "Revived task under cancelled feature",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, createErr)
+	assert.NotNil(t, task)
+	assert.Equal(t, models.FeatureStatus("active"), capturedFeatureStatus,
+		"cancelled feature should be reopened to 'active'")
+}
+
+// TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature verifies AC-8:
+// the creatorSvc primary path (non-nil creatorSvc) also triggers auto-reopen.
+// Uses a real DB + Creator since Creator is a concrete type.
+func TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature(t *testing.T) {
+	// Set up a temp SQLite DB
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	sqlDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	repoDB := repository.NewDB(sqlDB)
+	ctx := context.Background()
+
+	// Seed epic and feature directly via SQL
+	res, err := sqlDB.ExecContext(ctx, `INSERT INTO epics (key, title, status, priority) VALUES ('E98', 'Test Epic', 'active', 'medium')`)
+	require.NoError(t, err)
+	epicID, _ := res.LastInsertId()
+
+	_, err = sqlDB.ExecContext(ctx, `INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E98-F01', 'Test Feature', 'completed', ?, 'docs/plan/E98/E98-F01/feature.md')`, epicID)
+	require.NoError(t, err)
+
+	// Build Creator with real repos
+	taskRepo := repository.NewTaskRepository(repoDB)
+	featureRepo := repository.NewFeatureRepository(repoDB)
+	epicRepo := repository.NewEpicRepository(repoDB)
+	historyRepo := repository.NewTaskHistoryRepository(repoDB) //nolint:staticcheck // Required by taskcreation.Creator constructor
+
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	wfSvc := workflow.NewService(tempDir)
+
+	creator := taskcreation.NewCreator(repoDB, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, wfSvc)
+
+	// Build TaskService with the real Creator
+	entitySvc := NewEntityService(wfSvc)
+	svc := NewTaskService(taskRepo, entitySvc, creator)
+
+	// Wire FeatureService that reads from the same DB so reopen can find the feature
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(wfSvc), nil, nil, epicRepo)
+	svc.SetFeatureService(featureSvc)
+
+	// Wire history recorder to capture audit trail
+	historyRecorder := &mockEntityHistoryRecorder{}
+	svc.SetEntityHistoryRepo(historyRecorder)
+
+	// Create task via the creatorSvc path (creatorSvc != nil)
+	task, err := svc.CreateTask(ctx, CreateTaskInput{
+		EpicKey:    "E98",
+		FeatureKey: "F01",
+		Title:      "Task via creatorSvc path",
+		AgentType:  "developer",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	assert.Equal(t, "T-E98-F01-001", task.Key)
+
+	// Verify feature was reopened
+	feature, err := featureRepo.GetByKey(ctx, "E98-F01")
+	require.NoError(t, err)
+	assert.Equal(t, models.FeatureStatus("active"), feature.Status,
+		"feature should be reopened to 'active' via creatorSvc path")
+
+	// Verify history was recorded
+	assert.Len(t, historyRecorder.created, 1, "should record entity_history for auto-reopen")
+	if len(historyRecorder.created) > 0 {
+		h := historyRecorder.created[0]
+		assert.Equal(t, models.EntityTypeFeature, h.EntityType)
+		assert.Contains(t, *h.Notes, "auto-reopened")
+	}
 }
