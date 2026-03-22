@@ -112,7 +112,7 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid task key: %w", err)
 	}
 
-	svc := cli.GetTaskServiceWithDeps()
+	svc := cli.GetTaskServiceWithDocs()
 	task, err := svc.GetTask(ctx, taskKey)
 	if err != nil {
 		return err

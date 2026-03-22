@@ -98,7 +98,7 @@ func dispatchAddDoc(ctx context.Context, epic, feature, task, bug, change, title
 		}
 		return printDocLinked(title, path, "change-card", change, 0)
 	}
-	doc, err := cli.GetTaskServiceWithDeps().LinkDocument(ctx, task, title, path)
+	doc, err := cli.GetTaskServiceWithDocs().LinkDocument(ctx, task, title, path)
 	if err != nil {
 		return fmt.Errorf("failed to link document to task: %w", err)
 	}
@@ -166,7 +166,7 @@ func runRelatedDocsDelete(cmd *cobra.Command, args []string) error {
 		return printDocUnlinked(title, "feature", feature)
 	}
 	if task != "" {
-		_ = cli.GetTaskServiceWithDeps().UnlinkDocument(ctx, task, title)
+		_ = cli.GetTaskServiceWithDocs().UnlinkDocument(ctx, task, title)
 		return printDocUnlinked(title, "task", task)
 	}
 	if bug != "" {
@@ -225,7 +225,7 @@ func dispatchListDocs(ctx context.Context, epic, feature, task, bug, change stri
 		}
 		return docs, nil
 	}
-	docs, err := cli.GetTaskServiceWithDeps().ListRelatedDocuments(ctx, task)
+	docs, err := cli.GetTaskServiceWithDocs().ListRelatedDocuments(ctx, task)
 	if err != nil {
 		return nil, fmt.Errorf("task not found: %w", err)
 	}

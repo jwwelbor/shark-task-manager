@@ -162,7 +162,7 @@ func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
 
 // taskServiceDeps holds the shared dependencies for constructing a TaskService.
 // Extracted to eliminate duplication across GetTaskService, GetTaskServiceWithHistory,
-// and GetTaskServiceWithDeps which all wire the same base dependencies.
+// and GetTaskServiceWithDocs which all wire the same base dependencies.
 type taskServiceDeps struct {
 	db          *repository.DB
 	taskRepo    *repository.TaskRepository
@@ -259,42 +259,47 @@ func GetTaskServiceWithHistory() *services.TaskService {
 	return svc
 }
 
-// GetTaskServiceWithDeps returns a TaskService with relationship and document repositories wired.
-// Used by commands that need dependency/relationship management (unlink, deps) or document operations.
+// GetTaskServiceWithDocs returns a TaskService with document, session, and history repositories wired.
+// Used by commands that need document operations, work sessions, or analytics.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
 //
 // Usage:
 //
-//	svc := cli.GetTaskServiceWithDeps()
-//	count, err := svc.UnlinkRelationships(ctx, taskKey, relType, targetKeys)
-func GetTaskServiceWithDeps() *services.TaskService {
+//	svc := cli.GetTaskServiceWithDocs()
+//	doc, err := svc.LinkDocument(ctx, taskKey, title, path)
+func GetTaskServiceWithDocs() *services.TaskService {
 	d := buildTaskServiceDeps()
-	relRepo := repository.NewTaskRelationshipRepository(d.db)
 	docRepo := repository.NewDocumentRepository(d.db)
 	entityDocRepo := repository.NewEntityDocumentRepository(d.db)
 	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
 	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(d.db)}
-
 	enrichRepo := repository.NewTemplateEnrichmentRepository(d.db)
+
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
 	svc.SetDocRepo(docAdapter)
-	svc.SetRelRepo(relRepo)
+	svc.SetRelRepo(repository.NewEntityRelTaskKeyAdapter(d.db))
 	svc.SetSessionRepo(sessionRepo)
 	svc.SetFeatureRepo(d.featureRepo)
-	svc.SetDepRepo(relRepo)
-	svc.SetRelQueryRepo(relRepo)
+	svc.SetFeatureService(GetFeatureService())
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
 
-	// Wire sub-services for query and dependency delegation.
+	// Wire entity history recording for polymorphic entity_history table.
+	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
+	svc.SetEntityHistoryRepo(entityHistoryRepo)
+
+	// Wire sub-services for query delegation.
 	querySvc := services.NewTaskQueryService(d.taskRepo)
 	svc.SetQueryService(querySvc)
 
-	depSvc := services.NewTaskDependencyService(d.taskRepo)
-	depSvc.SetDepRepo(relRepo)
-	depSvc.SetRelQueryRepo(relRepo)
-	depSvc.SetWritableDocRepo(docRepo, entityDocRepo)
-	svc.SetDependencyService(depSvc)
+	// Wire history sub-service for sessions/analytics.
+	epicRepo := repository.NewEpicRepository(d.db)
+	historySvc := services.NewTaskHistoryService(&taskHistoryAdapter{repo: d.historyRepo})
+	historySvc.SetSessionRepo(sessionRepo)
+	historySvc.SetFeatureRepo(d.featureRepo)
+	historySvc.SetEpicRepo(epicRepo)
+	svc.SetHistoryService(historySvc)
+	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 
 	return svc
 }

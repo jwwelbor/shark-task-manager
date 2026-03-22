@@ -104,7 +104,7 @@ func runTaskNextStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service to get current status and available transitions
-	svc := cli.GetTaskServiceWithDeps()
+	svc := cli.GetTaskServiceWithDocs()
 	info, err := svc.GetNextStatus(cmd.Context(), taskKey)
 	if err != nil {
 		return fmt.Errorf("failed to get task status: %w", err)

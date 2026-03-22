@@ -103,7 +103,7 @@ type DisplayServiceDeps struct {
 	TaskRepo               *repository.TaskRepository
 	DocumentRepo           config.DocumentRepository
 	NoteRepo               *repository.EntityNoteRepository
-	TaskRelRepo            *repository.TaskRelationshipRepository
+	TaskRelRepo            config.TaskRelationshipRepository
 	FeatureRelRepo         *repository.FeatureRelationshipRepository
 	EpicRelRepo            *repository.EpicRelationshipRepository
 	TemplateEnrichmentRepo *repository.TemplateEnrichmentRepository
@@ -129,7 +129,7 @@ func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *Displa
 			TaskRepo:               repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
 			DocumentRepo:           repository.NewPolymorphicDocRepoAdapter(repository.NewEntityDocumentRepository(db)),
 			NoteRepo:               repository.NewEntityNoteRepository(db),
-			TaskRelRepo:            repository.NewTaskRelationshipRepository(db),
+			TaskRelRepo:            repository.NewEntityRelTaskKeyAdapter(db),
 			FeatureRelRepo:         repository.NewFeatureRelationshipRepository(db),
 			EpicRelRepo:            repository.NewEpicRelationshipRepository(db),
 			TemplateEnrichmentRepo: repository.NewTemplateEnrichmentRepository(db),

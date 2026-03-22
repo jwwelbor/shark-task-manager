@@ -26,10 +26,58 @@ type TaskRepositoryInterfaceWithID interface {
 	GetByID(ctx context.Context, id int64) (*models.Task, error)
 }
 
-// RelationshipRepositoryInterface defines the interface for relationship repository operations
+// RelationshipRepositoryInterface defines the interface for relationship repository operations.
+// This is now implemented by entityRelRepoAdapter which wraps EntityRelationshipService.
 type RelationshipRepositoryInterface interface {
 	GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
 	GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
+}
+
+// entityRelRepoAdapter adapts EntityRelationshipService to RelationshipRepositoryInterface
+// for use by the tree-building code, which expects TaskRelationship results.
+type entityRelRepoAdapter struct {
+	svc *services.EntityRelationshipService
+}
+
+func (a *entityRelRepoAdapter) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
+	entityRelTypes := make([]models.EntityRelationshipType, len(relTypes))
+	for i, rt := range relTypes {
+		entityRelTypes[i] = models.EntityRelationshipType(rt)
+	}
+	rels, err := a.svc.GetOutgoing(ctx, models.EntityTypeTask, taskID, entityRelTypes)
+	if err != nil {
+		return nil, err
+	}
+	return entityRelsToTaskRels(rels), nil
+}
+
+func (a *entityRelRepoAdapter) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
+	entityRelTypes := make([]models.EntityRelationshipType, len(relTypes))
+	for i, rt := range relTypes {
+		entityRelTypes[i] = models.EntityRelationshipType(rt)
+	}
+	rels, err := a.svc.GetIncoming(ctx, models.EntityTypeTask, taskID, entityRelTypes)
+	if err != nil {
+		return nil, err
+	}
+	return entityRelsToTaskRels(rels), nil
+}
+
+// entityRelsToTaskRels converts EntityRelationship slice to TaskRelationship slice
+// for task-to-task relationships only.
+func entityRelsToTaskRels(rels []*models.EntityRelationship) []*models.TaskRelationship {
+	result := make([]*models.TaskRelationship, 0, len(rels))
+	for _, rel := range rels {
+		if rel.FromEntityType == models.EntityTypeTask && rel.ToEntityType == models.EntityTypeTask {
+			result = append(result, &models.TaskRelationship{
+				ID:               rel.ID,
+				FromTaskID:       rel.FromEntityID,
+				ToTaskID:         rel.ToEntityID,
+				RelationshipType: models.RelationshipType(rel.RelationshipType),
+			})
+		}
+	}
+	return result
 }
 
 // taskDepsCmd shows all relationships for a task
@@ -118,21 +166,26 @@ func parseTaskDepsOptions(cmd *cobra.Command) taskDepsOptions {
 func runTaskDeps(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
 	opts := parseTaskDepsOptions(cmd)
-	svc := cli.GetTaskServiceWithDeps()
 
-	if opts.showTree {
-		return runTaskDepsTreeViaService(cmd.Context(), svc, taskKey, opts.upstream, opts.downstream, opts.maxDepth)
+	taskSvc := cli.GetTaskService()
+	relSvc := cli.GetEntityRelationshipService()
+
+	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
-	relWithTasks, err := svc.GetTaskRelationships(cmd.Context(), taskKey, opts.typeFilter)
+	if opts.showTree {
+		adapter := &entityRelRepoAdapter{svc: relSvc}
+		taskRepo := taskSvc.GetTaskRepository()
+		return runTaskDepsTree(cmd.Context(), task, taskRepo, adapter, opts.upstream, opts.downstream, opts.maxDepth)
+	}
+
+	relWithTasks, err := getTaskRelationshipsViaEntityRel(cmd.Context(), relSvc, taskSvc, task, opts.typeFilter)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
 		return fmt.Errorf("task %s not found or error retrieving relationships: %w", taskKey, err)
-	}
-
-	task, err := svc.GetTask(cmd.Context(), taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -142,6 +195,154 @@ func runTaskDeps(cmd *cobra.Command, args []string) error {
 	}
 
 	return printTaskDeps(taskKey, task.Title, relWithTasks)
+}
+
+// getTaskRelationshipsViaEntityRel fetches all relationships for a task using EntityRelationshipService
+// and enriches them with task details.
+func getTaskRelationshipsViaEntityRel(
+	ctx context.Context,
+	relSvc *services.EntityRelationshipService,
+	taskSvc *services.TaskService,
+	task *models.Task,
+	typeFilter []string,
+) ([]services.RelationshipWithTask, error) {
+	allRels, err := relSvc.GetRelationships(ctx, models.EntityTypeTask, task.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get relationships for %s: %w", task.Key, err)
+	}
+
+	var result []services.RelationshipWithTask
+	for _, rel := range allRels {
+		// Only show task-to-task relationships
+		if rel.FromEntityType != models.EntityTypeTask || rel.ToEntityType != models.EntityTypeTask {
+			continue
+		}
+
+		// Apply type filter
+		if len(typeFilter) > 0 {
+			found := false
+			for _, ft := range typeFilter {
+				if string(rel.RelationshipType) == ft {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
+		direction := "outgoing"
+		relatedTaskID := rel.ToEntityID
+		if rel.FromEntityID != task.ID {
+			direction = "incoming"
+			relatedTaskID = rel.FromEntityID
+		}
+
+		relatedTask, err := taskSvc.GetTaskByID(ctx, relatedTaskID)
+		if err != nil {
+			continue
+		}
+
+		result = append(result, services.RelationshipWithTask{
+			RelationshipType: string(rel.RelationshipType),
+			Direction:        direction,
+			TaskKey:          relatedTask.Key,
+			TaskTitle:        relatedTask.Title,
+			TaskStatus:       string(relatedTask.Status),
+		})
+	}
+
+	return result, nil
+}
+
+// getTaskBlockedByViaEntityRel fetches tasks that this task depends on via entity_relationships.
+func getTaskBlockedByViaEntityRel(
+	ctx context.Context,
+	relSvc *services.EntityRelationshipService,
+	taskSvc *services.TaskService,
+	task *models.Task,
+) ([]services.RelationshipWithTask, error) {
+	deps, err := relSvc.GetOutgoing(ctx, models.EntityTypeTask, task.ID,
+		[]models.EntityRelationshipType{models.EntityRelDependsOn})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dependencies for %s: %w", task.Key, err)
+	}
+
+	var result []services.RelationshipWithTask
+	for _, rel := range deps {
+		if rel.ToEntityType != models.EntityTypeTask {
+			continue
+		}
+		depTask, err := taskSvc.GetTaskByID(ctx, rel.ToEntityID)
+		if err != nil {
+			continue
+		}
+		result = append(result, services.RelationshipWithTask{
+			RelationshipType: "depends_on",
+			Direction:        "outgoing",
+			TaskKey:          depTask.Key,
+			TaskTitle:        depTask.Title,
+			TaskStatus:       string(depTask.Status),
+		})
+	}
+	return result, nil
+}
+
+// getTaskBlocksViaEntityRel fetches tasks that depend on this task via entity_relationships.
+func getTaskBlocksViaEntityRel(
+	ctx context.Context,
+	relSvc *services.EntityRelationshipService,
+	taskSvc *services.TaskService,
+	task *models.Task,
+) ([]services.RelationshipWithTask, error) {
+	// Incoming depends_on: other tasks that depend on this task
+	incoming, err := relSvc.GetIncoming(ctx, models.EntityTypeTask, task.ID,
+		[]models.EntityRelationshipType{models.EntityRelDependsOn})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get incoming dependencies for %s: %w", task.Key, err)
+	}
+
+	// Outgoing blocks: this task explicitly blocks other tasks
+	outgoing, err := relSvc.GetOutgoing(ctx, models.EntityTypeTask, task.ID,
+		[]models.EntityRelationshipType{models.EntityRelBlocks})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get explicit blocks for %s: %w", task.Key, err)
+	}
+
+	allBlocked := append(incoming, outgoing...)
+
+	var result []services.RelationshipWithTask
+	for _, rel := range allBlocked {
+		var blockedTaskID int64
+		var direction string
+		if rel.FromEntityID != task.ID {
+			blockedTaskID = rel.FromEntityID
+			direction = "incoming"
+		} else {
+			blockedTaskID = rel.ToEntityID
+			direction = "outgoing"
+		}
+
+		if (direction == "incoming" && rel.FromEntityType != models.EntityTypeTask) ||
+			(direction == "outgoing" && rel.ToEntityType != models.EntityTypeTask) {
+			continue
+		}
+
+		blockedTask, err := taskSvc.GetTaskByID(ctx, blockedTaskID)
+		if err != nil {
+			continue
+		}
+		result = append(result, services.RelationshipWithTask{
+			RelationshipType: string(rel.RelationshipType),
+			Direction:        direction,
+			TaskKey:          blockedTask.Key,
+			TaskTitle:        blockedTask.Title,
+			TaskStatus:       string(blockedTask.Status),
+		})
+	}
+
+	return result, nil
 }
 
 // parseTypeFilter splits a comma-separated type filter string into a slice.
@@ -201,17 +402,19 @@ func printRelationshipGroup(byType map[string][]services.RelationshipWithTask, o
 // runTaskBlockedBy shows incoming dependencies
 func runTaskBlockedBy(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
-	svc := cli.GetTaskServiceWithDeps()
+	taskSvc := cli.GetTaskService()
+	relSvc := cli.GetEntityRelationshipService()
 
-	blockers, err := svc.GetTaskBlockedBy(cmd.Context(), taskKey)
+	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
+	}
+
+	blockers, err := getTaskBlockedByViaEntityRel(cmd.Context(), relSvc, taskSvc, task)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
 		return fmt.Errorf("task %s not found or error retrieving dependencies: %w", taskKey, err)
-	}
-
-	task, err := svc.GetTask(cmd.Context(), taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -241,17 +444,19 @@ func printBlockedBy(taskKey, taskTitle string, blockers []services.RelationshipW
 // runTaskBlocks shows outgoing blocks
 func runTaskBlocks(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
-	svc := cli.GetTaskServiceWithDeps()
+	taskSvc := cli.GetTaskService()
+	relSvc := cli.GetEntityRelationshipService()
 
-	blocked, err := svc.GetTaskBlocks(cmd.Context(), taskKey)
+	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
+	if err != nil {
+		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
+		return fmt.Errorf("task %s not found: %w", taskKey, err)
+	}
+
+	blocked, err := getTaskBlocksViaEntityRel(cmd.Context(), relSvc, taskSvc, task)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Task %s not found", taskKey))
 		return fmt.Errorf("task %s not found or error retrieving blocks: %w", taskKey, err)
-	}
-
-	task, err := svc.GetTask(cmd.Context(), taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found: %w", taskKey, err)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -528,30 +733,6 @@ func renderTree(tree *DependencyTree, prefix string, isLast bool) string {
 	}
 
 	return output.String()
-}
-
-// runTaskDepsTreeViaService handles tree visualization mode using the service for task lookup
-// and repository interfaces for recursive tree traversal.
-func runTaskDepsTreeViaService(
-	ctx context.Context,
-	svc *services.TaskService,
-	taskKey string,
-	showUpstream bool,
-	showDownstream bool,
-	maxDepth int,
-) error {
-	task, err := svc.GetTask(ctx, taskKey)
-	if err != nil {
-		return fmt.Errorf("task %s not found: %w", taskKey, err)
-	}
-
-	taskRepo := svc.GetTaskRepository()
-	relRepo := svc.GetRelQueryRepo()
-	if taskRepo == nil || relRepo == nil {
-		return fmt.Errorf("relationship repositories not available")
-	}
-
-	return runTaskDepsTree(ctx, task, taskRepo, relRepo, showUpstream, showDownstream, maxDepth)
 }
 
 // runTaskDepsTree handles tree visualization mode for task deps

@@ -39,7 +39,7 @@ type TimelineEvent struct {
 func runTaskTimeline(cmd *cobra.Command, args []string) error {
 	taskKey := args[0]
 
-	taskSvc := cli.GetTaskServiceWithDeps()
+	taskSvc := cli.GetTaskServiceWithDocs()
 
 	task, err := taskSvc.GetTask(cmd.Context(), taskKey)
 	if err != nil {

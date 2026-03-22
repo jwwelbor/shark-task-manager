@@ -242,3 +242,51 @@ func (r *EntityRelationshipRepository) scanRelationships(
 	}
 	return rels, nil
 }
+
+// EntityRelTaskKeyAdapter implements config.TaskRelationshipRepository using
+// entity_relationships instead of the legacy task_relationships table.
+// It satisfies the ListRelatedTaskKeys interface used by template_helpers.go.
+type EntityRelTaskKeyAdapter struct {
+	db *DB
+}
+
+// NewEntityRelTaskKeyAdapter creates a new adapter that queries entity_relationships
+// for task-to-task relationships.
+func NewEntityRelTaskKeyAdapter(db *DB) *EntityRelTaskKeyAdapter {
+	return &EntityRelTaskKeyAdapter{db: db}
+}
+
+// ListRelatedTaskKeys returns all task keys related to a given task (bidirectional)
+// by querying the entity_relationships table for task-to-task relationships.
+func (a *EntityRelTaskKeyAdapter) ListRelatedTaskKeys(ctx context.Context, taskID int64) ([]string, error) {
+	query := `
+		SELECT DISTINCT t.key
+		FROM entity_relationships er
+		JOIN tasks t ON (
+			(er.from_entity_type = 'task' AND er.from_entity_id = ? AND er.to_entity_type = 'task' AND er.to_entity_id = t.id AND t.id != ?) OR
+			(er.to_entity_type = 'task' AND er.to_entity_id = ? AND er.from_entity_type = 'task' AND er.from_entity_id = t.id AND t.id != ?)
+		)
+		ORDER BY t.key ASC
+	`
+	rows, err := a.db.QueryContext(ctx, query, taskID, taskID, taskID, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list related task keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("failed to scan task key: %w", err)
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating task keys: %w", err)
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	return keys, nil
+}

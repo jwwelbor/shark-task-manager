@@ -14,49 +14,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
-// TaskRelationshipRepository defines the interface for accessing task relationships.
-type TaskRelationshipRepository = config.TaskRelationshipRepository
-
-// TaskRelationshipQueryRepository defines the extended interface for querying task relationships
-// by direction and type. This interface is satisfied by *repository.TaskRelationshipRepository.
-// It is used by the deps/blocked-by/blocks commands which need richer relationship queries
-// than the basic ListRelatedTaskKeys method provided by config.TaskRelationshipRepository.
-//
-// LEGACY: This interface operates on the legacy task_relationships table.
-// Use EntityRelationshipRepository (which operates on entity_relationships) instead.
-type TaskRelationshipQueryRepository interface {
-	// GetByTaskID retrieves all relationships for a task (both incoming and outgoing)
-	GetByTaskID(ctx context.Context, taskID int64) ([]*models.TaskRelationship, error)
-	// GetOutgoing retrieves all outgoing relationships for a task filtered by type
-	GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
-	// GetIncoming retrieves all incoming relationships for a task filtered by type
-	GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
-}
-
-// TaskWritableDocumentRepository defines the interface for document write operations on tasks.
-// This interface is satisfied by *repository.DocumentRepository.
-// (TaskWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
-
-// TaskDependencyRepository defines the interface for managing task dependency relationships.
-// This interface is satisfied by *repository.TaskRelationshipRepository.
-//
-// LEGACY: This interface operates on the legacy task_relationships table.
-// Use EntityRelationshipRepository (which operates on entity_relationships) instead.
-type TaskDependencyRepository interface {
-	// Create creates a new task relationship (used for adding dependencies)
-	Create(ctx context.Context, rel *models.TaskRelationship) error
-	// GetOutgoing retrieves all outgoing relationships for a task filtered by type
-	GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
-	// GetIncoming retrieves all incoming relationships for a task filtered by type
-	GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
-	// DeleteByTasksAndType removes a specific relationship between two tasks by type
-	DeleteByTasksAndType(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
-	// Delete removes a relationship by ID
-	Delete(ctx context.Context, id int64) error
-	// DetectCycle checks if creating a relationship would create a circular dependency
-	DetectCycle(ctx context.Context, fromTaskID, toTaskID int64, relType string) error
-}
-
 // WorkSessionStats contains aggregated statistics for a task's work sessions.
 type WorkSessionStats struct {
 	TotalSessions   int
@@ -176,21 +133,19 @@ type TaskService struct {
 	historyRepo       TaskHistoryRepository
 	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
 	docRepo           config.DocumentRepository
-	relRepo           config.TaskRelationshipRepository
-	relQueryRepo      TaskRelationshipQueryRepository
-	depRepo           TaskDependencyRepository
+	relRepo           config.TaskRelationshipRepository // for template placeholder population (ListRelatedTaskKeys)
 	sessionRepo       WorkSessionRepository
 	epicRepo          AnalyticsEpicRepository
 	featureRepo       AnalyticsFeatureRepository
 	featureService    *FeatureService // optional: triggers progress recalc on status change
 	enrichRepo        config.TemplateEnrichmentRepository
+	docSvc            *EntityDocumentService // shared document operations; built by SetWritableDocRepo
 
 	// Sub-services for delegating extracted functionality.
 	// When non-nil, method calls are delegated to the sub-service instead of
 	// using the inline implementations in this file.
-	queryService      *TaskQueryService
-	dependencyService *TaskDependencyService
-	historyService    *TaskHistoryService
+	queryService   *TaskQueryService
+	historyService *TaskHistoryService
 }
 
 // NewTaskService creates a new TaskService with the required dependencies.
@@ -217,7 +172,6 @@ func NewTaskService(repo TaskRepository, entitySvc *EntityService, creatorSvc *t
 		entitySvc:  entitySvc.ForLevel(workflow.LevelTask),
 		creatorSvc: creatorSvc,
 		docRepo:    nil,
-		relRepo:    nil,
 	}
 }
 
@@ -227,8 +181,7 @@ func (s *TaskService) SetDocRepo(docRepo config.DocumentRepository) {
 	s.docRepo = docRepo
 }
 
-// SetRelRepo sets the task relationship repository on the service.
-// This enables related task lookups.
+// SetRelRepo sets the task relationship repository for template placeholder population.
 func (s *TaskService) SetRelRepo(relRepo config.TaskRelationshipRepository) {
 	s.relRepo = relRepo
 }
@@ -246,14 +199,6 @@ func (s *TaskService) SetQueryService(svc *TaskQueryService) {
 	s.queryService = svc
 }
 
-// SetDependencyService sets the dependency sub-service for delegating dependency/relationship operations.
-// When set, calls to ValidateDependencies, AddDependency, RemoveDependency, ListDependencies,
-// CreateTypedRelationship, UnlinkFile, UnlinkRelationships, GetTaskRelationships,
-// GetTaskBlockedBy, GetTaskBlocks, LinkDocument, and UnlinkDocument are delegated to the sub-service.
-func (s *TaskService) SetDependencyService(svc *TaskDependencyService) {
-	s.dependencyService = svc
-}
-
 // SetHistoryService sets the history sub-service for delegating history/analytics operations.
 // When set, calls to GetTaskHistory, ListHistory, GetWorkSessions, and GetSessionAnalytics
 // are delegated to the sub-service.
@@ -268,23 +213,6 @@ func (s *TaskService) getOrInitQueryService() *TaskQueryService {
 		s.queryService = NewTaskQueryService(s.repo)
 	}
 	return s.queryService
-}
-
-// getOrInitDependencyService returns the dependency sub-service, lazily initializing
-// it from the task repo if it has not been set via SetDependencyService.
-// Any previously configured depRepo or relQueryRepo fields are
-// forwarded to the newly created sub-service.
-func (s *TaskService) getOrInitDependencyService() *TaskDependencyService {
-	if s.dependencyService == nil {
-		s.dependencyService = NewTaskDependencyService(s.repo)
-		if s.depRepo != nil {
-			s.dependencyService.SetDepRepo(s.depRepo)
-		}
-		if s.relQueryRepo != nil {
-			s.dependencyService.SetRelQueryRepo(s.relQueryRepo)
-		}
-	}
-	return s.dependencyService
 }
 
 // CreateTask creates a new task with automatic key generation and file creation.
@@ -665,24 +593,22 @@ func (s *TaskService) ValidateStatus(status string) error {
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) ValidateDependencies(ctx context.Context, key string, targetStatus string) error {
-	return s.getOrInitDependencyService().ValidateDependencies(ctx, key, targetStatus)
-}
+	dependents, err := s.repo.GetTaskDependents(ctx, key)
+	if err != nil {
+		return fmt.Errorf("failed to get dependencies for task %s: %w", key, err)
+	}
 
-// GetDependencyTree retrieves the full dependency tree for a task.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - key: task key to analyze
-//
-// Returns:
-//   - *DependencyTree: hierarchical structure of dependencies and dependents
-//   - error: not found errors or repository errors
-//
-// Errors:
-//   - NotFoundError: task not found
-//   - RepositoryError: database query failed
-func (s *TaskService) GetDependencyTree(ctx context.Context, key string) (*DependencyTree, error) {
-	return s.getOrInitDependencyService().GetDependencyTree(ctx, key)
+	if len(dependents) == 0 {
+		return nil
+	}
+
+	for _, dep := range dependents {
+		if dep.Status != models.TaskStatus("completed") {
+			return fmt.Errorf("dependency not met: task %s depends on %s which is in status %s (must be completed)", key, dep.Key, dep.Status)
+		}
+	}
+
+	return nil
 }
 
 // makeResolveActionFn returns a ResolveActionFn callback that generates
@@ -775,90 +701,6 @@ func (s *TaskService) GetTasksByAgent(ctx context.Context, filters TaskFilters) 
 	return s.getOrInitQueryService().GetTasksByAgent(ctx, filters)
 }
 
-// SetDepRepo sets the dependency repository on the service.
-// This is used when the service is created via NewTaskService (which does not accept depRepo)
-// but the caller needs dependency management functionality (e.g., AddDependency, RemoveDependency).
-func (s *TaskService) SetDepRepo(depRepo TaskDependencyRepository) {
-	s.depRepo = depRepo
-	if s.dependencyService != nil {
-		s.dependencyService.SetDepRepo(depRepo)
-	}
-}
-
-// AddDependency creates a dependency relationship between two tasks.
-// The task identified by taskKey will depend on the task identified by depKey,
-// meaning depKey must be completed before taskKey can proceed.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the key of the dependent task (e.g., "E07-F01-002")
-//   - depKey: the key of the dependency task (e.g., "E07-F01-001")
-//
-// Returns:
-//   - error: validation errors (task not found, self-dependency) or repository errors
-//
-// Errors:
-//   - NotFoundError: task or dependency task not found
-//   - ValidationError: task cannot depend on itself
-//   - RepositoryError: database operation failed
-func (s *TaskService) AddDependency(ctx context.Context, taskKey, depKey string) error {
-	return s.getOrInitDependencyService().AddDependency(ctx, taskKey, depKey)
-}
-
-// RemoveDependency removes a dependency relationship between two tasks.
-// The dependency from taskKey to depKey will be removed.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the key of the dependent task (e.g., "E07-F01-002")
-//   - depKey: the key of the dependency task to remove (e.g., "E07-F01-001")
-//
-// Returns:
-//   - error: validation errors (task not found) or repository errors
-//
-// Errors:
-//   - NotFoundError: task or dependency task not found
-//   - RepositoryError: database operation failed or dependency does not exist
-func (s *TaskService) RemoveDependency(ctx context.Context, taskKey, depKey string) error {
-	return s.getOrInitDependencyService().RemoveDependency(ctx, taskKey, depKey)
-}
-
-// ListDependencies returns all tasks that the given task depends on.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the key of the task to list dependencies for
-//
-// Returns:
-//   - []*models.Task: the tasks that taskKey depends on
-//   - error: validation errors (task not found) or repository errors
-//
-// Errors:
-//   - NotFoundError: task not found
-//   - RepositoryError: database operation failed
-func (s *TaskService) ListDependencies(ctx context.Context, taskKey string) ([]*models.Task, error) {
-	return s.getOrInitDependencyService().ListDependencies(ctx, taskKey)
-}
-
-// UnlinkFile removes all outgoing typed relationships from the given task.
-// This is used to unlink a task from relationships it depends on or blocks.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the key of the task to unlink relationships from
-//   - relType: the relationship type to remove (e.g., "depends_on", "blocks")
-//   - targetKey: the key of the target task to unlink from
-//
-// Returns:
-//   - error: validation errors (task not found) or repository errors
-//
-// Errors:
-//   - NotFoundError: task or target task not found
-//   - RepositoryError: database operation failed
-func (s *TaskService) UnlinkFile(ctx context.Context, taskKey, relType, targetKey string) error {
-	return s.getOrInitDependencyService().UnlinkFile(ctx, taskKey, relType, targetKey)
-}
-
 // GetBlockedTasks returns all blocked tasks matching the given filters.
 //
 // Parameters:
@@ -873,39 +715,6 @@ func (s *TaskService) UnlinkFile(ctx context.Context, taskKey, relType, targetKe
 //   - RepositoryError: database query failed
 func (s *TaskService) GetBlockedTasks(ctx context.Context, filters TaskFilters) ([]*models.Task, error) {
 	return s.getOrInitQueryService().GetBlockedTasks(ctx, filters)
-}
-
-// UnlinkRelationships removes relationship links between tasks.
-// If targetKeys is empty, all relationships of the given type are removed.
-// If targetKeys has entries, only those specific relationships are removed.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the source task key
-//   - relType: the relationship type to unlink
-//   - targetKeys: specific target task keys (empty = remove all of relType)
-//
-// Returns:
-//   - int: number of relationships removed
-//   - error: if task not found, dependency repo not configured, or database operation fails
-func (s *TaskService) UnlinkRelationships(ctx context.Context, taskKey, relType string, targetKeys []string) (int, error) {
-	return s.getOrInitDependencyService().UnlinkRelationships(ctx, taskKey, relType, targetKeys)
-}
-
-// CreateTypedRelationship creates a typed relationship between two tasks.
-// For depends_on and blocks relationships, circular dependency detection is performed.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the source task key (e.g., "E07-F01-002")
-//   - targetKey: the target task key (e.g., "E07-F01-001")
-//   - relType: the relationship type (depends_on, blocks, related_to, follows, spawned_from, duplicates, references)
-//
-// Returns:
-//   - *models.Task: the resolved target task (for display purposes)
-//   - error: task not found, circular dependency, or repository errors
-func (s *TaskService) CreateTypedRelationship(ctx context.Context, taskKey, targetKey, relType string) (*models.Task, error) {
-	return s.getOrInitDependencyService().CreateTypedRelationship(ctx, taskKey, targetKey, relType)
 }
 
 // SearchByFile finds tasks that reference or are related to the given file path,
@@ -923,21 +732,23 @@ func (s *TaskService) SearchByFile(ctx context.Context, filePath string, filters
 	return s.getOrInitQueryService().SearchByFile(ctx, filePath, filters)
 }
 
-// SetRelQueryRepo sets the relationship query repository for dep/blocked-by/blocks commands.
-// This is optional; commands needing relationship queries must call this before use.
-func (s *TaskService) SetRelQueryRepo(relQueryRepo TaskRelationshipQueryRepository) {
-	s.relQueryRepo = relQueryRepo
-	if s.dependencyService != nil {
-		s.dependencyService.SetRelQueryRepo(relQueryRepo)
-	}
-}
-
 // SetWritableDocRepo sets the writable document repository for link/unlink operations.
 // This is optional; commands needing document write operations must call this before use.
 func (s *TaskService) SetWritableDocRepo(writableRepo EntityDocumentRepository, linkRepo EntityDocumentLinkRepository) {
-	if s.dependencyService != nil {
-		s.dependencyService.SetWritableDocRepo(writableRepo, linkRepo)
-	}
+	s.docSvc = NewEntityDocumentService(
+		writableRepo,
+		linkRepo,
+		EntityLookupFnFromRepo(&taskSvcKeyLookup{repo: s.repo}),
+	)
+}
+
+// taskSvcKeyLookup adapts TaskRepository to EntityKeyLookup.
+type taskSvcKeyLookup struct {
+	repo TaskRepository
+}
+
+func (a *taskSvcKeyLookup) GetByKey(ctx context.Context, key string) (models.Entity, error) {
+	return a.repo.GetByKey(ctx, key)
 }
 
 // GetTaskRepository returns the task repository for use by tree traversal functions.
@@ -965,55 +776,6 @@ func (s *TaskService) GetTaskByID(ctx context.Context, id int64) (*models.Task, 
 	return task, nil
 }
 
-// GetRelQueryRepo returns the relationship query repository for use by tree traversal functions.
-// Returns nil if relationship queries are not configured.
-func (s *TaskService) GetRelQueryRepo() TaskRelationshipQueryRepository {
-	return s.relQueryRepo
-}
-
-// GetTaskRelationships retrieves all relationships for a task, optionally filtered by type.
-// Returns relationship records enriched with the related task's key, title, and status.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the task key to query relationships for
-//   - typeFilter: optional list of relationship types to include (empty = all types)
-//
-// Returns:
-//   - []RelationshipWithTask: relationship records with related task info
-//   - error: if task not found, relQueryRepo not configured, or database operation fails
-func (s *TaskService) GetTaskRelationships(ctx context.Context, taskKey string, typeFilter []string) ([]RelationshipWithTask, error) {
-	return s.getOrInitDependencyService().GetTaskRelationships(ctx, taskKey, typeFilter)
-}
-
-// GetTaskBlockedBy retrieves tasks that this task depends on (incoming dependencies).
-// These are the tasks that must be completed before this task can proceed.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the task key to query dependencies for
-//
-// Returns:
-//   - []RelationshipWithTask: tasks this task depends on
-//   - error: if task not found, relQueryRepo not configured, or database operation fails
-func (s *TaskService) GetTaskBlockedBy(ctx context.Context, taskKey string) ([]RelationshipWithTask, error) {
-	return s.getOrInitDependencyService().GetTaskBlockedBy(ctx, taskKey)
-}
-
-// GetTaskBlocks retrieves tasks that depend on this task completing.
-// Includes both implicit (depends_on this task) and explicit (blocks relationship) dependents.
-//
-// Parameters:
-//   - ctx: context for cancellation and timeout
-//   - taskKey: the task key to query
-//
-// Returns:
-//   - []RelationshipWithTask: tasks blocked by this task
-//   - error: if task not found, relQueryRepo not configured, or database operation fails
-func (s *TaskService) GetTaskBlocks(ctx context.Context, taskKey string) ([]RelationshipWithTask, error) {
-	return s.getOrInitDependencyService().GetTaskBlocks(ctx, taskKey)
-}
-
 // LinkDocument links a document to a task, creating the document record if it doesn't exist.
 //
 // Parameters:
@@ -1026,7 +788,10 @@ func (s *TaskService) GetTaskBlocks(ctx context.Context, taskKey string) ([]Rela
 //   - *models.Document: the created or retrieved document
 //   - error: if task not found, writableDocRepo not configured, or database operation fails
 func (s *TaskService) LinkDocument(ctx context.Context, taskKey, title, path string) (*models.Document, error) {
-	return s.getOrInitDependencyService().LinkDocument(ctx, taskKey, title, path)
+	if s.docSvc == nil {
+		return nil, fmt.Errorf("writable document repository not configured")
+	}
+	return s.docSvc.LinkDocumentByKey(ctx, taskKey, title, path)
 }
 
 // UnlinkDocument removes the link between a document and a task.
@@ -1040,7 +805,10 @@ func (s *TaskService) LinkDocument(ctx context.Context, taskKey, title, path str
 // Returns:
 //   - error: if task not found, writableDocRepo not configured, or database operation fails
 func (s *TaskService) UnlinkDocument(ctx context.Context, taskKey, title string) error {
-	return s.getOrInitDependencyService().UnlinkDocument(ctx, taskKey, title)
+	if s.docSvc == nil {
+		return fmt.Errorf("writable document repository not configured")
+	}
+	return s.docSvc.UnlinkDocumentByKey(ctx, taskKey, title)
 }
 
 // ListRelatedDocuments retrieves all documents linked to a task.
