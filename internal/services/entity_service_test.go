@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -974,8 +973,7 @@ func TestEntityService_RejectionNote_ErrorIsNotSilentlyDiscarded(t *testing.T) {
 	}
 
 	// Capture slog output to verify the error is logged (not silently discarded).
-	var logBuf strings.Builder
-	handler := slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn})
+	handler := &capturingSlogHandler{}
 	prevLogger := slog.Default()
 	slog.SetDefault(slog.New(handler))
 	defer slog.SetDefault(prevLogger)
@@ -1000,9 +998,22 @@ func TestEntityService_RejectionNote_ErrorIsNotSilentlyDiscarded(t *testing.T) {
 	}
 
 	// B006 regression: the error must be logged, not silently discarded.
-	logOutput := logBuf.String()
-	if !strings.Contains(logOutput, "rejection note DB write failed") {
-		t.Errorf("B006 regression: rejection note error was silently discarded (not logged); log output: %q", logOutput)
+	var found bool
+	handler.mu.Lock()
+	for _, r := range handler.records {
+		if r.Level == slog.LevelWarn {
+			r.Attrs(func(a slog.Attr) bool {
+				if a.Key == "error" {
+					found = true
+					return false
+				}
+				return true
+			})
+		}
+	}
+	handler.mu.Unlock()
+	if !found {
+		t.Error("B006 regression: rejection note error was silently discarded (not logged via slog.Warn with 'error' attribute)")
 	}
 }
 

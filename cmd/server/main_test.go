@@ -102,8 +102,12 @@ func TestGracefulShutdown_StopsAcceptingNewConnections(t *testing.T) {
 		srvErr <- srv.Serve(ln)
 	}()
 
-	// Allow the goroutine to start serving.
-	time.Sleep(10 * time.Millisecond)
+	// Wait for the server to accept connections by dialing.
+	conn, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatalf("server did not start accepting connections: %v", err)
+	}
+	conn.Close()
 
 	// Trigger graceful shutdown with a short timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

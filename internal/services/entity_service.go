@@ -219,7 +219,6 @@ func (s *EntityService) TransitionStatus(
 	})
 
 	// Step 8: Create rejection note (opt-in, if backward/forced with reason)
-	// Non-blocking: errors are logged but not propagated (matches recordEntityHistory pattern).
 	if features.CreateRejectionNotes && s.noteRepo != nil && (isBackward || opts.Force) && opts.Reason != "" {
 		agent := opts.Agent
 		var docPath *string

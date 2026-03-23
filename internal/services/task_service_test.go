@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -2602,4 +2604,93 @@ func TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature(t *testing.T) {
 		assert.Equal(t, models.EntityTypeFeature, h.EntityType)
 		assert.Contains(t, *h.Notes, "auto-reopened")
 	}
+}
+
+// capturingSlogHandler is a slog.Handler that records all log records.
+// Safe for concurrent use from multiple goroutines.
+type capturingSlogHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *capturingSlogHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+func (h *capturingSlogHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	h.records = append(h.records, r)
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *capturingSlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler { return h }
+
+func (h *capturingSlogHandler) WithGroup(name string) slog.Handler { return h }
+
+// TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded is the
+// regression test for B005: error from RecalculateAndSetProgress must be logged as
+// a warning rather than silently discarded with `_ = err`.
+func TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded(t *testing.T) {
+	// Install a capturing slog handler so we can assert on log output.
+	handler := &capturingSlogHandler{}
+	origLogger := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(origLogger)
+
+	// Build a FeatureService whose RecalculateAndSetProgress returns an error by
+	// failing the task-status-breakdown repo call.
+	recalcErr := fmt.Errorf("simulated recalc DB error")
+	featureRepo := &mockFeatureRepo{
+		getByIDFn: func(ctx context.Context, id int64) (*models.Feature, error) {
+			return &models.Feature{
+				BaseEntity: models.BaseEntity{ID: id, Key: "E01-F01", Title: "Test Feature"},
+				Status:     "active",
+			}, nil
+		},
+		getTaskStatusBreakdownFn: func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+			return nil, recalcErr
+		},
+	}
+	wfSvc := workflow.NewService("")
+	featureSvc := NewFeatureService(featureRepo, NewEntityService(wfSvc), featureRepoAsEntityRepo(featureRepo), nil, nil)
+
+	// Build a TaskService wired to the above FeatureService.
+	taskKey := "E01-F01-001"
+	featureID := int64(42)
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: taskKey},
+				Status:     "todo",
+				FeatureID:  featureID,
+			}, nil
+		},
+		StatusUpdateRawFunc: func(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+			return nil, nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(wfSvc), nil)
+	svc.SetFeatureService(featureSvc)
+
+	// Call TransitionStatus to trigger the recalculateFeatureProgress post-hook.
+	_, err := svc.TransitionStatus(context.Background(), taskKey, "in_progress", TransitionOptions{})
+	// TransitionStatus itself should succeed (progress recalc failure is non-fatal).
+	assert.NoError(t, err)
+
+	// Assert that a warning was logged for the recalc error — NOT silently discarded.
+	var found bool
+	for _, r := range handler.records {
+		if r.Level == slog.LevelWarn {
+			r.Attrs(func(a slog.Attr) bool {
+				if a.Key == "error" {
+					found = true
+					return false
+				}
+				return true
+			})
+		}
+	}
+	assert.True(t, found,
+		"expected slog.Warn to be called with an 'error' attribute when RecalculateAndSetProgress fails, "+
+			"but no warning was logged — error was silently discarded (B005)")
 }

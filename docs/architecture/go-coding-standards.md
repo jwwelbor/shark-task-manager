@@ -176,9 +176,15 @@ func (s *TransferService) Execute(ctx context.Context, from, to string, amount i
     if err != nil { return fmt.Errorf("begin tx: %w", err) }
     defer tx.Rollback()
 
-    if err := s.accountRepo.DebitTx(ctx, tx, from, amount); err != nil { return err }
-    if err := s.accountRepo.CreditTx(ctx, tx, to, amount); err != nil { return err }
-    if err := s.ledgerRepo.RecordTx(ctx, tx, from, to, amount); err != nil { return err }
+    if err := s.accountRepo.DebitTx(ctx, tx, from, amount); err != nil {
+        return fmt.Errorf("debiting account %s: %w", from, err)
+    }
+    if err := s.accountRepo.CreditTx(ctx, tx, to, amount); err != nil {
+        return fmt.Errorf("crediting account %s: %w", to, err)
+    }
+    if err := s.ledgerRepo.RecordTx(ctx, tx, from, to, amount); err != nil {
+        return fmt.Errorf("recording ledger entry: %w", err)
+    }
 
     return tx.Commit()
 }
@@ -203,6 +209,9 @@ type MockOrderRepo struct {
     GetByKeyFunc func(ctx context.Context, key string) (*Order, error)
 }
 func (m *MockOrderRepo) GetByKey(ctx context.Context, key string) (*Order, error) {
+    if m.GetByKeyFunc == nil {
+        panic("MockOrderRepo.GetByKeyFunc: not implemented")
+    }
     return m.GetByKeyFunc(ctx, key)
 }
 ```
