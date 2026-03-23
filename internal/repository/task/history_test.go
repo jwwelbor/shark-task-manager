@@ -1,4 +1,4 @@
-package repository
+package task
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,7 @@ import (
 func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	historyRepo := NewTaskHistoryRepository(db)
 	taskRepo := NewTaskRepository(db)
 
@@ -76,7 +77,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		Agent:     &agent1,
 		Notes:     &notes1,
 	}
-	err = historyRepo.Create(ctx, history1) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history1)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond) // Ensure different timestamps
@@ -89,7 +90,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		Agent:     &agent1,
 		Notes:     &notes2,
 	}
-	err = historyRepo.Create(ctx, history2) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history2)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -102,7 +103,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		Agent:     &agent1,
 		Notes:     nil,
 	}
-	err = historyRepo.Create(ctx, history3) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history3)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -115,7 +116,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		Agent:     &agent2,
 		Notes:     nil,
 	}
-	err = historyRepo.Create(ctx, history4) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history4)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -128,7 +129,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		Agent:     &agent2,
 		Notes:     nil,
 	}
-	err = historyRepo.Create(ctx, history5) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history5)
 	require.NoError(t, err)
 
 	// Test 1: No filters - should return all history records (with limit)
@@ -136,7 +137,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		filters := HistoryFilters{
 			Limit: 50,
 		}
-		histories, err := historyRepo.ListWithFilters(ctx, filters) //nolint:staticcheck
+		histories, err := historyRepo.ListWithFilters(ctx, filters)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(histories), 5, "Should have at least 5 history records")
 	})
@@ -147,7 +148,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 			Agent: &agent1,
 			Limit: 50,
 		}
-		histories, err := historyRepo.ListWithFilters(ctx, filters) //nolint:staticcheck
+		histories, err := historyRepo.ListWithFilters(ctx, filters)
 		require.NoError(t, err)
 		assert.Equal(t, 3, len(histories), "Should have 3 records for agent1")
 		for _, h := range histories {
@@ -164,7 +165,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 			Since: &since,
 			Limit: 50,
 		}
-		histories, err := historyRepo.ListWithFilters(ctx, filters) //nolint:staticcheck
+		histories, err := historyRepo.ListWithFilters(ctx, filters)
 		require.NoError(t, err)
 		// Should have history2, history3, history4, history5 (and possibly others from other tests)
 		assert.GreaterOrEqual(t, len(histories), 4, "Should have at least 4 records since timestamp")
@@ -181,7 +182,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 			EpicKey: &epicKey,
 			Limit:   50,
 		}
-		histories, err := historyRepo.ListWithFilters(ctx, filters) //nolint:staticcheck
+		histories, err := historyRepo.ListWithFilters(ctx, filters)
 		require.NoError(t, err)
 		assert.Equal(t, 5, len(histories), "Should have 5 records for E99")
 	})
@@ -195,7 +196,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 			NewStatus: &newSt,
 			Limit:     50,
 		}
-		histories, err := historyRepo.ListWithFilters(ctx, filters) //nolint:staticcheck
+		histories, err := historyRepo.ListWithFilters(ctx, filters)
 		require.NoError(t, err)
 		assert.Equal(t, 2, len(histories), "Should have 2 todo->in_progress transitions")
 		for _, h := range histories {
@@ -213,7 +214,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 			EpicKey: &epicKey,
 			Limit:   50,
 		}
-		histories, err := historyRepo.ListWithFilters(ctx, filters) //nolint:staticcheck
+		histories, err := historyRepo.ListWithFilters(ctx, filters)
 		require.NoError(t, err)
 		assert.Equal(t, 3, len(histories), "Should have 3 records for agent1 in E99")
 	})
@@ -223,7 +224,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		filters1 := HistoryFilters{
 			Limit: 2,
 		}
-		page1, err := historyRepo.ListWithFilters(ctx, filters1) //nolint:staticcheck
+		page1, err := historyRepo.ListWithFilters(ctx, filters1)
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(page1), 2, "First page should have at most 2 records")
 
@@ -231,7 +232,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 			Offset: 2,
 			Limit:  2,
 		}
-		page2, err := historyRepo.ListWithFilters(ctx, filters2) //nolint:staticcheck
+		page2, err := historyRepo.ListWithFilters(ctx, filters2)
 		require.NoError(t, err)
 
 		// Ensure no overlap between pages (different IDs)
@@ -245,7 +246,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 		filters := HistoryFilters{
 			// No limit specified, should default to 50
 		}
-		histories, err := historyRepo.ListWithFilters(ctx, filters) //nolint:staticcheck
+		histories, err := historyRepo.ListWithFilters(ctx, filters)
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(histories), 50, "Should respect default limit of 50")
 	})
@@ -258,7 +259,7 @@ func TestTaskHistoryRepository_ListWithFilters(t *testing.T) {
 func TestTaskHistoryRepository_ListWithFilters_EmptyResults(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTaskHistoryRepository(db)
 
 	// Filter by non-existent agent
@@ -268,7 +269,7 @@ func TestTaskHistoryRepository_ListWithFilters_EmptyResults(t *testing.T) {
 		Limit: 50,
 	}
 
-	histories, err := repo.ListWithFilters(ctx, filters) //nolint:staticcheck
+	histories, err := repo.ListWithFilters(ctx, filters)
 	require.NoError(t, err)
 	assert.Empty(t, histories, "Should return empty slice for non-existent agent")
 }
@@ -277,7 +278,7 @@ func TestTaskHistoryRepository_ListWithFilters_EmptyResults(t *testing.T) {
 func TestGetHistoryByTaskKey(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	historyRepo := NewTaskHistoryRepository(db)
 	taskRepo := NewTaskRepository(db)
 
@@ -309,7 +310,7 @@ func TestGetHistoryByTaskKey(t *testing.T) {
 		Notes:     &notes1,
 	}
 
-	err = historyRepo.Create(ctx, history1) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history1)
 	if err != nil {
 		t.Fatalf("Failed to create history record 1: %v", err)
 	}
@@ -329,13 +330,13 @@ func TestGetHistoryByTaskKey(t *testing.T) {
 		Notes:     &notes2,
 	}
 
-	err = historyRepo.Create(ctx, history2) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history2)
 	if err != nil {
 		t.Fatalf("Failed to create history record 2: %v", err)
 	}
 
 	// Test GetHistoryByTaskKey - this method doesn't exist yet (RED phase)
-	histories, err := historyRepo.GetHistoryByTaskKey(ctx, "T-E99-F99-001") //nolint:staticcheck
+	histories, err := historyRepo.GetHistoryByTaskKey(ctx, "T-E99-F99-001")
 	if err != nil {
 		t.Fatalf("Failed to get history by task key: %v", err)
 	}
@@ -370,11 +371,11 @@ func TestGetHistoryByTaskKey(t *testing.T) {
 func TestGetHistoryByTaskKeyNotFound(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	historyRepo := NewTaskHistoryRepository(db)
 
 	// Try to get history for non-existent task
-	histories, err := historyRepo.GetHistoryByTaskKey(ctx, "T-E99-F99-999") //nolint:staticcheck
+	histories, err := historyRepo.GetHistoryByTaskKey(ctx, "T-E99-F99-999")
 
 	// Should not error, just return empty slice
 	assert.NoError(t, err)
@@ -385,7 +386,7 @@ func TestGetHistoryByTaskKeyNotFound(t *testing.T) {
 func TestGetHistoryByTaskKeyEmptyHistory(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	historyRepo := NewTaskHistoryRepository(db)
 	taskRepo := NewTaskRepository(db)
 
@@ -402,7 +403,7 @@ func TestGetHistoryByTaskKeyEmptyHistory(t *testing.T) {
 	}
 
 	// Get history - should be empty
-	histories, err := historyRepo.GetHistoryByTaskKey(ctx, "T-E99-F99-002") //nolint:staticcheck
+	histories, err := historyRepo.GetHistoryByTaskKey(ctx, "T-E99-F99-002")
 	assert.NoError(t, err)
 	assert.Empty(t, histories)
 
@@ -414,7 +415,7 @@ func TestGetHistoryByTaskKeyEmptyHistory(t *testing.T) {
 func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	historyRepo := NewTaskHistoryRepository(db)
 	taskRepo := NewTaskRepository(db)
 
@@ -461,12 +462,12 @@ func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 		RejectionReason: &rejectionReason,
 	}
 
-	err = historyRepo.Create(ctx, history) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history)
 	require.NoError(t, err)
 	require.NotZero(t, history.ID, "history ID should be set after creation")
 
 	// Verify the history record was created with rejection reason
-	retrieved, err := historyRepo.GetByID(ctx, history.ID) //nolint:staticcheck
+	retrieved, err := historyRepo.GetByID(ctx, history.ID)
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	assert.Equal(t, task.ID, retrieved.TaskID)
@@ -480,7 +481,7 @@ func TestTaskHistoryRepository_CreateWithRejectionReason(t *testing.T) {
 func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	historyRepo := NewTaskHistoryRepository(db)
 	taskRepo := NewTaskRepository(db)
 
@@ -525,12 +526,12 @@ func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
 		// RejectionReason is nil - not a rejection
 	}
 
-	err = historyRepo.Create(ctx, history) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history)
 	require.NoError(t, err)
 	require.NotZero(t, history.ID)
 
 	// Verify the history record was created without rejection reason
-	retrieved, err := historyRepo.GetByID(ctx, history.ID) //nolint:staticcheck
+	retrieved, err := historyRepo.GetByID(ctx, history.ID)
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	assert.Nil(t, retrieved.RejectionReason, "rejection reason should be nil for non-rejection transitions")
@@ -540,7 +541,7 @@ func TestTaskHistoryRepository_CreateWithoutRejectionReason(t *testing.T) {
 func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	historyRepo := NewTaskHistoryRepository(db)
 	taskRepo := NewTaskRepository(db)
 
@@ -583,7 +584,7 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 		NewStatus: string(models.TaskStatus("in_progress")),
 		Agent:     &agent1,
 	}
-	err = historyRepo.Create(ctx, history1) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history1)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -599,7 +600,7 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 		Agent:           &agent2,
 		RejectionReason: &rejectionReason2,
 	}
-	err = historyRepo.Create(ctx, history2) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history2)
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -615,11 +616,11 @@ func TestTaskHistoryRepository_GetRejectionHistoryForTask(t *testing.T) {
 		Agent:           &agent3,
 		RejectionReason: &rejectionReason3,
 	}
-	err = historyRepo.Create(ctx, history3) //nolint:staticcheck
+	err = historyRepo.Create(ctx, history3)
 	require.NoError(t, err)
 
 	// Get rejection history for task
-	rejections, err := historyRepo.GetRejectionHistoryForTask(ctx, task.ID) //nolint:staticcheck
+	rejections, err := historyRepo.GetRejectionHistoryForTask(ctx, task.ID)
 	require.NoError(t, err)
 	require.NotNil(t, rejections)
 

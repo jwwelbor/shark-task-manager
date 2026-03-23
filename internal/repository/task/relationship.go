@@ -1,4 +1,4 @@
-package repository
+package task
 
 import (
 	"context"
@@ -7,15 +7,16 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // TaskRelationshipRepository handles CRUD operations for task relationships
 type TaskRelationshipRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewTaskRelationshipRepository creates a new TaskRelationshipRepository
-func NewTaskRelationshipRepository(db *DB) *TaskRelationshipRepository {
+func NewTaskRelationshipRepository(db *dbconn.DB) *TaskRelationshipRepository {
 	return &TaskRelationshipRepository{db: db}
 }
 

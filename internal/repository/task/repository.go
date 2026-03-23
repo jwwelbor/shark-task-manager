@@ -20,7 +20,7 @@
 //	if err != nil {
 //	    return err
 //	}
-package repository
+package task
 
 import (
 	"context"
@@ -34,9 +34,12 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
+
+var tracer = repoutil.NewTracer("internal/repository/task")
 
 // NoteCreator is a minimal interface for creating rejection notes within a transaction.
 // It is defined here (in the task package scope) to avoid an import cycle between
@@ -54,26 +57,34 @@ type NoteCreator interface {
 
 // TaskRepository handles CRUD operations for tasks
 type TaskRepository struct {
-	db          *DB
+	db          *dbconn.DB
 	noteCreator NoteCreator // optional; nil means rejection notes are silently skipped
 }
 
 // newTaskRepositoryBase creates a TaskRepository with an explicit NoteCreator.
 // This is the internal constructor used by the public NewTaskRepository in aliases.go
 // and by NewTaskRepositoryWithNoteCreator.
-func newTaskRepositoryBase(db *DB, noteCreator NoteCreator) *TaskRepository {
+func newTaskRepositoryBase(db *dbconn.DB, noteCreator NoteCreator) *TaskRepository {
 	return &TaskRepository{
 		db:          db,
 		noteCreator: noteCreator,
 	}
 }
 
+// NewTaskRepository creates a TaskRepository without rejection note support.
+// This is the simple constructor for use within the task package and tests.
+// For full rejection note support, use NewTaskRepositoryWithNoteCreator or
+// the root package NewTaskRepository (defined in aliases.go).
+func NewTaskRepository(db *dbconn.DB) *TaskRepository {
+	return newTaskRepositoryBase(db, nil)
+}
+
 // NewTaskRepositoryWithNoteCreator creates a TaskRepository with explicit rejection note support.
 // When noteCreator is non-nil, rejection notes are created on forced status updates.
 // When noteCreator is nil, rejection note creation is silently skipped (graceful degradation).
-// Most callers should use NewTaskRepository (defined in aliases.go) which automatically wires
-// note.EntityNoteRepository as the NoteCreator.
-func NewTaskRepositoryWithNoteCreator(db *DB, noteCreator NoteCreator) *TaskRepository {
+// Most callers should use the root package NewTaskRepository (defined in aliases.go) which
+// automatically wires note.EntityNoteRepository as the NoteCreator.
+func NewTaskRepositoryWithNoteCreator(db *dbconn.DB, noteCreator NoteCreator) *TaskRepository {
 	return newTaskRepositoryBase(db, noteCreator)
 }
 
@@ -81,20 +92,20 @@ func NewTaskRepositoryWithNoteCreator(db *DB, noteCreator NoteCreator) *TaskRepo
 // Deprecated: The workflow parameter is ignored. Use NewTaskRepository instead.
 // This constructor is kept temporarily for backward compatibility with callers
 // that pass a workflow config. It will be removed in a future cleanup.
-func NewTaskRepositoryWithWorkflow(db *DB, _ *config.WorkflowConfig) *TaskRepository {
+func NewTaskRepositoryWithWorkflow(db *dbconn.DB, _ *config.WorkflowConfig) *TaskRepository {
 	return newTaskRepositoryBase(db, nil)
 }
 
 // Create creates a new task
 func (r *TaskRepository) Create(ctx context.Context, task *models.Task) (retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.Create",
+	ctx, span := tracer.Start(ctx, "TaskRepository.Create",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "INSERT"),
 			attribute.String("db.table", "tasks"),
 			attribute.String("db.key", task.Key),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -149,14 +160,14 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) (retErr 
 
 // GetByID retrieves a task by its ID
 func (r *TaskRepository) GetByID(ctx context.Context, id int64) (_ *models.Task, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.GetByID",
+	ctx, span := tracer.Start(ctx, "TaskRepository.GetByID",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "SELECT"),
 			attribute.String("db.table", "tasks"),
 			attribute.Int64("db.id", id),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
@@ -253,14 +264,14 @@ func (r *TaskRepository) GetByIDs(ctx context.Context, ids []int64) ([]*models.T
 // 1. Try exact match on the key column (handles legacy numeric keys)
 // 2. If not found and key contains a slug suffix, parse and match numeric key + slug
 func (r *TaskRepository) GetByKey(ctx context.Context, key string) (_ *models.Task, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.GetByKey",
+	ctx, span := tracer.Start(ctx, "TaskRepository.GetByKey",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "SELECT"),
 			attribute.String("db.table", "tasks"),
 			attribute.String("db.key", key),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	if key == "" {
 		return nil, fmt.Errorf("task key cannot be empty")
@@ -491,14 +502,14 @@ func (r *TaskRepository) UpdateFilePath(ctx context.Context, taskKey string, new
 
 // ListByFeature retrieves all tasks for a feature
 func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) (_ []*models.Task, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.ListByFeature",
+	ctx, span := tracer.Start(ctx, "TaskRepository.ListByFeature",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "SELECT"),
 			attribute.String("db.table", "tasks"),
 			attribute.Int64("db.feature_id", featureID),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
@@ -535,14 +546,14 @@ func (r *TaskRepository) ListByFeatureKey(ctx context.Context, featureKey string
 
 // ListByEpic retrieves all tasks for an epic (via features)
 func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) (_ []*models.Task, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.ListByEpic",
+	ctx, span := tracer.Start(ctx, "TaskRepository.ListByEpic",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "SELECT"),
 			attribute.String("db.table", "tasks"),
 			attribute.String("db.key", epicKey),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
@@ -613,13 +624,13 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType string
 
 // FilterCombined retrieves tasks with multiple filter criteria
 func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *string, maxPriority *int) (_ []*models.Task, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.FilterCombined",
+	ctx, span := tracer.Start(ctx, "TaskRepository.FilterCombined",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "SELECT"),
 			attribute.String("db.table", "tasks"),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
@@ -696,13 +707,13 @@ func (r *TaskRepository) ListByKeyPrefix(ctx context.Context, prefix string) ([]
 
 // List retrieves all tasks
 func (r *TaskRepository) List(ctx context.Context) (_ []*models.Task, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.List",
+	ctx, span := tracer.Start(ctx, "TaskRepository.List",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "SELECT"),
 			attribute.String("db.table", "tasks"),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
@@ -724,14 +735,14 @@ func (r *TaskRepository) List(ctx context.Context) (_ []*models.Task, retErr err
 
 // Update updates an existing task
 func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.Update",
+	ctx, span := tracer.Start(ctx, "TaskRepository.Update",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "UPDATE"),
 			attribute.String("db.table", "tasks"),
 			attribute.String("db.key", task.Key),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -773,10 +784,10 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr 
 			return fmt.Errorf("failed to list tasks for cascade: %w", err)
 		}
 
-		// Convert to orderedItem format
-		var items []orderedItem
+		// Convert to repoutil.OrderedItem format
+		var items []repoutil.OrderedItem
 		for _, t := range allTasks {
-			items = append(items, orderedItem{
+			items = append(items, repoutil.OrderedItem{
 				ID:             t.ID,
 				ExecutionOrder: t.ExecutionOrder,
 			})
@@ -924,7 +935,7 @@ func (r *TaskRepository) listByFeatureInTx(ctx context.Context, tx *sql.Tx, feat
 
 // UpdateStatus atomically updates task status, timestamps, and creates history record
 func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) (retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.UpdateStatus",
+	ctx, span := tracer.Start(ctx, "TaskRepository.UpdateStatus",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "UPDATE"),
@@ -932,7 +943,7 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 			attribute.Int64("db.id", taskID),
 			attribute.String("db.new_status", string(newStatus)),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	// For backward transitions, use notes as rejection reason if provided
 	// This maintains API compatibility while supporting the rejection reason requirement
@@ -941,7 +952,7 @@ func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStat
 
 // UpdateStatusForced atomically updates task status with optional validation bypass
 func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) (retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.UpdateStatusForced",
+	ctx, span := tracer.Start(ctx, "TaskRepository.UpdateStatusForced",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "UPDATE"),
@@ -949,7 +960,7 @@ func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, n
 			attribute.Int64("db.id", taskID),
 			attribute.String("db.new_status", string(newStatus)),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	_, err := r.updateStatusForcedInternal(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
 	return err
@@ -1227,14 +1238,14 @@ func (r *TaskRepository) getOrchestratorAction(ctx context.Context, task *models
 
 // Delete deletes a task (and its history via CASCADE)
 func (r *TaskRepository) Delete(ctx context.Context, id int64) (retErr error) {
-	ctx, span := repoTracer.Start(ctx, "TaskRepository.Delete",
+	ctx, span := tracer.Start(ctx, "TaskRepository.Delete",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "DELETE"),
 			attribute.String("db.table", "tasks"),
 			attribute.Int64("db.id", id),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := "DELETE FROM tasks WHERE id = ?"
 

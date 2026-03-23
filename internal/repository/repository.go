@@ -1,26 +1,18 @@
 package repository
 
 import (
-	"context"
-	"database/sql"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
-// DB wraps the database connection for repositories
-type DB struct {
-	*sql.DB
-}
+// DB is the canonical database connection type for all repositories.
+// It is a type alias for dbconn.DB, making dbconn.DB the single source
+// of truth while preserving full backward compatibility: all existing code
+// that uses *repository.DB continues to work without modification.
+//
+// Type aliases (type T = U) are resolved at compile time with zero runtime
+// overhead. Assignment and type assertion compatibility is preserved.
+type DB = dbconn.DB
 
-// NewDB creates a new DB instance
-func NewDB(db *sql.DB) *DB {
-	return &DB{db}
-}
-
-// BeginTxContext starts a new transaction with context
-func (db *DB) BeginTxContext(ctx context.Context) (*sql.Tx, error) {
-	return db.DB.BeginTx(ctx, nil)
-}
-
-// BeginTx starts a new transaction (deprecated: use BeginTxContext)
-func (db *DB) BeginTx() (*sql.Tx, error) {
-	return db.Begin()
-}
+// NewDB creates a new DB instance wrapping the provided *sql.DB.
+// All callers of repository.NewDB continue to work unchanged via this alias.
+var NewDB = dbconn.NewDB

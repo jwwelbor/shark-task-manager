@@ -1,4 +1,4 @@
-package repository
+package epic
 
 import (
 	"context"
@@ -7,15 +7,16 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // EpicRelationshipRepository handles CRUD operations for epic relationships
 type EpicRelationshipRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewEpicRelationshipRepository creates a new EpicRelationshipRepository
-func NewEpicRelationshipRepository(db *DB) *EpicRelationshipRepository {
+func NewEpicRelationshipRepository(db *dbconn.DB) *EpicRelationshipRepository {
 	return &EpicRelationshipRepository{db: db}
 }
 

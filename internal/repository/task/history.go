@@ -1,4 +1,4 @@
-package repository
+package task
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // Deprecated: Use EntityHistoryFilters instead.
@@ -25,12 +26,12 @@ type HistoryFilters struct {
 // Deprecated: Use EntityHistoryRepository instead.
 // TaskHistoryRepository handles CRUD operations for task history.
 type TaskHistoryRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // Deprecated: Use NewEntityHistoryRepository instead.
 // NewTaskHistoryRepository creates a new TaskHistoryRepository.
-func NewTaskHistoryRepository(db *DB) *TaskHistoryRepository {
+func NewTaskHistoryRepository(db *dbconn.DB) *TaskHistoryRepository {
 	return &TaskHistoryRepository{db: db}
 }
 

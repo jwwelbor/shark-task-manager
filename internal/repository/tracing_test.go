@@ -11,7 +11,10 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	epicpkg "github.com/jwwelbor/shark-task-manager/internal/repository/epic"
+	featurepkg "github.com/jwwelbor/shark-task-manager/internal/repository/feature"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/note"
+	taskpkg "github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
 
@@ -38,7 +41,19 @@ func setupTracingTest(t *testing.T) *tracetest.InMemoryExporter {
 	// note.EntityNoteRepository are captured by the in-memory exporter.
 	restoreNoteTracer := note.SetTracerForTesting(tp.Tracer("internal/repository/note"))
 
+	// Re-initialize the Phase 4 sub-package tracers (epic, feature, task).
+	// These repositories were moved to dedicated sub-packages in Phase 4 and each
+	// maintain their own package-level tracer. Replacing them here ensures spans
+	// emitted by EpicRepository, FeatureRepository, and TaskRepository are
+	// captured by the in-memory exporter during tracing tests.
+	restoreTaskTracer := taskpkg.SetTracerForTesting(tp.Tracer("internal/repository/task"))
+	restoreFeatureTracer := featurepkg.SetTracerForTesting(tp.Tracer("internal/repository/feature"))
+	restoreEpicTracer := epicpkg.SetTracerForTesting(tp.Tracer("internal/repository/epic"))
+
 	t.Cleanup(func() {
+		restoreEpicTracer()
+		restoreFeatureTracer()
+		restoreTaskTracer()
 		restoreNoteTracer()
 		repoTracer = prevTracer
 		otel.SetTracerProvider(prevProvider)

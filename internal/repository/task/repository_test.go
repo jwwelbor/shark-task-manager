@@ -1,4 +1,4 @@
-package repository
+package task
 
 import (
 	"context"
@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/epic"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/feature"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,10 +19,10 @@ import (
 func TestTaskRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTaskRepository(db)
-	epicRepo := NewEpicRepository(db)
-	featureRepo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
 
 	// Clean up test data first
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E95-F01-001'")
@@ -86,9 +89,9 @@ func TestTaskRepository_Create_GeneratesAndStoresSlug(t *testing.T) {
 func TestTaskRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTaskRepository(db)
-	epicRepo := NewEpicRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
 
 	// Clean up test data first
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E97-F01-001', 'T-E97-F01-002', 'T-E97-F01-003')")
@@ -111,7 +114,7 @@ func TestTaskRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 	}()
 
 	// Create a dedicated test feature
-	featureRepo := NewFeatureRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
 	testFeature := &models.Feature{BaseEntity: models.BaseEntity{Key: "E97-F01",
 		Title: "Test Feature for Task Slugs"}, EpicID: testEpic.ID,
 
@@ -171,10 +174,10 @@ func TestTaskRepository_Create_SlugHandlesSpecialCharacters(t *testing.T) {
 func TestTaskRepository_UpdateCascadesOrder(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	taskRepo := NewTaskRepository(db)
-	epicRepo := NewEpicRepository(db)
-	featureRepo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
 
 	// Clean up test data first
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-F01-%'")
@@ -280,10 +283,10 @@ func TestTaskRepository_UpdateCascadesOrder(t *testing.T) {
 func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTaskRepository(db)
-	epicRepo := NewEpicRepository(db)
-	featureRepo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
 
 	// Clean up test data first (use unique numbers to avoid conflicts)
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E98-F98%%'")
@@ -467,7 +470,7 @@ func TestTaskRepository_UpdateStatus_BackwardTransitionRequiresReason(t *testing
 func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTaskRepository(db)
 	historyRepo := NewTaskHistoryRepository(db)
 
@@ -514,7 +517,7 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	require.Equal(t, models.TaskStatus("in_progress"), updatedTask.Status, "Task status should be updated")
 
 	// Verify rejection reason was stored in history
-	history, err := historyRepo.ListByTask(ctx, task.ID) //nolint:staticcheck
+	history, err := historyRepo.ListByTask(ctx, task.ID)
 	require.NoError(t, err, "Failed to retrieve task history")
 	require.NotEmpty(t, history, "History should have at least one entry")
 
@@ -538,10 +541,10 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 func TestTaskRepository_GetByIDs(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTaskRepository(db)
-	epicRepo := NewEpicRepository(db)
-	featureRepo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+	featureRepo := feature.NewFeatureRepository(db)
 
 	// Clean up test data first
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E95-F17-%'")

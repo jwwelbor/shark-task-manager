@@ -1,4 +1,4 @@
-package repository
+package feature
 
 import (
 	"context"
@@ -7,15 +7,16 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // FeatureRelationshipRepository handles CRUD operations for feature relationships
 type FeatureRelationshipRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewFeatureRelationshipRepository creates a new FeatureRelationshipRepository
-func NewFeatureRelationshipRepository(db *DB) *FeatureRelationshipRepository {
+func NewFeatureRelationshipRepository(db *dbconn.DB) *FeatureRelationshipRepository {
 	return &FeatureRelationshipRepository{db: db}
 }
 

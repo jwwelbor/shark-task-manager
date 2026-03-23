@@ -10,6 +10,9 @@ package repository
 //
 // Phase 3 aliases: note sub-package (EntityNoteRepository) extracted from root.
 // Compile-time check verifies note.EntityNoteRepository satisfies NoteCreator.
+//
+// Phase 4 aliases: core entity repositories (epic, feature, task) extracted
+// from root into dedicated sub-packages.
 
 import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/bug"
@@ -18,9 +21,12 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entitydoc"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityrel"
+	epicpkg "github.com/jwwelbor/shark-task-manager/internal/repository/epic"
+	featurepkg "github.com/jwwelbor/shark-task-manager/internal/repository/feature"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/search"
+	taskpkg "github.com/jwwelbor/shark-task-manager/internal/repository/task"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/templateenrich"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
 )
@@ -162,6 +168,66 @@ type RejectionHistoryEntry = note.RejectionHistoryEntry
 // NewEntityNoteRepository creates a new EntityNoteRepository. Existing callers are unaffected.
 var NewEntityNoteRepository = note.NewEntityNoteRepository
 
+// --- Epic (Phase 4) ---
+
+// EpicRepository is an alias for epicpkg.EpicRepository.
+type EpicRepository = epicpkg.EpicRepository
+
+// EpicDisplayDataRaw is an alias for epicpkg.EpicDisplayDataRaw.
+type EpicDisplayDataRaw = epicpkg.EpicDisplayDataRaw
+
+// FeatureProgressData is an alias for epicpkg.FeatureProgressData.
+type FeatureProgressData = epicpkg.FeatureProgressData
+
+// EpicRelationshipRepository is an alias for epicpkg.EpicRelationshipRepository.
+type EpicRelationshipRepository = epicpkg.EpicRelationshipRepository
+
+// NewEpicRepository creates a new EpicRepository. Existing callers are unaffected.
+var NewEpicRepository = epicpkg.NewEpicRepository
+
+// NewEpicRelationshipRepository creates a new EpicRelationshipRepository. Existing callers are unaffected.
+var NewEpicRelationshipRepository = epicpkg.NewEpicRelationshipRepository
+
+// --- Feature (Phase 4) ---
+
+// FeatureRepository is an alias for featurepkg.FeatureRepository.
+type FeatureRepository = featurepkg.FeatureRepository
+
+// FeatureDisplayDataRaw is an alias for featurepkg.FeatureDisplayDataRaw.
+type FeatureDisplayDataRaw = featurepkg.FeatureDisplayDataRaw
+
+// FeatureRelationshipRepository is an alias for featurepkg.FeatureRelationshipRepository.
+type FeatureRelationshipRepository = featurepkg.FeatureRelationshipRepository
+
+// NewFeatureRepository creates a new FeatureRepository. Existing callers are unaffected.
+var NewFeatureRepository = featurepkg.NewFeatureRepository
+
+// NewFeatureRelationshipRepository creates a new FeatureRelationshipRepository. Existing callers are unaffected.
+var NewFeatureRelationshipRepository = featurepkg.NewFeatureRelationshipRepository
+
+// --- Task (Phase 4) ---
+
+// NoteCreator is an alias for taskpkg.NoteCreator.
+// Existing callers using repository.NoteCreator are unaffected.
+type NoteCreator = taskpkg.NoteCreator
+
+// TaskRepository is an alias for taskpkg.TaskRepository.
+type TaskRepository = taskpkg.TaskRepository
+
+// TaskDisplayDataRaw is an alias for taskpkg.TaskDisplayDataRaw.
+type TaskDisplayDataRaw = taskpkg.TaskDisplayDataRaw
+
+// TaskRelationshipRepository is an alias for taskpkg.TaskRelationshipRepository.
+type TaskRelationshipRepository = taskpkg.TaskRelationshipRepository
+
+// HistoryFilters is an alias for taskpkg.HistoryFilters.
+// Deprecated: Use EntityHistoryFilters from entityhistory package instead.
+type HistoryFilters = taskpkg.HistoryFilters //nolint:staticcheck
+
+// TaskHistoryRepository is an alias for taskpkg.TaskHistoryRepository.
+// Deprecated: Use EntityHistoryRepository from entityhistory package instead.
+type TaskHistoryRepository = taskpkg.TaskHistoryRepository //nolint:staticcheck
+
 // NewTaskRepository creates a TaskRepository with rejection note support automatically wired.
 // This is the canonical public constructor for TaskRepository. It wires note.EntityNoteRepository
 // as the NoteCreator so that rejection notes are persisted on forced status updates.
@@ -169,10 +235,25 @@ var NewEntityNoteRepository = note.NewEntityNoteRepository
 // Callers that do not need rejection note support can use NewTaskRepositoryWithNoteCreator(db, nil).
 func NewTaskRepository(db *DB) *TaskRepository {
 	noteRepo := note.NewEntityNoteRepository(db)
-	return NewTaskRepositoryWithNoteCreator(db, noteRepo)
+	return taskpkg.NewTaskRepositoryWithNoteCreator(db, noteRepo)
 }
 
+// NewTaskRepositoryWithNoteCreator creates a TaskRepository with explicit rejection note support.
+// Existing callers are unaffected.
+var NewTaskRepositoryWithNoteCreator = taskpkg.NewTaskRepositoryWithNoteCreator
+
+// NewTaskRepositoryWithWorkflow creates a TaskRepository (workflow param ignored).
+// Deprecated: Use NewTaskRepository instead.
+var NewTaskRepositoryWithWorkflow = taskpkg.NewTaskRepositoryWithWorkflow
+
+// NewTaskRelationshipRepository creates a new TaskRelationshipRepository. Existing callers are unaffected.
+var NewTaskRelationshipRepository = taskpkg.NewTaskRelationshipRepository
+
+// NewTaskHistoryRepository creates a new TaskHistoryRepository. Existing callers are unaffected.
+// Deprecated: Use NewEntityHistoryRepository from entityhistory package instead.
+var NewTaskHistoryRepository = taskpkg.NewTaskHistoryRepository //nolint:staticcheck
+
 // Compile-time check: note.EntityNoteRepository must satisfy the NoteCreator interface
-// defined in task_repository.go. This guarantees that the wiring in NewTaskRepository above
+// from the task sub-package. This guarantees that the wiring in NewTaskRepository above
 // is type-safe at compile time.
 var _ NoteCreator = (*note.EntityNoteRepository)(nil)
