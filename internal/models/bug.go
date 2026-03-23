@@ -31,11 +31,17 @@ var ValidBugSeverities = map[BugSeverity]bool{
 
 // Bug represents a bug report entity.
 type Bug struct {
-	BaseEntity                   // 9 shared fields + 10 accessor methods
-	Status           BugStatus   `json:"status" db:"status"`
-	Severity         BugSeverity `json:"severity" db:"severity"`
-	LinkedEntityType *string     `json:"linked_entity_type,omitempty" db:"linked_entity_type"` // "epic", "feature", "task"
-	LinkedEntityKey  *string     `json:"linked_entity_key,omitempty" db:"linked_entity_key"`
+	BaseEntity             // 9 shared fields + 10 accessor methods
+	Status     BugStatus   `json:"status" db:"status"`
+	Severity   BugSeverity `json:"severity" db:"severity"`
+	// LEGACY: LinkedEntityType is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	LinkedEntityType *string `json:"linked_entity_type,omitempty" db:"linked_entity_type"` // "epic", "feature", "task"
+	// LEGACY: LinkedEntityKey is a legacy field for direct entity linking.
+	// Migrate to entity_relationships table via EntityRelationshipService.
+	// This field will be removed once all callers are migrated.
+	LinkedEntityKey *string `json:"linked_entity_key,omitempty" db:"linked_entity_key"`
 }
 
 // bugKeyPattern matches B followed by exactly 3 digits.

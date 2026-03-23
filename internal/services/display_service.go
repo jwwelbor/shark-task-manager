@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -103,7 +103,7 @@ type DisplayServiceDeps struct {
 	TaskRepo               *repository.TaskRepository
 	DocumentRepo           config.DocumentRepository
 	NoteRepo               *repository.EntityNoteRepository
-	TaskRelRepo            *repository.TaskRelationshipRepository
+	TaskRelRepo            config.TaskRelationshipRepository
 	FeatureRelRepo         *repository.FeatureRelationshipRepository
 	EpicRelRepo            *repository.EpicRelationshipRepository
 	TemplateEnrichmentRepo *repository.TemplateEnrichmentRepository
@@ -129,7 +129,7 @@ func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *Displa
 			TaskRepo:               repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
 			DocumentRepo:           repository.NewPolymorphicDocRepoAdapter(repository.NewEntityDocumentRepository(db)),
 			NoteRepo:               repository.NewEntityNoteRepository(db),
-			TaskRelRepo:            repository.NewTaskRelationshipRepository(db),
+			TaskRelRepo:            repository.NewEntityRelTaskKeyAdapter(db),
 			FeatureRelRepo:         repository.NewFeatureRelationshipRepository(db),
 			EpicRelRepo:            repository.NewEpicRelationshipRepository(db),
 			TemplateEnrichmentRepo: repository.NewTemplateEnrichmentRepository(db),
@@ -446,7 +446,7 @@ func (s *DisplayService) ResolveEpicAction(ctx context.Context, epic *models.Epi
 	if s.deps.TemplateEnrichmentRepo != nil {
 		data, err := s.deps.TemplateEnrichmentRepo.GetEpicEnrichment(ctx, epic.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for epic %s: %v", epic.Key, err)
+			slog.Warn("Failed to fetch enrichment data for epic", "epic", epic.Key, "error", err)
 		} else {
 			enrichment = data
 		}
@@ -631,7 +631,7 @@ func (s *DisplayService) ResolveFeatureAction(ctx context.Context, feature *mode
 	if s.deps.TemplateEnrichmentRepo != nil {
 		data, err := s.deps.TemplateEnrichmentRepo.GetFeatureEnrichment(ctx, feature.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for feature %s: %v", feature.Key, err)
+			slog.Warn("Failed to fetch enrichment data for feature", "feature", feature.Key, "error", err)
 		} else {
 			enrichment = data
 		}
@@ -665,7 +665,7 @@ func (s *DisplayService) ResolveTaskAction(ctx context.Context, task *models.Tas
 	if s.deps.TemplateEnrichmentRepo != nil {
 		data, err := s.deps.TemplateEnrichmentRepo.GetTaskEnrichment(ctx, task.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for task %s: %v", task.Key, err)
+			slog.Warn("Failed to fetch enrichment data for task", "task", task.Key, "error", err)
 		} else {
 			taskEnrichment = data
 		}

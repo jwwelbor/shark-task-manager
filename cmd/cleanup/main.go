@@ -3,7 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -21,14 +21,16 @@ func main() {
 
 	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		slog.Error("Failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
 	// Start transaction
 	tx, err := db.Begin()
 	if err != nil {
-		log.Fatalf("Failed to begin transaction: %v", err)
+		slog.Error("Failed to begin transaction", "error", err)
+		os.Exit(1)
 	}
 	defer func() {
 		_ = tx.Rollback()
@@ -39,16 +41,19 @@ func main() {
 	var epicTitle string
 	err = tx.QueryRow("SELECT id, title FROM epics WHERE key = ?", epicKey).Scan(&epicID, &epicTitle)
 	if err == sql.ErrNoRows {
-		log.Fatalf("Epic %s not found", epicKey)
+		slog.Error("Epic not found", "key", epicKey)
+		os.Exit(1)
 	} else if err != nil {
-		log.Fatalf("Failed to query epic: %v", err)
+		slog.Error("Failed to query epic", "error", err)
+		os.Exit(1)
 	}
 
 	// Count features
 	var featureCount int
 	err = tx.QueryRow("SELECT COUNT(*) FROM features WHERE epic_id = ?", epicID).Scan(&featureCount)
 	if err != nil {
-		log.Fatalf("Failed to count features: %v", err)
+		slog.Error("Failed to count features", "error", err)
+		os.Exit(1)
 	}
 
 	// Count tasks
@@ -58,7 +63,8 @@ func main() {
 		WHERE feature_id IN (SELECT id FROM features WHERE epic_id = ?)
 	`, epicID).Scan(&taskCount)
 	if err != nil {
-		log.Fatalf("Failed to count tasks: %v", err)
+		slog.Error("Failed to count tasks", "error", err)
+		os.Exit(1)
 	}
 
 	// Show what will be deleted
@@ -72,17 +78,20 @@ func main() {
 	// Delete the epic (cascade will handle features and tasks)
 	result, err := tx.Exec("DELETE FROM epics WHERE key = ?", epicKey)
 	if err != nil {
-		log.Fatalf("Failed to delete epic: %v", err)
+		slog.Error("Failed to delete epic", "error", err)
+		os.Exit(1)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		log.Fatalf("No epic found with key %s", epicKey)
+		slog.Error("No epic found with key", "key", epicKey)
+		os.Exit(1)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
-		log.Fatalf("Failed to commit transaction: %v", err)
+		slog.Error("Failed to commit transaction", "error", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf("✅ Successfully deleted epic %s and all associated data\n", epicKey)

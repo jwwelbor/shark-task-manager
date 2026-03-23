@@ -31,3 +31,27 @@ type EntityRepository interface {
 	// UpdateContextData updates the context_data JSON string.
 	UpdateContextData(ctx context.Context, id int64, data *string) error
 }
+
+// noopEntityRepo is a minimal EntityRepository whose methods return zero values.
+// It is used in tests and lightweight wiring scenarios where transition/status
+// logic is not exercised but the constructor requires a non-nil EntityRepository.
+type noopEntityRepo struct{}
+
+func (n *noopEntityRepo) GetByKey(_ context.Context, _ string) (models.Entity, error) {
+	return nil, nil
+}
+func (n *noopEntityRepo) GetByID(_ context.Context, _ int64) (models.Entity, error) {
+	return nil, nil
+}
+func (n *noopEntityRepo) UpdateStatus(_ context.Context, _ int64, _ string) error { return nil }
+func (n *noopEntityRepo) Update(_ context.Context, _ models.Entity) error         { return nil }
+func (n *noopEntityRepo) GetContextData(_ context.Context, _ int64) (*string, error) {
+	return nil, nil
+}
+func (n *noopEntityRepo) UpdateContextData(_ context.Context, _ int64, _ *string) error { return nil }
+
+// NewNoopEntityRepository returns an EntityRepository whose methods are no-ops.
+// Intended for tests and lightweight wiring where transition logic is not exercised.
+func NewNoopEntityRepository() EntityRepository {
+	return &noopEntityRepo{}
+}

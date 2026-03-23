@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -21,7 +22,8 @@ func main() {
 	// Initialize database
 	database, err := db.InitDB(dbPath)
 	if err != nil {
-		log.Fatal("Failed to initialize database:", err)
+		slog.Error("Failed to initialize database", "error", err)
+		os.Exit(1)
 	}
 	defer database.Close()
 
@@ -55,7 +57,8 @@ func main() {
 		epic = existingEpic
 	} else {
 		if err := epicRepo.Create(ctx, epic); err != nil {
-			log.Fatal("Failed to create epic:", err)
+			slog.Error("Failed to create epic", "error", err)
+			os.Exit(1)
 		}
 		fmt.Printf("   ✓ Created Epic: %s - %s\n", epic.Key, epic.Title)
 	}
@@ -76,7 +79,8 @@ func main() {
 		feature = existingFeature
 	} else {
 		if err := featureRepo.Create(ctx, feature); err != nil {
-			log.Fatal("Failed to create feature:", err)
+			slog.Error("Failed to create feature", "error", err)
+			os.Exit(1)
 		}
 		fmt.Printf("   ✓ Created Feature: %s - %s\n", feature.Key, feature.Title)
 	}
@@ -118,7 +122,8 @@ func main() {
 		}
 
 		if err := taskRepo.Create(ctx, task); err != nil {
-			log.Fatal("Failed to create task:", err)
+			slog.Error("Failed to create task", "error", err)
+			os.Exit(1)
 		}
 		fmt.Printf("   ✓ Created: %s - %s\n", task.Key, task.Title)
 		createdTasks = append(createdTasks, task)
@@ -132,7 +137,8 @@ func main() {
 	// Mark first task as in progress
 	if len(createdTasks) > 0 && createdTasks[0].Status == models.TaskStatus("todo") {
 		if err := taskRepo.UpdateStatus(ctx, createdTasks[0].ID, models.TaskStatus("in_progress"), &agent, strPtr("Starting implementation")); err != nil {
-			log.Fatal("Failed to update task status:", err)
+			slog.Error("Failed to update task status", "error", err)
+			os.Exit(1)
 		}
 		fmt.Printf("   ✓ %s → in_progress\n", createdTasks[0].Key)
 	}
@@ -141,7 +147,8 @@ func main() {
 	for i := 0; i < 3 && i < len(createdTasks); i++ {
 		if createdTasks[i].Status != models.TaskStatus("completed") {
 			if err := taskRepo.UpdateStatus(ctx, createdTasks[i].ID, models.TaskStatus("completed"), &agent, strPtr("Implementation complete")); err != nil {
-				log.Fatal("Failed to update task status:", err)
+				slog.Error("Failed to update task status", "error", err)
+				os.Exit(1)
 			}
 			fmt.Printf("   ✓ %s → completed\n", createdTasks[i].Key)
 		}
@@ -150,9 +157,10 @@ func main() {
 	// Update feature progress via service layer
 	workflowSvc := workflow.NewService(".")
 	entitySvc := services.NewEntityService(workflowSvc)
-	featureSvc := services.NewFeatureService(featureRepo, entitySvc, nil, taskRepo, epicRepo)
+	featureSvc := services.NewFeatureService(featureRepo, entitySvc, services.NewNoopEntityRepository(), taskRepo, epicRepo)
 	if err := featureSvc.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
-		log.Fatal("Failed to update feature progress:", err)
+		slog.Error("Failed to update feature progress", "error", err)
+		os.Exit(1)
 	}
 
 	// Display current state
@@ -182,10 +190,11 @@ func main() {
 	}
 
 	// Show epic progress via service layer
-	epicSvc := services.NewEpicService(epicRepo, entitySvc, nil, featureRepo, taskRepo)
+	epicSvc := services.NewEpicService(epicRepo, entitySvc, services.NewNoopEntityRepository(), featureRepo, taskRepo)
 	epicProgressInfo, err := epicSvc.GetProgress(ctx, epic.Key)
 	if err != nil {
-		log.Fatal("Failed to get epic progress:", err)
+		slog.Error("Failed to get epic progress", "error", err)
+		os.Exit(1)
 	}
 	fmt.Printf("\n   Epic Progress: %.1f%%\n", epicProgressInfo.ProgressPct)
 

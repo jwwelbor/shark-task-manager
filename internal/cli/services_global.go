@@ -125,11 +125,13 @@ func GetNoteService(ctx context.Context) (*services.NoteService, error) {
 }
 
 // GetContextService returns the global ContextService, initializing it if needed.
-func GetContextService(ctx context.Context) (*services.ContextService, error) {
+// Unlike GetNoteService/GetResumeService, this never fails because its only
+// dependency (GetEntityRegistry) panics on failure rather than returning an error.
+func GetContextService() *services.ContextService {
 	contextServiceOnce.Do(func() {
 		globalContextService = services.NewContextService(GetEntityRegistry())
 	})
-	return globalContextService, nil
+	return globalContextService
 }
 
 // GetResumeService returns the global ResumeService, initializing it if needed.
@@ -160,7 +162,7 @@ func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
 
 // taskServiceDeps holds the shared dependencies for constructing a TaskService.
 // Extracted to eliminate duplication across GetTaskService, GetTaskServiceWithHistory,
-// and GetTaskServiceWithDeps which all wire the same base dependencies.
+// and GetTaskServiceWithDocs which all wire the same base dependencies.
 type taskServiceDeps struct {
 	db          *repository.DB
 	taskRepo    *repository.TaskRepository
@@ -213,6 +215,7 @@ func buildTaskServiceDeps() taskServiceDeps {
 func GetTaskService() *services.TaskService {
 	d := buildTaskServiceDeps()
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
 
@@ -238,6 +241,7 @@ func GetTaskService() *services.TaskService {
 func GetTaskServiceWithHistory() *services.TaskService {
 	d := buildTaskServiceDeps()
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 	svc.SetFeatureService(GetFeatureService())
@@ -257,63 +261,50 @@ func GetTaskServiceWithHistory() *services.TaskService {
 	return svc
 }
 
-// GetTaskServiceWithDeps returns a TaskService with relationship and document repositories wired.
-// Used by commands that need dependency/relationship management (unlink, deps) or document operations.
+// GetTaskServiceWithDocs returns a TaskService with document, session, and history repositories wired.
+// Used by commands that need document operations, work sessions, or analytics.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
 //
 // Usage:
 //
-//	svc := cli.GetTaskServiceWithDeps()
-//	count, err := svc.UnlinkRelationships(ctx, taskKey, relType, targetKeys)
-func GetTaskServiceWithDeps() *services.TaskService {
+//	svc := cli.GetTaskServiceWithDocs()
+//	doc, err := svc.LinkDocument(ctx, taskKey, title, path)
+func GetTaskServiceWithDocs() *services.TaskService {
 	d := buildTaskServiceDeps()
-	relRepo := repository.NewTaskRelationshipRepository(d.db)
 	docRepo := repository.NewDocumentRepository(d.db)
 	entityDocRepo := repository.NewEntityDocumentRepository(d.db)
 	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
 	sessionRepo := &workSessionAdapter{repo: repository.NewWorkSessionRepository(d.db)}
-
 	enrichRepo := repository.NewTemplateEnrichmentRepository(d.db)
+
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetDocRepo(docAdapter)
-	svc.SetRelRepo(relRepo)
+	svc.SetRelRepo(repository.NewEntityRelTaskKeyAdapter(d.db))
 	svc.SetSessionRepo(sessionRepo)
 	svc.SetFeatureRepo(d.featureRepo)
-	svc.SetDepRepo(relRepo)
-	svc.SetRelQueryRepo(relRepo)
+	svc.SetFeatureService(GetFeatureService())
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
 
-	// Wire sub-services for query and dependency delegation.
+	// Wire entity history recording for polymorphic entity_history table.
+	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
+	svc.SetEntityHistoryRepo(entityHistoryRepo)
+
+	// Wire sub-services for query delegation.
 	querySvc := services.NewTaskQueryService(d.taskRepo)
 	svc.SetQueryService(querySvc)
 
-	depSvc := services.NewTaskDependencyService(d.taskRepo)
-	depSvc.SetDepRepo(relRepo)
-	depSvc.SetRelQueryRepo(relRepo)
-	depSvc.SetWritableDocRepo(docRepo, entityDocRepo)
-	svc.SetDependencyService(depSvc)
+	// Wire history sub-service for sessions/analytics.
+	epicRepo := repository.NewEpicRepository(d.db)
+	historySvc := services.NewTaskHistoryService(&taskHistoryAdapter{repo: d.historyRepo})
+	historySvc.SetSessionRepo(sessionRepo)
+	historySvc.SetFeatureRepo(d.featureRepo)
+	historySvc.SetEpicRepo(epicRepo)
+	svc.SetHistoryService(historySvc)
+	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 
 	return svc
-}
-
-// GetCriteriaService returns a CriteriaService instance.
-// Creates a new instance each call with the global DB connection.
-// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
-//
-// Usage:
-//
-//	svc := cli.GetCriteriaService()
-//	count, err := svc.ImportCriteriaFromFile(ctx, "E07-F01-001")
-func GetCriteriaService() *services.CriteriaService {
-	db, err := GetDB(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("failed to get database: %v", err))
-	}
-	criteriaRepo := repository.NewTaskCriteriaRepository(db)
-	taskRepo := repository.NewTaskRepository(db)
-	featureRepo := repository.NewFeatureRepository(db)
-	return services.NewCriteriaService(criteriaRepo, taskRepo, featureRepo)
 }
 
 // GetViewService returns a view.Service instance for viewing entity file paths.
@@ -457,6 +448,19 @@ func GetEntityHistoryService() *services.EntityHistoryService {
 	return services.NewEntityHistoryService(historyRepo, GetEntityRegistry())
 }
 
+// GetEntityRelationshipService returns an EntityRelationshipService instance.
+// Creates a new instance each call (lightweight, no shared state).
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+func GetEntityRelationshipService() *services.EntityRelationshipService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database for EntityRelationshipService: %v", err))
+	}
+	repo := repository.NewEntityRelationshipRepository(db)
+	taskRepo := repository.NewTaskRepository(db)
+	return services.NewEntityRelationshipService(repo, taskRepo)
+}
+
 // ResetServices clears global service state. For testing only.
 func ResetServices() {
 	globalActionService = nil
@@ -481,4 +485,7 @@ func ResetServices() {
 	// Reset entity service
 	globalEntityService = nil
 	entityServiceOnce = sync.Once{}
+
+	// Reset observability state for test isolation
+	ResetObservability()
 }

@@ -1,91 +1,30 @@
 package repository
 
-import (
-	"strings"
-)
+// key_lookup.go provides backward-compatible package-private wrappers around
+// repoutil key-parsing utilities (ContainsHyphen, IsNumeric, SplitAtFirstHyphen).
 
-// ============================================================================
-// Shared Key Parsing Utilities
-// ============================================================================
-//
-// Entity repositories (Epic, Feature, Task) each implement GetByKey with
-// slug-based lookup using different key parsing algorithms because their key
-// formats differ fundamentally:
-//
-//   - Epics:    E04 or E04-epic-name
-//   - Features: E07-F01 or F01 or E07-F01-feature-name
-//   - Tasks:    T-E07-F01-001 or E07-F01-001 or T-E07-F01-001-task-name
-//
-// However, the LOOKUP STRATEGY is common across all three:
-//   1. Try exact match on the key column
-//   2. If not found, attempt to parse a slug suffix from the input
-//   3. Query WHERE key = numericKey AND slug = slugValue
-//
-// This file extracts the shared utility functions used by all three repos.
-// The entity-specific key PARSING logic remains in each repository because
-// the key formats are inherently different:
-//   - Epic keys have 1 hyphen-separated segment before the slug
-//   - Feature keys can have 1 or 2 segments and support short-form (F01)
-//   - Task keys have 4 hyphen-separated segments (T-E##-F##-###) before slug
-// ============================================================================
+import "github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 
-// ContainsHyphen checks if a string contains a hyphen character.
-// Used to determine whether a key might contain a slug suffix.
-func ContainsHyphen(s string) bool {
-	return strings.ContainsRune(s, '-')
+// containsHyphen reports whether s contains a hyphen character.
+// Delegates to repoutil.ContainsHyphen.
+func containsHyphen(s string) bool {
+	return repoutil.ContainsHyphen(s)
 }
 
-// IsNumeric checks if a string consists entirely of digit characters.
-// Returns false for empty strings.
-func IsNumeric(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, ch := range s {
-		if ch < '0' || ch > '9' {
-			return false
-		}
-	}
-	return true
+// isNumeric reports whether s consists entirely of ASCII digits.
+// Delegates to repoutil.IsNumeric.
+func isNumeric(s string) bool {
+	return repoutil.IsNumeric(s)
 }
 
-// SplitAtFirstHyphen splits a string at the first hyphen into two parts.
-// Returns the part before the hyphen and the part after it.
-// If there is no hyphen, returns the original string and an empty string
-// with ok=false.
-//
-// Examples:
-//
-//	SplitAtFirstHyphen("E04-epic-name") -> ("E04", "epic-name", true)
-//	SplitAtFirstHyphen("E04")           -> ("E04", "", false)
-func SplitAtFirstHyphen(key string) (prefix, suffix string, ok bool) {
-	idx := strings.IndexByte(key, '-')
-	if idx == -1 {
-		return key, "", false
+// splitSluggedKey splits a slugged key at the first hyphen.
+// Returns a two-element slice [prefix, suffix] when a hyphen is present,
+// or a one-element slice [key] when there is no hyphen.
+// Delegates to repoutil.SplitAtFirstHyphen.
+func splitSluggedKey(key string) []string {
+	prefix, suffix, ok := repoutil.SplitAtFirstHyphen(key)
+	if !ok {
+		return []string{key}
 	}
-	return key[:idx], key[idx+1:], true
-}
-
-// SplitAtNthHyphen splits a string at the Nth hyphen (1-indexed).
-// Returns the part before the Nth hyphen and the part after it.
-// If there are fewer than n hyphens, returns the original string and empty
-// string with ok=false.
-// If the Nth hyphen is found, ok=true even if the suffix is empty (trailing hyphen).
-//
-// Examples:
-//
-//	SplitAtNthHyphen("T-E07-F01-001-slug-text", 4) -> ("T-E07-F01-001", "slug-text", true)
-//	SplitAtNthHyphen("T-E07-F01-001", 4)           -> ("T-E07-F01-001", "", false)
-//	SplitAtNthHyphen("T-E07-F01-001-", 4)          -> ("T-E07-F01-001", "", true)
-func SplitAtNthHyphen(key string, n int) (prefix, suffix string, ok bool) {
-	count := 0
-	for i, ch := range key {
-		if ch == '-' {
-			count++
-			if count == n {
-				return key[:i], key[i+1:], true
-			}
-		}
-	}
-	return key, "", false
+	return []string{prefix, suffix}
 }

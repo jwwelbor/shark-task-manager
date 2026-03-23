@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -210,12 +211,16 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	// --- Workflow file loading (E20-F04) ---
 	// Determine workflow file path and attempt to load it.
 	// Workflow file entities take precedence over .sharkconfig.json inline definitions.
-	workflowFilePath := resolveWorkflowFilePath(configPath, rawConfig)
+	workflowFilePath, userAbsolute := resolveWorkflowFilePath(configPath, rawConfig)
 
-	// Validate that the workflow file path does not escape the project root
-	configDir := filepath.Dir(configPath)
-	if err := validateWorkflowFilePath(configDir, workflowFilePath); err != nil {
-		return nil, fmt.Errorf("invalid workflow_config path: %w", err)
+	// Validate that relative workflow file paths do not escape the project root
+	// via path traversal. User-configured absolute paths (including ~/... expansion)
+	// are trusted and skip this check.
+	if !userAbsolute {
+		configDir := filepath.Dir(configPath)
+		if err := validateWorkflowFilePath(configDir, workflowFilePath); err != nil {
+			return nil, fmt.Errorf("invalid workflow_config path: %w", err)
+		}
 	}
 
 	workflowFileData, err := loadWorkflowFile(workflowFilePath)
@@ -386,7 +391,7 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 func LoadMultiLevelWorkflowOrDefault(configPath string) *MultiLevelWorkflow {
 	multi, err := LoadMultiLevelWorkflow(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load workflow config: %v\n", err)
+		slog.Warn("Failed to load workflow config", "error", err)
 		return &MultiLevelWorkflow{}
 	}
 	if multi == nil {
@@ -506,22 +511,37 @@ func validateWorkflowFilePath(projectRoot, filePath string) error {
 // If workflow_config is set in rawConfig and is a non-empty string, it is used
 // (resolved relative to the config directory if relative). Otherwise, the default
 // .sharkworkflow.json in the config directory is returned.
-func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMessage) string {
+// Paths starting with "~/" are expanded to the user's home directory.
+// The second return value indicates whether the path was explicitly absolute
+// (user-configured absolute path or ~/... expansion), as opposed to a relative
+// path that was resolved to absolute via filepath.Join.
+func resolveWorkflowFilePath(configPath string, rawConfig map[string]json.RawMessage) (string, bool) {
 	configDir := filepath.Dir(configPath)
 
 	// Check for workflow_config key in raw config
 	if wcRaw, ok := rawConfig["workflow_config"]; ok {
 		var wc string
 		if json.Unmarshal(wcRaw, &wc) == nil && wc != "" {
+			wc = expandHome(wc)
 			if filepath.IsAbs(wc) {
-				return wc
+				return wc, true
 			}
-			return filepath.Join(configDir, wc)
+			return filepath.Join(configDir, wc), false
 		}
 	}
 
 	// Default: .sharkworkflow.json in the same directory as .sharkconfig.json
-	return filepath.Join(configDir, ".sharkworkflow.json")
+	return filepath.Join(configDir, ".sharkworkflow.json"), false
+}
+
+// expandHome expands a leading "~/" to the user's home directory.
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
 }
 
 // loadWorkflowFile reads and parses the workflow file at the given path.

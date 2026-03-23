@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -11,6 +11,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // EpicRepository defines the repository interface needed by EpicService.
@@ -70,6 +73,7 @@ type EpicService struct {
 	docSvc           *EntityDocumentService // shared document operations; built by SetWritableDocRepo
 	analyticsService *EpicAnalyticsService  // optional; lazy-initialized if nil
 	enrichRepo       config.TemplateEnrichmentRepository
+	tracer           trace.Tracer // optional; defaults to otel.Tracer("shark/services/epic") if nil
 }
 
 // NewEpicService creates a new EpicService.
@@ -83,6 +87,7 @@ type EpicService struct {
 func NewEpicService(repo EpicRepository, entitySvc *EntityService, entityRepo EntityRepository, featureRepo EpicFeatureCounter, taskRepo EpicTaskLister) *EpicService {
 	requireNonNil(repo, "EpicService requires a non-nil EpicRepository")
 	requireNonNil(entitySvc, "EpicService requires a non-nil EntityService")
+	requireNonNil(entityRepo, "EpicService requires a non-nil EntityRepository")
 	return &EpicService{
 		repo:        repo,
 		entitySvc:   entitySvc.ForLevel(workflow.LevelEpic),
@@ -92,6 +97,20 @@ func NewEpicService(repo EpicRepository, entitySvc *EntityService, entityRepo En
 		docRepo:     nil,
 		relRepo:     nil,
 	}
+}
+
+// SetTracer sets the OpenTelemetry tracer for the service.
+// When nil, getTracer falls back to the OTel global tracer (noop until provider is wired).
+func (s *EpicService) SetTracer(t trace.Tracer) {
+	s.tracer = t
+}
+
+// getTracer returns the configured tracer or falls back to the OTel global tracer.
+func (s *EpicService) getTracer() trace.Tracer {
+	if s.tracer != nil {
+		return s.tracer
+	}
+	return otel.Tracer("shark/services/epic")
 }
 
 // SetRelRepo sets the epic relationship repository on the service.
@@ -120,13 +139,7 @@ func (s *EpicService) SetWritableDocRepo(writableRepo EntityDocumentRepository, 
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			epic, err := s.repo.GetByKey(ctx, key)
-			if err != nil {
-				return 0, "", err
-			}
-			return epic.ID, models.EntityTypeEpic, nil
-		},
+		EntityLookupFnFromRepo(s.entityRepo),
 	)
 }
 
@@ -180,20 +193,22 @@ func (s *EpicService) UnlinkDocument(ctx context.Context, epicKey, docTitle stri
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
 func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
-	// Use entityRepo if available, otherwise create inline adapter from typed repo
-	entityRepo := s.entityRepo
-	if entityRepo == nil {
-		entityRepo = &epicEntityRepoAdapter{repo: s.repo}
-	}
+	ctx, span := s.getTracer().Start(ctx, "EpicService.TransitionStatus",
+		trace.WithAttributes(
+			attribute.String("epic.key", epicKey),
+			attribute.String("epic.target_status", targetStatus),
+		),
+	)
+	defer span.End()
 
 	// Delegate shared logic to EntityService
 	result, err := s.entitySvc.TransitionStatus(
-		ctx, entityRepo, models.EntityTypeEpic, epicKey, targetStatus, opts,
+		ctx, s.entityRepo, models.EntityTypeEpic, epicKey, targetStatus, opts,
 		DefaultTransitionFeatures(),
 		s.makeResolveActionFn(ctx),
 	)
 	if err != nil {
-		return nil, err
+		return nil, recordSpanError(span, err)
 	}
 
 	// Post-hook: count child features
@@ -209,11 +224,7 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 
 // GetNextStatus returns the available transitions for the current status of an epic.
 func (s *EpicService) GetNextStatus(ctx context.Context, epicKey string) (*NextStatusInfo, error) {
-	entityRepo := s.entityRepo
-	if entityRepo == nil {
-		entityRepo = &epicEntityRepoAdapter{repo: s.repo}
-	}
-	return s.entitySvc.GetNextStatus(ctx, entityRepo, models.EntityTypeEpic, epicKey,
+	return s.entitySvc.GetNextStatus(ctx, s.entityRepo, models.EntityTypeEpic, epicKey,
 		s.makeResolveActionFn(ctx))
 }
 
@@ -236,7 +247,7 @@ func (s *EpicService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
 		if s.enrichRepo != nil {
 			data, err := s.enrichRepo.GetEpicEnrichment(ctx, epic.ID)
 			if err != nil {
-				log.Printf("WARNING: Failed to fetch enrichment data for epic %s: %v", epic.Key, err)
+				slog.Warn("Failed to fetch enrichment data for epic", "epic", epic.Key, "error", err)
 			} else {
 				enrichment = data
 			}
@@ -257,18 +268,26 @@ func (s *EpicService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
 
 // GetEpic retrieves an epic by key.
 func (s *EpicService) GetEpic(ctx context.Context, key string) (*models.Epic, error) {
+	ctx, span := s.getTracer().Start(ctx, "EpicService.GetEpic",
+		trace.WithAttributes(attribute.String("epic.key", key)),
+	)
+	defer span.End()
+
 	epic, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to get epic %s: %w", key, err))
 	}
 	if epic == nil {
-		return nil, fmt.Errorf("epic not found: %s", key)
+		return nil, recordSpanError(span, fmt.Errorf("epic not found: %s", key))
 	}
 	return epic, nil
 }
 
 // ListEpics retrieves epics with optional filtering.
 func (s *EpicService) ListEpics(ctx context.Context, filters EpicFilters) ([]*models.Epic, error) {
+	ctx, span := s.getTracer().Start(ctx, "EpicService.ListEpics")
+	defer span.End()
+
 	var statusPtr *models.EpicStatus
 	if filters.Status != "" {
 		status := models.EpicStatus(filters.Status)
@@ -276,7 +295,7 @@ func (s *EpicService) ListEpics(ctx context.Context, filters EpicFilters) ([]*mo
 	}
 	epics, err := s.repo.List(ctx, statusPtr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list epics: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to list epics: %w", err))
 	}
 	return epics, nil
 }
@@ -545,6 +564,11 @@ func (s *EpicService) DeleteEpic(ctx context.Context, key string) error {
 // performed here — callers should invoke FeatureService.RecalculateAndSetProgress
 // for each feature after this call if they want accurate progress_pct values.
 func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bool, agentID string) (*EpicCompleteResult, error) {
+	ctx, span := s.getTracer().Start(ctx, "EpicService.CompleteEpic",
+		trace.WithAttributes(attribute.String("epic.key", epicKey)),
+	)
+	defer span.End()
+
 	epic, err := s.repo.GetByKey(ctx, strings.ToUpper(epicKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get epic %s: %w", epicKey, err)
@@ -858,53 +882,5 @@ func (s *EpicService) resolveEpicFilePath(ctx context.Context, filePath *string,
 		}
 	}
 
-	return nil
-}
-
-// epicEntityRepoAdapter is a fallback adapter that wraps an EpicRepository as an EntityRepository.
-// Used when entityRepo is nil (e.g., in tests that don't set up the full adapter chain).
-type epicEntityRepoAdapter struct {
-	repo EpicRepository
-}
-
-func (a *epicEntityRepoAdapter) GetByKey(ctx context.Context, key string) (models.Entity, error) {
-	epic, err := a.repo.GetByKey(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-	if epic == nil {
-		return nil, nil
-	}
-	return epic, nil
-}
-
-func (a *epicEntityRepoAdapter) GetByID(ctx context.Context, id int64) (models.Entity, error) {
-	epic, err := a.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if epic == nil {
-		return nil, nil
-	}
-	return epic, nil
-}
-
-func (a *epicEntityRepoAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return a.repo.UpdateStatus(ctx, id, models.EpicStatus(status))
-}
-
-func (a *epicEntityRepoAdapter) Update(ctx context.Context, entity models.Entity) error {
-	epic, ok := entity.(*models.Epic)
-	if !ok {
-		return fmt.Errorf("epicEntityRepoAdapter: expected *models.Epic, got %T", entity)
-	}
-	return a.repo.Update(ctx, epic)
-}
-
-func (a *epicEntityRepoAdapter) GetContextData(_ context.Context, _ int64) (*string, error) {
-	return nil, nil
-}
-
-func (a *epicEntityRepoAdapter) UpdateContextData(_ context.Context, _ int64, _ *string) error {
 	return nil
 }

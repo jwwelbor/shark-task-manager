@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -376,7 +377,7 @@ func buildEpicsWithProgress(ctx context.Context, epics []*models.Epic) []EpicWit
 		progress, err := epicSvc.CalculateProgress(ctx, epic.ID)
 		if err != nil {
 			if cli.GlobalConfig.Verbose {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to calculate progress for epic %s: %v\n", epic.Key, err)
+				slog.Warn("Failed to calculate progress for epic", "epic", epic.Key, "error", err)
 			}
 			progress = 0.0
 		}
@@ -787,7 +788,7 @@ func performEpicComplete(ctx context.Context, epicKey string, force bool) error 
 		for _, f := range features {
 			if recalcErr := featureSvc.RecalculateAndSetProgress(ctx, f.ID); recalcErr != nil {
 				if cli.GlobalConfig.Verbose {
-					fmt.Fprintf(os.Stderr, "Warning: Failed to update progress for feature %s: %v\n", f.Key, recalcErr)
+					slog.Warn("Failed to update progress for feature", "feature", f.Key, "error", recalcErr)
 				}
 			}
 		}

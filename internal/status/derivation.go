@@ -3,7 +3,7 @@
 package status
 
 import (
-	"log"
+	"log/slog"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -27,7 +27,7 @@ import (
 func DeriveFeatureStatus(statusCounts map[string]int, cfg *config.WorkflowConfig) models.FeatureStatus {
 	// Handle nil config gracefully
 	if cfg == nil {
-		log.Println("WARN: No workflow config provided to DeriveFeatureStatus, using safe defaults")
+		slog.Warn("No workflow config provided to DeriveFeatureStatus, using safe defaults")
 		return models.FeatureStatusDraft
 	}
 
@@ -43,7 +43,7 @@ func DeriveFeatureStatus(statusCounts map[string]int, cfg *config.WorkflowConfig
 		meta, found := cfg.GetStatusMetadata(status)
 		if !found {
 			// Unknown status - treat as planning and log warning
-			log.Printf("WARN: Status %q not found in workflow config, treating as planning phase", status)
+			slog.Warn("Status not found in workflow config, treating as planning phase", "status", status)
 			planningCount += count
 			continue
 		}
@@ -61,7 +61,7 @@ func DeriveFeatureStatus(statusCounts map[string]int, cfg *config.WorkflowConfig
 			activeCount += count
 		default:
 			// Unrecognized phase - treat as planning
-			log.Printf("WARN: Unrecognized phase %q for status %q, treating as planning", meta.Phase, status)
+			slog.Warn("Unrecognized phase for status, treating as planning", "phase", meta.Phase, "status", status)
 			planningCount += count
 		}
 	}

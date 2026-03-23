@@ -95,7 +95,7 @@ func TestFeatureGetIntegration_CalculateProgressWithConfig(t *testing.T) {
 
 	// Calculate progress via service layer
 	workflowSvc := workflow.NewService(".")
-	featureSvc := services.NewFeatureService(featureRepo, services.NewEntityService(workflowSvc), nil, taskRepo, nil)
+	featureSvc := services.NewFeatureService(featureRepo, services.NewEntityService(workflowSvc), services.NewNoopEntityRepository(), taskRepo, nil)
 	progressInfo, err := featureSvc.GetProgress(ctx, feature.Key)
 	if err != nil {
 		t.Fatalf("GetProgress failed: %v", err)
@@ -260,7 +260,7 @@ func TestFeatureGetIntegration_FeatureGetCommandJSONOutput(t *testing.T) {
 	}
 
 	// Update feature progress via service layer
-	featureSvcProgress := services.NewFeatureService(featureRepo, services.NewEntityService(workflow.NewService(".")), nil, taskRepo, nil)
+	featureSvcProgress := services.NewFeatureService(featureRepo, services.NewEntityService(workflow.NewService(".")), services.NewNoopEntityRepository(), taskRepo, nil)
 	if err := featureSvcProgress.RecalculateAndSetProgress(ctx, feature.ID); err != nil {
 		t.Fatalf("Failed to update progress: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestFeatureGetIntegration_MultipleFeatures(t *testing.T) {
 	}
 
 	// Verify each feature's progress can be calculated via service layer
-	featureSvcMulti := services.NewFeatureService(featureRepo, services.NewEntityService(workflow.NewService(".")), nil, taskRepo, nil)
+	featureSvcMulti := services.NewFeatureService(featureRepo, services.NewEntityService(workflow.NewService(".")), services.NewNoopEntityRepository(), taskRepo, nil)
 	for _, feature := range features {
 		progressInfo, err := featureSvcMulti.GetProgress(ctx, feature.Key)
 		if err != nil {
@@ -498,7 +498,7 @@ func TestFeatureGetIntegration_EmptyFeature(t *testing.T) {
 	}
 
 	// Calculate progress for feature with no tasks via service layer
-	featureSvcEmpty := services.NewFeatureService(featureRepo, services.NewEntityService(workflow.NewService(".")), nil, nil, nil)
+	featureSvcEmpty := services.NewFeatureService(featureRepo, services.NewEntityService(workflow.NewService(".")), services.NewNoopEntityRepository(), nil, nil)
 	progressInfo, err := featureSvcEmpty.GetProgress(ctx, feature.Key)
 	if err != nil {
 		t.Fatalf("GetProgress failed: %v", err)

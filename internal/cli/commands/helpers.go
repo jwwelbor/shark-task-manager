@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -817,7 +818,7 @@ func handleServiceError(err error, entityType, key string) {
 	// Default: database/system error
 	cli.Error(fmt.Sprintf("Error: %v", err))
 	if cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Details: %v\n", err)
+		slog.Debug("Error details", "error", err)
 	}
 	os.Exit(2)
 }

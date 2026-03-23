@@ -637,6 +637,8 @@ func TestLoadMultiLevelWorkflow_AbsolutePath(t *testing.T) {
 }
 
 // TC-034b: Absolute path outside project root is rejected (path traversal protection)
+// TC-034b: Absolute path outside project root is trusted (user explicitly configured it).
+// This supports shared template/workflow directories like ~/projects/shark-templates.
 func TestLoadMultiLevelWorkflow_AbsolutePathOutsideRoot(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sharkconfig.json")
@@ -655,12 +657,12 @@ func TestLoadMultiLevelWorkflow_AbsolutePathOutsideRoot(t *testing.T) {
 	writeJSON(t, absPath, workflowData)
 
 	ClearWorkflowCache()
-	_, err := LoadMultiLevelWorkflow(configPath)
-	if err == nil {
-		t.Fatal("expected error for absolute path outside project root, got nil")
+	result, err := LoadMultiLevelWorkflow(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error for absolute path: %v", err)
 	}
-	if !strings.Contains(err.Error(), "escapes project root") {
-		t.Errorf("expected 'escapes project root' error, got: %v", err)
+	if result == nil || result.Epic == nil {
+		t.Fatal("expected epic workflow to be loaded from absolute path")
 	}
 }
 
@@ -1206,10 +1208,9 @@ func TestLoadMultiLevelWorkflow_PathTraversal(t *testing.T) {
 			errContains:    "escapes project root",
 		},
 		{
-			name:           "absolute path outside project",
+			name:           "absolute path outside project is trusted",
 			workflowConfig: "/tmp/malicious.json",
-			wantErr:        true,
-			errContains:    "escapes project root",
+			wantErr:        false, // absolute paths are trusted (user explicitly configured them)
 		},
 		{
 			name:           "valid relative path",

@@ -5,14 +5,19 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/spf13/cobra"
 )
 
-// taskLinkCmd creates typed relationships between tasks
+// taskLinkCmd creates typed relationships between tasks via the
+// entity_relationships table.
 var taskLinkCmd = &cobra.Command{
 	Use:   "link <task-key>",
 	Short: "Create typed relationships between tasks",
 	Long: `Create typed relationships between tasks to track dependencies, blockers, and related work.
+
+Uses the unified entity_relationships table. For cross-entity relationships
+(task-to-epic, bug-to-feature, etc.), use 'shark link' instead.
 
 Relationship Types:
   depends_on    - Task depends on another completing (hard dependency)
@@ -24,17 +29,10 @@ Relationship Types:
   references    - Task consults/uses output of another
 
 Examples:
-  # Single dependency
   shark task link T-E10-F03-004 --depends-on T-E10-F03-003
 
   # Multiple dependencies
   shark task link T-E10-F03-004 --depends-on T-E10-F03-003,T-E10-F03-001
-
-  # Multiple relationship types
-  shark task link T-E10-F03-004 --depends-on T-E10-F03-003 --related-to T-E10-F03-002
-
-  # Spawned task from UAT findings
-  shark task link T-E10-F03-008 --spawned-from T-E10-F03-002
 
   # JSON output
   shark task link T-E10-F03-004 --depends-on T-E10-F03-003 --json`,
@@ -82,14 +80,22 @@ func runTaskLink(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("at least one relationship flag required (--depends-on, --blocks, etc.)")
 	}
 
-	// Step 2: Call service for each relationship
-	svc := cli.GetTaskServiceWithDeps()
+	// Resolve the source task key to its database ID
+	fromType, fromID, err := resolveEntityKeyToTypeAndID(cmd, taskKey)
+	if err != nil {
+		return fmt.Errorf("failed to resolve task key %s: %w", taskKey, err)
+	}
+	if fromType != models.EntityTypeTask {
+		return fmt.Errorf("key %s is not a task key", taskKey)
+	}
+
+	// Step 2: Call EntityRelationshipService for each relationship
+	svc := cli.GetEntityRelationshipService()
 	ctx := cmd.Context()
 
 	type createdRel struct {
-		Type        string
-		TargetKey   string
-		TargetTitle string
+		Type      string
+		TargetKey string
 	}
 	var createdRels []createdRel
 
@@ -104,13 +110,20 @@ func runTaskLink(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			targetTask, err := svc.CreateTypedRelationship(ctx, taskKey, targetKey, relType)
+			// Resolve target task key to ID
+			toType, toID, resolveErr := resolveEntityKeyToTypeAndID(cmd, targetKey)
+			if resolveErr != nil {
+				cli.Error(fmt.Sprintf("Failed to resolve target key %s: %v", targetKey, resolveErr))
+				return fmt.Errorf("failed to resolve target key %s: %w", targetKey, resolveErr)
+			}
+
+			_, err := svc.CreateRelationship(ctx, fromType, fromID, toType, toID, models.EntityRelationshipType(relType))
 			if err != nil {
-				if strings.Contains(err.Error(), "relationship already exists") {
+				if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "already exists") {
 					cli.Warning(fmt.Sprintf("Relationship already exists: %s %s %s", taskKey, relType, targetKey))
 					continue
 				}
-				if strings.Contains(err.Error(), "circular dependency") {
+				if strings.Contains(err.Error(), "cycle") {
 					cli.Error(fmt.Sprintf("Circular dependency detected: %v", err))
 					return err
 				}
@@ -119,9 +132,8 @@ func runTaskLink(cmd *cobra.Command, args []string) error {
 			}
 
 			createdRels = append(createdRels, createdRel{
-				Type:        relType,
-				TargetKey:   targetKey,
-				TargetTitle: targetTask.Title,
+				Type:      relType,
+				TargetKey: targetKey,
 			})
 		}
 	}
@@ -131,9 +143,8 @@ func runTaskLink(cmd *cobra.Command, args []string) error {
 		relMaps := make([]map[string]string, 0, len(createdRels))
 		for _, rel := range createdRels {
 			relMaps = append(relMaps, map[string]string{
-				"type":         rel.Type,
-				"target_key":   rel.TargetKey,
-				"target_title": rel.TargetTitle,
+				"type":       rel.Type,
+				"target_key": rel.TargetKey,
 			})
 		}
 		return cli.OutputJSON(map[string]interface{}{
@@ -144,7 +155,7 @@ func runTaskLink(cmd *cobra.Command, args []string) error {
 
 	cli.Success(fmt.Sprintf("Created %d relationship(s) for %s:", len(createdRels), taskKey))
 	for _, rel := range createdRels {
-		fmt.Printf("  %s → %s (%s)\n", rel.Type, rel.TargetKey, rel.TargetTitle)
+		fmt.Printf("  %s -> %s\n", rel.Type, rel.TargetKey)
 	}
 
 	return nil

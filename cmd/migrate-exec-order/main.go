@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
@@ -20,13 +20,15 @@ func main() {
 
 	// Check if database exists
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		log.Fatalf("Database does not exist: %s", dbPath)
+		slog.Error("Database does not exist", "path", dbPath)
+		os.Exit(1)
 	}
 
 	// Open database
 	database, err := db.InitDB(dbPath)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		slog.Error("Failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer database.Close()
 
@@ -38,7 +40,8 @@ func main() {
 		WHERE name = 'execution_order'
 	`).Scan(&hasExecutionOrder)
 	if err != nil {
-		log.Fatalf("Failed to check schema: %v", err)
+		slog.Error("Failed to check schema", "error", err)
+		os.Exit(1)
 	}
 
 	if hasExecutionOrder {
@@ -49,7 +52,8 @@ func main() {
 	// Run migration
 	fmt.Println("Applying migration: adding execution_order column...")
 	if err := db.MigrateAddExecutionOrder(database); err != nil {
-		log.Fatalf("Migration failed: %v", err)
+		slog.Error("Migration failed", "error", err)
+		os.Exit(1)
 	}
 
 	fmt.Println("Migration completed successfully!")

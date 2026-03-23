@@ -4,7 +4,12 @@ import (
 	"time"
 )
 
-// FeatureRelationship represents a typed relationship between two features
+// FeatureRelationship represents a typed relationship between two features.
+//
+// LEGACY: FeatureRelationship uses the legacy feature_relationships table.
+// New code should use EntityRelationship (entity_relationships table) which
+// supports polymorphic cross-entity-type linking. This model will be removed
+// once all callers are migrated to EntityRelationship.
 type FeatureRelationship struct {
 	ID               int64            `json:"id" db:"id"`
 	FromFeatureID    int64            `json:"from_feature_id" db:"from_feature_id"`

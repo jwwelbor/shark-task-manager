@@ -311,7 +311,7 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 	}
 
 	// Update feature progress via service layer (caches progress_pct in database)
-	featureSvcProgress := services.NewFeatureService(featureRepo, services.NewEntityService(workflow.NewService(".")), nil, taskRepo, nil)
+	featureSvcProgress := services.NewFeatureService(featureRepo, services.NewEntityService(workflow.NewService(".")), services.NewNoopEntityRepository(), taskRepo, nil)
 	if err := featureSvcProgress.RecalculateAndSetProgress(ctx, feature1.ID); err != nil {
 		t.Fatalf("Failed to update feature 1 progress: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestEpicGetIntegration_EpicProgressCalculation(t *testing.T) {
 
 	// Calculate epic progress (average of features) via EpicService
 	entitySvc := services.NewEntityService(workflow.NewService("."))
-	epicSvc := services.NewEpicService(epicRepo, entitySvc, nil, featureRepo, taskRepo)
+	epicSvc := services.NewEpicService(epicRepo, entitySvc, services.NewNoopEntityRepository(), featureRepo, taskRepo)
 	epicProgress, err := epicSvc.CalculateProgress(ctx, epic.ID)
 	if err != nil {
 		t.Fatalf("Failed to calculate epic progress: %v", err)

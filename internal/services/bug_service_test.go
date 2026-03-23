@@ -181,6 +181,9 @@ func (m *bugLinkFeatureRepo) GetTaskStatusBreakdown(context.Context, int64) (map
 }
 func (m *bugLinkFeatureRepo) GetTaskCount(context.Context, int64) (int, error)     { return 0, nil }
 func (m *bugLinkFeatureRepo) SetStatusOverride(context.Context, int64, bool) error { return nil }
+func (m *bugLinkFeatureRepo) UpdateStatus(context.Context, int64, models.FeatureStatus) error {
+	return nil
+}
 func (m *bugLinkFeatureRepo) UpdateStatusIfNotOverridden(context.Context, int64, models.FeatureStatus) (bool, error) {
 	return false, nil
 }

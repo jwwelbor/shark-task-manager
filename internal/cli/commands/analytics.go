@@ -97,7 +97,7 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	}
 
 	// Call service
-	svc := cli.GetTaskServiceWithDeps()
+	svc := cli.GetTaskServiceWithDocs()
 	input := services.SessionAnalyticsInput{
 		EpicKey:    epicKey,
 		FeatureKey: featureKey,

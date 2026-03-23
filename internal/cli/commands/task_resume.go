@@ -20,7 +20,7 @@ var taskResumeCmd = &cobra.Command{
 
 This includes:
   - Task details (title, description, status, priority, dependencies)
-  - Context data (progress, decisions, questions, blockers, acceptance criteria)
+  - Context data (progress, decisions, questions, blockers)
   - Task notes (chronologically ordered)
   - Completion metadata (if task is completed)
   - Work sessions (all sessions with durations and outcomes)
@@ -165,27 +165,6 @@ func printResumeContext(ctx *ResumeContext) {
 		fmt.Printf("┌─ IMPLEMENTATION DECISIONS ──────────────────────────────────\n")
 		for key, value := range ctx.ContextData.ImplementationDecisions {
 			fmt.Printf("│ %s:\n│   %s\n", key, value)
-		}
-		fmt.Printf("└─────────────────────────────────────────────────────────────\n\n")
-	}
-
-	// Acceptance Criteria Status
-	if ctx.ContextData != nil && len(ctx.ContextData.AcceptanceCriteriaStatus) > 0 {
-		fmt.Printf("┌─ ACCEPTANCE CRITERIA ───────────────────────────────────────\n")
-		for _, ac := range ctx.ContextData.AcceptanceCriteriaStatus {
-			status := ac.Status
-			symbol := "☐"
-			switch status {
-			case "complete":
-				symbol = "✓"
-			case "in_progress":
-				symbol = "➤"
-			case "failed":
-				symbol = "✗"
-			case "na":
-				symbol = "–"
-			}
-			fmt.Printf("│ [%s] %s (%s)\n", symbol, ac.Criterion, status)
 		}
 		fmt.Printf("└─────────────────────────────────────────────────────────────\n\n")
 	}

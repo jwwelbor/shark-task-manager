@@ -188,6 +188,9 @@ func (m *changeCardFeatureRepo) GetTaskStatusBreakdown(context.Context, int64) (
 }
 func (m *changeCardFeatureRepo) GetTaskCount(context.Context, int64) (int, error)     { return 0, nil }
 func (m *changeCardFeatureRepo) SetStatusOverride(context.Context, int64, bool) error { return nil }
+func (m *changeCardFeatureRepo) UpdateStatus(context.Context, int64, models.FeatureStatus) error {
+	return nil
+}
 func (m *changeCardFeatureRepo) UpdateStatusIfNotOverridden(context.Context, int64, models.FeatureStatus) (bool, error) {
 	return false, nil
 }

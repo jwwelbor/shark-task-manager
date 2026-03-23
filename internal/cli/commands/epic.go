@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -179,7 +180,7 @@ func runEpicList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Failed to list epics: %v\n", err)
+			slog.Error("Failed to list epics", "error", err)
 		}
 		os.Exit(2)
 	}
@@ -242,7 +243,7 @@ func runEpicGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		cli.Error("Error: Database error. Run with --verbose for details.")
 		if cli.GlobalConfig.Verbose {
-			fmt.Fprintf(os.Stderr, "Failed to build epic data: %v\n", err)
+			slog.Error("Failed to build epic data", "error", err)
 		}
 		os.Exit(2)
 	}

@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -161,7 +161,7 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 	})
 	if writeErr != nil {
 		// Log warning but don't fail -- DB record is the source of truth
-		fmt.Fprintf(os.Stderr, "warning: failed to write bug file %s: %v\n", filePath, writeErr)
+		slog.Warn("failed to write bug file", "path", filePath, "error", writeErr)
 	}
 
 	return bug, nil
@@ -438,13 +438,7 @@ func (s *BugService) SetWritableDocRepo(writableRepo EntityDocumentRepository, l
 	s.docSvc = NewEntityDocumentService(
 		writableRepo,
 		linkRepo,
-		func(ctx context.Context, key string) (int64, models.EntityType, error) {
-			bug, err := s.repo.GetByKey(ctx, key)
-			if err != nil {
-				return 0, "", err
-			}
-			return bug.ID, models.EntityTypeBug, nil
-		},
+		EntityLookupFnFromRepo(s.entityRepo),
 	)
 }
 
