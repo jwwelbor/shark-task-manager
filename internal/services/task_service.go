@@ -1011,7 +1011,7 @@ func (s *TaskService) SetFeatureRepo(repo AnalyticsFeatureRepository) {
 
 // SetFeatureService sets the feature service for write-through progress recalculation.
 // When set, every status-mutating operation on a task triggers a progress recalculation
-// on the parent feature. This is non-fatal: errors are silently ignored.
+// on the parent feature. This is non-fatal: logs a warning on error.
 // This is used by CLI global accessors to wire the optional feature service
 // after initial construction via NewTaskService.
 func (s *TaskService) SetFeatureService(featureService *FeatureService) {
