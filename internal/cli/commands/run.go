@@ -14,6 +14,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 var (
@@ -318,11 +319,19 @@ func (a *bugTransitionerAdapter) GetNextStatus(ctx context.Context, key string) 
 	currentStatus := string(bug.Status)
 	validTransitions := a.svc.GetValidTransitions(currentStatus)
 
+	available := make([]services.TransitionInfoWithAction, len(validTransitions))
+	for i, ts := range validTransitions {
+		available[i] = services.TransitionInfoWithAction{
+			TransitionInfo: workflow.TransitionInfo{TargetStatus: ts},
+		}
+	}
+
 	info := &services.NextStatusInfo{
-		EntityType:    "bug",
-		EntityKey:     key,
-		CurrentStatus: currentStatus,
-		IsTerminal:    len(validTransitions) == 0,
+		EntityType:           "bug",
+		EntityKey:            key,
+		CurrentStatus:        currentStatus,
+		AvailableTransitions: available,
+		IsTerminal:           len(validTransitions) == 0,
 	}
 	return info, nil
 }
@@ -368,11 +377,19 @@ func (a *changeCardTransitionerAdapter) GetNextStatus(ctx context.Context, key s
 	currentStatus := string(card.Status)
 	validTransitions := a.svc.GetValidTransitions(currentStatus)
 
+	available := make([]services.TransitionInfoWithAction, len(validTransitions))
+	for i, ts := range validTransitions {
+		available[i] = services.TransitionInfoWithAction{
+			TransitionInfo: workflow.TransitionInfo{TargetStatus: ts},
+		}
+	}
+
 	info := &services.NextStatusInfo{
-		EntityType:    "change_card",
-		EntityKey:     key,
-		CurrentStatus: currentStatus,
-		IsTerminal:    len(validTransitions) == 0,
+		EntityType:           "change_card",
+		EntityKey:            key,
+		CurrentStatus:        currentStatus,
+		AvailableTransitions: available,
+		IsTerminal:           len(validTransitions) == 0,
 	}
 	return info, nil
 }
