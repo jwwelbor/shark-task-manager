@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 )
@@ -55,7 +55,7 @@ func (m *Manager) Load() (*Config, error) {
 		parsedTime, err := time.Parse(time.RFC3339, lastSyncStr)
 		if err != nil {
 			// Invalid timestamp - log error and treat as nil
-			log.Printf("Warning: Invalid last_sync_time format in config: %v", err)
+			slog.Warn("Invalid last_sync_time format in config", "error", err)
 			config.LastSyncTime = nil
 		} else {
 			config.LastSyncTime = &parsedTime
@@ -81,6 +81,42 @@ func (m *Manager) Load() (*Config, error) {
 
 	if workflowConfig, ok := rawData["workflow_config"].(string); ok && workflowConfig != "" {
 		config.WorkflowConfig = &workflowConfig
+	}
+
+	// Parse observability config if present
+	if obsRaw, ok := rawData["observability"].(map[string]interface{}); ok {
+		var obs ObservabilityConfig
+		if enabled, ok := obsRaw["enabled"].(bool); ok {
+			obs.Enabled = enabled
+		}
+		if tracingEnabled, ok := obsRaw["tracing_enabled"].(bool); ok {
+			obs.TracingEnabled = tracingEnabled
+		}
+		if metricsEnabled, ok := obsRaw["metrics_enabled"].(bool); ok {
+			obs.MetricsEnabled = metricsEnabled
+		}
+		if logLevel, ok := obsRaw["log_level"].(string); ok {
+			obs.LogLevel = logLevel
+		}
+		if logFormat, ok := obsRaw["log_format"].(string); ok {
+			obs.LogFormat = logFormat
+		}
+		if exporter, ok := obsRaw["exporter"].(string); ok {
+			obs.Exporter = exporter
+		}
+		if otlpEndpoint, ok := obsRaw["otlp_endpoint"].(string); ok {
+			obs.OTLPEndpoint = otlpEndpoint
+		}
+		if otlpProtocol, ok := obsRaw["otlp_protocol"].(string); ok {
+			obs.OTLPProtocol = otlpProtocol
+		}
+		if serviceName, ok := obsRaw["service_name"].(string); ok {
+			obs.ServiceName = serviceName
+		}
+		if sampleRate, ok := obsRaw["sample_rate"].(float64); ok {
+			obs.SampleRate = sampleRate
+		}
+		config.Observability = &obs
 	}
 
 	m.config = config

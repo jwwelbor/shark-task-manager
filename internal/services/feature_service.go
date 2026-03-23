@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -12,6 +12,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // FeatureRepository defines the repository interface needed by FeatureService.
@@ -81,6 +84,7 @@ type FeatureService struct {
 	progressService   *FeatureProgressService
 	enrichRepo        config.TemplateEnrichmentRepository
 	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
+	tracer            trace.Tracer          // optional; defaults to otel.Tracer("shark/services/feature") if nil
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -104,6 +108,20 @@ func NewFeatureService(repo FeatureRepository, entitySvc *EntityService, entityR
 		relRepo:        nil,
 		epicLookupRepo: epicLookupRepo,
 	}
+}
+
+// SetTracer sets the OpenTelemetry tracer for the service.
+// When nil, getTracer falls back to the OTel global tracer (noop until provider is wired).
+func (s *FeatureService) SetTracer(t trace.Tracer) {
+	s.tracer = t
+}
+
+// getTracer returns the configured tracer or falls back to the OTel global tracer.
+func (s *FeatureService) getTracer() trace.Tracer {
+	if s.tracer != nil {
+		return s.tracer
+	}
+	return otel.Tracer("shark/services/feature")
 }
 
 // SetDocRepo sets the read-only document repository on the service.
@@ -189,6 +207,14 @@ func (s *FeatureService) UnlinkDocument(ctx context.Context, featureKey, docTitl
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
 func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	ctx, span := s.getTracer().Start(ctx, "FeatureService.TransitionStatus",
+		trace.WithAttributes(
+			attribute.String("feature.key", featureKey),
+			attribute.String("feature.target_status", targetStatus),
+		),
+	)
+	defer span.End()
+
 	// Delegate shared logic to EntityService
 	result, err := s.entitySvc.TransitionStatus(
 		ctx, s.entityRepo, models.EntityTypeFeature, featureKey, targetStatus, opts,
@@ -196,7 +222,7 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		s.makeResolveActionFn(ctx),
 	)
 	if err != nil {
-		return nil, err
+		return nil, recordSpanError(span, err)
 	}
 
 	// Post-hook: count child tasks
@@ -235,7 +261,7 @@ func (s *FeatureService) makeResolveActionFn(ctx context.Context) ResolveActionF
 		if s.enrichRepo != nil {
 			data, err := s.enrichRepo.GetFeatureEnrichment(ctx, feature.ID)
 			if err != nil {
-				log.Printf("WARNING: Failed to fetch enrichment data for feature %s: %v", feature.Key, err)
+				slog.Warn("Failed to fetch enrichment data for feature", "feature", feature.Key, "error", err)
 			} else {
 				enrichment = data
 			}
@@ -255,12 +281,17 @@ func (s *FeatureService) makeResolveActionFn(ctx context.Context) ResolveActionF
 
 // GetFeature retrieves a feature by key.
 func (s *FeatureService) GetFeature(ctx context.Context, key string) (*models.Feature, error) {
+	ctx, span := s.getTracer().Start(ctx, "FeatureService.GetFeature",
+		trace.WithAttributes(attribute.String("feature.key", key)),
+	)
+	defer span.End()
+
 	feature, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get feature %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to get feature %s: %w", key, err))
 	}
 	if feature == nil {
-		return nil, fmt.Errorf("feature not found: %s", key)
+		return nil, recordSpanError(span, fmt.Errorf("feature not found: %s", key))
 	}
 	return feature, nil
 }
@@ -284,9 +315,12 @@ func (s *FeatureService) GetFeatureByID(ctx context.Context, id int64) (*models.
 // because FeatureService does not have an epic repository to resolve epic keys to IDs.
 // Callers needing epic-scoped feature lists should resolve the epicID externally.
 func (s *FeatureService) ListFeatures(ctx context.Context, filters FeatureFilters) ([]*models.Feature, error) {
+	ctx, span := s.getTracer().Start(ctx, "FeatureService.ListFeatures")
+	defer span.End()
+
 	features, err := s.repo.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list features: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to list features: %w", err))
 	}
 
 	// Apply status filter in-memory
@@ -462,6 +496,11 @@ func (s *FeatureService) ListRelatedDocumentsByKey(ctx context.Context, featureK
 //
 // Returns a FeatureCompleteResult with details about what was completed.
 func (s *FeatureService) CompleteFeature(ctx context.Context, featureKey string, force bool) (*FeatureCompleteResult, error) {
+	ctx, span := s.getTracer().Start(ctx, "FeatureService.CompleteFeature",
+		trace.WithAttributes(attribute.String("feature.key", featureKey)),
+	)
+	defer span.End()
+
 	feature, err := s.repo.GetByKey(ctx, featureKey)
 	if err != nil {
 		return nil, fmt.Errorf("feature %s does not exist: %w", featureKey, err)
@@ -560,7 +599,16 @@ func (s *FeatureService) CompleteFeature(ctx context.Context, featureKey string,
 // and completion progress (raw task completion percentage).
 // All progress calculation is done in the service layer using the progress package.
 func (s *FeatureService) GetProgress(ctx context.Context, key string) (*FeatureProgressInfo, error) {
-	return s.getProgressService().GetProgress(ctx, key)
+	ctx, span := s.getTracer().Start(ctx, "FeatureService.GetProgress",
+		trace.WithAttributes(attribute.String("feature.key", key)),
+	)
+	defer span.End()
+
+	info, err := s.getProgressService().GetProgress(ctx, key)
+	if err != nil {
+		return nil, recordSpanError(span, err)
+	}
+	return info, nil
 }
 
 // RecalculateAndSetProgress recalculates the cached progress_pct for a feature
@@ -747,7 +795,7 @@ func (s *FeatureService) maybeReopenParentEpic(ctx context.Context, epic *models
 	epic.Status = models.EpicStatus(aggStatuses[0])
 
 	if err := s.epicLookupRepo.Update(ctx, epic); err != nil {
-		log.Printf("warning: auto-reopen of epic %s failed: %v", epic.Key, err)
+		slog.Warn("auto-reopen of epic failed", "epic", epic.Key, "error", err)
 		return
 	}
 

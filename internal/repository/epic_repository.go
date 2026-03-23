@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
@@ -21,7 +24,16 @@ func NewEpicRepository(db *DB) *EpicRepository {
 }
 
 // Create creates a new epic
-func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
+func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EpicRepository.Create",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "INSERT"),
+			attribute.String("db.table", "epics"),
+			attribute.String("db.key", epic.Key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	if err := epic.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -60,7 +72,16 @@ func (r *EpicRepository) Create(ctx context.Context, epic *models.Epic) error {
 }
 
 // GetByID retrieves an epic by its ID
-func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, error) {
+func (r *EpicRepository) GetByID(ctx context.Context, id int64) (_ *models.Epic, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EpicRepository.GetByID",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "epics"),
+			attribute.Int64("db.id", id),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
 		       slug, file_path, context_data, created_at, updated_at
@@ -96,7 +117,16 @@ func (r *EpicRepository) GetByID(ctx context.Context, id int64) (*models.Epic, e
 
 // GetByKey retrieves an epic by its key, supporting both numeric (E04) and slugged (E04-epic-name) formats.
 // It tries numeric lookup first for performance, then falls back to slug-based lookup if the key contains a hyphen.
-func (r *EpicRepository) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+func (r *EpicRepository) GetByKey(ctx context.Context, key string) (_ *models.Epic, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EpicRepository.GetByKey",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "epics"),
+			attribute.String("db.key", key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	// Try direct numeric key lookup first (e.g., "E04")
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
@@ -234,7 +264,15 @@ func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 }
 
 // List retrieves all epics, optionally filtered by status
-func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([]*models.Epic, error) {
+func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) (_ []*models.Epic, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EpicRepository.List",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "epics"),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, key, title, description, status, priority, business_value,
 		       slug, file_path, context_data, created_at, updated_at
@@ -286,7 +324,16 @@ func (r *EpicRepository) List(ctx context.Context, status *models.EpicStatus) ([
 }
 
 // Update updates an existing epic
-func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) error {
+func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EpicRepository.Update",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "epics"),
+			attribute.String("db.key", epic.Key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	if err := epic.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -321,7 +368,16 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) error {
 }
 
 // Delete deletes an epic (and all its features/tasks via CASCADE)
-func (r *EpicRepository) Delete(ctx context.Context, id int64) error {
+func (r *EpicRepository) Delete(ctx context.Context, id int64) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EpicRepository.Delete",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "DELETE"),
+			attribute.String("db.table", "epics"),
+			attribute.Int64("db.id", id),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := "DELETE FROM epics WHERE id = ?"
 
 	result, err := r.db.ExecContext(ctx, query, id)
@@ -533,7 +589,17 @@ func (r *EpicRepository) GetFeatureStatusBreakdownByKey(ctx context.Context, epi
 }
 
 // UpdateStatus updates the status of an epic
-func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error {
+func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EpicRepository.UpdateStatus",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "epics"),
+			attribute.Int64("db.id", epicID),
+			attribute.String("db.new_status", string(status)),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `UPDATE epics SET status = ? WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query, status, epicID)

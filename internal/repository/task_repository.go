@@ -29,6 +29,9 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
@@ -57,7 +60,16 @@ func NewTaskRepositoryWithWorkflow(db *DB, _ *config.WorkflowConfig) *TaskReposi
 }
 
 // Create creates a new task
-func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
+func (r *TaskRepository) Create(ctx context.Context, task *models.Task) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.Create",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "INSERT"),
+			attribute.String("db.table", "tasks"),
+			attribute.String("db.key", task.Key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -110,7 +122,16 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) error {
 }
 
 // GetByID retrieves a task by its ID
-func (r *TaskRepository) GetByID(ctx context.Context, id int64) (*models.Task, error) {
+func (r *TaskRepository) GetByID(ctx context.Context, id int64) (_ *models.Task, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.GetByID",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "tasks"),
+			attribute.Int64("db.id", id),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
@@ -205,7 +226,16 @@ func (r *TaskRepository) GetByIDs(ctx context.Context, ids []int64) ([]*models.T
 // Lookup strategy:
 // 1. Try exact match on the key column (handles legacy numeric keys)
 // 2. If not found and key contains a slug suffix, parse and match numeric key + slug
-func (r *TaskRepository) GetByKey(ctx context.Context, key string) (*models.Task, error) {
+func (r *TaskRepository) GetByKey(ctx context.Context, key string) (_ *models.Task, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.GetByKey",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "tasks"),
+			attribute.String("db.key", key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	if key == "" {
 		return nil, fmt.Errorf("task key cannot be empty")
 	}
@@ -434,7 +464,16 @@ func (r *TaskRepository) UpdateFilePath(ctx context.Context, taskKey string, new
 }
 
 // ListByFeature retrieves all tasks for a feature
-func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error) {
+func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) (_ []*models.Task, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.ListByFeature",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "tasks"),
+			attribute.Int64("db.feature_id", featureID),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
@@ -469,7 +508,16 @@ func (r *TaskRepository) ListByFeatureKey(ctx context.Context, featureKey string
 }
 
 // ListByEpic retrieves all tasks for an epic (via features)
-func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
+func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) (_ []*models.Task, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.ListByEpic",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "tasks"),
+			attribute.String("db.key", epicKey),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
@@ -538,7 +586,15 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType string
 }
 
 // FilterCombined retrieves tasks with multiple filter criteria
-func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *string, maxPriority *int) ([]*models.Task, error) {
+func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.TaskStatus, epicKey *string, agentType *string, maxPriority *int) (_ []*models.Task, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.FilterCombined",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "tasks"),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status, t.agent_type, t.priority,
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
@@ -613,7 +669,15 @@ func (r *TaskRepository) ListByKeyPrefix(ctx context.Context, prefix string) ([]
 }
 
 // List retrieves all tasks
-func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
+func (r *TaskRepository) List(ctx context.Context) (_ []*models.Task, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.List",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "tasks"),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
@@ -633,7 +697,16 @@ func (r *TaskRepository) List(ctx context.Context) ([]*models.Task, error) {
 }
 
 // Update updates an existing task
-func (r *TaskRepository) Update(ctx context.Context, task *models.Task) error {
+func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.Update",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "tasks"),
+			attribute.String("db.key", task.Key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	if err := task.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -824,14 +897,34 @@ func (r *TaskRepository) listByFeatureInTx(ctx context.Context, tx *sql.Tx, feat
 }
 
 // UpdateStatus atomically updates task status, timestamps, and creates history record
-func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) error {
+func (r *TaskRepository) UpdateStatus(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.UpdateStatus",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "tasks"),
+			attribute.Int64("db.id", taskID),
+			attribute.String("db.new_status", string(newStatus)),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	// For backward transitions, use notes as rejection reason if provided
 	// This maintains API compatibility while supporting the rejection reason requirement
 	return r.UpdateStatusForced(ctx, taskID, newStatus, agent, notes, notes, nil, false)
 }
 
 // UpdateStatusForced atomically updates task status with optional validation bypass
-func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) error {
+func (r *TaskRepository) UpdateStatusForced(ctx context.Context, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.UpdateStatusForced",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "tasks"),
+			attribute.Int64("db.id", taskID),
+			attribute.String("db.new_status", string(newStatus)),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	_, err := r.updateStatusForcedInternal(ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
 	return err
 }
@@ -1109,7 +1202,16 @@ func (r *TaskRepository) getOrchestratorAction(ctx context.Context, task *models
 }
 
 // Delete deletes a task (and its history via CASCADE)
-func (r *TaskRepository) Delete(ctx context.Context, id int64) error {
+func (r *TaskRepository) Delete(ctx context.Context, id int64) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "TaskRepository.Delete",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "DELETE"),
+			attribute.String("db.table", "tasks"),
+			attribute.Int64("db.id", id),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := "DELETE FROM tasks WHERE id = ?"
 
 	result, err := r.db.ExecContext(ctx, query, id)

@@ -215,6 +215,7 @@ func buildTaskServiceDeps() taskServiceDeps {
 func GetTaskService() *services.TaskService {
 	d := buildTaskServiceDeps()
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
 
@@ -240,6 +241,7 @@ func GetTaskService() *services.TaskService {
 func GetTaskServiceWithHistory() *services.TaskService {
 	d := buildTaskServiceDeps()
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 	svc.SetFeatureService(GetFeatureService())
@@ -276,6 +278,7 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	enrichRepo := repository.NewTemplateEnrichmentRepository(d.db)
 
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetDocRepo(docAdapter)
 	svc.SetRelRepo(repository.NewEntityRelTaskKeyAdapter(d.db))
 	svc.SetSessionRepo(sessionRepo)
@@ -482,4 +485,7 @@ func ResetServices() {
 	// Reset entity service
 	globalEntityService = nil
 	entityServiceOnce = sync.Once{}
+
+	// Reset observability state for test isolation
+	ResetObservability()
 }

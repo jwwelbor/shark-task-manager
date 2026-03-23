@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -110,7 +111,7 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 	if err != nil {
 		// Log warning but don't fail - backup is nice-to-have
 		if opts.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: failed to create backup: %v\n", err)
+			slog.Warn("failed to create backup", "error", err)
 		}
 	}
 
@@ -124,7 +125,7 @@ func (s *ProfileService) ApplyProfile(opts UpdateOptions) (*UpdateResult, error)
 	if opts.WorkflowName != "" && len(workflowData) > 0 {
 		workflowBackupPath, err = s.createConfigBackup(workflowFilePath)
 		if err != nil && opts.Verbose {
-			fmt.Fprintf(os.Stderr, "Warning: failed to create workflow file backup: %v\n", err)
+			slog.Warn("failed to create workflow file backup", "error", err)
 		}
 
 		if err := s.writeConfig(workflowFilePath, workflowData); err != nil {

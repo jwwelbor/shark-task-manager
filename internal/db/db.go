@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1061,7 +1062,7 @@ func BackupDatabase(dbPath string) (string, error) {
 			walBackupPath := backupPath + filepath.Ext(walFile)
 			if err := copyFile(walFile, walBackupPath); err != nil {
 				// Log warning but don't fail the backup
-				fmt.Fprintf(os.Stderr, "Warning: Failed to backup WAL file %s: %v\n", walFile, err)
+				slog.Warn("Failed to backup WAL file", "file", walFile, "error", err)
 			}
 		}
 	}

@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -446,7 +446,7 @@ func (s *DisplayService) ResolveEpicAction(ctx context.Context, epic *models.Epi
 	if s.deps.TemplateEnrichmentRepo != nil {
 		data, err := s.deps.TemplateEnrichmentRepo.GetEpicEnrichment(ctx, epic.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for epic %s: %v", epic.Key, err)
+			slog.Warn("Failed to fetch enrichment data for epic", "epic", epic.Key, "error", err)
 		} else {
 			enrichment = data
 		}
@@ -631,7 +631,7 @@ func (s *DisplayService) ResolveFeatureAction(ctx context.Context, feature *mode
 	if s.deps.TemplateEnrichmentRepo != nil {
 		data, err := s.deps.TemplateEnrichmentRepo.GetFeatureEnrichment(ctx, feature.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for feature %s: %v", feature.Key, err)
+			slog.Warn("Failed to fetch enrichment data for feature", "feature", feature.Key, "error", err)
 		} else {
 			enrichment = data
 		}
@@ -665,7 +665,7 @@ func (s *DisplayService) ResolveTaskAction(ctx context.Context, task *models.Tas
 	if s.deps.TemplateEnrichmentRepo != nil {
 		data, err := s.deps.TemplateEnrichmentRepo.GetTaskEnrichment(ctx, task.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch enrichment data for task %s: %v", task.Key, err)
+			slog.Warn("Failed to fetch enrichment data for task", "task", task.Key, "error", err)
 		} else {
 			taskEnrichment = data
 		}

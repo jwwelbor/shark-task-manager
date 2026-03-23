@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -327,7 +327,7 @@ func FeaturePlaceholdersWithRelated(
 	if docRepoForFeature != nil {
 		docs, err := docRepoForFeature.ListForFeature(ctx, feature.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch related docs for feature %s: %v", feature.Key, err)
+			slog.Warn("Failed to fetch related docs for feature", "feature", feature.Key, "error", err)
 			placeholders["related_docs"] = ""
 		} else {
 			placeholders["related_docs"] = formatDocPathsAsCSV(docs)
@@ -340,7 +340,7 @@ func FeaturePlaceholdersWithRelated(
 	if featureRelRepo != nil {
 		relatedKeys, err := featureRelRepo.ListRelatedFeatures(ctx, feature.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch related features for %s: %v", feature.Key, err)
+			slog.Warn("Failed to fetch related features", "feature", feature.Key, "error", err)
 			placeholders["related_features"] = ""
 		} else {
 			placeholders["related_features"] = strings.Join(relatedKeys, ",")
@@ -438,7 +438,7 @@ func TaskPlaceholdersWithRelated(
 	// Add related_docs
 	docs, err := docRepo.ListForTask(ctx, task.ID)
 	if err != nil {
-		log.Printf("WARNING: Failed to fetch related docs for task %s: %v", task.Key, err)
+		slog.Warn("Failed to fetch related docs for task", "task", task.Key, "error", err)
 		placeholders["related_docs"] = ""
 	} else {
 		placeholders["related_docs"] = formatDocPathsAsCSV(docs)
@@ -447,7 +447,7 @@ func TaskPlaceholdersWithRelated(
 	// Add related_tasks from task_relationships table (REFACTORED)
 	relatedKeys, err := taskRelRepo.ListRelatedTaskKeys(ctx, task.ID)
 	if err != nil {
-		log.Printf("WARNING: Failed to fetch related tasks for task %s: %v", task.Key, err)
+		slog.Warn("Failed to fetch related tasks", "task", task.Key, "error", err)
 		placeholders["related_tasks"] = ""
 	} else {
 		placeholders["related_tasks"] = strings.Join(relatedKeys, ",")
@@ -513,7 +513,7 @@ func EpicPlaceholdersWithRelated(
 	if docRepoForEpic != nil {
 		docs, err := docRepoForEpic.ListForEpic(ctx, epic.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch related docs for epic %s: %v", epic.Key, err)
+			slog.Warn("Failed to fetch related docs for epic", "epic", epic.Key, "error", err)
 			placeholders["related_docs"] = ""
 		} else {
 			placeholders["related_docs"] = formatDocPathsAsCSV(docs)
@@ -526,7 +526,7 @@ func EpicPlaceholdersWithRelated(
 	if epicRelRepo != nil {
 		relatedKeys, err := epicRelRepo.ListRelatedEpics(ctx, epic.ID)
 		if err != nil {
-			log.Printf("WARNING: Failed to fetch related epics for %s: %v", epic.Key, err)
+			slog.Warn("Failed to fetch related epics", "epic", epic.Key, "error", err)
 			placeholders["related_epics"] = ""
 		} else {
 			placeholders["related_epics"] = formatEpicKeysAsCSV(relatedKeys)

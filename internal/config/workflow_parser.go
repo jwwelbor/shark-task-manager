@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -390,7 +391,7 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 func LoadMultiLevelWorkflowOrDefault(configPath string) *MultiLevelWorkflow {
 	multi, err := LoadMultiLevelWorkflow(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load workflow config: %v\n", err)
+		slog.Warn("Failed to load workflow config", "error", err)
 		return &MultiLevelWorkflow{}
 	}
 	if multi == nil {

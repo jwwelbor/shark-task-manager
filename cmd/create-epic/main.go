@@ -3,7 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -23,7 +23,8 @@ func main() {
 
 	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		slog.Error("Failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
@@ -33,7 +34,8 @@ func main() {
 		VALUES (?, ?, ?, 'draft', 'medium')
 	`, key, title, description)
 	if err != nil {
-		log.Fatalf("Failed to insert epic: %v", err)
+		slog.Error("Failed to insert epic", "error", err)
+		os.Exit(1)
 	}
 
 	id, _ := result.LastInsertId()

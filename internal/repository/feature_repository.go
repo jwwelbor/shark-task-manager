@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
@@ -22,7 +25,16 @@ func NewFeatureRepository(db *DB) *FeatureRepository {
 }
 
 // Create creates a new feature
-func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature) error {
+func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "FeatureRepository.Create",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "INSERT"),
+			attribute.String("db.table", "features"),
+			attribute.String("db.key", feature.Key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	if err := feature.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -63,7 +75,16 @@ func (r *FeatureRepository) Create(ctx context.Context, feature *models.Feature)
 }
 
 // GetByID retrieves a feature by its ID
-func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
+func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (_ *models.Feature, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "FeatureRepository.GetByID",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "features"),
+			attribute.Int64("db.id", id),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
 		       execution_order, file_path, context_data, created_at, updated_at
@@ -109,7 +130,16 @@ func (r *FeatureRepository) GetByID(ctx context.Context, id int64) (*models.Feat
 // 1. Exact match on key column
 // 2. Pattern match for numeric key (key LIKE '%F11')
 // 3. Pattern match for slugged key (key || '-' || slug matches input)
-func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
+func (r *FeatureRepository) GetByKey(ctx context.Context, key string) (_ *models.Feature, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "FeatureRepository.GetByKey",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "features"),
+			attribute.String("db.key", key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	// Normalize key to uppercase for comparison
 	normalizedKey := strings.ToUpper(key)
 
@@ -318,7 +348,16 @@ func (r *FeatureRepository) GetByFilePath(ctx context.Context, filePath string) 
 }
 
 // ListByEpic retrieves all features for an epic
-func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) (_ []*models.Feature, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "FeatureRepository.ListByEpic",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "features"),
+			attribute.Int64("db.epic_id", epicID),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
 		       execution_order, file_path, context_data, created_at, updated_at
@@ -366,7 +405,15 @@ func (r *FeatureRepository) ListByEpic(ctx context.Context, epicID int64) ([]*mo
 }
 
 // List retrieves all features
-func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error) {
+func (r *FeatureRepository) List(ctx context.Context) (_ []*models.Feature, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "FeatureRepository.List",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "features"),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
 		       execution_order, file_path, context_data, created_at, updated_at
@@ -413,7 +460,16 @@ func (r *FeatureRepository) List(ctx context.Context) ([]*models.Feature, error)
 }
 
 // Update updates an existing feature
-func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature) error {
+func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "FeatureRepository.Update",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "features"),
+			attribute.String("db.key", feature.Key),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	if err := feature.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -580,7 +636,16 @@ func (r *FeatureRepository) listByEpicInTx(ctx context.Context, tx *sql.Tx, epic
 }
 
 // Delete deletes a feature (and all its tasks via CASCADE)
-func (r *FeatureRepository) Delete(ctx context.Context, id int64) error {
+func (r *FeatureRepository) Delete(ctx context.Context, id int64) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "FeatureRepository.Delete",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "DELETE"),
+			attribute.String("db.table", "features"),
+			attribute.Int64("db.id", id),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := "DELETE FROM features WHERE id = ?"
 
 	result, err := r.db.ExecContext(ctx, query, id)
@@ -938,7 +1003,17 @@ func (r *FeatureRepository) UpdateContextData(ctx context.Context, featureID int
 }
 
 // UpdateStatus updates only the status field of a feature.
-func (r *FeatureRepository) UpdateStatus(ctx context.Context, featureID int64, status models.FeatureStatus) error {
+func (r *FeatureRepository) UpdateStatus(ctx context.Context, featureID int64, status models.FeatureStatus) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "FeatureRepository.UpdateStatus",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "UPDATE"),
+			attribute.String("db.table", "features"),
+			attribute.Int64("db.id", featureID),
+			attribute.String("db.new_status", string(status)),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `UPDATE features SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
 	result, err := r.db.ExecContext(ctx, query, status, featureID)
 	if err != nil {

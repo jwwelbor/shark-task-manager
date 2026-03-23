@@ -125,6 +125,7 @@ func GetEpicService() *services.EpicService {
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
 	svc := services.NewEpicService(epicRepo, entitySvc, entityRepo, featureRepo, taskRepo)
+	svc.SetTracer(GetTracer("shark/services/epic"))
 	svc.SetDocRepo(docAdapter)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
@@ -167,6 +168,7 @@ func GetFeatureService() *services.FeatureService {
 	docAdapter := repository.NewPolymorphicDocRepoAdapter(entityDocRepo)
 	entityHistoryRepo := repository.NewEntityHistoryRepository(db)
 	svc := services.NewFeatureService(featureRepo, entitySvc, entityRepo, taskRepo, epicRepo)
+	svc.SetTracer(GetTracer("shark/services/feature"))
 	svc.SetDocRepo(docAdapter)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
@@ -206,6 +208,23 @@ func GetDisplayService() *services.DisplayService {
 	}
 	workflowSvc := GetWorkflowService()
 	return services.NewDisplayService(db, workflowSvc)
+}
+
+// GetSearchService returns a SearchService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetSearchService()
+//	results, err := svc.SearchAll(ctx, "query", nil)
+func GetSearchService() *services.SearchService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	searchRepo := repository.NewSearchRepository(db)
+	return services.NewSearchService(searchRepo)
 }
 
 // GetStatusService returns a StatusService instance.

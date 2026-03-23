@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -21,7 +24,17 @@ func NewEntityNoteRepository(db *DB) *EntityNoteRepository {
 }
 
 // Create creates a new entity note
-func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNote) error {
+func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNote) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.Create",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "INSERT"),
+			attribute.String("db.table", "entity_notes"),
+			attribute.String("db.entity_type", string(note.EntityType)),
+			attribute.Int64("db.entity_id", note.EntityID),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	if err := note.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
@@ -55,7 +68,16 @@ func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNo
 }
 
 // GetByID retrieves an entity note by its ID
-func (r *EntityNoteRepository) GetByID(ctx context.Context, id int64) (*models.EntityNote, error) {
+func (r *EntityNoteRepository) GetByID(ctx context.Context, id int64) (_ *models.EntityNote, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.GetByID",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "entity_notes"),
+			attribute.Int64("db.id", id),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, entity_type, entity_id, note_type, content, created_by, metadata, created_at
 		FROM entity_notes
@@ -85,7 +107,17 @@ func (r *EntityNoteRepository) GetByID(ctx context.Context, id int64) (*models.E
 }
 
 // GetByEntity retrieves all notes for a specific entity, ordered by created_at ASC
-func (r *EntityNoteRepository) GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error) {
+func (r *EntityNoteRepository) GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) (_ []*models.EntityNote, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.GetByEntity",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "SELECT"),
+			attribute.String("db.table", "entity_notes"),
+			attribute.String("db.entity_type", string(entityType)),
+			attribute.Int64("db.entity_id", entityID),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `
 		SELECT id, entity_type, entity_id, note_type, content, created_by, metadata, created_at
 		FROM entity_notes
@@ -361,7 +393,16 @@ func (r *EntityNoteRepository) SearchWithTimePeriod(ctx context.Context, query s
 }
 
 // Delete deletes an entity note by ID
-func (r *EntityNoteRepository) Delete(ctx context.Context, id int64) error {
+func (r *EntityNoteRepository) Delete(ctx context.Context, id int64) (retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.Delete",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "DELETE"),
+			attribute.String("db.table", "entity_notes"),
+			attribute.Int64("db.id", id),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
+
 	query := `DELETE FROM entity_notes WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query, id)
@@ -400,7 +441,16 @@ func (r *EntityNoteRepository) CreateRejectionNote(
 	reason string,
 	rejectedBy string,
 	documentPath *string,
-) (*models.EntityNote, error) {
+) (_ *models.EntityNote, retErr error) {
+	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.CreateRejectionNote",
+		trace.WithAttributes(
+			attribute.String("db.system", "sqlite"),
+			attribute.String("db.operation", "INSERT"),
+			attribute.String("db.table", "entity_notes"),
+			attribute.String("db.entity_type", string(entityType)),
+			attribute.Int64("db.entity_id", entityID),
+		))
+	defer func() { recordSpanError(span, retErr); span.End() }()
 	// Validate inputs
 	if entityID == 0 {
 		return nil, fmt.Errorf("failed to create rejection note: entity_id must be greater than 0")

@@ -93,20 +93,15 @@ func runSearchQuery(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Step 2: Call repository (thin wrapper: direct repo access is acceptable here
-	// because there is no business logic — just data retrieval and formatting).
-	repoDb, err := cli.GetDB(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get database: %w", err)
-	}
-	searchRepo := repository.NewSearchRepository(repoDb)
+	// Step 2: Call service
+	svc := cli.GetSearchService()
 
 	var entityTypePtr *string
 	if entityTypeFlag != "" {
 		entityTypePtr = &entityTypeFlag
 	}
 
-	results, err := searchRepo.SearchAll(cmd.Context(), query, entityTypePtr)
+	results, err := svc.SearchAll(cmd.Context(), query, entityTypePtr)
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
 	}
