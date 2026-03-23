@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
 
@@ -28,11 +29,17 @@ func setupTracingTest(t *testing.T) *tracetest.InMemoryExporter {
 	prevProvider := otel.GetTracerProvider()
 	otel.SetTracerProvider(tp)
 
-	// Re-initialize the package-level tracer so it picks up the new provider.
+	// Re-initialize the root-package tracer so it picks up the new provider.
 	prevTracer := repoTracer
 	repoTracer = tp.Tracer("internal/repository")
 
+	// Re-initialize the note sub-package tracer. EntityNoteRepository was moved
+	// to note/ in Phase 3 and uses its own noteTracer; this ensures spans from
+	// note.EntityNoteRepository are captured by the in-memory exporter.
+	restoreNoteTracer := note.SetTracerForTesting(tp.Tracer("internal/repository/note"))
+
 	t.Cleanup(func() {
+		restoreNoteTracer()
 		repoTracer = prevTracer
 		otel.SetTracerProvider(prevProvider)
 		_ = tp.Shutdown(context.Background())

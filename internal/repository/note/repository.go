@@ -1,4 +1,6 @@
-package repository
+// Package note provides the EntityNoteRepository for storing entity notes
+// (comments, decisions, rejections, etc.) for epics, features, and tasks.
+package note
 
 import (
 	"context"
@@ -11,21 +13,32 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 )
+
+// noteTracer is the package-level OpenTelemetry tracer for note repository operations.
+// Per-package tracers improve observability by attributing spans to the correct sub-package.
+var noteTracer = repoutil.NewTracer("internal/repository/note")
+
+// recordSpanError records an error on the span and sets its status to Error.
+func recordSpanError(span trace.Span, err error) {
+	repoutil.RecordSpanError(span, err)
+}
 
 // EntityNoteRepository handles CRUD operations for entity notes (epics, features, tasks)
 type EntityNoteRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewEntityNoteRepository creates a new EntityNoteRepository
-func NewEntityNoteRepository(db *DB) *EntityNoteRepository {
+func NewEntityNoteRepository(db *dbconn.DB) *EntityNoteRepository {
 	return &EntityNoteRepository{db: db}
 }
 
 // Create creates a new entity note
 func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNote) (retErr error) {
-	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.Create",
+	ctx, span := noteTracer.Start(ctx, "EntityNoteRepository.Create",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "INSERT"),
@@ -69,7 +82,7 @@ func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNo
 
 // GetByID retrieves an entity note by its ID
 func (r *EntityNoteRepository) GetByID(ctx context.Context, id int64) (_ *models.EntityNote, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.GetByID",
+	ctx, span := noteTracer.Start(ctx, "EntityNoteRepository.GetByID",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "SELECT"),
@@ -108,7 +121,7 @@ func (r *EntityNoteRepository) GetByID(ctx context.Context, id int64) (_ *models
 
 // GetByEntity retrieves all notes for a specific entity, ordered by created_at ASC
 func (r *EntityNoteRepository) GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) (_ []*models.EntityNote, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.GetByEntity",
+	ctx, span := noteTracer.Start(ctx, "EntityNoteRepository.GetByEntity",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "SELECT"),
@@ -213,7 +226,7 @@ func (r *EntityNoteRepository) GetByEntityAndType(ctx context.Context, entityTyp
 	return notes, nil
 }
 
-// Search searches for notes across entities containing the query string
+// Search searches for notes across entities containing the query string.
 // When entityType is nil, searches across ALL entity types.
 // For task entity type, supports filtering by epicKey and featureKey via joins.
 func (r *EntityNoteRepository) Search(ctx context.Context, query string, noteTypes []string, entityType *models.EntityType, epicKey string, featureKey string) ([]*models.EntityNote, error) {
@@ -300,7 +313,7 @@ func (r *EntityNoteRepository) Search(ctx context.Context, query string, noteTyp
 	return notes, nil
 }
 
-// SearchWithTimePeriod searches for notes with optional time period filtering
+// SearchWithTimePeriod searches for notes with optional time period filtering.
 // since: filter notes created after this timestamp (YYYY-MM-DD format, optional)
 // until: filter notes created before this timestamp (YYYY-MM-DD format, optional)
 func (r *EntityNoteRepository) SearchWithTimePeriod(ctx context.Context, query string, noteTypes []string, epicKey string, featureKey string, since string, until string) ([]*models.EntityNote, error) {
@@ -394,7 +407,7 @@ func (r *EntityNoteRepository) SearchWithTimePeriod(ctx context.Context, query s
 
 // Delete deletes an entity note by ID
 func (r *EntityNoteRepository) Delete(ctx context.Context, id int64) (retErr error) {
-	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.Delete",
+	ctx, span := noteTracer.Start(ctx, "EntityNoteRepository.Delete",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "DELETE"),
@@ -442,7 +455,7 @@ func (r *EntityNoteRepository) CreateRejectionNote(
 	rejectedBy string,
 	documentPath *string,
 ) (_ *models.EntityNote, retErr error) {
-	ctx, span := repoTracer.Start(ctx, "EntityNoteRepository.CreateRejectionNote",
+	ctx, span := noteTracer.Start(ctx, "EntityNoteRepository.CreateRejectionNote",
 		trace.WithAttributes(
 			attribute.String("db.system", "sqlite"),
 			attribute.String("db.operation", "INSERT"),
@@ -522,7 +535,8 @@ func (r *EntityNoteRepository) CreateRejectionNote(
 	return note, nil
 }
 
-// CreateRejectionNoteWithTx creates an entity note with note_type=rejection within a transaction
+// CreateRejectionNoteWithTx creates an entity note with note_type=rejection within a transaction.
+// This method satisfies the repository.NoteCreator interface used by TaskRepository.
 func (r *EntityNoteRepository) CreateRejectionNoteWithTx(
 	ctx context.Context,
 	tx *sql.Tx,

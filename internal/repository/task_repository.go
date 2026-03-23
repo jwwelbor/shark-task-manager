@@ -38,16 +38,43 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
 
-// TaskRepository handles CRUD operations for tasks
-type TaskRepository struct {
-	db *DB
+// NoteCreator is a minimal interface for creating rejection notes within a transaction.
+// It is defined here (in the task package scope) to avoid an import cycle between
+// the task repository and the note repository sub-packages.
+//
+// EntityNoteRepository satisfies this interface; callers can inject it via
+// NewTaskRepositoryWithNoteCreator or via the root-package NewTaskRepository wrapper
+// in aliases.go which wires note.EntityNoteRepository as the NoteCreator.
+type NoteCreator interface {
+	CreateRejectionNoteWithTx(ctx context.Context, tx *sql.Tx,
+		entityType models.EntityType, entityID int64, historyID int64,
+		fromStatus, toStatus, reason, rejectedBy string, documentPath *string,
+	) (*models.EntityNote, error)
 }
 
-// NewTaskRepository creates a new TaskRepository
-func NewTaskRepository(db *DB) *TaskRepository {
+// TaskRepository handles CRUD operations for tasks
+type TaskRepository struct {
+	db          *DB
+	noteCreator NoteCreator // optional; nil means rejection notes are silently skipped
+}
+
+// newTaskRepositoryBase creates a TaskRepository with an explicit NoteCreator.
+// This is the internal constructor used by the public NewTaskRepository in aliases.go
+// and by NewTaskRepositoryWithNoteCreator.
+func newTaskRepositoryBase(db *DB, noteCreator NoteCreator) *TaskRepository {
 	return &TaskRepository{
-		db: db,
+		db:          db,
+		noteCreator: noteCreator,
 	}
+}
+
+// NewTaskRepositoryWithNoteCreator creates a TaskRepository with explicit rejection note support.
+// When noteCreator is non-nil, rejection notes are created on forced status updates.
+// When noteCreator is nil, rejection note creation is silently skipped (graceful degradation).
+// Most callers should use NewTaskRepository (defined in aliases.go) which automatically wires
+// note.EntityNoteRepository as the NoteCreator.
+func NewTaskRepositoryWithNoteCreator(db *DB, noteCreator NoteCreator) *TaskRepository {
+	return newTaskRepositoryBase(db, noteCreator)
 }
 
 // NewTaskRepositoryWithWorkflow creates a new TaskRepository.
@@ -55,9 +82,7 @@ func NewTaskRepository(db *DB) *TaskRepository {
 // This constructor is kept temporarily for backward compatibility with callers
 // that pass a workflow config. It will be removed in a future cleanup.
 func NewTaskRepositoryWithWorkflow(db *DB, _ *config.WorkflowConfig) *TaskRepository {
-	return &TaskRepository{
-		db: db,
-	}
+	return newTaskRepositoryBase(db, nil)
 }
 
 // Create creates a new task
@@ -1012,15 +1037,14 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 		return nil, fmt.Errorf("failed to get history record id: %w", err)
 	}
 
-	// Create rejection note if rejection reason is provided
-	if rejectionReason != nil && strings.TrimSpace(*rejectionReason) != "" {
-		noteRepo := NewEntityNoteRepository(r.db)
+	// Create rejection note if rejection reason is provided and NoteCreator is available
+	if rejectionReason != nil && strings.TrimSpace(*rejectionReason) != "" && r.noteCreator != nil {
 		rejectedBy := "system"
 		if agent != nil && *agent != "" {
 			rejectedBy = *agent
 		}
 
-		_, err := noteRepo.CreateRejectionNoteWithTx(
+		_, err := r.noteCreator.CreateRejectionNoteWithTx(
 			ctx, tx, models.EntityTypeTask, taskID, historyID,
 			currentStatus, string(newStatus),
 			*rejectionReason, rejectedBy, documentPath,
@@ -1106,15 +1130,14 @@ func (r *TaskRepository) StatusUpdateRaw(ctx context.Context, params models.Stat
 		return nil, fmt.Errorf("failed to get history record id: %w", err)
 	}
 
-	// Create rejection note if rejection reason is provided
-	if params.RejectionReason != nil && strings.TrimSpace(*params.RejectionReason) != "" {
-		noteRepo := NewEntityNoteRepository(r.db)
+	// Create rejection note if rejection reason is provided and NoteCreator is available
+	if params.RejectionReason != nil && strings.TrimSpace(*params.RejectionReason) != "" && r.noteCreator != nil {
 		rejectedBy := "system"
 		if params.Agent != nil && *params.Agent != "" {
 			rejectedBy = *params.Agent
 		}
 
-		_, err := noteRepo.CreateRejectionNoteWithTx(
+		_, err := r.noteCreator.CreateRejectionNoteWithTx(
 			ctx, tx, models.EntityTypeTask, params.TaskID, historyID,
 			params.OldStatus, string(params.NewStatus),
 			*params.RejectionReason, rejectedBy, params.DocumentPath,
