@@ -14,6 +14,9 @@
 
 3. **`ready_for_X` → `in_X` = one agent launch**: When the controller sees `spawn_agent` at a `ready_for_*` status, it advances to `in_*` first (marks work started), then dispatches the agent. If the agent fails or is interrupted, `in_*` has its own `spawn_agent` with a resume instruction — still only one dispatch per attempt.
 
+4. **Parallel cascade with `--parallel=N`**: The `cascade` action supports parallel dispatch of child entities. Each parallel agent gets its own git worktree for isolation. Bounded by a concurrency semaphore (default: sequential, `--parallel=3` for 3 concurrent agents). Only independent children run in parallel; dependency ordering is respected.
+
+
 ---
 
 ## Controller Pseudocode
@@ -50,9 +53,23 @@ Run(key):
 
       case "cascade":
         children = listChildren(key)                          ← shark list <key> --json
-        for each child (in execution order):
-          if child is terminal → skip
-          Run(child.key)                                      ← recursive
+        actionable = filter(children, not terminal)
+
+        if opts.Parallel > 1:
+          // Parallel: bounded concurrency with worktree isolation
+          sem = semaphore(opts.Parallel)                      ← e.g., --parallel=3
+          for each child in actionable (concurrent, bounded by sem):
+            go func:
+              worktree = createWorktree(child.key)
+              childOpts = opts with WorkingDir=worktree
+              Run(child.key, childOpts)                       ← recursive, isolated worktree
+              removeWorktree(worktree)
+          wait for all goroutines
+        else:
+          // Sequential (default): process in execution order
+          for each child in actionable:
+            Run(child.key)                                    ← recursive
+
         // All children done → advance parent
         result = TransitionStatus(key, firstTransition)
         currentStatus = result.ToStatus
@@ -141,32 +158,58 @@ Iteration 1: GetNextStatus("E10") → status=in_research
 When the controller reaches `active` (cascade action), it handles this internally:
 
 ```
-handleCascade(epicKey):
+handleCascade(epicKey, opts):
   features = shark feature list --epic=E10 --json       ← sorted by execution order
+  actionable = [f for f in features if f.status not in (completed, cancelled)]
 
-  for each feature:
-    if feature.status in [completed, cancelled]:
-      skip
-    else:
-      Run(feature.key)                                   ← recursive call
-      // This drives the feature through ITS full workflow:
-      // draft → ready_for_assessment → ... → active → completed
-      // Which in turn cascades into tasks when feature hits "active"
+  if opts.Parallel > 1:
+    // Parallel mode: each feature gets its own worktree
+    // Go goroutines bounded by semaphore
+    sem = make(chan struct{}, opts.Parallel)
+    wg = sync.WaitGroup{}
+    for each feature in actionable:
+      wg.Add(1)
+      sem <- struct{}{}                                   ← acquire slot (blocks if full)
+      go func(featureKey):
+        defer wg.Done()
+        defer { <-sem }                                   ← release slot
+        worktree = createWorktree(featureKey)
+        Run(featureKey, opts{WorkingDir: worktree})        ← recursive, isolated
+        removeWorktree(worktree)
+      wg.Wait()
+  else:
+    // Sequential (default)
+    for each feature in actionable:
+      Run(feature.key)                                    ← recursive call
 
   // All features terminal → advance epic
   TransitionStatus("E10", "completed")
 ```
 
-**E10 right now** (status=active, 6 features):
+### Sequential vs Parallel
 
-| Feature | Status | What cascade does |
-|---------|--------|-------------------|
-| E10-F01 | completed | Skip |
-| E10-F02 | completed | Skip |
-| E10-F03 | active (90.9%) | `Run("E10-F03")` → cascade into its tasks |
-| E10-F04 | completed | Skip |
-| E10-F05 | completed | Skip |
-| E10-F06 | draft | `Run("E10-F06")` → drive through full feature workflow |
+```
+# Sequential (default) — safe, simple
+shark run E10
+
+# Parallel — 3 features at once, each in its own worktree
+shark run E10 --parallel=3
+```
+
+**Why worktrees are required for parallel**: Two agents editing the same files will conflict. Each agent gets an isolated git worktree copy. SQLite WAL mode handles concurrent DB writes (status transitions are atomic).
+
+**Dependency awareness**: Features are generally independent within an epic. Tasks within a feature may have `depends_on` — the sequential default respects execution order. Parallel mode assumes children are independent (the common case for features).
+
+### E10 Right Now (status=active, 6 features)
+
+| Feature | Status | Sequential | Parallel (--parallel=3) |
+|---------|--------|-----------|------------------------|
+| E10-F01 | completed | Skip | Skip |
+| E10-F02 | completed | Skip | Skip |
+| E10-F03 | active (90.9%) | `Run("E10-F03")` | Slot 1: `Run("E10-F03")` in worktree |
+| E10-F04 | completed | Skip | Skip |
+| E10-F05 | completed | Skip | Skip |
+| E10-F06 | draft | `Run("E10-F06")` (waits for F03) | Slot 2: `Run("E10-F06")` in worktree (concurrent with F03) |
 
 After F03 and F06 complete → advance E10 to `completed`.
 
@@ -215,7 +258,7 @@ any status → on_hold → [pause] → (user resumes)  → resume at ready_for_*
 |--------|---------|---------------------|
 | `advance_status` | Auto-advance, no agent needed | `TransitionStatus()` → loop |
 | `spawn_agent` | Dispatch an agent | If at `ready_for_*`: advance first, then dispatch. If at `in_*`: dispatch (resume), then advance on success. |
-| `cascade` | Drive child entities | Internal loop: list children, `Run()` each recursively, advance parent when all done. |
+| `cascade` | Drive child entities | Internal loop: list children, `Run()` each recursively (parallel with `--parallel=N` + worktrees), advance parent when all done. |
 | `pause` | Stop, human intervention needed | Return `outcome=paused`. |
 | `archive` | Terminal, entity is done | Return `outcome=completed`. |
 | `check_or_resume` | True breakpoint (reserved) | Return `outcome=paused`. Not currently used in any workflow. |

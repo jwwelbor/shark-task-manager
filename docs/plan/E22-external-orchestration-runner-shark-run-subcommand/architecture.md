@@ -18,7 +18,8 @@ loop:
   3. Build template placeholders from entity data        (in-memory)
   4. Execute action:
      - advance_status → TransitionStatus()              (same as `shark status advance`)
-     - spawn_agent   → dispatch agent → on success, TransitionStatus()
+     - spawn_agent   → advance to in_ → dispatch agent → on success, TransitionStatus()
+     - cascade       → list children → Run() each       (parallel with --parallel=N + worktrees)
      - pause/wait    → STOP
      - archive       → STOP
   5. If terminal → STOP, else → loop with new status
@@ -165,12 +166,36 @@ internal/runner/worktree.go            (Git worktree isolation)
 - (+) Dry-run can walk the config to preview the chain without touching DB.
 - (+) `advance_status` actions (e.g., `ready_for_development` → `in_development`) chain naturally through the loop.
 
-### ADR-005: Disallowed Tools for Agent Isolation
+### ADR-005: Cascade Handled Internally with Optional Parallel Dispatch
+
+**Date**: 2026-03-23
+**Status**: Accepted
+
+**Context**: When an entity (epic or feature) reaches `active` status, its orchestrator action is `cascade` — meaning "drive all child entities forward." This could be delegated to an agent or handled by the controller.
+
+**Decision**: The controller handles `cascade` internally by listing child entities and calling `Run()` recursively for each non-terminal child. With `--parallel=N`, children are dispatched concurrently using Go goroutines bounded by a semaphore, each in its own git worktree.
+
+**Rationale**:
+- The controller already has `Run()` — recursion is natural and keeps cascade logic tight.
+- Dispatching a "tech-director" agent to do `shark run` recursively adds an unnecessary layer of indirection.
+- Go's goroutines + channels are purpose-built for bounded concurrency.
+- Git worktrees provide filesystem isolation for parallel agents (two agents can't safely edit the same files).
+- SQLite WAL mode supports concurrent reads + serial writes; status transitions are atomic.
+
+**Consequences**:
+- (+) No agent dispatch cost for cascade — just recursive controller calls.
+- (+) Parallel mode enables significant speedup for independent children (e.g., features in an epic).
+- (+) Each parallel agent gets full isolation via worktree — no file conflicts.
+- (+) `--parallel=1` (default) is sequential — safe fallback, no worktrees needed.
+- (-) Parallel mode requires worktree support (already implemented).
+- (-) Tasks with `depends_on` within a feature should respect ordering — parallel mode assumes children are independent (true for features, mostly true for tasks).
+
+### ADR-006: Disallowed Tools for Agent Isolation
 
 **Date**: 2026-03-21
 **Status**: Accepted
 
-**Context**: The core security property of E22 is that agents cannot advance their own status. Claude CLI supports `--disallowedTools` to block specific tool invocations.
+**Context**: The core security property of E22 is that agents cannot advance their own status.
 
 **Decision**: Pass `--disallowedTools "Bash(shark status advance*)" "Bash(shark task next-status*)" "Bash(shark status set*)" "Bash(shark task set-status*)"` to Claude CLI. For Codex, rely on its sandbox mode which restricts filesystem/network access.
 
@@ -185,7 +210,7 @@ internal/runner/worktree.go            (Git worktree isolation)
 - (+) Agents can still perform backward transitions (e.g., `shark status set ... changes_requested`) if needed for rejection workflows.
 - (-) Depends on Claude CLI `--disallowedTools` flag stability. Mitigated by isolating flag construction to the dispatcher implementation.
 
-### ADR-006: RunController Receives Services via Constructor Injection
+### ADR-007: RunController Receives Services via Constructor Injection
 
 **Date**: 2026-03-21
 **Status**: Accepted
@@ -302,6 +327,14 @@ type AgentDispatcher interface {
     Name() string
 }
 
+type RunOptions struct {
+    DryRun     bool   // Preview actions without dispatching or advancing
+    Verbose    bool   // Detailed stage progress to stderr
+    WorkingDir string // Working directory override for agent processes
+    Parallel   int    // Max concurrent children for cascade (0 or 1 = sequential)
+}
+
+
 type DispatchInput struct {
     Instruction    string   // Rendered instruction from template
     WorkingDir     string   // Working directory for the agent process
@@ -348,11 +381,13 @@ codex exec \
 
 ```go
 type RunController struct {
-    transitioner EntityTransitioner       // Same interface as shark status advance
-    placeholders PlaceholderGenerator     // Template variable generation
-    actionSvc    config.ActionService     // Read orchestrator actions from config
-    workflowSvc  *workflow.Service        // Terminal status detection
-    dispatchers  map[string]AgentDispatcher
+    transitioner    EntityTransitioner       // Same interface as shark status advance
+    placeholders    PlaceholderGenerator     // Template variable generation
+    actionSvc       config.ActionService     // Read orchestrator actions from config
+    workflowSvc     *workflow.Service        // Terminal status detection
+    dispatchers     map[string]AgentDispatcher
+    childLister     ChildLister              // List child entities for cascade
+    worktreeCreator WorktreeCreator          // Create/remove worktrees for parallel
 }
 
 func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*RunResult, error) {
@@ -381,14 +416,17 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 }
 ```
 
-**Key simplification**: The controller never computes transitions itself. It always delegates to `TransitionStatus()` — the same code path as `shark status advance`.
+**Key simplifications**:
+- The controller never computes transitions itself — it always delegates to `TransitionStatus()`.
+- `spawn_agent` at `ready_for_*`: advance to `in_*` first, then dispatch. One agent launch per phase.
+- `spawn_agent` at `in_*` (resume): dispatch directly, then advance on success.
+- `cascade`: controller lists children and calls `Run()` recursively. With `--parallel=N`, uses goroutines + semaphore + worktrees for concurrent dispatch.
 
 ### 6.5 Interface Abstractions for Testability
 
 ```go
-// EntityTransitioner — same interface used for all entity types.
-// GetNextStatus and TransitionStatus are the SAME methods that
-// `shark status advance` calls.
+// EntityTransitioner advances entity status.
+// Satisfied by the per-entity-type dispatch function.
 type EntityTransitioner interface {
     TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
     GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error)
@@ -397,6 +435,19 @@ type EntityTransitioner interface {
 // PlaceholderGenerator — generates template variables for instruction rendering.
 type PlaceholderGenerator interface {
     GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error)
+}
+
+// ChildLister — lists child entities for cascade actions.
+// Epic returns features, Feature returns tasks.
+type ChildLister interface {
+    ListChildren(ctx context.Context, parentKey string) ([]ChildEntity, error)
+}
+
+type ChildEntity struct {
+    Key            string
+    Status         string
+    ExecutionOrder int
+    IsTerminal     bool
 }
 ```
 
