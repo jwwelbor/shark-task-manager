@@ -1,21 +1,22 @@
-package repository
+package entityhistory
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // EntityHistoryRepository handles CRUD operations for the entity_history table.
 // It provides polymorphic history recording and querying for all entity types
 // (epic, feature, task, bug, change).
 type EntityHistoryRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewEntityHistoryRepository creates a new EntityHistoryRepository.
-func NewEntityHistoryRepository(db *DB) *EntityHistoryRepository {
+func NewEntityHistoryRepository(db *dbconn.DB) *EntityHistoryRepository {
 	return &EntityHistoryRepository{db: db}
 }
 

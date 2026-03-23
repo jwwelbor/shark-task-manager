@@ -1,4 +1,4 @@
-package repository
+package entityrel
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // cleanupEntityRelationships removes all test entity relationships before each test.
@@ -18,7 +20,7 @@ func cleanupEntityRelationships(ctx context.Context) {
 func TestEntityRelationshipRepository_Create(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityRelationshipRepository(db)
 
 	cleanupEntityRelationships(ctx)
@@ -148,7 +150,7 @@ func TestEntityRelationshipRepository_Create(t *testing.T) {
 func TestEntityRelationshipRepository_Delete(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityRelationshipRepository(db)
 
 	cleanupEntityRelationships(ctx)
@@ -199,7 +201,7 @@ func TestEntityRelationshipRepository_Delete(t *testing.T) {
 func TestEntityRelationshipRepository_DeleteByEntitiesAndType(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityRelationshipRepository(db)
 
 	cleanupEntityRelationships(ctx)
@@ -258,7 +260,7 @@ func TestEntityRelationshipRepository_DeleteByEntitiesAndType(t *testing.T) {
 func TestEntityRelationshipRepository_GetByEntity(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityRelationshipRepository(db)
 
 	cleanupEntityRelationships(ctx)
@@ -326,7 +328,7 @@ func TestEntityRelationshipRepository_GetByEntity(t *testing.T) {
 func TestEntityRelationshipRepository_GetOutgoing(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityRelationshipRepository(db)
 
 	cleanupEntityRelationships(ctx)
@@ -428,7 +430,7 @@ func TestEntityRelationshipRepository_GetOutgoing(t *testing.T) {
 func TestEntityRelationshipRepository_GetIncoming(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityRelationshipRepository(db)
 
 	cleanupEntityRelationships(ctx)

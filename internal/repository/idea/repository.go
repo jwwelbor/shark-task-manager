@@ -1,4 +1,4 @@
-package repository
+package idea
 
 import (
 	"context"
@@ -7,11 +7,12 @@ import (
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // IdeaRepository handles CRUD operations for ideas
 type IdeaRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // IdeaFilter represents filtering options for listing ideas
@@ -20,7 +21,7 @@ type IdeaFilter struct {
 }
 
 // NewIdeaRepository creates a new IdeaRepository
-func NewIdeaRepository(db *DB) *IdeaRepository {
+func NewIdeaRepository(db *dbconn.DB) *IdeaRepository {
 	return &IdeaRepository{db: db}
 }
 

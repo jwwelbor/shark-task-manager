@@ -1,4 +1,4 @@
-package repository
+package changecard
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // changeCardAggTestSetup sets up for aggregate tests using CC-8## keys.
@@ -13,7 +15,7 @@ func changeCardAggTestSetup(t *testing.T) (*ChangeCardRepository, func()) {
 	t.Helper()
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewChangeCardRepository(db)
 
 	// Clean up existing test aggregate change-cards before test
@@ -64,7 +66,7 @@ func TestChangeCardRepository_GetStatusSummary_ZeroCards(t *testing.T) {
 func TestChangeCardRepository_GetStatusSummary_Counts(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewChangeCardRepository(db)
 
 	_, _ = database.ExecContext(ctx, "DELETE FROM change_cards WHERE key IN ('CC-801','CC-802','CC-803','CC-804','CC-805')")
@@ -120,7 +122,7 @@ func TestChangeCardRepository_GetStatusSummary_Counts(t *testing.T) {
 func TestChangeCardRepository_GetThroughputStats_EmptyDatabase(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewChangeCardRepository(db)
 
 	// Delete all CC-8xx and CC-9xx test keys to get an empty-like state
@@ -150,7 +152,7 @@ func TestChangeCardRepository_GetThroughputStats_EmptyDatabase(t *testing.T) {
 func TestChangeCardRepository_GetThroughputStats_WithData(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewChangeCardRepository(db)
 
 	_, _ = database.ExecContext(ctx, "DELETE FROM change_cards WHERE key IN ('CC-810','CC-811','CC-812','CC-813','CC-814','CC-815','CC-816','CC-817')")
@@ -231,7 +233,7 @@ func TestChangeCardRepository_GetThroughputStats_WithData(t *testing.T) {
 func TestChangeCardRepository_GetThroughputStats_ZeroDecided(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewChangeCardRepository(db)
 
 	_, _ = database.ExecContext(ctx, "DELETE FROM change_cards WHERE key IN ('CC-820','CC-821')")
@@ -279,7 +281,7 @@ func TestChangeCardRepository_GetThroughputStats_ZeroDecided(t *testing.T) {
 func TestChangeCardRepository_GetThroughputStats_AllDeclined(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewChangeCardRepository(db)
 
 	_, _ = database.ExecContext(ctx, "DELETE FROM change_cards WHERE key IN ('CC-825','CC-826')")

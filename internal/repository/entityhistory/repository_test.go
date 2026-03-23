@@ -1,4 +1,4 @@
-package repository
+package entityhistory
 
 import (
 	"context"
@@ -8,10 +8,12 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // helper: cleanup entity_history rows for given entity_ids
-func cleanupEntityHistory(t *testing.T, ctx context.Context, db *DB, entityIDs ...int64) {
+func cleanupEntityHistory(t *testing.T, ctx context.Context, db *dbconn.DB, entityIDs ...int64) {
 	t.Helper()
 	for _, id := range entityIDs {
 		_, err := db.ExecContext(ctx, "DELETE FROM entity_history WHERE entity_id = ?", id)
@@ -40,7 +42,7 @@ func ehStrPtr(s string) *string {
 func TestEntityHistoryRepo_Create(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityHistoryRepository(db)
 
 	const testEntityID int64 = 99901
@@ -116,7 +118,7 @@ func TestEntityHistoryRepo_Create(t *testing.T) {
 func TestEntityHistoryRepo_Create_Validation(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityHistoryRepository(db)
 
 	// Count before
@@ -154,7 +156,7 @@ func TestEntityHistoryRepo_Create_Validation(t *testing.T) {
 func TestEntityHistoryRepo_Create_InvalidType(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityHistoryRepository(db)
 
 	h := &models.EntityHistory{
@@ -179,7 +181,7 @@ func TestEntityHistoryRepo_Create_InvalidType(t *testing.T) {
 func TestEntityHistoryRepo_ListByEntity(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityHistoryRepository(db)
 
 	const targetEntityID int64 = 99904
@@ -273,7 +275,7 @@ func TestEntityHistoryRepo_ListByEntity(t *testing.T) {
 func TestEntityHistoryRepo_NullHandling(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityHistoryRepository(db)
 
 	const testEntityID int64 = 99960

@@ -3,16 +3,6 @@ package repository
 // aliases.go provides backward-compatible type and constructor aliases for
 // repository sub-packages. All existing callers continue to use the
 // repository.XxxRepository and repository.NewXxxRepository names unchanged.
-//
-// Phase 2 aliases: standalone entity repositories that have been moved into
-// dedicated sub-packages (idea, bug, changecard, worksession, document,
-// entitydoc, entityhistory, entityrel, search, templateenrich).
-//
-// Phase 3 aliases: note sub-package (EntityNoteRepository) extracted from root.
-// Compile-time check verifies note.EntityNoteRepository satisfies NoteCreator.
-//
-// Phase 4 aliases: core entity repositories (epic, feature, task) extracted
-// from root into dedicated sub-packages.
 
 import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/bug"
@@ -39,7 +29,7 @@ type IdeaRepository = idea.IdeaRepository
 // IdeaFilter is an alias for idea.IdeaFilter.
 type IdeaFilter = idea.IdeaFilter
 
-// NewIdeaRepository creates a new IdeaRepository. Existing callers are unaffected.
+// NewIdeaRepository creates a new IdeaRepository.
 var NewIdeaRepository = idea.NewIdeaRepository
 
 // --- Bug ---
@@ -59,7 +49,7 @@ type BugResolutionStats = bug.BugResolutionStats
 // BugFeatureSummary is an alias for bug.BugFeatureSummary.
 type BugFeatureSummary = bug.BugFeatureSummary
 
-// NewBugRepository creates a new BugRepository. Existing callers are unaffected.
+// NewBugRepository creates a new BugRepository.
 var NewBugRepository = bug.NewBugRepository
 
 // --- ChangeCard ---
@@ -76,7 +66,7 @@ type ChangeCardStatusSummary = changecard.ChangeCardStatusSummary
 // ChangeCardThroughputStats is an alias for changecard.ChangeCardThroughputStats.
 type ChangeCardThroughputStats = changecard.ChangeCardThroughputStats
 
-// NewChangeCardRepository creates a new ChangeCardRepository. Existing callers are unaffected.
+// NewChangeCardRepository creates a new ChangeCardRepository.
 var NewChangeCardRepository = changecard.NewChangeCardRepository
 
 // --- WorkSession ---
@@ -90,7 +80,7 @@ type SessionStats = worksession.SessionStats
 // SessionAnalytics is an alias for worksession.SessionAnalytics.
 type SessionAnalytics = worksession.SessionAnalytics
 
-// NewWorkSessionRepository creates a new WorkSessionRepository. Existing callers are unaffected.
+// NewWorkSessionRepository creates a new WorkSessionRepository.
 var NewWorkSessionRepository = worksession.NewWorkSessionRepository
 
 // --- Document ---
@@ -98,7 +88,7 @@ var NewWorkSessionRepository = worksession.NewWorkSessionRepository
 // DocumentRepository is an alias for document.DocumentRepository.
 type DocumentRepository = document.DocumentRepository
 
-// NewDocumentRepository creates a new DocumentRepository. Existing callers are unaffected.
+// NewDocumentRepository creates a new DocumentRepository.
 var NewDocumentRepository = document.NewDocumentRepository
 
 // --- EntityDocument ---
@@ -106,7 +96,7 @@ var NewDocumentRepository = document.NewDocumentRepository
 // EntityDocumentRepository is an alias for entitydoc.EntityDocumentRepository.
 type EntityDocumentRepository = entitydoc.EntityDocumentRepository
 
-// NewEntityDocumentRepository creates a new EntityDocumentRepository. Existing callers are unaffected.
+// NewEntityDocumentRepository creates a new EntityDocumentRepository.
 var NewEntityDocumentRepository = entitydoc.NewEntityDocumentRepository
 
 // --- EntityHistory ---
@@ -114,7 +104,7 @@ var NewEntityDocumentRepository = entitydoc.NewEntityDocumentRepository
 // EntityHistoryRepository is an alias for entityhistory.EntityHistoryRepository.
 type EntityHistoryRepository = entityhistory.EntityHistoryRepository
 
-// NewEntityHistoryRepository creates a new EntityHistoryRepository. Existing callers are unaffected.
+// NewEntityHistoryRepository creates a new EntityHistoryRepository.
 var NewEntityHistoryRepository = entityhistory.NewEntityHistoryRepository
 
 // --- EntityRelationship ---
@@ -125,10 +115,10 @@ type EntityRelationshipRepository = entityrel.EntityRelationshipRepository
 // EntityRelTaskKeyAdapter is an alias for entityrel.EntityRelTaskKeyAdapter.
 type EntityRelTaskKeyAdapter = entityrel.EntityRelTaskKeyAdapter
 
-// NewEntityRelationshipRepository creates a new EntityRelationshipRepository. Existing callers are unaffected.
+// NewEntityRelationshipRepository creates a new EntityRelationshipRepository.
 var NewEntityRelationshipRepository = entityrel.NewEntityRelationshipRepository
 
-// NewEntityRelTaskKeyAdapter creates a new EntityRelTaskKeyAdapter. Existing callers are unaffected.
+// NewEntityRelTaskKeyAdapter creates a new EntityRelTaskKeyAdapter.
 var NewEntityRelTaskKeyAdapter = entityrel.NewEntityRelTaskKeyAdapter
 
 // --- Search ---
@@ -142,7 +132,7 @@ type SearchResult = search.SearchResult
 // EntitySearchResult is an alias for search.EntitySearchResult.
 type EntitySearchResult = search.EntitySearchResult
 
-// NewSearchRepository creates a new SearchRepository. Existing callers are unaffected.
+// NewSearchRepository creates a new SearchRepository.
 var NewSearchRepository = search.NewSearchRepository
 
 // --- TemplateEnrichment ---
@@ -150,13 +140,12 @@ var NewSearchRepository = search.NewSearchRepository
 // TemplateEnrichmentRepository is an alias for templateenrich.TemplateEnrichmentRepository.
 type TemplateEnrichmentRepository = templateenrich.TemplateEnrichmentRepository
 
-// NewTemplateEnrichmentRepository creates a new TemplateEnrichmentRepository. Existing callers are unaffected.
+// NewTemplateEnrichmentRepository creates a new TemplateEnrichmentRepository.
 var NewTemplateEnrichmentRepository = templateenrich.NewTemplateEnrichmentRepository
 
-// --- Note (Phase 3) ---
+// --- Note ---
 
 // EntityNoteRepository is an alias for note.EntityNoteRepository.
-// Existing callers using repository.EntityNoteRepository are unaffected.
 type EntityNoteRepository = note.EntityNoteRepository
 
 // RejectionNoteMetadata is an alias for note.RejectionNoteMetadata.
@@ -165,10 +154,10 @@ type RejectionNoteMetadata = note.RejectionNoteMetadata
 // RejectionHistoryEntry is an alias for note.RejectionHistoryEntry.
 type RejectionHistoryEntry = note.RejectionHistoryEntry
 
-// NewEntityNoteRepository creates a new EntityNoteRepository. Existing callers are unaffected.
+// NewEntityNoteRepository creates a new EntityNoteRepository.
 var NewEntityNoteRepository = note.NewEntityNoteRepository
 
-// --- Epic (Phase 4) ---
+// --- Epic ---
 
 // EpicRepository is an alias for epicpkg.EpicRepository.
 type EpicRepository = epicpkg.EpicRepository
@@ -182,13 +171,13 @@ type FeatureProgressData = epicpkg.FeatureProgressData
 // EpicRelationshipRepository is an alias for epicpkg.EpicRelationshipRepository.
 type EpicRelationshipRepository = epicpkg.EpicRelationshipRepository
 
-// NewEpicRepository creates a new EpicRepository. Existing callers are unaffected.
+// NewEpicRepository creates a new EpicRepository.
 var NewEpicRepository = epicpkg.NewEpicRepository
 
-// NewEpicRelationshipRepository creates a new EpicRelationshipRepository. Existing callers are unaffected.
+// NewEpicRelationshipRepository creates a new EpicRelationshipRepository.
 var NewEpicRelationshipRepository = epicpkg.NewEpicRelationshipRepository
 
-// --- Feature (Phase 4) ---
+// --- Feature ---
 
 // FeatureRepository is an alias for featurepkg.FeatureRepository.
 type FeatureRepository = featurepkg.FeatureRepository
@@ -199,16 +188,15 @@ type FeatureDisplayDataRaw = featurepkg.FeatureDisplayDataRaw
 // FeatureRelationshipRepository is an alias for featurepkg.FeatureRelationshipRepository.
 type FeatureRelationshipRepository = featurepkg.FeatureRelationshipRepository
 
-// NewFeatureRepository creates a new FeatureRepository. Existing callers are unaffected.
+// NewFeatureRepository creates a new FeatureRepository.
 var NewFeatureRepository = featurepkg.NewFeatureRepository
 
-// NewFeatureRelationshipRepository creates a new FeatureRelationshipRepository. Existing callers are unaffected.
+// NewFeatureRelationshipRepository creates a new FeatureRelationshipRepository.
 var NewFeatureRelationshipRepository = featurepkg.NewFeatureRelationshipRepository
 
-// --- Task (Phase 4) ---
+// --- Task ---
 
 // NoteCreator is an alias for taskpkg.NoteCreator.
-// Existing callers using repository.NoteCreator are unaffected.
 type NoteCreator = taskpkg.NoteCreator
 
 // TaskRepository is an alias for taskpkg.TaskRepository.
@@ -239,17 +227,16 @@ func NewTaskRepository(db *DB) *TaskRepository {
 }
 
 // NewTaskRepositoryWithNoteCreator creates a TaskRepository with explicit rejection note support.
-// Existing callers are unaffected.
 var NewTaskRepositoryWithNoteCreator = taskpkg.NewTaskRepositoryWithNoteCreator
 
 // NewTaskRepositoryWithWorkflow creates a TaskRepository (workflow param ignored).
 // Deprecated: Use NewTaskRepository instead.
 var NewTaskRepositoryWithWorkflow = taskpkg.NewTaskRepositoryWithWorkflow
 
-// NewTaskRelationshipRepository creates a new TaskRelationshipRepository. Existing callers are unaffected.
+// NewTaskRelationshipRepository creates a new TaskRelationshipRepository.
 var NewTaskRelationshipRepository = taskpkg.NewTaskRelationshipRepository
 
-// NewTaskHistoryRepository creates a new TaskHistoryRepository. Existing callers are unaffected.
+// NewTaskHistoryRepository creates a new TaskHistoryRepository.
 // Deprecated: Use NewEntityHistoryRepository from entityhistory package instead.
 var NewTaskHistoryRepository = taskpkg.NewTaskHistoryRepository //nolint:staticcheck
 

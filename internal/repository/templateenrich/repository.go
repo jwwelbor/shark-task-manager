@@ -1,4 +1,4 @@
-package repository
+package templateenrich
 
 import (
 	"context"
@@ -6,16 +6,17 @@ import (
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // TemplateEnrichmentRepository provides consolidated enrichment data
 // for template variable population via single-query lookups.
 type TemplateEnrichmentRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewTemplateEnrichmentRepository creates a new TemplateEnrichmentRepository.
-func NewTemplateEnrichmentRepository(db *DB) *TemplateEnrichmentRepository {
+func NewTemplateEnrichmentRepository(db *dbconn.DB) *TemplateEnrichmentRepository {
 	return &TemplateEnrichmentRepository{db: db}
 }
 

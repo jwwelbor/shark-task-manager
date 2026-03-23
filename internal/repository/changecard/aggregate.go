@@ -1,4 +1,4 @@
-package repository
+package changecard
 
 import (
 	"context"

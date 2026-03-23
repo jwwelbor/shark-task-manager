@@ -1,10 +1,12 @@
-package repository
+package templateenrich
 
 import (
 	"context"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // TestTemplateEnrichmentRepository_GetTaskEnrichment_FullData tests task enrichment
@@ -12,7 +14,7 @@ import (
 func TestTemplateEnrichmentRepository_GetTaskEnrichment_FullData(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTemplateEnrichmentRepository(db)
 
 	// Clean up any existing test data
@@ -122,7 +124,7 @@ func TestTemplateEnrichmentRepository_GetTaskEnrichment_FullData(t *testing.T) {
 func TestTemplateEnrichmentRepository_GetTaskEnrichment_EmptyHistory(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTemplateEnrichmentRepository(db)
 
 	// Clean up
@@ -156,7 +158,7 @@ func TestTemplateEnrichmentRepository_GetTaskEnrichment_EmptyHistory(t *testing.
 func TestTemplateEnrichmentRepository_GetFeatureEnrichment_FullData(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTemplateEnrichmentRepository(db)
 
 	// Clean up
@@ -215,7 +217,7 @@ func TestTemplateEnrichmentRepository_GetFeatureEnrichment_FullData(t *testing.T
 func TestTemplateEnrichmentRepository_GetEpicEnrichment_FullData(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTemplateEnrichmentRepository(db)
 
 	// Clean up
@@ -273,7 +275,7 @@ func TestTemplateEnrichmentRepository_GetEpicEnrichment_FullData(t *testing.T) {
 func TestTemplateEnrichmentRepository_NonExistentEntity(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewTemplateEnrichmentRepository(db)
 
 	// Non-existent task

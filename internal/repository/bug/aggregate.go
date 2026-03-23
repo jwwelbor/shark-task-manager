@@ -1,8 +1,9 @@
-package repository
+package bug
 
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // BugStatusSummary holds aggregate counts across all bug statuses and severities.
@@ -41,8 +42,18 @@ type BugFeatureSummary struct {
 // These are excluded from "open" counts and used for resolution-time calculations.
 var bugTerminalStatuses = []interface{}{"resolved", "wont_fix", "duplicate"}
 
-// bugTerminalPlaceholders returns the SQL placeholder string for the terminal statuses.
-const bugTerminalStatusPlaceholders = "?,?,?"
+// bugTerminalStatusPlaceholders is the SQL placeholder string for bugTerminalStatuses.
+// Derived from the slice length so the two stay in sync automatically.
+var bugTerminalStatusPlaceholders = buildPlaceholders(len(bugTerminalStatuses))
+
+// buildPlaceholders returns a comma-separated "?,?,?" string for n parameters.
+func buildPlaceholders(n int) string {
+	p := make([]string, n)
+	for i := range p {
+		p[i] = "?"
+	}
+	return strings.Join(p, ",")
+}
 
 // GetStatusSummary returns aggregate status and severity counts for all bugs.
 func (r *BugRepository) GetStatusSummary(ctx context.Context) (*BugStatusSummary, error) {

@@ -1,4 +1,4 @@
-package repository
+package changecard
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // ChangeCardRepoFilter represents filtering options for listing change-cards.
@@ -20,11 +21,11 @@ type ChangeCardRepoFilter struct {
 
 // ChangeCardRepository handles CRUD operations for change-cards.
 type ChangeCardRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewChangeCardRepository creates a new ChangeCardRepository.
-func NewChangeCardRepository(db *DB) *ChangeCardRepository {
+func NewChangeCardRepository(db *dbconn.DB) *ChangeCardRepository {
 	return &ChangeCardRepository{db: db}
 }
 

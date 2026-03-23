@@ -1,4 +1,4 @@
-package repository
+package bug
 
 import (
 	"context"
@@ -7,13 +7,15 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 func bugTestSetup(t *testing.T) (*BugRepository, func()) {
 	t.Helper()
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Clean up existing test bugs before test
@@ -293,7 +295,7 @@ func TestBugRepository_UpdateStatus_NotFound(t *testing.T) {
 func TestBugRepository_GetNextKey(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Clean all test bugs to have a controlled state
@@ -327,7 +329,7 @@ func TestBugRepository_GetNextKey(t *testing.T) {
 func TestBugRepository_List(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Clean up test bugs
@@ -427,7 +429,7 @@ func TestBugRepository_List(t *testing.T) {
 func TestBugRepository_CountByStatus(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Clean up and create known set
@@ -465,7 +467,7 @@ func TestBugRepository_CountByStatus(t *testing.T) {
 func TestBugRepository_CountBySeverity(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Clean up and create known set

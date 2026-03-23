@@ -1,4 +1,4 @@
-package repository
+package entityrel
 
 import (
 	"context"
@@ -7,15 +7,16 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // EntityRelationshipRepository provides data access for the entity_relationships table.
 type EntityRelationshipRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewEntityRelationshipRepository creates a new EntityRelationshipRepository.
-func NewEntityRelationshipRepository(db *DB) *EntityRelationshipRepository {
+func NewEntityRelationshipRepository(db *dbconn.DB) *EntityRelationshipRepository {
 	return &EntityRelationshipRepository{db: db}
 }
 
@@ -247,12 +248,12 @@ func (r *EntityRelationshipRepository) scanRelationships(
 // entity_relationships instead of the legacy task_relationships table.
 // It satisfies the ListRelatedTaskKeys interface used by template_helpers.go.
 type EntityRelTaskKeyAdapter struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewEntityRelTaskKeyAdapter creates a new adapter that queries entity_relationships
 // for task-to-task relationships.
-func NewEntityRelTaskKeyAdapter(db *DB) *EntityRelTaskKeyAdapter {
+func NewEntityRelTaskKeyAdapter(db *dbconn.DB) *EntityRelTaskKeyAdapter {
 	return &EntityRelTaskKeyAdapter{db: db}
 }
 

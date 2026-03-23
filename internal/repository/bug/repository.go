@@ -1,4 +1,4 @@
-package repository
+package bug
 
 import (
 	"context"
@@ -8,15 +8,16 @@ import (
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // BugRepository handles CRUD operations for bugs.
 type BugRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewBugRepository creates a new BugRepository.
-func NewBugRepository(db *DB) *BugRepository {
+func NewBugRepository(db *dbconn.DB) *BugRepository {
 	return &BugRepository{db: db}
 }
 

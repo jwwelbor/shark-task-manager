@@ -1,4 +1,4 @@
-package repository
+package document
 
 import (
 	"context"
@@ -7,15 +7,16 @@ import (
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // DocumentRepository manages document data access
 type DocumentRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewDocumentRepository creates a new document repository
-func NewDocumentRepository(db *DB) *DocumentRepository {
+func NewDocumentRepository(db *dbconn.DB) *DocumentRepository {
 	return &DocumentRepository{db: db}
 }
 

@@ -1,20 +1,21 @@
-package repository
+package entitydoc
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // EntityDocumentRepository handles polymorphic document linking operations
 // for any entity type via the entity_documents table.
 type EntityDocumentRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewEntityDocumentRepository creates a new EntityDocumentRepository
-func NewEntityDocumentRepository(db *DB) *EntityDocumentRepository {
+func NewEntityDocumentRepository(db *dbconn.DB) *EntityDocumentRepository {
 	return &EntityDocumentRepository{db: db}
 }
 

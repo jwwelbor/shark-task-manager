@@ -1,4 +1,4 @@
-package repository
+package idea
 
 import (
 	"context"
@@ -7,13 +7,15 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // TestIdeaRepository_Create tests creating a new idea
 func TestIdeaRepository_Create(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Clean up existing test data
@@ -51,7 +53,7 @@ func TestIdeaRepository_Create(t *testing.T) {
 func TestIdeaRepository_GetByKey(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Clean up existing test data
@@ -101,7 +103,7 @@ func TestIdeaRepository_GetByKey(t *testing.T) {
 func TestIdeaRepository_GetByID(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Clean up existing test data
@@ -144,7 +146,7 @@ func TestIdeaRepository_GetByID(t *testing.T) {
 func TestIdeaRepository_List(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Clean up existing test data
@@ -216,7 +218,7 @@ func TestIdeaRepository_List(t *testing.T) {
 func TestIdeaRepository_ListWithStatusFilter(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Clean up existing test data
@@ -272,7 +274,7 @@ func TestIdeaRepository_ListWithStatusFilter(t *testing.T) {
 func TestIdeaRepository_Update(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Clean up existing test data
@@ -330,7 +332,7 @@ func TestIdeaRepository_Update(t *testing.T) {
 func TestIdeaRepository_Delete(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Clean up existing test data
@@ -369,7 +371,7 @@ func TestIdeaRepository_Delete(t *testing.T) {
 func TestIdeaRepository_MarkAsConverted(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Clean up existing test data
@@ -440,7 +442,7 @@ func TestIdeaRepository_MarkAsConverted(t *testing.T) {
 func TestIdeaRepository_MarkAsConverted_NonExistentIdea(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	dbWrapper := NewDB(database)
+	dbWrapper := dbconn.NewDB(database)
 	repo := NewIdeaRepository(dbWrapper)
 
 	// Try to mark non-existent idea as converted

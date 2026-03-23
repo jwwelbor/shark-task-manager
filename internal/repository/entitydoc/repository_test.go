@@ -1,4 +1,4 @@
-package repository
+package entitydoc
 
 import (
 	"context"
@@ -7,12 +7,15 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/document"
 )
 
 // helper: create a test document in the documents table and return its ID
-func createTestDocument(t *testing.T, ctx context.Context, db *DB, title, filePath string) int64 {
+func createTestDocument(t *testing.T, ctx context.Context, db *dbconn.DB, title, filePath string) int64 {
 	t.Helper()
-	docRepo := NewDocumentRepository(db)
+	docRepo := document.NewDocumentRepository(db)
 	doc, err := docRepo.CreateOrGet(ctx, title, filePath)
 	if err != nil {
 		t.Fatalf("failed to create test document: %v", err)
@@ -21,7 +24,7 @@ func createTestDocument(t *testing.T, ctx context.Context, db *DB, title, filePa
 }
 
 // helper: cleanup entity_documents rows for a given entity_id
-func cleanupEntityDocuments(t *testing.T, ctx context.Context, db *DB, entityID int64) {
+func cleanupEntityDocuments(t *testing.T, ctx context.Context, db *dbconn.DB, entityID int64) {
 	t.Helper()
 	_, err := db.ExecContext(ctx, "DELETE FROM entity_documents WHERE entity_id = ?", entityID)
 	if err != nil {
@@ -32,7 +35,7 @@ func cleanupEntityDocuments(t *testing.T, ctx context.Context, db *DB, entityID 
 func TestEntityDocumentRepo_Link(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 
 	const testEntityID int64 = 99999
@@ -78,7 +81,7 @@ func TestEntityDocumentRepo_Link(t *testing.T) {
 func TestEntityDocumentRepo_LinkIdempotent(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 
 	const testEntityID int64 = 99998
@@ -118,7 +121,7 @@ func TestEntityDocumentRepo_LinkIdempotent(t *testing.T) {
 func TestEntityDocumentRepo_LinkWithType(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 
 	const testEntityID int64 = 99997
@@ -168,7 +171,7 @@ func TestEntityDocumentRepo_LinkWithType(t *testing.T) {
 func TestEntityDocumentRepo_Unlink(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 
 	const testEntityID int64 = 99996
@@ -223,7 +226,7 @@ func TestEntityDocumentRepo_Unlink(t *testing.T) {
 func TestEntityDocumentRepo_ListForEntity(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 
 	const testEntityID int64 = 99995
@@ -315,7 +318,7 @@ func TestEntityDocumentRepo_ListForEntity(t *testing.T) {
 func TestEntityDocumentRepo_InvalidEntityType(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 
 	invalidTypes := []models.EntityType{"invalid", "", "project", "milestone"}
@@ -359,7 +362,7 @@ func TestEntityDocumentRepo_InvalidEntityType(t *testing.T) {
 func TestEntityDocumentRepo_CascadeDelete(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 
 	const testEntityID int64 = 99993
@@ -421,7 +424,7 @@ func TestEntityDocumentRepo_CascadeDelete(t *testing.T) {
 func TestEntityDocumentRepo_InvalidEntityID(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewEntityDocumentRepository(db)
 
 	// EC-2: entity_id = 0

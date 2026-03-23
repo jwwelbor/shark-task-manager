@@ -1,4 +1,4 @@
-package repository
+package bug
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // bugAggTestSetup sets up for aggregate tests using B8xx keys.
@@ -13,7 +15,7 @@ func bugAggTestSetup(t *testing.T) (*BugRepository, func()) {
 	t.Helper()
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Clean up existing test aggregate bugs before test
@@ -61,7 +63,7 @@ func TestBugRepository_GetStatusSummary_ZeroBugs(t *testing.T) {
 func TestBugRepository_GetStatusSummary_Counts(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Clean and create a controlled set of bugs
@@ -139,7 +141,7 @@ func TestBugRepository_GetStatusSummary_Counts(t *testing.T) {
 func TestBugRepository_GetStatusSummary_OpenSeverityExcludesTerminal(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Use unique keys for isolation
@@ -193,7 +195,7 @@ func TestBugRepository_GetStatusSummary_OpenSeverityExcludesTerminal(t *testing.
 func TestBugRepository_GetResolutionStats_NoTerminalBugs(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	// Clean all bugs first to create an isolated environment
@@ -238,7 +240,7 @@ func TestBugRepository_GetResolutionStats_NoTerminalBugs(t *testing.T) {
 func TestBugRepository_GetResolutionStats_WithTerminalBugs(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	_, _ = database.ExecContext(ctx, "DELETE FROM bugs WHERE key IN ('B830','B831','B832','B833')")
@@ -309,7 +311,7 @@ func TestBugRepository_GetFeatureBugSummary_NoLinkedBugs(t *testing.T) {
 func TestBugRepository_GetFeatureBugSummary_WithLinkedBugs(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
-	db := NewDB(database)
+	db := dbconn.NewDB(database)
 	repo := NewBugRepository(db)
 
 	_, _ = database.ExecContext(ctx, "DELETE FROM bugs WHERE key IN ('B840','B841','B842','B843')")

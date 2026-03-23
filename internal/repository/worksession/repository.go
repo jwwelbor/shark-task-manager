@@ -1,4 +1,4 @@
-package repository
+package worksession
 
 import (
 	"context"
@@ -7,15 +7,16 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // WorkSessionRepository handles CRUD operations for work sessions
 type WorkSessionRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewWorkSessionRepository creates a new WorkSessionRepository
-func NewWorkSessionRepository(db *DB) *WorkSessionRepository {
+func NewWorkSessionRepository(db *dbconn.DB) *WorkSessionRepository {
 	return &WorkSessionRepository{db: db}
 }
 

@@ -1,18 +1,20 @@
-package repository
+package search
 
 import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
 
 // SearchRepository handles full-text search operations using FTS5
 type SearchRepository struct {
-	db *DB
+	db *dbconn.DB
 }
 
 // NewSearchRepository creates a new SearchRepository
-func NewSearchRepository(db *DB) *SearchRepository {
+func NewSearchRepository(db *dbconn.DB) *SearchRepository {
 	return &SearchRepository{db: db}
 }
 
