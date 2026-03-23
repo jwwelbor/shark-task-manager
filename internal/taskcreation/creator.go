@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -305,7 +306,7 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 		writer := fileops.NewEntityFileWriter()
 		logFunc := func(msg string) {
 			if c.verbose {
-				fmt.Fprintf(os.Stderr, "[task-creator] %s\n", msg)
+				slog.Debug("task-creator", "msg", msg)
 			}
 		}
 

@@ -3,7 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -179,7 +179,7 @@ func (oa *OrchestratorAction) PopulateTemplate(vars map[string]string) string {
 		if err != nil {
 			// Log error but gracefully degrade - return empty string
 			// This allows workflows to continue even if template rendering fails
-			log.Printf("template rendering failed for %s: %v", oa.InstructionTemplate, err)
+			slog.Error("template rendering failed", "template", oa.InstructionTemplate, "error", err)
 			return ""
 		}
 		return rendered

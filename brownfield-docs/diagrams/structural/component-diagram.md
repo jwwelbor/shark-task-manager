@@ -1,119 +1,86 @@
 # Component Diagram
 
 > Part of the Shark Task Manager Brownfield Analysis
-> Generated: 2026-03-20
+> Generated: 2026-03-22
 > Phase: 5 — Visual Documentation
 
-## System Component Diagram
+## System-Level Component Relationships
 
 ```mermaid
 graph TB
-    subgraph "User Interfaces"
-        SHARK["shark CLI<br/>(cmd/shark/)"]
-        SERVER["HTTP API Server<br/>(cmd/server/)"]
+    subgraph EntryPoints["Entry Points"]
+        SHARK["shark CLI<br/>(cmd/shark)"]
+        SERVER["HTTP Server<br/>(cmd/server)"]
     end
 
-    subgraph "CLI Framework Layer"
-        direction TB
-        ROOT["Root Command<br/>root.go"]
-        CMD_INSPECT["Inspect Commands<br/>get, list, view, search"]
-        CMD_MANAGE["Manage Commands<br/>create, update, delete,<br/>context, notes, history"]
-        CMD_WORKFLOW["Workflow Commands<br/>status set/advance/options,<br/>progress, analytics"]
-        CMD_ADVANCED["Advanced Commands<br/>task/feature/epic/bug/change<br/>subcommands, idea, admin"]
-        GLOBALS["Global Accessors<br/>services_global.go<br/>db_global.go<br/>workflow_global.go"]
+    subgraph CLILayer["CLI Layer (internal/cli)"]
+        ROOT["Root Command<br/>Global Config, Lifecycle"]
+        CMDS["Commands<br/>(30+ thin wrappers)"]
+        DBGLOB["DB Global<br/>(Lazy Singleton)"]
+        SVCGLOB["Service Accessors<br/>(GetTaskService, etc.)"]
+        OUTPUT["Output Helpers<br/>(JSON, Table, Success)"]
     end
 
-    subgraph "Service Layer"
-        ENTITY_SVC["EntityService<br/>(shared transitions)"]
-        TASK_SVC["TaskService"]
-        FEAT_SVC["FeatureService"]
-        EPIC_SVC["EpicService"]
-        BUG_SVC["BugService"]
-        CC_SVC["ChangeCardService"]
-        NOTE_SVC["NoteService"]
-        CTX_SVC["ContextService"]
-        RESUME_SVC["ResumeService"]
-        DOC_SVC["EntityDocumentService"]
-        DEP_SVC["TaskDependencyService"]
-        REGISTRY["EntityRegistry"]
+    subgraph ServiceLayer["Service Layer (internal/services)"]
+        TSVC["TaskService"]
+        FSVC["FeatureService"]
+        ESVC["EpicService"]
+        ENTSVC["EntityService<br/>(Polymorphic)"]
+        FPSVC["FeatureProgressService"]
+        ERSVC["EntityRelationshipService"]
+        BSVC["BugService"]
+        CSVC["ChangeCardService"]
+        NSVC["NoteService"]
     end
 
-    subgraph "Repository Layer"
-        TASK_REPO["TaskRepository"]
-        FEAT_REPO["FeatureRepository"]
-        EPIC_REPO["EpicRepository"]
-        BUG_REPO["BugRepository"]
-        CC_REPO["ChangeCardRepository"]
-        NOTE_REPO["EntityNoteRepository"]
-        HIST_REPO["TaskHistoryRepository"]
-        DOC_REPO["DocumentRepository"]
-        IDEA_REPO["IdeaRepository"]
+    subgraph SupportSvc["Support Services"]
+        WFSVC["workflow.Service<br/>(Status Transitions)"]
+        CFGSVC["config.ActionService<br/>(Orchestrator Actions)"]
+        CREATOR["taskcreation.Creator<br/>(Key Gen, File Create)"]
+        STATCALC["status.CalculationService<br/>(Progress, Health)"]
     end
 
-    subgraph "Infrastructure"
-        WF["Workflow Service<br/>(config-driven)"]
-        STATUS["Status Calculator"]
-        CONFIG["Config Manager<br/>(.sharkconfig.json)"]
-        DB_INIT["DB Initializer<br/>(schema + migrations)"]
-        TMPL["Template Engine<br/>(embedded templates)"]
+    subgraph RepoLayer["Repository Layer (internal/repository)"]
+        TREPO["TaskRepository"]
+        FREPO["FeatureRepository"]
+        EREPO["EpicRepository"]
+        BREPO["BugRepository"]
+        CREPO["ChangeCardRepository"]
+        NREPO["EntityNoteRepository"]
+        HREPO["EntityHistoryRepository"]
     end
 
-    subgraph "Storage"
-        SQLITE[("SQLite<br/>shark-tasks.db")]
-        TURSO[("Turso Cloud<br/>libsql://")]
-        FS[("Filesystem<br/>docs/plan/**/*.md")]
+    subgraph DataLayer["Data Layer"]
+        DB["SQLite / Turso<br/>(16 tables, v10 schema)"]
+        FS["Filesystem<br/>(docs/plan/ markdown)"]
+        CFG[".sharkconfig.json<br/>(Workflow Config)"]
+        TMPL["shark-templates/<br/>(80+ templates)"]
     end
 
     SHARK --> ROOT
-    SERVER --> GLOBALS
-    ROOT --> CMD_INSPECT & CMD_MANAGE & CMD_WORKFLOW & CMD_ADVANCED
-    CMD_INSPECT & CMD_MANAGE & CMD_WORKFLOW & CMD_ADVANCED --> GLOBALS
+    ROOT --> CMDS
+    ROOT --> DBGLOB
+    ROOT --> SVCGLOB
+    CMDS --> OUTPUT
 
-    GLOBALS --> TASK_SVC & FEAT_SVC & EPIC_SVC & NOTE_SVC & CTX_SVC & RESUME_SVC & REGISTRY
+    SERVER --> TSVC & FSVC & ESVC
 
-    TASK_SVC & FEAT_SVC & EPIC_SVC & BUG_SVC & CC_SVC --> ENTITY_SVC
-    ENTITY_SVC --> WF
+    SVCGLOB --> TSVC & FSVC & ESVC & ENTSVC
 
-    TASK_SVC --> TASK_REPO
-    FEAT_SVC --> FEAT_REPO
-    EPIC_SVC --> EPIC_REPO
-    BUG_SVC --> BUG_REPO
-    CC_SVC --> CC_REPO
-    NOTE_SVC --> NOTE_REPO
-    DOC_SVC --> DOC_REPO
-    DEP_SVC --> TASK_REPO
+    TSVC --> TREPO & WFSVC & CREATOR & ENTSVC
+    FSVC --> FREPO & WFSVC & TREPO
+    ESVC --> EREPO & WFSVC & FREPO & TREPO
+    ENTSVC --> WFSVC & HREPO & NREPO
+    FPSVC --> STATCALC & FREPO & TREPO
+    BSVC --> BREPO & ENTSVC
+    CSVC --> CREPO & ENTSVC
 
-    REGISTRY --> TASK_REPO & FEAT_REPO & EPIC_REPO & BUG_REPO & CC_REPO
+    CREATOR --> TMPL & FS
+    WFSVC --> CFG
+    STATCALC --> CFG
+    DBGLOB --> DB
 
-    TASK_REPO & FEAT_REPO & EPIC_REPO & BUG_REPO & CC_REPO & NOTE_REPO & HIST_REPO & DOC_REPO & IDEA_REPO --> DB_INIT
-    DB_INIT --> SQLITE
-    DB_INIT --> TURSO
-
-    STATUS --> CONFIG
-    WF --> CONFIG
-    TMPL --> FS
+    TREPO & FREPO & EREPO & BREPO & CREPO & NREPO & HREPO --> DB
 ```
 
-## Command Group Breakdown
-
-```mermaid
-graph LR
-    subgraph "shark CLI"
-        direction TB
-        CORE["Core (auto-detect)<br/>get, list, create,<br/>update, delete, view"]
-        STATUS["Status<br/>status, status set,<br/>status advance,<br/>status options,<br/>status history"]
-        ANALYTICS["Analytics<br/>progress, analytics"]
-        TASK["Task (19 subcmds)<br/>create, get, list, update,<br/>delete, approve, reopen,<br/>next-status, set-status,<br/>deps, link, unlink,<br/>context, note, notes,<br/>criteria, resume,<br/>history, sessions"]
-        FEATURE["Feature (13 subcmds)"]
-        EPIC["Epic (14 subcmds)"]
-        BUG["Bug (10 subcmds)"]
-        CHANGE["Change (10 subcmds)"]
-        IDEA["Idea (6 subcmds)"]
-        ADMIN["Admin<br/>init, config, cloud,<br/>migrate, validate,<br/>workflow"]
-        SEARCH["Discovery<br/>search, notes,<br/>related-docs"]
-    end
-```
-
----
-
-See also: [Package Dependencies](package-dependencies.md) | [Architecture Overview](../architecture/system-overview.md)
+See also: [Package Dependencies](package-dependencies.md) | [System Overview](../architecture/system-overview.md)

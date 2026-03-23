@@ -27,6 +27,7 @@ type Config struct {
 	Viewer                 *string                `json:"viewer,omitempty"`                   // External viewer command for spec files (glow, nano, bat, less, cat, etc). Default: "cat"
 	TemplateDirectory      *string                `json:"template_directory,omitempty"`       // Template directory path relative to project root. Default: "shark-templates"
 	WorkflowConfig         *string                `json:"workflow_config,omitempty"`          // Path to workflow config file (default: .sharkworkflow.json). Read-only directive.
+	Observability          *ObservabilityConfig   `json:"observability,omitempty"`            // Observability subsystem configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
 
 	// statusMetadata holds status metadata for work breakdown calculations
@@ -113,6 +114,32 @@ func (c *Config) IsBackwardTransition(oldStatus, newStatus string, weights map[s
 
 	// Backward transition = moving to lower progress weight
 	return newWeight < oldWeight
+}
+
+// GetObservability returns the observability config, or a zero-value config if nil.
+// This ensures callers never need nil checks on the pointer.
+func (c *Config) GetObservability() ObservabilityConfig {
+	if c == nil || c.Observability == nil {
+		return ObservabilityConfig{}
+	}
+	return *c.Observability
+}
+
+// ObservabilityConfig holds configuration for the observability subsystem.
+// All fields have sensible defaults; the zero value means "disabled".
+// When Enabled is false, no OTel SDK is initialized and no network connections
+// are made. Existing users without this key in their config are unaffected.
+type ObservabilityConfig struct {
+	Enabled        bool    `json:"enabled"`
+	TracingEnabled bool    `json:"tracing_enabled"`
+	MetricsEnabled bool    `json:"metrics_enabled"`
+	LogLevel       string  `json:"log_level"`
+	LogFormat      string  `json:"log_format"`
+	Exporter       string  `json:"exporter"`
+	OTLPEndpoint   string  `json:"otlp_endpoint"`
+	OTLPProtocol   string  `json:"otlp_protocol"`
+	ServiceName    string  `json:"service_name"`
+	SampleRate     float64 `json:"sample_rate,omitempty"`
 }
 
 // GetTemplateDirectoryFromConfig loads the template directory setting from the given config file path.

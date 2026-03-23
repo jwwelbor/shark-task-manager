@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -45,11 +46,31 @@ Examples:
 			return fmt.Errorf("failed to initialize config: %w", err)
 		}
 
-		// Configure template directory from .sharkconfig.json
+		// Load config once for template directory and observability
 		cfgPath, cfgErr := GetConfigPath()
+		var loadedCfg *config.Config
 		if cfgErr == nil {
-			templates.SetConfiguredTemplateDir(config.GetTemplateDirectoryFromConfig(cfgPath))
+			mgr := config.NewManager(cfgPath)
+			loadedCfg, _ = mgr.Load()
 		}
+		if loadedCfg != nil {
+			templates.SetConfiguredTemplateDir(loadedCfg.GetTemplateDirectory())
+		} else {
+			templates.SetConfiguredTemplateDir(config.DefaultTemplateDir)
+		}
+
+		// Initialize observability (non-fatal on error)
+		var obsCfg config.ObservabilityConfig
+		if loadedCfg != nil {
+			obsCfg = loadedCfg.GetObservability()
+		}
+		if err := InitObservability(obsCfg); err != nil {
+			// Log warning to stderr -- observability failure must not abort CLI commands
+			slog.Warn("observability init failed", "error", err)
+		}
+
+		// Initialize command metrics (captures start time for duration tracking)
+		InitCommandMetrics()
 
 		// Disable color output if requested
 		if GlobalConfig.NoColor {
@@ -64,6 +85,16 @@ Examples:
 		return nil
 	},
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+		// Record command metrics BEFORE shutdown (metrics need active provider)
+		RecordCommandMetrics(cmd.Context(), cmd.CommandPath(), nil)
+
+		// Shutdown observability first (flushes spans/metrics before DB close)
+		if err := ShutdownObservability(); err != nil {
+			if GlobalConfig.Verbose {
+				slog.Warn("observability shutdown failed", "error", err)
+			}
+		}
+
 		// Close database connection if it was opened
 		if err := CloseDB(); err != nil {
 			// Log warning but don't fail - cleanup errors shouldn't break exit
@@ -403,7 +434,7 @@ func OutputTable(headers []string, rows [][]string) {
 	}
 
 	if err := pterm.DefaultTable.WithHasHeader().WithData(tableData).Render(); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to render table: %v\n", err)
+		slog.Error("Failed to render table", "error", err)
 	}
 }
 
@@ -442,13 +473,16 @@ func Warning(message string) {
 	}
 }
 
-// Info prints an info message
-func Info(format string, args ...interface{}) {
-	message := fmt.Sprintf(format, args...)
+// Info prints an info message. Accepts a format string and optional arguments
+// (like fmt.Sprintf). If no args are provided, the message is printed as-is.
+func Info(msg string, args ...interface{}) {
+	if len(args) > 0 {
+		msg = fmt.Sprintf(msg, args...)
+	}
 	if !GlobalConfig.NoColor {
-		pterm.Info.Println(message)
+		pterm.Info.Println(msg)
 	} else {
-		fmt.Println("ℹ", message)
+		fmt.Println("ℹ", msg)
 	}
 }
 

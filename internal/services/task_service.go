@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -12,6 +12,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // WorkSessionStats contains aggregated statistics for a task's work sessions.
@@ -146,6 +149,8 @@ type TaskService struct {
 	// using the inline implementations in this file.
 	queryService   *TaskQueryService
 	historyService *TaskHistoryService
+
+	tracer trace.Tracer // optional; defaults to otel.Tracer("shark/services/task") if nil
 }
 
 // NewTaskService creates a new TaskService with the required dependencies.
@@ -206,6 +211,20 @@ func (s *TaskService) SetHistoryService(svc *TaskHistoryService) {
 	s.historyService = svc
 }
 
+// SetTracer sets the OpenTelemetry tracer for the service.
+// When nil, getTracer falls back to the OTel global tracer (noop until provider is wired).
+func (s *TaskService) SetTracer(t trace.Tracer) {
+	s.tracer = t
+}
+
+// getTracer returns the configured tracer or falls back to the OTel global tracer.
+func (s *TaskService) getTracer() trace.Tracer {
+	if s.tracer != nil {
+		return s.tracer
+	}
+	return otel.Tracer("shark/services/task")
+}
+
 // getOrInitQueryService returns the query sub-service, lazily initializing it from
 // the task repo if it has not been set via SetQueryService.
 func (s *TaskService) getOrInitQueryService() *TaskQueryService {
@@ -230,20 +249,29 @@ func (s *TaskService) getOrInitQueryService() *TaskQueryService {
 //   - ConflictError: if task key already exists or file path is claimed
 //   - RepositoryError: if database operation fails
 func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*models.Task, error) {
+	ctx, span := s.getTracer().Start(ctx, "TaskService.CreateTask",
+		trace.WithAttributes(
+			attribute.String("task.epic_key", input.EpicKey),
+			attribute.String("task.feature_key", input.FeatureKey),
+			attribute.String("task.title", input.Title),
+		),
+	)
+	defer span.End()
+
 	// Validate required fields
 	if input.EpicKey == "" {
-		return nil, fmt.Errorf("failed to create task: epic key is required")
+		return nil, recordSpanError(span, fmt.Errorf("failed to create task: epic key is required"))
 	}
 	if input.FeatureKey == "" {
-		return nil, fmt.Errorf("failed to create task: feature key is required")
+		return nil, recordSpanError(span, fmt.Errorf("failed to create task: feature key is required"))
 	}
 	if input.Title == "" {
-		return nil, fmt.Errorf("failed to create task: title is required")
+		return nil, recordSpanError(span, fmt.Errorf("failed to create task: title is required"))
 	}
 
 	// Validate optional fields
 	if input.Priority > 10 {
-		return nil, fmt.Errorf("failed to create task: priority must be between 1 and 10")
+		return nil, recordSpanError(span, fmt.Errorf("failed to create task: priority must be between 1 and 10"))
 	}
 
 	// Set default priority if not provided
@@ -275,7 +303,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 
 		result, err := s.creatorSvc.CreateTask(ctx, creatorInput)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create task: %w", err)
+			return nil, recordSpanError(span, fmt.Errorf("failed to create task: %w", err))
 		}
 		s.maybeReopenParentFeature(ctx, input.FeatureKey, result.Task.Key)
 		return result.Task, nil
@@ -299,7 +327,7 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 	// Find existing tasks with this prefix to determine next sequence number
 	existing, err := s.repo.ListByKeyPrefix(ctx, keyPrefix)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create task: could not query existing keys: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to create task: could not query existing keys: %w", err))
 	}
 	nextSeq := len(existing) + 1
 	taskKey := fmt.Sprintf("%s%03d", keyPrefix, nextSeq)
@@ -331,12 +359,12 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 
 	// Validate model
 	if err := task.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to create task: validation error: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to create task: validation error: %w", err))
 	}
 
 	// Save to repository
 	if err := s.repo.Create(ctx, task); err != nil {
-		return nil, fmt.Errorf("failed to create task: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to create task: %w", err))
 	}
 
 	s.maybeReopenParentFeature(ctx, input.FeatureKey, task.Key)
@@ -357,9 +385,14 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 //   - NotFoundError: task with given key not found
 //   - RepositoryError: database query failed
 func (s *TaskService) GetTask(ctx context.Context, key string) (*models.Task, error) {
+	ctx, span := s.getTracer().Start(ctx, "TaskService.GetTask",
+		trace.WithAttributes(attribute.String("task.key", key)),
+	)
+	defer span.End()
+
 	task, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get task %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to get task %s: %w", key, err))
 	}
 	return task, nil
 }
@@ -380,10 +413,15 @@ func (s *TaskService) GetTask(ctx context.Context, key string) (*models.Task, er
 //   - ValidationError: invalid field values
 //   - RepositoryError: database update failed
 func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUpdates) (*models.Task, error) {
+	ctx, span := s.getTracer().Start(ctx, "TaskService.UpdateTask",
+		trace.WithAttributes(attribute.String("task.key", key)),
+	)
+	defer span.End()
+
 	// Get existing task
 	task, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update task %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to update task %s: %w", key, err))
 	}
 
 	// Apply non-nil updates
@@ -408,12 +446,12 @@ func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUp
 
 	// Validate updated task
 	if err := task.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to update task %s: validation error: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to update task %s: validation error: %w", key, err))
 	}
 
 	// Save updated task
 	if err := s.repo.Update(ctx, task); err != nil {
-		return nil, fmt.Errorf("failed to update task %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to update task %s: %w", key, err))
 	}
 
 	return task, nil
@@ -433,24 +471,29 @@ func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUp
 //   - ConstraintError: task has dependent tasks that must be deleted first
 //   - RepositoryError: database delete failed
 func (s *TaskService) DeleteTask(ctx context.Context, key string) error {
+	ctx, span := s.getTracer().Start(ctx, "TaskService.DeleteTask",
+		trace.WithAttributes(attribute.String("task.key", key)),
+	)
+	defer span.End()
+
 	// Get task
 	task, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return fmt.Errorf("failed to delete task %s: %w", key, err)
+		return recordSpanError(span, fmt.Errorf("failed to delete task %s: %w", key, err))
 	}
 
 	// Check for dependent tasks
 	dependents, err := s.repo.GetTaskDependents(ctx, key)
 	if err != nil {
-		return fmt.Errorf("failed to delete task %s: error checking dependents: %w", key, err)
+		return recordSpanError(span, fmt.Errorf("failed to delete task %s: error checking dependents: %w", key, err))
 	}
 	if len(dependents) > 0 {
-		return fmt.Errorf("failed to delete task %s: task has dependent tasks that must be deleted first", key)
+		return recordSpanError(span, fmt.Errorf("failed to delete task %s: task has dependent tasks that must be deleted first", key))
 	}
 
 	// Delete task
 	if err := s.repo.Delete(ctx, task.ID); err != nil {
-		return fmt.Errorf("failed to delete task %s: %w", key, err)
+		return recordSpanError(span, fmt.Errorf("failed to delete task %s: %w", key, err))
 	}
 
 	return nil
@@ -469,7 +512,17 @@ func (s *TaskService) DeleteTask(ctx context.Context, key string) error {
 // Errors:
 //   - RepositoryError: database query failed
 func (s *TaskService) ListTasks(ctx context.Context, filters TaskFilters) ([]*models.Task, error) {
-	return s.getOrInitQueryService().ListTasks(ctx, filters)
+	ctx, span := s.getTracer().Start(ctx, "TaskService.ListTasks",
+		trace.WithAttributes(attribute.String("task.filter.epic", filters.EpicKey)),
+	)
+	defer span.End()
+
+	tasks, err := s.getOrInitQueryService().ListTasks(ctx, filters)
+	if err != nil {
+		return nil, recordSpanError(span, err)
+	}
+	span.SetAttributes(attribute.Int("task.result_count", len(tasks)))
+	return tasks, nil
 }
 
 // sortTasks sorts tasks by execution order ascending, then priority descending
@@ -517,6 +570,14 @@ func sortTasks(tasks []*models.Task) {
 //   - ValidationError: missing required reason for backward transitions
 //   - RepositoryError: database update failed
 func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	ctx, span := s.getTracer().Start(ctx, "TaskService.TransitionStatus",
+		trace.WithAttributes(
+			attribute.String("task.key", key),
+			attribute.String("task.target_status", targetStatus),
+		),
+	)
+	defer span.End()
+
 	// Create task-specific adapter that routes UpdateStatus through StatusUpdateRaw
 	adapter := s.makeTaskEntityAdapter(opts)
 
@@ -529,7 +590,7 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 		s.makeResolveActionFn(ctx),
 	)
 	if err != nil {
-		return nil, err
+		return nil, recordSpanError(span, err)
 	}
 
 	// Post-hook: auto-unblock dependents (task-specific behavior)
@@ -563,9 +624,18 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 //   - NotFoundError: task not found
 //   - RepositoryError: database query failed
 func (s *TaskService) GetNextStatus(ctx context.Context, key string) (*NextStatusInfo, error) {
+	ctx, span := s.getTracer().Start(ctx, "TaskService.GetNextStatus",
+		trace.WithAttributes(attribute.String("task.key", key)),
+	)
+	defer span.End()
+
 	// Use a simple read-only adapter (no StatusUpdateRaw needed for GetNextStatus)
 	adapter := &taskEntityRepoAdapter{repo: s.repo}
-	return s.entitySvc.GetNextStatus(ctx, adapter, models.EntityTypeTask, key, s.makeResolveActionFn(ctx))
+	info, err := s.entitySvc.GetNextStatus(ctx, adapter, models.EntityTypeTask, key, s.makeResolveActionFn(ctx))
+	if err != nil {
+		return nil, recordSpanError(span, err)
+	}
+	return info, nil
 }
 
 // ValidateStatus checks if a status is valid in the task workflow.
@@ -628,7 +698,7 @@ func (s *TaskService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
 		if s.enrichRepo != nil {
 			data, err := s.enrichRepo.GetTaskEnrichment(ctx, task.ID)
 			if err != nil {
-				log.Printf("WARNING: Failed to fetch enrichment data for task %s: %v", task.Key, err)
+				slog.Warn("Failed to fetch enrichment data for task", "task", task.Key, "error", err)
 			} else {
 				enrichment = data
 			}
@@ -973,7 +1043,7 @@ func (s *TaskService) maybeReopenParentFeature(ctx context.Context, featureKey s
 
 	feature, err := s.featureService.GetFeature(ctx, featureKey)
 	if err != nil {
-		log.Printf("warning: auto-reopen check for feature %s failed: %v", featureKey, err)
+		slog.Warn("auto-reopen check for feature failed", "feature", featureKey, "error", err)
 		return
 	}
 	if feature == nil {
@@ -993,7 +1063,7 @@ func (s *TaskService) maybeReopenParentFeature(ctx context.Context, featureKey s
 		Status: &targetStatus,
 	})
 	if err != nil {
-		log.Printf("warning: auto-reopen of feature %s failed: %v", featureKey, err)
+		slog.Warn("auto-reopen of feature failed", "feature", featureKey, "error", err)
 		return
 	}
 

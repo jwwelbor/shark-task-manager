@@ -3,7 +3,8 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	_ "github.com/mattn/go-sqlite3"
@@ -13,7 +14,8 @@ func main() {
 	// Open the production database
 	database, err := sql.Open("sqlite3", "shark-tasks.db")
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		slog.Error("Failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer database.Close()
 
@@ -22,7 +24,8 @@ func main() {
 	// Run the backfill
 	updated, err := db.BackfillSlugsFromFilePaths(database, true)
 	if err != nil {
-		log.Fatalf("Backfill failed: %v", err)
+		slog.Error("Backfill failed", "error", err)
+		os.Exit(1)
 	}
 	fmt.Printf("Updated %d tasks with slugs\n", updated)
 
@@ -35,7 +38,8 @@ func main() {
 	var epicCount int
 	err = database.QueryRow("SELECT COUNT(*) FROM epics WHERE slug IS NOT NULL").Scan(&epicCount)
 	if err != nil {
-		log.Fatalf("Failed to count epic slugs: %v", err)
+		slog.Error("Failed to count epic slugs", "error", err)
+		os.Exit(1)
 	}
 	fmt.Printf("Epics with slugs: %d\n", epicCount)
 
@@ -43,7 +47,8 @@ func main() {
 	var featureCount int
 	err = database.QueryRow("SELECT COUNT(*) FROM features WHERE slug IS NOT NULL").Scan(&featureCount)
 	if err != nil {
-		log.Fatalf("Failed to count feature slugs: %v", err)
+		slog.Error("Failed to count feature slugs", "error", err)
+		os.Exit(1)
 	}
 	fmt.Printf("Features with slugs: %d\n", featureCount)
 
@@ -51,7 +56,8 @@ func main() {
 	var taskCount int
 	err = database.QueryRow("SELECT COUNT(*) FROM tasks WHERE slug IS NOT NULL").Scan(&taskCount)
 	if err != nil {
-		log.Fatalf("Failed to count task slugs: %v", err)
+		slog.Error("Failed to count task slugs", "error", err)
+		os.Exit(1)
 	}
 	fmt.Printf("Tasks with slugs: %d\n", taskCount)
 
@@ -65,7 +71,7 @@ func main() {
 		for rows.Next() {
 			var key, slug string
 			if err := rows.Scan(&key, &slug); err != nil {
-				log.Printf("Error scanning epic row: %v", err)
+				slog.Warn("scanning epic row", "error", err)
 				continue
 			}
 			fmt.Printf("  %s -> %s\n", key, slug)
@@ -80,7 +86,7 @@ func main() {
 		for rows.Next() {
 			var key, slug string
 			if err := rows.Scan(&key, &slug); err != nil {
-				log.Printf("Error scanning feature row: %v", err)
+				slog.Warn("scanning feature row", "error", err)
 				continue
 			}
 			fmt.Printf("  %s -> %s\n", key, slug)
@@ -95,7 +101,7 @@ func main() {
 		for rows.Next() {
 			var key, slug string
 			if err := rows.Scan(&key, &slug); err != nil {
-				log.Printf("Error scanning task row: %v", err)
+				slog.Warn("scanning task row", "error", err)
 				continue
 			}
 			fmt.Printf("  %s -> %s\n", key, slug)

@@ -215,6 +215,7 @@ func buildTaskServiceDeps() taskServiceDeps {
 func GetTaskService() *services.TaskService {
 	d := buildTaskServiceDeps()
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
 
@@ -240,6 +241,7 @@ func GetTaskService() *services.TaskService {
 func GetTaskServiceWithHistory() *services.TaskService {
 	d := buildTaskServiceDeps()
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetHistoryRepo(&taskHistoryAdapter{repo: d.historyRepo})
 	svc.SetFeatureService(GetFeatureService())
@@ -276,6 +278,7 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	enrichRepo := repository.NewTemplateEnrichmentRepository(d.db)
 
 	svc := services.NewTaskService(d.taskRepo, d.entitySvc, d.creatorSvc)
+	svc.SetTracer(GetTracer("shark/services/task"))
 	svc.SetDocRepo(docAdapter)
 	svc.SetRelRepo(repository.NewEntityRelTaskKeyAdapter(d.db))
 	svc.SetSessionRepo(sessionRepo)
@@ -445,18 +448,6 @@ func GetEntityHistoryService() *services.EntityHistoryService {
 	return services.NewEntityHistoryService(historyRepo, GetEntityRegistry())
 }
 
-// GetSearchService returns a SearchService instance.
-// Creates a new instance each call with the global DB connection.
-// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
-func GetSearchService() *services.SearchService {
-	db, err := GetDB(context.Background())
-	if err != nil {
-		panic(fmt.Sprintf("failed to get database: %v", err))
-	}
-	searchRepo := repository.NewSearchRepository(db)
-	return services.NewSearchService(searchRepo)
-}
-
 // GetEntityRelationshipService returns an EntityRelationshipService instance.
 // Creates a new instance each call (lightweight, no shared state).
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
@@ -494,4 +485,7 @@ func ResetServices() {
 	// Reset entity service
 	globalEntityService = nil
 	entityServiceOnce = sync.Once{}
+
+	// Reset observability state for test isolation
+	ResetObservability()
 }

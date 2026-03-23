@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -55,7 +55,7 @@ func recordEntityHistory(ctx context.Context, repo EntityHistoryRecorder, entity
 		}
 	}
 	if err := repo.Create(ctx, history); err != nil {
-		log.Printf("warning: failed to record entity history for %s: %v", entityType, err)
+		slog.Warn("failed to record entity history", "entity_type", entityType, "error", err)
 	}
 }
 

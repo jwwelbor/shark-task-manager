@@ -2,6 +2,8 @@ package repository
 
 import (
 	"testing"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 )
 
 func TestSharedContainsHyphen(t *testing.T) {
@@ -21,9 +23,9 @@ func TestSharedContainsHyphen(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ContainsHyphen(tt.input)
+			got := repoutil.ContainsHyphen(tt.input)
 			if got != tt.want {
-				t.Errorf("ContainsHyphen(%q) = %v, want %v", tt.input, got, tt.want)
+				t.Errorf("repoutil.ContainsHyphen(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -47,9 +49,9 @@ func TestSharedIsNumeric(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsNumeric(tt.input)
+			got := repoutil.IsNumeric(tt.input)
 			if got != tt.want {
-				t.Errorf("IsNumeric(%q) = %v, want %v", tt.input, got, tt.want)
+				t.Errorf("repoutil.IsNumeric(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -74,9 +76,9 @@ func TestSplitAtFirstHyphen(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			prefix, suffix, ok := SplitAtFirstHyphen(tt.input)
+			prefix, suffix, ok := repoutil.SplitAtFirstHyphen(tt.input)
 			if prefix != tt.wantPrefix || suffix != tt.wantSuffix || ok != tt.wantOk {
-				t.Errorf("SplitAtFirstHyphen(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				t.Errorf("repoutil.SplitAtFirstHyphen(%q) = (%q, %q, %v), want (%q, %q, %v)",
 					tt.input, prefix, suffix, ok, tt.wantPrefix, tt.wantSuffix, tt.wantOk)
 			}
 		})
@@ -106,49 +108,49 @@ func TestSplitAtNthHyphen(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			prefix, suffix, ok := SplitAtNthHyphen(tt.input, tt.n)
+			prefix, suffix, ok := repoutil.SplitAtNthHyphen(tt.input, tt.n)
 			if prefix != tt.wantPrefix || suffix != tt.wantSuffix || ok != tt.wantOk {
-				t.Errorf("SplitAtNthHyphen(%q, %d) = (%q, %q, %v), want (%q, %q, %v)",
+				t.Errorf("repoutil.SplitAtNthHyphen(%q, %d) = (%q, %q, %v), want (%q, %q, %v)",
 					tt.input, tt.n, prefix, suffix, ok, tt.wantPrefix, tt.wantSuffix, tt.wantOk)
 			}
 		})
 	}
 }
 
-// TestWrapperConsistency verifies that the backward-compatible wrappers
-// produce the same results as the shared exported functions.
+// TestWrapperConsistency verifies that the backward-compatible package-private wrappers
+// produce the same results as the repoutil exported functions.
 func TestWrapperConsistency(t *testing.T) {
-	t.Run("containsHyphen matches ContainsHyphen", func(t *testing.T) {
+	t.Run("containsHyphen matches repoutil.ContainsHyphen", func(t *testing.T) {
 		cases := []string{"", "E04", "E04-name", "-", "a-b-c"}
 		for _, s := range cases {
-			if containsHyphen(s) != ContainsHyphen(s) {
-				t.Errorf("containsHyphen(%q) != ContainsHyphen(%q)", s, s)
+			if containsHyphen(s) != repoutil.ContainsHyphen(s) {
+				t.Errorf("containsHyphen(%q) != repoutil.ContainsHyphen(%q)", s, s)
 			}
 		}
 	})
 
-	t.Run("isNumeric matches IsNumeric", func(t *testing.T) {
+	t.Run("isNumeric matches repoutil.IsNumeric", func(t *testing.T) {
 		cases := []string{"", "123", "abc", "12a", "007"}
 		for _, s := range cases {
-			if isNumeric(s) != IsNumeric(s) {
-				t.Errorf("isNumeric(%q) != IsNumeric(%q)", s, s)
+			if isNumeric(s) != repoutil.IsNumeric(s) {
+				t.Errorf("isNumeric(%q) != repoutil.IsNumeric(%q)", s, s)
 			}
 		}
 	})
 
-	t.Run("splitSluggedKey matches SplitAtFirstHyphen", func(t *testing.T) {
+	t.Run("splitSluggedKey matches repoutil.SplitAtFirstHyphen", func(t *testing.T) {
 		cases := []string{"E04", "E04-epic-name", "", "E04-epic-name-test"}
 		for _, s := range cases {
 			parts := splitSluggedKey(s)
-			prefix, suffix, ok := SplitAtFirstHyphen(s)
+			prefix, suffix, ok := repoutil.SplitAtFirstHyphen(s)
 
 			if !ok {
 				if len(parts) != 1 || parts[0] != prefix {
-					t.Errorf("splitSluggedKey(%q) = %v, but SplitAtFirstHyphen returned (%q, %q, false)", s, parts, prefix, suffix)
+					t.Errorf("splitSluggedKey(%q) = %v, but repoutil.SplitAtFirstHyphen returned (%q, %q, false)", s, parts, prefix, suffix)
 				}
 			} else {
 				if len(parts) != 2 || parts[0] != prefix || parts[1] != suffix {
-					t.Errorf("splitSluggedKey(%q) = %v, but SplitAtFirstHyphen returned (%q, %q, true)", s, parts, prefix, suffix)
+					t.Errorf("splitSluggedKey(%q) = %v, but repoutil.SplitAtFirstHyphen returned (%q, %q, true)", s, parts, prefix, suffix)
 				}
 			}
 		}

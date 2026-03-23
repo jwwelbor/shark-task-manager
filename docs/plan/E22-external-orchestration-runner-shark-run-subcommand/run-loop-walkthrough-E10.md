@@ -16,6 +16,7 @@
 
 4. **Parallel cascade with `--parallel=N`**: The `cascade` action supports parallel dispatch of child entities. Each parallel agent gets its own git worktree for isolation. Bounded by a concurrency semaphore (default: sequential, `--parallel=3` for 3 concurrent agents). Only independent children run in parallel; dependency ordering is respected.
 
+
 ---
 
 ## Controller Pseudocode

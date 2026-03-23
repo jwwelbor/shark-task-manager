@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,7 +167,7 @@ func (s *ChangeCardService) CreateChangeCard(ctx context.Context, input CreateCh
 	})
 	if writeErr != nil {
 		// Log warning but don't fail -- DB record is the source of truth
-		fmt.Fprintf(os.Stderr, "warning: failed to write change-card file %s: %v\n", filePath, writeErr)
+		slog.Warn("failed to write change-card file", "path", filePath, "error", writeErr)
 	}
 
 	return card, nil
@@ -286,7 +287,7 @@ func (s *ChangeCardService) DeleteChangeCard(ctx context.Context, key string) er
 	if card.FilePath != nil && *card.FilePath != "" && s.projectRoot != "" {
 		absPath := filepath.Join(s.projectRoot, *card.FilePath)
 		if removeErr := os.Remove(absPath); removeErr != nil && !os.IsNotExist(removeErr) {
-			fmt.Fprintf(os.Stderr, "warning: failed to delete change-card file %s: %v\n", absPath, removeErr)
+			slog.Warn("failed to delete change-card file", "path", absPath, "error", removeErr)
 		}
 	}
 

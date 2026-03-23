@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -212,7 +213,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 	}
 	statusBreakdownBatch, err := featureSvc.GetStatusBreakdownBatch(ctx, featureIDs)
 	if err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to batch fetch status breakdowns: %v\n", err)
+		slog.Warn("Failed to batch fetch status breakdowns", "error", err)
 	}
 	if statusBreakdownBatch == nil {
 		statusBreakdownBatch = make(map[int64]map[models.TaskStatus]int)
@@ -221,11 +222,11 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 	// Load config once for all features
 	configPath, cfgErr := cli.GetConfigPath()
 	if cfgErr != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to get config path: %v\n", cfgErr)
+		slog.Warn("Failed to get config path", "error", cfgErr)
 	}
 	cfg, cfgErr := config.LoadWorkflowConfig(configPath)
 	if cfgErr != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", cfgErr)
+		slog.Warn("Failed to load config", "error", cfgErr)
 	}
 
 	// Get project root for WorkflowService
@@ -747,7 +748,7 @@ func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter st
 	}
 	taskCounts, err := featureSvc.GetTaskCounts(ctx, featureIDs)
 	if err != nil && cli.GlobalConfig.Verbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to get task counts: %v\n", err)
+		slog.Warn("Failed to get task counts", "error", err)
 	}
 
 	// Build result using stored progress_pct — no per-feature recalculation needed.

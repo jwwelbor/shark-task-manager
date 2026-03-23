@@ -514,7 +514,7 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	require.Equal(t, models.TaskStatus("in_progress"), updatedTask.Status, "Task status should be updated")
 
 	// Verify rejection reason was stored in history
-	history, err := historyRepo.ListByTask(ctx, task.ID)
+	history, err := historyRepo.ListByTask(ctx, task.ID) //nolint:staticcheck
 	require.NoError(t, err, "Failed to retrieve task history")
 	require.NotEmpty(t, history, "History should have at least one entry")
 

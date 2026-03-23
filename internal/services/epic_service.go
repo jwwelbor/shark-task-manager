@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -11,6 +11,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // EpicRepository defines the repository interface needed by EpicService.
@@ -70,6 +73,7 @@ type EpicService struct {
 	docSvc           *EntityDocumentService // shared document operations; built by SetWritableDocRepo
 	analyticsService *EpicAnalyticsService  // optional; lazy-initialized if nil
 	enrichRepo       config.TemplateEnrichmentRepository
+	tracer           trace.Tracer // optional; defaults to otel.Tracer("shark/services/epic") if nil
 }
 
 // NewEpicService creates a new EpicService.
@@ -93,6 +97,20 @@ func NewEpicService(repo EpicRepository, entitySvc *EntityService, entityRepo En
 		docRepo:     nil,
 		relRepo:     nil,
 	}
+}
+
+// SetTracer sets the OpenTelemetry tracer for the service.
+// When nil, getTracer falls back to the OTel global tracer (noop until provider is wired).
+func (s *EpicService) SetTracer(t trace.Tracer) {
+	s.tracer = t
+}
+
+// getTracer returns the configured tracer or falls back to the OTel global tracer.
+func (s *EpicService) getTracer() trace.Tracer {
+	if s.tracer != nil {
+		return s.tracer
+	}
+	return otel.Tracer("shark/services/epic")
 }
 
 // SetRelRepo sets the epic relationship repository on the service.
@@ -175,6 +193,14 @@ func (s *EpicService) UnlinkDocument(ctx context.Context, epicKey, docTitle stri
 //   - *TransitionResult: details of the transition
 //   - error: validation or database errors
 func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	ctx, span := s.getTracer().Start(ctx, "EpicService.TransitionStatus",
+		trace.WithAttributes(
+			attribute.String("epic.key", epicKey),
+			attribute.String("epic.target_status", targetStatus),
+		),
+	)
+	defer span.End()
+
 	// Delegate shared logic to EntityService
 	result, err := s.entitySvc.TransitionStatus(
 		ctx, s.entityRepo, models.EntityTypeEpic, epicKey, targetStatus, opts,
@@ -182,7 +208,7 @@ func (s *EpicService) TransitionStatus(ctx context.Context, epicKey string, targ
 		s.makeResolveActionFn(ctx),
 	)
 	if err != nil {
-		return nil, err
+		return nil, recordSpanError(span, err)
 	}
 
 	// Post-hook: count child features
@@ -221,7 +247,7 @@ func (s *EpicService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
 		if s.enrichRepo != nil {
 			data, err := s.enrichRepo.GetEpicEnrichment(ctx, epic.ID)
 			if err != nil {
-				log.Printf("WARNING: Failed to fetch enrichment data for epic %s: %v", epic.Key, err)
+				slog.Warn("Failed to fetch enrichment data for epic", "epic", epic.Key, "error", err)
 			} else {
 				enrichment = data
 			}
@@ -242,18 +268,26 @@ func (s *EpicService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
 
 // GetEpic retrieves an epic by key.
 func (s *EpicService) GetEpic(ctx context.Context, key string) (*models.Epic, error) {
+	ctx, span := s.getTracer().Start(ctx, "EpicService.GetEpic",
+		trace.WithAttributes(attribute.String("epic.key", key)),
+	)
+	defer span.End()
+
 	epic, err := s.repo.GetByKey(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get epic %s: %w", key, err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to get epic %s: %w", key, err))
 	}
 	if epic == nil {
-		return nil, fmt.Errorf("epic not found: %s", key)
+		return nil, recordSpanError(span, fmt.Errorf("epic not found: %s", key))
 	}
 	return epic, nil
 }
 
 // ListEpics retrieves epics with optional filtering.
 func (s *EpicService) ListEpics(ctx context.Context, filters EpicFilters) ([]*models.Epic, error) {
+	ctx, span := s.getTracer().Start(ctx, "EpicService.ListEpics")
+	defer span.End()
+
 	var statusPtr *models.EpicStatus
 	if filters.Status != "" {
 		status := models.EpicStatus(filters.Status)
@@ -261,7 +295,7 @@ func (s *EpicService) ListEpics(ctx context.Context, filters EpicFilters) ([]*mo
 	}
 	epics, err := s.repo.List(ctx, statusPtr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list epics: %w", err)
+		return nil, recordSpanError(span, fmt.Errorf("failed to list epics: %w", err))
 	}
 	return epics, nil
 }
@@ -530,6 +564,11 @@ func (s *EpicService) DeleteEpic(ctx context.Context, key string) error {
 // performed here — callers should invoke FeatureService.RecalculateAndSetProgress
 // for each feature after this call if they want accurate progress_pct values.
 func (s *EpicService) CompleteEpic(ctx context.Context, epicKey string, force bool, agentID string) (*EpicCompleteResult, error) {
+	ctx, span := s.getTracer().Start(ctx, "EpicService.CompleteEpic",
+		trace.WithAttributes(attribute.String("epic.key", epicKey)),
+	)
+	defer span.End()
+
 	epic, err := s.repo.GetByKey(ctx, strings.ToUpper(epicKey))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get epic %s: %w", epicKey, err)
