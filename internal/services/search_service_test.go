@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -43,13 +44,8 @@ func TestSearchService_SearchAll_NoFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(got) != len(want) {
-		t.Fatalf("expected %d results, got %d", len(want), len(got))
-	}
-	for i, r := range got {
-		if r.Key != want[i].Key {
-			t.Errorf("result[%d].Key = %q, want %q", i, r.Key, want[i].Key)
-		}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SearchAll() mismatch:\ngot:  %+v\nwant: %+v", got, want)
 	}
 }
 
@@ -72,11 +68,8 @@ func TestSearchService_SearchAll_WithEntityTypeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(got))
-	}
-	if got[0].Key != "B001" {
-		t.Errorf("expected key B001, got %q", got[0].Key)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SearchAll() mismatch:\ngot:  %+v\nwant: %+v", got, want)
 	}
 }
 
