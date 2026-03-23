@@ -213,24 +213,6 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (_ *models.Ep
 	return epic, nil
 }
 
-// containsHyphen is a backward-compatible package-private wrapper for test compatibility.
-func containsHyphen(s string) bool {
-	return repoutil.ContainsHyphen(s)
-}
-
-// splitSluggedKey is a backward-compatible package-private wrapper for test compatibility.
-//
-// Example: "E04-epic-name" -> ["E04", "epic-name"]
-// Example: "E04" -> ["E04"]
-// Example: "" -> [""]
-func splitSluggedKey(key string) []string {
-	prefix, suffix, ok := repoutil.SplitAtFirstHyphen(key)
-	if !ok {
-		return []string{prefix}
-	}
-	return []string{prefix, suffix}
-}
-
 // GetByFilePath retrieves an epic by its file path for collision detection
 func (r *EpicRepository) GetByFilePath(ctx context.Context, filePath string) (*models.Epic, error) {
 	query := `

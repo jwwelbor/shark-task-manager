@@ -1,13 +1,13 @@
 package repository
 
-// TC-F004: NoteCreator interface decoupling tests
+// NoteCreator interface decoupling tests.
 //
 // These tests verify:
-//   - TC-F004-1: NoteCreator interface is defined (compile-time check via var _ NoteCreator)
-//   - TC-F004-2: Nil NoteCreator causes graceful degradation during forced status update
-//   - TC-F004-3: Non-nil NoteCreator is called on forced status update with rejection reason
-//   - TC-F004-4: note package does not import task package (no import cycle)
-//   - TC-F005-3: note.EntityNoteRepository satisfies NoteCreator (compile-time check in aliases.go)
+//   - NoteCreator interface is defined (compile-time check via var _ NoteCreator)
+//   - Nil NoteCreator causes graceful degradation during forced status update
+//   - Non-nil NoteCreator is called on forced status update with rejection reason
+//   - note package does not import task package (no import cycle)
+//   - note.EntityNoteRepository satisfies NoteCreator (compile-time check in aliases.go)
 
 import (
 	"context"
@@ -18,15 +18,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
-
-// TC-F004-1: Compile-time check that NoteCreator interface exists and is satisfiable.
-// This also covers TC-F005-3: note.EntityNoteRepository satisfies NoteCreator.
-// The actual check lives in aliases.go as:
-//
-//	var _ NoteCreator = (*note.EntityNoteRepository)(nil)
-//
-// We add a redundant check here as documentation and to surface errors in this file.
-var _ NoteCreator = (*note.EntityNoteRepository)(nil)
 
 // mockNoteCreator is a test double for the NoteCreator interface.
 type mockNoteCreator struct {
@@ -73,8 +64,8 @@ func (m *mockNoteCreator) CreateRejectionNoteWithTx(
 	return &models.EntityNote{ID: 999, NoteType: models.NoteTypeRejection}, nil
 }
 
-// TC-F004-2: When NoteCreator is nil, forced status update with rejection reason succeeds
-// without panicking or returning an error (graceful degradation).
+// TestNoteCreator_NilGracefulDegradation_ForcedStatus verifies that when NoteCreator is nil,
+// forced status update with rejection reason succeeds without panicking or returning an error.
 func TestNoteCreator_NilGracefulDegradation_ForcedStatus(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
@@ -102,14 +93,14 @@ func TestNoteCreator_NilGracefulDegradation_ForcedStatus(t *testing.T) {
 	newStatus := models.TaskStatus("in_development")
 
 	// UpdateStatusForced with a rejection reason but nil NoteCreator must not panic.
-	// Signature: (ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
 	err = repo.UpdateStatusForced(ctx, task.ID, newStatus, &agent, nil, &reason, nil, true)
 	if err != nil {
-		t.Errorf("TC-F004-2 FAIL: expected no error with nil NoteCreator, got: %v", err)
+		t.Errorf("expected no error with nil NoteCreator, got: %v", err)
 	}
 }
 
-// TC-F004-3: When NoteCreator is set, forced status update calls CreateRejectionNoteWithTx.
+// TestNoteCreator_WithMock_ForcedStatus verifies that when NoteCreator is set,
+// forced status update calls CreateRejectionNoteWithTx with the correct arguments.
 func TestNoteCreator_WithMock_ForcedStatus(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
@@ -135,27 +126,26 @@ func TestNoteCreator_WithMock_ForcedStatus(t *testing.T) {
 	reason := "code needs error handling"
 	newStatus := models.TaskStatus("changes_requested")
 
-	// Signature: (ctx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
 	err = repo.UpdateStatusForced(ctx, task.ID, newStatus, &agent, nil, &reason, nil, true)
 	if err != nil {
-		t.Fatalf("TC-F004-3 FAIL: unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if mock.callCount == 0 {
-		t.Error("TC-F004-3 FAIL: expected NoteCreator.CreateRejectionNoteWithTx to be called, got 0 calls")
+		t.Error("expected NoteCreator.CreateRejectionNoteWithTx to be called, got 0 calls")
 	}
 
 	if mock.capturedArgs.reason != reason {
-		t.Errorf("TC-F004-3 FAIL: expected reason %q, got %q", reason, mock.capturedArgs.reason)
+		t.Errorf("expected reason %q, got %q", reason, mock.capturedArgs.reason)
 	}
 
 	if mock.capturedArgs.rejectedBy != agent {
-		t.Errorf("TC-F004-3 FAIL: expected rejectedBy %q, got %q", agent, mock.capturedArgs.rejectedBy)
+		t.Errorf("expected rejectedBy %q, got %q", agent, mock.capturedArgs.rejectedBy)
 	}
 }
 
-// TC-F005-1: EntityNoteRepository is accessible via both the root package alias and
-// the note sub-package directly. Both must produce a compatible type.
+// TestNoteCreator_EntityNoteRepositoryAccessibleViaBothPaths verifies that EntityNoteRepository
+// is accessible via both the root package alias and the note sub-package directly.
 func TestNoteCreator_EntityNoteRepositoryAccessibleViaBothPaths(t *testing.T) {
 	database := test.GetTestDB()
 	db := NewDB(database)
@@ -163,13 +153,13 @@ func TestNoteCreator_EntityNoteRepositoryAccessibleViaBothPaths(t *testing.T) {
 	// Path 1: via root package alias (repository.NewEntityNoteRepository)
 	repoFromAlias := NewEntityNoteRepository(db)
 	if repoFromAlias == nil {
-		t.Fatal("TC-F005-1 FAIL: repository.NewEntityNoteRepository returned nil")
+		t.Fatal("repository.NewEntityNoteRepository returned nil")
 	}
 
 	// Path 2: via note sub-package directly (note.NewEntityNoteRepository)
 	repoFromSubpkg := note.NewEntityNoteRepository(db)
 	if repoFromSubpkg == nil {
-		t.Fatal("TC-F005-1 FAIL: note.NewEntityNoteRepository returned nil")
+		t.Fatal("note.NewEntityNoteRepository returned nil")
 	}
 
 	// Both paths produce the same concrete type (they are the same type via alias).
@@ -177,15 +167,8 @@ func TestNoteCreator_EntityNoteRepositoryAccessibleViaBothPaths(t *testing.T) {
 	var _ *note.EntityNoteRepository = repoFromSubpkg
 }
 
-// TC-F004-4: Import cycle guard. If note imports repository, the build will fail.
-// This is a documentation test that passes when the project compiles; the real
-// protection is that `go build ./...` fails on import cycles.
+// TestNoteCreator_NoImportCycle is a documentation test that passes when the project compiles.
+// If note imported repository, `go build ./...` would fail with a cycle error.
 func TestNoteCreator_NoImportCycle(t *testing.T) {
-	// The mere fact that this test file compiles while importing:
-	//   - package repository (this package)
-	//   - "github.com/jwwelbor/shark-task-manager/internal/repository/note"
-	// proves there is no import cycle between repository and note.
-	//
-	// If note imported repository, `go build ./...` would fail with a cycle error.
 	t.Log("no import cycle between repository and note packages")
 }

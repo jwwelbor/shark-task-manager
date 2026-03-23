@@ -61,22 +61,12 @@ type TaskRepository struct {
 	noteCreator NoteCreator // optional; nil means rejection notes are silently skipped
 }
 
-// newTaskRepositoryBase creates a TaskRepository with an explicit NoteCreator.
-// This is the internal constructor used by the public NewTaskRepository in aliases.go
-// and by NewTaskRepositoryWithNoteCreator.
-func newTaskRepositoryBase(db *dbconn.DB, noteCreator NoteCreator) *TaskRepository {
-	return &TaskRepository{
-		db:          db,
-		noteCreator: noteCreator,
-	}
-}
-
 // NewTaskRepository creates a TaskRepository without rejection note support.
 // This is the simple constructor for use within the task package and tests.
 // For full rejection note support, use NewTaskRepositoryWithNoteCreator or
 // the root package NewTaskRepository (defined in aliases.go).
 func NewTaskRepository(db *dbconn.DB) *TaskRepository {
-	return newTaskRepositoryBase(db, nil)
+	return &TaskRepository{db: db}
 }
 
 // NewTaskRepositoryWithNoteCreator creates a TaskRepository with explicit rejection note support.
@@ -85,7 +75,7 @@ func NewTaskRepository(db *dbconn.DB) *TaskRepository {
 // Most callers should use the root package NewTaskRepository (defined in aliases.go) which
 // automatically wires note.EntityNoteRepository as the NoteCreator.
 func NewTaskRepositoryWithNoteCreator(db *dbconn.DB, noteCreator NoteCreator) *TaskRepository {
-	return newTaskRepositoryBase(db, noteCreator)
+	return &TaskRepository{db: db, noteCreator: noteCreator}
 }
 
 // NewTaskRepositoryWithWorkflow creates a new TaskRepository.
@@ -93,7 +83,7 @@ func NewTaskRepositoryWithNoteCreator(db *dbconn.DB, noteCreator NoteCreator) *T
 // This constructor is kept temporarily for backward compatibility with callers
 // that pass a workflow config. It will be removed in a future cleanup.
 func NewTaskRepositoryWithWorkflow(db *dbconn.DB, _ *config.WorkflowConfig) *TaskRepository {
-	return newTaskRepositoryBase(db, nil)
+	return &TaskRepository{db: db}
 }
 
 // Create creates a new task

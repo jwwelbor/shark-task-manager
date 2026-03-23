@@ -2,17 +2,8 @@ package repository
 
 // key_lookup.go provides backward-compatible package-private wrappers around
 // repoutil key-parsing utilities (ContainsHyphen, IsNumeric, SplitAtFirstHyphen).
-//
-// It also defines orderedItem as a package-private alias for repoutil.OrderedItem,
-// preserving backward compatibility for root-package callers after order_resequence.go
-// was merged into this file.
 
 import "github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
-
-// orderedItem represents any entity with an ID and execution order.
-// This is a type alias for repoutil.OrderedItem, allowing repository files
-// to use the shorter name while delegating logic to repoutil.ResequenceOrders.
-type orderedItem = repoutil.OrderedItem
 
 // containsHyphen reports whether s contains a hyphen character.
 // Delegates to repoutil.ContainsHyphen.

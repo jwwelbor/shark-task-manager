@@ -213,65 +213,6 @@ func TestEpicRepository_GetByKey_PreferNumericLookup(t *testing.T) {
 	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", epic.ID)
 }
 
-// TestContainsHyphen tests the containsHyphen helper function
-func TestContainsHyphen(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected bool
-	}{
-		{"No hyphen", "E04", false},
-		{"With hyphen", "E04-epic-name", true},
-		{"Multiple hyphens", "E04-epic-name-test", true},
-		{"Empty string", "", false},
-		{"Only hyphen", "-", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := containsHyphen(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-// TestSplitSluggedKey tests the splitSluggedKey helper function
-func TestSplitSluggedKey(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "Normal slugged key",
-			input:    "E04-epic-name",
-			expected: []string{"E04", "epic-name"},
-		},
-		{
-			name:     "Multiple hyphens in slug",
-			input:    "E04-epic-name-test",
-			expected: []string{"E04", "epic-name-test"},
-		},
-		{
-			name:     "No hyphen",
-			input:    "E04",
-			expected: []string{"E04"},
-		},
-		{
-			name:     "Empty string",
-			input:    "",
-			expected: []string{""},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := splitSluggedKey(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // ============================================================================
 // Status Rollup Tests (E07-F23)
 // ============================================================================

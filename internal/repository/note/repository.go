@@ -21,11 +21,6 @@ import (
 // Per-package tracers improve observability by attributing spans to the correct sub-package.
 var noteTracer = repoutil.NewTracer("internal/repository/note")
 
-// recordSpanError records an error on the span and sets its status to Error.
-func recordSpanError(span trace.Span, err error) {
-	repoutil.RecordSpanError(span, err)
-}
-
 // EntityNoteRepository handles CRUD operations for entity notes (epics, features, tasks)
 type EntityNoteRepository struct {
 	db *dbconn.DB
@@ -46,7 +41,7 @@ func (r *EntityNoteRepository) Create(ctx context.Context, note *models.EntityNo
 			attribute.String("db.entity_type", string(note.EntityType)),
 			attribute.Int64("db.entity_id", note.EntityID),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	if err := note.Validate(); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -89,7 +84,7 @@ func (r *EntityNoteRepository) GetByID(ctx context.Context, id int64) (_ *models
 			attribute.String("db.table", "entity_notes"),
 			attribute.Int64("db.id", id),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := `
 		SELECT id, entity_type, entity_id, note_type, content, created_by, metadata, created_at
@@ -129,7 +124,7 @@ func (r *EntityNoteRepository) GetByEntity(ctx context.Context, entityType model
 			attribute.String("db.entity_type", string(entityType)),
 			attribute.Int64("db.entity_id", entityID),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := `
 		SELECT id, entity_type, entity_id, note_type, content, created_by, metadata, created_at
@@ -414,7 +409,7 @@ func (r *EntityNoteRepository) Delete(ctx context.Context, id int64) (retErr err
 			attribute.String("db.table", "entity_notes"),
 			attribute.Int64("db.id", id),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 
 	query := `DELETE FROM entity_notes WHERE id = ?`
 
@@ -463,7 +458,7 @@ func (r *EntityNoteRepository) CreateRejectionNote(
 			attribute.String("db.entity_type", string(entityType)),
 			attribute.Int64("db.entity_id", entityID),
 		))
-	defer func() { recordSpanError(span, retErr); span.End() }()
+	defer func() { repoutil.RecordSpanError(span, retErr); span.End() }()
 	// Validate inputs
 	if entityID == 0 {
 		return nil, fmt.Errorf("failed to create rejection note: entity_id must be greater than 0")
