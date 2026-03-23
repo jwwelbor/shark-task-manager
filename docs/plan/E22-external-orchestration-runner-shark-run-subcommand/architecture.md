@@ -6,7 +6,36 @@
 
 ---
 
-## 1. Component Overview
+## 1. Core Design Principle
+
+The run loop is deliberately simple: **read entity state, read action from config, execute, repeat.**
+
+```
+loop:
+  1. Get entity from DB → current status                (one DB call)
+  2. Get orchestrator_action for status from config      (config read, no DB)
+  3. Build template placeholders from entity data        (in-memory)
+  4. Execute action:
+     - advance_status → TransitionStatus()              (same as `shark status advance`)
+     - spawn_agent   → advance to in_ → dispatch agent → on success, TransitionStatus()
+     - cascade       → list children → Run() each       (parallel with --parallel=N + worktrees)
+     - pause/wait    → STOP
+     - archive       → STOP
+  5. If terminal → STOP, else → loop with new status
+```
+
+**Critical invariant**: `TransitionStatus()` is the **exact same method** called by `shark status advance`. The run controller does not have its own transition logic — it reuses the existing service layer.
+
+**Auto-chaining `advance_status` actions**: Statuses like `ready_for_development` have `advance_status` as their orchestrator action. The controller calls `TransitionStatus()` and loops, naturally chaining through:
+```
+draft [advance_status] → ready_for_development [advance_status] → in_development [spawn_agent] → ...
+```
+
+No special handling is needed for `ready_for_` → `in_` transitions — they are just `advance_status` actions that resolve through the normal loop.
+
+---
+
+## 2. Component Overview
 
 ### What Changes
 
@@ -122,27 +151,51 @@ internal/runner/logger.go              (Structured run logging)
 **Date**: 2026-03-21
 **Status**: Accepted
 
-**Context**: After an agent completes successfully, the run loop must decide which status to advance to. `GetValidTransitions()` returns a list of valid next statuses.
+**Context**: After an agent completes successfully (or for `advance_status` actions), the run loop must advance the entity to its next status.
 
-**Decision**: Use `transitions[0]` (the first valid transition) as the default forward target, matching the existing behavior in `runStatusAdvance()`.
+**Decision**: The run controller calls the **exact same** `TransitionStatus()` / `GetNextStatus()` service methods that `shark status advance` uses. No separate transition logic exists in the controller.
 
 **Rationale**:
-- The existing `status advance` command uses this exact convention (`status_group.go:481`).
-- The workflow configuration orders transitions intentionally -- the first entry is the "happy path" forward transition.
-- Backward transitions (like `changes_requested`) are listed but never selected automatically; they require explicit agent or human action.
-- Consistency with existing behavior eliminates surprise.
+- `shark status advance` already picks the first valid transition, validates the transition, records history, resolves the orchestrator action for the new status, and returns a `TransitionResult` with the populated action.
+- Duplicating this logic in the controller would create divergence and bugs.
+- The `TransitionResult.OrchestratorAction` field already carries the action for the new status, so the controller can use it for the next iteration without an extra config lookup.
 
 **Consequences**:
-- (+) Consistent with how `shark status advance` already works.
-- (+) No new configuration needed for forward transitions.
-- (-) If a status has multiple forward paths (rare), the first is always chosen. A future enhancement could allow the orchestrator action to specify the target status.
+- (+) Consistent behavior between `shark status advance` and `shark run` — they use identical code paths.
+- (+) The controller is simpler: it delegates all transition logic to services.
+- (+) Dry-run can walk the config to preview the chain without touching DB.
+- (+) `advance_status` actions (e.g., `ready_for_development` → `in_development`) chain naturally through the loop.
 
-### ADR-005: Disallowed Tools for Agent Isolation
+### ADR-005: Cascade Handled Internally with Optional Parallel Dispatch
+
+**Date**: 2026-03-23
+**Status**: Accepted
+
+**Context**: When an entity (epic or feature) reaches `active` status, its orchestrator action is `cascade` — meaning "drive all child entities forward." This could be delegated to an agent or handled by the controller.
+
+**Decision**: The controller handles `cascade` internally by listing child entities and calling `Run()` recursively for each non-terminal child. With `--parallel=N`, children are dispatched concurrently using Go goroutines bounded by a semaphore, each in its own git worktree.
+
+**Rationale**:
+- The controller already has `Run()` — recursion is natural and keeps cascade logic tight.
+- Dispatching a "tech-director" agent to do `shark run` recursively adds an unnecessary layer of indirection.
+- Go's goroutines + channels are purpose-built for bounded concurrency.
+- Git worktrees provide filesystem isolation for parallel agents (two agents can't safely edit the same files).
+- SQLite WAL mode supports concurrent reads + serial writes; status transitions are atomic.
+
+**Consequences**:
+- (+) No agent dispatch cost for cascade — just recursive controller calls.
+- (+) Parallel mode enables significant speedup for independent children (e.g., features in an epic).
+- (+) Each parallel agent gets full isolation via worktree — no file conflicts.
+- (+) `--parallel=1` (default) is sequential — safe fallback, no worktrees needed.
+- (-) Parallel mode requires worktree support (already implemented).
+- (-) Tasks with `depends_on` within a feature should respect ordering — parallel mode assumes children are independent (true for features, mostly true for tasks).
+
+### ADR-006: Disallowed Tools for Agent Isolation
 
 **Date**: 2026-03-21
 **Status**: Accepted
 
-**Context**: The core security property of E22 is that agents cannot advance their own status. Claude CLI supports `--disallowedTools` to block specific tool invocations.
+**Context**: The core security property of E22 is that agents cannot advance their own status.
 
 **Decision**: Pass `--disallowedTools "Bash(shark status advance*)" "Bash(shark task next-status*)" "Bash(shark status set*)" "Bash(shark task set-status*)"` to Claude CLI. For Codex, rely on its sandbox mode which restricts filesystem/network access.
 
@@ -157,7 +210,7 @@ internal/runner/logger.go              (Structured run logging)
 - (+) Agents can still perform backward transitions (e.g., `shark status set ... changes_requested`) if needed for rejection workflows.
 - (-) Depends on Claude CLI `--disallowedTools` flag stability. Mitigated by isolating flag construction to the dispatcher implementation (~5 lines to change if the API changes).
 
-### ADR-006: RunController Receives Services via Constructor Injection
+### ADR-007: RunController Receives Services via Constructor Injection
 
 **Date**: 2026-03-21
 **Status**: Accepted
@@ -277,7 +330,13 @@ type AgentDispatcher interface {
     Name() string
 }
 
-// DispatchInput contains all information needed to invoke an agent.
+type RunOptions struct {
+    DryRun     bool   // Preview actions without dispatching or advancing
+    Verbose    bool   // Detailed stage progress to stderr
+    WorkingDir string // Working directory override for agent processes
+    Parallel   int    // Max concurrent children for cascade (0 or 1 = sequential)
+}
+
 type DispatchInput struct {
     Instruction    string            // Rendered instruction from template
     WorkingDir     string            // Working directory for the agent process
@@ -338,67 +397,73 @@ The core orchestration loop:
 
 ```go
 type RunController struct {
-    entitySvc    EntityTransitioner    // Advance status (interface wrapping per-type services)
-    actionSvc    config.ActionService  // Read orchestrator actions
-    workflowSvc  *workflow.Service     // Get valid transitions, check terminal
-    dispatchers  map[string]AgentDispatcher  // Provider -> dispatcher
-    logger       *RunLogger            // Structured logging
-    entityGetter EntityGetter          // Get entity by key for placeholder generation
+    transitioner    EntityTransitioner       // Same interface as shark status advance
+    placeholders    PlaceholderGenerator     // Template variable generation
+    actionSvc       config.ActionService     // Read orchestrator actions from config
+    workflowSvc     *workflow.Service        // Terminal status detection
+    dispatchers     map[string]AgentDispatcher
+    childLister     ChildLister              // List child entities for cascade
+    worktreeCreator WorktreeCreator          // Create/remove worktrees for parallel
 }
 
-// Run executes the orchestration loop for an entity.
 func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*RunResult, error) {
     // 1. Get entity and validate it exists
     // 2. Check current status
     // 3. LOOP:
-    //    a. If terminal status -> break (success)
-    //    b. Get orchestrator action for current status
-    //    c. Switch on action type:
-    //       - spawn_agent: dispatch to agent, wait for exit
-    //       - pause: break (paused)
-    //       - advance_status: advance without agent
-    //       - cascade: trigger cascade
-    //       - archive: break (archived)
-    //    d. If agent exit code != 0 -> break (failure)
-    //    e. Advance to next status
-    //    f. Log stage result
-    // 4. Output run summary
+    //    a. GeneratePlaceholders(key) → template vars
+    //    b. GetStatusActionPopulated(currentStatus, vars) → orchestrator action
+    //    c. Switch on action.Action:
+    //       - advance_status:
+    //           TransitionStatus(key, firstAvailableTransition)  ← same as shark status advance
+    //           Update currentStatus from TransitionResult
+    //           Loop
+    //       - spawn_agent:
+    //           Select dispatcher by provider
+    //           Dispatch(instruction) → wait for exit
+    //           If exit != 0 → return "failed"
+    //           TransitionStatus(key, firstAvailableTransition)  ← same as shark status advance
+    //           Update currentStatus from TransitionResult
+    //           Loop
+    //       - pause / wait_for_triage / check_or_resume:
+    //           return "paused"
+    //       - archive:
+    //           return "completed"
+    //    d. If new status is terminal → return "completed"
 }
 ```
 
-### 5.5 `logger.go` -- Run Logging
+**Key simplifications**:
+- The controller never computes transitions itself — it always delegates to `TransitionStatus()`.
+- `spawn_agent` at `ready_for_*`: advance to `in_*` first, then dispatch. One agent launch per phase.
+- `spawn_agent` at `in_*` (resume): dispatch directly, then advance on success.
+- `cascade`: controller lists children and calls `Run()` recursively. With `--parallel=N`, uses goroutines + semaphore + worktrees for concurrent dispatch.
 
-```go
-type RunLogger struct {
-    stages  []StageLog
-    verbose bool
-}
-
-type StageLog struct {
-    Status    string        `json:"status"`
-    Action    string        `json:"action"`
-    AgentType string        `json:"agent_type,omitempty"`
-    Provider  string        `json:"provider,omitempty"`
-    Duration  time.Duration `json:"duration"`
-    ExitCode  int           `json:"exit_code"`
-    Output    string        `json:"output_summary,omitempty"` // First/last 20 lines
-}
-```
-
-### 5.6 Interface Abstractions for Testability
-
-The `RunController` depends on thin interfaces rather than concrete service types:
+### 6.5 Interface Abstractions for Testability
 
 ```go
 // EntityTransitioner advances entity status.
 // Satisfied by the per-entity-type dispatch function.
 type EntityTransitioner interface {
     TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
+    GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error)
 }
 
-// EntityGetter retrieves entity information for placeholder generation.
-type EntityGetter interface {
-    GetEntity(ctx context.Context, key string) (models.Entity, error)
+// PlaceholderGenerator — generates template variables for instruction rendering.
+type PlaceholderGenerator interface {
+    GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error)
+}
+
+// ChildLister — lists child entities for cascade actions.
+// Epic returns features, Feature returns tasks.
+type ChildLister interface {
+    ListChildren(ctx context.Context, parentKey string) ([]ChildEntity, error)
+}
+
+type ChildEntity struct {
+    Key            string
+    Status         string
+    ExecutionOrder int
+    IsTerminal     bool
 }
 ```
 
