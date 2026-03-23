@@ -7,33 +7,31 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
 
-// SearchRepository defines the repository interface needed by SearchService.
-// This interface is satisfied by *repository.SearchRepository.
+// SearchRepository defines data access for cross-entity search.
 type SearchRepository interface {
-	// SearchAll performs a LIKE-based full-text search across all entity types.
-	// If entityType is non-nil and non-empty, results are filtered to that type only.
 	SearchAll(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error)
 }
 
-// SearchService provides business logic for cross-entity search operations.
-// It wraps the search repository and can apply additional filtering or
-// transformation logic as needed.
+// SearchService provides cross-entity full-text search.
 type SearchService struct {
 	repo SearchRepository
 }
 
-// NewSearchService creates a new SearchService with the given repository.
+// NewSearchService creates a SearchService with the given repository.
 func NewSearchService(repo SearchRepository) *SearchService {
 	return &SearchService{repo: repo}
 }
 
-// SearchAll searches across all entity types (epics, features, tasks, bugs, change-cards).
-// If entityType is non-empty, results are filtered to that entity type only.
-// An empty query returns an empty result set.
-func (s *SearchService) SearchAll(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
-	results, err := s.repo.SearchAll(ctx, query, entityType)
+// SearchAll searches across all entity types. Empty entityType means no filter.
+func (s *SearchService) SearchAll(ctx context.Context, query string, entityType string) ([]*repository.EntitySearchResult, error) {
+	var entityTypePtr *string
+	if entityType != "" {
+		entityTypePtr = &entityType
+	}
+
+	results, err := s.repo.SearchAll(ctx, query, entityTypePtr)
 	if err != nil {
-		return nil, fmt.Errorf("search failed for query %q: %w", query, err)
+		return nil, fmt.Errorf("search failed: %w", err)
 	}
 	return results, nil
 }

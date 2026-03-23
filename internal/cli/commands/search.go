@@ -94,16 +94,9 @@ func runSearchQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	svc := cli.GetSearchService()
-
-	var entityTypePtr *string
-	if entityTypeFlag != "" {
-		entityTypePtr = &entityTypeFlag
-	}
-
-	results, err := svc.SearchAll(cmd.Context(), query, entityTypePtr)
+	results, err := cli.GetSearchService().SearchAll(cmd.Context(), query, entityTypeFlag)
 	if err != nil {
-		return fmt.Errorf("search failed: %w", err)
+		return err
 	}
 
 	// Step 3: Format output

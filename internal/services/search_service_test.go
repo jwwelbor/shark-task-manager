@@ -2,112 +2,108 @@ package services
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
 
-// mockSearchRepository implements SearchRepository for testing.
+// mockSearchRepository is a test double for SearchRepository.
 type mockSearchRepository struct {
-	searchAllFunc func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error)
+	SearchAllFunc func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error)
 }
 
 func (m *mockSearchRepository) SearchAll(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
-	if m.searchAllFunc != nil {
-		return m.searchAllFunc(ctx, query, entityType)
+	if m.SearchAllFunc != nil {
+		return m.SearchAllFunc(ctx, query, entityType)
 	}
-	return nil, fmt.Errorf("SearchAll not implemented in mock")
+	return nil, errors.New("SearchAll not implemented in mock")
 }
 
-func TestSearchService_SearchAll_ReturnsResults(t *testing.T) {
-	expected := []*repository.EntitySearchResult{
-		{EntityType: "task", Key: "E07-F01-001", Title: "Implement auth", Status: "todo"},
-		{EntityType: "epic", Key: "E07", Title: "Auth Epic", Status: "in_progress"},
+func TestSearchService_SearchAll_NoFilter(t *testing.T) {
+	want := []*repository.EntitySearchResult{
+		{EntityType: "task", Key: "E01-F01-001", Title: "login endpoint", Status: "todo"},
+		{EntityType: "epic", Key: "E01", Title: "login feature", Status: "in_progress"},
 	}
 
-	mockRepo := &mockSearchRepository{
-		searchAllFunc: func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
-			if query != "auth" {
-				t.Errorf("expected query 'auth', got %q", query)
+	mock := &mockSearchRepository{
+		SearchAllFunc: func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
+			if query != "login" {
+				t.Errorf("unexpected query %q", query)
 			}
 			if entityType != nil {
 				t.Errorf("expected nil entityType, got %q", *entityType)
 			}
-			return expected, nil
+			return want, nil
 		},
 	}
 
-	svc := NewSearchService(mockRepo)
-	results, err := svc.SearchAll(context.Background(), "auth", nil)
+	svc := NewSearchService(mock)
+	got, err := svc.SearchAll(context.Background(), "login", "")
 	if err != nil {
-		t.Fatalf("SearchAll() error = %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 2 {
-		t.Errorf("expected 2 results, got %d", len(results))
-	}
-	if results[0].Key != "E07-F01-001" {
-		t.Errorf("expected first result key E07-F01-001, got %s", results[0].Key)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SearchAll() mismatch:\ngot:  %+v\nwant: %+v", got, want)
 	}
 }
 
 func TestSearchService_SearchAll_WithEntityTypeFilter(t *testing.T) {
-	entityType := "task"
-	expected := []*repository.EntitySearchResult{
-		{EntityType: "task", Key: "E07-F01-001", Title: "Implement auth", Status: "todo"},
+	want := []*repository.EntitySearchResult{
+		{EntityType: "bug", Key: "B001", Title: "login crash", Status: "triage"},
 	}
 
-	mockRepo := &mockSearchRepository{
-		searchAllFunc: func(ctx context.Context, query string, entityTypePtr *string) ([]*repository.EntitySearchResult, error) {
-			if entityTypePtr == nil {
-				t.Error("expected non-nil entityType, got nil")
-			} else if *entityTypePtr != "task" {
-				t.Errorf("expected entityType 'task', got %q", *entityTypePtr)
+	mock := &mockSearchRepository{
+		SearchAllFunc: func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
+			if entityType == nil || *entityType != "bug" {
+				t.Errorf("expected entityType=bug, got %v", entityType)
 			}
-			return expected, nil
+			return want, nil
 		},
 	}
 
-	svc := NewSearchService(mockRepo)
-	results, err := svc.SearchAll(context.Background(), "auth", &entityType)
+	svc := NewSearchService(mock)
+	got, err := svc.SearchAll(context.Background(), "login", "bug")
 	if err != nil {
-		t.Fatalf("SearchAll() error = %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 1 {
-		t.Errorf("expected 1 result, got %d", len(results))
-	}
-}
-
-func TestSearchService_SearchAll_PropagatesRepositoryError(t *testing.T) {
-	mockRepo := &mockSearchRepository{
-		searchAllFunc: func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
-			return nil, fmt.Errorf("database connection failed")
-		},
-	}
-
-	svc := NewSearchService(mockRepo)
-	results, err := svc.SearchAll(context.Background(), "auth", nil)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if results != nil {
-		t.Errorf("expected nil results on error, got %v", results)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SearchAll() mismatch:\ngot:  %+v\nwant: %+v", got, want)
 	}
 }
 
-func TestSearchService_SearchAll_EmptyResults(t *testing.T) {
-	mockRepo := &mockSearchRepository{
-		searchAllFunc: func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
+func TestSearchService_SearchAll_EmptyQuery(t *testing.T) {
+	mock := &mockSearchRepository{
+		SearchAllFunc: func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
 			return []*repository.EntitySearchResult{}, nil
 		},
 	}
 
-	svc := NewSearchService(mockRepo)
-	results, err := svc.SearchAll(context.Background(), "nonexistent", nil)
+	svc := NewSearchService(mock)
+	got, err := svc.SearchAll(context.Background(), "", "")
 	if err != nil {
-		t.Fatalf("SearchAll() error = %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(results) != 0 {
-		t.Errorf("expected 0 results, got %d", len(results))
+	if len(got) != 0 {
+		t.Errorf("expected 0 results for empty query, got %d", len(got))
+	}
+}
+
+func TestSearchService_SearchAll_RepoError(t *testing.T) {
+	repoErr := errors.New("database unavailable")
+	mock := &mockSearchRepository{
+		SearchAllFunc: func(ctx context.Context, query string, entityType *string) ([]*repository.EntitySearchResult, error) {
+			return nil, repoErr
+		},
+	}
+
+	svc := NewSearchService(mock)
+	_, err := svc.SearchAll(context.Background(), "anything", "")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, repoErr) {
+		t.Errorf("expected wrapped repoErr, got: %v", err)
 	}
 }
