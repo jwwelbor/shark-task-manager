@@ -34,6 +34,7 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
 
@@ -370,7 +371,7 @@ func parseSluggedKey(key string) (numericKey string, slugVal string, ok bool) {
 	// Split at the 4th hyphen: T-E##-F##-###-slug-text
 	//                          ^  ^   ^   ^
 	//                          1  2   3   4
-	numericKey, slugVal, ok = SplitAtNthHyphen(key, 4)
+	numericKey, slugVal, ok = repoutil.SplitAtNthHyphen(key, 4)
 	if !ok || slugVal == "" {
 		return "", "", false
 	}
@@ -757,7 +758,7 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr 
 		}
 
 		// Resequence
-		resequenced := resequenceOrders(items, task.ID, task.ExecutionOrder)
+		resequenced := repoutil.ResequenceOrders(items, task.ID, task.ExecutionOrder)
 
 		// Update ALL tasks with new orders
 		updateQuery := "UPDATE tasks SET execution_order = ? WHERE id = ?"

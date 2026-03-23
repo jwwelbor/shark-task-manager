@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
 
@@ -515,7 +516,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		}
 
 		// Resequence
-		resequenced := resequenceOrders(items, feature.ID, feature.ExecutionOrder)
+		resequenced := repoutil.ResequenceOrders(items, feature.ID, feature.ExecutionOrder)
 
 		// Update ALL features with new orders
 		updateQuery := "UPDATE features SET execution_order = ? WHERE id = ?"
@@ -1050,10 +1051,9 @@ func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID 
 	return nil
 }
 
-// isNumeric delegates to the shared IsNumeric helper.
-// Kept as a package-private wrapper for backward compatibility with existing code.
+// isNumeric is a backward-compatible package-private wrapper for test compatibility.
 func isNumeric(s string) bool {
-	return IsNumeric(s)
+	return repoutil.IsNumeric(s)
 }
 
 // FeatureDisplayDataRaw holds the raw JSON strings from the feature_display_data view.

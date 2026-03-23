@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 )
 
 // TestResequenceOrders_MoveItemDown tests moving an item down in the order sequence
@@ -24,7 +26,7 @@ func TestResequenceOrders_MoveItemDown(t *testing.T) {
 
 	// When: Item 4 (d) changes from order 4 to order 2
 	newOrder := 2
-	updatedItems := resequenceOrders(items, 4, &newOrder)
+	updatedItems := repoutil.ResequenceOrders(items, 4, &newOrder)
 
 	// Then: Orders should be resequenced as a-1, d-2, b-3, c-4
 	assert.Len(t, updatedItems, 4)
@@ -66,7 +68,7 @@ func TestResequenceOrders_MoveItemUp(t *testing.T) {
 
 	// When: Item 2 (b) changes from order 2 to order 4
 	newOrder := 4
-	updatedItems := resequenceOrders(items, 2, &newOrder)
+	updatedItems := repoutil.ResequenceOrders(items, 2, &newOrder)
 
 	// Then: Orders should be resequenced as a-1, c-2, d-3, b-4
 	assert.Len(t, updatedItems, 4)
@@ -107,7 +109,7 @@ func TestResequenceOrders_NoChange(t *testing.T) {
 
 	// When: Item 2 keeps its order 2
 	newOrder := 2
-	updatedItems := resequenceOrders(items, 2, &newOrder)
+	updatedItems := repoutil.ResequenceOrders(items, 2, &newOrder)
 
 	// Then: No items should change
 	assert.Len(t, updatedItems, 4)
@@ -140,7 +142,7 @@ func TestResequenceOrders_WithNilOrders(t *testing.T) {
 
 	// When: Item 1 changes order from 1 to 2 (moves to second position)
 	newOrder := 2
-	updatedItems := resequenceOrders(items, 1, &newOrder)
+	updatedItems := repoutil.ResequenceOrders(items, 1, &newOrder)
 
 	// Then: Only items with orders should be resequenced to sequential numbers (1, 2)
 	// Result: item 3 becomes order 1, item 1 becomes order 2, item 2 stays nil

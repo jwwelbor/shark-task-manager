@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/repoutil"
 	"github.com/jwwelbor/shark-task-manager/internal/slug"
 )
 
@@ -163,14 +164,14 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (_ *models.Ep
 
 	// Not found by numeric key - try slugged format if key contains hyphen
 	// Slugged format: E04-epic-name (key + slug)
-	if !ContainsHyphen(key) {
+	if !repoutil.ContainsHyphen(key) {
 		// No hyphen means it's not a slugged key, return not found
 		return nil, sql.ErrNoRows
 	}
 
 	// Parse slugged key: extract numeric key and slug
 	// Format: E04-epic-name -> key="E04", slug="epic-name"
-	numericKey, slug, ok := SplitAtFirstHyphen(key)
+	numericKey, slug, ok := repoutil.SplitAtFirstHyphen(key)
 	if !ok || slug == "" {
 		return nil, sql.ErrNoRows
 	}
@@ -208,21 +209,18 @@ func (r *EpicRepository) GetByKey(ctx context.Context, key string) (_ *models.Ep
 	return epic, nil
 }
 
-// containsHyphen is a backward-compatible wrapper around ContainsHyphen.
-// Kept for existing test compatibility. New code should use ContainsHyphen.
+// containsHyphen is a backward-compatible package-private wrapper for test compatibility.
 func containsHyphen(s string) bool {
-	return ContainsHyphen(s)
+	return repoutil.ContainsHyphen(s)
 }
 
-// splitSluggedKey is a backward-compatible wrapper that splits a slugged key
-// into [numericKey, slug] or [key] if no hyphen is present.
-// Kept for existing test compatibility. New code should use SplitAtFirstHyphen.
+// splitSluggedKey is a backward-compatible package-private wrapper for test compatibility.
 //
 // Example: "E04-epic-name" -> ["E04", "epic-name"]
 // Example: "E04" -> ["E04"]
 // Example: "" -> [""]
 func splitSluggedKey(key string) []string {
-	prefix, suffix, ok := SplitAtFirstHyphen(key)
+	prefix, suffix, ok := repoutil.SplitAtFirstHyphen(key)
 	if !ok {
 		return []string{prefix}
 	}
