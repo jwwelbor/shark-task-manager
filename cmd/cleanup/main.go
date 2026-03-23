@@ -84,7 +84,7 @@ func main() {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		slog.Error("No epic found with key", "value", epicKey)
+		slog.Error("No epic found with key", "key", epicKey)
 		os.Exit(1)
 	}
 

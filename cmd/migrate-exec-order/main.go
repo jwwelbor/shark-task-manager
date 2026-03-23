@@ -20,7 +20,7 @@ func main() {
 
 	// Check if database exists
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		slog.Error("Database does not exist", "value", dbPath)
+		slog.Error("Database does not exist", "path", dbPath)
 		os.Exit(1)
 	}
 
