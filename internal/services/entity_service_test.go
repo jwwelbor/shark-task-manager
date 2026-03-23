@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -925,5 +926,127 @@ func TestEntityService_ForLevel_PropagatesHistoryRepo(t *testing.T) {
 
 	if scoped.historyRepo != recorder {
 		t.Error("expected ForLevel to propagate historyRepo")
+	}
+}
+
+// --- Rejection Note Tests ---
+
+// mockRejectionNoteCreator tracks CreateRejectionNote calls and can inject errors.
+type mockRejectionNoteCreator struct {
+	createRejectionNoteFn func(ctx context.Context, entityType models.EntityType, entityID int64,
+		historyID int64, fromStatus, toStatus, reason, rejectedBy string, documentPath *string) (*models.EntityNote, error)
+	callCount int
+}
+
+func (m *mockRejectionNoteCreator) CreateRejectionNote(ctx context.Context, entityType models.EntityType, entityID int64,
+	historyID int64, fromStatus, toStatus, reason, rejectedBy string, documentPath *string) (*models.EntityNote, error) {
+	m.callCount++
+	if m.createRejectionNoteFn != nil {
+		return m.createRejectionNoteFn(ctx, entityType, entityID, historyID, fromStatus, toStatus, reason, rejectedBy, documentPath)
+	}
+	return &models.EntityNote{}, nil
+}
+
+// TestEntityService_RejectionNote_ErrorIsNotSilentlyDiscarded is the regression test for B006.
+// It verifies that when CreateRejectionNote returns an error, the error is NOT silently
+// discarded — it must be logged via slog.Warn — and the transition still succeeds (non-blocking).
+// Before the fix, the error was discarded with `_, _ = ...` and never logged.
+func TestEntityService_RejectionNote_ErrorIsNotSilentlyDiscarded(t *testing.T) {
+	svc := newTestEntityServiceForBackward(t)
+
+	noteCreatorErr := fmt.Errorf("rejection note DB write failed")
+	noteRepo := &mockRejectionNoteCreator{
+		createRejectionNoteFn: func(ctx context.Context, entityType models.EntityType, entityID int64,
+			historyID int64, fromStatus, toStatus, reason, rejectedBy string, documentPath *string) (*models.EntityNote, error) {
+			return nil, noteCreatorErr
+		},
+	}
+	svc.SetNoteRepo(noteRepo)
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	// Capture slog output to verify the error is logged (not silently discarded).
+	handler := &capturingSlogHandler{}
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(prevLogger)
+
+	// The transition itself must succeed — rejection note creation is non-blocking.
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "draft",
+		TransitionOptions{Reason: "requirements changed", Agent: "tech-lead"},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	if err != nil {
+		t.Fatalf("transition must succeed even when rejection note creation fails; got err: %v", err)
+	}
+	if result == nil || !result.Transitioned {
+		t.Fatal("expected successful transition result")
+	}
+
+	// Verify the note repo was actually called (i.e., the feature flag and condition were met).
+	if noteRepo.callCount == 0 {
+		t.Error("expected CreateRejectionNote to be called for a backward transition with reason")
+	}
+
+	// B006 regression: the error must be logged, not silently discarded.
+	var found bool
+	handler.mu.Lock()
+	for _, r := range handler.records {
+		if r.Level == slog.LevelWarn {
+			r.Attrs(func(a slog.Attr) bool {
+				if a.Key == "error" {
+					found = true
+					return false
+				}
+				return true
+			})
+		}
+	}
+	handler.mu.Unlock()
+	if !found {
+		t.Error("B006 regression: rejection note error was silently discarded (not logged via slog.Warn with 'error' attribute)")
+	}
+}
+
+// TestEntityService_RejectionNote_SuccessDoesNotAffectTransition verifies the happy path:
+// when CreateRejectionNote succeeds, the transition still completes normally.
+func TestEntityService_RejectionNote_SuccessDoesNotAffectTransition(t *testing.T) {
+	svc := newTestEntityServiceForBackward(t)
+
+	noteRepo := &mockRejectionNoteCreator{}
+	svc.SetNoteRepo(noteRepo)
+
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			return nil
+		},
+	}
+
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "draft",
+		TransitionOptions{Reason: "reverting to planning", Agent: "product-owner"},
+		DefaultTransitionFeatures(), nil,
+	)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || !result.Transitioned {
+		t.Fatal("expected successful transition result")
+	}
+	if noteRepo.callCount != 1 {
+		t.Errorf("expected CreateRejectionNote to be called once, got %d", noteRepo.callCount)
 	}
 }

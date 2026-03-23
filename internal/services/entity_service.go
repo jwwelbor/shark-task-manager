@@ -225,8 +225,10 @@ func (s *EntityService) TransitionStatus(
 		if opts.DocumentPath != "" {
 			docPath = &opts.DocumentPath
 		}
-		_, _ = s.noteRepo.CreateRejectionNote(ctx, entityType, entity.GetID(),
-			0, currentStatus, targetStatus, opts.Reason, agent, docPath)
+		if _, err := s.noteRepo.CreateRejectionNote(ctx, entityType, entity.GetID(),
+			0, currentStatus, targetStatus, opts.Reason, agent, docPath); err != nil {
+			slog.Warn("failed to create rejection note", "entity_type", entityType, "entity_id", entity.GetID(), "error", err)
+		}
 	}
 
 	// Step 9: Resolve orchestrator action (opt-in)

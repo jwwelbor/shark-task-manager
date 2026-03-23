@@ -1019,13 +1019,16 @@ func (s *TaskService) SetFeatureService(featureService *FeatureService) {
 }
 
 // recalculateFeatureProgress triggers a feature progress recalculation after a task
-// status change. Non-fatal: silently ignores errors and nil featureService.
+// status change. Non-fatal: logs a warning on error and ignores nil featureService.
 // Only recalculates when featureID is non-zero (i.e., task is associated with a feature).
 func (s *TaskService) recalculateFeatureProgress(ctx context.Context, featureID int64) {
 	if s.featureService == nil || featureID == 0 {
 		return
 	}
-	_ = s.featureService.RecalculateAndSetProgress(ctx, featureID)
+	if err := s.featureService.RecalculateAndSetProgress(ctx, featureID); err != nil {
+		slog.Warn("feature progress recalculation failed after task status change",
+			"feature_id", featureID, "error", err)
+	}
 }
 
 // maybeReopenParentFeature checks if the parent feature is in a terminal status
