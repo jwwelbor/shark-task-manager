@@ -445,6 +445,18 @@ func GetEntityHistoryService() *services.EntityHistoryService {
 	return services.NewEntityHistoryService(historyRepo, GetEntityRegistry())
 }
 
+// GetSearchService returns a SearchService instance.
+// Creates a new instance each call with the global DB connection.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+func GetSearchService() *services.SearchService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	searchRepo := repository.NewSearchRepository(db)
+	return services.NewSearchService(searchRepo)
+}
+
 // GetEntityRelationshipService returns an EntityRelationshipService instance.
 // Creates a new instance each call (lightweight, no shared state).
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
