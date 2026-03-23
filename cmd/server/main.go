@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
@@ -13,6 +17,10 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
+
+// shutdownTimeout is the maximum time the server waits for in-flight requests
+// to complete before forcibly closing connections on shutdown.
+const shutdownTimeout = 30 * time.Second
 
 func main() {
 	// Initialize observability (tracing, metrics, structured logging).
@@ -70,13 +78,44 @@ func main() {
 	// and request metrics on all routes.
 	handler := otelhttp.NewHandler(mux, "shark-api")
 
-	// Start server
+	// Build the HTTP server struct so we can call Shutdown later.
 	port := "8080"
-	slog.Info("Starting server", "port", port)
-	if err := http.ListenAndServe(":"+port, handler); err != nil {
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: handler,
+	}
+
+	// Start server in a goroutine so the main goroutine can listen for signals.
+	srvErr := make(chan error, 1)
+	go func() {
+		slog.Info("Starting server", "port", port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			srvErr <- err
+		}
+	}()
+
+	// Block until an OS signal or a server startup error is received.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-srvErr:
 		slog.Error("Server failed to start", "error", err)
 		os.Exit(1)
+	case sig := <-quit:
+		slog.Info("Shutdown signal received", "signal", sig.String())
 	}
+
+	// Give in-flight requests up to shutdownTimeout to complete.
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("Server shutdown error", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("Server stopped gracefully")
 }
 
 // loadObservabilityConfig loads the observability configuration from .sharkconfig.json.
