@@ -31,15 +31,15 @@ LDFLAGS := -X main.BuildDate=$(BUILD_DATE) -X main.GitCommit=$(GIT_COMMIT)
 # Build the application
 build:
 	@echo "Building application..."
-	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -o bin/shark-task-manager cmd/server/main.go
-	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -o bin/demo cmd/demo/main.go
-	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -o bin/test-db cmd/test-db/main.go
-	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -ldflags "$(LDFLAGS)" -o bin/shark cmd/shark/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/shark-task-manager cmd/server/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/demo cmd/demo/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/test-db cmd/test-db/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -ldflags "$(LDFLAGS)" -o bin/shark cmd/shark/main.go
 
 # Build Shark CLI tool
 shark:
 	@echo "Building Shark CLI..."
-	@export PATH=$$PATH:$$HOME/go/bin && go build -tags "fts5" -ldflags "$(LDFLAGS)" -o bin/shark cmd/shark/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -ldflags "$(LDFLAGS)" -o bin/shark cmd/shark/main.go
 	@echo "Shark CLI built: ./bin/shark"
 
 # Install Shark CLI (finds and updates all installed copies, or defaults to ~/go/bin)
@@ -78,12 +78,16 @@ dev:
 	@export PATH=$$PATH:$$HOME/go/bin && air
 
 # Run tests
+# Packages run in parallel by default (Go's default -p=GOMAXPROCS).
+# Tests within each package that call t.Parallel() also run concurrently.
+# Repository tests that need DB isolation should use test.NewIsolatedTestDB(t)
+# instead of the shared test.GetTestDB() singleton.
 test:
 	@echo "Cleaning test database..."
 	@rm -f internal/repository/test-shark-tasks.db*
 	@rm -f /tmp/shark-test-tasks.db*
 	@echo "Running tests..."
-	@export PATH=$$PATH:$$HOME/go/bin && go test -tags "fts5" -v -p=1 -parallel=1 ./...
+	@export PATH=$$PATH:$$HOME/go/bin && go test -v ./...
 
 # Run tests with coverage
 test-coverage:
@@ -91,7 +95,7 @@ test-coverage:
 	@rm -f internal/repository/test-shark-tasks.db*
 	@rm -f /tmp/shark-test-tasks.db*
 	@echo "Running tests with coverage..."
-	@export PATH=$$PATH:$$HOME/go/bin && go test -tags "fts5" -v -p=1 -parallel=1 -coverprofile=coverage.out ./...
+	@export PATH=$$PATH:$$HOME/go/bin && go test -v -coverprofile=coverage.out ./...
 	@export PATH=$$PATH:$$HOME/go/bin && go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
