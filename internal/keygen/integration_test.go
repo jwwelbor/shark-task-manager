@@ -12,7 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/keygen"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // TestEndToEndKeyGeneration tests the complete workflow from file to database

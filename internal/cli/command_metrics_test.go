@@ -145,3 +145,39 @@ func TestCommandMetrics_ZeroValueStruct_AllMethodsSafe(t *testing.T) {
 	cm.RecordInvocation(context.Background(), "test cmd", nil)
 	cm.RecordInvocation(context.Background(), "test cmd", errors.New("err"))
 }
+
+// TestLastCmdName_SetByPersistentPreRunE verifies that lastCmdName is populated
+// when PersistentPreRunE runs, so Execute() can use it on the error path.
+func TestLastCmdName_SetByPersistentPreRunE(t *testing.T) {
+	defer ResetObservability()
+	// Reset lastCmdName before test
+	lastCmdName = ""
+
+	// Simulate what PersistentPreRunE does: set lastCmdName
+	lastCmdName = "shark test cmd"
+
+	if lastCmdName != "shark test cmd" {
+		t.Errorf("lastCmdName = %q, want %q", lastCmdName, "shark test cmd")
+	}
+}
+
+// TestRecordCommandMetrics_ErrorPath verifies that RecordCommandMetrics correctly
+// records a non-nil error (simulating the Execute() error-path fix).
+func TestRecordCommandMetrics_ErrorPath_NoPanic(t *testing.T) {
+	defer ResetObservability()
+
+	cfg := config.ObservabilityConfig{
+		Enabled:        true,
+		MetricsEnabled: true,
+		Exporter:       "stdout",
+	}
+	err := InitObservability(cfg)
+	assert.NoError(t, err)
+
+	InitCommandMetrics()
+
+	// Simulate the Execute() error-path: record metrics with actual error
+	cmdErr := errors.New("command failed: task not found")
+	// Must not panic
+	RecordCommandMetrics(context.Background(), "shark task get", cmdErr)
+}

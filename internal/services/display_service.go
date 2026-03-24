@@ -12,6 +12,40 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
+// DisplayEpicRepository is the interface DisplayService needs for epic data access.
+type DisplayEpicRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Epic, error)
+	GetFeatureProgressDataByEpic(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error)
+	GetFeatureStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
+	GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
+}
+
+// DisplayFeatureRepository is the interface DisplayService needs for feature data access.
+type DisplayFeatureRepository interface {
+	GetByKey(ctx context.Context, key string) (*models.Feature, error)
+	ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error)
+	GetTaskStatusBreakdown(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
+}
+
+// DisplayTaskRepository is the interface DisplayService needs for task data access.
+type DisplayTaskRepository interface {
+	GetTaskCountForFeature(ctx context.Context, featureID int64) (int, error)
+	ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error)
+	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
+}
+
+// DisplayNoteRepository is the interface DisplayService needs for note data access.
+type DisplayNoteRepository interface {
+	GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
+}
+
+// DisplayTemplateEnrichmentRepository is the interface DisplayService needs for template enrichment data access.
+type DisplayTemplateEnrichmentRepository interface {
+	GetEpicEnrichment(ctx context.Context, epicID int64) (*config.TemplateEnrichmentData, error)
+	GetFeatureEnrichment(ctx context.Context, featureID int64) (*config.TemplateEnrichmentData, error)
+	GetTaskEnrichment(ctx context.Context, taskID int64) (*config.TemplateEnrichmentData, error)
+}
+
 // DisplayMode indicates whether an entity is in planning or aggregation mode
 type DisplayMode string
 
@@ -96,17 +130,16 @@ type StatusCountItem struct {
 	Count  int    `json:"count"`
 }
 
-// DisplayServiceDeps holds the repository dependencies for DisplayService
+// DisplayServiceDeps holds the repository dependencies for DisplayService.
+// All fields use narrow interfaces to enable testing with mock implementations.
 type DisplayServiceDeps struct {
-	EpicRepo               *repository.EpicRepository
-	FeatureRepo            *repository.FeatureRepository
-	TaskRepo               *repository.TaskRepository
+	EpicRepo               DisplayEpicRepository
+	FeatureRepo            DisplayFeatureRepository
+	TaskRepo               DisplayTaskRepository
 	DocumentRepo           config.DocumentRepository
-	NoteRepo               *repository.EntityNoteRepository
+	NoteRepo               DisplayNoteRepository
 	TaskRelRepo            config.TaskRelationshipRepository
-	FeatureRelRepo         *repository.FeatureRelationshipRepository
-	EpicRelRepo            *repository.EpicRelationshipRepository
-	TemplateEnrichmentRepo *repository.TemplateEnrichmentRepository
+	TemplateEnrichmentRepo DisplayTemplateEnrichmentRepository
 }
 
 // DisplayService encapsulates the planning-vs-aggregation display logic.
@@ -119,21 +152,12 @@ type DisplayService struct {
 	workflowSvc     *workflow.Service
 }
 
-// NewDisplayService creates a new DisplayService.
-// It loads level-specific workflow configurations and falls back to defaults.
-func NewDisplayService(db *repository.DB, workflowSvc *workflow.Service) *DisplayService {
+// NewDisplayService creates a new DisplayService with pre-wired dependencies.
+// Callers are responsible for constructing and injecting all repository dependencies.
+// It loads level-specific workflow configurations from workflowSvc.
+func NewDisplayService(deps DisplayServiceDeps, workflowSvc *workflow.Service) *DisplayService {
 	return &DisplayService{
-		deps: DisplayServiceDeps{
-			EpicRepo:               repository.NewEpicRepository(db),
-			FeatureRepo:            repository.NewFeatureRepository(db),
-			TaskRepo:               repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
-			DocumentRepo:           repository.NewPolymorphicDocRepoAdapter(repository.NewEntityDocumentRepository(db)),
-			NoteRepo:               repository.NewEntityNoteRepository(db),
-			TaskRelRepo:            repository.NewEntityRelTaskKeyAdapter(db),
-			FeatureRelRepo:         repository.NewFeatureRelationshipRepository(db),
-			EpicRelRepo:            repository.NewEpicRelationshipRepository(db),
-			TemplateEnrichmentRepo: repository.NewTemplateEnrichmentRepository(db),
-		},
+		deps:            deps,
 		epicWorkflow:    workflowSvc.ForLevel(workflow.LevelEpic).GetWorkflow(),
 		featureWorkflow: workflowSvc.ForLevel(workflow.LevelFeature).GetWorkflow(),
 		workflowSvc:     workflowSvc,

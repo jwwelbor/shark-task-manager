@@ -463,7 +463,16 @@ func (r *FeatureRepository) List(ctx context.Context) (_ []*models.Feature, retE
 	return features, nil
 }
 
-// Update updates an existing feature
+// BeginTx starts a new database transaction for use by the service layer.
+// Services own transaction boundaries per Standard 8; repositories participate
+// in service-owned transactions by accepting *sql.Tx parameters.
+func (r *FeatureRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	return r.db.BeginTxContext(ctx)
+}
+
+// Update updates an existing feature.
+// It starts an internal transaction to handle execution_order cascade atomically.
+// For service-owned transactions, use UpdateWithTx directly after calling BeginTx.
 func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature) (retErr error) {
 	ctx, span := tracer.Start(ctx, "FeatureRepository.Update",
 		trace.WithAttributes(
@@ -501,6 +510,22 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := r.updateWithTx(ctx, tx, feature, needsCascade); err != nil {
+		return err
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// updateWithTx performs the feature update within a caller-provided transaction.
+// The needsCascade flag indicates whether execution_order cascade is required.
+// Validation must be performed by the caller before invoking this method.
+func (r *FeatureRepository) updateWithTx(ctx context.Context, tx *sql.Tx, feature *models.Feature, needsCascade bool) error {
 	// If cascade is needed, get all features BEFORE updating, then resequence ALL features
 	if needsCascade {
 		// Get all features in the same epic (before any updates)
@@ -533,7 +558,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		// Now update the main feature's other fields (execution_order already updated above)
 		query := `
 			UPDATE features
-			SET title = ?, description = ?, status = ?, progress_pct = ?
+			SET title = ?, description = ?, status = ?, progress_pct = ?, file_path = ?
 			WHERE id = ?
 		`
 
@@ -542,6 +567,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 			feature.Description,
 			feature.Status,
 			feature.ProgressPct,
+			feature.FilePath,
 			feature.ID,
 		)
 		if err != nil {
@@ -559,7 +585,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		// No cascade needed, just update the feature normally
 		query := `
 			UPDATE features
-			SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?
+			SET title = ?, description = ?, status = ?, progress_pct = ?, execution_order = ?, file_path = ?
 			WHERE id = ?
 		`
 
@@ -569,6 +595,7 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 			feature.Status,
 			feature.ProgressPct,
 			feature.ExecutionOrder,
+			feature.FilePath,
 			feature.ID,
 		)
 		if err != nil {
@@ -582,11 +609,6 @@ func (r *FeatureRepository) Update(ctx context.Context, feature *models.Feature)
 		if rows == 0 {
 			return fmt.Errorf("feature not found with id %d", feature.ID)
 		}
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil
@@ -801,8 +823,8 @@ func (r *FeatureRepository) GetTaskCount(ctx context.Context, featureID int64) (
 	return count, nil
 }
 
-// CreateIfNotExists creates feature only if it doesn't exist
-// Returns feature (existing or newly created) and whether it was created
+// CreateIfNotExists creates feature only if it doesn't exist.
+// Returns feature (existing or newly created) and whether it was created.
 func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *models.Feature) (*models.Feature, bool, error) {
 	// Start transaction to prevent race conditions
 	tx, err := r.db.BeginTxContext(ctx)
@@ -811,6 +833,28 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	result, created, err := r.createIfNotExistsWithTx(ctx, tx, feature)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !created {
+		// Feature already existed; no need to commit
+		return result, false, nil
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return result, true, nil
+}
+
+// createIfNotExistsWithTx performs the create-if-not-exists operation within a
+// caller-provided transaction. This allows the service layer to own the transaction
+// boundary when this operation must be composed with other atomic operations.
+func (r *FeatureRepository) createIfNotExistsWithTx(ctx context.Context, tx *sql.Tx, feature *models.Feature) (*models.Feature, bool, error) {
 	// Check if feature already exists
 	existing, err := r.GetByKey(ctx, feature.Key)
 	if err == nil {
@@ -847,11 +891,6 @@ func (r *FeatureRepository) CreateIfNotExists(ctx context.Context, feature *mode
 	}
 
 	feature.ID = id
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, false, fmt.Errorf("failed to commit transaction: %w", err)
-	}
 
 	return feature, true, nil
 }

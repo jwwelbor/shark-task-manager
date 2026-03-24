@@ -149,7 +149,10 @@ func TestNoteService_AddNote_Epic(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewNoteService(noteRepo, newNoteTestRegistry())
+	svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
 	note, err := svc.AddNote(context.Background(), models.EntityTypeEpic, "E16", "comment", "Test note", "test-agent")
 	if err != nil {
@@ -176,7 +179,10 @@ func TestNoteService_AddNote_Feature(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewNoteService(noteRepo, newNoteTestRegistry())
+	svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
 	note, err := svc.AddNote(context.Background(), models.EntityTypeFeature, "E16-F01", "decision", "Use polymorphic table", "dev")
 	if err != nil {
@@ -200,7 +206,10 @@ func TestNoteService_AddNote_Task(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewNoteService(noteRepo, newNoteTestRegistry())
+	svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
 	note, err := svc.AddNote(context.Background(), models.EntityTypeTask, "E16-F01-001", "blocker", "Blocked on API", "")
 	if err != nil {
@@ -241,7 +250,10 @@ func TestNoteService_AddNote_AllEntityTypes(t *testing.T) {
 					return nil
 				},
 			}
-			svc := NewNoteService(noteRepo, newNoteTestRegistry())
+			svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+			if err != nil {
+				t.Fatalf("NewNoteService() unexpected error: %v", err)
+			}
 
 			note, err := svc.AddNote(context.Background(), et.entityType, et.key, "comment", "test content", "agent")
 			if err != nil {
@@ -256,7 +268,10 @@ func TestNoteService_AddNote_AllEntityTypes(t *testing.T) {
 
 func TestNoteService_GetEntityDetails_AllEntityTypes(t *testing.T) {
 	registry := newNoteTestRegistry()
-	svc := NewNoteService(&mockNoteEntityNoteRepo{}, registry)
+	svc, err := NewNoteService(&mockNoteEntityNoteRepo{}, registry)
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
 	tests := []struct {
 		entityType models.EntityType
@@ -292,18 +307,24 @@ func TestNoteService_AddNote_InvalidKey(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	})
-	svc := NewNoteService(&mockNoteEntityNoteRepo{}, reg)
+	svc, err := NewNoteService(&mockNoteEntityNoteRepo{}, reg)
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
-	_, err := svc.AddNote(context.Background(), models.EntityTypeEpic, "E999", "comment", "Test", "agent")
+	_, err = svc.AddNote(context.Background(), models.EntityTypeEpic, "E999", "comment", "Test", "agent")
 	if err == nil {
 		t.Fatal("expected error for invalid key")
 	}
 }
 
 func TestNoteService_AddNote_InvalidNoteType(t *testing.T) {
-	svc := NewNoteService(&mockNoteEntityNoteRepo{}, newNoteTestRegistry())
+	svc, err := NewNoteService(&mockNoteEntityNoteRepo{}, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
-	_, err := svc.AddNote(context.Background(), models.EntityTypeEpic, "E16", "invalid_type", "Test", "agent")
+	_, err = svc.AddNote(context.Background(), models.EntityTypeEpic, "E16", "invalid_type", "Test", "agent")
 	if err == nil {
 		t.Fatal("expected error for invalid note type")
 	}
@@ -320,7 +341,10 @@ func TestNoteService_ListNotes(t *testing.T) {
 			return expectedNotes, nil
 		},
 	}
-	svc := NewNoteService(noteRepo, newNoteTestRegistry())
+	svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
 	notes, err := svc.ListNotes(context.Background(), models.EntityTypeEpic, "E16", nil)
 	if err != nil {
@@ -342,7 +366,10 @@ func TestNoteService_ListNotes_WithTypeFilter(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewNoteService(noteRepo, newNoteTestRegistry())
+	svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
 	notes, err := svc.ListNotes(context.Background(), models.EntityTypeEpic, "E16", []string{"decision"})
 	if err != nil {
@@ -364,7 +391,10 @@ func TestNoteService_SearchNotes(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewNoteService(noteRepo, newNoteTestRegistry())
+	svc, err := NewNoteService(noteRepo, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
 	notes, err := svc.SearchNotes(context.Background(), "API", nil, nil, "", "")
 	if err != nil {
@@ -376,25 +406,26 @@ func TestNoteService_SearchNotes(t *testing.T) {
 }
 
 func TestNoteService_ResolveEntityID_UnsupportedType(t *testing.T) {
-	svc := NewNoteService(&mockNoteEntityNoteRepo{}, newNoteTestRegistry())
+	svc, err := NewNoteService(&mockNoteEntityNoteRepo{}, newNoteTestRegistry())
+	if err != nil {
+		t.Fatalf("NewNoteService() unexpected error: %v", err)
+	}
 
-	_, err := svc.AddNote(context.Background(), models.EntityType("unknown"), "key", "comment", "Test", "agent")
+	_, err = svc.AddNote(context.Background(), models.EntityType("unknown"), "key", "comment", "Test", "agent")
 	if err == nil {
 		t.Fatal("expected error for unsupported entity type")
 	}
 }
 
-func TestNoteService_NilRegistry_Panics(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for nil registry")
-		}
-		msg, ok := r.(string)
-		if !ok || msg != "NoteService: EntityRegistry must not be nil" {
-			t.Errorf("unexpected panic message: %v", r)
-		}
-	}()
-
-	NewNoteService(&mockNoteEntityNoteRepo{}, nil)
+func TestNoteService_NilRegistry_ReturnsError(t *testing.T) {
+	svc, err := NewNoteService(&mockNoteEntityNoteRepo{}, nil)
+	if err == nil {
+		t.Fatal("expected error for nil registry, got nil")
+	}
+	if svc != nil {
+		t.Error("expected nil service when registry is nil")
+	}
+	if err.Error() != "NoteService: EntityRegistry must not be nil" {
+		t.Errorf("unexpected error message: %v", err)
+	}
 }

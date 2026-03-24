@@ -102,7 +102,10 @@ func TestIdeaService_CreateIdea_GeneratesKey(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 	idea, err := svc.CreateIdea(context.Background(), CreateIdeaInput{Title: "Test Idea"})
 
 	if err != nil {
@@ -132,7 +135,10 @@ func TestIdeaService_CreateIdea_SequenceIncrement(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 
 	idea1, err := svc.CreateIdea(context.Background(), CreateIdeaInput{Title: "Idea 1"})
 	if err != nil {
@@ -154,9 +160,12 @@ func TestIdeaService_CreateIdea_SequenceIncrement(t *testing.T) {
 // TC-IDEA-003: CreateIdea returns error for empty title
 func TestIdeaService_CreateIdea_EmptyTitle(t *testing.T) {
 	mockRepo := &MockIdeaRepository{}
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 
-	_, err := svc.CreateIdea(context.Background(), CreateIdeaInput{Title: ""})
+	_, err = svc.CreateIdea(context.Background(), CreateIdeaInput{Title: ""})
 	if err == nil {
 		t.Fatal("expected error for empty title, got nil")
 	}
@@ -176,8 +185,11 @@ func TestIdeaService_CreateIdea_RepositoryFailure(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
-	_, err := svc.CreateIdea(context.Background(), CreateIdeaInput{Title: "Test"})
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+	_, err = svc.CreateIdea(context.Background(), CreateIdeaInput{Title: "Test"})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -204,7 +216,10 @@ func TestIdeaService_GetIdea_HappyPath(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 	idea, err := svc.GetIdea(context.Background(), expectedKey)
 
 	if err != nil {
@@ -223,8 +238,11 @@ func TestIdeaService_GetIdea_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
-	_, err := svc.GetIdea(context.Background(), "I-2026-01-15-99")
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+	_, err = svc.GetIdea(context.Background(), "I-2026-01-15-99")
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -246,7 +264,10 @@ func TestIdeaService_ListIdeas_NoFilter(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 	result, err := svc.ListIdeas(context.Background(), IdeaFilters{})
 
 	if err != nil {
@@ -276,7 +297,10 @@ func TestIdeaService_ListIdeas_StatusFilter(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 	result, err := svc.ListIdeas(context.Background(), IdeaFilters{Status: "new"})
 
 	if err != nil {
@@ -309,7 +333,10 @@ func TestIdeaService_UpdateIdea_HappyPath(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 	updated, err := svc.UpdateIdea(context.Background(), "I-2026-01-15-01", UpdateIdeaInput{
 		Title: &newTitle,
 	})
@@ -330,9 +357,12 @@ func TestIdeaService_UpdateIdea_NotFound(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 	title := "New Title"
-	_, err := svc.UpdateIdea(context.Background(), "I-2026-01-15-99", UpdateIdeaInput{Title: &title})
+	_, err = svc.UpdateIdea(context.Background(), "I-2026-01-15-99", UpdateIdeaInput{Title: &title})
 
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -352,8 +382,11 @@ func TestIdeaService_DeleteIdea_HappyPath(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
-	err := svc.DeleteIdea(context.Background(), "I-2026-01-15-01")
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+	err = svc.DeleteIdea(context.Background(), "I-2026-01-15-01")
 
 	if err != nil {
 		t.Fatalf("DeleteIdea() unexpected error: %v", err)
@@ -380,8 +413,11 @@ func TestIdeaService_ConvertIdea_HappyPath(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
-	err := svc.ConvertIdea(context.Background(), "I-2026-01-15-01", "epic", "E15")
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+	err = svc.ConvertIdea(context.Background(), "I-2026-01-15-01", "epic", "E15")
 
 	if err != nil {
 		t.Fatalf("ConvertIdea() unexpected error: %v", err)
@@ -410,8 +446,11 @@ func TestIdeaService_ConvertIdea_AlreadyConverted(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
-	err := svc.ConvertIdea(context.Background(), "I-2026-01-15-01", "feature", "E15-F01")
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
+	err = svc.ConvertIdea(context.Background(), "I-2026-01-15-01", "feature", "E15-F01")
 
 	if err == nil {
 		t.Fatal("expected error for already-converted idea, got nil")
@@ -453,7 +492,10 @@ func TestIdeaService_CreateIdea_KeySequences(t *testing.T) {
 				},
 			}
 
-			svc := NewIdeaService(mockRepo)
+			svc, err := NewIdeaService(mockRepo)
+			if err != nil {
+				t.Fatalf("NewIdeaService() unexpected error: %v", err)
+			}
 			idea, err := svc.CreateIdea(context.Background(), CreateIdeaInput{Title: "Test"})
 			if err != nil {
 				t.Fatalf("CreateIdea() unexpected error: %v", err)
@@ -465,14 +507,18 @@ func TestIdeaService_CreateIdea_KeySequences(t *testing.T) {
 	}
 }
 
-// Test that NewIdeaService panics on nil repo
-func TestNewIdeaService_PanicsOnNilRepo(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for nil repo, but no panic occurred")
-		}
-	}()
-	NewIdeaService(nil)
+// Test that NewIdeaService returns error on nil repo
+func TestNewIdeaService_NilRepo_ReturnsError(t *testing.T) {
+	svc, err := NewIdeaService(nil)
+	if err == nil {
+		t.Error("expected error for nil repo, got nil")
+	}
+	if svc != nil {
+		t.Error("expected nil service when repo is nil")
+	}
+	if err != nil && err.Error() != "IdeaService requires a non-nil IdeaRepository" {
+		t.Errorf("unexpected error message: %v", err)
+	}
 }
 
 // Test ListIdeas returns empty slice not nil when repository returns nil
@@ -483,7 +529,10 @@ func TestIdeaService_ListIdeas_ReturnsEmptySlice(t *testing.T) {
 		},
 	}
 
-	svc := NewIdeaService(mockRepo)
+	svc, err := NewIdeaService(mockRepo)
+	if err != nil {
+		t.Fatalf("NewIdeaService() unexpected error: %v", err)
+	}
 	result, err := svc.ListIdeas(context.Background(), IdeaFilters{})
 
 	if err != nil {

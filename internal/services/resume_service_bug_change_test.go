@@ -75,7 +75,10 @@ func TestResumeService_GetBugResume_ReturnsContext(t *testing.T) {
 	noteRepo := &mockResumeNoteRepo{}
 	reg := newResumeTestRegistry(bugRepo, &mockResumeEntityRepo{})
 
-	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
+	svc, err := NewResumeService(nil, nil, nil, noteRepo, reg)
+	if err != nil {
+		t.Fatalf("NewResumeService() error = %v", err)
+	}
 
 	result, err := svc.GetBugResume(ctx, bugKey)
 	if err != nil {
@@ -112,9 +115,12 @@ func TestResumeService_GetBugResume_NotFound(t *testing.T) {
 	noteRepo := &mockResumeNoteRepo{}
 	reg := newResumeTestRegistry(bugRepo, &mockResumeEntityRepo{})
 
-	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
+	svc, err := NewResumeService(nil, nil, nil, noteRepo, reg)
+	if err != nil {
+		t.Fatalf("NewResumeService() error = %v", err)
+	}
 
-	_, err := svc.GetBugResume(ctx, "B999")
+	_, err = svc.GetBugResume(ctx, "B999")
 	if err == nil {
 		t.Error("GetBugResume() with non-existent bug should return error")
 	}
@@ -128,9 +134,12 @@ func TestResumeService_GetBugResume_UnregisteredType(t *testing.T) {
 	// Create registry without bug type
 	reg := newResumeTestRegistry(nil, &mockResumeEntityRepo{})
 
-	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
+	svc, err := NewResumeService(nil, nil, nil, noteRepo, reg)
+	if err != nil {
+		t.Fatalf("NewResumeService() error = %v", err)
+	}
 
-	_, err := svc.GetBugResume(ctx, "B001")
+	_, err = svc.GetBugResume(ctx, "B001")
 	if err == nil {
 		t.Error("GetBugResume() with unregistered bug type should return error")
 	}
@@ -163,7 +172,10 @@ func TestResumeService_GetBugResume_IncludesNotes(t *testing.T) {
 	}
 
 	reg := newResumeTestRegistry(bugRepo, &mockResumeEntityRepo{})
-	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
+	svc, err := NewResumeService(nil, nil, nil, noteRepo, reg)
+	if err != nil {
+		t.Fatalf("NewResumeService() error = %v", err)
+	}
 
 	result, err := svc.GetBugResume(ctx, "B001")
 	if err != nil {
@@ -199,7 +211,10 @@ func TestResumeService_GetChangeResume_ReturnsContext(t *testing.T) {
 	noteRepo := &mockResumeNoteRepo{}
 	reg := newResumeTestRegistry(&mockResumeEntityRepo{}, changeRepo)
 
-	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
+	svc, err := NewResumeService(nil, nil, nil, noteRepo, reg)
+	if err != nil {
+		t.Fatalf("NewResumeService() error = %v", err)
+	}
 
 	result, err := svc.GetChangeResume(ctx, changeKey)
 	if err != nil {
@@ -233,9 +248,12 @@ func TestResumeService_GetChangeResume_NotFound(t *testing.T) {
 	noteRepo := &mockResumeNoteRepo{}
 	reg := newResumeTestRegistry(&mockResumeEntityRepo{}, changeRepo)
 
-	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
+	svc, err := NewResumeService(nil, nil, nil, noteRepo, reg)
+	if err != nil {
+		t.Fatalf("NewResumeService() error = %v", err)
+	}
 
-	_, err := svc.GetChangeResume(ctx, "C999")
+	_, err = svc.GetChangeResume(ctx, "C999")
 	if err == nil {
 		t.Error("GetChangeResume() with non-existent change should return error")
 	}
@@ -249,9 +267,12 @@ func TestResumeService_GetChangeResume_UnregisteredType(t *testing.T) {
 	// Create registry without change type
 	reg := newResumeTestRegistry(&mockResumeEntityRepo{}, nil)
 
-	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
+	svc, err := NewResumeService(nil, nil, nil, noteRepo, reg)
+	if err != nil {
+		t.Fatalf("NewResumeService() error = %v", err)
+	}
 
-	_, err := svc.GetChangeResume(ctx, "C001")
+	_, err = svc.GetChangeResume(ctx, "C001")
 	if err == nil {
 		t.Error("GetChangeResume() with unregistered change type should return error")
 	}
@@ -284,7 +305,10 @@ func TestResumeService_GetChangeResume_IncludesNotes(t *testing.T) {
 	}
 
 	reg := newResumeTestRegistry(&mockResumeEntityRepo{}, changeRepo)
-	svc := NewResumeService(nil, nil, nil, noteRepo, reg)
+	svc, err := NewResumeService(nil, nil, nil, noteRepo, reg)
+	if err != nil {
+		t.Fatalf("NewResumeService() error = %v", err)
+	}
 
 	result, err := svc.GetChangeResume(ctx, "C001")
 	if err != nil {
@@ -300,20 +324,18 @@ func TestResumeService_GetChangeResume_IncludesNotes(t *testing.T) {
 	}
 }
 
-// TestResumeService_NilRegistry_Panics tests that nil registry panics at construction.
-func TestResumeService_NilRegistry_Panics(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for nil registry")
-		}
-		msg, ok := r.(string)
-		if !ok || msg != "ResumeService: EntityRegistry must not be nil" {
-			t.Errorf("unexpected panic message: %v", r)
-		}
-	}()
-
-	NewResumeService(nil, nil, nil, &mockResumeNoteRepo{}, nil)
+// TestResumeService_NilRegistry_ReturnsError tests that nil registry returns an error at construction.
+func TestResumeService_NilRegistry_ReturnsError(t *testing.T) {
+	svc, err := NewResumeService(nil, nil, nil, &mockResumeNoteRepo{}, nil)
+	if err == nil {
+		t.Error("expected error for nil registry, got nil")
+	}
+	if svc != nil {
+		t.Error("expected nil service when registry is nil")
+	}
+	if err != nil && err.Error() != "ResumeService: EntityRegistry must not be nil" {
+		t.Errorf("unexpected error message: %v", err)
+	}
 }
 
 // mockResumeNoteRepo is a mock for ResumeEntityNoteRepository.

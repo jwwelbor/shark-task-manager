@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // TestInitDB_RunsAllMigrations verifies that InitDB correctly runs all migrations
@@ -173,7 +173,7 @@ func TestInitDB_ExistingDatabaseWithCustomFolderPath(t *testing.T) {
 	defer os.Remove(tmpDB + "-wal")
 
 	// Create database with old schema (with custom_folder_path)
-	db, err := sql.Open("sqlite3", tmpDB+"?_foreign_keys=on")
+	db, err := sql.Open("sqlite", tmpDB+"?_foreign_keys=on")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}

@@ -34,8 +34,8 @@ func TestSQLiteDriver_Connect(t *testing.T) {
 	}
 
 	// Verify driver name
-	if driver.DriverName() != "sqlite3" {
-		t.Errorf("Expected driver name 'sqlite3', got %q", driver.DriverName())
+	if driver.DriverName() != "sqlite" {
+		t.Errorf("Expected driver name 'sqlite', got %q", driver.DriverName())
 	}
 }
 
@@ -285,5 +285,34 @@ func TestSQLiteDriver_CloseIdempotent(t *testing.T) {
 
 	if err := driver.Close(); err != nil {
 		t.Errorf("Second close failed: %v", err)
+	}
+}
+
+// TestSQLiteDriver_ConnectionPoolSettings verifies that Connect configures the
+// underlying *sql.DB with SQLite-appropriate connection pool values.
+func TestSQLiteDriver_ConnectionPoolSettings(t *testing.T) {
+	ctx := context.Background()
+	driver := NewSQLiteDriver()
+
+	tmpDB := t.TempDir() + "/test.db"
+	defer os.Remove(tmpDB)
+
+	if err := driver.Connect(ctx, tmpDB); err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer driver.Close()
+
+	// Retrieve the underlying *sql.DB to inspect pool stats.
+	sqlDB, err := driver.GetSQLDB()
+	if err != nil {
+		t.Fatalf("GetSQLDB failed: %v", err)
+	}
+
+	stats := sqlDB.Stats()
+
+	// MaxOpenConnections must be bounded (25) to cap pool growth while allowing
+	// concurrent transactions and queries on the same *sql.DB.
+	if stats.MaxOpenConnections != 25 {
+		t.Errorf("expected MaxOpenConnections=25, got %d", stats.MaxOpenConnections)
 	}
 }

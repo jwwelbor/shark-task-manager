@@ -39,11 +39,37 @@ func (a *workSessionAdapter) GetActiveSessionByTaskID(ctx context.Context, taskI
 }
 
 func (a *workSessionAdapter) GetSessionAnalyticsByFeature(ctx context.Context, featureID int64, agentType *string) (*services.SessionAnalytics, error) {
-	return a.repo.GetSessionAnalyticsByFeature(ctx, featureID, agentType)
+	analytics, err := a.repo.GetSessionAnalyticsByFeature(ctx, featureID, agentType)
+	if err != nil || analytics == nil {
+		return nil, err
+	}
+	return &services.SessionAnalytics{
+		TotalSessions:          analytics.TotalSessions,
+		TotalDuration:          analytics.TotalDuration,
+		AverageDuration:        analytics.AverageDuration,
+		MedianDuration:         analytics.MedianDuration,
+		TasksWithSessions:      analytics.TasksWithSessions,
+		TasksWithPauses:        analytics.TasksWithPauses,
+		AverageSessionsPerTask: analytics.AverageSessionsPerTask,
+		PauseRate:              analytics.PauseRate,
+	}, nil
 }
 
 func (a *workSessionAdapter) GetSessionAnalyticsByEpic(ctx context.Context, epicID int64, agentType *string) (*services.SessionAnalytics, error) {
-	return a.repo.GetSessionAnalyticsByEpic(ctx, epicID, agentType)
+	analytics, err := a.repo.GetSessionAnalyticsByEpic(ctx, epicID, agentType)
+	if err != nil || analytics == nil {
+		return nil, err
+	}
+	return &services.SessionAnalytics{
+		TotalSessions:          analytics.TotalSessions,
+		TotalDuration:          analytics.TotalDuration,
+		AverageDuration:        analytics.AverageDuration,
+		MedianDuration:         analytics.MedianDuration,
+		TasksWithSessions:      analytics.TasksWithSessions,
+		TasksWithPauses:        analytics.TasksWithPauses,
+		AverageSessionsPerTask: analytics.AverageSessionsPerTask,
+		PauseRate:              analytics.PauseRate,
+	}, nil
 }
 
 // taskHistoryAdapter adapts *repository.TaskHistoryRepository to the services.TaskHistoryRepository interface.
@@ -195,7 +221,11 @@ func GetIdeaService() *services.IdeaService {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
 	ideaRepo := repository.NewIdeaRepository(db)
-	return services.NewIdeaService(ideaRepo)
+	svc, err := services.NewIdeaService(ideaRepo)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create IdeaService: %v", err))
+	}
+	return svc
 }
 
 // GetDisplayService returns a DisplayService instance.
@@ -207,7 +237,16 @@ func GetDisplayService() *services.DisplayService {
 		panic(fmt.Sprintf("failed to get database: %v", err))
 	}
 	workflowSvc := GetWorkflowService()
-	return services.NewDisplayService(db, workflowSvc)
+	deps := services.DisplayServiceDeps{
+		EpicRepo:               repository.NewEpicRepository(db),
+		FeatureRepo:            repository.NewFeatureRepository(db),
+		TaskRepo:               repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow()),
+		DocumentRepo:           repository.NewPolymorphicDocRepoAdapter(repository.NewEntityDocumentRepository(db)),
+		NoteRepo:               repository.NewEntityNoteRepository(db),
+		TaskRelRepo:            repository.NewEntityRelTaskKeyAdapter(db),
+		TemplateEnrichmentRepo: repository.NewTemplateEnrichmentRepository(db),
+	}
+	return services.NewDisplayService(deps, workflowSvc)
 }
 
 // GetSearchService returns a SearchService instance.

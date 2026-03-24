@@ -44,8 +44,8 @@ func TestInitializeDatabase_LocalBackend(t *testing.T) {
 	}
 
 	// Verify: Driver name is correct
-	if db.DriverName() != "sqlite3" {
-		t.Errorf("expected driver 'sqlite3', got: %s", db.DriverName())
+	if db.DriverName() != "sqlite" {
+		t.Errorf("expected driver 'sqlite', got: %s", db.DriverName())
 	}
 }
 

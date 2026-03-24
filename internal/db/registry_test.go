@@ -148,8 +148,8 @@ func TestInitDatabase(t *testing.T) {
 	}
 
 	// Verify driver name
-	if db.DriverName() != "sqlite3" {
-		t.Errorf("Expected driver name 'sqlite3', got %q", db.DriverName())
+	if db.DriverName() != "sqlite" {
+		t.Errorf("Expected driver name 'sqlite', got %q", db.DriverName())
 	}
 }
 

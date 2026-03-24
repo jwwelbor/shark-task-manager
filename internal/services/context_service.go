@@ -17,13 +17,13 @@ type ContextService struct {
 }
 
 // NewContextService creates a new ContextService with injected dependencies.
-func NewContextService(registry *EntityRegistry) *ContextService {
+func NewContextService(registry *EntityRegistry) (*ContextService, error) {
 	if registry == nil {
-		panic("ContextService: EntityRegistry must not be nil")
+		return nil, fmt.Errorf("ContextService: EntityRegistry must not be nil")
 	}
 	return &ContextService{
 		registry: registry,
-	}
+	}, nil
 }
 
 // GetContext returns the parsed context data for an entity.

@@ -99,7 +99,10 @@ func TestContextService_GetContext_Epic_NoContext(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
 	cd, err := svc.GetContext(context.Background(), models.EntityTypeEpic, "E16")
 	if err != nil {
@@ -126,7 +129,10 @@ func TestContextService_GetContext_Epic_WithContext(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
 	cd, err := svc.GetContext(context.Background(), models.EntityTypeEpic, "E16")
 	if err != nil {
@@ -159,7 +165,10 @@ func TestContextService_GetContext_Task(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
 	cd, err := svc.GetContext(context.Background(), models.EntityTypeTask, "E16-F01-001")
 	if err != nil {
@@ -185,9 +194,12 @@ func TestContextService_GetContext_InvalidKey(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	_, err := svc.GetContext(context.Background(), models.EntityTypeEpic, "E999")
+	_, err = svc.GetContext(context.Background(), models.EntityTypeEpic, "E999")
 	if err == nil {
 		t.Fatal("expected error for invalid key")
 	}
@@ -213,9 +225,12 @@ func TestContextService_SetContextField_Epic(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	err := svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "current_step", "Design phase")
+	err = svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "current_step", "Design phase")
 	if err != nil {
 		t.Fatalf("SetContextField() error = %v", err)
 	}
@@ -255,10 +270,13 @@ func TestContextService_SetContextField_MergeSemantics(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
 	// Update current_step - should preserve open_questions
-	err := svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "current_step", "Step 2")
+	err = svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "current_step", "Step 2")
 	if err != nil {
 		t.Fatalf("SetContextField() error = %v", err)
 	}
@@ -276,9 +294,12 @@ func TestContextService_SetContextField_MergeSemantics(t *testing.T) {
 }
 
 func TestContextService_SetContextField_InvalidField(t *testing.T) {
-	svc := NewContextService(newContextTestRegistry())
+	svc, err := NewContextService(newContextTestRegistry())
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	err := svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "invalid_field", "value")
+	err = svc.SetContextField(context.Background(), models.EntityTypeEpic, "E16", "invalid_field", "value")
 	if err == nil {
 		t.Fatal("expected error for invalid field")
 	}
@@ -304,9 +325,12 @@ func TestContextService_SetContextField_Feature(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	err := svc.SetContextField(context.Background(), models.EntityTypeFeature, "E16-F01", "open_questions", `["How to handle auth?"]`)
+	err = svc.SetContextField(context.Background(), models.EntityTypeFeature, "E16-F01", "open_questions", `["How to handle auth?"]`)
 	if err != nil {
 		t.Fatalf("SetContextField() error = %v", err)
 	}
@@ -340,9 +364,12 @@ func TestContextService_SetContextField_Task(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	err := svc.SetContextField(context.Background(), models.EntityTypeTask, "E16-F01-001", "implementation_decisions", `{"framework":"react"}`)
+	err = svc.SetContextField(context.Background(), models.EntityTypeTask, "E16-F01-001", "implementation_decisions", `{"framework":"react"}`)
 	if err != nil {
 		t.Fatalf("SetContextField() error = %v", err)
 	}
@@ -372,9 +399,12 @@ func TestContextService_ClearContext_Epic(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	err := svc.ClearContext(context.Background(), models.EntityTypeEpic, "E16")
+	err = svc.ClearContext(context.Background(), models.EntityTypeEpic, "E16")
 	if err != nil {
 		t.Fatalf("ClearContext() error = %v", err)
 	}
@@ -402,9 +432,12 @@ func TestContextService_ClearContext_Task(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	err := svc.ClearContext(context.Background(), models.EntityTypeTask, "E16-F01-001")
+	err = svc.ClearContext(context.Background(), models.EntityTypeTask, "E16-F01-001")
 	if err != nil {
 		t.Fatalf("ClearContext() error = %v", err)
 	}
@@ -432,7 +465,10 @@ func TestContextService_GetContext_EmptyJSON(t *testing.T) {
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeChange, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
 	cd, err := svc.GetContext(context.Background(), models.EntityTypeEpic, "E16")
 	if err != nil {
@@ -444,9 +480,12 @@ func TestContextService_GetContext_EmptyJSON(t *testing.T) {
 }
 
 func TestContextService_UnsupportedEntityType(t *testing.T) {
-	svc := NewContextService(newContextTestRegistry())
+	svc, err := NewContextService(newContextTestRegistry())
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	_, err := svc.GetContext(context.Background(), models.EntityType("unknown"), "key")
+	_, err = svc.GetContext(context.Background(), models.EntityType("unknown"), "key")
 	if err == nil {
 		t.Fatal("expected error for unsupported entity type")
 	}
@@ -468,7 +507,10 @@ func TestContextService_GetContext_ChangeCard_WithContext(t *testing.T) {
 	reg.Register(models.EntityTypeTask, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
 	cd, err := svc.GetContext(context.Background(), models.EntityTypeChange, "C001")
 	if err != nil {
@@ -502,9 +544,12 @@ func TestContextService_SetContextField_ChangeCard(t *testing.T) {
 	reg.Register(models.EntityTypeTask, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	err := svc.SetContextField(context.Background(), models.EntityTypeChange, "C001", "current_step", "Approved")
+	err = svc.SetContextField(context.Background(), models.EntityTypeChange, "C001", "current_step", "Approved")
 	if err != nil {
 		t.Fatalf("SetContextField() error = %v", err)
 	}
@@ -533,9 +578,12 @@ func TestContextService_ClearContext_ChangeCard(t *testing.T) {
 	reg.Register(models.EntityTypeTask, &mockContextEntityRepo{})
 	reg.Register(models.EntityTypeBug, &mockContextEntityRepo{})
 
-	svc := NewContextService(reg)
+	svc, err := NewContextService(reg)
+	if err != nil {
+		t.Fatalf("NewContextService() error = %v", err)
+	}
 
-	err := svc.ClearContext(context.Background(), models.EntityTypeChange, "C001")
+	err = svc.ClearContext(context.Background(), models.EntityTypeChange, "C001")
 	if err != nil {
 		t.Fatalf("ClearContext() error = %v", err)
 	}
@@ -547,19 +595,17 @@ func TestContextService_ClearContext_ChangeCard(t *testing.T) {
 	}
 }
 
-func TestContextService_NilRegistry_Panics(t *testing.T) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for nil registry")
-		}
-		msg, ok := r.(string)
-		if !ok || msg != "ContextService: EntityRegistry must not be nil" {
-			t.Errorf("unexpected panic message: %v", r)
-		}
-	}()
-
-	NewContextService(nil)
+func TestContextService_NilRegistry_ReturnsError(t *testing.T) {
+	svc, err := NewContextService(nil)
+	if err == nil {
+		t.Fatal("expected error for nil registry, got nil")
+	}
+	if svc != nil {
+		t.Error("expected nil service when registry is nil")
+	}
+	if err.Error() != "ContextService: EntityRegistry must not be nil" {
+		t.Errorf("unexpected error message: %v", err)
+	}
 }
 
 func TestIsValidContextField(t *testing.T) {

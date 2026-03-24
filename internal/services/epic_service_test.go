@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -126,6 +127,14 @@ func (m *mockEpicRepo) CascadeStatusToFeaturesAndTasks(ctx context.Context, epic
 		return m.cascadeStatusToFeaturesAndTasksFn(ctx, epicID, targetFeatureStatus, targetTaskStatus)
 	}
 	return nil
+}
+
+func (m *mockEpicRepo) CascadeStatusToFeaturesAndTasksWithTx(_ context.Context, _ *sql.Tx, _ int64, _ models.FeatureStatus, _ models.TaskStatus) error {
+	return nil
+}
+
+func (m *mockEpicRepo) BeginTx(_ context.Context) (*sql.Tx, error) {
+	return nil, nil
 }
 
 func (m *mockEpicRepo) GetEpicDisplayDataRaw(ctx context.Context, epicID int64) (*repository.EpicDisplayDataRaw, error) {

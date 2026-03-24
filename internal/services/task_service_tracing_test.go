@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 
@@ -97,6 +98,12 @@ func (m *mockTaskRepo) UpdateStatusForcedWithUnblock(ctx context.Context, taskID
 	return nil, nil
 }
 func (m *mockTaskRepo) StatusUpdateRaw(ctx context.Context, params models.StatusUpdateParams) ([]string, error) {
+	return nil, nil
+}
+func (m *mockTaskRepo) StatusUpdateRawWithTx(_ context.Context, _ *sql.Tx, _ models.StatusUpdateParams) ([]string, error) {
+	return nil, nil
+}
+func (m *mockTaskRepo) BeginTx(_ context.Context) (*sql.Tx, error) {
 	return nil, nil
 }
 func (m *mockTaskRepo) FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error) {

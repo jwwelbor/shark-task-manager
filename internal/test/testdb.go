@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -114,7 +115,7 @@ func SeedTestData() (int64, int64) {
 		// In parallel tests, E99-F99 feature might be deleted by another test between our INSERT and this point
 		// FK constraint errors are acceptable here since tests that need this data will fail anyway
 		// Don't panic on FK errors, just skip the task creation
-		if err.Error() != "FOREIGN KEY constraint failed" {
+		if !strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
 			panic(fmt.Sprintf("Failed to insert test tasks: %v", err))
 		}
 	}
@@ -143,7 +144,7 @@ func SeedTestData() (int64, int64) {
 		// In parallel tests, E04 epic might be deleted by another test between our INSERT and this point
 		// FK constraint errors are acceptable here since E04-F05 is optional test data
 		// Don't panic on FK errors, just skip the feature creation
-		if err.Error() != "FOREIGN KEY constraint failed" {
+		if !strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
 			panic(fmt.Sprintf("Failed to insert E04-F05 feature: %v", err))
 		}
 	}

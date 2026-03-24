@@ -10,15 +10,18 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // InitDB initializes the SQLite database with complete schema
 func InitDB(filepath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", filepath+"?_foreign_keys=on")
+	db, err := sql.Open("sqlite", filepath+"?_foreign_keys=on")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// Configure connection pool before any operations.
+	configureConnectionPool(db)
 
 	// Test the connection
 	if err := db.Ping(); err != nil {
@@ -38,6 +41,36 @@ func InitDB(filepath string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// configureConnectionPool sets sql.DB connection pool parameters optimized for SQLite.
+//
+// SQLite's WAL (Write-Ahead Logging) mode allows concurrent readers but serializes
+// writers. The pool is configured to:
+//
+//   - Bound the number of open connections so the pool does not grow unboundedly
+//     during bursts (e.g., parallel test runs or concurrent HTTP requests).
+//   - Keep idle connections warm so that successive CLI invocations within the
+//     same process do not pay the cost of reopening the file and re-applying
+//     PRAGMAs (foreign_keys, journal_mode, etc.).
+//   - Avoid connection recycling because SQLite file handles are cheap to hold
+//     open and expensive to recreate (each new physical connection must have its
+//     PRAGMAs re-applied to inherit the same settings).
+//
+// Settings:
+//   - MaxOpenConns(25): caps concurrent connections; SQLite's busy_timeout (5 s)
+//     serialises writers when the file lock is contended, so multiple open
+//     connections are safe under WAL mode and necessary when service code opens
+//     a transaction and then issues additional queries on the same *sql.DB.
+//   - MaxIdleConns(25): retain all open connections in the idle pool so none are
+//     discarded between consecutive queries.
+//   - ConnMaxLifetime(0): connections are never recycled by age.
+//   - ConnMaxIdleTime(0): idle connections are never evicted from the pool.
+func configureConnectionPool(db *sql.DB) {
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(0)
+	db.SetConnMaxIdleTime(0)
 }
 
 // configureSQLite sets SQLite PRAGMA settings for optimal operation
@@ -363,6 +396,17 @@ END;
 func ApplySchemaAndMigrations(db *sql.DB) error {
 	// Note: configureSQLite() is skipped for Turso as some PRAGMAs may not be supported
 	// Turso handles configuration server-side
+
+	// Migrations open transactions and then call tableExistsInDB(db, ...) which
+	// acquires a separate connection from the pool. If MaxOpenConns=1 is already
+	// set (e.g. when the caller re-runs migrations on an initialized database),
+	// this would deadlock. Temporarily allow unlimited connections for the
+	// duration of the migration, then restore the previous limit.
+	prevMaxOpen := db.Stats().MaxOpenConnections
+	if prevMaxOpen == 1 {
+		db.SetMaxOpenConns(0)
+		defer db.SetMaxOpenConns(prevMaxOpen)
+	}
 
 	// Create all tables, indexes, and triggers
 	if err := createSchema(db); err != nil {

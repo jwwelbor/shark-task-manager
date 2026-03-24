@@ -7,11 +7,11 @@ import (
 	"os"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
-	database, err := sql.Open("sqlite3", "./shark-tasks.db")
+	database, err := sql.Open("sqlite", "./shark-tasks.db")
 	if err != nil {
 		slog.Error("fatal error", "error", err)
 		os.Exit(1)

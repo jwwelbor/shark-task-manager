@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func TestInitialize(t *testing.T) {
@@ -122,7 +122,7 @@ func TestInitialize(t *testing.T) {
 				}
 
 				// Add some data to the database
-				db, err := sql.Open("sqlite3", filepath.Join(baseDir, "shark-tasks.db"))
+				db, err := sql.Open("sqlite", filepath.Join(baseDir, "shark-tasks.db"))
 				if err != nil {
 					return err
 				}

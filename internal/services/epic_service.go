@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -35,6 +36,12 @@ type EpicRepository interface {
 	GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error)
 	UpdateStatus(ctx context.Context, epicID int64, status models.EpicStatus) error
 	CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error
+	// CascadeStatusToFeaturesAndTasksWithTx performs the cascade within a caller-provided
+	// transaction. Services use this to own the transaction boundary (Standard 8).
+	CascadeStatusToFeaturesAndTasksWithTx(ctx context.Context, tx *sql.Tx, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error
+	// BeginTx starts a new database transaction for use by the service layer.
+	// Services own transaction boundaries per Standard 8.
+	BeginTx(ctx context.Context) (*sql.Tx, error)
 	GetEpicDisplayDataRaw(ctx context.Context, epicID int64) (*repository.EpicDisplayDataRaw, error)
 }
 
@@ -510,16 +517,13 @@ func (s *EpicService) UpdateEpic(ctx context.Context, key string, updates EpicUp
 		return nil, fmt.Errorf("epic validation failed: %w", err)
 	}
 
-	if err := s.repo.Update(ctx, epic); err != nil {
-		return nil, fmt.Errorf("failed to update epic %s: %w", key, err)
+	// file_path is included in the Update query — single atomic operation
+	if updates.FilePath != nil {
+		epic.FilePath = updates.FilePath
 	}
 
-	// Update file path separately since repo.Update doesn't include file_path
-	if updates.FilePath != nil {
-		if err := s.repo.UpdateFilePath(ctx, epic.Key, updates.FilePath); err != nil {
-			return nil, fmt.Errorf("failed to update epic %s file path: %w", key, err)
-		}
-		epic.FilePath = updates.FilePath
+	if err := s.repo.Update(ctx, epic); err != nil {
+		return nil, fmt.Errorf("failed to update epic %s: %w", key, err)
 	}
 
 	return epic, nil

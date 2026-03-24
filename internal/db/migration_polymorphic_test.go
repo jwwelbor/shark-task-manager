@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 // createOldSchema creates the old per-entity document tables and task_history
@@ -208,7 +208,7 @@ func seedTestData(t *testing.T, db *sql.DB) {
 // openTestDB creates an in-memory SQLite database with FK enforcement.
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:?_foreign_keys=on")
+	db, err := sql.Open("sqlite", ":memory:?_foreign_keys=on")
 	require.NoError(t, err, "failed to open test database")
 	return db
 }

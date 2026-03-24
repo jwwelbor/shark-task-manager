@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 
@@ -147,6 +148,12 @@ func (m *changeCardEpicRepo) GetTaskStatusRollup(context.Context, int64) (map[st
 }
 func (m *changeCardEpicRepo) CascadeStatusToFeaturesAndTasks(context.Context, int64, models.FeatureStatus, models.TaskStatus) error {
 	return nil
+}
+func (m *changeCardEpicRepo) CascadeStatusToFeaturesAndTasksWithTx(_ context.Context, _ *sql.Tx, _ int64, _ models.FeatureStatus, _ models.TaskStatus) error {
+	return nil
+}
+func (m *changeCardEpicRepo) BeginTx(_ context.Context) (*sql.Tx, error) {
+	return nil, nil
 }
 func (m *changeCardEpicRepo) GetEpicDisplayDataRaw(context.Context, int64) (*repository.EpicDisplayDataRaw, error) {
 	return nil, nil

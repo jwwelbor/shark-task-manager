@@ -56,6 +56,8 @@ func buildPlaceholders(n int) string {
 }
 
 // GetStatusSummary returns aggregate status and severity counts for all bugs.
+// Uses a single GROUP BY status, severity query and post-processes in Go to
+// derive total, per-status, per-severity, and open-by-severity counts.
 func (r *BugRepository) GetStatusSummary(ctx context.Context) (*BugStatusSummary, error) {
 	summary := &BugStatusSummary{
 		ByStatus:       make(map[string]int),
@@ -63,64 +65,35 @@ func (r *BugRepository) GetStatusSummary(ctx context.Context) (*BugStatusSummary
 		OpenBySeverity: make(map[string]int),
 	}
 
-	// Total count
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM bugs`).Scan(&summary.Total); err != nil {
-		return nil, fmt.Errorf("failed to count bugs: %w", err)
+	// Build a set of terminal statuses for O(1) lookup during post-processing.
+	terminalSet := make(map[string]bool, len(bugTerminalStatuses))
+	for _, s := range bugTerminalStatuses {
+		terminalSet[s.(string)] = true
 	}
 
-	// Per-status counts
-	rowsStatus, err := r.db.QueryContext(ctx, `SELECT status, COUNT(*) FROM bugs GROUP BY status`)
+	// Single query: group by both status and severity to derive all four counts
+	// in one round-trip. The result is post-processed in Go.
+	rows, err := r.db.QueryContext(ctx, `SELECT status, severity, COUNT(*) FROM bugs GROUP BY status, severity`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to count bugs by status: %w", err)
+		return nil, fmt.Errorf("failed to aggregate bug counts: %w", err)
 	}
-	defer rowsStatus.Close()
-	for rowsStatus.Next() {
-		var status string
-		var count int
-		if err := rowsStatus.Scan(&status, &count); err != nil {
-			return nil, fmt.Errorf("failed to scan status count: %w", err)
-		}
-		summary.ByStatus[status] = count
-	}
-	if err = rowsStatus.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating bug status counts: %w", err)
-	}
+	defer rows.Close()
 
-	// Per-severity counts (all bugs)
-	rowsSev, err := r.db.QueryContext(ctx, `SELECT severity, COUNT(*) FROM bugs GROUP BY severity`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count bugs by severity: %w", err)
-	}
-	defer rowsSev.Close()
-	for rowsSev.Next() {
-		var severity string
+	for rows.Next() {
+		var status, severity string
 		var count int
-		if err := rowsSev.Scan(&severity, &count); err != nil {
-			return nil, fmt.Errorf("failed to scan severity count: %w", err)
+		if err := rows.Scan(&status, &severity, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan bug aggregate row: %w", err)
 		}
-		summary.BySeverity[severity] = count
-	}
-	if err = rowsSev.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating bug severity counts: %w", err)
-	}
-
-	// Per-severity counts for open bugs (excluding terminal statuses)
-	openSevQuery := `SELECT severity, COUNT(*) FROM bugs WHERE status NOT IN (` + bugTerminalStatusPlaceholders + `) GROUP BY severity`
-	rowsOpenSev, err := r.db.QueryContext(ctx, openSevQuery, bugTerminalStatuses...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count open bugs by severity: %w", err)
-	}
-	defer rowsOpenSev.Close()
-	for rowsOpenSev.Next() {
-		var severity string
-		var count int
-		if err := rowsOpenSev.Scan(&severity, &count); err != nil {
-			return nil, fmt.Errorf("failed to scan open severity count: %w", err)
+		summary.Total += count
+		summary.ByStatus[status] += count
+		summary.BySeverity[severity] += count
+		if !terminalSet[status] {
+			summary.OpenBySeverity[severity] += count
 		}
-		summary.OpenBySeverity[severity] = count
 	}
-	if err = rowsOpenSev.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating open bug severity counts: %w", err)
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating bug aggregate rows: %w", err)
 	}
 
 	return summary, nil
@@ -156,47 +129,51 @@ func (r *BugRepository) GetResolutionStats(ctx context.Context) (*BugResolutionS
 // GetFeatureBugSummary returns aggregate bug counts for bugs linked to a specific feature.
 // featureKey must match the linked_entity_key field of bugs (case-sensitive).
 // OpenCount and OpenBySeverity exclude terminal statuses (resolved, wont_fix, duplicate).
+// Uses a single conditional-aggregation query to derive all three counts in one round-trip.
 func (r *BugRepository) GetFeatureBugSummary(ctx context.Context, featureKey string) (*BugFeatureSummary, error) {
 	summary := &BugFeatureSummary{
 		OpenBySeverity: make(map[string]int),
 	}
 
-	// Total linked bugs
-	if err := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM bugs WHERE linked_entity_key = ?`, featureKey,
-	).Scan(&summary.TotalLinked); err != nil {
-		return nil, fmt.Errorf("failed to count linked bugs: %w", err)
-	}
-
-	// Open linked bugs
-	openCountQuery := `SELECT COUNT(*) FROM bugs WHERE linked_entity_key = ? AND status NOT IN (` + bugTerminalStatusPlaceholders + `)`
-	openArgs := append([]interface{}{featureKey}, bugTerminalStatuses...)
-	if err := r.db.QueryRowContext(ctx, openCountQuery, openArgs...).Scan(&summary.OpenCount); err != nil {
-		return nil, fmt.Errorf("failed to count open linked bugs: %w", err)
-	}
-
-	// Open bugs by severity
-	openSevQuery := `
-		SELECT severity, COUNT(*)
+	// Single query: group by severity and use conditional aggregation to compute
+	// total linked count and open count simultaneously, eliminating two extra round-trips.
+	//
+	// Each row returns:
+	//   severity         – severity bucket
+	//   total_in_bucket  – all bugs (open + terminal) for this feature+severity
+	//   open_in_bucket   – non-terminal bugs for this feature+severity
+	query := `
+		SELECT
+			severity,
+			COUNT(*) AS total_in_bucket,
+			COUNT(CASE WHEN status NOT IN (` + bugTerminalStatusPlaceholders + `) THEN 1 END) AS open_in_bucket
 		FROM bugs
 		WHERE linked_entity_key = ?
-		  AND status NOT IN (` + bugTerminalStatusPlaceholders + `)
 		GROUP BY severity`
-	rows, err := r.db.QueryContext(ctx, openSevQuery, openArgs...)
+
+	// Args: terminal statuses first (for the IN clause), then featureKey.
+	args := append(bugTerminalStatuses, featureKey)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to count open linked bugs by severity: %w", err)
+		return nil, fmt.Errorf("failed to aggregate linked bug counts: %w", err)
 	}
 	defer rows.Close()
+
 	for rows.Next() {
 		var severity string
-		var count int
-		if err := rows.Scan(&severity, &count); err != nil {
-			return nil, fmt.Errorf("failed to scan severity count: %w", err)
+		var totalInBucket, openInBucket int
+		if err := rows.Scan(&severity, &totalInBucket, &openInBucket); err != nil {
+			return nil, fmt.Errorf("failed to scan linked bug aggregate row: %w", err)
 		}
-		summary.OpenBySeverity[severity] = count
+		summary.TotalLinked += totalInBucket
+		summary.OpenCount += openInBucket
+		if openInBucket > 0 {
+			summary.OpenBySeverity[severity] = openInBucket
+		}
 	}
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating open linked bug severity counts: %w", err)
+		return nil, fmt.Errorf("error iterating linked bug aggregate rows: %w", err)
 	}
 
 	return summary, nil

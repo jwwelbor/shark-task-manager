@@ -3,12 +3,10 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"fmt"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
@@ -471,123 +469,166 @@ func testFeatureWorkflow() *config.WorkflowConfig {
 	return config.DefaultFeatureWorkflow()
 }
 
-// setupTestDisplayService creates a DisplayService backed by a temporary SQLite database.
-// Returns the service, a cleanup function, and the raw *sql.DB for seeding test data.
-func setupTestDisplayService(t *testing.T) (*DisplayService, func(), *repository.DB) {
-	t.Helper()
+// ============================================================================
+// Mock implementations for DisplayService repository interfaces
+// ============================================================================
 
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test-display.db")
-
-	sqlDB, err := db.InitDB(dbPath)
-	if err != nil {
-		t.Fatalf("failed to init test db: %v", err)
-	}
-
-	repoDB := repository.NewDB(sqlDB)
-
-	epicWf := config.DefaultEpicWorkflow()
-	featureWf := config.DefaultFeatureWorkflow()
-
-	svc := &DisplayService{
-		deps: DisplayServiceDeps{
-			EpicRepo:     repository.NewEpicRepository(repoDB),
-			FeatureRepo:  repository.NewFeatureRepository(repoDB),
-			TaskRepo:     repository.NewTaskRepositoryWithWorkflow(repoDB, nil),
-			DocumentRepo: repository.NewPolymorphicDocRepoAdapter(repository.NewEntityDocumentRepository(repoDB)),
-			NoteRepo:     repository.NewEntityNoteRepository(repoDB),
-		},
-		epicWorkflow:    epicWf,
-		featureWorkflow: featureWf,
-	}
-
-	cleanup := func() {
-		sqlDB.Close()
-		os.Remove(dbPath)
-	}
-
-	return svc, cleanup, repoDB
+type mockDisplayEpicRepo struct {
+	getByKeyFunc                 func(ctx context.Context, key string) (*models.Epic, error)
+	getFeatureProgressDataByEpic func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error)
+	getFeatureStatusRollupFunc   func(ctx context.Context, epicID int64) (map[string]int, error)
+	getTaskStatusRollupFunc      func(ctx context.Context, epicID int64) (map[string]int, error)
 }
 
-// seedEpicWithDocs creates an epic in "draft" (planning) status and links documents to it.
-// Returns the epic ID and document IDs.
-func seedEpicWithDocs(t *testing.T, repoDB *repository.DB) (int64, []int64) {
-	t.Helper()
-	ctx := context.Background()
-
-	// Create epic in planning status (draft)
-	result, err := repoDB.ExecContext(ctx, `
-		INSERT INTO epics (key, title, description, status, priority)
-		VALUES ('E98', 'Test Planning Epic', 'Epic in draft status', 'draft', 'high')
-	`)
-	if err != nil {
-		t.Fatalf("failed to insert epic: %v", err)
+func (m *mockDisplayEpicRepo) GetByKey(ctx context.Context, key string) (*models.Epic, error) {
+	if m.getByKeyFunc != nil {
+		return m.getByKeyFunc(ctx, key)
 	}
-	epicID, _ := result.LastInsertId()
-
-	// Create documents and link to epic
-	docRepo := repository.NewDocumentRepository(repoDB)
-	entityDocRepo := repository.NewEntityDocumentRepository(repoDB)
-	doc1, err := docRepo.CreateOrGet(ctx, "Architecture Doc", "docs/architecture.md")
-	if err != nil {
-		t.Fatalf("failed to create doc1: %v", err)
-	}
-	doc2, err := docRepo.CreateOrGet(ctx, "Test Plan", "docs/test-plan.md")
-	if err != nil {
-		t.Fatalf("failed to create doc2: %v", err)
-	}
-
-	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epicID, doc1.ID, ""); err != nil {
-		t.Fatalf("failed to link doc1 to epic: %v", err)
-	}
-	if err := entityDocRepo.Link(ctx, models.EntityTypeEpic, epicID, doc2.ID, ""); err != nil {
-		t.Fatalf("failed to link doc2 to epic: %v", err)
-	}
-
-	return epicID, []int64{doc1.ID, doc2.ID}
+	return nil, fmt.Errorf("GetByKey not implemented in mock")
 }
 
-// seedFeatureWithDocs creates a feature in "draft" (planning) status and links documents to it.
-// Returns the feature ID and document IDs.
-func seedFeatureWithDocs(t *testing.T, repoDB *repository.DB, epicID int64) (int64, []int64) {
-	t.Helper()
-	ctx := context.Background()
-
-	// Create feature in planning status (draft)
-	result, err := repoDB.ExecContext(ctx, `
-		INSERT INTO features (epic_id, key, title, slug, description, status)
-		VALUES (?, 'E98-F01', 'Test Planning Feature', 'test-planning-feature', 'Feature in draft status', 'draft')
-	`, epicID)
-	if err != nil {
-		t.Fatalf("failed to insert feature: %v", err)
+func (m *mockDisplayEpicRepo) GetFeatureProgressDataByEpic(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+	if m.getFeatureProgressDataByEpic != nil {
+		return m.getFeatureProgressDataByEpic(ctx, epicID)
 	}
-	featureID, _ := result.LastInsertId()
-
-	// Create documents and link to feature
-	docRepo := repository.NewDocumentRepository(repoDB)
-	entityDocRepo := repository.NewEntityDocumentRepository(repoDB)
-	doc1, err := docRepo.CreateOrGet(ctx, "Feature Spec", "docs/feature-spec.md")
-	if err != nil {
-		t.Fatalf("failed to create doc1: %v", err)
-	}
-
-	if err := entityDocRepo.Link(ctx, models.EntityTypeFeature, featureID, doc1.ID, ""); err != nil {
-		t.Fatalf("failed to link doc1 to feature: %v", err)
-	}
-
-	return featureID, []int64{doc1.ID}
+	return nil, nil
 }
+
+func (m *mockDisplayEpicRepo) GetFeatureStatusRollup(ctx context.Context, epicID int64) (map[string]int, error) {
+	if m.getFeatureStatusRollupFunc != nil {
+		return m.getFeatureStatusRollupFunc(ctx, epicID)
+	}
+	return map[string]int{}, nil
+}
+
+func (m *mockDisplayEpicRepo) GetTaskStatusRollup(ctx context.Context, epicID int64) (map[string]int, error) {
+	if m.getTaskStatusRollupFunc != nil {
+		return m.getTaskStatusRollupFunc(ctx, epicID)
+	}
+	return map[string]int{}, nil
+}
+
+type mockDisplayFeatureRepo struct {
+	getByKeyFunc           func(ctx context.Context, key string) (*models.Feature, error)
+	listByEpicFunc         func(ctx context.Context, epicID int64) ([]*models.Feature, error)
+	getTaskStatusBreakdown func(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error)
+}
+
+func (m *mockDisplayFeatureRepo) GetByKey(ctx context.Context, key string) (*models.Feature, error) {
+	if m.getByKeyFunc != nil {
+		return m.getByKeyFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("GetByKey not implemented in mock")
+}
+
+func (m *mockDisplayFeatureRepo) ListByEpic(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+	if m.listByEpicFunc != nil {
+		return m.listByEpicFunc(ctx, epicID)
+	}
+	return nil, nil
+}
+
+func (m *mockDisplayFeatureRepo) GetTaskStatusBreakdown(ctx context.Context, featureID int64) (map[models.TaskStatus]int, error) {
+	if m.getTaskStatusBreakdown != nil {
+		return m.getTaskStatusBreakdown(ctx, featureID)
+	}
+	return map[models.TaskStatus]int{}, nil
+}
+
+type mockDisplayTaskRepo struct {
+	getTaskCountForFeatureFunc func(ctx context.Context, featureID int64) (int, error)
+	listBlockedTasksByEpicFunc func(ctx context.Context, epicKey string) ([]*models.Task, error)
+	listByFeatureFunc          func(ctx context.Context, featureID int64) ([]*models.Task, error)
+}
+
+func (m *mockDisplayTaskRepo) GetTaskCountForFeature(ctx context.Context, featureID int64) (int, error) {
+	if m.getTaskCountForFeatureFunc != nil {
+		return m.getTaskCountForFeatureFunc(ctx, featureID)
+	}
+	return 0, nil
+}
+
+func (m *mockDisplayTaskRepo) ListBlockedTasksByEpic(ctx context.Context, epicKey string) ([]*models.Task, error) {
+	if m.listBlockedTasksByEpicFunc != nil {
+		return m.listBlockedTasksByEpicFunc(ctx, epicKey)
+	}
+	return nil, nil
+}
+
+func (m *mockDisplayTaskRepo) ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error) {
+	if m.listByFeatureFunc != nil {
+		return m.listByFeatureFunc(ctx, featureID)
+	}
+	return nil, nil
+}
+
+type mockDisplayNoteRepo struct {
+	getByEntityFunc func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
+}
+
+func (m *mockDisplayNoteRepo) GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error) {
+	if m.getByEntityFunc != nil {
+		return m.getByEntityFunc(ctx, entityType, entityID)
+	}
+	return nil, nil
+}
+
+type mockDocumentRepo struct {
+	listForEpicFunc    func(ctx context.Context, epicID int64) ([]*models.Document, error)
+	listForFeatureFunc func(ctx context.Context, featureID int64) ([]*models.Document, error)
+}
+
+func (m *mockDocumentRepo) ListForEpic(ctx context.Context, epicID int64) ([]*models.Document, error) {
+	if m.listForEpicFunc != nil {
+		return m.listForEpicFunc(ctx, epicID)
+	}
+	return []*models.Document{}, nil
+}
+
+func (m *mockDocumentRepo) ListForFeature(ctx context.Context, featureID int64) ([]*models.Document, error) {
+	if m.listForFeatureFunc != nil {
+		return m.listForFeatureFunc(ctx, featureID)
+	}
+	return []*models.Document{}, nil
+}
+
+func (m *mockDocumentRepo) ListForTask(ctx context.Context, taskID int64) ([]*models.Document, error) {
+	return []*models.Document{}, nil
+}
+
+// ============================================================================
+// Mock-based tests for populateEpicPlanningInfo / populateFeaturePlanningInfo
+// ============================================================================
 
 func TestPopulateEpicPlanningInfo_FetchesRelatedDocs(t *testing.T) {
-	svc, cleanup, repoDB := setupTestDisplayService(t)
-	defer cleanup()
+	doc1 := &models.Document{ID: 1, Title: "Architecture Doc", FilePath: "docs/architecture.md"}
+	doc2 := &models.Document{ID: 2, Title: "Test Plan", FilePath: "docs/test-plan.md"}
 
-	epicID, _ := seedEpicWithDocs(t, repoDB)
+	svc := &DisplayService{
+		epicWorkflow:    config.DefaultEpicWorkflow(),
+		featureWorkflow: config.DefaultFeatureWorkflow(),
+		deps: DisplayServiceDeps{
+			FeatureRepo: &mockDisplayFeatureRepo{
+				listByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+					return []*models.Feature{}, nil
+				},
+			},
+			TaskRepo: &mockDisplayTaskRepo{},
+			NoteRepo: &mockDisplayNoteRepo{
+				getByEntityFunc: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error) {
+					return []*models.EntityNote{}, nil
+				},
+			},
+			DocumentRepo: &mockDocumentRepo{
+				listForEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Document, error) {
+					return []*models.Document{doc1, doc2}, nil
+				},
+			},
+		},
+	}
 
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: epicID,
-			Key: "E98"}, Status: "draft",
-		},
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E98"}, Status: "draft"},
 		Mode: DisplayModePlanning,
 	}
 
@@ -597,24 +638,38 @@ func TestPopulateEpicPlanningInfo_FetchesRelatedDocs(t *testing.T) {
 		t.Fatalf("populateEpicPlanningInfo failed: %v", err)
 	}
 
-	// Verify RelatedDocs is populated (this is the bug fix assertion)
 	if len(info.RelatedDocs) != 2 {
 		t.Errorf("expected 2 related docs, got %d", len(info.RelatedDocs))
 	}
 }
 
 func TestPopulateFeaturePlanningInfo_FetchesRelatedDocs(t *testing.T) {
-	svc, cleanup, repoDB := setupTestDisplayService(t)
-	defer cleanup()
+	doc1 := &models.Document{ID: 1, Title: "Feature Spec", FilePath: "docs/feature-spec.md"}
 
-	epicID, _ := seedEpicWithDocs(t, repoDB)
-	featureID, _ := seedFeatureWithDocs(t, repoDB, epicID)
+	svc := &DisplayService{
+		featureWorkflow: config.DefaultFeatureWorkflow(),
+		deps: DisplayServiceDeps{
+			TaskRepo: &mockDisplayTaskRepo{
+				listByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+					return []*models.Task{}, nil
+				},
+			},
+			NoteRepo: &mockDisplayNoteRepo{
+				getByEntityFunc: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error) {
+					return []*models.EntityNote{}, nil
+				},
+			},
+			DocumentRepo: &mockDocumentRepo{
+				listForFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Document, error) {
+					return []*models.Document{doc1}, nil
+				},
+			},
+		},
+	}
 
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: featureID,
-			Key: "E98-F01"}, Status: "draft",
-		},
-		Mode: DisplayModePlanning,
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E98-F01"}, Status: "draft"},
+		Mode:    DisplayModePlanning,
 	}
 
 	ctx := context.Background()
@@ -623,40 +678,42 @@ func TestPopulateFeaturePlanningInfo_FetchesRelatedDocs(t *testing.T) {
 		t.Fatalf("populateFeaturePlanningInfo failed: %v", err)
 	}
 
-	// Verify RelatedDocs is populated (this is the bug fix assertion)
 	if len(info.RelatedDocs) != 1 {
 		t.Errorf("expected 1 related doc, got %d", len(info.RelatedDocs))
 	}
 }
 
 func TestPopulateEpicPlanningInfo_NoDocs_EmptySlice(t *testing.T) {
-	svc, cleanup, repoDB := setupTestDisplayService(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	// Create epic with no linked docs
-	result, err := repoDB.ExecContext(ctx, `
-		INSERT INTO epics (key, title, description, status, priority)
-		VALUES ('E97', 'No Docs Epic', 'Epic with no docs', 'draft', 'medium')
-	`)
-	if err != nil {
-		t.Fatalf("failed to insert epic: %v", err)
+	svc := &DisplayService{
+		epicWorkflow:    config.DefaultEpicWorkflow(),
+		featureWorkflow: config.DefaultFeatureWorkflow(),
+		deps: DisplayServiceDeps{
+			FeatureRepo: &mockDisplayFeatureRepo{
+				listByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+					return []*models.Feature{}, nil
+				},
+			},
+			TaskRepo: &mockDisplayTaskRepo{},
+			NoteRepo: &mockDisplayNoteRepo{},
+			DocumentRepo: &mockDocumentRepo{
+				listForEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Document, error) {
+					return []*models.Document{}, nil
+				},
+			},
+		},
 	}
-	epicID, _ := result.LastInsertId()
 
 	info := &EpicDisplayInfo{
-		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: epicID,
-			Key: "E97"}, Status: "draft",
-		},
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 2, Key: "E97"}, Status: "draft"},
 		Mode: DisplayModePlanning,
 	}
 
-	err = svc.populateEpicPlanningInfo(ctx, info)
+	ctx := context.Background()
+	err := svc.populateEpicPlanningInfo(ctx, info)
 	if err != nil {
 		t.Fatalf("populateEpicPlanningInfo failed: %v", err)
 	}
 
-	// Should be empty slice (not nil) for clean JSON serialization
 	if info.RelatedDocs == nil {
 		t.Error("expected non-nil RelatedDocs (empty slice), got nil")
 	}
@@ -666,47 +723,202 @@ func TestPopulateEpicPlanningInfo_NoDocs_EmptySlice(t *testing.T) {
 }
 
 func TestPopulateFeaturePlanningInfo_NoDocs_EmptySlice(t *testing.T) {
-	svc, cleanup, repoDB := setupTestDisplayService(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	// Create epic first (needed for feature FK)
-	result, err := repoDB.ExecContext(ctx, `
-		INSERT INTO epics (key, title, description, status, priority)
-		VALUES ('E96', 'Parent Epic', 'Parent', 'draft', 'medium')
-	`)
-	if err != nil {
-		t.Fatalf("failed to insert epic: %v", err)
+	svc := &DisplayService{
+		featureWorkflow: config.DefaultFeatureWorkflow(),
+		deps: DisplayServiceDeps{
+			TaskRepo: &mockDisplayTaskRepo{
+				listByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+					return []*models.Task{}, nil
+				},
+			},
+			NoteRepo: &mockDisplayNoteRepo{},
+			DocumentRepo: &mockDocumentRepo{
+				listForFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Document, error) {
+					return []*models.Document{}, nil
+				},
+			},
+		},
 	}
-	epicID, _ := result.LastInsertId()
-
-	// Create feature with no linked docs
-	result, err = repoDB.ExecContext(ctx, `
-		INSERT INTO features (epic_id, key, title, slug, description, status)
-		VALUES (?, 'E96-F01', 'No Docs Feature', 'no-docs-feature', 'Feature with no docs', 'draft')
-	`, epicID)
-	if err != nil {
-		t.Fatalf("failed to insert feature: %v", err)
-	}
-	featureID, _ := result.LastInsertId()
 
 	info := &FeatureDisplayInfo{
-		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: featureID,
-			Key: "E96-F01"}, Status: "draft",
-		},
-		Mode: DisplayModePlanning,
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 3, Key: "E96-F01"}, Status: "draft"},
+		Mode:    DisplayModePlanning,
 	}
 
-	err = svc.populateFeaturePlanningInfo(ctx, info)
+	ctx := context.Background()
+	err := svc.populateFeaturePlanningInfo(ctx, info)
 	if err != nil {
 		t.Fatalf("populateFeaturePlanningInfo failed: %v", err)
 	}
 
-	// Should be empty slice (not nil) for clean JSON serialization
 	if info.RelatedDocs == nil {
 		t.Error("expected non-nil RelatedDocs (empty slice), got nil")
 	}
 	if len(info.RelatedDocs) != 0 {
 		t.Errorf("expected 0 related docs, got %d", len(info.RelatedDocs))
+	}
+}
+
+func TestPopulateEpicPlanningInfo_NotesPopulated(t *testing.T) {
+	notes := []*models.EntityNote{
+		{ID: 1, EntityType: models.EntityTypeEpic, Content: "epic note"},
+	}
+
+	svc := &DisplayService{
+		epicWorkflow:    config.DefaultEpicWorkflow(),
+		featureWorkflow: config.DefaultFeatureWorkflow(),
+		deps: DisplayServiceDeps{
+			FeatureRepo: &mockDisplayFeatureRepo{
+				listByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+					return []*models.Feature{}, nil
+				},
+			},
+			TaskRepo: &mockDisplayTaskRepo{},
+			NoteRepo: &mockDisplayNoteRepo{
+				getByEntityFunc: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error) {
+					return notes, nil
+				},
+			},
+			DocumentRepo: &mockDocumentRepo{},
+		},
+	}
+
+	info := &EpicDisplayInfo{
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"},
+		Mode: DisplayModePlanning,
+	}
+
+	ctx := context.Background()
+	if err := svc.populateEpicPlanningInfo(ctx, info); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(info.Notes) != 1 {
+		t.Errorf("expected 1 note, got %d", len(info.Notes))
+	}
+	if info.Notes[0].Content != "epic note" {
+		t.Errorf("expected note content 'epic note', got %q", info.Notes[0].Content)
+	}
+}
+
+func TestPopulateFeaturePlanningInfo_NotesPopulated(t *testing.T) {
+	notes := []*models.EntityNote{
+		{ID: 2, EntityType: models.EntityTypeFeature, Content: "feature note"},
+	}
+
+	svc := &DisplayService{
+		featureWorkflow: config.DefaultFeatureWorkflow(),
+		deps: DisplayServiceDeps{
+			TaskRepo: &mockDisplayTaskRepo{
+				listByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+					return []*models.Task{}, nil
+				},
+			},
+			NoteRepo: &mockDisplayNoteRepo{
+				getByEntityFunc: func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error) {
+					return notes, nil
+				},
+			},
+			DocumentRepo: &mockDocumentRepo{},
+		},
+	}
+
+	info := &FeatureDisplayInfo{
+		Feature: &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01"}, Status: "draft"},
+		Mode:    DisplayModePlanning,
+	}
+
+	ctx := context.Background()
+	if err := svc.populateFeaturePlanningInfo(ctx, info); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(info.Notes) != 1 {
+		t.Errorf("expected 1 note, got %d", len(info.Notes))
+	}
+	if info.Notes[0].Content != "feature note" {
+		t.Errorf("expected note content 'feature note', got %q", info.Notes[0].Content)
+	}
+}
+
+func TestPopulateEpicPlanningInfo_NilNoteRepo_DoesNotPanic(t *testing.T) {
+	svc := &DisplayService{
+		epicWorkflow:    config.DefaultEpicWorkflow(),
+		featureWorkflow: config.DefaultFeatureWorkflow(),
+		deps: DisplayServiceDeps{
+			FeatureRepo: &mockDisplayFeatureRepo{
+				listByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+					return []*models.Feature{}, nil
+				},
+			},
+			TaskRepo:     &mockDisplayTaskRepo{},
+			NoteRepo:     nil, // explicitly nil
+			DocumentRepo: &mockDocumentRepo{},
+		},
+	}
+
+	info := &EpicDisplayInfo{
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "draft"},
+		Mode: DisplayModePlanning,
+	}
+
+	ctx := context.Background()
+	if err := svc.populateEpicPlanningInfo(ctx, info); err != nil {
+		t.Fatalf("unexpected error with nil NoteRepo: %v", err)
+	}
+
+	// Notes should be initialized to empty slice even if NoteRepo is nil
+	if info.Notes == nil {
+		t.Error("expected non-nil Notes even when NoteRepo is nil")
+	}
+}
+
+func TestPopulateEpicAggregationInfo_BlockedTasks(t *testing.T) {
+	blockedTask := &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"}, Status: "blocked"}
+
+	svc := &DisplayService{
+		epicWorkflow:    config.DefaultEpicWorkflow(),
+		featureWorkflow: config.DefaultFeatureWorkflow(),
+		deps: DisplayServiceDeps{
+			EpicRepo: &mockDisplayEpicRepo{
+				getFeatureProgressDataByEpic: func(ctx context.Context, epicID int64) ([]repository.FeatureProgressData, error) {
+					return []repository.FeatureProgressData{}, nil
+				},
+				getFeatureStatusRollupFunc: func(ctx context.Context, epicID int64) (map[string]int, error) {
+					return map[string]int{}, nil
+				},
+				getTaskStatusRollupFunc: func(ctx context.Context, epicID int64) (map[string]int, error) {
+					return map[string]int{"blocked": 1}, nil
+				},
+			},
+			FeatureRepo: &mockDisplayFeatureRepo{
+				listByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+					return []*models.Feature{}, nil
+				},
+			},
+			TaskRepo: &mockDisplayTaskRepo{
+				listBlockedTasksByEpicFunc: func(ctx context.Context, epicKey string) ([]*models.Task, error) {
+					return []*models.Task{blockedTask}, nil
+				},
+			},
+			DocumentRepo: &mockDocumentRepo{},
+		},
+	}
+
+	info := &EpicDisplayInfo{
+		Epic: &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"},
+		Mode: DisplayModeAggregation,
+	}
+
+	ctx := context.Background()
+	if err := svc.populateEpicAggregationInfo(ctx, info); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(info.BlockedTasks) != 1 {
+		t.Errorf("expected 1 blocked task, got %d", len(info.BlockedTasks))
+	}
+	if info.BlockedTasks[0].Key != "E01-F01-001" {
+		t.Errorf("expected blocked task key 'E01-F01-001', got %q", info.BlockedTasks[0].Key)
 	}
 }

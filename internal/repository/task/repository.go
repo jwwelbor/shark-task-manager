@@ -723,7 +723,16 @@ func (r *TaskRepository) List(ctx context.Context) (_ []*models.Task, retErr err
 	return tasks, nil
 }
 
-// Update updates an existing task
+// BeginTx starts a new database transaction for use by the service layer.
+// Services own transaction boundaries per Standard 8; repositories participate
+// in service-owned transactions by accepting *sql.Tx parameters.
+func (r *TaskRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	return r.db.BeginTxContext(ctx)
+}
+
+// Update updates an existing task.
+// It starts an internal transaction to handle execution_order cascade atomically.
+// For service-owned transactions, use updateWithTx directly after calling BeginTx.
 func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr error) {
 	ctx, span := tracer.Start(ctx, "TaskRepository.Update",
 		trace.WithAttributes(
@@ -766,6 +775,22 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr 
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := r.updateWithTx(ctx, tx, task, needsCascade); err != nil {
+		return err
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// updateWithTx performs the task update within a caller-provided transaction.
+// The needsCascade flag indicates whether execution_order cascade is required.
+// Validation must be performed by the caller before invoking this method.
+func (r *TaskRepository) updateWithTx(ctx context.Context, tx *sql.Tx, task *models.Task, needsCascade bool) error {
 	// If cascade is needed, get all tasks BEFORE updating, then resequence ALL tasks
 	if needsCascade {
 		// Get all tasks in the same feature (before any updates)
@@ -861,11 +886,6 @@ func (r *TaskRepository) Update(ctx context.Context, task *models.Task) (retErr 
 		if rows == 0 {
 			return fmt.Errorf("task not found with id %d", task.ID)
 		}
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil
@@ -980,11 +1000,27 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	unblockedKeys, err := r.updateStatusForcedInternalWithTx(ctx, tx, taskID, newStatus, agent, notes, rejectionReason, documentPath, force)
+	if err != nil {
+		return nil, err
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return unblockedKeys, nil
+}
+
+// updateStatusForcedInternalWithTx performs the forced status update within a caller-provided
+// transaction. All validation must be performed by the caller before invoking this method.
+func (r *TaskRepository) updateStatusForcedInternalWithTx(ctx context.Context, tx *sql.Tx, taskID int64, newStatus models.TaskStatus, agent *string, notes *string, rejectionReason *string, documentPath *string, force bool) ([]string, error) {
 	// Get current task state
 	var currentStatus string
 	var taskKey string
 	var startedAt, completedAt, blockedAt sql.NullTime
-	err = tx.QueryRowContext(ctx, "SELECT key, status, started_at, completed_at, blocked_at FROM tasks WHERE id = ?", taskID).
+	err := tx.QueryRowContext(ctx, "SELECT key, status, started_at, completed_at, blocked_at FROM tasks WHERE id = ?", taskID).
 		Scan(&taskKey, &currentStatus, &startedAt, &completedAt, &blockedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("task not found with id %d", taskID)
@@ -1064,11 +1100,6 @@ func (r *TaskRepository) updateStatusForcedInternal(ctx context.Context, taskID 
 		}
 	}
 
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	return unblockedKeys, nil
 }
 
@@ -1091,6 +1122,26 @@ func (r *TaskRepository) StatusUpdateRaw(ctx context.Context, params models.Stat
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	unblockedKeys, err := r.StatusUpdateRawWithTx(ctx, tx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return unblockedKeys, nil
+}
+
+// StatusUpdateRawWithTx performs the raw status update within a caller-provided transaction.
+// This allows the service layer to own the transaction boundary when multiple repository
+// operations must be atomic. All validation must be performed by the caller before invoking
+// this method.
+//
+// Returns the list of auto-unblocked task keys.
+func (r *TaskRepository) StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, params models.StatusUpdateParams) ([]string, error) {
 	// Update status and timestamps
 	now := time.Now()
 	query := "UPDATE tasks SET status = ?"
@@ -1111,7 +1162,7 @@ func (r *TaskRepository) StatusUpdateRaw(ctx context.Context, params models.Stat
 	query += " WHERE id = ?"
 	args = append(args, params.TaskID)
 
-	_, err = tx.ExecContext(ctx, query, args...)
+	_, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update task status: %w", err)
 	}
@@ -1155,11 +1206,6 @@ func (r *TaskRepository) StatusUpdateRaw(ctx context.Context, params models.Stat
 		if err != nil {
 			return nil, fmt.Errorf("failed to auto-unblock dependents: %w", err)
 		}
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return unblockedKeys, nil
@@ -1322,8 +1368,8 @@ func (r *TaskRepository) GetTaskCountForFeature(ctx context.Context, featureID i
 	return count, nil
 }
 
-// BulkCreate creates multiple tasks in a single transaction
-// Returns number of tasks created and error
+// BulkCreate creates multiple tasks in a single transaction.
+// Returns number of tasks created and error.
 func (r *TaskRepository) BulkCreate(ctx context.Context, tasks []*models.Task) (int, error) {
 	if len(tasks) == 0 {
 		return 0, nil
@@ -1343,6 +1389,23 @@ func (r *TaskRepository) BulkCreate(ctx context.Context, tasks []*models.Task) (
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	count, err := r.bulkCreateWithTx(ctx, tx, tasks)
+	if err != nil {
+		return count, err
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return count, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return count, nil
+}
+
+// bulkCreateWithTx inserts multiple tasks within a caller-provided transaction.
+// Validation must be performed by the caller before invoking this method.
+// Returns the number of tasks successfully inserted.
+func (r *TaskRepository) bulkCreateWithTx(ctx context.Context, tx *sql.Tx, tasks []*models.Task) (int, error) {
 	// Prepare statement for efficiency
 	query := `
 		INSERT INTO tasks (
@@ -1385,11 +1448,6 @@ func (r *TaskRepository) BulkCreate(ctx context.Context, tasks []*models.Task) (
 
 		task.ID = id
 		count++
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return count, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return count, nil

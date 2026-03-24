@@ -324,7 +324,7 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) (retErr 
 
 	query := `
 		UPDATE epics
-		SET title = ?, description = ?, status = ?, priority = ?, business_value = ?
+		SET title = ?, description = ?, status = ?, priority = ?, business_value = ?, file_path = ?
 		WHERE id = ?
 	`
 
@@ -334,6 +334,7 @@ func (r *EpicRepository) Update(ctx context.Context, epic *models.Epic) (retErr 
 		epic.Status,
 		epic.Priority,
 		epic.BusinessValue,
+		epic.FilePath,
 		epic.ID,
 	)
 	if err != nil {
@@ -442,8 +443,15 @@ func (r *EpicRepository) GetFeatureProgressDataByEpic(ctx context.Context, epicI
 	return result, nil
 }
 
-// CreateIfNotExists creates epic only if it doesn't exist
-// Returns epic (existing or newly created) and whether it was created
+// BeginTx starts a new database transaction for use by the service layer.
+// Services own transaction boundaries per Standard 8; repositories participate
+// in service-owned transactions by accepting *sql.Tx parameters.
+func (r *EpicRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	return r.db.BeginTxContext(ctx)
+}
+
+// CreateIfNotExists creates epic only if it doesn't exist.
+// Returns epic (existing or newly created) and whether it was created.
 func (r *EpicRepository) CreateIfNotExists(ctx context.Context, epic *models.Epic) (*models.Epic, bool, error) {
 	// Start transaction to prevent race conditions
 	tx, err := r.db.BeginTxContext(ctx)
@@ -452,6 +460,28 @@ func (r *EpicRepository) CreateIfNotExists(ctx context.Context, epic *models.Epi
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	result, created, err := r.createIfNotExistsWithTx(ctx, tx, epic)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !created {
+		// Epic already existed; no need to commit
+		return result, false, nil
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return result, true, nil
+}
+
+// createIfNotExistsWithTx performs the create-if-not-exists operation within a
+// caller-provided transaction. This allows the service layer to own the transaction
+// boundary when this operation must be composed with other atomic operations.
+func (r *EpicRepository) createIfNotExistsWithTx(ctx context.Context, tx *sql.Tx, epic *models.Epic) (*models.Epic, bool, error) {
 	// Check if epic already exists
 	existing, err := r.GetByKey(ctx, epic.Key)
 	if err == nil {
@@ -487,11 +517,6 @@ func (r *EpicRepository) CreateIfNotExists(ctx context.Context, epic *models.Epi
 	}
 
 	epic.ID = id
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, false, fmt.Errorf("failed to commit transaction: %w", err)
-	}
 
 	return epic, true, nil
 }
@@ -602,8 +627,8 @@ func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status 
 	return nil
 }
 
-// CascadeStatusToFeaturesAndTasks updates the status of all child features and their tasks
-// Used when --force is specified to override workflow validation
+// CascadeStatusToFeaturesAndTasks updates the status of all child features and their tasks.
+// Used when --force is specified to override workflow validation.
 func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
 	tx, err := r.db.BeginTxContext(ctx)
 	if err != nil {
@@ -611,10 +636,25 @@ func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, ep
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := r.CascadeStatusToFeaturesAndTasksWithTx(ctx, tx, epicID, targetFeatureStatus, targetTaskStatus); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// CascadeStatusToFeaturesAndTasksWithTx performs the cascade within a caller-provided
+// transaction. This allows the service layer to own the transaction boundary when
+// this operation must be composed with other atomic operations.
+func (r *EpicRepository) CascadeStatusToFeaturesAndTasksWithTx(ctx context.Context, tx *sql.Tx, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {
 	// First update all features
 	featureQuery := `UPDATE features SET status = ? WHERE epic_id = ?`
 
-	_, err = tx.ExecContext(ctx, featureQuery, targetFeatureStatus, epicID)
+	_, err := tx.ExecContext(ctx, featureQuery, targetFeatureStatus, epicID)
 	if err != nil {
 		return fmt.Errorf("failed to cascade status to features: %w", err)
 	}
@@ -629,10 +669,6 @@ func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, ep
 	_, err = tx.ExecContext(ctx, taskQuery, targetTaskStatus, epicID)
 	if err != nil {
 		return fmt.Errorf("failed to cascade status to tasks: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

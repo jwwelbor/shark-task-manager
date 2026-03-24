@@ -39,6 +39,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
@@ -84,11 +85,37 @@ func (a *workSessionAdapter) GetActiveSessionByTaskID(ctx context.Context, taskI
 }
 
 func (a *workSessionAdapter) GetSessionAnalyticsByFeature(ctx context.Context, featureID int64, agentType *string) (*services.SessionAnalytics, error) {
-	return a.repo.GetSessionAnalyticsByFeature(ctx, featureID, agentType)
+	analytics, err := a.repo.GetSessionAnalyticsByFeature(ctx, featureID, agentType)
+	if err != nil || analytics == nil {
+		return nil, err
+	}
+	return &services.SessionAnalytics{
+		TotalSessions:          analytics.TotalSessions,
+		TotalDuration:          analytics.TotalDuration,
+		AverageDuration:        analytics.AverageDuration,
+		MedianDuration:         analytics.MedianDuration,
+		TasksWithSessions:      analytics.TasksWithSessions,
+		TasksWithPauses:        analytics.TasksWithPauses,
+		AverageSessionsPerTask: analytics.AverageSessionsPerTask,
+		PauseRate:              analytics.PauseRate,
+	}, nil
 }
 
 func (a *workSessionAdapter) GetSessionAnalyticsByEpic(ctx context.Context, epicID int64, agentType *string) (*services.SessionAnalytics, error) {
-	return a.repo.GetSessionAnalyticsByEpic(ctx, epicID, agentType)
+	analytics, err := a.repo.GetSessionAnalyticsByEpic(ctx, epicID, agentType)
+	if err != nil || analytics == nil {
+		return nil, err
+	}
+	return &services.SessionAnalytics{
+		TotalSessions:          analytics.TotalSessions,
+		TotalDuration:          analytics.TotalDuration,
+		AverageDuration:        analytics.AverageDuration,
+		MedianDuration:         analytics.MedianDuration,
+		TasksWithSessions:      analytics.TasksWithSessions,
+		TasksWithPauses:        analytics.TasksWithPauses,
+		AverageSessionsPerTask: analytics.AverageSessionsPerTask,
+		PauseRate:              analytics.PauseRate,
+	}, nil
 }
 
 // taskHistoryAdapter adapts *repository.TaskHistoryRepository to the services.TaskHistoryRepository interface.
@@ -218,9 +245,18 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		projectRoot,
 	)
 
-	noteService := services.NewNoteService(noteRepo, registry)
-	contextService := services.NewContextService(registry)
-	resumeService := services.NewResumeService(epicRepo, featureRepo, taskRepo, noteRepo, registry)
+	noteService, err := services.NewNoteService(noteRepo, registry)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create NoteService: %v", err))
+	}
+	contextService, err := services.NewContextService(registry)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create ContextService: %v", err))
+	}
+	resumeService, err := services.NewResumeService(epicRepo, featureRepo, taskRepo, noteRepo, registry)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create ResumeService: %v", err))
+	}
 
 	// Step 5: Return container with all services
 	_ = historyRepo // available for future wiring

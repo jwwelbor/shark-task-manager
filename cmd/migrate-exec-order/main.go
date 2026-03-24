@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func main() {

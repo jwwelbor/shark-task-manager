@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -141,6 +142,17 @@ func (m *MockTaskRepository) StatusUpdateRaw(ctx context.Context, params models.
 		return m.StatusUpdateRawFunc(ctx, params)
 	}
 	return nil, fmt.Errorf("StatusUpdateRaw not implemented in mock")
+}
+
+func (m *MockTaskRepository) StatusUpdateRawWithTx(_ context.Context, _ *sql.Tx, params models.StatusUpdateParams) ([]string, error) {
+	if m.StatusUpdateRawFunc != nil {
+		return m.StatusUpdateRawFunc(context.Background(), params)
+	}
+	return nil, nil
+}
+
+func (m *MockTaskRepository) BeginTx(_ context.Context) (*sql.Tx, error) {
+	return nil, nil
 }
 
 func (m *MockTaskRepository) FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error) {

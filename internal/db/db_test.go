@@ -1,11 +1,45 @@
 package db
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestInitDB_ConnectionPoolSettings verifies that InitDB configures the sql.DB
+// connection pool with SQLite-appropriate values.
+func TestInitDB_ConnectionPoolSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := InitDB(dbPath)
+	require.NoError(t, err, "InitDB should succeed")
+	defer db.Close()
+
+	stats := db.Stats()
+
+	// MaxOpenConnections must be bounded (not unlimited/0) so the pool does not
+	// grow without limit during bursts. 25 connections allows concurrency while
+	// keeping resource usage predictable.
+	assert.Equal(t, 25, stats.MaxOpenConnections,
+		"MaxOpenConnections should be 25 after InitDB configures the pool")
+}
+
+// TestConfigureConnectionPool verifies the pool settings on a bare *sql.DB.
+func TestConfigureConnectionPool(t *testing.T) {
+	// Open an in-memory SQLite database to inspect pool settings.
+	db, err := sql.Open("sqlite", ":memory:")
+	require.NoError(t, err, "sql.Open should succeed")
+	defer db.Close()
+
+	configureConnectionPool(db)
+
+	stats := db.Stats()
+	assert.Equal(t, 25, stats.MaxOpenConnections,
+		"MaxOpenConnections should be 25 after configureConnectionPool")
+}
 
 // TestMigration_RejectionReason verifies that the database schema includes rejection_reason
 // column in entity_history table (originally E07-F22 for task_history, now in

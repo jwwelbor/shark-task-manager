@@ -11,9 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jwwelbor/shark-task-manager/internal/api"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/observability"
+	"github.com/jwwelbor/shark-task-manager/internal/repository"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -55,6 +57,10 @@ func main() {
 	}
 	slog.Info("Database integrity check passed")
 
+	// Wire up services using the repository.DB wrapper.
+	repoDB := repository.NewDB(database)
+	svcs := WireServices(repoDB, ".")
+
 	// Set up routes
 	mux := http.NewServeMux()
 
@@ -73,6 +79,13 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "OK")
 	})
+
+	// Register CRUD handlers for tasks, features, and epics.
+	api.NewTaskHandler(svcs.TaskService).RegisterRoutes(mux)
+	api.NewFeatureHandler(svcs.FeatureService).RegisterRoutes(mux)
+	api.NewEpicHandler(svcs.EpicService).RegisterRoutes(mux)
+
+	slog.Info("API routes registered", "prefix", "/api/v1")
 
 	// Wrap the mux with otelhttp middleware for automatic span creation
 	// and request metrics on all routes.

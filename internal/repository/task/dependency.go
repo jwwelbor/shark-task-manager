@@ -158,16 +158,31 @@ func (r *TaskRepository) ReopenTaskWithAutoBlock(ctx context.Context, taskID int
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := r.ReopenTaskWithAutoBlockWithTx(ctx, tx, taskID, agent, notes); err != nil {
+		return err
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// ReopenTaskWithAutoBlockWithTx reopens a task and blocks all dependents within a
+// caller-provided transaction. This allows the service layer to own the transaction
+// boundary when this operation must be composed with other atomic operations.
+func (r *TaskRepository) ReopenTaskWithAutoBlockWithTx(ctx context.Context, tx *sql.Tx, taskID int64, agent *string, notes *string) error {
 	// Get the task being reopened
 	var taskKey string
-	err = tx.QueryRowContext(ctx, "SELECT key FROM tasks WHERE id = ?", taskID).Scan(&taskKey)
+	err := tx.QueryRowContext(ctx, "SELECT key FROM tasks WHERE id = ?", taskID).Scan(&taskKey)
 	if err != nil {
 		return fmt.Errorf("failed to get task key: %w", err)
 	}
 
 	// Reopen the task
-	err = r.reopenTaskInTx(ctx, tx, taskID, agent, notes)
-	if err != nil {
+	if err := r.reopenTaskInTx(ctx, tx, taskID, agent, notes); err != nil {
 		return fmt.Errorf("failed to reopen task: %w", err)
 	}
 
@@ -183,11 +198,6 @@ func (r *TaskRepository) ReopenTaskWithAutoBlock(ctx context.Context, taskID int
 		if err := r.blockTaskAndDependentsInTx(ctx, tx, dependent, taskKey, blockedTasks); err != nil {
 			return fmt.Errorf("failed to block dependent %s: %w", dependent.Key, err)
 		}
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil
