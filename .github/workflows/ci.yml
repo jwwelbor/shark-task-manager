@@ -36,10 +36,17 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        run: go test -v -p=1 ./...
+        run: go test -v ./...
 
-      - name: Run tests with coverage
-        run: go test -v -p=1 -coverprofile=coverage.out ./...
+      - name: Generate coverage report
+        run: |
+          # Only run coverage on packages that have test files.
+          # Using -coverprofile with ./... on packages without tests
+          # causes "go: no such tool covdata" on some Go toolchains.
+          go test -coverprofile=coverage.out $(go list ./... | while read pkg; do
+            dir=$(go list -f '{{.Dir}}' "$pkg")
+            ls "$dir"/*_test.go >/dev/null 2>&1 && echo "$pkg"
+          done)
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3

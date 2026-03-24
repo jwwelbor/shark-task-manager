@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // SQLiteDriver implements the Database interface for SQLite
@@ -26,10 +26,14 @@ func (s *SQLiteDriver) Connect(ctx context.Context, dsn string) error {
 		dsn += "&_foreign_keys=on"
 	}
 
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return err
 	}
+
+	// Configure connection pool before any operations.
+	// SQLite serializes writes, so limiting open connections prevents lock contention.
+	configureConnectionPool(db)
 
 	// Test the connection
 	if err := db.PingContext(ctx); err != nil {
@@ -110,7 +114,7 @@ func (s *SQLiteDriver) Begin(ctx context.Context) (Tx, error) {
 
 // DriverName returns the name of this driver
 func (s *SQLiteDriver) DriverName() string {
-	return "sqlite3"
+	return "sqlite"
 }
 
 // GetSQLDB returns the underlying *sql.DB for backward compatibility

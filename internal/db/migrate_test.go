@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func TestMigrateAddExecutionOrder(t *testing.T) {
@@ -236,7 +236,7 @@ func TestMigrateAddSlugColumns(t *testing.T) {
 // correctly recreates the task_history table with the proper foreign key reference
 func TestMigrateTasksStatusConstraint_FixesTaskHistoryForeignKey(t *testing.T) {
 	// Create a test database in memory
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
@@ -394,7 +394,7 @@ func containsSubstring(s, substr string) bool {
 // migration function fixes task_history in databases where tasks was already migrated
 func TestMigrateTaskHistoryForeignKey_AlreadyMigratedDatabase(t *testing.T) {
 	// Create a test database in memory
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}

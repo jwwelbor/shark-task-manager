@@ -21,8 +21,17 @@ import (
 // setupTracingTest configures a recording TracerProvider and returns the exporter.
 // The exporter captures all spans created during the test for assertion.
 // Cleanup restores the original tracer and provider.
+//
+// Goroutine safety: tracerMu is acquired before any package-level tracer variable is
+// mutated and released only after the cleanup closure has fully restored all originals.
+// This prevents data races when tests are run with t.Parallel().
 func setupTracingTest(t *testing.T) *tracetest.InMemoryExporter {
 	t.Helper()
+
+	// Acquire the tracer lock before touching any global state.
+	// The lock is released in the t.Cleanup closure below, after all originals
+	// are restored, so only one test at a time can swap the global tracers.
+	tracerMu.Lock()
 
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
@@ -51,6 +60,8 @@ func setupTracingTest(t *testing.T) *tracetest.InMemoryExporter {
 	restoreEpicTracer := epicpkg.SetTracerForTesting(tp.Tracer("internal/repository/epic"))
 
 	t.Cleanup(func() {
+		// Restore all tracers to their original values before releasing the lock
+		// so that no concurrent test can observe a partially-restored state.
 		restoreEpicTracer()
 		restoreFeatureTracer()
 		restoreTaskTracer()
@@ -58,6 +69,7 @@ func setupTracingTest(t *testing.T) *tracetest.InMemoryExporter {
 		repoTracer = prevTracer
 		otel.SetTracerProvider(prevProvider)
 		_ = tp.Shutdown(context.Background())
+		tracerMu.Unlock()
 	})
 
 	return exporter
@@ -84,6 +96,12 @@ func findStubByName(stubs tracetest.SpanStubs, name string) *tracetest.SpanStub 
 
 // testMu protects concurrent test access to the shared test database seeding.
 var testMu sync.Mutex
+
+// tracerMu serialises the global-provider swap and all sub-package tracer swaps
+// performed by setupTracingTest. The lock is acquired before any tracer variable is
+// mutated and released only after the cleanup closure has restored all originals.
+// This prevents data races if tests are ever run with t.Parallel().
+var tracerMu sync.Mutex
 
 func TestTaskRepository_GetByKey_SpanCreated(t *testing.T) {
 	exporter := setupTracingTest(t)

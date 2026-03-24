@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -141,6 +142,17 @@ func (m *MockTaskRepository) StatusUpdateRaw(ctx context.Context, params models.
 		return m.StatusUpdateRawFunc(ctx, params)
 	}
 	return nil, fmt.Errorf("StatusUpdateRaw not implemented in mock")
+}
+
+func (m *MockTaskRepository) StatusUpdateRawWithTx(_ context.Context, _ *sql.Tx, params models.StatusUpdateParams) ([]string, error) {
+	if m.StatusUpdateRawFunc != nil {
+		return m.StatusUpdateRawFunc(context.Background(), params)
+	}
+	return nil, nil
+}
+
+func (m *MockTaskRepository) BeginTx(_ context.Context) (*sql.Tx, error) {
+	return nil, nil
 }
 
 func (m *MockTaskRepository) FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error) {
@@ -2679,11 +2691,15 @@ func TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded(t 
 
 	// Assert that a warning was logged for the recalc error — NOT silently discarded.
 	var found bool
+	var logMessage string
+	var errorAttrValue string
 	for _, r := range handler.records {
 		if r.Level == slog.LevelWarn {
+			logMessage = r.Message
 			r.Attrs(func(a slog.Attr) bool {
 				if a.Key == "error" {
 					found = true
+					errorAttrValue = a.Value.String()
 					return false
 				}
 				return true
@@ -2693,4 +2709,8 @@ func TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded(t 
 	assert.True(t, found,
 		"expected slog.Warn to be called with an 'error' attribute when RecalculateAndSetProgress fails, "+
 			"but no warning was logged — error was silently discarded (B005)")
+	assert.Contains(t, logMessage, "feature progress recalculation failed",
+		"warning message should mention 'feature progress recalculation failed'")
+	assert.Contains(t, errorAttrValue, recalcErr.Error(),
+		"error attribute should contain the simulated error text")
 }

@@ -4,11 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
-	sqlDB, err := sql.Open("sqlite3", "shark-tasks.db?_foreign_keys=on")
+	sqlDB, err := sql.Open("sqlite", "shark-tasks.db?_foreign_keys=on")
 	if err != nil {
 		fmt.Printf("open error: %v\n", err)
 		return

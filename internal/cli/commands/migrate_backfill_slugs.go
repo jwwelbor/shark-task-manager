@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 
@@ -52,18 +51,11 @@ func init() {
 }
 
 func runBackfillSlugs(cmd *cobra.Command, args []string) error {
-	// Get database path
-	dbPath, err := cli.GetDBPath()
+	// Get the shared database connection (cloud-aware, WAL mode, PRAGMA configured)
+	repoDb, err := cli.GetDB(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("failed to get database path: %w", err)
+		return fmt.Errorf("failed to get database: %w", err)
 	}
-
-	// Open database
-	database, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
-	// Note: Database will be closed automatically by PersistentPostRunE hook
 
 	// Show dry-run notice
 	if backfillDryRun && !cli.GlobalConfig.JSON {
@@ -76,7 +68,7 @@ func runBackfillSlugs(cmd *cobra.Command, args []string) error {
 		cli.Info("Backfilling slugs from file paths...")
 	}
 
-	stats, err := db.BackfillSlugsFromFilePaths(database, backfillDryRun)
+	stats, err := db.BackfillSlugsFromFilePaths(repoDb.DB, backfillDryRun)
 	if err != nil {
 		return fmt.Errorf("migration failed: %w", err)
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -26,6 +27,10 @@ type Config struct {
 
 // GlobalConfig is the shared configuration instance
 var GlobalConfig = &Config{}
+
+// lastCmdName stores the Cobra command path of the most recently started command.
+// Set in PersistentPreRunE and consumed by Execute() for error-path metric recording.
+var lastCmdName string
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
@@ -72,6 +77,10 @@ Examples:
 		// Initialize command metrics (captures start time for duration tracking)
 		InitCommandMetrics()
 
+		// Record the command path so Execute() can use it on the error path.
+		// PersistentPostRunE only runs on success, so Execute() must handle errors.
+		lastCmdName = cmd.CommandPath()
+
 		// Disable color output if requested
 		if GlobalConfig.NoColor {
 			pterm.DisableColor()
@@ -112,8 +121,35 @@ func SetVersion(version string) {
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
+// When a command's RunE returns an error, Cobra skips PersistentPostRunE, so metrics
+// and cleanup (observability shutdown, DB close) would be silently skipped. Execute()
+// intercepts the error, records it in command metrics, and runs cleanup before returning.
 func Execute() error {
-	return RootCmd.Execute()
+	err := RootCmd.Execute()
+	if err != nil {
+		// PersistentPostRunE was skipped because RunE returned an error.
+		// Record metrics with the actual error so the errors counter is incremented.
+		ctx := RootCmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		RecordCommandMetrics(ctx, lastCmdName, err)
+
+		// Flush observability spans/metrics before process exit.
+		if shutdownErr := ShutdownObservability(); shutdownErr != nil {
+			if GlobalConfig.Verbose {
+				slog.Warn("observability shutdown failed", "error", shutdownErr)
+			}
+		}
+
+		// Close database connection if it was opened.
+		if closeErr := CloseDB(); closeErr != nil {
+			if GlobalConfig.Verbose {
+				pterm.Warning.Printf("Failed to close database: %v\n", closeErr)
+			}
+		}
+	}
+	return err
 }
 
 func init() {

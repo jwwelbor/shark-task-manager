@@ -29,14 +29,14 @@ type NoteService struct {
 }
 
 // NewNoteService creates a new NoteService with injected dependencies.
-func NewNoteService(noteRepo NoteEntityNoteRepository, registry *EntityRegistry) *NoteService {
+func NewNoteService(noteRepo NoteEntityNoteRepository, registry *EntityRegistry) (*NoteService, error) {
 	if registry == nil {
-		panic("NoteService: EntityRegistry must not be nil")
+		return nil, fmt.Errorf("NoteService: EntityRegistry must not be nil")
 	}
 	return &NoteService{
 		noteRepo: noteRepo,
 		registry: registry,
-	}
+	}, nil
 }
 
 // GetEntityDetails returns the key and name of the entity referenced by a note.

@@ -106,7 +106,7 @@ func TestGetRejectionCounts(t *testing.T) {
 				_, err := database.ExecContext(ctx, `
 					INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_at, created_by)
 					VALUES ('task', ?, 'rejection', ?, ?, 'test-rejector')
-				`, task.ID, "Rejection reason "+string(rune('0'+j)), noteTime)
+				`, task.ID, "Rejection reason "+string(rune('0'+j)), noteTime.UTC().Format("2006-01-02 15:04:05"))
 				if err != nil {
 					t.Fatalf("Failed to create rejection note: %v", err)
 				}
@@ -205,7 +205,7 @@ func TestGetRejectionCountsMultipleTasks(t *testing.T) {
 			_, _ = database.ExecContext(ctx, `
 				INSERT INTO entity_notes (entity_type, entity_id, note_type, content, created_at, created_by)
 				VALUES ('task', ?, 'rejection', ?, ?, 'test-rejector')
-			`, taskID, "Rejection", time.Now())
+			`, taskID, "Rejection", time.Now().UTC().Format("2006-01-02 15:04:05"))
 		}
 	}
 

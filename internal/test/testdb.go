@@ -5,37 +5,46 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 )
 
 var (
-	testDB *sql.DB
-	dbOnce sync.Once
-	dbPath string
+	testDB    *sql.DB
+	dbOnce    sync.Once
+	dbDirOnce sync.Once
+	dbDir     string
 )
 
-// init determines the test database path
-func init() {
-	// Try to find the project root by looking for internal/repository directory
-	// If it doesn't exist, create a temp directory
-	if _, err := os.Stat("internal/repository"); err == nil {
-		dbPath = "internal/repository/test-shark-tasks.db"
-	} else if _, err := os.Stat("../../internal/repository"); err == nil {
-		dbPath = "../../internal/repository/test-shark-tasks.db"
-	} else {
-		// Fallback to temp directory
-		dbPath = filepath.Join(os.TempDir(), "shark-test-tasks.db")
-	}
+// initDBDir initialises dbDir to a unique temp directory per test-binary
+// invocation.  Using os.MkdirTemp guarantees that concurrent test binaries
+// (i.e. packages running in parallel under go test -p N) each get their own
+// private directory and never share the same SQLite file.
+func initDBDir() {
+	dbDirOnce.Do(func() {
+		var err error
+		dbDir, err = os.MkdirTemp("", "shark-test-*")
+		if err != nil {
+			panic("test: failed to create temp DB directory: " + err.Error())
+		}
+	})
 }
 
-// GetTestDB returns a shared test database
+// GetTestDB returns a shared test database for the current test-binary
+// invocation.  The database lives in a temp directory that is unique per
+// binary, so packages running in parallel (go test -p N) never share the
+// same SQLite file and do not interfere with each other.
+//
+// Within a single test-binary all calls return the same *sql.DB connection,
+// preserving the original "shared singleton" semantics that existing tests
+// rely on for setup/tear-down via DELETE statements.
 func GetTestDB() *sql.DB {
+	initDBDir()
 	dbOnce.Do(func() {
-		// Ensure directory exists
-		dir := filepath.Dir(dbPath)
-		_ = os.MkdirAll(dir, 0755)
+		dbPath := filepath.Join(dbDir, "test-shark-tasks.db")
 
 		var err error
 		testDB, err = db.InitDB(dbPath)
@@ -106,7 +115,7 @@ func SeedTestData() (int64, int64) {
 		// In parallel tests, E99-F99 feature might be deleted by another test between our INSERT and this point
 		// FK constraint errors are acceptable here since tests that need this data will fail anyway
 		// Don't panic on FK errors, just skip the task creation
-		if err.Error() != "FOREIGN KEY constraint failed" {
+		if !strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
 			panic(fmt.Sprintf("Failed to insert test tasks: %v", err))
 		}
 	}
@@ -135,12 +144,51 @@ func SeedTestData() (int64, int64) {
 		// In parallel tests, E04 epic might be deleted by another test between our INSERT and this point
 		// FK constraint errors are acceptable here since E04-F05 is optional test data
 		// Don't panic on FK errors, just skip the feature creation
-		if err.Error() != "FOREIGN KEY constraint failed" {
+		if !strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
 			panic(fmt.Sprintf("Failed to insert E04-F05 feature: %v", err))
 		}
 	}
 
 	return epicID, featureID
+}
+
+// NewIsolatedTestDB creates a per-test isolated SQLite database in a temp directory.
+//
+// Unlike GetTestDB (which returns a single shared database), each call to
+// NewIsolatedTestDB returns a fresh, empty database with the full schema applied.
+// The database file is automatically deleted when the test finishes via t.Cleanup.
+//
+// Use this function when:
+//   - Your test calls t.Parallel() and needs an independent database
+//   - Your test mutates shared rows (e.g. E99, E04) that other tests also use
+//   - You want true isolation without DELETE-before/after boilerplate
+//
+// Example:
+//
+//	func TestMyRepo_Create(t *testing.T) {
+//	    t.Parallel()
+//	    database := test.NewIsolatedTestDB(t)
+//	    repo := NewMyRepository(NewDB(database))
+//	    // test body – no cleanup needed
+//	}
+func NewIsolatedTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	dir := t.TempDir() // automatically removed by t.Cleanup
+	dbFile := filepath.Join(dir, "test-isolated.db")
+
+	database, err := db.InitDB(dbFile)
+	if err != nil {
+		t.Fatalf("NewIsolatedTestDB: failed to initialise database: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if closeErr := database.Close(); closeErr != nil {
+			t.Logf("NewIsolatedTestDB: error closing database: %v", closeErr)
+		}
+	})
+
+	return database
 }
 
 // StringPtr returns a pointer to a string

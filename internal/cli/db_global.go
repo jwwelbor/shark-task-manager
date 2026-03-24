@@ -3,20 +3,41 @@ package cli
 import (
 	"context"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 )
 
-var (
-	// globalDB holds the shared database connection for all commands
-	globalDB *repository.DB
+// dbContainer holds the database connection and its initialization state.
+// Using a container struct makes ResetDB() safe: we swap the entire
+// container atomically instead of reassigning individual sync.Once values
+// (which would be a data race if any goroutine is mid-initialization).
+type dbContainer struct {
+	db       *repository.DB
+	initOnce sync.Once
+	initErr  error
+}
 
-	// dbInitOnce ensures database is initialized exactly once
-	dbInitOnce sync.Once
+// globalDBContainer is accessed only through loadDBContainer / storeDBContainer.
+// Using atomic pointer operations ensures that a call to ResetDB()
+// is immediately visible to any goroutine that subsequently calls
+// GetDB(), without requiring a separate mutex.
+//
+//nolint:gochecknoglobals // Intentional package-level singleton for CLI entry points.
+var globalDBContainer unsafe.Pointer // *dbContainer
 
-	// dbInitErr stores initialization error for propagation
-	dbInitErr error
-)
+func init() {
+	storeDBContainer(new(dbContainer))
+}
+
+func loadDBContainer() *dbContainer {
+	return (*dbContainer)(atomic.LoadPointer(&globalDBContainer))
+}
+
+func storeDBContainer(c *dbContainer) {
+	atomic.StorePointer(&globalDBContainer, unsafe.Pointer(c))
+}
 
 // GetDB returns the global database connection, initializing it if needed.
 // This is the ONLY function commands should call to get database access.
@@ -36,27 +57,27 @@ func GetDB(ctx context.Context) (*repository.DB, error) {
 		ctx = context.Background()
 	}
 
-	dbInitOnce.Do(func() {
-		globalDB, dbInitErr = initDatabase(ctx)
+	c := loadDBContainer()
+	c.initOnce.Do(func() {
+		c.db, c.initErr = initDatabase(ctx)
 	})
 
-	if dbInitErr != nil {
-		return nil, dbInitErr
+	if c.initErr != nil {
+		return nil, c.initErr
 	}
 
-	return globalDB, nil
+	return c.db, nil
 }
 
 // CloseDB closes the global database connection.
 // Called automatically by root command's PersistentPostRunE hook.
 // It's safe to call multiple times (subsequent calls are no-ops).
 func CloseDB() error {
-	if globalDB != nil {
-		err := globalDB.Close()
-		// Reset state after close (allows reinitialization if needed)
-		globalDB = nil
-		dbInitErr = nil
-		dbInitOnce = sync.Once{}
+	c := loadDBContainer()
+	if c.db != nil {
+		err := c.db.Close()
+		// Swap to a fresh container so subsequent calls see clean state
+		storeDBContainer(new(dbContainer))
 		return err
 	}
 	return nil
@@ -66,10 +87,9 @@ func CloseDB() error {
 // This is intended for testing only - DO NOT use in production code.
 // It allows tests to reset state between test cases.
 func ResetDB() {
-	if globalDB != nil {
-		globalDB.Close()
+	c := loadDBContainer()
+	if c.db != nil {
+		c.db.Close()
 	}
-	globalDB = nil
-	dbInitErr = nil
-	dbInitOnce = sync.Once{}
+	storeDBContainer(new(dbContainer))
 }

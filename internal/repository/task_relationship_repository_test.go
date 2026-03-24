@@ -552,21 +552,47 @@ func TestDuplicateRelationshipPrevention(t *testing.T) {
 	}
 }
 
-// TestCascadeDeleteOnTaskDeletion tests that relationships are deleted when tasks are deleted
+// TestCascadeDeleteOnTaskDeletion tests that relationships are deleted when tasks are deleted.
+// Uses an isolated DB to avoid interference from other tests that share the task_relationships table.
 func TestCascadeDeleteOnTaskDeletion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	database := test.GetTestDB()
+	database := test.NewIsolatedTestDB(t)
 	db := NewDB(database)
 	relRepo := NewTaskRelationshipRepository(db)
 
-	test.SeedTestData()
+	// Seed test data in the isolated DB
+	_, err := database.ExecContext(ctx,
+		"INSERT INTO epics (key, title, status, priority) VALUES ('E99', 'Test Epic', 'active', 'high')")
+	if err != nil {
+		t.Fatalf("Failed to seed epic: %v", err)
+	}
+	var epicID int64
+	err = database.QueryRowContext(ctx, "SELECT id FROM epics WHERE key = 'E99'").Scan(&epicID)
+	if err != nil {
+		t.Fatalf("Failed to get epic ID: %v", err)
+	}
+	_, err = database.ExecContext(ctx,
+		"INSERT INTO features (epic_id, key, title, status) VALUES (?, 'E99-F99', 'Test Feature', 'active')", epicID)
+	if err != nil {
+		t.Fatalf("Failed to seed feature: %v", err)
+	}
+	var featureID int64
+	err = database.QueryRowContext(ctx, "SELECT id FROM features WHERE key = 'E99-F99'").Scan(&featureID)
+	if err != nil {
+		t.Fatalf("Failed to get feature ID: %v", err)
+	}
 
-	// Clean up any existing relationships from previous tests
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	// Create two tasks
+	_, err = database.ExecContext(ctx,
+		"INSERT INTO tasks (feature_id, key, title, status, agent_type, priority, depends_on) VALUES (?, 'T-E99-F99-002', 'Task 2', 'todo', 'backend', 2, '[]'), (?, 'T-E99-F99-003', 'Task 3', 'todo', 'backend', 3, '[]')",
+		featureID, featureID)
+	if err != nil {
+		t.Fatalf("Failed to seed tasks: %v", err)
+	}
 
-	// Get tasks - use task3 to delete since task4 might not exist
 	var task2ID, task3ID int64
-	err := database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-002'").Scan(&task2ID)
+	err = database.QueryRowContext(ctx, "SELECT id FROM tasks WHERE key = 'T-E99-F99-002'").Scan(&task2ID)
 	if err != nil {
 		t.Fatalf("Failed to get test task 2: %v", err)
 	}

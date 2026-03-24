@@ -37,18 +37,16 @@ type IdeaService struct {
 // NewIdeaService creates a new IdeaService with the required dependencies.
 //
 // Parameters:
-//   - repo: idea repository for data access (required, panics if nil)
+//   - repo: idea repository for data access (required)
 //
 // Returns:
 //   - *IdeaService: configured idea service instance
-//
-// Panics:
-//   - If repo is nil (required dependency)
-func NewIdeaService(repo IdeaRepository) *IdeaService {
+//   - error: if repo is nil
+func NewIdeaService(repo IdeaRepository) (*IdeaService, error) {
 	if repo == nil {
-		panic("IdeaService requires a non-nil IdeaRepository")
+		return nil, fmt.Errorf("IdeaService requires a non-nil IdeaRepository")
 	}
-	return &IdeaService{repo: repo}
+	return &IdeaService{repo: repo}, nil
 }
 
 // CreateIdea creates a new idea with a date-based key generated automatically.

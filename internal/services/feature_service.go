@@ -846,16 +846,13 @@ func (s *FeatureService) UpdateFeature(ctx context.Context, key string, updates 
 		return nil, fmt.Errorf("feature validation failed: %w", err)
 	}
 
-	if err := s.repo.Update(ctx, feature); err != nil {
-		return nil, fmt.Errorf("failed to update feature %s: %w", key, err)
+	// file_path is included in the Update query — single atomic operation
+	if updates.FilePath != nil {
+		feature.FilePath = updates.FilePath
 	}
 
-	// Update file path separately since repo.Update doesn't include file_path
-	if updates.FilePath != nil {
-		if err := s.repo.UpdateFilePath(ctx, feature.Key, updates.FilePath); err != nil {
-			return nil, fmt.Errorf("failed to update feature %s file path: %w", key, err)
-		}
-		feature.FilePath = updates.FilePath
+	if err := s.repo.Update(ctx, feature); err != nil {
+		return nil, fmt.Errorf("failed to update feature %s: %w", key, err)
 	}
 
 	return feature, nil

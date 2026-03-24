@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -16,76 +18,103 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/view"
 )
 
-var (
-	globalRegistry *services.EntityRegistry
-	registryOnce   sync.Once
+// serviceContainer holds all lazily-initialized singleton services.
+// Using a single struct makes ResetServices() safe: we swap the entire
+// container atomically instead of reassigning individual sync.Once values
+// (which would be a data race if any goroutine is mid-initialization).
+type serviceContainer struct {
+	registryOnce sync.Once
+	registry     *services.EntityRegistry
 
-	globalEntityService *services.EntityService
-	entityServiceOnce   sync.Once
+	entityServiceOnce sync.Once
+	entityService     *services.EntityService
 
-	globalActionService config.ActionService
-	actionServiceOnce   sync.Once
-	actionServiceErr    error
+	actionServiceOnce sync.Once
+	actionService     config.ActionService
+	actionServiceErr  error
 
-	globalNoteService *services.NoteService
-	noteServiceOnce   sync.Once
-	noteServiceErr    error
+	noteServiceOnce sync.Once
+	noteService     *services.NoteService
+	noteServiceErr  error
 
-	globalContextService *services.ContextService
-	contextServiceOnce   sync.Once
+	contextServiceOnce sync.Once
+	contextService     *services.ContextService
 
-	globalResumeService *services.ResumeService
-	resumeServiceOnce   sync.Once
-	resumeServiceErr    error
-)
+	resumeServiceOnce sync.Once
+	resumeService     *services.ResumeService
+	resumeServiceErr  error
+}
+
+// globalContainer is accessed only through loadContainer / storeContainer.
+// Using atomic pointer operations ensures that a call to ResetServices()
+// is immediately visible to any goroutine that subsequently calls a
+// Get* function, without requiring a separate mutex.
+//
+//nolint:gochecknoglobals // Intentional package-level singleton for CLI entry points.
+var globalContainer unsafe.Pointer // *serviceContainer
+
+func init() {
+	storeContainer(new(serviceContainer))
+}
+
+func loadContainer() *serviceContainer {
+	return (*serviceContainer)(atomic.LoadPointer(&globalContainer))
+}
+
+func storeContainer(c *serviceContainer) {
+	atomic.StorePointer(&globalContainer, unsafe.Pointer(c))
+}
 
 // GetEntityRegistry returns the global EntityRegistry, initializing it if needed.
 // Uses sync.Once for thread-safe lazy initialization.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
 func GetEntityRegistry() *services.EntityRegistry {
-	registryOnce.Do(func() {
+	c := loadContainer()
+	c.registryOnce.Do(func() {
 		db, err := GetDB(context.Background())
 		if err != nil {
 			panic(fmt.Sprintf("failed to get database for EntityRegistry: %v", err))
 		}
 
-		globalRegistry = services.NewEntityRegistry()
-		globalRegistry.Register(models.EntityTypeEpic,
+		c.registry = services.NewEntityRegistry()
+		c.registry.Register(models.EntityTypeEpic,
 			services.NewEpicRepositoryAdapter(repository.NewEpicRepository(db)))
-		globalRegistry.Register(models.EntityTypeFeature,
+		c.registry.Register(models.EntityTypeFeature,
 			services.NewFeatureRepositoryAdapter(repository.NewFeatureRepository(db)))
-		globalRegistry.Register(models.EntityTypeTask,
+		c.registry.Register(models.EntityTypeTask,
 			services.NewTaskRepositoryAdapter(repository.NewTaskRepository(db)))
-		globalRegistry.Register(models.EntityTypeBug,
+		c.registry.Register(models.EntityTypeBug,
 			services.NewBugRepositoryAdapter(repository.NewBugRepository(db)))
-		globalRegistry.Register(models.EntityTypeChange,
+		c.registry.Register(models.EntityTypeChange,
 			services.NewChangeCardRepositoryAdapter(repository.NewChangeCardRepository(db)))
 	})
-	return globalRegistry
+	return c.registry
 }
 
 // GetEntityService returns the global EntityService, initializing it if needed.
 // Uses sync.Once for thread-safe lazy initialization.
 // Wires the optional RejectionNoteCreator for rejection notes during transitions.
 func GetEntityService() *services.EntityService {
-	entityServiceOnce.Do(func() {
+	c := loadContainer()
+	c.entityServiceOnce.Do(func() {
 		workflowSvc := GetWorkflowService()
-		globalEntityService = services.NewEntityService(workflowSvc)
+		c.entityService = services.NewEntityService(workflowSvc)
 		// Wire optional note repo for rejection notes during transitions
 		db, err := GetDB(context.Background())
 		if err == nil {
-			globalEntityService.SetNoteRepo(repository.NewEntityNoteRepository(db))
-			globalEntityService.SetHistoryRepo(repository.NewEntityHistoryRepository(db))
+			c.entityService.SetNoteRepo(repository.NewEntityNoteRepository(db))
+			c.entityService.SetHistoryRepo(repository.NewEntityHistoryRepository(db))
 		}
 	})
-	return globalEntityService
+	return c.entityService
 }
 
 // GetActionService returns the global ActionService, initializing it if needed.
 // Uses sync.Once for thread-safe lazy initialization.
 // Returns (config.ActionService, error) because config.NewActionService can fail.
 func GetActionService(ctx context.Context) (config.ActionService, error) {
-	actionServiceOnce.Do(func() {
+	c := loadContainer()
+	c.actionServiceOnce.Do(func() {
 		projectRoot, err := FindProjectRoot()
 		if err != nil || projectRoot == "" {
 			projectRoot = "."
@@ -93,53 +122,65 @@ func GetActionService(ctx context.Context) (config.ActionService, error) {
 		configPath := filepath.Join(projectRoot, ".sharkconfig.json")
 		svc, err := config.NewActionService(configPath)
 		if err != nil {
-			actionServiceErr = fmt.Errorf("failed to create ActionService: %w", err)
+			c.actionServiceErr = fmt.Errorf("failed to create ActionService: %w", err)
 			return
 		}
-		globalActionService = svc
+		c.actionService = svc
 	})
 
-	if actionServiceErr != nil {
-		return nil, actionServiceErr
+	if c.actionServiceErr != nil {
+		return nil, c.actionServiceErr
 	}
-	return globalActionService, nil
+	return c.actionService, nil
 }
 
 // GetNoteService returns the global NoteService, initializing it if needed.
 func GetNoteService(ctx context.Context) (*services.NoteService, error) {
-	noteServiceOnce.Do(func() {
+	c := loadContainer()
+	c.noteServiceOnce.Do(func() {
 		db, err := GetDB(ctx)
 		if err != nil {
-			noteServiceErr = fmt.Errorf("failed to get database for NoteService: %w", err)
+			c.noteServiceErr = fmt.Errorf("failed to get database for NoteService: %w", err)
 			return
 		}
 
 		noteRepo := repository.NewEntityNoteRepository(db)
-		globalNoteService = services.NewNoteService(noteRepo, GetEntityRegistry())
+		svc, svcErr := services.NewNoteService(noteRepo, GetEntityRegistry())
+		if svcErr != nil {
+			c.noteServiceErr = fmt.Errorf("failed to create NoteService: %w", svcErr)
+			return
+		}
+		c.noteService = svc
 	})
 
-	if noteServiceErr != nil {
-		return nil, noteServiceErr
+	if c.noteServiceErr != nil {
+		return nil, c.noteServiceErr
 	}
-	return globalNoteService, nil
+	return c.noteService, nil
 }
 
 // GetContextService returns the global ContextService, initializing it if needed.
 // Unlike GetNoteService/GetResumeService, this never fails because its only
 // dependency (GetEntityRegistry) panics on failure rather than returning an error.
 func GetContextService() *services.ContextService {
-	contextServiceOnce.Do(func() {
-		globalContextService = services.NewContextService(GetEntityRegistry())
+	c := loadContainer()
+	c.contextServiceOnce.Do(func() {
+		svc, err := services.NewContextService(GetEntityRegistry())
+		if err != nil {
+			panic(fmt.Sprintf("failed to create ContextService: %v", err))
+		}
+		c.contextService = svc
 	})
-	return globalContextService
+	return c.contextService
 }
 
 // GetResumeService returns the global ResumeService, initializing it if needed.
 func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
-	resumeServiceOnce.Do(func() {
+	c := loadContainer()
+	c.resumeServiceOnce.Do(func() {
 		db, err := GetDB(ctx)
 		if err != nil {
-			resumeServiceErr = fmt.Errorf("failed to get database for ResumeService: %w", err)
+			c.resumeServiceErr = fmt.Errorf("failed to get database for ResumeService: %w", err)
 			return
 		}
 
@@ -149,15 +190,19 @@ func GetResumeService(ctx context.Context) (*services.ResumeService, error) {
 		noteRepo := repository.NewEntityNoteRepository(db)
 		sessionRepo := &resumeSessionAdapter{repo: repository.NewWorkSessionRepository(db)}
 
-		svc := services.NewResumeService(epicRepo, featureRepo, taskRepo, noteRepo, GetEntityRegistry())
+		svc, svcErr := services.NewResumeService(epicRepo, featureRepo, taskRepo, noteRepo, GetEntityRegistry())
+		if svcErr != nil {
+			c.resumeServiceErr = fmt.Errorf("failed to create ResumeService: %w", svcErr)
+			return
+		}
 		svc.SetSessionRepo(sessionRepo)
-		globalResumeService = svc
+		c.resumeService = svc
 	})
 
-	if resumeServiceErr != nil {
-		return nil, resumeServiceErr
+	if c.resumeServiceErr != nil {
+		return nil, c.resumeServiceErr
 	}
-	return globalResumeService, nil
+	return c.resumeService, nil
 }
 
 // taskServiceDeps holds the shared dependencies for constructing a TaskService.
@@ -436,6 +481,17 @@ func GetDashboardAnalyticsService() *services.DashboardAnalyticsService {
 	return services.NewDashboardAnalyticsService(bugRepo, ccRepo)
 }
 
+// GetConfigService returns a ConfigService instance.
+// ConfigService is stateless and cheap to create, so no singleton is needed.
+//
+// Usage:
+//
+//	svc := cli.GetConfigService()
+//	report, err := svc.ValidateAllPatterns(cfg)
+func GetConfigService() *services.ConfigService {
+	return services.NewConfigService()
+}
+
 // GetEntityHistoryService returns an EntityHistoryService instance.
 // Creates a new instance each call (lightweight, no shared state).
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
@@ -461,30 +517,31 @@ func GetEntityRelationshipService() *services.EntityRelationshipService {
 	return services.NewEntityRelationshipService(repo, taskRepo)
 }
 
-// ResetServices clears global service state. For testing only.
+// resetEntityService resets only the entity service singleton within the current container.
+// Called by ResetWorkflowService to invalidate the EntityService when the workflow changes.
+// This targets only the entityService fields without replacing the entire container,
+// preserving other initialized services (e.g. actionService).
+//
+// Note: This resets state within the current container by swapping to a fresh container
+// that preserves non-entity-service singletons. For test simplicity, we reset the full
+// container here, since ResetWorkflowService is only called in tests.
+func resetEntityService() {
+	storeContainer(new(serviceContainer))
+}
+
+// ResetServices replaces the global service container with a fresh one.
+// All lazily-initialized singletons (EntityRegistry, EntityService, ActionService,
+// NoteService, ContextService, ResumeService) are discarded and will be
+// re-initialized on the next call.
+//
+// The swap is performed with a single atomic pointer store, which is safe to
+// call concurrently: any goroutine that has already loaded the old container
+// will continue using it until its current operation completes; subsequent
+// callers will see the new (empty) container.
+//
+// For testing only. Do not call from production code.
 func ResetServices() {
-	globalActionService = nil
-	actionServiceErr = nil
-	actionServiceOnce = sync.Once{}
-
-	globalNoteService = nil
-	noteServiceErr = nil
-	noteServiceOnce = sync.Once{}
-
-	globalContextService = nil
-	contextServiceOnce = sync.Once{}
-
-	globalResumeService = nil
-	resumeServiceErr = nil
-	resumeServiceOnce = sync.Once{}
-
-	// Reset registry
-	globalRegistry = nil
-	registryOnce = sync.Once{}
-
-	// Reset entity service
-	globalEntityService = nil
-	entityServiceOnce = sync.Once{}
+	storeContainer(new(serviceContainer))
 
 	// Reset observability state for test isolation
 	ResetObservability()

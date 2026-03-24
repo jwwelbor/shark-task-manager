@@ -4,13 +4,13 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // TestMigrateDropCustomFolderPath tests the migration that removes custom_folder_path columns
 func TestMigrateDropCustomFolderPath(t *testing.T) {
 	// Create in-memory database for testing
-	db, err := sql.Open("sqlite3", ":memory:?_foreign_keys=on")
+	db, err := sql.Open("sqlite", ":memory:?_foreign_keys=on")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestMigrateDropCustomFolderPath(t *testing.T) {
 // TestMigrateDropCustomFolderPath_AlreadyMigrated tests migration on database that doesn't have the column
 func TestMigrateDropCustomFolderPath_AlreadyMigrated(t *testing.T) {
 	// Create in-memory database without custom_folder_path
-	db, err := sql.Open("sqlite3", ":memory:?_foreign_keys=on")
+	db, err := sql.Open("sqlite", ":memory:?_foreign_keys=on")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}

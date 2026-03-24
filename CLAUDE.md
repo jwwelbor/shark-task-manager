@@ -88,6 +88,7 @@ This project uses modular documentation. Rules are loaded automatically based on
 - Architecture: @.claude/rules/architecture.md
 - Go Patterns: @.claude/rules/go/patterns.md
 - Error Handling: @.claude/rules/go/error-handling.md
+- Input Sanitization: @.claude/rules/go/input-sanitization.md
 
 **Working on Database/Repository** (`internal/db/**/*`, `internal/repository/**/*`):
 - Database Schema: @.claude/rules/database/schema.md

@@ -156,8 +156,8 @@ func TestAbstractionLayer_AutoDetection(t *testing.T) {
 	defer db.Close()
 
 	// Verify it's SQLite
-	if db.DriverName() != "sqlite3" {
-		t.Errorf("Expected auto-detected driver to be 'sqlite3', got %q", db.DriverName())
+	if db.DriverName() != "sqlite" {
+		t.Errorf("Expected auto-detected driver to be 'sqlite', got %q", db.DriverName())
 	}
 
 	// Verify it works
@@ -195,7 +195,7 @@ func TestAbstractionLayer_MultipleDrivers(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to create SQLite database: %v", err)
 	}
-	if sqliteDB.DriverName() != "sqlite3" {
+	if sqliteDB.DriverName() != "sqlite" {
 		t.Errorf("Expected SQLite driver, got %q", sqliteDB.DriverName())
 	}
 

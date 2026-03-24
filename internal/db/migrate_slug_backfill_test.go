@@ -4,14 +4,14 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // TestBackfillSlugsFromFilePaths tests the slug backfill migration
 // This test verifies the three-phase approach: task paths, feature paths, own paths
 func TestBackfillSlugsFromFilePaths(t *testing.T) {
 	// Create in-memory database for testing
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}

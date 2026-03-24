@@ -127,9 +127,9 @@ type ResumeService struct {
 }
 
 // NewResumeService creates a new ResumeService with injected dependencies.
-func NewResumeService(epicRepo ResumeEpicRepository, featureRepo ResumeFeatureRepository, taskRepo ResumeTaskRepository, noteRepo ResumeEntityNoteRepository, registry *EntityRegistry) *ResumeService {
+func NewResumeService(epicRepo ResumeEpicRepository, featureRepo ResumeFeatureRepository, taskRepo ResumeTaskRepository, noteRepo ResumeEntityNoteRepository, registry *EntityRegistry) (*ResumeService, error) {
 	if registry == nil {
-		panic("ResumeService: EntityRegistry must not be nil")
+		return nil, fmt.Errorf("ResumeService: EntityRegistry must not be nil")
 	}
 	return &ResumeService{
 		epicRepo:    epicRepo,
@@ -137,7 +137,7 @@ func NewResumeService(epicRepo ResumeEpicRepository, featureRepo ResumeFeatureRe
 		taskRepo:    taskRepo,
 		noteRepo:    noteRepo,
 		registry:    registry,
-	}
+	}, nil
 }
 
 // SetSessionRepo sets the optional work session repository for task resume support.

@@ -1,11 +1,20 @@
 package services
 
-import "github.com/jwwelbor/shark-task-manager/internal/repository"
+import "time"
 
-// SessionAnalytics is an alias for repository.SessionAnalytics, made available
-// in the services package so that WorkSessionRepository interface methods can
-// reference it without importing repository in task_service.go.
-type SessionAnalytics = repository.SessionAnalytics
+// SessionAnalytics holds aggregated analytics for work sessions across multiple tasks.
+// This is a service-layer type that mirrors repository.worksession.SessionAnalytics,
+// decoupling the service interface from the concrete repository package.
+type SessionAnalytics struct {
+	TotalSessions          int
+	TotalDuration          time.Duration
+	AverageDuration        time.Duration
+	MedianDuration         time.Duration
+	TasksWithSessions      int
+	TasksWithPauses        int
+	AverageSessionsPerTask float64
+	PauseRate              float64 // Percentage of sessions that were paused
+}
 
 // SessionAnalyticsInput defines filters for session analytics queries.
 // Exactly one of EpicKey or FeatureKey must be set.

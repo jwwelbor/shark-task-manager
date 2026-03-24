@@ -9,7 +9,7 @@ import (
 	"runtime"
 
 	"github.com/jwwelbor/shark-task-manager/internal/db"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // createDatabase creates database schema if it doesn't exist
@@ -55,7 +55,7 @@ func (i *Initializer) createDatabase(ctx context.Context, dbPath string) (bool, 
 // databaseHasData checks if database contains any data
 func (i *Initializer) databaseHasData(dbPath string) (bool, error) {
 	// Open database without initializing schema
-	database, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
+	database, err := sql.Open("sqlite", dbPath+"?_foreign_keys=on")
 	if err != nil {
 		return false, fmt.Errorf("failed to open database: %w", err)
 	}

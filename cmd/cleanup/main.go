@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -19,7 +19,7 @@ func main() {
 	dbPath := os.Args[1]
 	epicKey := os.Args[2]
 
-	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
+	db, err := sql.Open("sqlite", dbPath+"?_foreign_keys=on")
 	if err != nil {
 		slog.Error("Failed to open database", "error", err)
 		os.Exit(1)

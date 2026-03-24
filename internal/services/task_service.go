@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -82,6 +83,17 @@ type TaskRepository interface {
 	// performed by the service layer BEFORE calling this method.
 	// Returns the list of auto-unblocked task keys.
 	StatusUpdateRaw(ctx context.Context, params models.StatusUpdateParams) ([]string, error)
+
+	// StatusUpdateRawWithTx performs the same operation as StatusUpdateRaw but within a
+	// caller-provided transaction. Services use this to own the transaction boundary when
+	// multiple repository operations must be atomic (Standard 8: services own transactions).
+	// Returns the list of auto-unblocked task keys.
+	StatusUpdateRawWithTx(ctx context.Context, tx *sql.Tx, params models.StatusUpdateParams) ([]string, error)
+
+	// BeginTx starts a new database transaction for use by the service layer.
+	// Services own transaction boundaries per Standard 8; repositories participate
+	// in service-owned transactions by accepting *sql.Tx parameters.
+	BeginTx(ctx context.Context) (*sql.Tx, error)
 
 	// Search operations
 	FindByFileChanged(ctx context.Context, filePath string) ([]*models.Task, error)
@@ -1011,7 +1023,7 @@ func (s *TaskService) SetFeatureRepo(repo AnalyticsFeatureRepository) {
 
 // SetFeatureService sets the feature service for write-through progress recalculation.
 // When set, every status-mutating operation on a task triggers a progress recalculation
-// on the parent feature. This is non-fatal: errors are silently ignored.
+// on the parent feature. This is non-fatal: logs a warning on error.
 // This is used by CLI global accessors to wire the optional feature service
 // after initial construction via NewTaskService.
 func (s *TaskService) SetFeatureService(featureService *FeatureService) {

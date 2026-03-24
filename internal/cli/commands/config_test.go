@@ -9,9 +9,54 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/patterns"
+	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testPatternMatch is a local wrapper used by existing tests.
+// It delegates to ConfigService so tests continue to exercise the same logic.
+func testPatternMatch(pattern, testString string) (bool, map[string]string, error) {
+	svc := services.NewConfigService()
+	result, err := svc.TestPattern(pattern, testString)
+	if err != nil {
+		return false, nil, err
+	}
+	return result.Matched, result.Groups, nil
+}
+
+// generateFormatExample is a local wrapper used by existing tests.
+func generateFormatExample(entityType, format string) string {
+	svc := services.NewConfigService()
+	cfg := &patterns.PatternConfig{}
+	switch entityType {
+	case "epic":
+		cfg.Epic.Generation.Format = format
+	case "feature":
+		cfg.Feature.Generation.Format = format
+	case "task":
+		cfg.Task.Generation.Format = format
+	}
+	output, err := svc.GetFormat(cfg, entityType)
+	if err != nil {
+		return ""
+	}
+	return output.Example
+}
+
+// getPlaceholdersForType is a local wrapper used by existing tests.
+func getPlaceholdersForType(entityType string) []string {
+	svc := services.NewConfigService()
+	output, err := svc.GetFormat(&patterns.PatternConfig{
+		Epic:    patterns.EntityPatterns{Generation: patterns.GenerationFormat{Format: "E{number:02d}-{slug}"}},
+		Feature: patterns.EntityPatterns{Generation: patterns.GenerationFormat{Format: "E{epic:02d}-F{number:02d}-{slug}"}},
+		Task:    patterns.EntityPatterns{Generation: patterns.GenerationFormat{Format: "T-E{epic:02d}-F{feature:02d}-{number:03d}.md"}},
+	}, entityType)
+	if err != nil {
+		return nil
+	}
+	return output.Placeholders
+}
 
 // TestConfigTestPatternSuccess tests successful pattern matching
 func TestConfigTestPatternSuccess(t *testing.T) {
