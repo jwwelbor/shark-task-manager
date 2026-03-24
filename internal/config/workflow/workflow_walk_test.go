@@ -1,10 +1,11 @@
-package config
+package workflow
 
 import (
 	"strings"
 	"testing"
 	"time"
 
+	cfgtemplate "github.com/jwwelbor/shark-task-manager/internal/config/template"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
@@ -52,7 +53,7 @@ func TestWorkflowWalk_TaskHappyPath(t *testing.T) {
 	actionsFound := 0
 	for i, status := range happyPath {
 		mockTask.Status = models.TaskStatus(status)
-		placeholders := TaskPlaceholders(mockTask)
+		placeholders := cfgtemplate.TaskPlaceholders(mockTask)
 		meta, hasMeta := taskWf.GetStatusMetadata(status)
 
 		if !hasMeta {
@@ -143,7 +144,7 @@ func TestWorkflowWalk_EpicHappyPath(t *testing.T) {
 	actionsFound := 0
 	for i, status := range happyPath {
 		mockEpic.Status = models.EpicStatus(status)
-		placeholders := EpicPlaceholders(mockEpic)
+		placeholders := cfgtemplate.EpicPlaceholders(mockEpic)
 		meta, hasMeta := epicWf.GetStatusMetadata(status)
 
 		if !hasMeta || meta.OrchestratorAction == nil {
@@ -217,7 +218,7 @@ func TestWorkflowWalk_FeatureHappyPath(t *testing.T) {
 	actionsFound := 0
 	for i, status := range happyPath {
 		mockFeature.Status = models.FeatureStatus(status)
-		placeholders := FeaturePlaceholders(mockFeature)
+		placeholders := cfgtemplate.FeaturePlaceholders(mockFeature)
 		meta, hasMeta := featureWf.GetStatusMetadata(status)
 
 		if !hasMeta || meta.OrchestratorAction == nil {
@@ -310,9 +311,9 @@ func findConfigPath(t *testing.T) string {
 	t.Helper()
 	// Try project root (tests run from package dir, config is at repo root)
 	candidates := []string{
-		"../../.sharkconfig.json",    // from internal/config/
-		"../../../.sharkconfig.json", // fallback
-		".sharkconfig.json",          // if running from root
+		"../../../.sharkconfig.json",    // from internal/config/workflow/
+		"../../../../.sharkconfig.json", // fallback
+		".sharkconfig.json",             // if running from root
 	}
 	for _, p := range candidates {
 		if _, err := LoadMultiLevelWorkflow(p); err == nil {

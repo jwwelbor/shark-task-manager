@@ -1,4 +1,4 @@
-package config
+package workflow
 
 // DefaultWorkflow returns the backward-compatible default workflow
 // that matches Shark's current hardcoded status progression.

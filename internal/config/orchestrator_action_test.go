@@ -10,6 +10,17 @@ import (
 	"testing"
 )
 
+// expandHomeForTest expands a leading "~/" to the user's home directory.
+// This is a test-only helper; the production function lives in workflow/parser.go.
+func expandHomeForTest(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
 // getProjectRoot finds the project root by walking up from this file
 func getProjectRoot() string {
 	// Start from the directory of this test file
@@ -899,7 +910,7 @@ func loadWorkflowFileData(t *testing.T) map[string]interface{} {
 	}
 
 	// Resolve relative to project root
-	workflowConfigPath = expandHome(workflowConfigPath)
+	workflowConfigPath = expandHomeForTest(workflowConfigPath)
 	if !filepath.IsAbs(workflowConfigPath) {
 		workflowConfigPath = filepath.Join(projectRoot, workflowConfigPath)
 	}
@@ -938,7 +949,7 @@ func TestPhase2TemplateReferenceCountInConfig(t *testing.T) {
 		t.Fatal("workflow_config not found or empty in .sharkconfig.json")
 	}
 
-	workflowConfigPath = expandHome(workflowConfigPath)
+	workflowConfigPath = expandHomeForTest(workflowConfigPath)
 	if !filepath.IsAbs(workflowConfigPath) {
 		workflowConfigPath = filepath.Join(projectRoot, workflowConfigPath)
 	}

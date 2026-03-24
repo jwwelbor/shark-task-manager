@@ -10,7 +10,84 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 	cfgtemplate "github.com/jwwelbor/shark-task-manager/internal/config/template"
 	"github.com/jwwelbor/shark-task-manager/internal/config/validation"
+	"github.com/jwwelbor/shark-task-manager/internal/config/workflow"
 )
+
+// --- workflow/ types ---
+
+// WorkflowConfig is an alias for workflow.WorkflowConfig.
+type WorkflowConfig = workflow.WorkflowConfig
+
+// StatusMetadata is an alias for workflow.StatusMetadata.
+type StatusMetadata = workflow.StatusMetadata
+
+// MultiLevelWorkflow is an alias for workflow.MultiLevelWorkflow.
+type MultiLevelWorkflow = workflow.MultiLevelWorkflow
+
+// WorkflowValidationError is an alias for workflow.WorkflowValidationError.
+type WorkflowValidationError = workflow.WorkflowValidationError
+
+// WorkflowValidationFinding is an alias for workflow.WorkflowValidationFinding.
+type WorkflowValidationFinding = workflow.WorkflowValidationFinding
+
+// --- workflow/ constants ---
+// Go does not allow const X = pkg.X for string constants.
+// These are re-declared with identical values; the canonical definition
+// lives in workflow/schema.go.
+
+// StartStatusKey defines initial statuses where new tasks begin.
+const StartStatusKey = workflow.StartStatusKey
+
+// CompleteStatusKey defines terminal statuses where tasks end.
+const CompleteStatusKey = workflow.CompleteStatusKey
+
+// AggregationStatusKey identifies statuses where an entity switches from
+// its own workflow tracking to aggregating progress from children.
+const AggregationStatusKey = workflow.AggregationStatusKey
+
+// DefaultWorkflowVersion is the default version for workflow configs.
+const DefaultWorkflowVersion = workflow.DefaultWorkflowVersion
+
+// --- workflow/ functions ---
+
+// LoadWorkflowConfig loads workflow configuration from .sharkconfig.json.
+var LoadWorkflowConfig = workflow.LoadWorkflowConfig
+
+// ClearWorkflowCache clears all workflow caches (multi-level and legacy).
+var ClearWorkflowCache = workflow.ClearWorkflowCache
+
+// GetWorkflowOrDefault loads workflow config or returns default if not configured.
+var GetWorkflowOrDefault = workflow.GetWorkflowOrDefault
+
+// LoadMultiLevelWorkflow loads all entity-level workflow configs.
+var LoadMultiLevelWorkflow = workflow.LoadMultiLevelWorkflow
+
+// LoadMultiLevelWorkflowOrDefault loads configs or returns defaults on failure.
+var LoadMultiLevelWorkflowOrDefault = workflow.LoadMultiLevelWorkflowOrDefault
+
+// ValidateWorkflow validates workflow configuration for correctness.
+var ValidateWorkflow = workflow.ValidateWorkflow
+
+// ValidateWorkflowFiles validates both .sharkconfig.json and .sharkworkflow.json.
+var ValidateWorkflowFiles = workflow.ValidateWorkflowFiles
+
+// ValidateTransition checks if a status transition is valid according to workflow.
+var ValidateTransition = workflow.ValidateTransition
+
+// DefaultWorkflow returns the backward-compatible default task workflow.
+var DefaultWorkflow = workflow.DefaultWorkflow
+
+// DefaultEpicWorkflow returns the default epic workflow.
+var DefaultEpicWorkflow = workflow.DefaultEpicWorkflow
+
+// DefaultFeatureWorkflow returns the default feature workflow.
+var DefaultFeatureWorkflow = workflow.DefaultFeatureWorkflow
+
+// DefaultBugWorkflow returns the default bug workflow.
+var DefaultBugWorkflow = workflow.DefaultBugWorkflow
+
+// DefaultChangeCardWorkflow returns the default change-card workflow.
+var DefaultChangeCardWorkflow = workflow.DefaultChangeCardWorkflow
 
 // --- validation/ types ---
 
@@ -150,13 +227,13 @@ func NewActionService(configPath string) (*DefaultActionService, error) {
 
 // defaultWorkflowDataLoader loads workflow data using GetWorkflowOrDefault.
 func defaultWorkflowDataLoader(configPath string) map[string]action.StatusActionData {
-	workflow := GetWorkflowOrDefault(configPath)
-	if workflow == nil {
+	wf := GetWorkflowOrDefault(configPath)
+	if wf == nil {
 		return nil
 	}
 
 	data := make(map[string]action.StatusActionData)
-	for status, metadata := range workflow.StatusMetadata {
+	for status, metadata := range wf.StatusMetadata {
 		data[status] = action.StatusActionData{
 			OrchestratorAction: metadata.OrchestratorAction,
 		}

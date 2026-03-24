@@ -1,4 +1,4 @@
-package config
+package workflow
 
 // MultiLevelWorkflow holds workflow configurations for all entity levels.
 // Any level may be nil, meaning "use default workflow for that level."
