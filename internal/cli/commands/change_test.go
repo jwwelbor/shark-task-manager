@@ -30,6 +30,7 @@ type MockChangeCardService struct {
 	DeleteChangeCardFunc      func(ctx context.Context, key string) error
 	TransitionStatusFunc      func(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
 	GetNextStatusFunc         func(ctx context.Context, key string) (*services.NextStatusInfo, error)
+	GetNextStatusForCardFunc  func(card *models.ChangeCard) *services.NextStatusInfo
 	GetOrchestratorActionFunc func(card *models.ChangeCard) *config.PopulatedAction
 }
 
@@ -80,6 +81,13 @@ func (m *MockChangeCardService) GetNextStatus(ctx context.Context, key string) (
 		return m.GetNextStatusFunc(ctx, key)
 	}
 	return nil, fmt.Errorf("GetNextStatus not implemented in mock")
+}
+
+func (m *MockChangeCardService) GetNextStatusForCard(card *models.ChangeCard) *services.NextStatusInfo {
+	if m.GetNextStatusForCardFunc != nil {
+		return m.GetNextStatusForCardFunc(card)
+	}
+	return &services.NextStatusInfo{}
 }
 
 func (m *MockChangeCardService) GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction {

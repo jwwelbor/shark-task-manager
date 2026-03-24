@@ -23,6 +23,7 @@ type changeCardServicer interface {
 	DeleteChangeCard(ctx context.Context, key string) error
 	TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
 	GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error)
+	GetNextStatusForCard(card *models.ChangeCard) *services.NextStatusInfo
 	GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction
 }
 
@@ -241,10 +242,8 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 
 	// Gather enrichment data (best-effort)
 	orchestratorAction := svc.GetOrchestratorAction(card)
-	var validTransitions []string
-	if info, infoErr := svc.GetNextStatus(ctx, key); infoErr == nil && info != nil {
-		validTransitions = info.TargetStatuses()
-	}
+	info := svc.GetNextStatusForCard(card)
+	validTransitions := info.TargetStatuses()
 
 	var notes []*models.EntityNote
 	if noteSvc, nErr := cli.GetNoteService(ctx); nErr == nil && noteSvc != nil {

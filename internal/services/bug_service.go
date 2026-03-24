@@ -322,6 +322,14 @@ func (s *BugService) GetNextStatus(ctx context.Context, key string) (*NextStatus
 	)
 }
 
+// GetNextStatusForBug returns available transitions for a pre-fetched bug, avoiding a DB re-fetch.
+func (s *BugService) GetNextStatusForBug(bug *models.Bug) *NextStatusInfo {
+	return s.entitySvc.GetNextStatusForEntity(
+		models.EntityTypeBug, bug.Key, bug,
+		s.makeResolveActionFn(),
+	)
+}
+
 // TriageBug triages a bug by setting its severity and optionally assigning an agent.
 // It advances the bug status from "reported" to "triaged" (if currently in "reported" status).
 func (s *BugService) TriageBug(ctx context.Context, key string, input TriageBugInput) (*models.Bug, error) {

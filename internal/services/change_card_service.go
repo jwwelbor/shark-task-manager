@@ -312,6 +312,14 @@ func (s *ChangeCardService) GetNextStatus(ctx context.Context, key string) (*Nex
 	)
 }
 
+// GetNextStatusForCard returns available transitions for a pre-fetched change-card, avoiding a DB re-fetch.
+func (s *ChangeCardService) GetNextStatusForCard(card *models.ChangeCard) *NextStatusInfo {
+	return s.entitySvc.GetNextStatusForEntity(
+		models.EntityTypeChange, card.Key, card,
+		s.makeResolveActionFn(),
+	)
+}
+
 // CountByStatus returns counts of change-cards grouped by status.
 func (s *ChangeCardService) CountByStatus(ctx context.Context) (map[string]int, error) {
 	return s.repo.CountByStatus(ctx)
