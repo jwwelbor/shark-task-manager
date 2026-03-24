@@ -180,31 +180,9 @@ func dispatchTransition(ctx context.Context, entityType, key, targetStatus strin
 	case "task":
 		return cli.GetTaskService().TransitionStatus(ctx, key, targetStatus, opts)
 	case "bug":
-		bug, err := cli.GetBugService().SetBugStatus(ctx, key, targetStatus, opts.Force)
-		if err != nil {
-			return nil, err
-		}
-		return &services.TransitionResult{
-			EntityType:   "bug",
-			EntityKey:    bug.Key,
-			ToStatus:     string(bug.Status),
-			Transitioned: true,
-			IsForced:     opts.Force,
-			Reason:       opts.Reason,
-		}, nil
+		return cli.GetBugService().TransitionStatus(ctx, key, targetStatus, opts)
 	case "change", "change_card":
-		card, err := getChangeCardService().SetChangeCardStatus(ctx, key, targetStatus, opts.Force)
-		if err != nil {
-			return nil, err
-		}
-		return &services.TransitionResult{
-			EntityType:   models.EntityType(entityType),
-			EntityKey:    card.Key,
-			ToStatus:     string(card.Status),
-			Transitioned: true,
-			IsForced:     opts.Force,
-			Reason:       opts.Reason,
-		}, nil
+		return getChangeCardService().TransitionStatus(ctx, key, targetStatus, opts)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -220,27 +198,9 @@ func dispatchNextStatus(ctx context.Context, entityType, key string) (*services.
 	case "task":
 		return cli.GetTaskService().GetNextStatus(ctx, key)
 	case "bug":
-		bug, err := cli.GetBugService().GetBug(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		return &services.NextStatusInfo{
-			EntityType:           "bug",
-			EntityKey:            bug.Key,
-			CurrentStatus:        string(bug.Status),
-			AvailableTransitions: nil,
-		}, nil
+		return cli.GetBugService().GetNextStatus(ctx, key)
 	case "change", "change_card":
-		card, err := getChangeCardService().GetChangeCard(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		return &services.NextStatusInfo{
-			EntityType:           models.EntityType(entityType),
-			EntityKey:            card.Key,
-			CurrentStatus:        string(card.Status),
-			AvailableTransitions: nil,
-		}, nil
+		return getChangeCardService().GetNextStatus(ctx, key)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -286,20 +246,21 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 		Reason: reason,
 	}
 
-	// Step 2: Check idempotency - if already at target status, return success with changed=false
-	info, err := dispatchNextStatus(ctx, entityType, key)
+	// Step 2: Perform transition (idempotency is handled in the service layer)
+	transResult, err := dispatchTransition(ctx, entityType, key, targetStatus, opts)
 	if err != nil {
 		handleStatusTransitionError(entityType, key, err)
-		return fmt.Errorf("failed to get %s status: %w", entityType, err)
+		return fmt.Errorf("failed to set %s status: %w", entityType, err)
 	}
 
-	if strings.EqualFold(info.CurrentStatus, targetStatus) {
+	// Step 3: Format output — check Transitioned to decide message
+	if !transResult.Transitioned {
 		result := &StatusSetResult{
 			EntityType: entityType,
-			EntityKey:  info.EntityKey,
-			Status:     info.CurrentStatus,
+			EntityKey:  transResult.EntityKey,
+			Status:     transResult.ToStatus,
 			Changed:    false,
-			Message:    fmt.Sprintf("Entity already at status '%s'", info.CurrentStatus),
+			Message:    fmt.Sprintf("Entity already at status '%s'", transResult.ToStatus),
 		}
 
 		if cli.GlobalConfig.JSON {
@@ -309,15 +270,6 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 		cli.Success(result.Message)
 		return nil
 	}
-
-	// Step 3: Perform transition
-	transResult, err := dispatchTransition(ctx, entityType, key, targetStatus, opts)
-	if err != nil {
-		handleStatusTransitionError(entityType, key, err)
-		return fmt.Errorf("failed to set %s status: %w", entityType, err)
-	}
-
-	// Step 4: Format output
 	if cli.GlobalConfig.JSON {
 		result := &StatusSetResult{
 			EntityType:         entityType,
@@ -349,39 +301,6 @@ func runStatusSet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// dispatchAdvance routes an advance request for entity types that have native advance methods
-// (bug, change_card). For epic/feature/task, returns (nil, nil) to fall through to the
-// generic info-based advance path.
-func dispatchAdvance(ctx context.Context, entityType, key string) (*services.TransitionResult, error) {
-	switch entityType {
-	case "bug":
-		bug, err := cli.GetBugService().AdvanceBugStatus(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		return &services.TransitionResult{
-			EntityType:   "bug",
-			EntityKey:    bug.Key,
-			ToStatus:     string(bug.Status),
-			Transitioned: true,
-		}, nil
-	case "change", "change_card":
-		card, err := getChangeCardService().AdvanceChangeCardStatus(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		return &services.TransitionResult{
-			EntityType:   models.EntityType(entityType),
-			EntityKey:    card.Key,
-			ToStatus:     string(card.Status),
-			Transitioned: true,
-		}, nil
-	default:
-		// Fall through to the generic info-based path for epic/feature/task.
-		return nil, nil
-	}
-}
-
 // runStatusAdvance implements the `shark status advance <key>` command.
 func runStatusAdvance(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -393,26 +312,7 @@ func runStatusAdvance(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid key format: %w", err)
 	}
 
-	// Step 2: For bug/change_card, use native advance methods directly.
-	if transResult, err := dispatchAdvance(ctx, entityType, key); err != nil {
-		handleStatusTransitionError(entityType, key, err)
-		return fmt.Errorf("failed to advance %s status: %w", entityType, err)
-	} else if transResult != nil {
-		if cli.GlobalConfig.JSON {
-			result := &StatusSetResult{
-				EntityType: entityType,
-				EntityKey:  transResult.EntityKey,
-				Status:     transResult.ToStatus,
-				Changed:    true,
-				Message:    fmt.Sprintf("-> %s", transResult.ToStatus),
-			}
-			return cli.OutputJSON(result)
-		}
-		cli.Success(fmt.Sprintf("%s %s advanced to %s", displayEntityTypeName(entityType), transResult.EntityKey, transResult.ToStatus))
-		return nil
-	}
-
-	// Step 3: Generic path for epic/feature/task — get current status info
+	// Step 2: Get current status info
 	info, err := dispatchNextStatus(ctx, entityType, key)
 	if err != nil {
 		handleStatusTransitionError(entityType, key, err)

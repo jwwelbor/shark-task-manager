@@ -224,7 +224,10 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 
 	// Gather enrichment data (best-effort)
 	orchestratorAction := svc.GetOrchestratorAction(bug)
-	validTransitions := svc.GetValidTransitions(string(bug.Status))
+	var validTransitions []string
+	if info, infoErr := svc.GetNextStatus(ctx, key); infoErr == nil && info != nil {
+		validTransitions = info.TargetStatuses()
+	}
 
 	var notes []*models.EntityNote
 	if noteSvc, nErr := cli.GetNoteService(ctx); nErr == nil && noteSvc != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -185,6 +186,18 @@ func (s *EntityService) TransitionStatus(
 	}
 
 	currentStatus := entity.GetStatus()
+
+	// Step 2: Idempotency check — if already at target status, return early without writing
+	if strings.EqualFold(currentStatus, targetStatus) {
+		return &TransitionResult{
+			EntityType:   entityType,
+			EntityKey:    key,
+			EntityID:     entity.GetID(),
+			FromStatus:   currentStatus,
+			ToStatus:     currentStatus,
+			Transitioned: false,
+		}, nil
+	}
 
 	// Steps 3-4: Validate and normalize
 	targetStatus, err = s.ValidateAndNormalize(currentStatus, targetStatus, opts.Force)

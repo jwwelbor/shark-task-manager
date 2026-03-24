@@ -73,3 +73,12 @@ type NextStatusInfo struct {
 	AvailableTransitions []TransitionInfoWithAction `json:"available_transitions"`
 	IsTerminal           bool                       `json:"is_terminal"`
 }
+
+// TargetStatuses returns the list of target status strings from AvailableTransitions.
+func (info *NextStatusInfo) TargetStatuses() []string {
+	statuses := make([]string, len(info.AvailableTransitions))
+	for i, t := range info.AvailableTransitions {
+		statuses[i] = t.TargetStatus
+	}
+	return statuses
+}

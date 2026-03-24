@@ -14,7 +14,6 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/runner"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
-	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 var (
@@ -174,18 +173,21 @@ func setupWorktree(ctx context.Context, entityKey string, creator runner.Worktre
 }
 
 // buildTransitioner returns an EntityTransitioner for the given entity type.
+// All five service types (TaskService, FeatureService, EpicService, BugService,
+// ChangeCardService) directly satisfy runner.EntityTransitioner via their
+// TransitionStatus and GetNextStatus methods.
 func buildTransitioner(_ context.Context, entityType string) (runner.EntityTransitioner, error) {
 	switch entityType {
 	case "task":
-		return &taskTransitionerAdapter{svc: cli.GetTaskService()}, nil
+		return cli.GetTaskService(), nil
 	case "feature":
-		return &featureTransitionerAdapter{svc: cli.GetFeatureService()}, nil
+		return cli.GetFeatureService(), nil
 	case "epic":
-		return &epicTransitionerAdapter{svc: cli.GetEpicService()}, nil
+		return cli.GetEpicService(), nil
 	case "bug":
-		return &bugTransitionerAdapter{svc: cli.GetBugService()}, nil
+		return cli.GetBugService(), nil
 	case "change", "change_card":
-		return &changeCardTransitionerAdapter{svc: cli.GetChangeCardService()}, nil
+		return cli.GetChangeCardService(), nil
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %q", entityType)
 	}
@@ -210,19 +212,9 @@ func buildPlaceholderGenerator(_ context.Context, entityType string) runner.Plac
 	}
 }
 
-// ─── Task adapters ────────────────────────────────────────────────────────────
-
-type taskTransitionerAdapter struct {
-	svc *services.TaskService
-}
-
-func (a *taskTransitionerAdapter) TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
-	return a.svc.TransitionStatus(ctx, key, targetStatus, opts)
-}
-
-func (a *taskTransitionerAdapter) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
-	return a.svc.GetNextStatus(ctx, key)
-}
+// ─── Placeholder adapters ─────────────────────────────────────────────────────
+// Placeholder adapters remain entity-specific because each generates different
+// placeholder maps (task vs feature vs epic vs bug vs change-card fields).
 
 type taskPlaceholderAdapter struct {
 	svc *services.TaskService
@@ -234,20 +226,6 @@ func (a *taskPlaceholderAdapter) GeneratePlaceholders(ctx context.Context, key s
 		return nil, fmt.Errorf("failed to get task %s for placeholders: %w", key, err)
 	}
 	return config.TaskPlaceholders(task), nil
-}
-
-// ─── Feature adapters ─────────────────────────────────────────────────────────
-
-type featureTransitionerAdapter struct {
-	svc *services.FeatureService
-}
-
-func (a *featureTransitionerAdapter) TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
-	return a.svc.TransitionStatus(ctx, key, targetStatus, opts)
-}
-
-func (a *featureTransitionerAdapter) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
-	return a.svc.GetNextStatus(ctx, key)
 }
 
 type featurePlaceholderAdapter struct {
@@ -262,20 +240,6 @@ func (a *featurePlaceholderAdapter) GeneratePlaceholders(ctx context.Context, ke
 	return config.FeaturePlaceholders(feature), nil
 }
 
-// ─── Epic adapters ────────────────────────────────────────────────────────────
-
-type epicTransitionerAdapter struct {
-	svc *services.EpicService
-}
-
-func (a *epicTransitionerAdapter) TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
-	return a.svc.TransitionStatus(ctx, key, targetStatus, opts)
-}
-
-func (a *epicTransitionerAdapter) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
-	return a.svc.GetNextStatus(ctx, key)
-}
-
 type epicPlaceholderAdapter struct {
 	svc *services.EpicService
 }
@@ -288,54 +252,6 @@ func (a *epicPlaceholderAdapter) GeneratePlaceholders(ctx context.Context, key s
 	return config.EpicPlaceholders(epic), nil
 }
 
-// ─── Bug adapters ─────────────────────────────────────────────────────────────
-
-// bugTransitionerAdapter adapts BugService to the EntityTransitioner interface.
-// BugService does not have TransitionStatus/GetNextStatus, so we synthesise them
-// from the lower-level AdvanceBugStatus / SetBugStatus methods.
-type bugTransitionerAdapter struct {
-	svc *services.BugService
-}
-
-func (a *bugTransitionerAdapter) TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
-	bug, err := a.svc.SetBugStatus(ctx, key, targetStatus, opts.Force)
-	if err != nil {
-		return nil, fmt.Errorf("failed to transition bug %s to %s: %w", key, targetStatus, err)
-	}
-	return &services.TransitionResult{
-		EntityType:   "bug",
-		EntityKey:    key,
-		FromStatus:   "", // unknown before set
-		ToStatus:     string(bug.Status),
-		Transitioned: true,
-	}, nil
-}
-
-func (a *bugTransitionerAdapter) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
-	bug, err := a.svc.GetBug(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bug %s: %w", key, err)
-	}
-	currentStatus := string(bug.Status)
-	validTransitions := a.svc.GetValidTransitions(currentStatus)
-
-	available := make([]services.TransitionInfoWithAction, len(validTransitions))
-	for i, ts := range validTransitions {
-		available[i] = services.TransitionInfoWithAction{
-			TransitionInfo: workflow.TransitionInfo{TargetStatus: ts},
-		}
-	}
-
-	info := &services.NextStatusInfo{
-		EntityType:           "bug",
-		EntityKey:            key,
-		CurrentStatus:        currentStatus,
-		AvailableTransitions: available,
-		IsTerminal:           len(validTransitions) == 0,
-	}
-	return info, nil
-}
-
 type bugPlaceholderAdapter struct {
 	svc *services.BugService
 }
@@ -346,52 +262,6 @@ func (a *bugPlaceholderAdapter) GeneratePlaceholders(ctx context.Context, key st
 		return nil, fmt.Errorf("failed to get bug %s for placeholders: %w", key, err)
 	}
 	return config.BugPlaceholders(bug), nil
-}
-
-// ─── ChangeCard adapters ──────────────────────────────────────────────────────
-
-// changeCardTransitionerAdapter adapts ChangeCardService to the EntityTransitioner interface.
-type changeCardTransitionerAdapter struct {
-	svc *services.ChangeCardService
-}
-
-func (a *changeCardTransitionerAdapter) TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
-	card, err := a.svc.SetChangeCardStatus(ctx, key, targetStatus, opts.Force)
-	if err != nil {
-		return nil, fmt.Errorf("failed to transition change card %s to %s: %w", key, targetStatus, err)
-	}
-	return &services.TransitionResult{
-		EntityType:   "change_card",
-		EntityKey:    key,
-		FromStatus:   "",
-		ToStatus:     string(card.Status),
-		Transitioned: true,
-	}, nil
-}
-
-func (a *changeCardTransitionerAdapter) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
-	card, err := a.svc.GetChangeCard(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get change card %s: %w", key, err)
-	}
-	currentStatus := string(card.Status)
-	validTransitions := a.svc.GetValidTransitions(currentStatus)
-
-	available := make([]services.TransitionInfoWithAction, len(validTransitions))
-	for i, ts := range validTransitions {
-		available[i] = services.TransitionInfoWithAction{
-			TransitionInfo: workflow.TransitionInfo{TargetStatus: ts},
-		}
-	}
-
-	info := &services.NextStatusInfo{
-		EntityType:           "change_card",
-		EntityKey:            key,
-		CurrentStatus:        currentStatus,
-		AvailableTransitions: available,
-		IsTerminal:           len(validTransitions) == 0,
-	}
-	return info, nil
 }
 
 type changeCardPlaceholderAdapter struct {
@@ -409,12 +279,14 @@ func (a *changeCardPlaceholderAdapter) GeneratePlaceholders(ctx context.Context,
 // ─── compile-time interface assertions ────────────────────────────────────────
 
 var (
-	_ runner.EntityTransitioner = (*taskTransitionerAdapter)(nil)
-	_ runner.EntityTransitioner = (*featureTransitionerAdapter)(nil)
-	_ runner.EntityTransitioner = (*epicTransitionerAdapter)(nil)
-	_ runner.EntityTransitioner = (*bugTransitionerAdapter)(nil)
-	_ runner.EntityTransitioner = (*changeCardTransitionerAdapter)(nil)
+	// Services satisfy EntityTransitioner directly (no adapter needed).
+	_ runner.EntityTransitioner = (*services.TaskService)(nil)
+	_ runner.EntityTransitioner = (*services.FeatureService)(nil)
+	_ runner.EntityTransitioner = (*services.EpicService)(nil)
+	_ runner.EntityTransitioner = (*services.BugService)(nil)
+	_ runner.EntityTransitioner = (*services.ChangeCardService)(nil)
 
+	// Placeholder adapters remain entity-specific.
 	_ runner.PlaceholderGenerator = (*taskPlaceholderAdapter)(nil)
 	_ runner.PlaceholderGenerator = (*featurePlaceholderAdapter)(nil)
 	_ runner.PlaceholderGenerator = (*epicPlaceholderAdapter)(nil)

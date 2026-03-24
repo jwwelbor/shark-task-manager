@@ -1,61 +1,262 @@
-# Hooks-Based Orchestration — Alternative to `shark run`
+# Hooks-Based Status Advancement — Preventing Skipped Statuses
 
-**Purpose**: Explore using Claude Code hooks (specifically the `Stop` hook) to drive workflow advancement automatically, replacing or complementing the Go-based `shark run` controller from E22.
+**Purpose**: Use Claude Code hooks to prevent Claude from skipping workflow statuses during interactive sessions. Claude does the work; hooks own the advancement.
 
-**Date**: 2026-03-23
-
----
-
-## Core Idea
-
-Instead of a Go binary that owns the dispatch loop, use **Claude Code hooks** to mechanically advance status after each agent invocation. The outer loop becomes a trivial bash script (or even manual invocations), while hooks handle the "advance on completion" enforcement that E22 was designed to provide.
-
-**E22 approach**: Go binary → dispatch agent → wait for exit → advance status → loop
-**Hooks approach**: Bash loop → launch `claude -p` → Stop hook fires on exit → hook advances status → loop continues
+**Date**: 2026-03-24
 
 ---
 
-## How Claude Code Hooks Work (Relevant Subset)
+## The Problem
 
-### The `Stop` Hook
+During interactive sessions, Claude calls `shark status advance` multiple times in rapid succession, blasting through statuses without performing actual work at each stage. Prompt-level guards ("never advance more than once") are fundamentally unenforceable because Claude controls its own enforcement.
 
-Fires **every time Claude finishes responding** (completes a turn). This is the key event for orchestration.
+**What we want**: Claude does the work for a status, then the *system* advances to the next status — not Claude.
+
+---
+
+## Core Mechanism: Intercept + Defer
+
+Two hooks working together:
+
+1. **PreToolUse hook** — intercepts Claude's attempts to call `shark status advance` (and variants). Captures which entity Claude wants to advance, stores the intent in a session-scoped file, and **blocks the command** with a message telling Claude the system handles advancement.
+
+2. **Stop hook** — fires when Claude finishes responding. Reads the stored intent file, executes the deferred `shark status advance`, and cleans up.
+
+**Result**: Claude's natural behavior (trying to advance when done) creates the signal. The hooks capture that signal and defer execution to when Claude actually stops working. Claude cannot skip statuses because it never executes the advance command directly.
+
+---
+
+## How It Works: Step by Step
+
+### Normal Interactive Session
 
 ```
-User prompt → Claude works → [tools, edits, etc.] → Claude stops → Stop hook fires
+1. User: "Work on E07-F01-001, it's in in_development"
+
+2. Claude reads the task, writes code, runs tests, etc.
+
+3. Claude decides it's done and tries:
+   Bash: shark status advance E07-F01-001
+
+4. PreToolUse hook intercepts:
+   - Parses command → extracts key "E07-F01-001"
+   - Writes to /tmp/shark-deferred-{session_id}.json:
+     {"key": "E07-F01-001", "action": "advance"}
+   - Returns: BLOCK with reason
+     "Status advancement is managed by the system.
+      Your work will be reviewed and status advanced when complete."
+
+5. Claude sees the block message, understands, wraps up its response.
+
+6. Claude stops → Stop hook fires:
+   - Reads session_id from stdin JSON
+   - Reads /tmp/shark-deferred-{session_id}.json → key = "E07-F01-001"
+   - Executes: shark status advance E07-F01-001 --json
+   - Logs: "Advanced E07-F01-001 → ready_for_code_review"
+   - Deletes the deferred file
+   - Exits 0
+
+7. User sees Claude's work + hook's log message.
+   Status has advanced exactly once.
 ```
 
-**What the hook receives** (JSON on stdin):
-```json
+### Claude Tries to Skip (Multiple Advances)
+
+```
+1. Claude tries: shark status advance E07-F01-001
+   → PreToolUse hook: BLOCKED. Stored intent for E07-F01-001.
+
+2. Claude tries again: shark status advance E07-F01-001
+   → PreToolUse hook: BLOCKED again. Overwrites stored intent (same key, idempotent).
+
+3. Claude tries to advance a SECOND time to skip ahead:
+   shark status advance E07-F01-001
+   → PreToolUse hook: BLOCKED. Still the same key stored.
+
+4. Claude stops → Stop hook fires:
+   → Reads deferred file → advances E07-F01-001 ONCE.
+   → One status transition. No skipping.
+```
+
+**Key property**: No matter how many times Claude attempts to advance within a session turn, only **one** advance executes — when Claude actually stops.
+
+### Session Where Claude Doesn't Try to Advance
+
+```
+1. User: "Fix the formatting in display_service.go"
+
+2. Claude edits the file, never tries to advance any status.
+
+3. Claude stops → Stop hook fires:
+   → No deferred file exists for this session_id
+   → No-op. Exit 0.
+
+4. Normal session, zero impact.
+```
+
+### Concurrent Sessions
+
+```
+Session A (session_id: "aaa"):
+  → Claude works on E07-F01-001
+  → PreToolUse stores to /tmp/shark-deferred-aaa.json
+  → Stop hook reads /tmp/shark-deferred-aaa.json → advances E07-F01-001
+
+Session B (session_id: "bbb"):
+  → Claude works on E10-F03-002
+  → PreToolUse stores to /tmp/shark-deferred-bbb.json
+  → Stop hook reads /tmp/shark-deferred-bbb.json → advances E10-F03-002
+
+No conflict — each session has its own deferred file keyed by session_id.
+```
+
+---
+
+## The Two Hook Scripts
+
+### 1. PreToolUse Hook — `.claude/hooks/intercept-status-advance.sh`
+
+Intercepts any Bash command that would advance, set, or transition status forward.
+
+```bash
+#!/bin/bash
+# .claude/hooks/intercept-status-advance.sh
+#
+# Intercepts Claude's attempts to advance shark status.
+# Captures the intent and blocks the command.
+# The Stop hook will execute the deferred advance.
+
+INPUT=$(cat)
+
+# Extract tool info
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""')
+TOOL_INPUT=$(echo "$INPUT" | jq -r '.tool_input // {}')
+
+# Only intercept Bash tool calls
+if [ "$TOOL_NAME" != "Bash" ]; then
+  exit 0  # Allow non-Bash tools
+fi
+
+# Extract the command being run
+COMMAND=$(echo "$TOOL_INPUT" | jq -r '.command // ""')
+
+# Check if this is a status-advance command
+# Match: shark status advance, shark task next-status, shark status set,
+#        shark task set-status, shark feature next-status, shark epic next-status
+if ! echo "$COMMAND" | grep -qE '(shark\s+(status\s+(advance|set)|task\s+(next-status|set-status)|feature\s+next-status|epic\s+next-status))'; then
+  exit 0  # Not a status command, allow it
+fi
+
+# Extract the entity key from the command
+# Handles patterns like:
+#   shark status advance E07-F01-001
+#   shark status set E07-F01-001 in_development
+#   shark task next-status E07-F01-001
+ENTITY_KEY=$(echo "$COMMAND" | grep -oE '(E[0-9]{2}(-F[0-9]{2}(-[0-9]{3})?)?|B[0-9]{3}|CC-[0-9]{3})' | head -1)
+
+if [ -z "$ENTITY_KEY" ]; then
+  exit 0  # Can't parse key, allow (shouldn't happen)
+fi
+
+# Store the deferred advance intent, keyed by session_id
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
+DEFERRED_DIR="/tmp/shark-deferred"
+mkdir -p "$DEFERRED_DIR"
+
+# Write the intent
+cat > "${DEFERRED_DIR}/${SESSION_ID}.json" <<INTENT_EOF
 {
-  "session_id": "abc123",
-  "cwd": "/home/user/projects/shark-task-manager",
-  "hook_event_name": "Stop",
-  "stop_hook_active": false
+  "key": "$ENTITY_KEY",
+  "original_command": $(echo "$COMMAND" | jq -Rs .),
+  "timestamp": "$(date -Iseconds)"
 }
+INTENT_EOF
+
+# Block the command — output JSON to stdout
+cat <<'BLOCK_EOF'
+{
+  "decision": "block",
+  "reason": "Status advancement is managed by the system. Your work will be validated and status advanced automatically when you finish. Continue with your current task or let me know you're done."
+}
+BLOCK_EOF
+
+exit 2  # Exit code 2 = block the tool call
 ```
 
-**What the hook can do**:
-- Run arbitrary shell commands (e.g., `shark status advance`)
-- Return exit code 0 (allow stop) or exit code 2 + JSON (block stop, force Claude to continue)
-- Access environment variables set by the parent process
+### 2. Stop Hook — `.claude/hooks/advance-on-stop.sh`
 
-**Infinite loop guard**: When a Stop hook blocks with `decision: "block"`, Claude continues working. The *next* Stop event sets `stop_hook_active: true`, allowing the hook to detect the second attempt and let Claude actually stop.
+Fires when Claude finishes. Executes any deferred status advance.
 
-### Hook Configuration
+```bash
+#!/bin/bash
+# .claude/hooks/advance-on-stop.sh
+#
+# Executes deferred status advancement when Claude finishes working.
+# Reads the intent stored by intercept-status-advance.sh.
 
-Hooks are configured in `.claude/settings.json` (project-level, committable) or `.claude/settings.local.json` (local, gitignored):
+INPUT=$(cat)
+
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
+DEFERRED_FILE="/tmp/shark-deferred/${SESSION_ID}.json"
+
+# No deferred advance for this session → no-op
+if [ ! -f "$DEFERRED_FILE" ]; then
+  exit 0
+fi
+
+# Read the deferred intent
+ENTITY_KEY=$(jq -r '.key' "$DEFERRED_FILE")
+
+if [ -z "$ENTITY_KEY" ] || [ "$ENTITY_KEY" = "null" ]; then
+  rm -f "$DEFERRED_FILE"
+  exit 0
+fi
+
+# Determine working directory
+CWD=$(echo "$INPUT" | jq -r '.cwd // "."')
+cd "$CWD" 2>/dev/null || true
+
+# Execute the deferred advance
+RESULT=$(shark status advance "$ENTITY_KEY" --json 2>&1) && {
+  NEW_STATUS=$(echo "$RESULT" | jq -r '.to_status // .status // "unknown"')
+  echo "Hook: Advanced $ENTITY_KEY → $NEW_STATUS" >&2
+} || {
+  echo "Hook: Failed to advance $ENTITY_KEY: $RESULT" >&2
+  # Don't block Claude from stopping — just log the failure
+}
+
+# Clean up
+rm -f "$DEFERRED_FILE"
+
+exit 0  # Always allow Claude to stop
+```
+
+---
+
+## Hook Configuration
+
+### `.claude/settings.json`
 
 ```json
 {
   "hooks": {
-    "Stop": [
+    "PreToolUse": [
       {
-        "matcher": "",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/advance-shark-task.sh"
+            "command": ".claude/hooks/intercept-status-advance.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/advance-on-stop.sh"
           }
         ]
       }
@@ -64,489 +265,139 @@ Hooks are configured in `.claude/settings.json` (project-level, committable) or 
 }
 ```
 
+**Note**: The PreToolUse matcher is set to `"Bash"` — it only fires for Bash tool calls, not for Read, Edit, Write, etc. The hook script itself does the fine-grained filtering (only status-advance commands).
+
 ---
 
-## Architecture: Three Components
+## What Causes Status to Advance
 
-### 1. The Stop Hook — `advance-shark-task.sh`
+| Scenario | What Happens |
+|----------|-------------|
+| Claude tries `shark status advance` | PreToolUse blocks it. Stop hook advances once when Claude finishes. |
+| Claude tries `shark status set X in_development` | Same — intercepted and deferred. |
+| Claude tries multiple advances in one turn | All blocked. Only one advance on Stop. Last key wins. |
+| Claude never tries to advance | Stop hook finds no deferred file. No-op. |
+| User runs `! shark status advance` | Runs directly in shell, bypasses hooks entirely. Works as normal. |
+| User manually types advance in chat | Claude executes it → intercepted by hook. Same deferred behavior. |
 
-Fires after every Claude session. Reads the task key from environment, advances status.
+## What Causes the Flow to Stop
 
+| Condition | Behavior |
+|-----------|----------|
+| Claude finishes its response naturally | Stop hook fires, advances once if deferred intent exists |
+| Claude encounters an error and gives up | Stop hook still fires (clean stop), advances if intent exists |
+| Session crashes / API error | StopFailure event — Stop hook does NOT fire, no advance, status stays put |
+| User hits Ctrl+C | Session killed, deferred file remains (stale), no advance |
+| Terminal status reached | `shark status advance` in Stop hook returns error (already terminal), logged and ignored |
+
+---
+
+## Interaction with `/run` and `shark run`
+
+### With `/run` skill (current LLM orchestration)
+
+The hooks make `/run` safer immediately:
+- `/run` dispatches agents that try to advance status → hooks intercept
+- Each agent turn advances at most once
+- The LLM orchestrator can still read status, dispatch agents, etc. — it just can't skip statuses
+
+This is a **drop-in safety net** that doesn't require changing how `/run` works.
+
+### With `shark run` (Go controller from E22)
+
+If `shark run` is also implemented:
+- `shark run` advances status via Go service calls (not CLI), so hooks don't interfere
+- Claude agents dispatched by `shark run` have `--disallowedTools` AND hooks as defense in depth
+- The hooks provide an extra safety layer even if `--disallowedTools` is misconfigured
+
+### Standalone (no orchestration)
+
+For plain interactive sessions ("work on task E07-F01-001"):
+- Claude does the work, tries to advance when done
+- Hooks capture and defer — one clean advance per turn
+- No orchestration script needed for single-status work
+
+---
+
+## Limitations and Edge Cases
+
+### 1. Claude might not try to advance at all
+
+If Claude finishes work but doesn't attempt `shark status advance`, the Stop hook has no deferred intent and does nothing. The status stays put.
+
+**Mitigation**: Instruct Claude (in CLAUDE.md or task instructions) to always call `shark status advance` when done with a status. The hook handles the rest.
+
+### 2. Wrong entity key
+
+If Claude tries to advance a different task than the one it's supposed to be working on, the hook defers that wrong key.
+
+**Mitigation**: The PreToolUse hook could validate the key against a "currently assigned" task (if tracked elsewhere). For now, Claude's own context about which task it's working on is the source of truth.
+
+### 3. Backward transitions (rejections)
+
+The hook should NOT block backward transitions like `shark status set E07-F01-001 changes_requested --reason "..."`. These are valid rejection flows.
+
+**Current behavior**: The regex in `intercept-status-advance.sh` matches `shark status set` broadly. This needs refinement — either:
+- Parse the target status and only block forward transitions
+- Only intercept `shark status advance` and `shark task next-status` (which are always forward), and allow `shark status set` through (used for rejections)
+
+**Recommended**: Only intercept `advance` and `next-status` commands. Let `set` through — it's used for legitimate backward transitions and the workflow service validates the transition anyway.
+
+### 4. Stale deferred files
+
+If a session crashes and `/tmp/shark-deferred/{session_id}.json` isn't cleaned up, it persists. A new session with a different ID won't be affected, but the file lingers.
+
+**Mitigation**: Add a `SessionEnd` hook that cleans up, or use a cron job to delete files older than 24 hours:
 ```bash
-#!/bin/bash
-set -euo pipefail
-
-# Read hook input from stdin
-INPUT=$(cat)
-
-# Only act when SHARK_TASK_KEY is set (orchestrated mode)
-TASK_KEY="${SHARK_TASK_KEY:-}"
-if [ -z "$TASK_KEY" ]; then
-  exit 0  # Not in orchestration mode, do nothing
-fi
-
-# Don't advance if this is a re-fire after block (safety)
-STOP_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false')
-if [ "$STOP_ACTIVE" = "true" ]; then
-  exit 0
-fi
-
-# Advance the entity to its next workflow status
-cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || cd "$(echo "$INPUT" | jq -r '.cwd')"
-
-RESULT=$(shark status advance "$TASK_KEY" --json 2>&1) || {
-  echo "Hook: Failed to advance $TASK_KEY: $RESULT" >&2
-  exit 0  # Don't block Claude from stopping on advance failure
-}
-
-NEW_STATUS=$(echo "$RESULT" | jq -r '.to_status // .status // "unknown"')
-echo "Hook: Advanced $TASK_KEY → $NEW_STATUS" >&2
-exit 0
+find /tmp/shark-deferred -name "*.json" -mtime +1 -delete
 ```
 
-### 2. The Orchestration Loop — `shark-orchestrate.sh`
+### 5. The Stop hook fires per response, not per session
 
-A bash script that replaces the Go RunController. Reads status, determines action, launches the appropriate agent, repeats.
+If the user has a multi-turn conversation and Claude tries to advance in turn 3, the Stop hook fires at the end of turn 3 and advances. If Claude tries to advance again in turn 5, it advances again at the end of turn 5.
 
-```bash
-#!/bin/bash
-set -euo pipefail
-
-# Usage: ./shark-orchestrate.sh E10-F03-001 [--dry-run]
-KEY="$1"
-DRY_RUN="${2:-}"
-
-echo "=== Orchestrating $KEY ==="
-
-while true; do
-  # 1. Read current status
-  STATUS=$(shark get "$KEY" --field status 2>/dev/null)
-  echo ""
-  echo "--- Status: $STATUS ---"
-
-  # 2. Check for terminal status
-  if [[ "$STATUS" == "completed" || "$STATUS" == "cancelled" ]]; then
-    echo "=== $KEY reached terminal status: $STATUS ==="
-    break
-  fi
-
-  # 3. Read orchestrator action for this status
-  ACTION_JSON=$(shark config get-status-action "$STATUS" --json 2>/dev/null) || {
-    echo "ERROR: No orchestrator action defined for status '$STATUS'"
-    break
-  }
-
-  ACTION=$(echo "$ACTION_JSON" | jq -r '.action')
-  AGENT_TYPE=$(echo "$ACTION_JSON" | jq -r '.agent_type // "developer"')
-  PROVIDER=$(echo "$ACTION_JSON" | jq -r '.provider // "anthropic"')
-  MODEL=$(echo "$ACTION_JSON" | jq -r '.model // empty')
-  INSTRUCTION=$(echo "$ACTION_JSON" | jq -r '.instruction // empty')
-
-  echo "  Action: $ACTION | Agent: $AGENT_TYPE | Provider: $PROVIDER"
-
-  case "$ACTION" in
-
-    advance_status)
-      # Auto-advance, no agent needed
-      if [ -n "$DRY_RUN" ]; then
-        echo "  [dry-run] Would advance $KEY"
-        # Simulate by reading what the next status would be
-        NEXT=$(shark status options "$KEY" --json 2>/dev/null | jq -r '.[0] // "unknown"')
-        echo "  [dry-run] Next status would be: $NEXT"
-        break  # Can't continue dry-run without actually advancing
-      fi
-      shark status advance "$KEY" --json >/dev/null
-      echo "  Advanced (no agent dispatch)"
-      ;;
-
-    spawn_agent)
-      if [ -n "$DRY_RUN" ]; then
-        echo "  [dry-run] Would dispatch $PROVIDER/$AGENT_TYPE"
-        echo "  [dry-run] Instruction: ${INSTRUCTION:0:100}..."
-        break
-      fi
-
-      # Advance ready_for_* → in_* before dispatch (marks work started)
-      if [[ "$STATUS" == ready_for_* ]]; then
-        shark status advance "$KEY" --json >/dev/null
-        STATUS=$(shark get "$KEY" --field status)
-        echo "  Advanced to $STATUS (work started)"
-      fi
-
-      echo "  Dispatching $PROVIDER agent ($AGENT_TYPE)..."
-
-      # Dispatch based on provider
-      if [ "$PROVIDER" = "anthropic" ] || [ "$PROVIDER" = "claude" ]; then
-        # Claude CLI — the Stop hook will advance status on exit
-        SHARK_TASK_KEY="$KEY" claude -p "$INSTRUCTION" \
-          --disallowedTools "Bash(shark status advance*)" \
-          --disallowedTools "Bash(shark task next-status*)" \
-          --disallowedTools "Bash(shark status set*)" \
-          --disallowedTools "Bash(shark task set-status*)" \
-          ${MODEL:+--model "$MODEL"} \
-          --output-format json \
-          || {
-            echo "  ERROR: Agent exited non-zero. Status stays at $STATUS."
-            echo "  Re-run to resume from $STATUS."
-            exit 1
-          }
-        # Note: Stop hook already advanced status via SHARK_TASK_KEY.
-        # But the hook only fires for Claude. For non-Claude providers,
-        # we advance manually below.
-
-      elif [ "$PROVIDER" = "openai" ] || [ "$PROVIDER" = "codex" ]; then
-        # Codex CLI — no hook integration, advance manually
-        codex exec \
-          ${MODEL:+-m "$MODEL"} \
-          --full-auto \
-          -c "instruction: $INSTRUCTION" \
-          || {
-            echo "  ERROR: Codex agent exited non-zero. Status stays at $STATUS."
-            exit 1
-          }
-        # Manually advance since Codex doesn't trigger Claude hooks
-        shark status advance "$KEY" --json >/dev/null
-      fi
-
-      echo "  Agent completed successfully."
-      ;;
-
-    cascade)
-      echo "  Cascading to child entities..."
-      # List children, run orchestration for each
-      CHILDREN=$(shark list "$KEY" --json 2>/dev/null | jq -r '.[].key')
-      for CHILD in $CHILDREN; do
-        CHILD_STATUS=$(shark get "$CHILD" --field status 2>/dev/null)
-        if [[ "$CHILD_STATUS" != "completed" && "$CHILD_STATUS" != "cancelled" ]]; then
-          echo "  → Recursing into $CHILD ($CHILD_STATUS)"
-          "$0" "$CHILD" $DRY_RUN  # Recursive call
-        else
-          echo "  → Skipping $CHILD ($CHILD_STATUS)"
-        fi
-      done
-      # All children done, advance parent
-      shark status advance "$KEY" --json >/dev/null
-      echo "  All children complete. Advanced parent."
-      ;;
-
-    pause|wait_for_triage|check_or_resume)
-      echo "=== PAUSED at $STATUS ==="
-      echo "  Awaiting manual intervention."
-      echo "  Resume with: $0 $KEY"
-      break
-      ;;
-
-    archive)
-      echo "=== $KEY archived ==="
-      break
-      ;;
-
-    *)
-      echo "ERROR: Unknown action '$ACTION' for status '$STATUS'"
-      exit 1
-      ;;
-  esac
-done
-
-echo ""
-echo "=== Orchestration of $KEY finished ==="
-```
-
-### 3. Kickoff
-
-```bash
-# Single task through full workflow
-./shark-orchestrate.sh E10-F03-001
-
-# Feature (drives tasks via cascade)
-./shark-orchestrate.sh E10-F03
-
-# Epic (drives features via cascade, which drive tasks)
-./shark-orchestrate.sh E10
-
-# Preview without executing
-./shark-orchestrate.sh E10 --dry-run
-```
+**This is actually correct behavior** — each turn of work should produce at most one advancement. Multi-turn sessions that span multiple statuses work naturally.
 
 ---
 
-## Walkthrough: E10 Epic via Hooks
+## Comparison to E22 `shark run`
 
-Using the same E10 example from `run-loop-walkthrough-E10.md`.
+| Concern | Hooks Approach | `shark run` (Go) |
+|---------|---------------|------------------|
+| **Prevents status skipping** | Yes — PreToolUse blocks, Stop defers | Yes — Go binary owns all advancement |
+| **Works in interactive sessions** | Yes — the whole point | No — only in automated runs |
+| **Implementation effort** | ~80 lines of bash, hook config | ~800+ lines of Go |
+| **Concurrent sessions** | Session-scoped files, no conflicts | N/A (one entity per run) |
+| **Multi-provider dispatch** | Not applicable (interactive) | Yes (Claude + Codex) |
+| **Automated full-workflow runs** | Not the goal (use with `/run` or manual) | Yes — primary purpose |
+| **Defense in depth** | Can layer WITH `shark run` | Can layer WITH hooks |
 
-### Happy Path
-
-```
-$ ./shark-orchestrate.sh E10
-
-=== Orchestrating E10 ===
-
---- Status: draft ---
-  Action: advance_status
-  Advanced (no agent dispatch)
-
---- Status: ready_for_refinement ---
-  Action: spawn_agent | Agent: business-analyst | Provider: anthropic
-  Advanced to in_refinement (work started)
-  Dispatching anthropic agent (business-analyst)...
-    → claude -p "Write epic PRD for E10..." (with --disallowedTools)
-    → Claude works... creates PRD docs...
-    → Claude stops → Stop hook fires → shark status advance E10
-    → Hook: Advanced E10 → ready_for_research
-  Agent completed successfully.
-
---- Status: ready_for_research ---
-  Action: spawn_agent | Agent: researcher | Provider: anthropic
-  Advanced to in_research (work started)
-  Dispatching anthropic agent (researcher)...
-    → claude -p "Brownfield analysis for E10..." (with --disallowedTools)
-    → Claude works... produces research report...
-    → Claude stops → Stop hook fires → shark status advance E10
-    → Hook: Advanced E10 → ready_for_design
-  Agent completed successfully.
-
---- Status: ready_for_design ---
-  Action: spawn_agent | Agent: architect | Provider: anthropic
-  Advanced to in_design (work started)
-  Dispatching anthropic agent (architect)...
-    → claude -p "Architecture + UAT plan for E10..." (with --disallowedTools)
-    → Claude stops → Stop hook fires → shark status advance E10
-    → Hook: Advanced E10 → ready_for_decomposition
-  Agent completed successfully.
-
---- Status: ready_for_decomposition ---
-  Action: spawn_agent | Agent: product-manager | Provider: anthropic
-  Advanced to in_decomposition (work started)
-  Dispatching anthropic agent (product-manager)...
-    → Claude stops → Stop hook fires → shark status advance E10
-    → Hook: Advanced E10 → active
-  Agent completed successfully.
-
---- Status: active ---
-  Action: cascade
-  Cascading to child entities...
-  → Skipping E10-F01 (completed)
-  → Skipping E10-F02 (completed)
-  → Recursing into E10-F03 (active)
-    [nested orchestration of E10-F03 runs here]
-  → Skipping E10-F04 (completed)
-  → Skipping E10-F05 (completed)
-  → Recursing into E10-F06 (draft)
-    [nested orchestration of E10-F06 runs here]
-  All children complete. Advanced parent.
-
---- Status: completed ---
-=== E10 reached terminal status: completed ===
-
-=== Orchestration of E10 finished ===
-```
-
-### Failure & Resume
-
-```
-$ ./shark-orchestrate.sh E10
-
---- Status: ready_for_research ---
-  Advanced to in_research (work started)
-  Dispatching anthropic agent (researcher)...
-    → claude -p "Brownfield analysis..."
-    → Claude crashes (exit code 1)
-    → Stop hook does NOT fire (session failed, not clean stop)
-  ERROR: Agent exited non-zero. Status stays at in_research.
-  Re-run to resume from in_research.
-
-# Later, user re-runs:
-$ ./shark-orchestrate.sh E10
-
---- Status: in_research ---
-  Action: spawn_agent (resume instruction)
-  # Already at in_*, no pre-advance needed
-  Dispatching anthropic agent (researcher)...
-    → claude -p "Resume research for E10, check for existing work..."
-    → Claude works... finds partial report, completes it...
-    → Claude stops → Stop hook fires → shark status advance E10
-    → Hook: Advanced E10 → ready_for_design
-  Agent completed successfully.
-
-# Continues normally from ready_for_design...
-```
-
-### What Causes the Flow to Stop
-
-| Condition | Behavior | How to Resume |
-|-----------|----------|---------------|
-| **Terminal status** (`completed`, `cancelled`) | Loop exits naturally | N/A — entity is done |
-| **Pause action** (`pause`, `wait_for_triage`) | Loop breaks with message | Perform manual action, re-run `./shark-orchestrate.sh KEY` |
-| **Agent failure** (non-zero exit) | Loop exits with error | Fix the issue, re-run (resumes from `in_*` status) |
-| **No orchestrator action** for status | Loop exits with error | Add action to `.sharkconfig.json`, re-run |
-| **Ctrl+C** (user interrupt) | Process killed, status stays at current | Re-run (resumes from persisted status) |
-| **Codex agent failure** | Same as Claude failure | Same as Claude failure |
-
----
-
-## Key Difference: Where Status Advancement Happens
-
-### E22 `shark run` (Go Controller)
-
-```
-Go RunController
-  ├── dispatch agent (os/exec)
-  ├── wait for exit code
-  ├── IF exit == 0: controller calls TransitionStatus()    ← Go code advances
-  └── loop
-```
-
-The Go binary owns all advancement. The agent has zero control.
-
-### Hooks Approach
-
-```
-Bash loop
-  ├── launch claude -p (with SHARK_TASK_KEY env var)
-  ├── Claude works...
-  ├── Claude stops → Stop hook fires
-  │     └── hook calls: shark status advance $SHARK_TASK_KEY    ← hook advances
-  ├── claude process exits
-  └── bash loop reads new status and continues
-```
-
-The **Stop hook** owns advancement for Claude agents. The **bash loop** owns advancement for non-Claude agents (Codex) and for `advance_status` actions.
-
----
-
-## Hook vs Stop-Hook Interaction Detail
-
-### Normal Flow (Agent Succeeds)
-
-```
-1. Bash loop sets SHARK_TASK_KEY=E10, launches claude -p "..."
-2. Claude receives instruction, does work (edits files, runs tests, etc.)
-3. Claude finishes responding → Stop event fires
-4. .claude/hooks/advance-shark-task.sh runs:
-   - Reads SHARK_TASK_KEY from env → "E10"
-   - Reads stop_hook_active from stdin → false
-   - Runs: shark status advance E10 --json
-   - Prints to stderr: "Hook: Advanced E10 → ready_for_design"
-   - Exits 0 (allows Claude to stop)
-5. Claude session ends, process exits with code 0
-6. Bash loop reads new status: ready_for_design
-7. Loop continues
-```
-
-### Agent Crash (Non-Zero Exit)
-
-```
-1. Bash loop launches claude -p "..."
-2. Claude encounters fatal error, session terminates abnormally
-3. Stop hook may or may not fire depending on crash type:
-   - Clean API error → StopFailure event (different from Stop, hook doesn't fire)
-   - Tool timeout → Stop may fire
-4. claude process exits with non-zero code
-5. Bash loop catches non-zero exit → breaks with error
-6. Status stays at in_* → resumable on next run
-```
-
-**Safety**: Even if the Stop hook fires on a partial failure and advances status prematurely, the bash loop detects the non-zero exit code and stops. The advancement is idempotent — the next status is just the next `in_*` or `ready_for_*`, which the resume logic handles.
-
-### Non-Orchestrated Sessions (Normal Dev Work)
-
-```
-1. Developer runs: claude (interactive, no SHARK_TASK_KEY set)
-2. Claude works on whatever the developer asks
-3. Claude stops → Stop hook fires
-4. Hook checks SHARK_TASK_KEY → empty
-5. Hook exits 0 immediately (no-op)
-6. Normal Claude behavior, zero impact
-```
-
-The hook is **inert** unless `SHARK_TASK_KEY` is explicitly set by the orchestration script.
-
----
-
-## Comparison: Hooks vs `shark run`
-
-| Dimension | `shark run` (E22) | Hooks + Bash |
-|-----------|-------------------|--------------|
-| **Lines of Go code** | ~800+ (controller, dispatchers, worktree, tests) | 0 |
-| **Lines of bash** | 0 | ~120 (orchestrator + hook) |
-| **Agent isolation** | `--disallowedTools` | `--disallowedTools` (same) |
-| **Status advancement** | Go `TransitionStatus()` call | `shark status advance` CLI call from hook |
-| **Resume on failure** | Re-run `shark run KEY` | Re-run `./shark-orchestrate.sh KEY` |
-| **Parallel cascade** | Go goroutines + semaphore + worktrees | Possible with `&` + `wait`, but less controlled |
-| **Multi-provider** | Go dispatcher interface | Bash case statement |
-| **Structured logging** | Go logger with JSON output | Bash echo + stderr |
-| **Testability** | Go unit tests with mock interfaces | Bash testing is harder |
-| **Maintenance** | Go code in shark binary | External script + hook config |
-| **Works for interactive sessions** | No (only via `shark run`) | Yes (hook fires for any Claude session with SHARK_TASK_KEY set) |
-| **Dependency** | None (built into shark) | Requires `jq`, Claude CLI |
-
-### When to Use Each
-
-**Use hooks approach when:**
-- You want minimal implementation effort
-- You're primarily using Claude (not multi-provider)
-- Sequential execution is sufficient
-- You want status advancement to work in interactive sessions too
-- You're comfortable with bash orchestration
-
-**Use `shark run` (Go) when:**
-- You need parallel cascade with worktree isolation
-- You need structured JSON logging and audit trails
-- You want the orchestrator built into the shark binary
-- You need robust multi-provider dispatch
-- You need comprehensive error handling and retry logic
-- You want Go-level testability
+**These are complementary, not competing.** Hooks solve the interactive-session problem. `shark run` solves the automated-orchestration problem. Both can coexist.
 
 ---
 
 ## Implementation Checklist
 
-### To implement hooks-based orchestration:
-
-1. **Create hook script**: `.claude/hooks/advance-shark-task.sh`
-   - Read `SHARK_TASK_KEY` from environment
-   - Read `stop_hook_active` from stdin to prevent loops
-   - Call `shark status advance` on the task key
-   - Exit 0 always (never block Claude from stopping)
-
-2. **Configure hook**: `.claude/settings.json`
-   ```json
-   {
-     "hooks": {
-       "Stop": [
-         {
-           "hooks": [
-             {
-               "type": "command",
-               "command": ".claude/hooks/advance-shark-task.sh"
-             }
-           ]
-         }
-       ]
-     }
-   }
-   ```
-
-3. **Create orchestration script**: `scripts/shark-orchestrate.sh`
-   - Read status → read action → dispatch or advance → loop
-   - Set `SHARK_TASK_KEY` env var for Claude dispatches
-   - Handle cascade via recursive calls
-   - Handle pause/archive as loop exits
-
-4. **Verify `--disallowedTools` works**: Test that Claude cannot self-advance when the flag is set.
-
-5. **Test the flow end-to-end**: Drive a task from `draft` to `completed`.
+- [ ] Create `.claude/hooks/intercept-status-advance.sh` — PreToolUse hook
+- [ ] Create `.claude/hooks/advance-on-stop.sh` — Stop hook
+- [ ] Add hook configuration to `.claude/settings.json`
+- [ ] Make both scripts executable (`chmod +x`)
+- [ ] Refine regex to only intercept `advance`/`next-status` (not `set` for backward transitions)
+- [ ] Test: Claude tries to advance → blocked, deferred, executed on stop
+- [ ] Test: Claude tries multiple advances → only one executes
+- [ ] Test: Concurrent sessions with different tasks → no cross-contamination
+- [ ] Test: Normal session without advance → no impact
+- [ ] Add `SessionEnd` cleanup hook for stale deferred files
+- [ ] Update CLAUDE.md to instruct Claude to call `shark status advance` when done (hooks handle the rest)
 
 ---
 
 ## Open Questions
 
-1. **Does the Stop hook fire reliably on `claude -p` (non-interactive) exits?** Need to verify that programmatic sessions trigger Stop the same as interactive ones.
+1. **Does PreToolUse receive the full Bash command string?** Need to verify the exact shape of `tool_input` for Bash calls — is it `{"command": "shark status advance E07-F01-001"}` or something else?
 
-2. **Does `SessionEnd` fire after `Stop`?** If so, should advancement happen in `SessionEnd` instead (guaranteed to fire even on crash)?
+2. **Does the Stop hook fire after a blocked PreToolUse?** If Claude's only action was the blocked advance and it has nothing else to do, does it stop (triggering the Stop hook)? Or does it try to find other work?
 
-3. **Race condition**: If the Stop hook advances status, but the bash loop also checks status — is there a window where the loop reads the old status? Likely not (hook completes synchronously before `claude` exits), but worth verifying.
+3. **Should the Stop hook block (force continue) if Claude tried to advance but hasn't done enough work?** This would be a quality gate — e.g., check if Claude made any file edits before allowing the advance. Adds complexity but prevents empty advances.
 
-4. **Multi-entity hooks**: If two orchestration scripts run concurrently with different `SHARK_TASK_KEY` values, each Claude session inherits its own env. No conflict expected, but untested.
-
-5. **Hook + `shark run` coexistence**: If someone uses `shark run` (Go controller) with the hook also configured, status would advance twice (once by hook, once by Go). The hook should detect `SHARK_TASK_KEY` absence and no-op. Or: `shark run` should unset `SHARK_TASK_KEY` explicitly.
+4. **PreToolUse hook latency**: The hook runs on every Bash tool call. If it adds noticeable latency, it could slow down normal development. The grep + jq pipeline should be fast (<50ms), but worth measuring.

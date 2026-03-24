@@ -792,62 +792,11 @@ func TestBugService_ListBugs_WithSeverityFilter(t *testing.T) {
 	}
 }
 
-// --- AdvanceBugStatus tests ---
+// --- TransitionStatus tests ---
 
-func TestBugService_AdvanceBugStatus(t *testing.T) {
+func TestBugService_TransitionStatus_ValidTransition(t *testing.T) {
 	ctx := context.Background()
 
-	// Track current status to return updated value on re-fetch
-	currentStatus := models.BugStatus("reported")
-
-	repo := &mockBugRepo{
-		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"}, Status: currentStatus, Severity: models.BugSeverityHigh}, nil
-		},
-		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
-			if id != 1 {
-				t.Errorf("expected id=1, got %d", id)
-			}
-			currentStatus = status
-			return nil
-		},
-	}
-
-	svc := newBugService(repo, nil, nil, nil)
-
-	bug, err := svc.AdvanceBugStatus(ctx, "B001")
-	if err != nil {
-		t.Fatalf("AdvanceBugStatus() error = %v", err)
-	}
-	// Status should have changed from "reported"
-	if bug.Status == "reported" {
-		t.Error("expected status to change from 'reported'")
-	}
-}
-
-func TestBugService_AdvanceBugStatus_NotFound(t *testing.T) {
-	ctx := context.Background()
-
-	repo := &mockBugRepo{
-		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return nil, fmt.Errorf("bug not found with key %q", key)
-		},
-	}
-
-	svc := newBugService(repo, nil, nil, nil)
-
-	_, err := svc.AdvanceBugStatus(ctx, "B999")
-	if err == nil {
-		t.Fatal("expected error for non-existent bug")
-	}
-}
-
-// --- SetBugStatus tests ---
-
-func TestBugService_SetBugStatus_ValidTransition(t *testing.T) {
-	ctx := context.Background()
-
-	// Track current status to return updated value on re-fetch
 	currentStatus := models.BugStatus("reported")
 
 	repo := &mockBugRepo{
@@ -862,17 +811,16 @@ func TestBugService_SetBugStatus_ValidTransition(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	// "reported" -> "triaged" is a valid transition, no force needed
-	bug, err := svc.SetBugStatus(ctx, "B001", "triaged", false)
+	result, err := svc.TransitionStatus(ctx, "B001", "triaged", TransitionOptions{})
 	if err != nil {
-		t.Fatalf("SetBugStatus() error = %v", err)
+		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if bug.Status != "triaged" {
-		t.Errorf("expected status 'triaged', got %s", bug.Status)
+	if result.ToStatus != "triaged" {
+		t.Errorf("expected status 'triaged', got %s", result.ToStatus)
 	}
 }
 
-func TestBugService_SetBugStatus_InvalidStatus(t *testing.T) {
+func TestBugService_TransitionStatus_InvalidStatus(t *testing.T) {
 	ctx := context.Background()
 
 	repo := &mockBugRepo{
@@ -883,10 +831,68 @@ func TestBugService_SetBugStatus_InvalidStatus(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	// "completely_made_up" should not be a valid workflow status
-	_, err := svc.SetBugStatus(ctx, "B001", "completely_made_up", false)
+	_, err := svc.TransitionStatus(ctx, "B001", "completely_made_up", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error for invalid status")
+	}
+}
+
+func TestBugService_TransitionStatus_NotFound(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return nil, fmt.Errorf("bug not found with key %q", key)
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	_, err := svc.TransitionStatus(ctx, "B999", "triaged", TransitionOptions{})
+	if err == nil {
+		t.Fatal("expected error for non-existent bug")
+	}
+}
+
+// --- GetNextStatus tests ---
+
+func TestBugService_GetNextStatus(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"}, Status: "reported", Severity: models.BugSeverityHigh}, nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	info, err := svc.GetNextStatus(ctx, "B001")
+	if err != nil {
+		t.Fatalf("GetNextStatus() error = %v", err)
+	}
+	if info.CurrentStatus != "reported" {
+		t.Errorf("expected current status 'reported', got %s", info.CurrentStatus)
+	}
+	if len(info.AvailableTransitions) == 0 {
+		t.Error("expected at least one available transition from 'reported'")
+	}
+}
+
+func TestBugService_GetNextStatus_NotFound(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return nil, fmt.Errorf("bug not found with key %q", key)
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	_, err := svc.GetNextStatus(ctx, "B999")
+	if err == nil {
+		t.Fatal("expected error for non-existent bug")
 	}
 }
 
@@ -965,16 +971,14 @@ func TestBugService_CreateBug_LinkedToTask(t *testing.T) {
 
 // --- Delegation-specific tests (TC-F09-003 through TC-F09-017) ---
 
-// TC-F09-005: SetBugStatus re-fetches bug after transition
-func TestBugService_SetBugStatus_RefetchesAfterTransition(t *testing.T) {
+// TC-F09-005: TransitionStatus returns result with correct fields
+func TestBugService_TransitionStatus_ReturnsResult(t *testing.T) {
 	ctx := context.Background()
 
 	currentStatus := models.BugStatus("reported")
-	getByKeyCalls := 0
 
 	repo := &mockBugRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			getByKeyCalls++
 			return &models.Bug{
 				BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test"},
 				Status:     currentStatus,
@@ -989,19 +993,20 @@ func TestBugService_SetBugStatus_RefetchesAfterTransition(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	bug, err := svc.SetBugStatus(ctx, "B001", "triaged", false)
+	result, err := svc.TransitionStatus(ctx, "B001", "triaged", TransitionOptions{})
 	if err != nil {
-		t.Fatalf("SetBugStatus() error = %v", err)
+		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	// EntityService calls GetByKey once, then BugService re-fetches = 2 calls on entityRepo + 1 on bugRepo
-	// The re-fetched bug should have the updated status
-	if bug.Status != "triaged" {
-		t.Errorf("expected re-fetched bug status 'triaged', got %s", bug.Status)
+	if result.ToStatus != "triaged" {
+		t.Errorf("expected result ToStatus 'triaged', got %s", result.ToStatus)
+	}
+	if !result.Transitioned {
+		t.Error("expected Transitioned to be true")
 	}
 }
 
-// TC-F09-006: SetBugStatus propagates EntityService errors
-func TestBugService_SetBugStatus_PropagatesEntityServiceErrors(t *testing.T) {
+// TC-F09-006: TransitionStatus propagates EntityService errors
+func TestBugService_TransitionStatus_PropagatesEntityServiceErrors(t *testing.T) {
 	ctx := context.Background()
 
 	repo := &mockBugRepo{
@@ -1017,14 +1022,14 @@ func TestBugService_SetBugStatus_PropagatesEntityServiceErrors(t *testing.T) {
 	svc := newBugService(repo, nil, nil, nil)
 
 	// "completely_invalid" is not a valid workflow status
-	_, err := svc.SetBugStatus(ctx, "B001", "completely_invalid", false)
+	_, err := svc.TransitionStatus(ctx, "B001", "completely_invalid", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error for invalid target status")
 	}
 }
 
-// TC-F09-007: SetBugStatus handles entity not found
-func TestBugService_SetBugStatus_NotFound(t *testing.T) {
+// TC-F09-007: TransitionStatus handles entity not found
+func TestBugService_TransitionStatus_HandlesNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	repo := &mockBugRepo{
@@ -1035,14 +1040,14 @@ func TestBugService_SetBugStatus_NotFound(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	_, err := svc.SetBugStatus(ctx, "B999", "triaged", false)
+	_, err := svc.TransitionStatus(ctx, "B999", "triaged", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error for non-existent bug")
 	}
 }
 
-// TC-F09-010: AdvanceBugStatus with no available transitions
-func TestBugService_AdvanceBugStatus_NoTransitions(t *testing.T) {
+// TC-F09-010: GetNextStatus with terminal status returns no transitions
+func TestBugService_GetNextStatus_NoTransitions(t *testing.T) {
 	ctx := context.Background()
 
 	repo := &mockBugRepo{
@@ -1058,46 +1063,12 @@ func TestBugService_AdvanceBugStatus_NoTransitions(t *testing.T) {
 
 	svc := newBugService(repo, nil, nil, nil)
 
-	_, err := svc.AdvanceBugStatus(ctx, "B001")
-	if err == nil {
-		t.Fatal("expected error for terminal status with no transitions")
-	}
-	if !strings.Contains(err.Error(), "no valid transitions") {
-		t.Errorf("expected 'no valid transitions' error, got: %v", err)
-	}
-}
-
-// TC-F09-011: AdvanceBugStatus returns typed Bug model
-func TestBugService_AdvanceBugStatus_ReturnsTypedBug(t *testing.T) {
-	ctx := context.Background()
-
-	currentStatus := models.BugStatus("reported")
-	repo := &mockBugRepo{
-		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
-			return &models.Bug{
-				BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Test Bug"},
-				Status:     currentStatus,
-				Severity:   models.BugSeverityHigh,
-			}, nil
-		},
-		updateStatusFn: func(ctx context.Context, id int64, status models.BugStatus) error {
-			currentStatus = status
-			return nil
-		},
-	}
-
-	svc := newBugService(repo, nil, nil, nil)
-
-	bug, err := svc.AdvanceBugStatus(ctx, "B001")
+	info, err := svc.GetNextStatus(ctx, "B001")
 	if err != nil {
-		t.Fatalf("AdvanceBugStatus() error = %v", err)
+		t.Fatalf("GetNextStatus() error = %v", err)
 	}
-	// Verify it's a *models.Bug with correct fields
-	if bug.Key != "B001" {
-		t.Errorf("expected key B001, got %s", bug.Key)
-	}
-	if bug.Severity != models.BugSeverityHigh {
-		t.Errorf("expected severity high, got %s", bug.Severity)
+	if len(info.AvailableTransitions) != 0 {
+		t.Errorf("expected no available transitions for terminal status, got %d", len(info.AvailableTransitions))
 	}
 }
 

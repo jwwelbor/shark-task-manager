@@ -738,15 +738,20 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		}
 		filePath = input.FilePath
 	} else {
-		// Default path: docs/plan/{epicKey}-{epicSlug}/{featureKey}-{featureSlug}/feature.md
+		// Default path: {epicDir}/{featureKey}-{featureSlug}/feature.md
+		// Use the epic's existing file_path to determine the parent directory,
+		// rather than generating a new folder name from the slug/title.
 		featureSlug := utils.GenerateSlug(input.Title)
-		var defaultPath string
-		if epic.Slug != nil && *epic.Slug != "" {
-			defaultPath = fmt.Sprintf("docs/plan/%s-%s/%s-%s/feature.md", epicKey, *epic.Slug, featureKey, featureSlug)
+		var epicDir string
+		if epic.FilePath != nil && *epic.FilePath != "" {
+			epicDir = filepath.Dir(*epic.FilePath)
+		} else if epic.Slug != nil && *epic.Slug != "" {
+			epicDir = fmt.Sprintf("docs/plan/%s-%s", epicKey, *epic.Slug)
 		} else {
 			epicSlug := utils.GenerateSlug(epic.Title)
-			defaultPath = fmt.Sprintf("docs/plan/%s-%s/%s-%s/feature.md", epicKey, epicSlug, featureKey, featureSlug)
+			epicDir = fmt.Sprintf("docs/plan/%s-%s", epicKey, epicSlug)
 		}
+		defaultPath := fmt.Sprintf("%s/%s-%s/feature.md", epicDir, featureKey, featureSlug)
 		filePath = &defaultPath
 	}
 

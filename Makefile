@@ -31,7 +31,7 @@ LDFLAGS := -X main.BuildDate=$(BUILD_DATE) -X main.GitCommit=$(GIT_COMMIT)
 # Build the application
 build:
 	@echo "Building application..."
-	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/shark-task-manager cmd/server/main.go
+	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/shark-task-manager ./cmd/server/
 	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/demo cmd/demo/main.go
 	@export PATH=$$PATH:$$HOME/go/bin && go build -o bin/test-db cmd/test-db/main.go
 	@export PATH=$$PATH:$$HOME/go/bin && go build -ldflags "$(LDFLAGS)" -o bin/shark cmd/shark/main.go

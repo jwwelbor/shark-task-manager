@@ -304,36 +304,22 @@ func (s *BugService) ListBugs(ctx context.Context, filters BugFilters) ([]*model
 	return bugs, nil
 }
 
-// AdvanceBugStatus advances a bug to the next workflow status.
-func (s *BugService) AdvanceBugStatus(ctx context.Context, key string) (*models.Bug, error) {
-	info, err := s.entitySvc.GetNextStatus(
-		ctx, s.entityRepo, models.EntityTypeBug, key,
-		s.makeResolveActionFn(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get next status for bug %s: %w", key, err)
-	}
-	if len(info.AvailableTransitions) == 0 {
-		return nil, fmt.Errorf("cannot advance bug %s: no valid transitions from status %q", key, info.CurrentStatus)
-	}
-	nextStatus := info.AvailableTransitions[0].TargetStatus
-	return s.SetBugStatus(ctx, key, nextStatus, false)
-}
-
-// SetBugStatus sets a bug to a specific status with workflow validation.
+// TransitionStatus transitions a bug to a specific status with workflow validation.
 // Delegates to EntityService.TransitionStatus for shared transition logic.
-func (s *BugService) SetBugStatus(ctx context.Context, key string, status string, force bool) (*models.Bug, error) {
-	opts := TransitionOptions{Force: force}
-	_, err := s.entitySvc.TransitionStatus(
-		ctx, s.entityRepo, models.EntityTypeBug, key, status, opts,
+func (s *BugService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	return s.entitySvc.TransitionStatus(
+		ctx, s.entityRepo, models.EntityTypeBug, key, targetStatus, opts,
 		SimpleTransitionFeatures(),
 		s.makeResolveActionFn(),
 	)
-	if err != nil {
-		return nil, err
-	}
-	// Re-fetch to return typed model
-	return s.repo.GetByKey(ctx, key)
+}
+
+// GetNextStatus returns the available transitions for the current status of a bug.
+func (s *BugService) GetNextStatus(ctx context.Context, key string) (*NextStatusInfo, error) {
+	return s.entitySvc.GetNextStatus(
+		ctx, s.entityRepo, models.EntityTypeBug, key,
+		s.makeResolveActionFn(),
+	)
 }
 
 // TriageBug triages a bug by setting its severity and optionally assigning an agent.
@@ -384,19 +370,6 @@ func (s *BugService) makeResolveActionFn() ResolveActionFn {
 func (s *BugService) GetOrchestratorAction(bug *models.Bug) *config.PopulatedAction {
 	placeholders := config.BugPlaceholders(bug)
 	return s.entitySvc.ResolveActionForStatus(string(bug.Status), placeholders)
-}
-
-// GetValidTransitions returns the valid next statuses for the bug's current status.
-func (s *BugService) GetValidTransitions(status string) []string {
-	wf := s.workflowSvc.GetWorkflow()
-	if wf == nil {
-		return []string{}
-	}
-	transitions, ok := wf.StatusFlow[status]
-	if !ok {
-		return []string{}
-	}
-	return transitions
 }
 
 // validateLinkedEntity validates that a linked entity exists.

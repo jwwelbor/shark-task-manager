@@ -1050,3 +1050,63 @@ func TestEntityService_RejectionNote_SuccessDoesNotAffectTransition(t *testing.T
 		t.Errorf("expected CreateRejectionNote to be called once, got %d", noteRepo.callCount)
 	}
 }
+
+func TestEntityService_TransitionStatus_Idempotent(t *testing.T) {
+	// When target status == current status, should return Transitioned: false without writing
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			t.Fatal("UpdateStatus should not be called for idempotent transition")
+			return nil
+		},
+	}
+
+	svc := newTestEntityService(t)
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "active",
+		TransitionOptions{},
+		SimpleTransitionFeatures(),
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.Transitioned {
+		t.Error("expected Transitioned to be false for idempotent transition")
+	}
+	if result.FromStatus != "active" || result.ToStatus != "active" {
+		t.Errorf("expected from/to both 'active', got from=%q to=%q", result.FromStatus, result.ToStatus)
+	}
+}
+
+func TestEntityService_TransitionStatus_IdempotentCaseInsensitive(t *testing.T) {
+	// Case-insensitive comparison: "Active" == "active"
+	repo := &mockEntityRepo{
+		getByKeyFn: func(ctx context.Context, key string) (models.Entity, error) {
+			return &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}, Status: "active"}, nil
+		},
+		updateStatusFn: func(ctx context.Context, id int64, status string) error {
+			t.Fatal("UpdateStatus should not be called for idempotent transition")
+			return nil
+		},
+	}
+
+	svc := newTestEntityService(t)
+	result, err := svc.TransitionStatus(
+		context.Background(), repo, models.EntityTypeEpic, "E01", "Active",
+		TransitionOptions{},
+		SimpleTransitionFeatures(),
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Transitioned {
+		t.Error("expected Transitioned to be false for case-insensitive idempotent transition")
+	}
+}

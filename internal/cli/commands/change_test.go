@@ -23,16 +23,14 @@ import (
 // Each method delegates to the corresponding Func field if set, otherwise
 // returns a sensible default so callers don't panic on unimplemented methods.
 type MockChangeCardService struct {
-	CreateChangeCardFunc        func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
-	GetChangeCardFunc           func(ctx context.Context, key string) (*models.ChangeCard, error)
-	ListChangeCardsFunc         func(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
-	UpdateChangeCardFunc        func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
-	DeleteChangeCardFunc        func(ctx context.Context, key string) error
-	ApproveChangeCardFunc       func(ctx context.Context, key string) (*models.ChangeCard, error)
-	SetChangeCardStatusFunc     func(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error)
-	AdvanceChangeCardStatusFunc func(ctx context.Context, key string) (*models.ChangeCard, error)
-	GetOrchestratorActionFunc   func(card *models.ChangeCard) *config.PopulatedAction
-	GetValidTransitionsFunc     func(status string) []string
+	CreateChangeCardFunc      func(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
+	GetChangeCardFunc         func(ctx context.Context, key string) (*models.ChangeCard, error)
+	ListChangeCardsFunc       func(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
+	UpdateChangeCardFunc      func(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
+	DeleteChangeCardFunc      func(ctx context.Context, key string) error
+	TransitionStatusFunc      func(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
+	GetNextStatusFunc         func(ctx context.Context, key string) (*services.NextStatusInfo, error)
+	GetOrchestratorActionFunc func(card *models.ChangeCard) *config.PopulatedAction
 }
 
 func (m *MockChangeCardService) CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
@@ -70,25 +68,18 @@ func (m *MockChangeCardService) DeleteChangeCard(ctx context.Context, key string
 	return fmt.Errorf("DeleteChangeCard not implemented in mock")
 }
 
-func (m *MockChangeCardService) ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error) {
-	if m.ApproveChangeCardFunc != nil {
-		return m.ApproveChangeCardFunc(ctx, key)
+func (m *MockChangeCardService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+	if m.TransitionStatusFunc != nil {
+		return m.TransitionStatusFunc(ctx, key, targetStatus, opts)
 	}
-	return nil, fmt.Errorf("ApproveChangeCard not implemented in mock")
+	return nil, fmt.Errorf("TransitionStatus not implemented in mock")
 }
 
-func (m *MockChangeCardService) SetChangeCardStatus(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error) {
-	if m.SetChangeCardStatusFunc != nil {
-		return m.SetChangeCardStatusFunc(ctx, key, targetStatus, force)
+func (m *MockChangeCardService) GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error) {
+	if m.GetNextStatusFunc != nil {
+		return m.GetNextStatusFunc(ctx, key)
 	}
-	return nil, fmt.Errorf("SetChangeCardStatus not implemented in mock")
-}
-
-func (m *MockChangeCardService) AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error) {
-	if m.AdvanceChangeCardStatusFunc != nil {
-		return m.AdvanceChangeCardStatusFunc(ctx, key)
-	}
-	return nil, fmt.Errorf("AdvanceChangeCardStatus not implemented in mock")
+	return nil, fmt.Errorf("GetNextStatus not implemented in mock")
 }
 
 func (m *MockChangeCardService) GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction {
@@ -96,13 +87,6 @@ func (m *MockChangeCardService) GetOrchestratorAction(card *models.ChangeCard) *
 		return m.GetOrchestratorActionFunc(card)
 	}
 	return nil
-}
-
-func (m *MockChangeCardService) GetValidTransitions(status string) []string {
-	if m.GetValidTransitionsFunc != nil {
-		return m.GetValidTransitionsFunc(status)
-	}
-	return []string{}
 }
 
 // ---------------------------------------------------------------------------
@@ -625,8 +609,8 @@ func TestRunChangeDelete_NoForce_NotFound(t *testing.T) {
 
 func TestRunChangeApprove_Success(t *testing.T) {
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
-		ApproveChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key, Title: "Approved change"}, Status: "approved"}, nil
+		TransitionStatusFunc: func(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{EntityKey: key, ToStatus: "approved", Transitioned: true}, nil
 		},
 	})
 	defer restore()
@@ -647,7 +631,10 @@ func TestRunChangeApprove_JSONOutput(t *testing.T) {
 	defer func() { cli.GlobalConfig.JSON = origJSON }()
 
 	restore := injectMockChangeCardSvc(t, &MockChangeCardService{
-		ApproveChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+		TransitionStatusFunc: func(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
+			return &services.TransitionResult{EntityKey: "CC-007", ToStatus: "approved", Transitioned: true}, nil
+		},
+		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
 			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: "CC-007", Title: "Approve me"}, Status: "approved"}, nil
 		},
 	})

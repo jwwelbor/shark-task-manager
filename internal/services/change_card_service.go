@@ -294,41 +294,22 @@ func (s *ChangeCardService) DeleteChangeCard(ctx context.Context, key string) er
 	return nil
 }
 
-// ApproveChangeCard transitions a change-card from proposed to approved.
-func (s *ChangeCardService) ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error) {
-	return s.SetChangeCardStatus(ctx, key, "approved", false)
-}
-
-// AdvanceChangeCardStatus advances a change-card to the next workflow status.
-func (s *ChangeCardService) AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error) {
-	info, err := s.entitySvc.GetNextStatus(
-		ctx, s.entityRepo, models.EntityTypeChange, key,
-		s.makeResolveActionFn(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get next status for change-card %s: %w", key, err)
-	}
-	if len(info.AvailableTransitions) == 0 {
-		return nil, fmt.Errorf("cannot advance change-card %s: no valid transitions from status %q", key, info.CurrentStatus)
-	}
-	nextStatus := info.AvailableTransitions[0].TargetStatus
-	return s.SetChangeCardStatus(ctx, key, nextStatus, false)
-}
-
-// SetChangeCardStatus sets a change-card to a specific status with workflow validation.
+// TransitionStatus transitions a change-card to a specific status with workflow validation.
 // Delegates to EntityService.TransitionStatus for shared transition logic.
-func (s *ChangeCardService) SetChangeCardStatus(ctx context.Context, key string, status string, force bool) (*models.ChangeCard, error) {
-	opts := TransitionOptions{Force: force}
-	_, err := s.entitySvc.TransitionStatus(
-		ctx, s.entityRepo, models.EntityTypeChange, key, status, opts,
+func (s *ChangeCardService) TransitionStatus(ctx context.Context, key string, targetStatus string, opts TransitionOptions) (*TransitionResult, error) {
+	return s.entitySvc.TransitionStatus(
+		ctx, s.entityRepo, models.EntityTypeChange, key, targetStatus, opts,
 		SimpleTransitionFeatures(),
 		s.makeResolveActionFn(),
 	)
-	if err != nil {
-		return nil, err
-	}
-	// Re-fetch to return typed model
-	return s.repo.GetByKey(ctx, key)
+}
+
+// GetNextStatus returns the available transitions for the current status of a change-card.
+func (s *ChangeCardService) GetNextStatus(ctx context.Context, key string) (*NextStatusInfo, error) {
+	return s.entitySvc.GetNextStatus(
+		ctx, s.entityRepo, models.EntityTypeChange, key,
+		s.makeResolveActionFn(),
+	)
 }
 
 // CountByStatus returns counts of change-cards grouped by status.
@@ -390,19 +371,6 @@ func (s *ChangeCardService) makeResolveActionFn() ResolveActionFn {
 func (s *ChangeCardService) GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction {
 	placeholders := config.ChangeCardPlaceholders(card)
 	return s.entitySvc.ResolveActionForStatus(string(card.Status), placeholders)
-}
-
-// GetValidTransitions returns the valid next statuses for the given status key.
-func (s *ChangeCardService) GetValidTransitions(status string) []string {
-	wf := s.workflowSvc.GetWorkflow()
-	if wf == nil {
-		return []string{}
-	}
-	transitions, ok := wf.StatusFlow[status]
-	if !ok {
-		return []string{}
-	}
-	return transitions
 }
 
 // SetWritableDocRepo sets the writable document repository on the service.

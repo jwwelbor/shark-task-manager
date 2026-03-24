@@ -3633,3 +3633,66 @@ func TestFeatureService_CreateFeature_CustomAggregationStatus(t *testing.T) {
 		t.Errorf("expected epic status 'tracking' (custom aggregation), got %q", capturedEpicStatus)
 	}
 }
+
+// TestFeatureService_CreateFeature_UsesEpicFilePath is a regression test for B009:
+// feature files must be placed under the epic's existing file_path directory,
+// not a newly generated folder name from the epic slug/title.
+func TestFeatureService_CreateFeature_UsesEpicFilePath(t *testing.T) {
+	epicFilePath := "docs/plan/E01-content-ingestion/epic.md"
+	var capturedFeature *models.Feature
+	repo := &mockFeatureRepo{
+		listByEpicFn: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			return []*models.Feature{}, nil
+		},
+		createFn: func(ctx context.Context, feature *models.Feature) error {
+			capturedFeature = feature
+			return nil
+		},
+	}
+	epicLookup := &mockFeatureEpicLookup{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
+			slug := "content-ingestion"
+			return &models.Epic{
+				BaseEntity: models.BaseEntity{
+					ID:       1,
+					Key:      "E01",
+					Title:    "Content Ingestion Epic Feature PRDs",
+					FilePath: &epicFilePath,
+					Slug:     &slug,
+				},
+				Status: models.EpicStatusActive,
+			}, nil
+		},
+	}
+	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, epicLookup)
+
+	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
+		EpicKey: "E01",
+		Title:   "Async Pipeline Execution",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if feature == nil {
+		t.Fatal("expected feature, got nil")
+	}
+	if capturedFeature == nil {
+		t.Fatal("expected Create to be called")
+	}
+	if capturedFeature.FilePath == nil {
+		t.Fatal("expected feature to have a file_path")
+	}
+
+	gotPath := *capturedFeature.FilePath
+	// The feature path must be under docs/plan/E01-content-ingestion/ (the epic's directory),
+	// NOT under docs/plan/E01-content-ingestion-epic-feature-prds/ (generated from title).
+	if !strings.HasPrefix(gotPath, "docs/plan/E01-content-ingestion/") {
+		t.Errorf("B009 regression: feature file_path should be under epic's existing directory\n"+
+			"  want prefix: docs/plan/E01-content-ingestion/\n"+
+			"  got:         %s", gotPath)
+	}
+	// Verify the feature subdirectory contains the feature key
+	if !strings.Contains(gotPath, "E01-F01") {
+		t.Errorf("expected feature path to contain feature key E01-F01, got: %s", gotPath)
+	}
+}
