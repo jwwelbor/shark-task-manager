@@ -57,12 +57,11 @@ func TestNewActionService(t *testing.T) {
 		t.Fatal("expected service, got nil")
 	}
 
-	if service.configPath != configPath {
-		t.Errorf("expected configPath %q, got %q", configPath, service.configPath)
-	}
-
-	if service.workflow == nil {
-		t.Fatal("expected workflow to be loaded, got nil")
+	// Verify service is usable by checking it can retrieve actions
+	ctx := context.Background()
+	_, err2 := service.GetAllActions(ctx)
+	if err2 != nil {
+		t.Fatalf("expected service to be usable after creation, got error: %v", err2)
 	}
 }
 

@@ -1,4 +1,4 @@
-package config
+package action
 
 import (
 	"errors"
@@ -210,22 +210,22 @@ func stringSliceContains(slice []string, target string) bool {
 
 // validateTemplateSyntax validates template syntax and returns warnings
 // Returns a slice of warning messages (empty if no warnings)
-func validateTemplateSyntax(template string) []string {
+func validateTemplateSyntax(tmpl string) []string {
 	warnings := []string{}
 
 	// Check if template contains at least one placeholder (any {word} pattern)
-	placeholders := extractPlaceholders(template)
+	placeholders := extractPlaceholders(tmpl)
 	if len(placeholders) == 0 {
 		warnings = append(warnings, "Template does not contain any placeholder (e.g., {id}, {title}, {status})")
 	}
 
 	// Check for malformed placeholders (unclosed brace)
-	if strings.Contains(template, "{") && !strings.Contains(template, "}") {
+	if strings.Contains(tmpl, "{") && !strings.Contains(tmpl, "}") {
 		warnings = append(warnings, "Malformed placeholder: unclosed brace {")
 	}
 
 	// Check maximum length
-	if len(template) > 2000 {
+	if len(tmpl) > 2000 {
 		warnings = append(warnings, "Template exceeds 2000 character limit")
 	}
 
@@ -234,26 +234,28 @@ func validateTemplateSyntax(template string) []string {
 
 // extractPlaceholders extracts all {placeholder} patterns from a template string
 // Returns a slice of placeholders found (e.g., ["{task_id}", "{epic_id}"])
-func extractPlaceholders(template string) []string {
+func extractPlaceholders(tmpl string) []string {
 	re := regexp.MustCompile(`\{[a-zA-Z_][a-zA-Z0-9_]*\}`)
-	matches := re.FindAllString(template, -1)
+	matches := re.FindAllString(tmpl, -1)
 	return matches
 }
 
-// ValidateAllOrchestratorActions validates all orchestrator actions in status metadata
-// Returns a slice of OrchestratorValidationError for all invalid actions (empty if all valid)
-func ValidateAllOrchestratorActions(statusMetadata map[string]StatusMetadata) []*OrchestratorValidationError {
-	var errors []*OrchestratorValidationError
+// ValidateAllOrchestratorActions validates all orchestrator actions in status metadata.
+// The input map is keyed by status name and contains the OrchestratorAction pointer for each status
+// (nil if no action is defined for that status).
+// Returns a slice of OrchestratorValidationError for all invalid actions (empty if all valid).
+func ValidateAllOrchestratorActions(actionsByStatus map[string]*OrchestratorAction) []*OrchestratorValidationError {
+	var errs []*OrchestratorValidationError
 
-	for statusName, metadata := range statusMetadata {
-		if metadata.OrchestratorAction != nil {
-			if err := metadata.OrchestratorAction.ValidateWithContext(statusName); err != nil {
+	for statusName, action := range actionsByStatus {
+		if action != nil {
+			if err := action.ValidateWithContext(statusName); err != nil {
 				if valErr, ok := err.(*OrchestratorValidationError); ok {
-					errors = append(errors, valErr)
+					errs = append(errs, valErr)
 				}
 			}
 		}
 	}
 
-	return errors
+	return errs
 }

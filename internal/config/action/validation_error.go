@@ -1,14 +1,14 @@
-package config
+package action
 
 import (
 	"fmt"
 	"strings"
 )
 
-// ValidationError is a general validation error type (alias to OrchestratorValidationError for backward compat)
-type ValidationError = OrchestratorValidationError
-
-// OrchestratorValidationError provides detailed context for orchestrator action configuration errors
+// OrchestratorValidationError provides detailed context for orchestrator action configuration errors.
+//
+// NOTE: This is a temporary local definition. Once internal/config/validation/ is extracted
+// (Task T-E07-F37-001), this type will be replaced by an import from the validation sub-package.
 type OrchestratorValidationError struct {
 	StatusName   string // Which status has the error (e.g., "ready_for_development")
 	FieldName    string // Which field is invalid (e.g., "action", "agent_type")
