@@ -50,3 +50,6 @@ shark-tasks.*
 .claude/worktrees/
 
 docs/workflow/activity.jsonl
+
+server
+shark

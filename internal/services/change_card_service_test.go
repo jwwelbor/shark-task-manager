@@ -137,14 +137,14 @@ func (m *changeCardEpicRepo) GetFeatureStatusBreakdown(context.Context, int64) (
 func (m *changeCardEpicRepo) GetFeatureStatusBreakdownByKey(context.Context, string) (map[models.FeatureStatus]int, error) {
 	return nil, nil
 }
-func (m *changeCardEpicRepo) UpdateStatus(context.Context, int64, models.EpicStatus) error {
-	return nil
-}
 func (m *changeCardEpicRepo) GetFeatureStatusRollup(context.Context, int64) (map[string]int, error) {
 	return nil, nil
 }
 func (m *changeCardEpicRepo) GetTaskStatusRollup(context.Context, int64) (map[string]int, error) {
 	return nil, nil
+}
+func (m *changeCardEpicRepo) UpdateStatus(context.Context, int64, models.EpicStatus) error {
+	return nil
 }
 func (m *changeCardEpicRepo) CascadeStatusToFeaturesAndTasks(context.Context, int64, models.FeatureStatus, models.TaskStatus) error {
 	return nil
@@ -152,9 +152,7 @@ func (m *changeCardEpicRepo) CascadeStatusToFeaturesAndTasks(context.Context, in
 func (m *changeCardEpicRepo) CascadeStatusToFeaturesAndTasksWithTx(_ context.Context, _ *sql.Tx, _ int64, _ models.FeatureStatus, _ models.TaskStatus) error {
 	return nil
 }
-func (m *changeCardEpicRepo) BeginTx(_ context.Context) (*sql.Tx, error) {
-	return nil, nil
-}
+func (m *changeCardEpicRepo) BeginTx(context.Context) (*sql.Tx, error) { return nil, nil }
 func (m *changeCardEpicRepo) GetEpicDisplayDataRaw(context.Context, int64) (*repository.EpicDisplayDataRaw, error) {
 	return nil, nil
 }
@@ -519,35 +517,7 @@ func TestChangeCardService_DeleteChangeCard(t *testing.T) {
 	}
 }
 
-func TestChangeCardService_ApproveChangeCard(t *testing.T) {
-	ctx := context.Background()
-
-	currentStatus := models.ChangeCardStatus("proposed")
-	repo := &mockChangeCardRepo{
-		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: currentStatus}, nil
-		},
-		updateStatusFn: func(ctx context.Context, id int64, status models.ChangeCardStatus) error {
-			if status != "approved" {
-				t.Errorf("expected status 'approved', got %s", status)
-			}
-			currentStatus = status
-			return nil
-		},
-	}
-
-	svc := newChangeCardService(repo, nil, nil)
-
-	card, err := svc.ApproveChangeCard(ctx, "CC-001")
-	if err != nil {
-		t.Fatalf("ApproveChangeCard() error = %v", err)
-	}
-	if card.Status != "approved" {
-		t.Errorf("expected status 'approved', got %s", card.Status)
-	}
-}
-
-func TestChangeCardService_SetChangeCardStatus(t *testing.T) {
+func TestChangeCardService_TransitionStatus(t *testing.T) {
 	ctx := context.Background()
 
 	currentStatus := models.ChangeCardStatus("proposed")
@@ -563,16 +533,16 @@ func TestChangeCardService_SetChangeCardStatus(t *testing.T) {
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	card, err := svc.SetChangeCardStatus(ctx, "CC-001", "approved", false)
+	result, err := svc.TransitionStatus(ctx, "CC-001", "approved", TransitionOptions{})
 	if err != nil {
-		t.Fatalf("SetChangeCardStatus() error = %v", err)
+		t.Fatalf("TransitionStatus() error = %v", err)
 	}
-	if card.Status != "approved" {
-		t.Errorf("expected status 'approved', got %s", card.Status)
+	if result.ToStatus != "approved" {
+		t.Errorf("expected status 'approved', got %s", result.ToStatus)
 	}
 }
 
-func TestChangeCardService_SetChangeCardStatus_InvalidTransition(t *testing.T) {
+func TestChangeCardService_TransitionStatus_InvalidTransition(t *testing.T) {
 	ctx := context.Background()
 
 	repo := &mockChangeCardRepo{
@@ -584,7 +554,7 @@ func TestChangeCardService_SetChangeCardStatus_InvalidTransition(t *testing.T) {
 	svc := newChangeCardService(repo, nil, nil)
 
 	// completed -> proposed should be invalid
-	_, err := svc.SetChangeCardStatus(ctx, "CC-001", "proposed", false)
+	_, err := svc.TransitionStatus(ctx, "CC-001", "proposed", TransitionOptions{})
 	if err == nil {
 		t.Fatal("expected error for invalid transition")
 	}
@@ -616,33 +586,30 @@ func TestChangeCardService_CountByStatus(t *testing.T) {
 	}
 }
 
-func TestChangeCardService_AdvanceChangeCardStatus(t *testing.T) {
+func TestChangeCardService_GetNextStatus(t *testing.T) {
 	ctx := context.Background()
 
-	currentStatus := models.ChangeCardStatus("proposed")
 	repo := &mockChangeCardRepo{
 		getByKeyFn: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: currentStatus}, nil
-		},
-		updateStatusFn: func(ctx context.Context, id int64, status models.ChangeCardStatus) error {
-			currentStatus = status
-			return nil
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: "Test"}, Status: "proposed"}, nil
 		},
 	}
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	card, err := svc.AdvanceChangeCardStatus(ctx, "CC-001")
+	info, err := svc.GetNextStatus(ctx, "CC-001")
 	if err != nil {
-		t.Fatalf("AdvanceChangeCardStatus() error = %v", err)
+		t.Fatalf("GetNextStatus() error = %v", err)
 	}
-	// After advancing from "proposed", the status should change
-	if card.Status == "proposed" {
-		t.Error("expected status to change from 'proposed'")
+	if info.CurrentStatus != "proposed" {
+		t.Errorf("expected current status 'proposed', got %s", info.CurrentStatus)
+	}
+	if len(info.AvailableTransitions) == 0 {
+		t.Error("expected at least one available transition from 'proposed'")
 	}
 }
 
-func TestChangeCardService_AdvanceChangeCardStatus_Terminal(t *testing.T) {
+func TestChangeCardService_GetNextStatus_Terminal(t *testing.T) {
 	ctx := context.Background()
 
 	repo := &mockChangeCardRepo{
@@ -653,8 +620,11 @@ func TestChangeCardService_AdvanceChangeCardStatus_Terminal(t *testing.T) {
 
 	svc := newChangeCardService(repo, nil, nil)
 
-	_, err := svc.AdvanceChangeCardStatus(ctx, "CC-001")
-	if err == nil {
-		t.Fatal("expected error for terminal status")
+	info, err := svc.GetNextStatus(ctx, "CC-001")
+	if err != nil {
+		t.Fatalf("GetNextStatus() error = %v", err)
+	}
+	if len(info.AvailableTransitions) != 0 {
+		t.Errorf("expected no available transitions for terminal status, got %d", len(info.AvailableTransitions))
 	}
 }

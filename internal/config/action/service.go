@@ -1,4 +1,4 @@
-package config
+package action
 
 import (
 	"context"
@@ -28,6 +28,9 @@ type ActionService interface {
 	// Reload forces reload of configuration from disk (useful after config changes)
 	Reload(ctx context.Context) error
 }
+
+// Ensure DefaultActionService satisfies ActionService at compile time (AC-T2)
+var _ ActionService = (*DefaultActionService)(nil)
 
 // PopulatedAction is an orchestrator action with template variables replaced
 type PopulatedAction struct {
@@ -62,17 +65,32 @@ func (e *StatusNotFoundError) Error() string {
 	return fmt.Sprintf("status '%s' not found in workflow configuration", e.Status)
 }
 
+// StatusActionData holds the action data for a single status, as needed by DefaultActionService.
+// This abstracts the StatusMetadata from the workflow package so action/ does not import it.
+type StatusActionData struct {
+	OrchestratorAction *OrchestratorAction
+}
+
+// WorkflowDataLoader is a function that loads workflow action data from a config path.
+// It returns a map of status name -> StatusActionData.
+// This breaks the circular dependency between action/ and root config/:
+// root config provides the loader function, action/ uses it without importing root config.
+type WorkflowDataLoader func(configPath string) map[string]StatusActionData
+
 // DefaultActionService is the default implementation of ActionService
 type DefaultActionService struct {
 	mu         sync.RWMutex
 	configPath string
-	workflow   *WorkflowConfig
+	statusData map[string]StatusActionData
+	loader     WorkflowDataLoader
 }
 
-// NewActionService creates a new action service
-func NewActionService(configPath string) (*DefaultActionService, error) {
+// NewActionService creates a new action service using the given config path and workflow data loader.
+// The loader function abstracts workflow config loading so action/ does not import root config.
+func NewActionService(configPath string, loader WorkflowDataLoader) (*DefaultActionService, error) {
 	service := &DefaultActionService{
 		configPath: configPath,
+		loader:     loader,
 	}
 
 	// Load initial config
@@ -88,17 +106,17 @@ func (s *DefaultActionService) GetStatusAction(ctx context.Context, status strin
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.workflow == nil {
+	if s.statusData == nil {
 		return nil, errors.New("workflow config not loaded")
 	}
 
-	metadata, exists := s.workflow.StatusMetadata[status]
+	data, exists := s.statusData[status]
 	if !exists {
 		return nil, &StatusNotFoundError{Status: status}
 	}
 
 	// Return nil if no action defined (not an error)
-	return metadata.OrchestratorAction, nil
+	return data.OrchestratorAction, nil
 }
 
 // GetStatusActionPopulated retrieves action with template populated.
@@ -127,14 +145,14 @@ func (s *DefaultActionService) GetAllActions(ctx context.Context) (map[string]*O
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.workflow == nil {
+	if s.statusData == nil {
 		return nil, errors.New("workflow config not loaded")
 	}
 
 	actions := make(map[string]*OrchestratorAction)
-	for status, metadata := range s.workflow.StatusMetadata {
-		if metadata.OrchestratorAction != nil {
-			actions[status] = metadata.OrchestratorAction
+	for status, data := range s.statusData {
+		if data.OrchestratorAction != nil {
+			actions[status] = data.OrchestratorAction
 		}
 	}
 
@@ -146,7 +164,7 @@ func (s *DefaultActionService) ValidateActions(ctx context.Context) (*Validation
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.workflow == nil {
+	if s.statusData == nil {
 		return nil, errors.New("workflow config not loaded")
 	}
 
@@ -157,17 +175,17 @@ func (s *DefaultActionService) ValidateActions(ctx context.Context) (*Validation
 		Warnings:       []string{},
 	}
 
-	for status, metadata := range s.workflow.StatusMetadata {
+	for status, data := range s.statusData {
 		// Check if actionable status (ready_for_*) lacks action
-		if strings.HasPrefix(status, "ready_for_") && metadata.OrchestratorAction == nil {
+		if strings.HasPrefix(status, "ready_for_") && data.OrchestratorAction == nil {
 			result.MissingActions = append(result.MissingActions, status)
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Status '%s' has no orchestrator_action defined", status))
 		}
 
 		// Validate action if present
-		if metadata.OrchestratorAction != nil {
-			if err := metadata.OrchestratorAction.Validate(); err != nil {
+		if data.OrchestratorAction != nil {
+			if err := data.OrchestratorAction.Validate(); err != nil {
 				result.Valid = false
 				result.InvalidActions = append(result.InvalidActions, InvalidAction{
 					Status: status,
@@ -187,13 +205,13 @@ func (s *DefaultActionService) ValidateActions(ctx context.Context) (*Validation
 
 // Reload reloads configuration from disk
 func (s *DefaultActionService) Reload(ctx context.Context) error {
-	workflow := GetWorkflowOrDefault(s.configPath)
-	if workflow == nil {
+	data := s.loader(s.configPath)
+	if data == nil {
 		return fmt.Errorf("failed to load workflow config from %s", s.configPath)
 	}
 
 	s.mu.Lock()
-	s.workflow = workflow
+	s.statusData = data
 	s.mu.Unlock()
 
 	return nil

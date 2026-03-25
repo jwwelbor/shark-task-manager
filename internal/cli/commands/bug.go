@@ -1,15 +1,40 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
 )
+
+// bugServicer defines the interface for bug service operations used by CLI commands.
+type bugServicer interface {
+	CreateBug(ctx context.Context, input services.CreateBugInput) (*models.Bug, error)
+	GetBug(ctx context.Context, key string) (*models.Bug, error)
+	ListBugs(ctx context.Context, filters services.BugFilters) ([]*models.Bug, error)
+	UpdateBug(ctx context.Context, key string, updates services.BugUpdates) (*models.Bug, error)
+	DeleteBug(ctx context.Context, key string) error
+	TriageBug(ctx context.Context, key string, input services.TriageBugInput) (*models.Bug, error)
+	GetNextStatusForBug(bug *models.Bug) *services.NextStatusInfo
+	GetOrchestratorAction(bug *models.Bug) *config.PopulatedAction
+}
+
+// bugSvcOverride is non-nil only during tests.
+var bugSvcOverride bugServicer
+
+// getBugService returns the service to use, preferring the test override.
+func getBugService() bugServicer {
+	if bugSvcOverride != nil {
+		return bugSvcOverride
+	}
+	return cli.GetBugService()
+}
 
 // bugCmd is the parent command for all bug operations.
 var bugCmd = &cobra.Command{
@@ -195,7 +220,7 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	svc := cli.GetBugService()
+	svc := getBugService()
 	bug, err := svc.CreateBug(cmd.Context(), input)
 	if err != nil {
 		return err
@@ -216,7 +241,7 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	// Step 2: Call service
-	svc := cli.GetBugService()
+	svc := getBugService()
 	bug, err := svc.GetBug(ctx, key)
 	if err != nil {
 		return err
@@ -224,7 +249,8 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 
 	// Gather enrichment data (best-effort)
 	orchestratorAction := svc.GetOrchestratorAction(bug)
-	validTransitions := svc.GetValidTransitions(string(bug.Status))
+	info := svc.GetNextStatusForBug(bug)
+	validTransitions := info.TargetStatuses()
 
 	var notes []*models.EntityNote
 	if noteSvc, nErr := cli.GetNoteService(ctx); nErr == nil && noteSvc != nil {
@@ -285,7 +311,7 @@ func runBugList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	svc := cli.GetBugService()
+	svc := getBugService()
 	bugs, err := svc.ListBugs(cmd.Context(), filters)
 	if err != nil {
 		return err
@@ -328,7 +354,7 @@ func runBugUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	svc := cli.GetBugService()
+	svc := getBugService()
 	bug, err := svc.UpdateBug(cmd.Context(), key, updates)
 	if err != nil {
 		return err
@@ -348,7 +374,7 @@ func runBugDelete(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	force, _ := cmd.Flags().GetBool("force")
 
-	svc := cli.GetBugService()
+	svc := getBugService()
 
 	// Confirm deletion unless --force
 	if !force {
@@ -386,7 +412,7 @@ func runBugTriage(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 2: Call service
-	svc := cli.GetBugService()
+	svc := getBugService()
 	bug, err := svc.TriageBug(cmd.Context(), key, input)
 	if err != nil {
 		return err

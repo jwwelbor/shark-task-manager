@@ -82,6 +82,12 @@ func runList(cmd *cobra.Command, args []string) error {
 		ideaListCmd.SetContext(cmd.Context())
 		return runIdeaList(ideaListCmd, []string{})
 
+	case "bug":
+		return runBugList(cmd, []string{})
+
+	case "change":
+		return runChangeList(cmd, []string{})
+
 	default:
 		// Should never happen
 		return nil

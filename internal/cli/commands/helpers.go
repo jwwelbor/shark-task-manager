@@ -221,6 +221,16 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 			return "idea", nil, nil, nil
 		}
 
+		// Check if it's "bug" or "bugs" keyword
+		if normalized == "BUG" || normalized == "BUGS" {
+			return "bug", nil, nil, nil
+		}
+
+		// Check if it's "change", "changes", or "change-card(s)" keyword
+		if normalized == "CHANGE" || normalized == "CHANGES" || normalized == "CHANGE-CARD" || normalized == "CHANGE-CARDS" {
+			return "change", nil, nil, nil
+		}
+
 		// Check if it's a combined feature key (E##-F##)
 		if IsFeatureKey(normalized) {
 			epic, feature, err := ParseFeatureKey(normalized)
@@ -247,10 +257,12 @@ func ParseListArgs(args []string) (command string, epicKey, featureKey *string, 
 
 		// Generic invalid format
 		return "", nil, nil, InvalidPositionalArgsError("list",
-			fmt.Sprintf("invalid key format %q - expected E## or E##-F##", args[0]),
+			fmt.Sprintf("invalid key format %q - expected E##, E##-F##, bugs, changes, or ideas", args[0]),
 			[]string{
 				"shark list E07",
 				"shark list E07-F01",
+				"shark list bugs",
+				"shark list changes",
 			})
 	}
 

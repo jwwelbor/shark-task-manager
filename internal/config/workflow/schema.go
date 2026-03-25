@@ -1,8 +1,10 @@
-package config
+package workflow
 
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/jwwelbor/shark-task-manager/internal/config/action"
 )
 
 // WorkflowConfig defines the structure for configurable status workflows in .sharkconfig.json
@@ -122,7 +124,7 @@ type StatusMetadata struct {
 
 	// OrchestratorAction specifies the action for orchestrators when task enters this status
 	// Optional field for workflow-driven agent spawning (Phase 1 feature)
-	OrchestratorAction *OrchestratorAction `json:"orchestrator_action,omitempty" yaml:"orchestrator_action,omitempty"`
+	OrchestratorAction *action.OrchestratorAction `json:"orchestrator_action,omitempty" yaml:"orchestrator_action,omitempty"`
 
 	// IsPlanning indicates this status is a planning phase status.
 	// When true, the entity has its own workflow status (not aggregating children).

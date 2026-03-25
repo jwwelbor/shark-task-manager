@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -186,6 +187,18 @@ func (s *EntityService) TransitionStatus(
 
 	currentStatus := entity.GetStatus()
 
+	// Step 2: Idempotency check — if already at target status, return early without writing
+	if strings.EqualFold(currentStatus, targetStatus) {
+		return &TransitionResult{
+			EntityType:   entityType,
+			EntityKey:    key,
+			EntityID:     entity.GetID(),
+			FromStatus:   currentStatus,
+			ToStatus:     currentStatus,
+			Transitioned: false,
+		}, nil
+	}
+
 	// Steps 3-4: Validate and normalize
 	targetStatus, err = s.ValidateAndNormalize(currentStatus, targetStatus, opts.Force)
 	if err != nil {
@@ -351,4 +364,38 @@ func (s *EntityService) GetNextStatus(
 		AvailableTransitions: wrapped,
 		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
 	}, nil
+}
+
+// GetNextStatusForEntity is like GetNextStatus but accepts a pre-fetched entity,
+// avoiding a redundant DB lookup when the caller already has the entity.
+func (s *EntityService) GetNextStatusForEntity(
+	entityType models.EntityType,
+	key string,
+	entity models.Entity,
+	resolveActionFn ResolveActionFn,
+) *NextStatusInfo {
+	currentStatus := entity.GetStatus()
+	transitions := s.workflowSvc.GetTransitionInfo(currentStatus)
+	currentMeta := s.workflowSvc.GetStatusMetadata(currentStatus)
+
+	wrapped := make([]TransitionInfoWithAction, 0, len(transitions))
+	for _, t := range transitions {
+		var action *config.PopulatedAction
+		if resolveActionFn != nil {
+			action = resolveActionFn(entity, t.TargetStatus)
+		}
+		wrapped = append(wrapped, TransitionInfoWithAction{
+			TransitionInfo:     t,
+			OrchestratorAction: action,
+		})
+	}
+
+	return &NextStatusInfo{
+		EntityType:           entityType,
+		EntityKey:            key,
+		CurrentStatus:        currentStatus,
+		CurrentPhase:         currentMeta.Phase,
+		AvailableTransitions: wrapped,
+		IsTerminal:           s.workflowSvc.IsTerminalStatus(currentStatus),
+	}
 }

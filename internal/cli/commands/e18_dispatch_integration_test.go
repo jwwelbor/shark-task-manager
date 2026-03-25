@@ -446,7 +446,7 @@ func TestDispatchInventory_NextStatusInfoFields(t *testing.T) {
 // The 4 tests below document + verify the 4 dispatch gaps for C### keys.
 //
 // Design note on testability:
-//   dispatchTransition, dispatchNextStatus, and dispatchAdvance in
+//   dispatchTransition and dispatchNextStatus in
 //   status_group.go call cli.GetChangeCardService() (the global CLI
 //   accessor) for the "change_card" cases.  That accessor requires a live
 //   database and cannot be overridden via changeCardSvcOverride.
@@ -460,10 +460,10 @@ func TestDispatchInventory_NextStatusInfoFields(t *testing.T) {
 //   GAP-001: delete_dispatch.go runDelete()        — "change" hits default
 //   GAP-002: status_group.go dispatchTransition()  — "change" hits default
 //   GAP-003: status_group.go dispatchNextStatus()  — "change" hits default
-//   GAP-004: status_group.go dispatchAdvance()     — "change" hits default (returns nil,nil)
+//   GAP-004: (removed) dispatchAdvance was eliminated — all types use the generic advance path
 
 // TestGAP002_Fix_DispatchTransition_ChangeKey verifies that after fixing GAP-002,
-// dispatchTransition routes entityType="change" to getChangeCardService().SetChangeCardStatus().
+// dispatchTransition routes entityType="change" to getChangeCardService().TransitionStatus().
 //
 // RED: currently dispatchTransition returns "unsupported entity type: change".
 // GREEN: mock is called and TransitionResult.EntityType == "change".
@@ -473,9 +473,9 @@ func TestGAP002_Fix_DispatchTransition_ChangeKey(t *testing.T) {
 	wantStatus := "reviewed"
 
 	mock := &MockChangeCardService{
-		SetChangeCardStatusFunc: func(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error) {
+		TransitionStatusFunc: func(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error) {
 			called = true
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key}, Status: models.ChangeCardStatus(targetStatus)}, nil
+			return &services.TransitionResult{EntityType: "change", EntityKey: key, ToStatus: targetStatus, Transitioned: true}, nil
 		},
 	}
 
@@ -489,7 +489,7 @@ func TestGAP002_Fix_DispatchTransition_ChangeKey(t *testing.T) {
 			"This indicates GAP-002 is not yet fixed — case \"change\" is missing from dispatchTransition()", err)
 	}
 	if !called {
-		t.Error("SetChangeCardStatus was not called — GAP-002 not fixed")
+		t.Error("TransitionStatus was not called — GAP-002 not fixed")
 	}
 	if result == nil {
 		t.Fatal("expected non-nil TransitionResult, got nil")
@@ -503,7 +503,7 @@ func TestGAP002_Fix_DispatchTransition_ChangeKey(t *testing.T) {
 }
 
 // TestGAP003_Fix_DispatchNextStatus_ChangeKey verifies that after fixing GAP-003,
-// dispatchNextStatus routes entityType="change" to getChangeCardService().GetChangeCard().
+// dispatchNextStatus routes entityType="change" to getChangeCardService().GetNextStatus().
 //
 // RED: currently dispatchNextStatus returns "unsupported entity type: change".
 // GREEN: mock is called and NextStatusInfo.EntityType == "change".
@@ -512,9 +512,9 @@ func TestGAP003_Fix_DispatchNextStatus_ChangeKey(t *testing.T) {
 	wantKey := "C042"
 
 	mock := &MockChangeCardService{
-		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+		GetNextStatusFunc: func(ctx context.Context, key string) (*services.NextStatusInfo, error) {
 			called = true
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key}, Status: models.ChangeCardStatus("open")}, nil
+			return &services.NextStatusInfo{EntityType: "change", EntityKey: key, CurrentStatus: "open"}, nil
 		},
 	}
 
@@ -528,7 +528,7 @@ func TestGAP003_Fix_DispatchNextStatus_ChangeKey(t *testing.T) {
 			"This indicates GAP-003 is not yet fixed — case \"change\" is missing from dispatchNextStatus()", err)
 	}
 	if !called {
-		t.Error("GetChangeCard was not called — GAP-003 not fixed")
+		t.Error("GetNextStatus was not called — GAP-003 not fixed")
 	}
 	if info == nil {
 		t.Fatal("expected non-nil NextStatusInfo, got nil")
@@ -538,44 +538,6 @@ func TestGAP003_Fix_DispatchNextStatus_ChangeKey(t *testing.T) {
 	}
 	if info.EntityKey != wantKey {
 		t.Errorf("NextStatusInfo.EntityKey = %q, want %q", info.EntityKey, wantKey)
-	}
-}
-
-// TestGAP004_Fix_DispatchAdvance_ChangeKey verifies that after fixing GAP-004,
-// dispatchAdvance routes entityType="change" to getChangeCardService().AdvanceChangeCardStatus().
-//
-// RED: currently dispatchAdvance returns (nil, nil) for "change" — falls through to default.
-// GREEN: mock is called and result is non-nil with EntityType="change".
-func TestGAP004_Fix_DispatchAdvance_ChangeKey(t *testing.T) {
-	called := false
-	wantKey := "C007"
-
-	mock := &MockChangeCardService{
-		AdvanceChangeCardStatusFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
-			called = true
-			return &models.ChangeCard{BaseEntity: models.BaseEntity{Key: key}, Status: models.ChangeCardStatus("reviewed")}, nil
-		},
-	}
-
-	restore := injectMockChangeCardSvc(t, mock)
-	defer restore()
-
-	ctx := context.Background()
-	result, err := dispatchAdvance(ctx, "change", wantKey)
-	if err != nil {
-		t.Fatalf("dispatchAdvance(change, C007) unexpected error: %v", err)
-	}
-	// Before the fix: result == nil (default returns nil, nil).
-	// After the fix: result is non-nil with EntityType="change".
-	if result == nil {
-		t.Error("dispatchAdvance(change, C007) returned nil result — " +
-			"\"change\" fell through to default (GAP-004 not yet fixed)")
-	}
-	if !called {
-		t.Error("AdvanceChangeCardStatus was not called — GAP-004 not fixed")
-	}
-	if result != nil && result.EntityType != "change" {
-		t.Errorf("TransitionResult.EntityType = %q, want %q", result.EntityType, "change")
 	}
 }
 

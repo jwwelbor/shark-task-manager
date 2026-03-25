@@ -21,11 +21,10 @@ type changeCardServicer interface {
 	ListChangeCards(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
 	UpdateChangeCard(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
 	DeleteChangeCard(ctx context.Context, key string) error
-	ApproveChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
-	SetChangeCardStatus(ctx context.Context, key, targetStatus string, force bool) (*models.ChangeCard, error)
-	AdvanceChangeCardStatus(ctx context.Context, key string) (*models.ChangeCard, error)
+	TransitionStatus(ctx context.Context, key string, targetStatus string, opts services.TransitionOptions) (*services.TransitionResult, error)
+	GetNextStatus(ctx context.Context, key string) (*services.NextStatusInfo, error)
+	GetNextStatusForCard(card *models.ChangeCard) *services.NextStatusInfo
 	GetOrchestratorAction(card *models.ChangeCard) *config.PopulatedAction
-	GetValidTransitions(status string) []string
 }
 
 // changeCardSvcOverride is non-nil only during tests.
@@ -243,7 +242,8 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 
 	// Gather enrichment data (best-effort)
 	orchestratorAction := svc.GetOrchestratorAction(card)
-	validTransitions := svc.GetValidTransitions(string(card.Status))
+	info := svc.GetNextStatusForCard(card)
+	validTransitions := info.TargetStatuses()
 
 	var notes []*models.EntityNote
 	if noteSvc, nErr := cli.GetNoteService(ctx); nErr == nil && noteSvc != nil {
@@ -369,9 +369,8 @@ func runChangeApprove(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse
 	key := args[0]
 
-	// Step 2: Call service
 	svc := getChangeCardService()
-	card, err := svc.ApproveChangeCard(cmd.Context(), key)
+	result, err := svc.TransitionStatus(cmd.Context(), key, "approved", services.TransitionOptions{})
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "not found") {
@@ -389,9 +388,14 @@ func runChangeApprove(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Format output
 	if cli.GlobalConfig.JSON {
+		// Re-fetch the card for full JSON output
+		card, getErr := svc.GetChangeCard(cmd.Context(), key)
+		if getErr != nil {
+			return cli.OutputJSON(result)
+		}
 		return cli.OutputJSON(card)
 	}
-	cli.Success(fmt.Sprintf("Approved change-card %s", card.Key))
+	cli.Success(fmt.Sprintf("Approved change-card %s", result.EntityKey))
 	return nil
 }
 
