@@ -140,11 +140,12 @@ fi
 # Extract the command being run
 COMMAND=$(echo "$TOOL_INPUT" | jq -r '.command // ""')
 
-# Check if this is a status-advance command
-# Match: shark status advance, shark task next-status, shark status set,
-#        shark task set-status, shark feature next-status, shark epic next-status
-if ! echo "$COMMAND" | grep -qE '(shark\s+(status\s+(advance|set)|task\s+(next-status|set-status)|feature\s+next-status|epic\s+next-status))'; then
-  exit 0  # Not a status command, allow it
+# Check if this is a forward status-advance command
+# Only intercept advance/next-status (always forward). Let "set" through —
+# it's used for legitimate backward transitions (rejections) and the
+# workflow service validates transitions anyway.
+if ! echo "$COMMAND" | grep -qE '(shark\s+(status\s+advance|task\s+next-status|feature\s+next-status|epic\s+next-status))'; then
+  exit 0  # Not a forward status command, allow it
 fi
 
 # Extract the entity key from the command
@@ -337,11 +338,7 @@ If Claude tries to advance a different task than the one it's supposed to be wor
 
 The hook should NOT block backward transitions like `shark status set E07-F01-001 changes_requested --reason "..."`. These are valid rejection flows.
 
-**Current behavior**: The regex in `intercept-status-advance.sh` matches `shark status set` broadly. This needs refinement — either:
-- Parse the target status and only block forward transitions
-- Only intercept `shark status advance` and `shark task next-status` (which are always forward), and allow `shark status set` through (used for rejections)
-
-**Recommended**: Only intercept `advance` and `next-status` commands. Let `set` through — it's used for legitimate backward transitions and the workflow service validates the transition anyway.
+**Current behavior**: The regex in `intercept-status-advance.sh` only intercepts `advance` and `next-status` commands (which are always forward). `shark status set` is allowed through — it's used for legitimate backward transitions (rejections) and the workflow service validates the transition anyway.
 
 ### 4. Stale deferred files
 

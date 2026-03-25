@@ -208,11 +208,10 @@ var ValidActionTypes = action.ValidActionTypes
 // --- action/ functions ---
 
 // ValidateAllOrchestratorActions validates all orchestrator actions in status metadata.
-var ValidateAllOrchestratorActions = action.ValidateAllOrchestratorActions
-
-// ValidateAllOrchestratorActionsFromMetadata is a backward-compatible wrapper that accepts
-// map[string]StatusMetadata (the original signature) and extracts the OrchestratorAction pointers.
-func ValidateAllOrchestratorActionsFromMetadata(statusMetadata map[string]StatusMetadata) []*OrchestratorValidationError {
+// This is a backward-compatible wrapper that preserves the original function signature
+// (map[string]StatusMetadata), while delegating to the action sub-package implementation
+// which accepts map[string]*OrchestratorAction.
+var ValidateAllOrchestratorActions = func(statusMetadata map[string]StatusMetadata) []*OrchestratorValidationError {
 	actionsByStatus := make(map[string]*OrchestratorAction)
 	for name, meta := range statusMetadata {
 		actionsByStatus[name] = meta.OrchestratorAction
