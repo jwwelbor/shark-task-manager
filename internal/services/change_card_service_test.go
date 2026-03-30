@@ -430,6 +430,56 @@ func TestChangeCardService_ListChangeCards_WithEpicFilter(t *testing.T) {
 	}
 }
 
+func TestChangeCardService_ListChangeCards_ShowAllTrue_IncludesTerminal(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedFilter *repository.ChangeCardRepoFilter
+	repo := &mockChangeCardRepo{
+		listFn: func(ctx context.Context, filter *repository.ChangeCardRepoFilter) ([]*models.ChangeCard, error) {
+			capturedFilter = filter
+			return []*models.ChangeCard{}, nil
+		},
+	}
+
+	svc := newChangeCardService(repo, nil, nil)
+
+	_, err := svc.ListChangeCards(ctx, ChangeCardFilters{ShowAll: true})
+	if err != nil {
+		t.Fatalf("ListChangeCards() error = %v", err)
+	}
+	if capturedFilter == nil {
+		t.Fatal("expected filter to be passed to repository")
+	}
+	if !capturedFilter.IncludeTerminal {
+		t.Error("expected IncludeTerminal to be true when ShowAll is true")
+	}
+}
+
+func TestChangeCardService_ListChangeCards_ShowAllFalse_ExcludesTerminal(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedFilter *repository.ChangeCardRepoFilter
+	repo := &mockChangeCardRepo{
+		listFn: func(ctx context.Context, filter *repository.ChangeCardRepoFilter) ([]*models.ChangeCard, error) {
+			capturedFilter = filter
+			return []*models.ChangeCard{}, nil
+		},
+	}
+
+	svc := newChangeCardService(repo, nil, nil)
+
+	_, err := svc.ListChangeCards(ctx, ChangeCardFilters{ShowAll: false})
+	if err != nil {
+		t.Fatalf("ListChangeCards() error = %v", err)
+	}
+	if capturedFilter == nil {
+		t.Fatal("expected filter to be passed to repository")
+	}
+	if capturedFilter.IncludeTerminal {
+		t.Error("expected IncludeTerminal to be false when ShowAll is false")
+	}
+}
+
 func TestChangeCardService_UpdateChangeCard(t *testing.T) {
 	ctx := context.Background()
 

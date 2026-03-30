@@ -92,11 +92,12 @@ var changeListCmd = &cobra.Command{
 	Short: "List change-cards",
 	Long: `List change-cards with optional filtering by status or linked entity.
 
-By default, terminal-status change-cards (completed, declined) are hidden
-unless --status is specified.
+By default, terminal-status change-cards (completed, declined) are hidden.
+Use --all to show all change-cards including those in terminal statuses.
 
 Examples:
   shark change list
+  shark change list --all
   shark change list --status=proposed
   shark change list --link=E07
   shark change list --status=approved --json`,
@@ -188,6 +189,7 @@ func init() {
 	// List flags
 	changeListCmd.Flags().StringVar(&changeStatusFilter, "status", "", "Filter by status (proposed, approved, in_progress, completed, declined)")
 	changeListCmd.Flags().StringVar(&changeLinkFilter, "link", "", "Filter by linked entity key (E## or E##-F##)")
+	changeListCmd.Flags().Bool("all", false, "Show all change-cards including terminal statuses (completed, declined)")
 
 	// Update flags
 	changeUpdateCmd.Flags().StringVar(&changeTitle, "title", "", "New title")
@@ -286,9 +288,10 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 // runChangeList handles the `shark change list` command.
 func runChangeList(cmd *cobra.Command, args []string) error {
 	// Step 1: Parse filters
+	allFlag, _ := cmd.Flags().GetBool("all")
 	filters := services.ChangeCardFilters{
 		Status:  changeStatusFilter,
-		ShowAll: changeStatusFilter != "",
+		ShowAll: allFlag || changeStatusFilter != "",
 	}
 	// Route --link to FeatureKey when format is E##-F## (feature), otherwise EpicKey
 	if changeLinkFilter != "" {

@@ -294,6 +294,7 @@ func (s *BugService) ListBugs(ctx context.Context, filters BugFilters) ([]*model
 		Status:          filters.Status,
 		Severity:        filters.Severity,
 		LinkedEntityKey: filters.LinkedEntityKey,
+		IncludeTerminal: filters.ShowAll,
 	}
 
 	bugs, err := s.repo.List(ctx, repoFilters)

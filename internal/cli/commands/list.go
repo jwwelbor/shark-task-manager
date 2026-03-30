@@ -83,10 +83,16 @@ func runList(cmd *cobra.Command, args []string) error {
 		return runIdeaList(ideaListCmd, []string{})
 
 	case "bug":
-		return runBugList(cmd, []string{})
+		// Forward --all flag to bug list command
+		bugListCmd.SetContext(cmd.Context())
+		_ = bugListCmd.Flags().Set("all", formatBool(showAllFlag))
+		return runBugList(bugListCmd, []string{})
 
 	case "change":
-		return runChangeList(cmd, []string{})
+		// Forward --all flag to change list command
+		changeListCmd.SetContext(cmd.Context())
+		_ = changeListCmd.Flags().Set("all", formatBool(showAllFlag))
+		return runChangeList(changeListCmd, []string{})
 
 	default:
 		// Should never happen

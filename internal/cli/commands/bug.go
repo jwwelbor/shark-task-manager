@@ -88,8 +88,12 @@ var bugListCmd = &cobra.Command{
 	Short: "List bugs",
 	Long: `List bugs with optional filtering by status, severity, and linked entity.
 
+By default, terminal-status bugs (resolved, wont_fix, duplicate) are hidden.
+Use --all to show all bugs including those in terminal statuses.
+
 Examples:
   shark bug list
+  shark bug list --all
   shark bug list --status=reported
   shark bug list --severity=critical
   shark bug list --link=E07-F01
@@ -175,6 +179,7 @@ func init() {
 	bugListCmd.Flags().StringVar(&bugStatus, "status", "", "Filter by status")
 	bugListCmd.Flags().StringVar(&bugSeverity, "severity", "", "Filter by severity")
 	bugListCmd.Flags().StringVar(&bugLink, "link", "", "Filter by linked entity key")
+	bugListCmd.Flags().Bool("all", false, "Show all bugs including terminal statuses (resolved, wont_fix, duplicate)")
 
 	// Update flags
 	bugUpdateCmd.Flags().StringVar(&bugTitle, "title", "", "New title")
@@ -296,8 +301,11 @@ func runBugList(cmd *cobra.Command, args []string) error {
 	statusStr, _ := cmd.Flags().GetString("status")
 	severityStr, _ := cmd.Flags().GetString("severity")
 	linkStr, _ := cmd.Flags().GetString("link")
+	allFlag, _ := cmd.Flags().GetBool("all")
 
-	filters := services.BugFilters{}
+	filters := services.BugFilters{
+		ShowAll: allFlag || statusStr != "",
+	}
 	if statusStr != "" {
 		s := models.BugStatus(statusStr)
 		filters.Status = &s

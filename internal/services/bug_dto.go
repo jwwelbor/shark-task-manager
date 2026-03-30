@@ -31,6 +31,7 @@ type BugFilters struct {
 	Status          *models.BugStatus   `json:"status,omitempty"`
 	Severity        *models.BugSeverity `json:"severity,omitempty"`
 	LinkedEntityKey *string             `json:"linked_entity_key,omitempty"`
+	ShowAll         bool                `json:"show_all,omitempty"` // include terminal statuses
 }
 
 // TriageBugInput contains the parameters for triaging a bug.

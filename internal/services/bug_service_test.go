@@ -792,6 +792,58 @@ func TestBugService_ListBugs_WithSeverityFilter(t *testing.T) {
 	}
 }
 
+func TestBugService_ListBugs_ShowAllFalse_ExcludesTerminal(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedFilters *repository.BugListFilters
+	repo := &mockBugRepo{
+		listFn: func(ctx context.Context, filters *repository.BugListFilters) ([]*models.Bug, error) {
+			capturedFilters = filters
+			return []*models.Bug{}, nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	_, err := svc.ListBugs(ctx, BugFilters{ShowAll: false})
+	if err != nil {
+		t.Fatalf("ListBugs() error = %v", err)
+	}
+
+	if capturedFilters == nil {
+		t.Fatal("expected filters to be passed to repository")
+	}
+	if capturedFilters.IncludeTerminal {
+		t.Error("expected IncludeTerminal to be false when ShowAll is false")
+	}
+}
+
+func TestBugService_ListBugs_ShowAllTrue_IncludesTerminal(t *testing.T) {
+	ctx := context.Background()
+
+	var capturedFilters *repository.BugListFilters
+	repo := &mockBugRepo{
+		listFn: func(ctx context.Context, filters *repository.BugListFilters) ([]*models.Bug, error) {
+			capturedFilters = filters
+			return []*models.Bug{}, nil
+		},
+	}
+
+	svc := newBugService(repo, nil, nil, nil)
+
+	_, err := svc.ListBugs(ctx, BugFilters{ShowAll: true})
+	if err != nil {
+		t.Fatalf("ListBugs() error = %v", err)
+	}
+
+	if capturedFilters == nil {
+		t.Fatal("expected filters to be passed to repository")
+	}
+	if !capturedFilters.IncludeTerminal {
+		t.Error("expected IncludeTerminal to be true when ShowAll is true")
+	}
+}
+
 // --- TransitionStatus tests ---
 
 func TestBugService_TransitionStatus_ValidTransition(t *testing.T) {

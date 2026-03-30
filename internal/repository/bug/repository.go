@@ -224,6 +224,7 @@ type BugListFilters struct {
 	Status          *models.BugStatus
 	Severity        *models.BugSeverity
 	LinkedEntityKey *string
+	IncludeTerminal bool // if false, excludes resolved + wont_fix + duplicate
 }
 
 // List retrieves all bugs, optionally filtered.
@@ -245,6 +246,10 @@ func (r *BugRepository) List(ctx context.Context, filters *BugListFilters) ([]*m
 		if filters.LinkedEntityKey != nil {
 			conditions = append(conditions, "linked_entity_key = ?")
 			args = append(args, *filters.LinkedEntityKey)
+		}
+
+		if !filters.IncludeTerminal {
+			conditions = append(conditions, "status NOT IN ('resolved', 'wont_fix', 'duplicate')")
 		}
 	}
 
