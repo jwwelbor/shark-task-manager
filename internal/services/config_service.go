@@ -347,57 +347,6 @@ func (s *ConfigService) AddPreset(configPath, presetName string) (*PresetAddResu
 	}, nil
 }
 
-// ResolveStatusAction resolves the orchestrator action for a given status.
-// If taskVars is non-nil, template variables are substituted.
-// Returns (action, rawTemplate, nil) or (nil, "", err).
-type StatusActionResult struct {
-	Status      string   `json:"status"`
-	Action      string   `json:"action"`
-	AgentType   string   `json:"agent_type,omitempty"`
-	Skills      []string `json:"skills,omitempty"`
-	Instruction string   `json:"instruction"`
-}
-
-// GetStatusAction looks up the orchestrator action for a status in the workflow config.
-// taskVars is used to populate template placeholders; pass nil for raw template.
-func (s *ConfigService) GetStatusAction(configPath, status string, taskVars map[string]string) (*StatusActionResult, error) {
-	workflowConfig, err := config.LoadWorkflowConfig(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load workflow config: %w", err)
-	}
-
-	if workflowConfig == nil || workflowConfig.StatusMetadata == nil {
-		return nil, fmt.Errorf("no workflow configuration found")
-	}
-
-	metadata, exists := workflowConfig.StatusMetadata[status]
-	if !exists {
-		return nil, fmt.Errorf("status %q not found in workflow config", status)
-	}
-
-	action := metadata.OrchestratorAction
-	if action == nil {
-		return &StatusActionResult{
-			Status: status,
-		}, nil
-	}
-
-	var instruction string
-	if taskVars != nil {
-		instruction = action.PopulateTemplate(taskVars)
-	} else {
-		instruction = action.InstructionTemplate
-	}
-
-	return &StatusActionResult{
-		Status:      status,
-		Action:      action.Action,
-		AgentType:   action.AgentType,
-		Skills:      action.Skills,
-		Instruction: instruction,
-	}, nil
-}
-
 // ShowConfig returns all configuration sections for display.
 type ShowConfigResult struct {
 	JSON            bool                    `json:"json,omitempty"`
