@@ -1,6 +1,6 @@
 Generate tasks for feature {{.id}}: "{{.title}}".
 
-CHECK COMPLEXITY TIER: shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'
+CHECK COMPLEXITY TIER: {{template "get_json" .}} | jq -r '.metadata.complexity_tier'
 
 LOAD: specification-writing workflow write-task.md.
 
@@ -25,7 +25,7 @@ EXIT GATE varies by tier:
 - STANDARD (PRD requirements map to tasks, test cases mapped)
 - COMPLEX (full write-task.md checklist, contract validation task if applicable)
 
-Verify: shark task list --feature={{.id}}
+Verify: {{template "list" .}}
 
 ---
 ## EXIT — REQUIRED

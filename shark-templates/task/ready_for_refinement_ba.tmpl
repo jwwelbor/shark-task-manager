@@ -6,7 +6,7 @@ READ:
 (1) Task spec at {{.file_path}}
 (2) Parent feature PRD for feature-level intent
 (3) Feature research report for codebase patterns and integration points
-(4) Task notes (shark task get {{.task_id}} --json) for blocker context
+(4) Task notes ({{template "get_json_task" .}}) for blocker context
 (5) Architecture docs for constraints
 {{- if .related_docs}}
 (6) Related docs: {{.related_docs}}

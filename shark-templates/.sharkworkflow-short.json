@@ -10,12 +10,14 @@
       "ready_for_design": ["in_design", "blocked", "on_hold"],
       "in_design": ["ready_for_decomposition", "ready_for_research", "ready_for_refinement", "blocked", "on_hold", "cancelled"],
       "ready_for_decomposition": ["in_decomposition", "blocked", "on_hold"],
-      "in_decomposition": ["active", "blocked", "on_hold"],
+      "in_decomposition": ["ready_for_feature_review", "blocked", "on_hold"],
+      "ready_for_feature_review": ["in_feature_review", "blocked", "on_hold"],
+      "in_feature_review": ["active", "ready_for_decomposition", "blocked", "on_hold"],
       "active": ["completed", "on_hold"],
       "completed": [],
       "cancelled": [],
-      "blocked": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition"],
-      "on_hold": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition", "active", "cancelled"]
+      "blocked": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition", "ready_for_feature_review"],
+      "on_hold": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition", "ready_for_feature_review", "active", "cancelled"]
     },
     "status_metadata": {
       "draft": {
@@ -154,6 +156,37 @@
           "instruction_template": "epic_short/in_decomposition.tmpl"
         }
       },
+      "ready_for_feature_review": {
+        "description": "Ready for codex review of features against epic requirements",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.55,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["uat-agent"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "specification-writing"],
+          "instruction_template": "epic_short/ready_for_feature_review.tmpl"
+        }
+      },
+      "in_feature_review": {
+        "description": "Codex reviewing features against epic requirements",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.6,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "specification-writing"],
+          "instruction_template": "epic_short/in_feature_review.tmpl"
+        }
+      },
       "active": {
         "description": "Features in progress, progress aggregated from children",
         "phase": "execution",
@@ -235,12 +268,14 @@
       "ready_for_test_planning": ["in_test_planning", "blocked", "on_hold"],
       "in_test_planning": ["ready_for_task_generation", "ready_for_specification", "blocked", "on_hold"],
       "ready_for_task_generation": ["in_task_generation", "blocked", "on_hold"],
-      "in_task_generation": ["active", "blocked", "on_hold"],
+      "in_task_generation": ["ready_for_task_review", "blocked", "on_hold"],
+      "ready_for_task_review": ["in_task_review", "blocked", "on_hold"],
+      "in_task_review": ["active", "ready_for_task_generation", "blocked", "on_hold"],
       "active": ["completed", "on_hold"],
       "completed": [],
       "cancelled": [],
-      "blocked": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "draft"],
-      "on_hold": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "active", "cancelled"]
+      "blocked": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "ready_for_task_review", "draft"],
+      "on_hold": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "ready_for_task_review", "active", "cancelled"]
     },
     "status_metadata": {
       "draft": {
@@ -408,6 +443,37 @@
           "model": "sonnet",
           "skills": ["specification-writing", "task"],
           "instruction_template": "feature_short/in_task_generation.tmpl"
+        }
+      },
+      "ready_for_task_review": {
+        "description": "Ready for codex review of tasks against feature spec",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.55,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["uat-agent"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "specification-writing"],
+          "instruction_template": "feature_short/ready_for_task_review.tmpl"
+        }
+      },
+      "in_task_review": {
+        "description": "Codex reviewing tasks against feature spec",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.6,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "specification-writing"],
+          "instruction_template": "feature_short/in_task_review.tmpl"
         }
       },
       "active": {

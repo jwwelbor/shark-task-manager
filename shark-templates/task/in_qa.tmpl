@@ -27,10 +27,10 @@ VALIDATE:
 - Validate integration points behave correctly
 
 ON PASS (all test cases pass, acceptance criteria met):
-- Add note: shark note add --task={{.task_id}} --type=review "QA passed - all test cases validated"
+- Add note: {{template "create_note_task" .}} --type=review "QA passed - all test cases validated"
 - Advance: {{template "advance" .}}
 
 ON FAIL (test cases fail, acceptance criteria not met, regressions found):
-- Add note with specific failures: shark note add --task={{.task_id}} --type=blocker "QA failed - [describe failures]"
-- Send back to development: shark task update {{.task_id}} --status=ready_for_development
+- Add note with specific failures: {{template "create_note_task" .}} --type=blocker "QA failed - [describe failures]"
+- Send back to development: {{template "status_set_task" .}} ready_for_development
 - Do NOT use any invented status. The valid rejection status from QA is ready_for_development.

@@ -1,7 +1,7 @@
 {{template "_resume_preamble" .}}RESUME technical feasibility review for epic {{.id}}: "{{.title}}".
 
-Check context_data: shark epic context get {{.id}} --json
-- If tech_remaining_steps non-empty AND tech_completed_steps contains all items in tech_remaining_steps → done → advance to ready_for_tech_check: shark epic update {{.id}} --status=ready_for_tech_check.
+Check context_data: {{template "context_json" .}}
+- If tech_remaining_steps non-empty AND tech_completed_steps contains all items in tech_remaining_steps → done → advance to ready_for_tech_check: {{template "status_set" .}} ready_for_tech_check.
 - If tech_remaining_steps non-empty AND tech_completed_steps ≠ tech_remaining_steps → continue with items in tech_remaining_steps not yet in tech_completed_steps.
 - If tech_remaining_steps empty → full re-run needed, proceed with ready_for_feasibility_review_tech instructions below.
 
@@ -26,6 +26,6 @@ EVALUATE:
 
 PRODUCE: Technical feasibility review report with findings for each area, overall assessment (APPROVED or CONCERNS_FOUND), and recommended actions.
 
-IF APPROVED: Advance via shark epic update {{.id}} --status=ready_for_tech_check.
+IF APPROVED: Advance via {{template "status_set" .}} ready_for_tech_check.
 
-IF CONCERNS FOUND: Set intervention_required via shark epic update {{.id}} --status=intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action.
+IF CONCERNS FOUND: Set intervention_required via {{template "status_set" .}} intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action.

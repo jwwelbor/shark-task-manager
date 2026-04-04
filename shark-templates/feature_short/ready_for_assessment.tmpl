@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}Assess feature {{.id}}: "{{.title}}".
 
-Check feature metadata: shark feature get {{.id}} --json. If complexity_tier already assigned, route immediately.
+Check feature metadata: {{template "get_json" .}}. If complexity_tier already assigned, route immediately.
 
 ---
 
@@ -10,7 +10,7 @@ LOAD: assessment skill (complexity-triage workflow).
 
 READ:
 (1) Feature description at {{.file_path}}
-(2) Parent epic PRD for context (shark epic get {{.epic_id}} --json for path)
+(2) Parent epic PRD for context ({{template "get_json_epic" .}} for path)
 (3) Codebase via quick grep for related files and patterns
 
 ## Step 1: Scope Validation
@@ -21,8 +21,8 @@ FEATURE = multi-capability (3+ changes), requires design decisions, 4+ files, cr
 TASK = single atomic change, applies existing patterns, 1-3 files.
 
 IF MISCLASSIFIED AS FEATURE (actually a task):
-(1) Find or create enhancement feature: shark feature list {{.epic_id}} | grep -i enhance
-(2) Convert: shark task create <enhancement-feature> "{{.title}}"
+(1) Find or create enhancement feature: {{template "list_epic" .}} | grep -i enhance
+(2) Convert: shark create task <enhancement-feature> "{{.title}}"
 (3) Cancel: shark status set {{.id}} cancelled --reason "Converted to task under enhancement feature"
 (4) STOP.
 
@@ -34,7 +34,7 @@ SCORE using 9 dimensions (max 27):
 
 TIER: 0-6=SIMPLE, 7-15=STANDARD, 16+=COMPLEX
 
-STORE: shark feature note add {{.id}} --content="COMPLEXITY: {tier} (score: {score}/27)" --type=decision
+STORE: {{template "create_note" .}} --content="COMPLEXITY: {tier} (score: {score}/27)" --type=decision
 
 ## Step 3: Route
 

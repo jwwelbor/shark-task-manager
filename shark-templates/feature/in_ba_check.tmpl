@@ -3,8 +3,8 @@ BA check in progress for feature {{.id}}: "{{.title}}".
 {{template "_resume_preamble" .}}
 
 A previous agent session was performing the BA quality check. Check for existing check findings:
-1. Read entity notes: shark feature notes {{.id}}
+1. Read entity notes: {{template "notes_list" .}}
 2. Look for a 'BA CHECK PASSED' or 'BA CHECK FAILED' note
-3. If found and PASSED: advance via shark feature update {{.id}} --status=ready_for_refinement_tech
-4. If found and FAILED: advance via shark feature update {{.id}} --status=in_refinement_ba
+3. If found and PASSED: advance via {{template "status_set" .}} ready_for_refinement_tech
+4. If found and FAILED: advance via {{template "status_set" .}} in_refinement_ba
 5. If no findings found: proceed with full BA check per ready_for_ba_check.tmpl instructions

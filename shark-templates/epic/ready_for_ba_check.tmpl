@@ -4,7 +4,7 @@ You are a BA validator. Your job is NOT to write documents — it is to validate
 were created correctly. Produce a pass/fail finding for each planned document.
 
 READ PLAN:
-shark epic context get {{.id}} --json
+{{template "context_json" .}}
 
 This returns context_data with:
 - remaining_steps: documents that were planned (some may still be unfinished)
@@ -14,14 +14,14 @@ This returns context_data with:
 IF context_data is empty or remaining_steps is empty:
   FAIL with note: 'BA CHECK FAILED: No plan found in context_data. Epic may have skipped PLAN gate.
   Set status back to in_refinement to re-run BA with PLAN gate.'
-  shark epic update {{.id}} --status=in_refinement
+  {{template "status_set" .}} in_refinement
   STOP.
 
 READ DOCS:
 For each document in remaining_steps:
   (1) Does the file exist at the expected path?       FAIL if missing
   (2) Does it meet minimum depth requirements below?  FAIL if thin
-  (3) Is it registered in shark related-docs?         FAIL if unregistered (run: shark related-docs list --epic={{.id}})
+  (3) Is it registered in shark related-docs?         FAIL if unregistered (run: {{template "related_docs_list_epic" .}})
 
 MINIMUM DEPTH REQUIREMENTS:
 - epic.md:            Goal, Business Value, Quick Reference table, Features list, Open Questions resolved
@@ -48,10 +48,10 @@ For each document checked, output one line:
 DECISION:
 
 IF ALL PASS:
-  shark epic note {{.id}} 'BA CHECK PASSED: {{"{{"}}len .remaining_steps{{"}}"}} docs validated. Depth requirements met. Exclusions documented.' --type=decision
-  shark epic update {{.id}} --status=in_research
+  {{template "create_note" .}} 'BA CHECK PASSED: {{"{{"}}len .remaining_steps{{"}}"}} docs validated. Depth requirements met. Exclusions documented.' --type=decision
+  {{template "status_set" .}} in_research
 
 IF ANY FAIL:
-  shark epic note {{.id}} 'BA CHECK FAILED: [list each FAIL finding with filename and reason]' --type=blocker
-  shark epic update {{.id}} --status=in_refinement
+  {{template "create_note" .}} 'BA CHECK FAILED: [list each FAIL finding with filename and reason]' --type=blocker
+  {{template "status_set" .}} in_refinement
   Do NOT advance to in_research.

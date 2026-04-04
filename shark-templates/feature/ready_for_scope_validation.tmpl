@@ -11,13 +11,13 @@ FEATURE = multi-capability (4+ user-facing capabilities), user journey focus (ma
 TASK = single atomic change (e.g., 'update button', 'fix typo', 'change color'), implementation detail, 1-3 files, days of work, applies existing patterns.
 
 IF MISCLASSIFIED:
-(1) Find or create enhancement feature: shark feature list --title='Enhancements' --epic={{.epic_id}} OR shark feature create --epic={{.epic_id}} --title='Enhancements and Maintenance'
-(2) Convert to task: shark task create --feature={enhancement_feature_id} --title='{{.title}}' --description='...'
+(1) Find or create enhancement feature: {{template "list_epic" .}} | grep -i enhance OR {{template "create_feature_epic" .}} "Enhancements and Maintenance"
+(2) Convert to task: shark create task {enhancement_feature_id} "{{.title}}"
 (3) Cancel this feature: shark status set {{.id}} cancelled --note='Converted to task {task_id} under {enhancement_feature_id}'
 (4) Report to user with task ID and feature ID
 
 IF PROPERLY SCOPED:
-(1) Add validation note: shark feature note {{.id}} 'Scope validated as feature: {reasoning}'
+(1) Add validation note: {{template "create_note" .}} 'Scope validated as feature: {reasoning}'
 (2) {{template "advance" .}}
 
 See docs/complexity-adaptive-workflow-proposal.md for full criteria.

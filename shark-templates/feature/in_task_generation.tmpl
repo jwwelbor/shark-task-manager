@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}RESUME task generation for feature {{.id}}: "{{.title}}".
 
-Check for existing tasks: shark task list --feature={{.id}}. If tasks exist and cover all feature requirements with proper sequencing, verify task specs are complete and advance immediately.
+Check for existing tasks: {{template "list" .}}. If tasks exist and cover all feature requirements with proper sequencing, verify task specs are complete and advance immediately.
 
 ---
 
@@ -15,7 +15,7 @@ CRITICAL CONSTRAINTS — READ BEFORE STARTING:
 - Also register feature-level docs if not already registered: shark related-docs add "<title>" <doc-path> --feature={{.id}}
 - READ docs/plan/RULES.md for documentation standards.
 
-CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
+CHECK COMPLEXITY TIER: Read feature metadata via {{template "get_json" .}} | jq -r '.metadata.complexity_tier'.
 
 LOAD: specification-writing workflow write-task.md.
 
@@ -42,7 +42,7 @@ EXIT GATE varies by tier:
 - STANDARD (PRD requirements map to tasks, test cases mapped)
 - COMPLEX (full write-task.md checklist, contract validation task if applicable)
 
-Verify: shark task list --feature={{.id}}.
+Verify: {{template "list" .}}.
 
 ---
 ## EXIT — REQUIRED

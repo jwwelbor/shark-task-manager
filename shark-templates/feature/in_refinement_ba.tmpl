@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}RESUME BA refinement for feature {{.id}}: "{{.title}}".
 
-CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier'.
+CHECK COMPLEXITY TIER: Read feature metadata via {{template "get_json" .}} | jq -r '.metadata.complexity_tier'.
 
 Check for existing PRD at {{.file_path}}/prd.md. If PRD exists and meets exit gate criteria for the complexity tier, advance immediately.
 
@@ -8,7 +8,7 @@ Check for existing PRD at {{.file_path}}/prd.md. If PRD exists and meets exit ga
 
 Write feature PRD for {{.id}}: "{{.title}}".
 
-CHECK COMPLEXITY TIER: Read feature metadata via shark feature get {{.id}} --json | jq -r '.metadata.complexity_tier' (values: SIMPLE, STANDARD, COMPLEX).
+CHECK COMPLEXITY TIER: Read feature metadata via {{template "get_json" .}} | jq -r '.metadata.complexity_tier' (values: SIMPLE, STANDARD, COMPLEX).
 
 LOAD: specification-writing workflow write-feature-prd.md.
 

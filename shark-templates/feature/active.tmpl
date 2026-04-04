@@ -6,7 +6,7 @@ This feature has been decomposed into tasks. Your job is to find the next action
 
 1. List all tasks for this feature:
    ```bash
-   shark task list --feature={{.id}} --json
+   {{template "list_json" .}}
    ```
 
 2. For each task (in dependency/execution order), check its status:
