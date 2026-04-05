@@ -138,6 +138,15 @@ func runWorkflowShowAction(cmd *cobra.Command, args []string) error {
 
 // lookupEntityPlaceholders fetches an entity from the database and returns its template placeholders.
 func lookupEntityPlaceholders(ctx context.Context, key string, entityType string) (map[string]string, error) {
+	// fallbackPlaceholders returns minimal placeholders when an entity isn't found in the DB.
+	// This allows show-action to still render the template with at least the key populated.
+	fallbackPlaceholders := func(key string) map[string]string {
+		return map[string]string{
+			"id":  key,
+			"key": key,
+		}
+	}
+
 	switch entityType {
 	case "task":
 		taskKey, err := NormalizeTaskKey(key)
@@ -146,40 +155,40 @@ func lookupEntityPlaceholders(ctx context.Context, key string, entityType string
 		}
 		svc := cli.GetTaskService()
 		task, err := svc.GetTask(ctx, taskKey)
-		if err != nil {
-			return nil, err
+		if err != nil || task == nil {
+			return fallbackPlaceholders(taskKey), nil
 		}
 		return config.TaskPlaceholders(task), nil
 
 	case "feature":
 		svc := cli.GetFeatureService()
 		feature, err := svc.GetFeature(ctx, key)
-		if err != nil {
-			return nil, err
+		if err != nil || feature == nil {
+			return fallbackPlaceholders(key), nil
 		}
 		return config.FeaturePlaceholders(feature), nil
 
 	case "epic":
 		svc := cli.GetEpicService()
 		epic, err := svc.GetEpic(ctx, key)
-		if err != nil {
-			return nil, err
+		if err != nil || epic == nil {
+			return fallbackPlaceholders(key), nil
 		}
 		return config.EpicPlaceholders(epic), nil
 
 	case "bug":
 		svc := cli.GetBugService()
 		bug, err := svc.GetBug(ctx, key)
-		if err != nil {
-			return nil, err
+		if err != nil || bug == nil {
+			return fallbackPlaceholders(key), nil
 		}
 		return config.BugPlaceholders(bug), nil
 
 	case "change", "change_card":
 		svc := cli.GetChangeCardService()
 		card, err := svc.GetChangeCard(ctx, key)
-		if err != nil {
-			return nil, err
+		if err != nil || card == nil {
+			return fallbackPlaceholders(key), nil
 		}
 		return config.ChangeCardPlaceholders(card), nil
 
