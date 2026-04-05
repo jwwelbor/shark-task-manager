@@ -3,13 +3,13 @@ Write epic PRD for {{.id}}: "{{.title}}".
 LOAD: specification-writing workflows write-epic.md, plan/epic-ba-plan.md.
 
 PLAN GATE — run before creating any document:
-(1) READ: shark epic context get {{.id}} --json
+(1) READ: {{template "context_json" .}}
 (2) IF context_data.remaining_steps non-empty: RESUME MODE — skip to ACT with remaining_steps list.
-    Log: shark epic note {{.id}} 'Resuming session. Plan from {plan_created_at}. Remaining: {remaining_steps}. Completed: {completed_steps}.'
+    Log: {{template "create_note" .}} 'Resuming session. Plan from {plan_created_at}. Remaining: {remaining_steps}. Completed: {completed_steps}.'
 (3) IF context_data.remaining_steps empty: PLAN MODE — run epic-ba-plan.md decision tree.
     For each optional doc state INCLUDE or EXCLUDE with specific reason for THIS epic. Default to INCLUDE when uncertain.
-    Store: shark epic context set {{.id}} --field remaining_steps '[...]' --field implementation_decisions '{...}' --field plan_created_at 'TIMESTAMP'
-    Log: shark epic note {{.id}} 'PLAN: Will create N docs. Excluded: [list with reasons].' --type=decision
+    Store: {{template "context_set" .}} --field remaining_steps '[...]' --field implementation_decisions '{...}' --field plan_created_at 'TIMESTAMP'
+    Log: {{template "create_note" .}} 'PLAN: Will create N docs. Excluded: [list with reasons].' --type=decision
 
 READ:
 (1) Draft epic document at {{.file_path}} and any vision notes.
@@ -18,7 +18,7 @@ READ:
 (3) Related docs: {{.related_docs}}
 {{- end}}
 
-ACT: Create only documents in remaining_steps. After each doc: update completed_steps via shark epic context set {{.id}} --field completed_steps '[...]'. Register each: shark related-docs add "..." <path> --epic={{.id}}.
+ACT: Create only documents in remaining_steps. After each doc: update completed_steps via {{template "context_set" .}} --field completed_steps '[...]'. Register each: shark related-docs add "..." <path> --epic={{.id}}.
 
 EXIT GATE: All remaining_steps completed. No vague language or TBDs.
 

@@ -4,14 +4,14 @@ You are a tech validator (architect). Your job is NOT to write documents — it 
 technical feasibility documents were created correctly. Produce a pass/fail finding for each.
 
 READ PLAN:
-shark epic context get {{.id}} --json
+{{template "context_json" .}}
 
 Look for tech-specific fields (the BA run populates the initial plan; the tech run may add its own
 context or re-use the same context_data structure under a tech_remaining_steps key if set by
 epic-tech-plan.md, or check remaining_steps for tech docs).
 
 ALSO READ:
-- BA check note from epic notes (shark epic notes {{.id}}) to understand what BA passed
+- BA check note from epic notes ({{template "notes_list" .}}) to understand what BA passed
 - Research report from in_research phase
 
 FOR EACH TECH DOCUMENT planned:
@@ -42,10 +42,10 @@ For each document checked, output one line:
 DECISION:
 
 IF ALL PASS:
-  shark epic note {{.id}} 'TECH CHECK PASSED: All tech docs validated. Feasibility verdict documented. Risks assessed.' --type=decision
-  shark epic update {{.id}} --status=in_test_planning
+  {{template "create_note" .}} 'TECH CHECK PASSED: All tech docs validated. Feasibility verdict documented. Risks assessed.' --type=decision
+  {{template "status_set" .}} in_test_planning
 
 IF ANY FAIL:
-  shark epic note {{.id}} 'TECH CHECK FAILED: [list each FAIL finding]' --type=blocker
-  shark epic update {{.id}} --status=in_feasibility_review_tech
+  {{template "create_note" .}} 'TECH CHECK FAILED: [list each FAIL finding]' --type=blocker
+  {{template "status_set" .}} in_feasibility_review_tech
   Do NOT advance to in_test_planning.

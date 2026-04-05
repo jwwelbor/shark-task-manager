@@ -10,12 +10,14 @@
       "ready_for_design": ["in_design", "blocked", "on_hold"],
       "in_design": ["ready_for_decomposition", "ready_for_research", "ready_for_refinement", "blocked", "on_hold", "cancelled"],
       "ready_for_decomposition": ["in_decomposition", "blocked", "on_hold"],
-      "in_decomposition": ["active", "blocked", "on_hold"],
+      "in_decomposition": ["ready_for_feature_review", "blocked", "on_hold"],
+      "ready_for_feature_review": ["in_feature_review", "blocked", "on_hold"],
+      "in_feature_review": ["active", "ready_for_decomposition", "blocked", "on_hold"],
       "active": ["completed", "on_hold"],
       "completed": [],
       "cancelled": [],
-      "blocked": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition"],
-      "on_hold": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition", "active", "cancelled"]
+      "blocked": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition", "ready_for_feature_review"],
+      "on_hold": ["ready_for_refinement", "ready_for_research", "ready_for_design", "ready_for_decomposition", "ready_for_feature_review", "active", "cancelled"]
     },
     "status_metadata": {
       "draft": {
@@ -154,6 +156,37 @@
           "instruction_template": "epic_short/in_decomposition.tmpl"
         }
       },
+      "ready_for_feature_review": {
+        "description": "Ready for codex review of features against epic requirements",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.55,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["uat-agent"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "specification-writing"],
+          "instruction_template": "epic_short/ready_for_feature_review.tmpl"
+        }
+      },
+      "in_feature_review": {
+        "description": "Codex reviewing features against epic requirements",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.6,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "specification-writing"],
+          "instruction_template": "epic_short/in_feature_review.tmpl"
+        }
+      },
       "active": {
         "description": "Features in progress, progress aggregated from children",
         "phase": "execution",
@@ -186,6 +219,7 @@
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
+        "exclude_from_progress": true,
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "epic_short/cancelled.tmpl"
@@ -235,12 +269,14 @@
       "ready_for_test_planning": ["in_test_planning", "blocked", "on_hold"],
       "in_test_planning": ["ready_for_task_generation", "ready_for_specification", "blocked", "on_hold"],
       "ready_for_task_generation": ["in_task_generation", "blocked", "on_hold"],
-      "in_task_generation": ["active", "blocked", "on_hold"],
+      "in_task_generation": ["ready_for_task_review", "blocked", "on_hold"],
+      "ready_for_task_review": ["in_task_review", "blocked", "on_hold"],
+      "in_task_review": ["active", "ready_for_task_generation", "blocked", "on_hold"],
       "active": ["completed", "on_hold"],
       "completed": [],
       "cancelled": [],
-      "blocked": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "draft"],
-      "on_hold": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "active", "cancelled"]
+      "blocked": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "ready_for_task_review", "draft"],
+      "on_hold": ["ready_for_assessment", "ready_for_research", "ready_for_specification", "ready_for_test_planning", "ready_for_task_generation", "ready_for_task_review", "active", "cancelled"]
     },
     "status_metadata": {
       "draft": {
@@ -410,6 +446,37 @@
           "instruction_template": "feature_short/in_task_generation.tmpl"
         }
       },
+      "ready_for_task_review": {
+        "description": "Ready for codex review of tasks against feature spec",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.55,
+        "is_planning": true,
+        "responsibility": "agent",
+        "agent_types": ["uat-agent"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "specification-writing"],
+          "instruction_template": "feature_short/ready_for_task_review.tmpl"
+        }
+      },
+      "in_task_review": {
+        "description": "Codex reviewing tasks against feature spec",
+        "phase": "review",
+        "color": "magenta",
+        "progress_weight": 0.6,
+        "is_planning": true,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "specification-writing"],
+          "instruction_template": "feature_short/in_task_review.tmpl"
+        }
+      },
       "active": {
         "description": "Tasks in progress, progress aggregated from children",
         "phase": "execution",
@@ -442,6 +509,7 @@
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
+        "exclude_from_progress": true,
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "feature_short/cancelled.tmpl"
@@ -483,9 +551,13 @@
     "status_flow": {
       "draft": ["ready_for_development", "cancelled", "on_hold"],
       "ready_for_development": ["in_development", "blocked", "on_hold"],
-      "in_development": ["ready_for_verification", "blocked", "on_hold"],
-      "ready_for_verification": ["in_verification", "on_hold"],
-      "in_verification": ["completed", "ready_for_development", "on_hold"],
+      "in_development": ["ready_for_code_review", "blocked", "on_hold"],
+      "ready_for_code_review": ["in_code_review", "on_hold"],
+      "in_code_review": ["ready_for_qa", "ready_for_development", "on_hold"],
+      "ready_for_qa": ["in_qa", "on_hold"],
+      "in_qa": ["ready_for_approval", "ready_for_development", "on_hold"],
+      "ready_for_approval": ["in_approval", "on_hold"],
+      "in_approval": ["completed", "ready_for_development", "on_hold"],
       "completed": [],
       "cancelled": ["draft"],
       "blocked": ["ready_for_development", "cancelled"],
@@ -524,7 +596,7 @@
         "description": "TDD implementation in progress",
         "phase": "development",
         "color": "yellow",
-        "progress_weight": 0.5,
+        "progress_weight": 0.4,
         "is_planning": false,
         "responsibility": "agent",
         "orchestrator_action": {
@@ -535,11 +607,11 @@
           "instruction_template": "task_short/in_development.tmpl"
         }
       },
-      "ready_for_verification": {
-        "description": "Ready for combined code review + QA",
-        "phase": "review",
+      "ready_for_code_review": {
+        "description": "Ready for code review by tech-lead",
+        "phase": "code_review",
         "color": "magenta",
-        "progress_weight": 0.7,
+        "progress_weight": 0.5,
         "is_planning": false,
         "responsibility": "agent",
         "agent_types": ["tech-lead"],
@@ -547,25 +619,91 @@
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "tech-lead",
-          "model": "codex",
-          "skills": ["quality", "test-driven-development"],
-          "instruction_template": "task_short/ready_for_verification.tmpl"
+          "model": "opus",
+          "skills": ["quality"],
+          "instruction_template": "task_short/ready_for_code_review.tmpl"
         }
       },
-      "in_verification": {
-        "description": "Code review + QA in progress",
-        "phase": "review",
+      "in_code_review": {
+        "description": "Code review in progress",
+        "phase": "code_review",
         "color": "magenta",
-        "progress_weight": 0.85,
+        "progress_weight": 0.55,
         "is_planning": false,
         "responsibility": "agent",
         "blocks_feature": true,
         "orchestrator_action": {
           "action": "check_or_resume",
           "agent_type": "tech-lead",
-          "model": "codex",
+          "model": "opus",
+          "skills": ["quality"],
+          "instruction_template": "task_short/in_code_review.tmpl"
+        }
+      },
+      "ready_for_qa": {
+        "description": "Ready for QA testing",
+        "phase": "qa",
+        "color": "blue",
+        "progress_weight": 0.65,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["qa"],
+        "blocks_feature": true,
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "qa",
+          "model": "sonnet",
           "skills": ["quality", "test-driven-development"],
-          "instruction_template": "task_short/in_verification.tmpl"
+          "instruction_template": "task_short/ready_for_qa.tmpl"
+        }
+      },
+      "in_qa": {
+        "description": "QA testing in progress",
+        "phase": "qa",
+        "color": "blue",
+        "progress_weight": 0.7,
+        "is_planning": false,
+        "responsibility": "agent",
+        "blocks_feature": true,
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "model": "sonnet",
+          "skills": ["quality", "test-driven-development"],
+          "instruction_template": "task_short/in_qa.tmpl"
+        }
+      },
+      "ready_for_approval": {
+        "description": "Ready for UAT red-team review",
+        "phase": "approval",
+        "color": "cyan",
+        "progress_weight": 0.8,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["uat-agent"],
+        "blocks_feature": true,
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "uat"],
+          "instruction_template": "task_short/ready_for_approval.tmpl"
+        }
+      },
+      "in_approval": {
+        "description": "UAT red-team review in progress",
+        "phase": "approval",
+        "color": "cyan",
+        "progress_weight": 0.9,
+        "is_planning": false,
+        "responsibility": "agent",
+        "blocks_feature": true,
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "uat-agent",
+          "model": "codex",
+          "skills": ["quality", "uat"],
+          "instruction_template": "task_short/in_approval.tmpl"
         }
       },
       "completed": {
@@ -587,6 +725,7 @@
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
+        "exclude_from_progress": true,
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "task_short/cancelled.tmpl"
@@ -628,9 +767,11 @@
     "status_flow": {
       "draft": ["ready_for_development", "cancelled", "on_hold"],
       "ready_for_development": ["in_development", "blocked", "on_hold"],
-      "in_development": ["ready_for_verification", "blocked", "on_hold"],
-      "ready_for_verification": ["in_verification", "on_hold"],
-      "in_verification": ["completed", "ready_for_development", "on_hold"],
+      "in_development": ["ready_for_code_review", "blocked", "on_hold"],
+      "ready_for_code_review": ["in_code_review", "on_hold"],
+      "in_code_review": ["ready_for_qa", "ready_for_development", "on_hold"],
+      "ready_for_qa": ["in_qa", "on_hold"],
+      "in_qa": ["completed", "ready_for_development", "on_hold"],
       "completed": [],
       "cancelled": [],
       "blocked": ["ready_for_development", "cancelled"],
@@ -669,7 +810,7 @@
         "description": "Bug fix in progress",
         "phase": "development",
         "color": "yellow",
-        "progress_weight": 0.5,
+        "progress_weight": 0.4,
         "is_planning": false,
         "responsibility": "agent",
         "orchestrator_action": {
@@ -680,35 +821,66 @@
           "instruction_template": "bug/in_development.tmpl"
         }
       },
-      "ready_for_verification": {
-        "description": "Ready for fix verification",
-        "phase": "review",
+      "ready_for_code_review": {
+        "description": "Ready for code review of bug fix",
+        "phase": "code_review",
         "color": "magenta",
-        "progress_weight": 0.7,
+        "progress_weight": 0.55,
         "is_planning": false,
         "responsibility": "agent",
         "agent_types": ["tech-lead"],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "tech-lead",
-          "model": "codex",
+          "model": "opus",
           "skills": ["quality"],
-          "instruction_template": "bug/ready_for_verification.tmpl"
+          "instruction_template": "task_short/ready_for_code_review.tmpl"
         }
       },
-      "in_verification": {
-        "description": "Fix verification in progress",
-        "phase": "review",
+      "in_code_review": {
+        "description": "Code review of bug fix in progress",
+        "phase": "code_review",
         "color": "magenta",
-        "progress_weight": 0.85,
+        "progress_weight": 0.65,
         "is_planning": false,
         "responsibility": "agent",
         "orchestrator_action": {
           "action": "check_or_resume",
           "agent_type": "tech-lead",
-          "model": "codex",
+          "model": "opus",
           "skills": ["quality"],
-          "instruction_template": "bug/in_verification.tmpl"
+          "instruction_template": "task_short/in_code_review.tmpl"
+        }
+      },
+      "ready_for_qa": {
+        "description": "Ready for QA verification of bug fix",
+        "phase": "qa",
+        "color": "blue",
+        "progress_weight": 0.8,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["qa"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "qa",
+          "model": "sonnet",
+          "skills": ["quality"],
+          "instruction_template": "task_short/ready_for_qa.tmpl"
+        }
+      },
+      "in_qa": {
+        "description": "QA verification of bug fix in progress",
+        "phase": "qa",
+        "color": "blue",
+        "progress_weight": 0.9,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "model": "sonnet",
+          "skills": ["quality"],
+          "instruction_template": "task_short/in_qa.tmpl"
         }
       },
       "completed": {
@@ -730,6 +902,7 @@
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
+        "exclude_from_progress": true,
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "bug/cancelled.tmpl"
@@ -771,9 +944,11 @@
     "status_flow": {
       "draft": ["ready_for_development", "cancelled", "on_hold"],
       "ready_for_development": ["in_development", "blocked", "on_hold"],
-      "in_development": ["ready_for_verification", "blocked", "on_hold"],
-      "ready_for_verification": ["in_verification", "on_hold"],
-      "in_verification": ["completed", "ready_for_development", "on_hold"],
+      "in_development": ["ready_for_code_review", "blocked", "on_hold"],
+      "ready_for_code_review": ["in_code_review", "on_hold"],
+      "in_code_review": ["ready_for_qa", "ready_for_development", "on_hold"],
+      "ready_for_qa": ["in_qa", "on_hold"],
+      "in_qa": ["completed", "ready_for_development", "on_hold"],
       "completed": [],
       "cancelled": [],
       "blocked": ["ready_for_development", "cancelled"],
@@ -812,7 +987,7 @@
         "description": "Implementation in progress",
         "phase": "development",
         "color": "yellow",
-        "progress_weight": 0.5,
+        "progress_weight": 0.4,
         "is_planning": false,
         "responsibility": "agent",
         "orchestrator_action": {
@@ -823,35 +998,66 @@
           "instruction_template": "change/in_development.tmpl"
         }
       },
-      "ready_for_verification": {
-        "description": "Ready for review and verification",
-        "phase": "review",
+      "ready_for_code_review": {
+        "description": "Ready for code review",
+        "phase": "code_review",
         "color": "magenta",
-        "progress_weight": 0.7,
+        "progress_weight": 0.55,
         "is_planning": false,
         "responsibility": "agent",
         "agent_types": ["tech-lead"],
         "orchestrator_action": {
           "action": "spawn_agent",
           "agent_type": "tech-lead",
-          "model": "codex",
+          "model": "opus",
           "skills": ["quality"],
-          "instruction_template": "change/ready_for_verification.tmpl"
+          "instruction_template": "task_short/ready_for_code_review.tmpl"
         }
       },
-      "in_verification": {
-        "description": "Review and verification in progress",
-        "phase": "review",
+      "in_code_review": {
+        "description": "Code review in progress",
+        "phase": "code_review",
         "color": "magenta",
-        "progress_weight": 0.85,
+        "progress_weight": 0.65,
         "is_planning": false,
         "responsibility": "agent",
         "orchestrator_action": {
           "action": "check_or_resume",
           "agent_type": "tech-lead",
-          "model": "codex",
+          "model": "opus",
           "skills": ["quality"],
-          "instruction_template": "change/in_verification.tmpl"
+          "instruction_template": "task_short/in_code_review.tmpl"
+        }
+      },
+      "ready_for_qa": {
+        "description": "Ready for QA verification",
+        "phase": "qa",
+        "color": "blue",
+        "progress_weight": 0.8,
+        "is_planning": false,
+        "responsibility": "agent",
+        "agent_types": ["qa"],
+        "orchestrator_action": {
+          "action": "spawn_agent",
+          "agent_type": "qa",
+          "model": "sonnet",
+          "skills": ["quality"],
+          "instruction_template": "task_short/ready_for_qa.tmpl"
+        }
+      },
+      "in_qa": {
+        "description": "QA verification in progress",
+        "phase": "qa",
+        "color": "blue",
+        "progress_weight": 0.9,
+        "is_planning": false,
+        "responsibility": "agent",
+        "orchestrator_action": {
+          "action": "check_or_resume",
+          "agent_type": "qa",
+          "model": "sonnet",
+          "skills": ["quality"],
+          "instruction_template": "task_short/in_qa.tmpl"
         }
       },
       "completed": {
@@ -873,6 +1079,7 @@
         "progress_weight": 0,
         "is_planning": false,
         "responsibility": "none",
+        "exclude_from_progress": true,
         "orchestrator_action": {
           "action": "archive",
           "instruction_template": "change/cancelled.tmpl"

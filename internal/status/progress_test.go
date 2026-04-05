@@ -209,6 +209,73 @@ func TestCalculateProgress_VariousWeights(t *testing.T) {
 	}
 }
 
+// TestCalculateProgress_CancelledExcluded tests that cancelled tasks are excluded from progress
+func TestCalculateProgress_CancelledExcluded(t *testing.T) {
+	cfg := &config.WorkflowConfig{
+		StatusMetadata: map[string]config.StatusMetadata{
+			"completed":      {ProgressWeight: 1.0},
+			"in_development": {ProgressWeight: 0.5},
+			"cancelled":      {ProgressWeight: 0, ExcludeFromProgress: true},
+		},
+	}
+
+	// 7 completed, 2 cancelled, 1 in_development
+	// Cancelled should be excluded: total = 8, not 10
+	statusCounts := map[string]int{
+		"completed":      7,
+		"cancelled":      2,
+		"in_development": 1,
+	}
+
+	result := CalculateProgress(statusCounts, cfg)
+
+	// Expected: (7*1.0 + 1*0.5) / 8 = 7.5/8 = 93.75%
+	expectedWeighted := 93.75
+	// Expected: 7 / 8 = 87.5%
+	expectedCompletion := 87.5
+
+	if result.WeightedPct != expectedWeighted {
+		t.Errorf("expected weighted %v, got %v", expectedWeighted, result.WeightedPct)
+	}
+	if result.CompletionPct != expectedCompletion {
+		t.Errorf("expected completion %v, got %v", expectedCompletion, result.CompletionPct)
+	}
+	if result.TotalTasks != 8 {
+		t.Errorf("expected total 8, got %v", result.TotalTasks)
+	}
+	if result.WeightedRatio != "7.5/8" {
+		t.Errorf("expected weighted ratio '7.5/8', got '%s'", result.WeightedRatio)
+	}
+	if result.CompletionRatio != "7/8" {
+		t.Errorf("expected completion ratio '7/8', got '%s'", result.CompletionRatio)
+	}
+}
+
+// TestCalculateProgress_AllCancelled tests that all-cancelled returns 0%
+func TestCalculateProgress_AllCancelled(t *testing.T) {
+	cfg := &config.WorkflowConfig{
+		StatusMetadata: map[string]config.StatusMetadata{
+			"cancelled": {ProgressWeight: 0, ExcludeFromProgress: true},
+		},
+	}
+
+	statusCounts := map[string]int{
+		"cancelled": 5,
+	}
+
+	result := CalculateProgress(statusCounts, cfg)
+
+	if result.WeightedPct != 0.0 {
+		t.Errorf("expected weighted 0.0, got %v", result.WeightedPct)
+	}
+	if result.CompletionPct != 0.0 {
+		t.Errorf("expected completion 0.0, got %v", result.CompletionPct)
+	}
+	if result.TotalTasks != 0 {
+		t.Errorf("expected total 0, got %v", result.TotalTasks)
+	}
+}
+
 // TestCalculateProgress_NilConfig tests with nil WorkflowConfig
 func TestCalculateProgress_NilConfig(t *testing.T) {
 	var cfg *config.WorkflowConfig

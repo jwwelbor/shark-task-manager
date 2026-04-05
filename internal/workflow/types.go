@@ -17,6 +17,9 @@ type StatusInfo struct {
 
 	// AgentTypes lists which agent types should handle tasks in this status
 	AgentTypes []string `json:"agent_types,omitempty"`
+
+	// ExcludeFromProgress indicates this status should be excluded from progress calculations.
+	ExcludeFromProgress bool `json:"exclude_from_progress,omitempty"`
 }
 
 // TransitionInfo describes a valid status transition.

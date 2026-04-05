@@ -24,4 +24,4 @@ PRODUCE: BA feasibility review report with findings for each area, overall asses
 
 IF APPROVED: Advance via {{template "advance" .}}.
 
-IF CONCERNS FOUND: Set intervention_required via shark epic update {{.id}} --status=intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action.
+IF CONCERNS FOUND: Set intervention_required via {{template "status_set" .}} intervention_required, and write a structured intervention report detailing what's wrong, options, and recommended action.

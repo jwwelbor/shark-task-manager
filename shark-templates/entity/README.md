@@ -37,17 +37,17 @@ To create new entities using templates:
 
 **Epic**:
 ```bash
-shark epic create --key=E01 --title="User Authentication System"
+shark create epic "User Authentication System"
 ```
 
 **Feature**:
 ```bash
-shark feature create --epic=E01 --key=F01 --title="OAuth Login Integration"
+shark create feature E01 "OAuth Login Integration"
 ```
 
 **Task**:
 ```bash
-shark task create "Build Login" --epic=E01 --feature=F01 --agent=backend
+shark create task E01 F01 "Build Login" --agent=backend
 ```
 
 The creation commands will automatically populate the templates with the correct keys and metadata.

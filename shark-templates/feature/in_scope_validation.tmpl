@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}RESUME scope validation for feature {{.id}}: "{{.title}}".
 
-Check feature notes (shark feature get {{.id}} --json) for existing scope validation result. If validation note exists with clear determination (feature or task), advance or convert accordingly.
+Check feature notes ({{template "get_json" .}}) for existing scope validation result. If validation note exists with clear determination (feature or task), advance or convert accordingly.
 
 ---
 
@@ -17,13 +17,13 @@ FEATURE = multi-capability (4+ user-facing capabilities), user journey focus (ma
 TASK = single atomic change (e.g., 'update button', 'fix typo', 'change color'), implementation detail, 1-3 files, days of work, applies existing patterns.
 
 IF MISCLASSIFIED:
-(1) Find or create enhancement feature: shark feature list --title='Enhancements' --epic={{.epic_id}} OR shark feature create --epic={{.epic_id}} --title='Enhancements and Maintenance'
-(2) Convert to task under enhancement feature: shark task create --feature={enhancement_feature_id} --title='{{.title}}' --description='{{.description}}'
-(3) Cancel this feature: shark feature update {{.id}} --status=cancelled --note='Converted to task {task_id} under feature {enhancement_feature_id}'
+(1) Find or create enhancement feature: {{template "list_epic" .}} | grep -i enhance OR {{template "create_feature_epic" .}} "Enhancements and Maintenance"
+(2) Convert to task under enhancement feature: shark create task {enhancement_feature_id} "{{.title}}"
+(3) Cancel this feature: {{template "status_set" .}} cancelled --note='Converted to task {task_id} under feature {enhancement_feature_id}'
 (4) Report to user with task ID and feature ID
 
 IF PROPERLY SCOPED:
-(1) Add validation note: shark feature note {{.id}} 'Scope validated as feature: {reasoning}'
+(1) Add validation note: {{template "create_note" .}} 'Scope validated as feature: {reasoning}'
 (2) ---
 ## EXIT — REQUIRED
     {{template "advance" .}}

@@ -72,7 +72,13 @@ func (s *EpicAnalyticsService) CalculateProgress(ctx context.Context, epicID int
 	}
 
 	var totalProgress float64
+	activeFeatures := 0
 	for _, d := range data {
+		// Skip cancelled features — they don't count toward epic progress
+		if d.Status == "cancelled" {
+			continue
+		}
+		activeFeatures++
 		if d.Status == "completed" || d.Status == "archived" {
 			totalProgress += 100.0
 		} else {
@@ -80,7 +86,11 @@ func (s *EpicAnalyticsService) CalculateProgress(ctx context.Context, epicID int
 		}
 	}
 
-	return totalProgress / float64(len(data)), nil
+	if activeFeatures == 0 {
+		return 0, nil
+	}
+
+	return totalProgress / float64(activeFeatures), nil
 }
 
 // GetProgress retrieves progress metrics for an epic.

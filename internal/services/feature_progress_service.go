@@ -86,9 +86,14 @@ func (s *FeatureProgressService) calculateProgressForFeature(ctx context.Context
 	progressInfo := progress.CalculateProgress(statusCounts, wf)
 
 	// Count completed tasks using terminal status check (task-level)
+	// Skip statuses excluded from progress (e.g., cancelled)
 	totalTasks := 0
 	completedTasks := 0
 	for status, count := range statusBreakdown {
+		meta := taskWorkflowSvc.GetStatusMetadata(string(status))
+		if meta.ExcludeFromProgress {
+			continue
+		}
 		totalTasks += count
 		if taskWorkflowSvc.IsTerminalStatus(string(status)) {
 			completedTasks += count
@@ -334,17 +339,22 @@ func (s *FeatureProgressService) GetWorkBreakdown(ctx context.Context, key strin
 
 	for status, count := range statusBreakdown {
 		statusStr := string(status)
-		wb.TotalTasks += count
 
 		// Determine responsibility from workflow config
 		responsibility := "none"
 		if wf != nil && wf.StatusMetadata != nil {
 			if meta, found := wf.StatusMetadata[statusStr]; found {
+				// Skip statuses excluded from progress (e.g., cancelled)
+				if meta.ExcludeFromProgress {
+					continue
+				}
 				if meta.Responsibility != "" {
 					responsibility = meta.Responsibility
 				}
 			}
 		}
+
+		wb.TotalTasks += count
 
 		// Check if terminal (completed)
 		if s.workflowSvc.IsTerminalStatus(statusStr) {

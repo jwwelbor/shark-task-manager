@@ -236,11 +236,12 @@ func (s *Service) GetStatusMetadata(status string) StatusInfo {
 	}
 
 	return StatusInfo{
-		Name:        status,
-		Color:       meta.Color,
-		Description: meta.Description,
-		Phase:       meta.Phase,
-		AgentTypes:  meta.AgentTypes,
+		Name:                status,
+		Color:               meta.Color,
+		Description:         meta.Description,
+		Phase:               meta.Phase,
+		AgentTypes:          meta.AgentTypes,
+		ExcludeFromProgress: meta.ExcludeFromProgress,
 	}
 }
 

@@ -46,13 +46,15 @@ func CalculateProgress(statusCounts map[string]int, cfg *config.WorkflowConfig) 
 
 	// Sum up tasks and calculate weighted progress
 	for status, count := range statusCounts {
-		totalTasks += count
-
 		// Get status metadata from config
 		weight := 0.0
 		if cfg != nil {
 			meta, found := cfg.GetStatusMetadata(status)
 			if found {
+				// Skip statuses excluded from progress (e.g., cancelled)
+				if meta.ExcludeFromProgress {
+					continue
+				}
 				weight = meta.ProgressWeight
 			}
 		} else {
@@ -62,6 +64,8 @@ func CalculateProgress(statusCounts map[string]int, cfg *config.WorkflowConfig) 
 				weight = 1.0
 			}
 		}
+
+		totalTasks += count
 
 		// Add weighted contribution
 		weightedProgress += float64(count) * weight

@@ -585,108 +585,6 @@ Examples:
 	},
 }
 
-// configGetStatusActionCmd returns the orchestrator action for a status
-var configGetStatusActionCmd = &cobra.Command{
-	Use:   "get-status-action <status>",
-	Short: "Get orchestrator action for a status",
-	Long: `Get the orchestrator action definition for a specific status from workflow configuration.
-
-This command is useful for debugging and testing workflow configuration without actually
-transitioning a task. Optionally provide a task key to populate template variables.
-
-Examples:
-  shark config get-status-action ready_for_development
-  shark config get-status-action ready_for_development --task=T-E01-F03-002
-  shark config get-status-action blocked --json`,
-	Args: cobra.ExactArgs(1),
-	RunE: runConfigGetStatusAction,
-}
-
-func runConfigGetStatusAction(cmd *cobra.Command, args []string) error {
-	status := args[0]
-	taskKeyFlag, _ := cmd.Flags().GetString("task")
-
-	configPath, err := cli.GetConfigPath()
-	if err != nil {
-		return fmt.Errorf("failed to get config path: %w", err)
-	}
-
-	svc := cli.GetConfigService()
-
-	// Resolve task vars if a task key is provided
-	var taskVars map[string]string
-	if taskKeyFlag != "" {
-		taskKey, keyErr := NormalizeTaskKey(taskKeyFlag)
-		if keyErr != nil {
-			return fmt.Errorf("invalid task key format: %s", taskKeyFlag)
-		}
-
-		task, taskErr := cli.GetTaskService().GetTask(cmd.Context(), taskKey)
-		if taskErr == nil && task != nil {
-			taskVars = config.TaskPlaceholders(task)
-		} else {
-			// Fallback: parse parent keys from task key format
-			epicKey := config.ParseEpicKeyFromEntityKey(taskKey)
-			featureKey := config.ParseFeatureKeyFromTaskKey(taskKey)
-			if epicKey == "" {
-				epicKey = taskKey
-			}
-			if featureKey == "" {
-				featureKey = taskKey
-			}
-			taskVars = map[string]string{
-				"id":          taskKey,
-				"key":         taskKey,
-				"task_key":    taskKey,
-				"epic_key":    epicKey,
-				"feature_key": featureKey,
-			}
-		}
-	}
-
-	result, err := svc.GetStatusAction(configPath, status, taskVars)
-	if err != nil {
-		return err
-	}
-
-	if cli.GlobalConfig.JSON {
-		var actionField interface{}
-		if result.Action != "" || len(result.Skills) > 0 || result.AgentType != "" || result.Instruction != "" {
-			actionField = map[string]interface{}{
-				"action":      result.Action,
-				"agent_type":  result.AgentType,
-				"skills":      result.Skills,
-				"instruction": result.Instruction,
-			}
-		}
-		response := map[string]interface{}{
-			"status": status,
-			"action": actionField,
-		}
-		return cli.OutputJSON(response)
-	}
-
-	// Human-readable output
-	if result.Action == "" && result.Instruction == "" {
-		fmt.Printf("No orchestrator action defined for status '%s'\n", status)
-		return nil
-	}
-
-	fmt.Printf("Status: %s\n", status)
-	fmt.Printf("Action: %s\n", result.Action)
-	if result.AgentType != "" {
-		fmt.Printf("Agent Type: %s\n", result.AgentType)
-	}
-	if len(result.Skills) > 0 {
-		fmt.Printf("Skills: %s\n", strings.Join(result.Skills, ", "))
-	}
-	fmt.Printf("Instruction:\n  %s\n", result.Instruction)
-	if taskKeyFlag == "" {
-		fmt.Println("\nNote: Template variables (e.g., {task_id}) not populated. Use --task flag to populate.")
-	}
-	return nil
-}
-
 func init() {
 	adminCmd.AddCommand(configCmd)
 
@@ -698,8 +596,6 @@ func init() {
 	configCmd.AddCommand(configListPresetsCmd)
 	configCmd.AddCommand(configShowPresetCmd)
 	configCmd.AddCommand(configAddPatternCmd)
-	configCmd.AddCommand(configGetStatusActionCmd)
-
 	configShowCmd.Flags().Bool("patterns", false, "Show only pattern configuration")
 
 	configTestPatternCmd.Flags().String("pattern", "", "Regex pattern to test")
@@ -710,6 +606,4 @@ func init() {
 	configGetFormatCmd.Flags().Bool("json", false, "Output in JSON format")
 
 	configAddPatternCmd.Flags().String("preset", "", "Name of the preset to add (required)")
-
-	configGetStatusActionCmd.Flags().String("task", "", "Task key to populate template variables (optional)")
 }

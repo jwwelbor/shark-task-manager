@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}Decompose epic {{.id}}: "{{.title}}" into features.
 
-Check for existing features: shark feature list {{.id}}. If features exist covering all epic requirements with proper ordering, advance immediately.
+Check for existing features: {{template "list" .}}. If features exist covering all epic requirements with proper ordering, advance immediately.
 
 ---
 
@@ -14,7 +14,7 @@ READ:
 PRODUCE features via shark CLI:
 
 For each feature:
-(1) shark feature create {{.id}} "<title>" --execution-order=N
+(1) {{template "create_feature" .}} "<title>" --execution-order=N
 (2) Write a 1-paragraph description to the feature file (NOT a full PRD — that happens at feature level)
 
 Feature decomposition rules:

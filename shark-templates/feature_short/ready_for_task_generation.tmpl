@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}Generate tasks for feature {{.id}}: "{{.title}}".
 
-Check for existing tasks: shark task list {{.id}} --json. If tasks exist covering all feature requirements with proper sequencing, advance immediately.
+Check for existing tasks: {{template "list_json" .}}. If tasks exist covering all feature requirements with proper sequencing, advance immediately.
 
 ---
 
@@ -14,7 +14,7 @@ READ:
 PRODUCE tasks via shark CLI. Each task:
 
 ```
-shark task create {{.id}} "<title>" --order=N
+{{template "create_task" .}} "<title>" --order=N
 ```
 
 Then write task spec file (50 LINES MAX, not counting frontmatter):

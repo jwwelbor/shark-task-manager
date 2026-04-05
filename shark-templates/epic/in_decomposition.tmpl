@@ -1,6 +1,6 @@
 {{template "_resume_preamble" .}}RESUME epic decomposition for {{.id}}: "{{.title}}".
 
-Check for existing features: shark feature list --epic={{.id}}. If features exist and cover all epic requirements with no gaps, verify decomposition summary exists and advance immediately.
+Check for existing features: {{template "list" .}}. If features exist and cover all epic requirements with no gaps, verify decomposition summary exists and advance immediately.
 
 ---
 
@@ -14,9 +14,9 @@ READ:
 (3) BA feasibility review report for business viability and cross-epic conflicts
 (4) Technical feasibility review report for architectural concerns and dependency risks
 (5) Success metrics to ensure features trace to outcomes
-(6) Existing features (shark feature list --epic={{.id}})
+(6) Existing features ({{template "list" .}})
 
-PRODUCE: For each feature: create in shark (shark feature create --epic={{.id}} --title="Name"), write scope description, define execution order and dependencies, map to epic requirements. Output decomposition summary with feature tree and dependency graph.
+PRODUCE: For each feature: create in shark ({{template "create_feature" .}} "<title>"), write scope description, define execution order and dependencies, map to epic requirements. Output decomposition summary with feature tree and dependency graph.
 
 EXIT GATE:
 - Every epic requirement traces to a feature
