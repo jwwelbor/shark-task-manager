@@ -136,6 +136,12 @@ type StatusMetadata struct {
 	// Values: "features" (epic aggregates features), "tasks" (feature aggregates tasks), "" (none).
 	// Used by E16-F03 to switch between workflow display and progress display.
 	AggregatesFrom string `json:"aggregates_from,omitempty"`
+
+	// ExcludeFromProgress indicates this status should be excluded from progress calculations.
+	// When true, entities in this status are not counted in either the numerator or denominator
+	// of progress percentages (treated like a soft-delete for progress purposes).
+	// Typical use: "cancelled" statuses should not drag down progress percentages.
+	ExcludeFromProgress bool `json:"exclude_from_progress,omitempty"`
 }
 
 // Special status keys used in SpecialStatuses map

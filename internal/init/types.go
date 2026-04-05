@@ -37,13 +37,14 @@ type WorkflowProfile struct {
 
 // StatusMetadata represents metadata for a single status
 type StatusMetadata struct {
-	Color          string   `json:"color"`
-	Phase          string   `json:"phase"`
-	ProgressWeight float64  `json:"progress_weight"`
-	Responsibility string   `json:"responsibility"`
-	BlocksFeature  bool     `json:"blocks_feature"`
-	AgentTypes     []string `json:"agent_types,omitempty"`
-	Description    string   `json:"description,omitempty"`
+	Color               string   `json:"color"`
+	Phase               string   `json:"phase"`
+	ProgressWeight      float64  `json:"progress_weight"`
+	Responsibility      string   `json:"responsibility"`
+	BlocksFeature       bool     `json:"blocks_feature"`
+	AgentTypes          []string `json:"agent_types,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	ExcludeFromProgress bool     `json:"exclude_from_progress,omitempty"`
 }
 
 // UpdateOptions represents options for updating config
