@@ -244,19 +244,8 @@ func printBugAnalytics(result *services.BugAnalyticsResult) {
 		fmt.Printf("  Avg Resolution Time:   N/A\n")
 	}
 
-	if len(result.BugsByStatus) > 0 {
-		fmt.Printf("\nBy Status:\n")
-		for status, count := range result.BugsByStatus {
-			fmt.Printf("  %-20s %d\n", status+":", count)
-		}
-	}
-
-	if len(result.BugsBySeverity) > 0 {
-		fmt.Printf("\nBy Severity:\n")
-		for severity, count := range result.BugsBySeverity {
-			fmt.Printf("  %-20s %d\n", severity+":", count)
-		}
-	}
+	printCountsBreakdown("By Status", result.BugsByStatus)
+	printCountsBreakdown("By Severity", result.BugsBySeverity)
 
 	fmt.Printf("\n───────────────────────────────────────────────────────────────\n\n")
 }
@@ -285,12 +274,7 @@ func printChangeCardAnalytics(result *services.ChangeCardAnalyticsResult) {
 		fmt.Printf("  Avg Completion Time:   N/A\n")
 	}
 
-	if len(result.ChangeCardsByStatus) > 0 {
-		fmt.Printf("\nBy Status:\n")
-		for status, count := range result.ChangeCardsByStatus {
-			fmt.Printf("  %-20s %d\n", status+":", count)
-		}
-	}
+	printCountsBreakdown("By Status", result.ChangeCardsByStatus)
 
 	fmt.Printf("\n───────────────────────────────────────────────────────────────\n\n")
 }
@@ -304,31 +288,27 @@ func printTechDebtAnalytics(result *services.TechDebtAnalyticsResult) {
 	fmt.Printf("Overview:\n")
 	fmt.Printf("  Total Tech Debts:      %d\n", result.TotalTechDebts)
 
-	if len(result.TechDebtsByStatus) > 0 {
-		fmt.Printf("\nBy Status:\n")
-		statuses := make([]string, 0, len(result.TechDebtsByStatus))
-		for status := range result.TechDebtsByStatus {
-			statuses = append(statuses, status)
-		}
-		sort.Strings(statuses)
-		for _, status := range statuses {
-			fmt.Printf("  %-20s %d\n", status+":", result.TechDebtsByStatus[status])
-		}
-	}
-
-	if len(result.TechDebtsByCategory) > 0 {
-		fmt.Printf("\nBy Category:\n")
-		categories := make([]string, 0, len(result.TechDebtsByCategory))
-		for category := range result.TechDebtsByCategory {
-			categories = append(categories, category)
-		}
-		sort.Strings(categories)
-		for _, category := range categories {
-			fmt.Printf("  %-20s %d\n", category+":", result.TechDebtsByCategory[category])
-		}
-	}
+	printCountsBreakdown("By Status", result.TechDebtsByStatus)
+	printCountsBreakdown("By Category", result.TechDebtsByCategory)
 
 	fmt.Printf("\n───────────────────────────────────────────────────────────────\n\n")
+}
+
+// printCountsBreakdown prints a labelled count breakdown with keys sorted
+// alphabetically for deterministic output. If the map is empty, it prints nothing.
+func printCountsBreakdown(label string, counts map[string]int) {
+	if len(counts) == 0 {
+		return
+	}
+	fmt.Printf("\n%s:\n", label)
+	keys := make([]string, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Printf("  %-20s %d\n", k+":", counts[k])
+	}
 }
 
 // formatDurationFromSecs converts a duration expressed in floating-point seconds
