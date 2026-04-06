@@ -87,6 +87,8 @@ func GetEntityRegistry() *services.EntityRegistry {
 			services.NewBugRepositoryAdapter(repository.NewBugRepository(db)))
 		c.registry.Register(models.EntityTypeChange,
 			services.NewChangeCardRepositoryAdapter(repository.NewChangeCardRepository(db)))
+		c.registry.Register(models.EntityTypeTechDebt,
+			services.NewTechDebtRepositoryAdapter(repository.NewTechDebtRepository(db)))
 	})
 	return c.registry
 }
@@ -463,6 +465,36 @@ func GetBugService() *services.BugService {
 	return svc
 }
 
+// GetTechDebtService returns a TechDebtService instance.
+// Creates a new instance each call with the global DB connection and workflow service.
+// Panics on DB failure (matching existing GetDB pattern for CLI entry points).
+//
+// Usage:
+//
+//	svc := cli.GetTechDebtService()
+//	td, err := svc.CreateTechDebt(ctx, input)
+func GetTechDebtService() *services.TechDebtService {
+	db, err := GetDB(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("failed to get database: %v", err))
+	}
+	tdRepo := repository.NewTechDebtRepository(db)
+
+	projectRoot, _ := FindProjectRoot()
+	if projectRoot == "" {
+		projectRoot = "."
+	}
+
+	entitySvc := GetEntityService()
+	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeTechDebt)
+
+	svc := services.NewTechDebtService(tdRepo, entitySvc, entityRepo, projectRoot)
+	docRepo := repository.NewDocumentRepository(db)
+	entityDocRepo := repository.NewEntityDocumentRepository(db)
+	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+	return svc
+}
+
 // GetDashboardAnalyticsService returns a DashboardAnalyticsService instance.
 // Creates a new instance each call with the global DB connection.
 // Panics on DB failure (matching existing GetDB pattern for CLI entry points).
@@ -478,7 +510,8 @@ func GetDashboardAnalyticsService() *services.DashboardAnalyticsService {
 	}
 	bugRepo := repository.NewBugRepository(db)
 	ccRepo := repository.NewChangeCardRepository(db)
-	return services.NewDashboardAnalyticsService(bugRepo, ccRepo)
+	tdRepo := repository.NewTechDebtRepository(db)
+	return services.NewDashboardAnalyticsService(bugRepo, ccRepo, tdRepo)
 }
 
 // GetConfigService returns a ConfigService instance.

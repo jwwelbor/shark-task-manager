@@ -94,6 +94,12 @@ func runList(cmd *cobra.Command, args []string) error {
 		_ = changeListCmd.Flags().Set("all", formatBool(showAllFlag))
 		return runChangeList(changeListCmd, []string{})
 
+	case "tech_debt":
+		// Forward --all flag to tech-debt list command
+		tdListCmd.SetContext(cmd.Context())
+		_ = tdListCmd.Flags().Set("all", formatBool(showAllFlag))
+		return runTdList(tdListCmd, []string{})
+
 	default:
 		// Should never happen
 		return nil

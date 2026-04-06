@@ -73,6 +73,13 @@ func IsChangeCardKey(s string) bool {
 	return keys.IsChangeCardKey(s)
 }
 
+// IsTechDebtKey validates if a string is a valid tech-debt key format (TD-###).
+// Case insensitive: td-001 is normalized to TD-001 before validation.
+// Delegates to keys.IsTechDebtKey for implementation.
+func IsTechDebtKey(s string) bool {
+	return keys.IsTechDebtKey(s)
+}
+
 // IsIdeaKey validates if a string is a valid idea key format (I-YYYY-MM-DD-##).
 // Case insensitive: i-2026-01-01-01 is normalized to I-2026-01-01-01 before validation.
 // Delegates to keys.IsIdeaKey for implementation.
@@ -341,6 +348,7 @@ const (
 	scopeBug        scopeType = "bug"
 	scopeChange     scopeType = "change"
 	scopeChangeCard scopeType = "change_card"
+	scopeTechDebt   scopeType = "tech_debt"
 	scopeIdea       scopeType = "idea"
 )
 
@@ -380,6 +388,13 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 			return &parsedScope{Type: scopeIdea, Key: normalized}, nil
 		}
 
+		// Check if it's a tech-debt key (TD-###)
+		// Must be checked BEFORE task key (T-E##-F##-###) to prevent TD- being
+		// matched as a T- prefix collision
+		if IsTechDebtKey(normalized) {
+			return &parsedScope{Type: scopeTechDebt, Key: normalized}, nil
+		}
+
 		// Check if it's a task key (T-E##-F##-###)
 		if isTaskKey(normalized) {
 			return &parsedScope{Type: scopeTask, Key: normalized}, nil
@@ -399,6 +414,17 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 		// Check if it's just an epic key (E##)
 		if IsEpicKey(normalized) {
 			return &parsedScope{Type: scopeEpic, Key: normalized}, nil
+		}
+
+		// Check if it looks like it was trying to be a tech-debt key (starts with TD)
+		if strings.HasPrefix(normalized, "TD") {
+			return nil, InvalidPositionalArgsError("get",
+				fmt.Sprintf("invalid tech-debt key format %q - expected TD-### (e.g., TD-001)", args[0]),
+				[]string{
+					"shark get TD-001",
+					"shark get TD-042",
+					"shark td get TD-001",
+				})
 		}
 
 		// Check if it looks like it was trying to be a task key (starts with T)
@@ -440,13 +466,14 @@ func (s *scopeInterpreterImpl) ParseScope(args []string) (*parsedScope, error) {
 
 		// Generic invalid format
 		return nil, InvalidPositionalArgsError("get",
-			fmt.Sprintf("invalid key format %q - expected E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), or C### (change card)", args[0]),
+			fmt.Sprintf("invalid key format %q - expected E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), or TD-### (tech debt)", args[0]),
 			[]string{
 				"shark get E07",
 				"shark get E07-F01",
 				"shark get T-E07-F01-001",
 				"shark get B001",
 				"shark get C001",
+				"shark get TD-001",
 			})
 	}
 
@@ -646,7 +673,7 @@ func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
 }
 
 // DetectEntityType detects the entity type from a key string.
-// Returns "epic", "feature", "task", "bug", "change", "change_card", or "unknown" based on the key format.
+// Returns "epic", "feature", "task", "bug", "change", "change_card", "tech_debt", or "unknown" based on the key format.
 // Case insensitive: e07, E07, E07-enhancements all return "epic"
 //
 // Examples:
@@ -654,6 +681,7 @@ func ParseTaskCreateArgs(args []string) (*string, *string, *string, error) {
 //	B001 -> "bug"
 //	C001 -> "change"
 //	CC-001 -> "change_card"
+//	TD-001 -> "tech_debt"
 //	E07 -> "epic"
 //	E07-user-management -> "epic"
 //	E07-F01 -> "feature"
@@ -691,6 +719,12 @@ func DetectEntityType(key string) string {
 	// Check idea key (I-YYYY-MM-DD-##)
 	if IsIdeaKey(normalized) {
 		return "idea"
+	}
+
+	// Check tech-debt key (TD-###) BEFORE task patterns
+	// TD- starts with T, so it must be checked before T- task prefix matching
+	if IsTechDebtKey(normalized) {
+		return "tech_debt"
 	}
 
 	// Check task patterns first (most specific)

@@ -297,6 +297,68 @@ func TestParseGetArgs_ChangeKey(t *testing.T) {
 	}
 }
 
+// TestParseGetArgs_TechDebtKey verifies that ParseGetArgs correctly identifies TD-### keys.
+func TestParseGetArgs_TechDebtKey(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantCommand string
+		wantKey     string
+		wantErr     bool
+	}{
+		{"TD-001 dispatches to tech_debt", []string{"TD-001"}, "tech_debt", "TD-001", false},
+		{"td-001 lowercase dispatches to tech_debt", []string{"td-001"}, "tech_debt", "TD-001", false},
+		{"TD-042 dispatches to tech_debt", []string{"TD-042"}, "tech_debt", "TD-042", false},
+		{"TD-999 dispatches to tech_debt", []string{"TD-999"}, "tech_debt", "TD-999", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			command, key, err := ParseGetArgs(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseGetArgs(%v) error = %v, wantErr %v", tt.args, err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				if command != tt.wantCommand {
+					t.Errorf("ParseGetArgs(%v) command = %q, want %q", tt.args, command, tt.wantCommand)
+				}
+				if key != tt.wantKey {
+					t.Errorf("ParseGetArgs(%v) key = %q, want %q", tt.args, key, tt.wantKey)
+				}
+			}
+		})
+	}
+}
+
+// TestDetectEntityType_TDKey verifies that DetectEntityType returns "tech_debt" for TD-### keys
+// and that TD- prefix does not collide with T- task prefix.
+func TestDetectEntityType_TDKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"TD-001 uppercase", "TD-001", "tech_debt"},
+		{"TD-042 uppercase", "TD-042", "tech_debt"},
+		{"TD-999 uppercase", "TD-999", "tech_debt"},
+		{"td-001 lowercase", "td-001", "tech_debt"},
+		{"Td-001 mixed case", "Td-001", "tech_debt"},
+		{"tD-042 mixed case", "tD-042", "tech_debt"},
+		// Ensure task keys still work correctly (no collision)
+		{"Task T-E07-F01-001 not confused with tech-debt", "T-E07-F01-001", "task"},
+		{"Task E07-F01-001 short format not confused", "E07-F01-001", "task"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DetectEntityType(tt.input)
+			if result != tt.expected {
+				t.Errorf("DetectEntityType(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 // TestToModelEntityType_BugAndChange verifies that toModelEntityType handles bug and change types.
 func TestToModelEntityType_BugAndChange(t *testing.T) {
 	tests := []struct {

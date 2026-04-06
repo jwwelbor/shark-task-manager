@@ -192,6 +192,14 @@ func lookupEntityPlaceholders(ctx context.Context, key string, entityType string
 		}
 		return config.ChangeCardPlaceholders(card), nil
 
+	case "tech_debt":
+		svc := cli.GetTechDebtService()
+		td, err := svc.GetTechDebt(ctx, key)
+		if err != nil || td == nil {
+			return fallbackPlaceholders(key), nil
+		}
+		return config.TechDebtPlaceholders(td), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}

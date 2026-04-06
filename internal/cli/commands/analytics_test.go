@@ -22,6 +22,7 @@ import (
 type mockDashboardAnalyticsService struct {
 	GetBugAnalyticsFunc        func(ctx context.Context) (*services.BugAnalyticsResult, error)
 	GetChangeCardAnalyticsFunc func(ctx context.Context) (*services.ChangeCardAnalyticsResult, error)
+	GetTechDebtAnalyticsFunc   func(ctx context.Context) (*services.TechDebtAnalyticsResult, error)
 }
 
 func (m *mockDashboardAnalyticsService) GetBugAnalytics(ctx context.Context) (*services.BugAnalyticsResult, error) {
@@ -36,6 +37,13 @@ func (m *mockDashboardAnalyticsService) GetChangeCardAnalytics(ctx context.Conte
 		return m.GetChangeCardAnalyticsFunc(ctx)
 	}
 	return nil, fmt.Errorf("GetChangeCardAnalytics not implemented in mock")
+}
+
+func (m *mockDashboardAnalyticsService) GetTechDebtAnalytics(ctx context.Context) (*services.TechDebtAnalyticsResult, error) {
+	if m.GetTechDebtAnalyticsFunc != nil {
+		return m.GetTechDebtAnalyticsFunc(ctx)
+	}
+	return nil, fmt.Errorf("GetTechDebtAnalytics not implemented in mock")
 }
 
 // capturingOutput redirects stdout for the duration of fn and returns what was printed.
@@ -427,5 +435,118 @@ func TestRunEntityAnalytics_InvalidType(t *testing.T) {
 	err := runEntityAnalyticsWithSvc(context.Background(), "unknown", mock)
 	if err == nil {
 		t.Error("expected error for invalid entity type, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tech-debt analytics tests
+// ---------------------------------------------------------------------------
+
+func techDebtAnalyticsFixture() *services.TechDebtAnalyticsResult {
+	return &services.TechDebtAnalyticsResult{
+		TotalTechDebts: 12,
+		TechDebtsByStatus: map[string]int{
+			"identified":  5,
+			"triaged":     3,
+			"in_progress": 2,
+			"resolved":    2,
+		},
+		TechDebtsByCategory: map[string]int{
+			"code-quality": 4,
+			"architecture": 3,
+			"testing":      3,
+			"dependency":   2,
+		},
+	}
+}
+
+func TestPrintTechDebtAnalytics_AllMetrics(t *testing.T) {
+	result := techDebtAnalyticsFixture()
+
+	output := capturingOutput(func() {
+		printTechDebtAnalytics(result)
+	})
+
+	if !strings.Contains(output, "Tech Debt Analytics") {
+		t.Errorf("expected 'Tech Debt Analytics' header, got:\n%s", output)
+	}
+	if !strings.Contains(output, "12") {
+		t.Errorf("expected total tech debt count 12, got:\n%s", output)
+	}
+	if !strings.Contains(output, "By Status") {
+		t.Errorf("expected 'By Status' section, got:\n%s", output)
+	}
+	if !strings.Contains(output, "By Category") {
+		t.Errorf("expected 'By Category' section, got:\n%s", output)
+	}
+}
+
+func TestRunEntityAnalytics_TechDebt_JSON(t *testing.T) {
+	mock := &mockDashboardAnalyticsService{
+		GetTechDebtAnalyticsFunc: func(ctx context.Context) (*services.TechDebtAnalyticsResult, error) {
+			return techDebtAnalyticsFixture(), nil
+		},
+	}
+
+	origJSON := cli.GlobalConfig.JSON
+	cli.GlobalConfig.JSON = true
+	defer func() { cli.GlobalConfig.JSON = origJSON }()
+
+	output := capturingOutput(func() {
+		err := runEntityAnalyticsWithSvc(context.Background(), "tech_debt", mock)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, `"total_tech_debts"`) {
+		t.Errorf("expected 'total_tech_debts' in JSON output, got:\n%s", output)
+	}
+	if !strings.Contains(output, `"tech_debts_by_status"`) {
+		t.Errorf("expected 'tech_debts_by_status' in JSON output, got:\n%s", output)
+	}
+	if !strings.Contains(output, `"tech_debts_by_category"`) {
+		t.Errorf("expected 'tech_debts_by_category' in JSON output, got:\n%s", output)
+	}
+}
+
+func TestRunEntityAnalytics_TechDebt_ServiceError(t *testing.T) {
+	mock := &mockDashboardAnalyticsService{
+		GetTechDebtAnalyticsFunc: func(ctx context.Context) (*services.TechDebtAnalyticsResult, error) {
+			return nil, fmt.Errorf("tech-debt repo unavailable")
+		},
+	}
+
+	err := runEntityAnalyticsWithSvc(context.Background(), "tech_debt", mock)
+	if err == nil {
+		t.Error("expected error when service returns error, got nil")
+	}
+	if !strings.Contains(err.Error(), "tech-debt repo unavailable") {
+		t.Errorf("expected original error message in wrapped error, got: %v", err)
+	}
+}
+
+func TestRunCombinedAnalytics_IncludesTechDebt(t *testing.T) {
+	mock := &mockDashboardAnalyticsService{
+		GetBugAnalyticsFunc: func(ctx context.Context) (*services.BugAnalyticsResult, error) {
+			return nil, fmt.Errorf("not configured")
+		},
+		GetChangeCardAnalyticsFunc: func(ctx context.Context) (*services.ChangeCardAnalyticsResult, error) {
+			return nil, fmt.Errorf("not configured")
+		},
+		GetTechDebtAnalyticsFunc: func(ctx context.Context) (*services.TechDebtAnalyticsResult, error) {
+			return techDebtAnalyticsFixture(), nil
+		},
+	}
+
+	output := capturingOutput(func() {
+		err := runCombinedAnalyticsWithSvc(context.Background(), mock)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Tech Debt") {
+		t.Errorf("expected tech-debt section in combined output, got:\n%s", output)
 	}
 }

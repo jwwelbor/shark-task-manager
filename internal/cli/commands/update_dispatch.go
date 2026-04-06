@@ -96,9 +96,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return runBugUpdate(cmd, args)
 	case "change", "change_card":
 		return runChangeUpdate(cmd, args)
+	case "tech_debt":
+		return runTdUpdate(cmd, args)
 	case "idea":
 		return runIdeaUpdate(cmd, args)
 	default:
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), or I-YYYY-MM-DD-## (idea)", key)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
 	}
 }

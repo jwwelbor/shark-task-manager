@@ -70,6 +70,9 @@ func runGet(cmd *cobra.Command, args []string) error {
 	case "change_card":
 		return runChangeCardGet(cmd, []string{key})
 
+	case "tech_debt":
+		return runTdGet(cmd, []string{key})
+
 	case "idea":
 		return runIdeaGet(cmd, []string{key})
 

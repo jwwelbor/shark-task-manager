@@ -236,6 +236,9 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 		return cli.OutputJSON(bug)
 	}
 	cli.Success(fmt.Sprintf("Created bug %s: %s", bug.Key, bug.Title))
+	if fp := bug.GetFilePath(); fp != "" {
+		cli.Info(fmt.Sprintf("File: %s", fp))
+	}
 	return nil
 }
 

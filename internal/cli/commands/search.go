@@ -12,7 +12,7 @@ import (
 )
 
 // validSearchTypes lists all accepted values for the --type flag.
-var validSearchTypes = []string{"epic", "feature", "task", "bug", "change", "idea"}
+var validSearchTypes = []string{"epic", "feature", "task", "bug", "change", "idea", "tech_debt"}
 
 // searchCmd is the parent command for search operations.
 // It supports two modes:
@@ -37,7 +37,7 @@ File search mode (--file flag):
   shark search --file="completion" --feature E10-F02
   shark search --file="models/task.go" --json
 
-Valid --type values: epic, feature, task, bug, change, idea`,
+Valid --type values: epic, feature, task, bug, change, idea, tech_debt`,
 	RunE: runSearch,
 }
 

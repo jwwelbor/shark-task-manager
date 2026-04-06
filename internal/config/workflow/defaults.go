@@ -162,6 +162,35 @@ func DefaultChangeCardWorkflow() *WorkflowConfig {
 	}
 }
 
+// DefaultTechDebtWorkflow returns the default tech-debt workflow.
+// Tech-debt statuses: identified, triaged, in_progress, resolved, wont_fix, cancelled.
+func DefaultTechDebtWorkflow() *WorkflowConfig {
+	return &WorkflowConfig{
+		Version: DefaultWorkflowVersion,
+		StatusFlow: map[string][]string{
+			"identified":  {"triaged"},
+			"triaged":     {"in_progress", "wont_fix", "cancelled"},
+			"in_progress": {"resolved", "cancelled"},
+			"resolved":    {},
+			"wont_fix":    {},
+			"cancelled":   {},
+		},
+		StatusMetadata: map[string]StatusMetadata{
+			"identified":  {Color: "yellow", Description: "Tech debt identified, awaiting triage", Phase: "planning", AgentTypes: []string{"developer", "tech-lead"}, ProgressWeight: 0.0},
+			"triaged":     {Color: "cyan", Description: "Tech debt triaged, ready for resolution", Phase: "planning", AgentTypes: []string{"tech-lead", "developer"}, ProgressWeight: 0.2},
+			"in_progress": {Color: "blue", Description: "Resolution in progress", Phase: "development", AgentTypes: []string{"developer", "backend", "frontend"}, ProgressWeight: 0.5},
+			"resolved":    {Color: "green", Description: "Tech debt resolved and verified", Phase: "done", AgentTypes: []string{}, ProgressWeight: 1.0},
+			"wont_fix":    {Color: "gray", Description: "Tech debt will not be addressed", Phase: "done", AgentTypes: []string{}, ProgressWeight: 1.0},
+			"cancelled":   {Color: "gray", Description: "Tech debt item cancelled", Phase: "done", AgentTypes: []string{}, ProgressWeight: 1.0},
+		},
+		SpecialStatuses: map[string][]string{
+			StartStatusKey:    {"identified"},
+			CompleteStatusKey: {"resolved", "wont_fix", "cancelled"},
+		},
+		RequireRejectionReason: true,
+	}
+}
+
 // DefaultFeatureWorkflow returns the backward-compatible default feature workflow.
 // Matches the current hardcoded feature status set: draft, active, completed, archived.
 func DefaultFeatureWorkflow() *WorkflowConfig {

@@ -16,6 +16,7 @@ import (
 type dashboardAnalyticsServicer interface {
 	GetBugAnalytics(ctx context.Context) (*services.BugAnalyticsResult, error)
 	GetChangeCardAnalytics(ctx context.Context) (*services.ChangeCardAnalyticsResult, error)
+	GetTechDebtAnalytics(ctx context.Context) (*services.TechDebtAnalyticsResult, error)
 }
 
 // analyticsCmd represents the analytics command group
@@ -32,12 +33,14 @@ Provides insights into:
   - Agent productivity
   - Bug analytics (--type=bug)
   - Change-card analytics (--type=change)
+  - Tech-debt analytics (--type=tech_debt)
 
 Examples:
   shark analytics --session-duration --epic E10
   shark analytics --pause-frequency --epic E10 --feature F05
   shark analytics --type=bug
   shark analytics --type=change
+  shark analytics --type=tech_debt
   shark analytics`,
 	RunE: runAnalytics,
 }
@@ -51,7 +54,7 @@ func init() {
 	analyticsCmd.Flags().String("epic", "", "Filter by epic key")
 	analyticsCmd.Flags().String("feature", "", "Filter by feature key")
 	analyticsCmd.Flags().String("agent-type", "", "Filter by agent type")
-	analyticsCmd.Flags().String("type", "", "Entity type analytics: bug, change")
+	analyticsCmd.Flags().String("type", "", "Entity type analytics: bug, change, tech_debt")
 }
 
 // runAnalytics executes the analytics command
@@ -61,13 +64,13 @@ func runAnalytics(cmd *cobra.Command, args []string) error {
 	pauseFrequency, _ := cmd.Flags().GetBool("pause-frequency")
 
 	// Route to entity-specific analytics when --type is provided
-	if entityType == "bug" || entityType == "change" {
+	if entityType == "bug" || entityType == "change" || entityType == "tech_debt" {
 		return runEntityAnalytics(cmd, entityType)
 	}
 
 	// Reject unknown --type values
 	if entityType != "" {
-		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change'", entityType)
+		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change', 'tech_debt'", entityType)
 	}
 
 	// No session flags and no --type: show combined analytics
@@ -163,8 +166,19 @@ func runEntityAnalyticsWithSvc(ctx context.Context, entityType string, svc dashb
 		printChangeCardAnalytics(result)
 		return nil
 
+	case "tech_debt":
+		result, err := svc.GetTechDebtAnalytics(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get tech-debt analytics: %w", err)
+		}
+		if cli.GlobalConfig.JSON {
+			return cli.OutputJSON(result)
+		}
+		printTechDebtAnalytics(result)
+		return nil
+
 	default:
-		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change'", entityType)
+		return fmt.Errorf("unknown entity type %q: valid values are 'bug', 'change', 'tech_debt'", entityType)
 	}
 }
 
@@ -182,6 +196,7 @@ func runCombinedAnalytics(cmd *cobra.Command) error {
 func runCombinedAnalyticsWithSvc(ctx context.Context, svc dashboardAnalyticsServicer) error {
 	bugResult, bugErr := svc.GetBugAnalytics(ctx)
 	ccResult, ccErr := svc.GetChangeCardAnalytics(ctx)
+	tdResult, tdErr := svc.GetTechDebtAnalytics(ctx)
 
 	if cli.GlobalConfig.JSON {
 		combined := &services.DashboardAnalyticsResult{}
@@ -191,6 +206,9 @@ func runCombinedAnalyticsWithSvc(ctx context.Context, svc dashboardAnalyticsServ
 		if ccErr == nil {
 			combined.ChangeCards = ccResult
 		}
+		if tdErr == nil {
+			combined.TechDebts = tdResult
+		}
 		return cli.OutputJSON(combined)
 	}
 
@@ -199,6 +217,9 @@ func runCombinedAnalyticsWithSvc(ctx context.Context, svc dashboardAnalyticsServ
 	}
 	if ccErr == nil && ccResult != nil {
 		printChangeCardAnalytics(ccResult)
+	}
+	if tdErr == nil && tdResult != nil {
+		printTechDebtAnalytics(tdResult)
 	}
 
 	return nil
@@ -267,6 +288,32 @@ func printChangeCardAnalytics(result *services.ChangeCardAnalyticsResult) {
 		fmt.Printf("\nBy Status:\n")
 		for status, count := range result.ChangeCardsByStatus {
 			fmt.Printf("  %-20s %d\n", status+":", count)
+		}
+	}
+
+	fmt.Printf("\n───────────────────────────────────────────────────────────────\n\n")
+}
+
+// printTechDebtAnalytics renders a human-readable tech-debt analytics report to stdout.
+func printTechDebtAnalytics(result *services.TechDebtAnalyticsResult) {
+	fmt.Printf("═══════════════════════════════════════════════════════════════\n")
+	fmt.Printf("Tech Debt Analytics\n")
+	fmt.Printf("═══════════════════════════════════════════════════════════════\n\n")
+
+	fmt.Printf("Overview:\n")
+	fmt.Printf("  Total Tech Debts:      %d\n", result.TotalTechDebts)
+
+	if len(result.TechDebtsByStatus) > 0 {
+		fmt.Printf("\nBy Status:\n")
+		for status, count := range result.TechDebtsByStatus {
+			fmt.Printf("  %-20s %d\n", status+":", count)
+		}
+	}
+
+	if len(result.TechDebtsByCategory) > 0 {
+		fmt.Printf("\nBy Category:\n")
+		for category, count := range result.TechDebtsByCategory {
+			fmt.Printf("  %-20s %d\n", category+":", count)
 		}
 	}
 

@@ -233,6 +233,27 @@ func BugPlaceholders(bug *models.Bug) map[string]string {
 	return m
 }
 
+// TechDebtPlaceholders creates a map of template placeholders from a TechDebt.
+// Returns a map suitable for use with PopulateTemplate.
+// Returns an empty map if techDebt is nil.
+func TechDebtPlaceholders(td *models.TechDebt) map[string]string {
+	if td == nil {
+		return make(map[string]string)
+	}
+	m := EntityPlaceholders(td)
+
+	// TechDebt-specific fields
+	m["category"] = string(td.Category)
+	m["severity"] = string(td.Severity)
+
+	// Optional tech-debt-specific pointer fields
+	if td.EffortEstimate != nil {
+		m["effort_estimate"] = *td.EffortEstimate
+	}
+
+	return m
+}
+
 // ChangeCardPlaceholders creates a map of template placeholders from a ChangeCard.
 func ChangeCardPlaceholders(card *models.ChangeCard) map[string]string {
 	if card == nil {
