@@ -22,7 +22,7 @@ type TechDebtRepository interface {
 	GetByID(ctx context.Context, id int64) (*models.TechDebt, error)
 	Update(ctx context.Context, td *models.TechDebt) error
 	Delete(ctx context.Context, id int64) error
-	UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus, notes *string) error
+	UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus) error
 	GenerateNextKey(ctx context.Context) (string, error)
 	List(ctx context.Context) ([]*models.TechDebt, error)
 	ListWithFilters(ctx context.Context, filters techdebt.TechDebtFilters) ([]*models.TechDebt, error)
@@ -251,9 +251,10 @@ func (s *TechDebtService) DeleteTechDebt(ctx context.Context, key string) error 
 // ListTechDebts retrieves tech-debt items with optional filters.
 func (s *TechDebtService) ListTechDebts(ctx context.Context, filters TechDebtFilters) ([]*models.TechDebt, error) {
 	repoFilters := techdebt.TechDebtFilters{
-		Status:   filters.Status,
-		Category: filters.Category,
-		Severity: filters.Severity,
+		Status:          filters.Status,
+		Category:        filters.Category,
+		Severity:        filters.Severity,
+		IncludeTerminal: filters.ShowAll,
 	}
 
 	items, err := s.repo.ListWithFilters(ctx, repoFilters)

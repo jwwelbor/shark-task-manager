@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -305,15 +306,25 @@ func printTechDebtAnalytics(result *services.TechDebtAnalyticsResult) {
 
 	if len(result.TechDebtsByStatus) > 0 {
 		fmt.Printf("\nBy Status:\n")
-		for status, count := range result.TechDebtsByStatus {
-			fmt.Printf("  %-20s %d\n", status+":", count)
+		statuses := make([]string, 0, len(result.TechDebtsByStatus))
+		for status := range result.TechDebtsByStatus {
+			statuses = append(statuses, status)
+		}
+		sort.Strings(statuses)
+		for _, status := range statuses {
+			fmt.Printf("  %-20s %d\n", status+":", result.TechDebtsByStatus[status])
 		}
 	}
 
 	if len(result.TechDebtsByCategory) > 0 {
 		fmt.Printf("\nBy Category:\n")
-		for category, count := range result.TechDebtsByCategory {
-			fmt.Printf("  %-20s %d\n", category+":", count)
+		categories := make([]string, 0, len(result.TechDebtsByCategory))
+		for category := range result.TechDebtsByCategory {
+			categories = append(categories, category)
+		}
+		sort.Strings(categories)
+		for _, category := range categories {
+			fmt.Printf("  %-20s %d\n", category+":", result.TechDebtsByCategory[category])
 		}
 	}
 

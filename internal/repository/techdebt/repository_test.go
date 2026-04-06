@@ -237,7 +237,7 @@ func TestUpdateStatus(t *testing.T) {
 	}
 
 	newStatus := models.TechDebtStatus("triaged")
-	if err := repo.UpdateStatus(ctx, td.ID, newStatus, nil); err != nil {
+	if err := repo.UpdateStatus(ctx, td.ID, newStatus); err != nil {
 		t.Fatalf("UpdateStatus() error = %v", err)
 	}
 

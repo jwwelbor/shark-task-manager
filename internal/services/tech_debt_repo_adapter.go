@@ -12,7 +12,7 @@ type TechDebtAdapterRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.TechDebt, error)
 	GetByID(ctx context.Context, id int64) (*models.TechDebt, error)
 	Update(ctx context.Context, td *models.TechDebt) error
-	UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus, notes *string) error
+	UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus) error
 	GetContextData(ctx context.Context, id int64) (*string, error)
 	UpdateContextData(ctx context.Context, id int64, contextData *string) error
 }
@@ -39,7 +39,7 @@ func (a *TechDebtRepositoryAdapter) GetByID(ctx context.Context, id int64) (mode
 }
 
 func (a *TechDebtRepositoryAdapter) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return a.repo.UpdateStatus(ctx, id, models.TechDebtStatus(status), nil)
+	return a.repo.UpdateStatus(ctx, id, models.TechDebtStatus(status))
 }
 
 func (a *TechDebtRepositoryAdapter) Update(ctx context.Context, entity models.Entity) error {

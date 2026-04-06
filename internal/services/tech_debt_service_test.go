@@ -18,7 +18,7 @@ type mockTechDebtRepo struct {
 	getByIDFn         func(ctx context.Context, id int64) (*models.TechDebt, error)
 	updateFn          func(ctx context.Context, td *models.TechDebt) error
 	deleteFn          func(ctx context.Context, id int64) error
-	updateStatusFn    func(ctx context.Context, id int64, status models.TechDebtStatus, notes *string) error
+	updateStatusFn    func(ctx context.Context, id int64, status models.TechDebtStatus) error
 	generateNextKeyFn func(ctx context.Context) (string, error)
 	listFn            func(ctx context.Context) ([]*models.TechDebt, error)
 	listWithFiltersFn func(ctx context.Context, filters techdebt.TechDebtFilters) ([]*models.TechDebt, error)
@@ -61,9 +61,9 @@ func (m *mockTechDebtRepo) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (m *mockTechDebtRepo) UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus, notes *string) error {
+func (m *mockTechDebtRepo) UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus) error {
 	if m.updateStatusFn != nil {
-		return m.updateStatusFn(ctx, id, status, notes)
+		return m.updateStatusFn(ctx, id, status)
 	}
 	return nil
 }
@@ -117,7 +117,7 @@ func (m *mockTDEntityRepo) GetByID(ctx context.Context, id int64) (models.Entity
 }
 
 func (m *mockTDEntityRepo) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return m.tdRepo.UpdateStatus(ctx, id, models.TechDebtStatus(status), nil)
+	return m.tdRepo.UpdateStatus(ctx, id, models.TechDebtStatus(status))
 }
 
 func (m *mockTDEntityRepo) Update(ctx context.Context, entity models.Entity) error {
@@ -373,7 +373,7 @@ func TestTechDebtService_AdvanceStatus_Success(t *testing.T) {
 				Severity:   models.TechDebtSeverityMedium,
 			}, nil
 		},
-		updateStatusFn: func(_ context.Context, _ int64, status models.TechDebtStatus, _ *string) error {
+		updateStatusFn: func(_ context.Context, _ int64, status models.TechDebtStatus) error {
 			if status != "triaged" {
 				t.Errorf("expected status triaged, got %s", status)
 			}
@@ -431,7 +431,7 @@ func TestTechDebtService_SetStatus_ValidTransition(t *testing.T) {
 				Severity:   models.TechDebtSeverityMedium,
 			}, nil
 		},
-		updateStatusFn: func(_ context.Context, _ int64, status models.TechDebtStatus, _ *string) error {
+		updateStatusFn: func(_ context.Context, _ int64, status models.TechDebtStatus) error {
 			return nil
 		},
 	}
@@ -482,7 +482,7 @@ func TestTechDebtService_SetStatus_Force(t *testing.T) {
 				Severity:   models.TechDebtSeverityMedium,
 			}, nil
 		},
-		updateStatusFn: func(_ context.Context, _ int64, _ models.TechDebtStatus, _ *string) error {
+		updateStatusFn: func(_ context.Context, _ int64, _ models.TechDebtStatus) error {
 			return nil
 		},
 	}

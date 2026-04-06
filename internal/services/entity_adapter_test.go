@@ -895,7 +895,7 @@ type mockTechDebtAdapterRepo struct {
 	getByKeyFunc          func(ctx context.Context, key string) (*models.TechDebt, error)
 	getByIDFunc           func(ctx context.Context, id int64) (*models.TechDebt, error)
 	updateFunc            func(ctx context.Context, td *models.TechDebt) error
-	updateStatusFunc      func(ctx context.Context, id int64, status models.TechDebtStatus, notes *string) error
+	updateStatusFunc      func(ctx context.Context, id int64, status models.TechDebtStatus) error
 	getContextDataFunc    func(ctx context.Context, id int64) (*string, error)
 	updateContextDataFunc func(ctx context.Context, id int64, data *string) error
 }
@@ -918,9 +918,9 @@ func (m *mockTechDebtAdapterRepo) Update(ctx context.Context, td *models.TechDeb
 	}
 	return fmt.Errorf("not implemented")
 }
-func (m *mockTechDebtAdapterRepo) UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus, notes *string) error {
+func (m *mockTechDebtAdapterRepo) UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus) error {
 	if m.updateStatusFunc != nil {
-		return m.updateStatusFunc(ctx, id, status, notes)
+		return m.updateStatusFunc(ctx, id, status)
 	}
 	return fmt.Errorf("not implemented")
 }
@@ -989,7 +989,7 @@ func TestTechDebtAdapter_GetByID(t *testing.T) {
 func TestTechDebtAdapter_UpdateStatus(t *testing.T) {
 	var capturedStatus models.TechDebtStatus
 	mock := &mockTechDebtAdapterRepo{
-		updateStatusFunc: func(ctx context.Context, id int64, status models.TechDebtStatus, notes *string) error {
+		updateStatusFunc: func(ctx context.Context, id int64, status models.TechDebtStatus) error {
 			capturedStatus = status
 			return nil
 		},

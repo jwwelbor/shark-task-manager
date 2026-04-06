@@ -14,9 +14,10 @@ import (
 
 // TechDebtFilters defines filter options for listing tech-debt items.
 type TechDebtFilters struct {
-	Status   *string
-	Category *models.TechDebtCategory
-	Severity *models.TechDebtSeverity
+	Status          *string
+	Category        *models.TechDebtCategory
+	Severity        *models.TechDebtSeverity
+	IncludeTerminal bool // if false, excludes resolved + wont_fix + cancelled
 }
 
 // TechDebtRepository handles CRUD operations for tech-debt entities.
@@ -118,8 +119,9 @@ func (r *TechDebtRepository) Create(ctx context.Context, td *models.TechDebt) er
 func (r *TechDebtRepository) GetByKey(ctx context.Context, key string) (*models.TechDebt, error) {
 	normalizedKey := strings.ToUpper(strings.TrimSpace(key))
 
-	// Try exact match first (case-insensitive via UPPER)
-	query := fmt.Sprintf(`SELECT %s FROM tech_debts WHERE UPPER(key) = ?`, techDebtSelectColumns)
+	// Direct comparison: keys are stored uppercase (model validation enforces ^TD-\d{3}$),
+	// and normalizedKey is already uppercased. This lets the query use the key index.
+	query := fmt.Sprintf(`SELECT %s FROM tech_debts WHERE key = ?`, techDebtSelectColumns)
 
 	td, err := scanTechDebt(r.db.QueryRowContext(ctx, query, normalizedKey))
 	if err == nil {
@@ -223,7 +225,11 @@ func (r *TechDebtRepository) Delete(ctx context.Context, id int64) error {
 }
 
 // UpdateStatus updates only the status field of a tech-debt item.
-func (r *TechDebtRepository) UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus, notes *string) error {
+//
+// Status-change notes are persisted at the entity history layer (via EntityService),
+// not on the row itself, so this function intentionally takes no notes parameter —
+// matching the BugRepository.UpdateStatus signature.
+func (r *TechDebtRepository) UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus) error {
 	query := `UPDATE tech_debts SET status = ? WHERE id = ?`
 
 	result, err := r.db.ExecContext(ctx, query, status, id)
@@ -287,6 +293,12 @@ func (r *TechDebtRepository) ListWithFilters(ctx context.Context, filters TechDe
 	if filters.Severity != nil {
 		conditions = append(conditions, "severity = ?")
 		args = append(args, *filters.Severity)
+	}
+
+	// Hide terminal statuses by default unless explicitly requested or a specific
+	// status filter is provided. Matches BugRepository.List behavior.
+	if !filters.IncludeTerminal && filters.Status == nil {
+		conditions = append(conditions, "status NOT IN ('resolved', 'wont_fix', 'cancelled')")
 	}
 
 	if len(conditions) > 0 {
