@@ -435,7 +435,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 10
+const CurrentSchemaVersion = 11
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -806,6 +806,11 @@ func runMigrations(db *sql.DB) error {
 	// Migrate data from legacy relationship tables into entity_relationships (E21-F11)
 	if err := migrateDataToEntityRelationships(db); err != nil {
 		return fmt.Errorf("failed to migrate data to entity_relationships: %w", err)
+	}
+
+	// Create tech_debts table (E25-F01)
+	if err := migrateTechDebtTable(db); err != nil {
+		return fmt.Errorf("failed to migrate tech_debts table: %w", err)
 	}
 
 	return nil
@@ -3111,4 +3116,73 @@ func migrateDataToEntityRelationshipsWithCounts(db *sql.DB) (map[string]int64, e
 	}
 
 	return counts, nil
+}
+
+// migrateTechDebtTable creates the tech_debts table (E25-F01).
+func migrateTechDebtTable(db *sql.DB) error {
+	// Check if tech_debts table already exists
+	var techDebtsExists int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tech_debts'
+	`).Scan(&techDebtsExists)
+	if err != nil {
+		return fmt.Errorf("failed to check tech_debts table: %w", err)
+	}
+
+	if techDebtsExists == 0 {
+		_, err = db.Exec(`
+			CREATE TABLE tech_debts (
+				id              INTEGER PRIMARY KEY AUTOINCREMENT,
+				key             TEXT NOT NULL UNIQUE,
+				title           TEXT NOT NULL,
+				slug            TEXT,
+				description     TEXT,
+				status          TEXT NOT NULL DEFAULT 'identified',
+				category        TEXT NOT NULL CHECK (category IN (
+					'code-quality', 'architecture', 'dependency',
+					'testing', 'performance', 'documentation'
+				)) DEFAULT 'code-quality',
+				severity        TEXT NOT NULL CHECK (severity IN (
+					'critical', 'high', 'medium', 'low'
+				)) DEFAULT 'medium',
+				effort_estimate TEXT,
+				context_data    TEXT,
+				file_path       TEXT,
+				created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create tech_debts table: %w", err)
+		}
+
+		// Create indexes for tech_debts
+		techDebtIndexes := []string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_tech_debts_key ON tech_debts(key);`,
+			`CREATE INDEX IF NOT EXISTS idx_tech_debts_status ON tech_debts(status);`,
+			`CREATE INDEX IF NOT EXISTS idx_tech_debts_severity ON tech_debts(severity);`,
+			`CREATE INDEX IF NOT EXISTS idx_tech_debts_category ON tech_debts(category);`,
+			`CREATE INDEX IF NOT EXISTS idx_tech_debts_slug ON tech_debts(slug);`,
+		}
+		for _, idx := range techDebtIndexes {
+			if _, err := db.Exec(idx); err != nil {
+				return fmt.Errorf("failed to create tech_debts index: %w", err)
+			}
+		}
+
+		// Create updated_at trigger for tech_debts
+		_, err = db.Exec(`
+			CREATE TRIGGER IF NOT EXISTS tech_debts_updated_at
+			AFTER UPDATE ON tech_debts
+			FOR EACH ROW
+			BEGIN
+				UPDATE tech_debts SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+			END;
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create tech_debts updated_at trigger: %w", err)
+		}
+	}
+
+	return nil
 }

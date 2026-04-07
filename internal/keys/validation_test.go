@@ -273,6 +273,39 @@ func TestIsChangeKey(t *testing.T) {
 	}
 }
 
+func TestIsTechDebtKey(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		// Valid tech-debt keys
+		{"valid uppercase TD-001", "TD-001", true},
+		{"valid lowercase td-001", "td-001", true},
+		{"valid TD-042", "TD-042", true},
+		{"valid TD-999", "TD-999", true},
+		{"valid mixed case Td-001", "Td-001", true},
+		// Invalid tech-debt keys
+		{"invalid no digits TD-", "TD-", false},
+		{"invalid two digits TD-01", "TD-01", false},
+		{"invalid four digits TD-0001", "TD-0001", false},
+		{"invalid no hyphen TD001", "TD001", false},
+		{"invalid letters TD-abc", "TD-abc", false},
+		{"invalid wrong prefix B001", "B001", false},
+		{"invalid task key", "T-E01-F01-001", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsTechDebtKey(tt.input)
+			if got != tt.want {
+				t.Errorf("IsTechDebtKey(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseTaskNumber(t *testing.T) {
 	tests := []struct {
 		name    string

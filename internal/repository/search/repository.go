@@ -82,6 +82,13 @@ func (r *SearchRepository) SearchAll(ctx context.Context, query string, entityTy
 		WHERE title LIKE ? OR key LIKE ?
 		   OR COALESCE(description, '') LIKE ?
 
+		UNION ALL
+
+		SELECT 'tech_debt' AS entity_type, key, title, CAST(status AS TEXT), CAST(category AS TEXT) AS severity
+		FROM tech_debts
+		WHERE title LIKE ? OR key LIKE ?
+		   OR COALESCE(description, '') LIKE ?
+
 		ORDER BY entity_type, key
 	`
 
@@ -91,6 +98,7 @@ func (r *SearchRepository) SearchAll(ctx context.Context, query string, entityTy
 		pattern, pattern, pattern, // task: title, key, description
 		pattern, pattern, pattern, // bug: title, key, description
 		pattern, pattern, pattern, // change_card: title, key, description
+		pattern, pattern, pattern, // tech_debt: title, key, description
 	}
 
 	rows, err := r.db.QueryContext(ctx, unionSQL, args...)

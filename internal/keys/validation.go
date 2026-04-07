@@ -20,6 +20,8 @@ var (
 	bugKeyPattern = regexp.MustCompile(`^B\d+$`)
 	// changeKeyPattern matches change keys (C followed by 1+ digits: C1, C15, C001)
 	changeKeyPattern = regexp.MustCompile(`^C\d+$`)
+	// techDebtKeyPattern matches tech-debt keys (TD-### format)
+	techDebtKeyPattern = regexp.MustCompile(`^TD-\d{3}$`)
 	// ideaKeyPattern matches idea keys (I-YYYY-MM-DD-## format)
 	ideaKeyPattern = regexp.MustCompile(`^I-\d{4}-\d{2}-\d{2}-\d{2}$`)
 )
@@ -190,6 +192,13 @@ func IsBugKey(s string) bool {
 func IsChangeKey(s string) bool {
 	normalized := Normalize(s)
 	return changeKeyPattern.MatchString(normalized)
+}
+
+// IsTechDebtKey validates if a string is a valid tech-debt key format (TD-###).
+// Case insensitive: td-001 is normalized to TD-001 before validation.
+func IsTechDebtKey(s string) bool {
+	normalized := Normalize(s)
+	return techDebtKeyPattern.MatchString(normalized)
 }
 
 // IsIdeaKey validates if a string is a valid idea key format (I-YYYY-MM-DD-##).

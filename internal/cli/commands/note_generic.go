@@ -31,6 +31,8 @@ func entityTypeFromName(name string) models.EntityType {
 		return models.EntityTypeBug
 	case "change":
 		return models.EntityTypeChange
+	case "tech_debt":
+		return models.EntityTypeTechDebt
 	default:
 		return models.EntityType(name)
 	}

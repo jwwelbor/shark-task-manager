@@ -158,6 +158,12 @@ Suggestions:
   - List all change cards: shark change list
   - Check change card key format (must be C### like C001)
   - Verify change card exists in database`
+	case "tech_debt":
+		suggestions = `
+Suggestions:
+  - List all tech-debt items: shark td list
+  - Check tech-debt key format (must be TD-### like TD-001)
+  - Verify tech-debt item exists in database`
 	}
 
 	return fmt.Errorf(`Error: %s not found: %q%s`, entityType, key, suggestions)

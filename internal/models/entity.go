@@ -82,4 +82,5 @@ var (
 	_ Entity = (*Task)(nil)
 	_ Entity = (*Bug)(nil)
 	_ Entity = (*ChangeCard)(nil)
+	_ Entity = (*TechDebt)(nil)
 )

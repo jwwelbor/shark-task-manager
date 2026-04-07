@@ -387,6 +387,182 @@ func TestGetWorkflowForLevel_BugChangeIsolation(t *testing.T) {
 	}
 }
 
+func TestGetWorkflowForLevel_TechDebtWithNil(t *testing.T) {
+	m := &MultiLevelWorkflow{}
+	wf := m.GetWorkflowForLevel("tech_debt")
+	if wf == nil {
+		t.Fatal("expected non-nil workflow for tech_debt level with nil TechDebt")
+	}
+	// Should return default tech-debt workflow with 6 statuses
+	if len(wf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default tech-debt workflow, got %d", len(wf.StatusFlow))
+	}
+	if _, ok := wf.StatusFlow["identified"]; !ok {
+		t.Error("expected 'identified' status in default tech-debt workflow")
+	}
+	if _, ok := wf.StatusFlow["triaged"]; !ok {
+		t.Error("expected 'triaged' status in default tech-debt workflow")
+	}
+	if _, ok := wf.StatusFlow["in_progress"]; !ok {
+		t.Error("expected 'in_progress' status in default tech-debt workflow")
+	}
+	if _, ok := wf.StatusFlow["resolved"]; !ok {
+		t.Error("expected 'resolved' status in default tech-debt workflow")
+	}
+	if _, ok := wf.StatusFlow["wont_fix"]; !ok {
+		t.Error("expected 'wont_fix' status in default tech-debt workflow")
+	}
+	if _, ok := wf.StatusFlow["cancelled"]; !ok {
+		t.Error("expected 'cancelled' status in default tech-debt workflow")
+	}
+}
+
+func TestGetWorkflowForLevel_CustomTechDebt(t *testing.T) {
+	customTD := &WorkflowConfig{
+		Version: "1.0",
+		StatusFlow: map[string][]string{
+			"new":           {"investigating"},
+			"investigating": {"resolved"},
+			"resolved":      {},
+		},
+	}
+	m := &MultiLevelWorkflow{TechDebt: customTD}
+	wf := m.GetWorkflowForLevel("tech_debt")
+	if wf != customTD {
+		t.Error("expected custom tech-debt workflow to be returned")
+	}
+	if _, ok := wf.StatusFlow["investigating"]; !ok {
+		t.Error("expected custom status 'investigating' in tech-debt workflow")
+	}
+}
+
+func TestDefaultTechDebtWorkflow_PassesValidation(t *testing.T) {
+	wf := DefaultTechDebtWorkflow()
+	if err := ValidateWorkflow(wf); err != nil {
+		t.Errorf("default tech-debt workflow should pass validation: %v", err)
+	}
+}
+
+func TestDefaultTechDebtWorkflow_HasCorrectMetadata(t *testing.T) {
+	wf := DefaultTechDebtWorkflow()
+
+	// Check start status
+	startStatuses, ok := wf.SpecialStatuses[StartStatusKey]
+	if !ok {
+		t.Fatal("expected _start_ in special statuses")
+	}
+	if len(startStatuses) != 1 || startStatuses[0] != "identified" {
+		t.Errorf("expected _start_ = ['identified'], got %v", startStatuses)
+	}
+
+	// Check complete statuses
+	completeStatuses, ok := wf.SpecialStatuses[CompleteStatusKey]
+	if !ok {
+		t.Fatal("expected _complete_ in special statuses")
+	}
+	if len(completeStatuses) != 3 {
+		t.Errorf("expected 3 complete statuses, got %d", len(completeStatuses))
+	}
+
+	// Check identified metadata
+	identifiedMeta, ok := wf.StatusMetadata["identified"]
+	if !ok {
+		t.Fatal("expected 'identified' in status metadata")
+	}
+	if identifiedMeta.Color != "yellow" {
+		t.Errorf("expected identified color 'yellow', got %q", identifiedMeta.Color)
+	}
+	if identifiedMeta.Phase != "planning" {
+		t.Errorf("expected identified phase 'planning', got %q", identifiedMeta.Phase)
+	}
+	if identifiedMeta.ProgressWeight != 0.0 {
+		t.Errorf("expected identified progress weight 0.0, got %f", identifiedMeta.ProgressWeight)
+	}
+
+	// Check resolved metadata
+	resolvedMeta, ok := wf.StatusMetadata["resolved"]
+	if !ok {
+		t.Fatal("expected 'resolved' in status metadata")
+	}
+	if resolvedMeta.Color != "green" {
+		t.Errorf("expected resolved color 'green', got %q", resolvedMeta.Color)
+	}
+	if resolvedMeta.ProgressWeight != 1.0 {
+		t.Errorf("expected resolved progress weight 1.0, got %f", resolvedMeta.ProgressWeight)
+	}
+
+	// Check wont_fix is terminal (empty transitions)
+	if transitions, ok := wf.StatusFlow["wont_fix"]; ok {
+		if len(transitions) != 0 {
+			t.Errorf("expected wont_fix to be terminal (0 transitions), got %d", len(transitions))
+		}
+	} else {
+		t.Error("expected 'wont_fix' in status flow")
+	}
+
+	// Check cancelled is terminal
+	if transitions, ok := wf.StatusFlow["cancelled"]; ok {
+		if len(transitions) != 0 {
+			t.Errorf("expected cancelled to be terminal (0 transitions), got %d", len(transitions))
+		}
+	} else {
+		t.Error("expected 'cancelled' in status flow")
+	}
+}
+
+func TestDefaultTechDebtWorkflow_StatusFlow(t *testing.T) {
+	wf := DefaultTechDebtWorkflow()
+
+	// identified -> triaged only
+	identifiedTransitions := wf.StatusFlow["identified"]
+	if len(identifiedTransitions) != 1 || identifiedTransitions[0] != "triaged" {
+		t.Errorf("expected identified transitions = ['triaged'], got %v", identifiedTransitions)
+	}
+
+	// triaged -> in_progress, wont_fix, cancelled
+	triagedTransitions := wf.StatusFlow["triaged"]
+	if len(triagedTransitions) != 3 {
+		t.Errorf("expected 3 triaged transitions, got %d", len(triagedTransitions))
+	}
+
+	// in_progress -> resolved, cancelled
+	inProgressTransitions := wf.StatusFlow["in_progress"]
+	if len(inProgressTransitions) != 2 {
+		t.Errorf("expected 2 in_progress transitions, got %d", len(inProgressTransitions))
+	}
+}
+
+func TestGetWorkflowForLevel_TechDebtIsolation(t *testing.T) {
+	m := &MultiLevelWorkflow{}
+
+	tdWf := m.GetWorkflowForLevel("tech_debt")
+	bugWf := m.GetWorkflowForLevel("bug")
+	taskWf := m.GetWorkflowForLevel("task")
+
+	// Tech-debt workflow should have 6 statuses
+	if len(tdWf.StatusFlow) != 6 {
+		t.Errorf("expected 6 statuses in default tech-debt workflow, got %d", len(tdWf.StatusFlow))
+	}
+
+	// Bug workflow should have 7 statuses
+	if len(bugWf.StatusFlow) != 7 {
+		t.Errorf("expected 7 statuses in default bug workflow, got %d", len(bugWf.StatusFlow))
+	}
+
+	// Task workflow should have 5 statuses
+	if len(taskWf.StatusFlow) != 5 {
+		t.Errorf("expected 5 statuses in default task workflow, got %d", len(taskWf.StatusFlow))
+	}
+
+	// Verify no cross-contamination
+	if _, ok := tdWf.StatusFlow["reported"]; ok {
+		t.Error("tech-debt workflow should not contain 'reported' from bug workflow")
+	}
+	if _, ok := bugWf.StatusFlow["identified"]; ok {
+		t.Error("bug workflow should not contain 'identified' from tech-debt workflow")
+	}
+}
+
 func TestStatusMetadata_IsPlanningOmittedDefaults(t *testing.T) {
 	jsonStr := `{"color": "blue", "description": "test"}`
 

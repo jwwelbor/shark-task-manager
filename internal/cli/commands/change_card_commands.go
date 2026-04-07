@@ -55,6 +55,9 @@ func runChangeCardCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	cli.Success(fmt.Sprintf("Created change-card %s: %s", card.Key, card.Title))
+	if fp := card.GetFilePath(); fp != "" {
+		cli.Info(fmt.Sprintf("File: %s", fp))
+	}
 	return nil
 }
 

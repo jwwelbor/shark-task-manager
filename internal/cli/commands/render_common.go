@@ -116,6 +116,8 @@ func displayEntityTypeName(entityType string) string {
 		return "Bug"
 	case "change":
 		return "Change Card"
+	case "tech_debt":
+		return "Tech Debt"
 	default:
 		return capitalize(entityType)
 	}

@@ -3,18 +3,19 @@ package workflow
 // MultiLevelWorkflow holds workflow configurations for all entity levels.
 // Any level may be nil, meaning "use default workflow for that level."
 type MultiLevelWorkflow struct {
-	Epic    *WorkflowConfig
-	Feature *WorkflowConfig
-	Task    *WorkflowConfig
-	Bug     *WorkflowConfig
-	Change  *WorkflowConfig
+	Epic     *WorkflowConfig
+	Feature  *WorkflowConfig
+	Task     *WorkflowConfig
+	Bug      *WorkflowConfig
+	Change   *WorkflowConfig
+	TechDebt *WorkflowConfig
 
 	// TemplateDirectory from the workflow file, if present.
 	// When non-nil, takes precedence over Config.TemplateDirectory.
 	TemplateDirectory *string
 
 	// Sources tracks where each entity workflow was loaded from.
-	// Keys: "epic", "feature", "task", "bug", "change"
+	// Keys: "epic", "feature", "task", "bug", "change", "tech_debt"
 	// Values: file path (e.g., ".sharkworkflow.json", ".sharkconfig.json") or "default"
 	Sources map[string]string
 
@@ -58,6 +59,11 @@ func (m *MultiLevelWorkflow) GetWorkflowForLevel(level string) *WorkflowConfig {
 			return m.Change
 		}
 		return DefaultChangeCardWorkflow()
+	case "tech_debt":
+		if m.TechDebt != nil {
+			return m.TechDebt
+		}
+		return DefaultTechDebtWorkflow()
 	default:
 		return DefaultWorkflow()
 	}

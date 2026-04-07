@@ -33,6 +33,16 @@ type ChangeCardSummaryRepository interface {
 	GetThroughputStats(ctx context.Context) (*repository.ChangeCardThroughputStats, error)
 }
 
+// TechDebtSummaryRepository defines the aggregate query methods that DashboardAnalyticsService
+// requires from the tech-debt repository. The concrete implementation is
+// *techdebt.TechDebtRepository.
+type TechDebtSummaryRepository interface {
+	// CountByStatus returns the count of tech-debt items grouped by status.
+	CountByStatus(ctx context.Context) (map[string]int, error)
+	// CountByCategory returns the count of tech-debt items grouped by category.
+	CountByCategory(ctx context.Context) (map[string]int, error)
+}
+
 // DashboardAnalyticsService provides bug and change-card analytics data for the
 // `shark analytics` command. Per ADR-F07-002, this is a focused sub-service separate
 // from EpicAnalyticsService to maintain single responsibility.
@@ -43,18 +53,21 @@ type ChangeCardSummaryRepository interface {
 type DashboardAnalyticsService struct {
 	bugRepo        BugSummaryRepository        // optional, nil-safe
 	changeCardRepo ChangeCardSummaryRepository // optional, nil-safe
+	techDebtRepo   TechDebtSummaryRepository   // optional, nil-safe
 }
 
 // NewDashboardAnalyticsService creates a DashboardAnalyticsService with the given
-// optional repository dependencies. Either or both may be nil; the service degrades
+// optional repository dependencies. Any may be nil; the service degrades
 // gracefully and returns descriptive errors when a nil repository is called.
 func NewDashboardAnalyticsService(
 	bugRepo BugSummaryRepository,
 	changeCardRepo ChangeCardSummaryRepository,
+	techDebtRepo TechDebtSummaryRepository,
 ) *DashboardAnalyticsService {
 	return &DashboardAnalyticsService{
 		bugRepo:        bugRepo,
 		changeCardRepo: changeCardRepo,
+		techDebtRepo:   techDebtRepo,
 	}
 }
 
@@ -117,5 +130,39 @@ func (s *DashboardAnalyticsService) GetChangeCardAnalytics(ctx context.Context) 
 		DecidedCount:          throughput.DecidedCount,
 		CompletedCount:        throughput.CompletedCount,
 		AvgCompletionTimeSecs: throughput.AvgCompletionSecs,
+	}, nil
+}
+
+// GetTechDebtAnalytics assembles tech-debt analytics from the tech-debt repository's
+// aggregate query methods.
+//
+// Returns an error when:
+//   - techDebtRepo is nil (tech-debt analytics not configured)
+//   - CountByStatus fails (error propagated with business context)
+//   - CountByCategory fails (error propagated with business context)
+func (s *DashboardAnalyticsService) GetTechDebtAnalytics(ctx context.Context) (*TechDebtAnalyticsResult, error) {
+	if s.techDebtRepo == nil {
+		return nil, fmt.Errorf("tech-debt analytics not available: repository not configured")
+	}
+
+	byStatus, err := s.techDebtRepo.CountByStatus(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tech-debt status counts: %w", err)
+	}
+
+	byCategory, err := s.techDebtRepo.CountByCategory(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tech-debt category counts: %w", err)
+	}
+
+	total := 0
+	for _, count := range byStatus {
+		total += count
+	}
+
+	return &TechDebtAnalyticsResult{
+		TotalTechDebts:      total,
+		TechDebtsByStatus:   byStatus,
+		TechDebtsByCategory: byCategory,
 	}, nil
 }

@@ -888,3 +888,215 @@ func TestBugAdapter_UpdateContextData_Error(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+// --- TechDebt Adapter Mock ---
+
+type mockTechDebtAdapterRepo struct {
+	getByKeyFunc          func(ctx context.Context, key string) (*models.TechDebt, error)
+	getByIDFunc           func(ctx context.Context, id int64) (*models.TechDebt, error)
+	updateFunc            func(ctx context.Context, td *models.TechDebt) error
+	updateStatusFunc      func(ctx context.Context, id int64, status models.TechDebtStatus) error
+	getContextDataFunc    func(ctx context.Context, id int64) (*string, error)
+	updateContextDataFunc func(ctx context.Context, id int64, data *string) error
+}
+
+func (m *mockTechDebtAdapterRepo) GetByKey(ctx context.Context, key string) (*models.TechDebt, error) {
+	if m.getByKeyFunc != nil {
+		return m.getByKeyFunc(ctx, key)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockTechDebtAdapterRepo) GetByID(ctx context.Context, id int64) (*models.TechDebt, error) {
+	if m.getByIDFunc != nil {
+		return m.getByIDFunc(ctx, id)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockTechDebtAdapterRepo) Update(ctx context.Context, td *models.TechDebt) error {
+	if m.updateFunc != nil {
+		return m.updateFunc(ctx, td)
+	}
+	return fmt.Errorf("not implemented")
+}
+func (m *mockTechDebtAdapterRepo) UpdateStatus(ctx context.Context, id int64, status models.TechDebtStatus) error {
+	if m.updateStatusFunc != nil {
+		return m.updateStatusFunc(ctx, id, status)
+	}
+	return fmt.Errorf("not implemented")
+}
+func (m *mockTechDebtAdapterRepo) GetContextData(ctx context.Context, id int64) (*string, error) {
+	if m.getContextDataFunc != nil {
+		return m.getContextDataFunc(ctx, id)
+	}
+	return nil, fmt.Errorf("not implemented")
+}
+func (m *mockTechDebtAdapterRepo) UpdateContextData(ctx context.Context, id int64, data *string) error {
+	if m.updateContextDataFunc != nil {
+		return m.updateContextDataFunc(ctx, id, data)
+	}
+	return fmt.Errorf("not implemented")
+}
+
+// --- TechDebt Adapter Tests ---
+
+func TestTechDebtAdapter_GetByKey(t *testing.T) {
+	td := &models.TechDebt{
+		BaseEntity: models.BaseEntity{ID: 10, Key: "TD-001", Title: "Test Tech Debt"},
+		Status:     "identified",
+		Category:   models.TechDebtCategoryCodeQuality,
+		Severity:   models.TechDebtSeverityMedium,
+	}
+	mock := &mockTechDebtAdapterRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (*models.TechDebt, error) {
+			return td, nil
+		},
+	}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	entity, err := adapter.GetByKey(context.Background(), "TD-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if entity.GetKey() != "TD-001" {
+		t.Errorf("expected key TD-001, got %s", entity.GetKey())
+	}
+	if entity.GetEntityType() != models.EntityTypeTechDebt {
+		t.Errorf("expected entity type tech_debt, got %s", entity.GetEntityType())
+	}
+}
+
+func TestTechDebtAdapter_GetByID(t *testing.T) {
+	td := &models.TechDebt{
+		BaseEntity: models.BaseEntity{ID: 10, Key: "TD-001", Title: "Test Tech Debt"},
+		Status:     "identified",
+		Category:   models.TechDebtCategoryCodeQuality,
+		Severity:   models.TechDebtSeverityMedium,
+	}
+	mock := &mockTechDebtAdapterRepo{
+		getByIDFunc: func(ctx context.Context, id int64) (*models.TechDebt, error) {
+			return td, nil
+		},
+	}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	entity, err := adapter.GetByID(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if entity.GetKey() != "TD-001" {
+		t.Errorf("expected key TD-001, got %s", entity.GetKey())
+	}
+}
+
+func TestTechDebtAdapter_UpdateStatus(t *testing.T) {
+	var capturedStatus models.TechDebtStatus
+	mock := &mockTechDebtAdapterRepo{
+		updateStatusFunc: func(ctx context.Context, id int64, status models.TechDebtStatus) error {
+			capturedStatus = status
+			return nil
+		},
+	}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	err := adapter.UpdateStatus(context.Background(), 10, "triaged")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedStatus != "triaged" {
+		t.Errorf("expected status triaged, got %s", capturedStatus)
+	}
+}
+
+func TestTechDebtAdapter_Update_Success(t *testing.T) {
+	var capturedTD *models.TechDebt
+	mock := &mockTechDebtAdapterRepo{
+		updateFunc: func(ctx context.Context, td *models.TechDebt) error {
+			capturedTD = td
+			return nil
+		},
+	}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	td := &models.TechDebt{
+		BaseEntity: models.BaseEntity{ID: 10, Key: "TD-001", Title: "Updated"},
+		Status:     "triaged",
+		Category:   models.TechDebtCategoryArchitecture,
+		Severity:   models.TechDebtSeverityHigh,
+	}
+	err := adapter.Update(context.Background(), td)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedTD.Title != "Updated" {
+		t.Errorf("expected title Updated, got %s", capturedTD.Title)
+	}
+}
+
+func TestTechDebtAdapter_Update_WrongType(t *testing.T) {
+	epic := &models.Epic{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}
+	mock := &mockTechDebtAdapterRepo{}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	err := adapter.Update(context.Background(), epic)
+	if err == nil {
+		t.Fatal("expected error for wrong type")
+	}
+}
+
+func TestTechDebtAdapter_GetContextData(t *testing.T) {
+	data := `{"remediation_plan":"refactor module X"}`
+	mock := &mockTechDebtAdapterRepo{
+		getContextDataFunc: func(ctx context.Context, id int64) (*string, error) {
+			return &data, nil
+		},
+	}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	result, err := adapter.GetContextData(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || *result != data {
+		t.Errorf("expected context data %q, got %v", data, result)
+	}
+}
+
+func TestTechDebtAdapter_UpdateContextData(t *testing.T) {
+	data := `{"progress":{"current_step":"investigating"}}`
+	var capturedData *string
+	mock := &mockTechDebtAdapterRepo{
+		updateContextDataFunc: func(ctx context.Context, id int64, d *string) error {
+			capturedData = d
+			return nil
+		},
+	}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	err := adapter.UpdateContextData(context.Background(), 10, &data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedData == nil || *capturedData != data {
+		t.Errorf("expected context data %q, got %v", data, capturedData)
+	}
+}
+
+func TestTechDebtAdapter_UpdateContextData_Error(t *testing.T) {
+	mock := &mockTechDebtAdapterRepo{
+		updateContextDataFunc: func(ctx context.Context, id int64, data *string) error {
+			return fmt.Errorf("database error")
+		},
+	}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	data := `{"key":"value"}`
+	err := adapter.UpdateContextData(context.Background(), 99, &data)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestTechDebtAdapter_GetByKey_Error(t *testing.T) {
+	mock := &mockTechDebtAdapterRepo{
+		getByKeyFunc: func(ctx context.Context, key string) (*models.TechDebt, error) {
+			return nil, fmt.Errorf("not found")
+		},
+	}
+	adapter := NewTechDebtRepositoryAdapter(mock)
+	_, err := adapter.GetByKey(context.Background(), "TD-999")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}

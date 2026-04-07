@@ -138,6 +138,9 @@ var BugPlaceholders = cfgtemplate.BugPlaceholders
 // ChangeCardPlaceholders creates a map of template placeholders from a ChangeCard.
 var ChangeCardPlaceholders = cfgtemplate.ChangeCardPlaceholders
 
+// TechDebtPlaceholders creates a map of template placeholders from a TechDebt.
+var TechDebtPlaceholders = cfgtemplate.TechDebtPlaceholders
+
 // TaskPlaceholdersWithRelated extends TaskPlaceholders with relationship data.
 var TaskPlaceholdersWithRelated = cfgtemplate.TaskPlaceholdersWithRelated
 

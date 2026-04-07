@@ -256,7 +256,7 @@ func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 	}
 
 	// Report sources for each entity
-	entityLevels := []string{"epic", "feature", "task", "bug", "change"}
+	entityLevels := []string{"epic", "feature", "task", "bug", "change", "tech_debt"}
 	for _, level := range entityLevels {
 		source := multi.Sources[level]
 		results = append(results, WorkflowValidationFinding{
@@ -277,7 +277,7 @@ func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 		workflowData, workflowErr := readRawConfigKeys(workflowFilePath)
 
 		if workflowErr == nil && workflowData != nil {
-			entityWorkflowKeys := []string{"epic_workflow", "feature_workflow", "task_workflow", "bug_workflow", "change_workflow"}
+			entityWorkflowKeys := []string{"epic_workflow", "feature_workflow", "task_workflow", "bug_workflow", "change_workflow", "tech_debt_workflow"}
 			for _, key := range entityWorkflowKeys {
 				_, inConfig := configData[key]
 				_, inWorkflow := workflowData[key]
@@ -295,11 +295,12 @@ func ValidateWorkflowFiles(configPath string) []WorkflowValidationFinding {
 
 	// Validate individual workflow configs
 	workflowMap := map[string]*WorkflowConfig{
-		"epic":    multi.Epic,
-		"feature": multi.Feature,
-		"task":    multi.Task,
-		"bug":     multi.Bug,
-		"change":  multi.Change,
+		"epic":      multi.Epic,
+		"feature":   multi.Feature,
+		"task":      multi.Task,
+		"bug":       multi.Bug,
+		"change":    multi.Change,
+		"tech_debt": multi.TechDebt,
 	}
 
 	for level, wf := range workflowMap {

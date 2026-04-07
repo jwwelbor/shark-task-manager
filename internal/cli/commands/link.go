@@ -115,6 +115,8 @@ func mapDetectedTypeToEntityType(detected string) (models.EntityType, error) {
 		return models.EntityTypeBug, nil
 	case "change", "change_card":
 		return models.EntityTypeChange, nil
+	case "tech_debt":
+		return models.EntityTypeTechDebt, nil
 	default:
 		return "", fmt.Errorf("unrecognized entity type: %s", detected)
 	}

@@ -230,21 +230,23 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 
 	// Map workflow keys to entity level names for source tracking
 	workflowKeyToLevel := map[string]string{
-		"epic_workflow":    "epic",
-		"feature_workflow": "feature",
-		"task_workflow":    "task",
-		"bug_workflow":     "bug",
-		"change_workflow":  "change",
+		"epic_workflow":      "epic",
+		"feature_workflow":   "feature",
+		"task_workflow":      "task",
+		"bug_workflow":       "bug",
+		"change_workflow":    "change",
+		"tech_debt_workflow": "tech_debt",
 	}
 
 	// Parse entity blocks from workflow file first (highest precedence)
 	if workflowFileData != nil {
 		entityKeys := map[string]**WorkflowConfig{
-			"epic_workflow":    &result.Epic,
-			"feature_workflow": &result.Feature,
-			"task_workflow":    &result.Task,
-			"bug_workflow":     &result.Bug,
-			"change_workflow":  &result.Change,
+			"epic_workflow":      &result.Epic,
+			"feature_workflow":   &result.Feature,
+			"task_workflow":      &result.Task,
+			"bug_workflow":       &result.Bug,
+			"change_workflow":    &result.Change,
+			"tech_debt_workflow": &result.TechDebt,
 		}
 		for key, field := range entityKeys {
 			if raw, ok := workflowFileData[key]; ok {
@@ -326,6 +328,20 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 		}
 	}
 
+	// Parse tech_debt_workflow section
+	if result.TechDebt == nil {
+		if tdRaw, ok := rawConfig["tech_debt_workflow"]; ok {
+			tdWf, parseErr := parseWorkflowSection(tdRaw, "tech_debt_workflow")
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid tech_debt_workflow: %w", parseErr)
+			}
+			if tdWf != nil {
+				result.TechDebt = tdWf
+				result.Sources["tech_debt"] = configPath
+			}
+		}
+	}
+
 	// Parse task_workflow block from .sharkconfig.json (consistent with other entities)
 	hasInlineTaskWorkflow := false
 	if result.Task == nil {
@@ -365,7 +381,7 @@ func LoadMultiLevelWorkflow(configPath string) (*MultiLevelWorkflow, error) {
 	}
 
 	// Set "default" source for entities not found in any file
-	for _, level := range []string{"epic", "feature", "task", "bug", "change"} {
+	for _, level := range []string{"epic", "feature", "task", "bug", "change", "tech_debt"} {
 		if _, ok := result.Sources[level]; !ok {
 			result.Sources[level] = "default"
 		}

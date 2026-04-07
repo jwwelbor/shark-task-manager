@@ -2537,3 +2537,94 @@ func TestEntityPlaceholders_OptionalFieldsOmittedWhenEmpty(t *testing.T) {
 		}
 	}
 }
+
+// TestTechDebtPlaceholders_ExpandedFields verifies all expanded fields on TechDebt
+func TestTechDebtPlaceholders_ExpandedFields(t *testing.T) {
+	slug := "legacy-api-cleanup"
+	description := "Remove deprecated v1 API endpoints"
+	filePath := "docs/plan/tech_debt/TD-001.md"
+	effortEstimate := "m"
+
+	td := &models.TechDebt{
+		BaseEntity: models.BaseEntity{
+			Key:         "TD-001",
+			Title:       "Legacy API Cleanup",
+			Slug:        &slug,
+			Description: &description,
+			FilePath:    &filePath,
+			CreatedAt:   time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
+			UpdatedAt:   time.Date(2026, 4, 2, 11, 0, 0, 0, time.UTC),
+		},
+		Status:         "identified",
+		Category:       models.TechDebtCategoryCodeQuality,
+		Severity:       models.TechDebtSeverityHigh,
+		EffortEstimate: &effortEstimate,
+	}
+
+	m := TechDebtPlaceholders(td)
+
+	expected := map[string]string{
+		"id":              "TD-001",
+		"key":             "TD-001",
+		"entity_type":     "tech_debt",
+		"title":           "Legacy API Cleanup",
+		"status":          "identified",
+		"category":        "code-quality",
+		"severity":        "high",
+		"effort_estimate": "m",
+		"slug":            "legacy-api-cleanup",
+		"description":     "Remove deprecated v1 API endpoints",
+		"file_path":       "docs/plan/tech_debt/TD-001.md",
+		"created_at":      "2026-04-01T10:00:00Z",
+		"updated_at":      "2026-04-02T11:00:00Z",
+	}
+
+	for k, want := range expected {
+		if got := m[k]; got != want {
+			t.Errorf("TechDebtPlaceholders[%q] = %q, want %q", k, got, want)
+		}
+	}
+}
+
+// TestTechDebtPlaceholders_NilOptionalFields verifies nil pointer fields are omitted
+func TestTechDebtPlaceholders_NilOptionalFields(t *testing.T) {
+	td := &models.TechDebt{
+		BaseEntity: models.BaseEntity{
+			Key:       "TD-002",
+			Title:     "Minimal Tech Debt",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		Status:   "triaged",
+		Category: models.TechDebtCategoryArchitecture,
+		Severity: models.TechDebtSeverityLow,
+	}
+
+	m := TechDebtPlaceholders(td)
+
+	// Required fields present
+	if m["key"] != "TD-002" {
+		t.Errorf("key = %q, want %q", m["key"], "TD-002")
+	}
+	if m["category"] != "architecture" {
+		t.Errorf("category = %q, want %q", m["category"], "architecture")
+	}
+	if m["severity"] != "low" {
+		t.Errorf("severity = %q, want %q", m["severity"], "low")
+	}
+
+	// Optional fields absent
+	for _, k := range []string{"slug", "description", "file_path", "effort_estimate"} {
+		if _, exists := m[k]; exists {
+			t.Errorf("TechDebtPlaceholders should not contain %q when nil", k)
+		}
+	}
+}
+
+// TestTechDebtPlaceholders_NilEntity verifies nil entity returns empty map
+func TestTechDebtPlaceholders_NilEntity(t *testing.T) {
+	m := TechDebtPlaceholders(nil)
+	if len(m) != 0 {
+		t.Errorf("TechDebtPlaceholders(nil) returned %d entries, want 0", len(m))
+	}
+}

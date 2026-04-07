@@ -36,6 +36,16 @@ type ChangeCardAnalyticsResult struct {
 	AvgCompletionTimeSecs *float64 `json:"avg_completion_time_seconds"`
 }
 
+// TechDebtAnalyticsResult contains tech-debt analytics data for CLI/JSON output.
+type TechDebtAnalyticsResult struct {
+	// TotalTechDebts is the count of all tech-debt items regardless of status.
+	TotalTechDebts int `json:"total_tech_debts"`
+	// TechDebtsByStatus contains a per-status count of all tech-debt items.
+	TechDebtsByStatus map[string]int `json:"tech_debts_by_status"`
+	// TechDebtsByCategory contains a per-category count of all tech-debt items.
+	TechDebtsByCategory map[string]int `json:"tech_debts_by_category"`
+}
+
 // DashboardAnalyticsResult is the combined analytics output used when no entity type
 // filter is applied (i.e., shark analytics without --type flag).
 // Fields use omitempty so that sections absent from the output are cleanly excluded from JSON.
@@ -44,4 +54,6 @@ type DashboardAnalyticsResult struct {
 	Bugs *BugAnalyticsResult `json:"bugs,omitempty"`
 	// ChangeCards contains change-card analytics, or nil if no change-cards exist.
 	ChangeCards *ChangeCardAnalyticsResult `json:"change_cards,omitempty"`
+	// TechDebts contains tech-debt analytics, or nil if no tech-debts exist / repo not configured.
+	TechDebts *TechDebtAnalyticsResult `json:"tech_debts,omitempty"`
 }

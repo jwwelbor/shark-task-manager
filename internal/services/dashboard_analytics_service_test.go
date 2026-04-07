@@ -98,7 +98,7 @@ func TestDashboardAnalyticsService_GetBugAnalytics_HappyPath(t *testing.T) {
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(mockBug, nil)
+	svc := NewDashboardAnalyticsService(mockBug, nil, nil)
 	result, err := svc.GetBugAnalytics(context.Background())
 
 	if err != nil {
@@ -129,7 +129,7 @@ func TestDashboardAnalyticsService_GetBugAnalytics_HappyPath(t *testing.T) {
 
 // TC-F07-012 / Section 3.1: GetBugAnalytics with nil bug repository returns error.
 func TestDashboardAnalyticsService_GetBugAnalytics_NilRepo(t *testing.T) {
-	svc := NewDashboardAnalyticsService(nil, nil)
+	svc := NewDashboardAnalyticsService(nil, nil, nil)
 	result, err := svc.GetBugAnalytics(context.Background())
 
 	if err == nil {
@@ -153,7 +153,7 @@ func TestDashboardAnalyticsService_GetBugAnalytics_StatusSummaryError(t *testing
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(mockBug, nil)
+	svc := NewDashboardAnalyticsService(mockBug, nil, nil)
 	result, err := svc.GetBugAnalytics(context.Background())
 
 	if err == nil {
@@ -182,7 +182,7 @@ func TestDashboardAnalyticsService_GetBugAnalytics_ResolutionStatsError(t *testi
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(mockBug, nil)
+	svc := NewDashboardAnalyticsService(mockBug, nil, nil)
 	result, err := svc.GetBugAnalytics(context.Background())
 
 	if err == nil {
@@ -213,7 +213,7 @@ func TestDashboardAnalyticsService_GetBugAnalytics_ZeroResolved(t *testing.T) {
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(mockBug, nil)
+	svc := NewDashboardAnalyticsService(mockBug, nil, nil)
 	result, err := svc.GetBugAnalytics(context.Background())
 
 	if err != nil {
@@ -244,7 +244,7 @@ func TestDashboardAnalyticsService_GetBugAnalytics_ZeroBugs(t *testing.T) {
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(mockBug, nil)
+	svc := NewDashboardAnalyticsService(mockBug, nil, nil)
 	result, err := svc.GetBugAnalytics(context.Background())
 
 	if err != nil {
@@ -289,7 +289,7 @@ func TestDashboardAnalyticsService_GetChangeCardAnalytics_HappyPath(t *testing.T
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(nil, mockCC)
+	svc := NewDashboardAnalyticsService(nil, mockCC, nil)
 	result, err := svc.GetChangeCardAnalytics(context.Background())
 
 	if err != nil {
@@ -326,7 +326,7 @@ func TestDashboardAnalyticsService_GetChangeCardAnalytics_HappyPath(t *testing.T
 
 // Section 3.1: GetChangeCardAnalytics with nil repository returns error.
 func TestDashboardAnalyticsService_GetChangeCardAnalytics_NilRepo(t *testing.T) {
-	svc := NewDashboardAnalyticsService(nil, nil)
+	svc := NewDashboardAnalyticsService(nil, nil, nil)
 	result, err := svc.GetChangeCardAnalytics(context.Background())
 
 	if err == nil {
@@ -358,7 +358,7 @@ func TestDashboardAnalyticsService_GetChangeCardAnalytics_ZeroDecided(t *testing
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(nil, mockCC)
+	svc := NewDashboardAnalyticsService(nil, mockCC, nil)
 	result, err := svc.GetChangeCardAnalytics(context.Background())
 
 	if err != nil {
@@ -394,7 +394,7 @@ func TestDashboardAnalyticsService_GetChangeCardAnalytics_ZeroCompleted(t *testi
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(nil, mockCC)
+	svc := NewDashboardAnalyticsService(nil, mockCC, nil)
 	result, err := svc.GetChangeCardAnalytics(context.Background())
 
 	if err != nil {
@@ -417,7 +417,7 @@ func TestDashboardAnalyticsService_GetChangeCardAnalytics_StatusSummaryError(t *
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(nil, mockCC)
+	svc := NewDashboardAnalyticsService(nil, mockCC, nil)
 	result, err := svc.GetChangeCardAnalytics(context.Background())
 
 	if err == nil {
@@ -446,7 +446,7 @@ func TestDashboardAnalyticsService_GetChangeCardAnalytics_ThroughputStatsError(t
 		},
 	}
 
-	svc := NewDashboardAnalyticsService(nil, mockCC)
+	svc := NewDashboardAnalyticsService(nil, mockCC, nil)
 	result, err := svc.GetChangeCardAnalytics(context.Background())
 
 	if err == nil {
@@ -692,6 +692,210 @@ func TestDashboardAnalyticsResult_JSONContract_OmitEmpty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// MockTechDebtSummaryRepository
+// ---------------------------------------------------------------------------
+
+// MockTechDebtSummaryRepository is a test double for TechDebtSummaryRepository.
+type MockTechDebtSummaryRepository struct {
+	CountByStatusFunc   func(ctx context.Context) (map[string]int, error)
+	CountByCategoryFunc func(ctx context.Context) (map[string]int, error)
+}
+
+func (m *MockTechDebtSummaryRepository) CountByStatus(ctx context.Context) (map[string]int, error) {
+	if m.CountByStatusFunc != nil {
+		return m.CountByStatusFunc(ctx)
+	}
+	return nil, errors.New("CountByStatus not implemented in mock")
+}
+
+func (m *MockTechDebtSummaryRepository) CountByCategory(ctx context.Context) (map[string]int, error) {
+	if m.CountByCategoryFunc != nil {
+		return m.CountByCategoryFunc(ctx)
+	}
+	return nil, errors.New("CountByCategory not implemented in mock")
+}
+
+// ---------------------------------------------------------------------------
+// GetTechDebtAnalytics tests
+// ---------------------------------------------------------------------------
+
+// Happy path: tech-debt analytics returns total, by-status, and by-category counts.
+func TestDashboardAnalyticsService_GetTechDebtAnalytics_HappyPath(t *testing.T) {
+	mockTD := &MockTechDebtSummaryRepository{
+		CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+			return map[string]int{
+				"identified":  3,
+				"triaged":     2,
+				"in_progress": 1,
+				"resolved":    4,
+			}, nil
+		},
+		CountByCategoryFunc: func(ctx context.Context) (map[string]int, error) {
+			return map[string]int{
+				"code-quality":  4,
+				"architecture":  3,
+				"testing":       2,
+				"documentation": 1,
+			}, nil
+		},
+	}
+
+	svc := NewDashboardAnalyticsService(nil, nil, mockTD)
+	result, err := svc.GetTechDebtAnalytics(context.Background())
+
+	if err != nil {
+		t.Fatalf("GetTechDebtAnalytics() unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("GetTechDebtAnalytics() returned nil result")
+	}
+	if result.TotalTechDebts != 10 {
+		t.Errorf("TotalTechDebts = %d, want 10", result.TotalTechDebts)
+	}
+	if len(result.TechDebtsByStatus) != 4 {
+		t.Errorf("TechDebtsByStatus count = %d, want 4", len(result.TechDebtsByStatus))
+	}
+	if len(result.TechDebtsByCategory) != 4 {
+		t.Errorf("TechDebtsByCategory count = %d, want 4", len(result.TechDebtsByCategory))
+	}
+}
+
+// Nil repo returns descriptive error.
+func TestDashboardAnalyticsService_GetTechDebtAnalytics_NilRepo(t *testing.T) {
+	svc := NewDashboardAnalyticsService(nil, nil, nil)
+	result, err := svc.GetTechDebtAnalytics(context.Background())
+
+	if err == nil {
+		t.Fatal("GetTechDebtAnalytics() expected error when techDebtRepo is nil, got nil")
+	}
+	if result != nil {
+		t.Error("GetTechDebtAnalytics() expected nil result when repo is nil")
+	}
+}
+
+// Error propagated when CountByStatus fails.
+func TestDashboardAnalyticsService_GetTechDebtAnalytics_StatusCountError(t *testing.T) {
+	expectedErr := errors.New("database unavailable")
+	mockTD := &MockTechDebtSummaryRepository{
+		CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+			return nil, expectedErr
+		},
+	}
+
+	svc := NewDashboardAnalyticsService(nil, nil, mockTD)
+	result, err := svc.GetTechDebtAnalytics(context.Background())
+
+	if err == nil {
+		t.Fatal("GetTechDebtAnalytics() expected error when CountByStatus fails")
+	}
+	if result != nil {
+		t.Error("GetTechDebtAnalytics() expected nil result on error")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Error chain should contain original error; got: %v", err)
+	}
+}
+
+// Error propagated when CountByCategory fails.
+func TestDashboardAnalyticsService_GetTechDebtAnalytics_CategoryCountError(t *testing.T) {
+	expectedErr := errors.New("category query failed")
+	mockTD := &MockTechDebtSummaryRepository{
+		CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+			return map[string]int{"identified": 3}, nil
+		},
+		CountByCategoryFunc: func(ctx context.Context) (map[string]int, error) {
+			return nil, expectedErr
+		},
+	}
+
+	svc := NewDashboardAnalyticsService(nil, nil, mockTD)
+	result, err := svc.GetTechDebtAnalytics(context.Background())
+
+	if err == nil {
+		t.Fatal("GetTechDebtAnalytics() expected error when CountByCategory fails")
+	}
+	if result != nil {
+		t.Error("GetTechDebtAnalytics() expected nil result on error")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Error chain should contain original error; got: %v", err)
+	}
+}
+
+// Zero tech-debts returns result with zero total and empty maps.
+func TestDashboardAnalyticsService_GetTechDebtAnalytics_ZeroItems(t *testing.T) {
+	mockTD := &MockTechDebtSummaryRepository{
+		CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+			return map[string]int{}, nil
+		},
+		CountByCategoryFunc: func(ctx context.Context) (map[string]int, error) {
+			return map[string]int{}, nil
+		},
+	}
+
+	svc := NewDashboardAnalyticsService(nil, nil, mockTD)
+	result, err := svc.GetTechDebtAnalytics(context.Background())
+
+	if err != nil {
+		t.Fatalf("GetTechDebtAnalytics() unexpected error: %v", err)
+	}
+	if result.TotalTechDebts != 0 {
+		t.Errorf("TotalTechDebts = %d, want 0", result.TotalTechDebts)
+	}
+}
+
+// TechDebtAnalyticsResult JSON contract test.
+func TestTechDebtAnalyticsResult_JSONContract(t *testing.T) {
+	result := &TechDebtAnalyticsResult{
+		TotalTechDebts:      10,
+		TechDebtsByStatus:   map[string]int{"identified": 3, "resolved": 4},
+		TechDebtsByCategory: map[string]int{"code-quality": 5, "architecture": 3},
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	requiredKeys := []string{"total_tech_debts", "tech_debts_by_status", "tech_debts_by_category"}
+	for _, key := range requiredKeys {
+		if _, ok := parsed[key]; !ok {
+			t.Errorf("JSON missing required key: %s", key)
+		}
+	}
+}
+
+// DashboardAnalyticsResult includes tech_debts in combined output.
+func TestDashboardAnalyticsResult_JSONContract_WithTechDebts(t *testing.T) {
+	combined := &DashboardAnalyticsResult{
+		TechDebts: &TechDebtAnalyticsResult{
+			TotalTechDebts:      5,
+			TechDebtsByStatus:   map[string]int{"identified": 5},
+			TechDebtsByCategory: map[string]int{"testing": 5},
+		},
+	}
+
+	data, err := json.Marshal(combined)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	if _, ok := parsed["tech_debts"]; !ok {
+		t.Error("combined JSON should contain 'tech_debts' key")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Interface contract (compile-time check)
 // ---------------------------------------------------------------------------
 
@@ -699,3 +903,4 @@ func TestDashboardAnalyticsResult_JSONContract_OmitEmpty(t *testing.T) {
 // If F02/F03 change method signatures, this will cause a compile error.
 var _ BugSummaryRepository = (*MockBugSummaryRepository)(nil)
 var _ ChangeCardSummaryRepository = (*MockChangeCardSummaryRepository)(nil)
+var _ TechDebtSummaryRepository = (*MockTechDebtSummaryRepository)(nil)

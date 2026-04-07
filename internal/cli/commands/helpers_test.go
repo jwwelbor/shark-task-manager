@@ -892,6 +892,13 @@ func TestDetectEntityType(t *testing.T) {
 		{"Change C15 two digits", "C15", "change"},
 		{"Change C1000 four digits", "C1000", "change"},
 
+		// Tech-debt keys (TD-###)
+		{"Tech-debt TD-001 uppercase", "TD-001", "tech_debt"},
+		{"Tech-debt TD-042 uppercase", "TD-042", "tech_debt"},
+		{"Tech-debt TD-999 uppercase", "TD-999", "tech_debt"},
+		{"Tech-debt td-001 lowercase", "td-001", "tech_debt"},
+		{"Tech-debt Td-001 mixed case", "Td-001", "tech_debt"},
+
 		// Invalid/Unknown formats
 		{"Empty string", "", "unknown"},
 		{"Invalid E1", "E1", "unknown"},
@@ -964,6 +971,18 @@ func TestDetectEntityTypeEdgeCases(t *testing.T) {
 			expected: "feature",
 			reason:   "F##-slug should be detected as feature, not unknown",
 		},
+		{
+			name:     "Tech-debt TD-001 not confused with task T- prefix",
+			input:    "TD-001",
+			expected: "tech_debt",
+			reason:   "TD- must be detected as tech_debt before T- task prefix check",
+		},
+		{
+			name:     "Tech-debt lowercase td-042 not confused with task",
+			input:    "td-042",
+			expected: "tech_debt",
+			reason:   "Case-insensitive TD- must still be detected before task prefix",
+		},
 	}
 
 	for _, tt := range tests {
@@ -996,6 +1015,9 @@ func BenchmarkDetectEntityType(b *testing.B) {
 		"C001",
 		"C15",
 		"CC-001",
+		// E25 addition: tech-debt keys
+		"TD-001",
+		"TD-042",
 	}
 
 	for _, tc := range testCases {

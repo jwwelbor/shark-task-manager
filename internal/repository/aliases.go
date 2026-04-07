@@ -17,6 +17,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/search"
 	taskpkg "github.com/jwwelbor/shark-task-manager/internal/repository/task"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/techdebt"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/templateenrich"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/worksession"
 )
@@ -51,6 +52,17 @@ type BugFeatureSummary = bug.BugFeatureSummary
 
 // NewBugRepository creates a new BugRepository.
 var NewBugRepository = bug.NewBugRepository
+
+// --- TechDebt ---
+
+// TechDebtRepository is an alias for techdebt.TechDebtRepository.
+type TechDebtRepository = techdebt.TechDebtRepository
+
+// TechDebtFilters is an alias for techdebt.TechDebtFilters.
+type TechDebtFilters = techdebt.TechDebtFilters
+
+// NewTechDebtRepository creates a new TechDebtRepository.
+var NewTechDebtRepository = techdebt.NewTechDebtRepository
 
 // --- ChangeCard ---
 

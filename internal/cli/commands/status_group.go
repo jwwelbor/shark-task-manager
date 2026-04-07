@@ -183,6 +183,8 @@ func dispatchTransition(ctx context.Context, entityType, key, targetStatus strin
 		return cli.GetBugService().TransitionStatus(ctx, key, targetStatus, opts)
 	case "change", "change_card":
 		return getChangeCardService().TransitionStatus(ctx, key, targetStatus, opts)
+	case "tech_debt":
+		return cli.GetTechDebtService().TransitionStatus(ctx, key, targetStatus, opts)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -201,6 +203,8 @@ func dispatchNextStatus(ctx context.Context, entityType, key string) (*services.
 		return cli.GetBugService().GetNextStatus(ctx, key)
 	case "change", "change_card":
 		return getChangeCardService().GetNextStatus(ctx, key)
+	case "tech_debt":
+		return cli.GetTechDebtService().GetNextStatus(ctx, key)
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 	}

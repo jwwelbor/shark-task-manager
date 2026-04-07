@@ -4,9 +4,10 @@ package workflow
 // Used throughout the codebase to select the correct WorkflowConfig
 // from the MultiLevelWorkflow container.
 const (
-	LevelEpic    = "epic"
-	LevelFeature = "feature"
-	LevelTask    = "task"
-	LevelBug     = "bug"
-	LevelChange  = "change"
+	LevelEpic     = "epic"
+	LevelFeature  = "feature"
+	LevelTask     = "task"
+	LevelBug      = "bug"
+	LevelChange   = "change"
+	LevelTechDebt = "tech_debt"
 )

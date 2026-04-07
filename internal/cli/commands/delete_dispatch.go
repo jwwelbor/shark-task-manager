@@ -53,9 +53,11 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return runChangeCardDelete(cmd, args)
 	case "change_card":
 		return runChangeCardDelete(cmd, args)
+	case "tech_debt":
+		return runTdDelete(cmd, args)
 	case "idea":
 		return runIdeaDelete(cmd, args)
 	default:
-		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), CC-### (change-card), or I-YYYY-MM-DD-## (idea)", key)
+		return fmt.Errorf("cannot determine entity type from key: %s\nExpected format: E## (epic), E##-F## (feature), E##-F##-### (task), B### (bug), C### (change card), CC-### (change-card), TD-### (tech-debt), or I-YYYY-MM-DD-## (idea)", key)
 	}
 }

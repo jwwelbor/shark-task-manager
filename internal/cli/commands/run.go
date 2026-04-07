@@ -188,6 +188,8 @@ func buildTransitioner(_ context.Context, entityType string) (runner.EntityTrans
 		return cli.GetBugService(), nil
 	case "change", "change_card":
 		return cli.GetChangeCardService(), nil
+	case "tech_debt":
+		return cli.GetTechDebtService(), nil
 	default:
 		return nil, fmt.Errorf("unsupported entity type: %q", entityType)
 	}
@@ -207,6 +209,8 @@ func buildPlaceholderGenerator(_ context.Context, entityType string) runner.Plac
 		return &bugPlaceholderAdapter{svc: cli.GetBugService()}
 	case "change", "change_card":
 		return &changeCardPlaceholderAdapter{svc: cli.GetChangeCardService()}
+	case "tech_debt":
+		return &techDebtPlaceholderAdapter{svc: cli.GetTechDebtService()}
 	default:
 		return nil
 	}
@@ -276,6 +280,18 @@ func (a *changeCardPlaceholderAdapter) GeneratePlaceholders(ctx context.Context,
 	return config.ChangeCardPlaceholders(card), nil
 }
 
+type techDebtPlaceholderAdapter struct {
+	svc *services.TechDebtService
+}
+
+func (a *techDebtPlaceholderAdapter) GeneratePlaceholders(ctx context.Context, key string) (map[string]string, error) {
+	td, err := a.svc.GetTechDebt(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tech-debt %s for placeholders: %w", key, err)
+	}
+	return config.TechDebtPlaceholders(td), nil
+}
+
 // ─── compile-time interface assertions ────────────────────────────────────────
 
 var (
@@ -285,6 +301,7 @@ var (
 	_ runner.EntityTransitioner = (*services.EpicService)(nil)
 	_ runner.EntityTransitioner = (*services.BugService)(nil)
 	_ runner.EntityTransitioner = (*services.ChangeCardService)(nil)
+	_ runner.EntityTransitioner = (*services.TechDebtService)(nil)
 
 	// Placeholder adapters remain entity-specific.
 	_ runner.PlaceholderGenerator = (*taskPlaceholderAdapter)(nil)
@@ -292,4 +309,5 @@ var (
 	_ runner.PlaceholderGenerator = (*epicPlaceholderAdapter)(nil)
 	_ runner.PlaceholderGenerator = (*bugPlaceholderAdapter)(nil)
 	_ runner.PlaceholderGenerator = (*changeCardPlaceholderAdapter)(nil)
+	_ runner.PlaceholderGenerator = (*techDebtPlaceholderAdapter)(nil)
 )
