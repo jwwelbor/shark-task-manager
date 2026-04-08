@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Write specification for feature {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Write specification for feature {{.id}}: "{{.title}}".
 
 Check for existing spec.md in feature directory. If spec exists meeting exit gate criteria, advance immediately.
 
@@ -45,7 +48,3 @@ EXIT GATE:
 - Every architecture decision references existing patterns or explains deviation
 - File paths listed for all changes
 - No TBDs in critical sections
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

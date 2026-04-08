@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME scope validation for feature {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME scope validation for feature {{.id}}: "{{.title}}".
 
 Check feature notes ({{template "get_json" .}}) for existing scope validation result. If validation note exists with clear determination (feature or task), advance or convert accordingly.
 
@@ -24,8 +27,6 @@ IF MISCLASSIFIED:
 
 IF PROPERLY SCOPED:
 (1) Add validation note: {{template "create_note" .}} 'Scope validated as feature: {reasoning}'
-(2) ---
-## EXIT — REQUIRED
-    {{template "advance" .}}
+(2) Run: {{template "advance" .}}
 
 See docs/complexity-adaptive-workflow-proposal.md for full criteria.

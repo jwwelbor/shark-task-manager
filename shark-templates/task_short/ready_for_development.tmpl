@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Develop task {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Develop task {{.id}}: "{{.title}}".
 
 Check for existing implementation: review git diff and test files. If implementation exists and passes quality gate, advance immediately.
 
@@ -42,7 +45,3 @@ EXIT GATE:
 - Quality gate passes: make fmt && make lint && make test
 - Implementation follows patterns from feature spec.md
 - No unrelated changes included
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

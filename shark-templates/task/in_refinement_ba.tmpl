@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME BA refinement for task {{.task_id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME BA refinement for task {{.task_id}}: "{{.title}}".
 
 Check task spec at {{.file_path}} for existing BA refinements (testable user stories, measurable AC, business rules). If spec is complete with no vague language and traces to feature PRD, advance immediately.
 
@@ -36,7 +39,3 @@ EXIT GATE:
 - No vague language
 - Traces to feature PRD
 - Blocker notes addressed
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

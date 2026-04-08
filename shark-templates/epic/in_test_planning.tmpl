@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME epic test planning for {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME epic test planning for {{.id}}: "{{.title}}".
 
 Check for existing UAT acceptance plan at {{.file_path}}. If plan exists with all 5 sections complete (acceptance scenarios, success metrics validation, cross-epic integration, risk-based priorities, persona acceptance matrix) and exit gate criteria met, advance immediately.
 
@@ -27,7 +30,3 @@ EXIT GATE:
 - Every success metric has a validation method
 - Risk areas from research and feasibility reviews have targeted scenarios
 - Plan is actionable for feature-level decomposition into test strategies
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

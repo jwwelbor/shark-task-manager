@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Design architecture for epic {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Design architecture for epic {{.id}}: "{{.title}}".
 
 Check for existing architecture docs and UAT plan in epic directory. If both exist and meet exit gate criteria, advance immediately.
 
@@ -34,7 +37,3 @@ EXIT GATE:
 - Every technical decision has rationale
 - UAT scenarios map to epic success criteria
 - No orphaned requirements
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

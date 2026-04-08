@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME epic research for {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME epic research for {{.id}}: "{{.title}}".
 
 Check for existing research report at {{.file_path}}. If report exists with all 6 sections complete and exit gate criteria met, advance immediately.
 
@@ -30,7 +33,3 @@ EXIT GATE:
 - Research scoped to PRD boundaries
 - No unresolved feasibility blockers
 - Overlap explicitly addressed
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

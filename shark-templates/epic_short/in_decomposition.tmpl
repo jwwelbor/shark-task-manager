@@ -1,9 +1,8 @@
-{{template "_resume_preamble" .}}RESUME feature decomposition for epic {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME feature decomposition for epic {{.id}}: "{{.title}}".
 
 Check for existing features: {{template "list" .}}. If features exist covering all epic requirements with proper ordering, advance immediately.
 
 Otherwise, continue decomposing the epic into features following the ready_for_decomposition instructions.
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

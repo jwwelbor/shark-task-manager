@@ -1,3 +1,5 @@
+After completing ALL work below, exit with: {{template "status_set" .}} ready_for_ba_check
+
 Write feature PRD for {{.id}}: "{{.title}}".
 
 LOAD: specification-writing workflows write-feature-prd.md, plan/feature-ba-plan.md.
@@ -32,7 +34,3 @@ EXIT GATE:
 - All remaining_steps completed
 - Tier-appropriate depth: SIMPLE (AC testable), STANDARD (MoSCoW complete, no ambiguity), COMPLEX (all planned files, checklist passes)
 - No vague language, no TBDs
-
----
-## EXIT — REQUIRED
-    {{template "status_set" .}} ready_for_ba_check

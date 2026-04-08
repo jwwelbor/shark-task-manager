@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Implement change {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Implement change {{.id}}: "{{.title}}".
 
 Check for existing implementation. If changes exist and quality gate passes, advance immediately.
 
@@ -14,7 +17,3 @@ EXIT GATE:
 - Change implemented per description
 - Tests pass
 - Quality gate passes
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

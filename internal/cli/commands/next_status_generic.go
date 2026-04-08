@@ -247,7 +247,7 @@ func makeRunSetStatus(entityName string, getSvc func() entityTransitioner) func(
 		if result.ChildCount > 0 {
 			cli.Warning(fmt.Sprintf("%d child entities remain in current states.", result.ChildCount))
 		}
-		displayOrchestratorAction(result.OrchestratorAction)
+		cli.Info(fmt.Sprintf("Run `shark get %s --field orchestrator_action` to get your next instructions.", result.EntityKey))
 		return nil
 	}
 }
