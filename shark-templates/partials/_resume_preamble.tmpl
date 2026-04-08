@@ -1,4 +1,4 @@
-{{define "_resume_preamble"}}RESUME CONTEXT: This entity is already in an in_progress status. A previous agent session may have been interrupted.
+{{define "_resume_preamble"}}{{if eq .is_resume "true"}}RESUME CONTEXT: This entity is already in an in_progress status. A previous agent session may have been interrupted.
 
 BEFORE STARTING WORK:
 1. Check for existing work artifacts (docs, code, reports) that a previous agent may have produced
@@ -7,4 +7,4 @@ BEFORE STARTING WORK:
 
 IMPORTANT: Do NOT skip to advancing status unless the specific instructions below explicitly say you can (e.g., a report with a PASS verdict exists). The presence of code or implementation files alone is NOT sufficient — review/QA/approval phases require their own reports.
 
-{{end}}
+{{end}}{{end}}

@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Research feature {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Research feature {{.id}}: "{{.title}}".
 
 Check for existing research report in feature directory. If report exists with all sections populated and file paths cited, advance immediately.
 
@@ -28,7 +31,3 @@ EXIT GATE:
 - All existing related code identified with file paths
 - Extension points documented
 - Actionable for architect in specify step
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

@@ -1,3 +1,5 @@
+After completing ALL work below, exit with: {{template "status_set" .}} ready_for_tech_check
+
 Design technical architecture for feature {{.id}}: "{{.title}}".
 
 LOAD: architecture skill workflows (design-system, design-backend, design-frontend, design-database, design-security) as applicable. LOAD: specification-writing workflow plan/feature-tech-plan.md.
@@ -31,7 +33,3 @@ EXIT GATE varies by tier:
 - SIMPLE (decision rationale clear, existing patterns documented)
 - STANDARD (key decisions documented, contracts complete where applicable, no ambiguity)
 - COMPLEX (all planned docs created, full schemas, architecture skill checklist passes)
-
----
-## EXIT — REQUIRED
-    {{template "status_set" .}} ready_for_tech_check

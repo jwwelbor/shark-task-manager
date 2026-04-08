@@ -275,6 +275,10 @@ func (s *FeatureService) makeResolveActionFn(ctx context.Context) ResolveActionF
 			config.ApplyEnrichmentData(enrichment, placeholders)
 		}
 
+		// Fresh transition context: suppress RESUME CONTEXT preamble in templates.
+		// is_resume="true" is reserved for shark get (display_service.go).
+		placeholders["is_resume"] = "false"
+
 		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}
 }

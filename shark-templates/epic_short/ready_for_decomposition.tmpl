@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Decompose epic {{.id}}: "{{.title}}" into features.
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Decompose epic {{.id}}: "{{.title}}" into features.
 
 Check for existing features: {{template "list" .}}. If features exist covering all epic requirements with proper ordering, advance immediately.
 
@@ -30,7 +33,3 @@ EXIT GATE:
 - Features have execution order and dependency annotations
 - No overlapping scope between features
 - Descriptions are specific enough for assessment
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

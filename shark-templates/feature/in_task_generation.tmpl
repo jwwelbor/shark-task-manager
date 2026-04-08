@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME task generation for feature {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME task generation for feature {{.id}}: "{{.title}}".
 
 Check for existing tasks: {{template "list" .}}. If tasks exist and cover all feature requirements with proper sequencing, verify task specs are complete and advance immediately.
 
@@ -43,7 +46,3 @@ EXIT GATE varies by tier:
 - COMPLEX (full write-task.md checklist, contract validation task if applicable)
 
 Verify: {{template "list" .}}.
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

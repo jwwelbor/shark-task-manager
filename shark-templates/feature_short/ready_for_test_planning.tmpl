@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Create test plan for feature {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Create test plan for feature {{.id}}: "{{.title}}".
 
 Check for existing test-plan.md in feature directory. If test plan exists meeting exit gate criteria, advance immediately.
 
@@ -36,7 +39,3 @@ EXIT GATE:
 - Edge cases identified for each AC
 - Integration scenarios cover cross-component boundaries
 - Test patterns reference existing infrastructure
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

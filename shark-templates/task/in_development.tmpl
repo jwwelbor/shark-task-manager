@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME development for task {{.task_id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME development for task {{.task_id}}: "{{.title}}".
 
 Check for existing implementation code and test files. Run existing tests to assess current state. If all tests pass and implementation matches task spec, advance immediately. If tests exist but some fail, continue from the failing tests. If partial implementation exists, continue building on it.
 
@@ -25,7 +28,3 @@ EXIT GATE:
 - All mapped test cases from feature test plan pass
 - Implementation matches task spec
 - Code follows codebase conventions from research
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

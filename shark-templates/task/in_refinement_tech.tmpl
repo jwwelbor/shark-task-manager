@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME technical refinement for task {{.task_id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME technical refinement for task {{.task_id}}: "{{.title}}".
 
 Check task spec at {{.file_path}} for existing technical specifications (API contracts, data models, architecture decisions). If spec is complete with no TBDs and is consistent with feature architecture, advance immediately.
 
@@ -39,7 +42,3 @@ EXIT GATE:
 - No TBDs
 - Consistent with feature architecture
 - Task implementable without ambiguity
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

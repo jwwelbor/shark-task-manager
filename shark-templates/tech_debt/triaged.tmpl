@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Resolve tech debt {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Resolve tech debt {{.id}}: "{{.title}}".
 
 Category: {{.category}} | Severity: {{.severity}}
 
@@ -35,7 +38,3 @@ EXIT GATE:
 - Tech debt is resolved
 - Quality gate passes
 - No unrelated changes
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

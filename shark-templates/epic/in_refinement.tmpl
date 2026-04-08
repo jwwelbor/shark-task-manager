@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME epic refinement for {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME epic refinement for {{.id}}: "{{.title}}".
 
 Check context_data: {{template "context_json" .}}
 - If remaining_steps non-empty AND completed_steps contains all items in remaining_steps → all docs done → advance to ready_for_ba_check: {{template "advance" .}}.
@@ -21,7 +24,3 @@ EXIT GATE:
 - All 6 files created and cross-referenced
 - Write-epic.md checklist passes
 - No vague language or TBDs
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

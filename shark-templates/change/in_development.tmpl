@@ -1,9 +1,8 @@
-{{template "_resume_preamble" .}}RESUME implementation for change {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME implementation for change {{.id}}: "{{.title}}".
 
 Check for existing implementation. If changes exist and quality gate passes, advance immediately.
 
 Otherwise, continue with implementation per ready_for_development instructions.
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

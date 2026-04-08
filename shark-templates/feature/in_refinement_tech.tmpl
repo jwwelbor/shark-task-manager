@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME technical refinement for feature {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME technical refinement for feature {{.id}}: "{{.title}}".
 
 CHECK COMPLEXITY TIER: Read feature metadata via {{template "get_json" .}} | jq -r '.metadata.complexity_tier'.
 
@@ -29,7 +32,3 @@ EXIT GATE varies by tier:
 - SIMPLE (decision rationale clear)
 - STANDARD (key decisions documented, contracts complete where applicable, no ambiguity)
 - COMPLEX (all 7 docs created, full schemas, architecture skill checklist passes)
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

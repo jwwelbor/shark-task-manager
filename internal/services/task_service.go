@@ -725,6 +725,10 @@ func (s *TaskService) makeResolveActionFn(ctx context.Context) ResolveActionFn {
 			config.ApplyEnrichmentData(enrichment, placeholders)
 		}
 
+		// Fresh transition context: suppress RESUME CONTEXT preamble in templates.
+		// is_resume="true" is reserved for shark get (display_service.go).
+		placeholders["is_resume"] = "false"
+
 		// Delegate workflow lookup + PopulatedAction construction to shared helper
 		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}

@@ -42,7 +42,7 @@ func performEntityTransition(ctx context.Context, svc entityTransitioner, entity
 	if transResult.ChildCount > 0 {
 		cli.Warning(fmt.Sprintf("%d child entities remain in current states.", transResult.ChildCount))
 	}
-	displayOrchestratorAction(transResult.OrchestratorAction)
+	cli.Info(fmt.Sprintf("Run `shark get %s --field orchestrator_action` to get your next instructions.", result.EntityKey))
 	return nil
 }
 

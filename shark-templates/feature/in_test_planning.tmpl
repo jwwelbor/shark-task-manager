@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME feature test planning for {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME feature test planning for {{.id}}: "{{.title}}".
 
 CHECK COMPLEXITY TIER: Read feature metadata via {{template "get_json" .}} | jq -r '.metadata.complexity_tier'.
 
@@ -30,7 +33,3 @@ EXIT GATE varies by tier:
 - COMPLEX (full 6-section plan, epic UAT traceability, quality skill checklist passes)
 
 Write to 09-test-plan.md.
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}
