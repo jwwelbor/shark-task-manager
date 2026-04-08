@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -85,6 +86,12 @@ type FeatureService struct {
 	enrichRepo        config.TemplateEnrichmentRepository
 	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
 	tracer            trace.Tracer          // optional; defaults to otel.Tracer("shark/services/feature") if nil
+
+	// Cascade reopen dependencies (all optional; cascade fires only when all are non-nil).
+	cascadeDB          txBeginner
+	cascadeEpicRepo    CascadeEpicRepo
+	cascadeHistQuerier ParentReopenHistoryQuerier
+	cascadeHistTx      EntityHistoryTxRecorder
 }
 
 // NewFeatureService creates a new FeatureService.
@@ -147,6 +154,39 @@ func (s *FeatureService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepos
 // The *repository.EntityHistoryRepository satisfies EntityHistoryRecorder directly.
 func (s *FeatureService) SetEntityHistoryRepo(repo EntityHistoryRecorder) {
 	s.entityHistoryRepo = repo
+}
+
+// SetCascadeDeps wires the optional cascade reopen dependencies for FeatureService.
+// All four parameters must be non-nil for the cascade to fire; any nil value
+// disables the cascade silently (graceful degradation per AC-T5).
+// Note: FeatureService does not need a CascadeFeatureRepo because the cascade from
+// a feature transition starts directly at the epic leg.
+func (s *FeatureService) SetCascadeDeps(db txBeginner, er CascadeEpicRepo, hq ParentReopenHistoryQuerier, ht EntityHistoryTxRecorder) {
+	s.cascadeDB = db
+	s.cascadeEpicRepo = er
+	s.cascadeHistQuerier = hq
+	s.cascadeHistTx = ht
+}
+
+// cascadeEnabled returns true iff all four cascade dependencies are non-nil.
+func (s *FeatureService) cascadeEnabled() bool {
+	return s.cascadeDB != nil && s.cascadeEpicRepo != nil && s.cascadeHistQuerier != nil && s.cascadeHistTx != nil
+}
+
+// cascadeDepsBundle packages the cascade dependencies into the cascadeDeps struct.
+// The featureCascadeReadAdapter satisfies CascadeFeatureRepo for the feature+epic path
+// (cascadeLegFeature), which still needs to look up the feature to get feature.EpicID.
+// For the epic-only path (cascadeLegEpic + epicID != 0), the cascade skips featureRepo
+// entirely, so the adapter is never called — it exists only to satisfy the interface.
+func (s *FeatureService) cascadeDepsBundle() cascadeDeps {
+	return cascadeDeps{
+		db:             s.cascadeDB,
+		featureRepo:    &featureCascadeReadAdapter{repo: s.repo},
+		epicRepo:       s.cascadeEpicRepo,
+		historyQuerier: s.cascadeHistQuerier,
+		historyTx:      s.cascadeHistTx,
+		workflowSvc:    &workflowProviderAdapter{svc: s.entitySvc.GetWorkflowService()},
+	}
 }
 
 // SetWritableDocRepo sets the writable document repository on the service.
@@ -230,6 +270,21 @@ func (s *FeatureService) TransitionStatus(ctx context.Context, featureKey string
 		tasks, listErr := s.taskRepo.ListByFeature(ctx, result.EntityID)
 		if listErr == nil {
 			result.ChildCount = len(tasks)
+		}
+	}
+
+	// Cascade post-hook: reopen terminal epic when a feature regresses from
+	// a terminal status to a non-terminal status (AC-02 / REQ-F-001).
+	if s.cascadeEnabled() {
+		featureWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelFeature)
+		if featureWf.IsTerminalStatus(result.FromStatus) && !featureWf.IsTerminalStatus(result.ToStatus) {
+			cascadeParentReopens(ctx, s.cascadeDepsBundle(), cascadeTrigger{
+				triggerKey:  featureKey,
+				triggerKind: "regression",
+				triggerType: models.EntityTypeFeature,
+				startLeg:    cascadeLegEpic,
+				featureID:   result.EntityID,
+			})
 		}
 	}
 
@@ -778,39 +833,27 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 }
 
 // maybeReopenParentEpic checks if the parent epic is in a terminal status
-// and reopens it to the first aggregation status. Best-effort: logs a warning
-// on failure, never fails the caller.
+// and reopens it using the cascade helper (history-based target resolution).
+// When cascade deps are not wired (e.g., tests without full wiring), this is
+// a no-op — the cascade helper guards itself via cascadeEnabled.
+//
+// Best-effort: errors are logged via slog.Warn, never propagated to the caller.
 //
 // Parameters:
 //   - ctx: context for cancellation
 //   - epic: the parent epic model (already retrieved during feature creation)
 //   - featureKey: key of the newly created feature (for audit logging)
 func (s *FeatureService) maybeReopenParentEpic(ctx context.Context, epic *models.Epic, featureKey string) {
-	if s.epicLookupRepo == nil {
+	if !s.cascadeEnabled() {
 		return
 	}
-
-	epicWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelEpic)
-	if !epicWf.IsTerminalStatus(string(epic.Status)) {
-		return
-	}
-
-	aggStatuses := epicWf.GetAggregationStatuses()
-	oldStatus := string(epic.Status)
-	epic.Status = models.EpicStatus(aggStatuses[0])
-
-	if err := s.epicLookupRepo.Update(ctx, epic); err != nil {
-		slog.Warn("auto-reopen of epic failed", "epic", epic.Key, "error", err)
-		return
-	}
-
-	// Record history for the auto-reopen
-	notes := fmt.Sprintf("auto-reopened: new feature %s created under terminal epic", featureKey)
-	recordEntityHistory(ctx, s.entityHistoryRepo, models.EntityTypeEpic, epic.ID,
-		oldStatus, string(epic.Status), false, EntityHistoryOpts{
-			Agent:  "system",
-			Reason: notes,
-		})
+	cascadeParentReopens(ctx, s.cascadeDepsBundle(), cascadeTrigger{
+		triggerKey:  featureKey,
+		triggerKind: "creation",
+		triggerType: models.EntityTypeFeature,
+		startLeg:    cascadeLegEpic,
+		epicID:      epic.ID,
+	})
 }
 
 // UpdateFeature updates fields on an existing feature.
@@ -1077,4 +1120,35 @@ func (s *FeatureService) GetFeatureDisplayData(ctx context.Context, feature *mod
 	}
 
 	return result, nil
+}
+
+// ============================================================
+// featureCascadeReadAdapter — adapts FeatureRepository to CascadeFeatureRepo
+// ============================================================
+
+// featureCascadeReadAdapter wraps FeatureRepository and satisfies CascadeFeatureRepo.
+// When a FeatureService cascade starts at cascadeLegEpic, the cascade helper still
+// calls featureRepo.GetByID once to obtain feature.EpicID, but never calls
+// GetByIDTx or UpdateStatusTx on the feature itself (those are only reachable when
+// featureNeedsReopen is true, which requires startLeg == cascadeLegFeature).
+// The Tx stubs are therefore unreachable in practice; they exist only to satisfy the
+// CascadeFeatureRepo interface.
+type featureCascadeReadAdapter struct {
+	repo FeatureRepository
+}
+
+func (a *featureCascadeReadAdapter) GetByID(ctx context.Context, id int64) (*models.Feature, error) {
+	return a.repo.GetByID(ctx, id)
+}
+
+// GetByIDTx is unreachable for cascadeLegEpic triggers but is required by the
+// CascadeFeatureRepo interface. Delegates to the non-Tx variant.
+func (a *featureCascadeReadAdapter) GetByIDTx(ctx context.Context, _ *sql.Tx, id int64) (*models.Feature, error) {
+	return a.repo.GetByID(ctx, id)
+}
+
+// UpdateStatusTx is unreachable for cascadeLegEpic triggers but is required by the
+// CascadeFeatureRepo interface. Returns an error to make any accidental call visible.
+func (a *featureCascadeReadAdapter) UpdateStatusTx(_ context.Context, _ *sql.Tx, _ int64, _ string, _ *string, _ *string) error {
+	return fmt.Errorf("featureCascadeReadAdapter.UpdateStatusTx: unreachable for cascadeLegEpic triggers")
 }

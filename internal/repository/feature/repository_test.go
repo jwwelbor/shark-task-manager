@@ -549,3 +549,83 @@ func TestFeatureRepository_UpdateCascadesOrder(t *testing.T) {
 	assert.Equal(t, 3, featureOrders["Feature B"], "Feature B should be at order 3 (shifted)")
 	assert.Equal(t, 4, featureOrders["Feature C"], "Feature C should be at order 4 (shifted)")
 }
+
+// TestFeatureRepository_UpdateStatusTx tests the transactional status update method.
+func TestFeatureRepository_UpdateStatusTx(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	// Create a dedicated epic for this test
+	testEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E88", Title: "Epic for UpdateStatusTx Feature Test"},
+		Status:     models.EpicStatusActive,
+		Priority:   models.PriorityMedium,
+	}
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key LIKE 'E88-%'")
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E88'")
+	require.NoError(t, epicRepo.Create(ctx, testEpic))
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE epic_id = ?", testEpic.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	}()
+
+	t.Run("commits_status_update", func(t *testing.T) {
+		feature := &models.Feature{
+			BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E88-F%02d", 1), Title: "Feature UpdateStatusTx Commit"},
+			EpicID:     testEpic.ID,
+			Status:     models.FeatureStatusDraft,
+		}
+		require.NoError(t, repo.Create(ctx, feature))
+		defer func() {
+			_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+		}()
+
+		tx, err := database.BeginTx(ctx, nil)
+		require.NoError(t, err)
+
+		err = repo.UpdateStatusTx(ctx, tx, feature.ID, "active", nil, nil)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+
+		// Verify the update was committed
+		updated, err := repo.GetByID(ctx, feature.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.FeatureStatus("active"), updated.Status)
+	})
+
+	t.Run("rollback_restores_original_status", func(t *testing.T) {
+		feature := &models.Feature{
+			BaseEntity: models.BaseEntity{Key: fmt.Sprintf("E88-F%02d", 2), Title: "Feature UpdateStatusTx Rollback"},
+			EpicID:     testEpic.ID,
+			Status:     models.FeatureStatusDraft,
+		}
+		require.NoError(t, repo.Create(ctx, feature))
+		defer func() {
+			_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feature.ID)
+		}()
+
+		tx, err := database.BeginTx(ctx, nil)
+		require.NoError(t, err)
+
+		err = repo.UpdateStatusTx(ctx, tx, feature.ID, "active", nil, nil)
+		require.NoError(t, err)
+		require.NoError(t, tx.Rollback())
+
+		// Verify original status is preserved
+		current, err := repo.GetByID(ctx, feature.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.FeatureStatusDraft, current.Status)
+	})
+
+	t.Run("not_found_returns_error", func(t *testing.T) {
+		tx, err := database.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+
+		err = repo.UpdateStatusTx(ctx, tx, 999999999, "active", nil, nil)
+		assert.Error(t, err, "expected error for non-existent feature ID")
+	})
+}

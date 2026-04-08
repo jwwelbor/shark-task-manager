@@ -766,6 +766,7 @@
     "version": "1.0",
     "status_flow": {
       "draft": ["ready_for_development", "cancelled", "on_hold"],
+      "reported": ["ready_for_development", "cancelled", "on_hold"],
       "ready_for_development": ["in_development", "blocked", "on_hold"],
       "in_development": ["ready_for_code_review", "blocked", "on_hold"],
       "ready_for_code_review": ["in_code_review", "on_hold"],
@@ -779,6 +780,18 @@
     },
     "status_metadata": {
       "draft": {
+        "description": "Bug reported, not yet started",
+        "phase": "planning",
+        "color": "gray",
+        "progress_weight": 0,
+        "is_planning": true,
+        "responsibility": "none",
+        "orchestrator_action": {
+          "action": "advance_status",
+          "instruction_template": "bug/draft.tmpl"
+        }
+      },
+      "reported": {
         "description": "Bug reported, not yet started",
         "phase": "planning",
         "color": "gray",
@@ -934,7 +947,7 @@
       }
     },
     "special_statuses": {
-      "_start_": ["draft"],
+      "_start_": ["draft", "reported"],
       "_complete_": ["completed", "cancelled"]
     }
   },

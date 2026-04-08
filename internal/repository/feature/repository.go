@@ -1072,6 +1072,75 @@ func (r *FeatureRepository) UpdateStatus(ctx context.Context, featureID int64, s
 	return nil
 }
 
+// GetByIDTx retrieves a feature by its ID within an existing transaction.
+// Provides snapshot isolation for cascade idempotency checks (REQ-F-008):
+// reading the entity inside the cascade transaction ensures the in-tx re-fetch
+// reflects the most-recent committed state at the moment the transaction started.
+func (r *FeatureRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, id int64) (*models.Feature, error) {
+	query := `
+		SELECT id, epic_id, key, title, slug, description, status, COALESCE(status_override, 0) as status_override, progress_pct,
+		       execution_order, file_path, context_data, created_at, updated_at
+		FROM features
+		WHERE id = ?
+	`
+
+	feature := &models.Feature{}
+	err := tx.QueryRowContext(ctx, query, id).Scan(
+		&feature.ID,
+		&feature.EpicID,
+		&feature.Key,
+		&feature.Title,
+		&feature.Slug,
+		&feature.Description,
+		&feature.Status,
+		&feature.StatusOverride,
+		&feature.ProgressPct,
+		&feature.ExecutionOrder,
+		&feature.FilePath,
+		&feature.ContextData,
+		&feature.CreatedAt,
+		&feature.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("feature not found with id %d", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get feature by id in transaction: %w", err)
+	}
+
+	return feature, nil
+}
+
+// UpdateStatusTx updates a feature's status inside an existing transaction.
+// Mirrors UpdateStatus() but accepts *sql.Tx so the cascade can own the transaction
+// and roll back atomically across feature + epic updates.
+// The agent and notes parameters are accepted for interface symmetry but are not
+// written to the features table (which has no agent/notes columns); they are
+// intended for caller use when writing accompanying history rows.
+func (r *FeatureRepository) UpdateStatusTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	id int64,
+	status string,
+	_ *string, // agent — reserved for interface symmetry, not persisted to features table
+	_ *string, // notes — reserved for interface symmetry, not persisted to features table
+) error {
+	query := `UPDATE features SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+	result, err := tx.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return fmt.Errorf("failed to update feature status in transaction: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("feature not found with id %d", id)
+	}
+	return nil
+}
+
 // CascadeStatusToTasks updates the status of all child tasks to match a target task status
 // Used when --force is specified to override workflow validation
 func (r *FeatureRepository) CascadeStatusToTasks(ctx context.Context, featureID int64, targetTaskStatus models.TaskStatus) error {

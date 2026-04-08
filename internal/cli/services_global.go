@@ -270,6 +270,11 @@ func GetTaskService() *services.TaskService {
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
 	svc.SetEntityHistoryRepo(entityHistoryRepo)
 
+	// Wire cascade reopen dependencies so that a task regression automatically
+	// reopens terminal feature and epic ancestors (AC-T1 / REQ-F-001).
+	epicRepo := repository.NewEpicRepository(d.db)
+	svc.SetCascadeDeps(d.db, d.featureRepo, epicRepo, entityHistoryRepo, entityHistoryRepo)
+
 	// Wire sub-services for query delegation.
 	querySvc := services.NewTaskQueryService(d.taskRepo)
 	svc.SetQueryService(querySvc)
@@ -305,6 +310,11 @@ func GetTaskServiceWithHistory() *services.TaskService {
 	historySvc.SetEpicRepo(epicRepo)
 	svc.SetHistoryService(historySvc)
 
+	// Wire cascade reopen dependencies so that a task regression automatically
+	// reopens terminal feature and epic ancestors (AC-T1 / REQ-F-001).
+	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
+	svc.SetCascadeDeps(d.db, d.featureRepo, epicRepo, entityHistoryRepo, entityHistoryRepo)
+
 	return svc
 }
 
@@ -338,12 +348,16 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
 	svc.SetEntityHistoryRepo(entityHistoryRepo)
 
+	// Wire cascade reopen dependencies so that a task regression automatically
+	// reopens terminal feature and epic ancestors (AC-T1 / REQ-F-001).
+	epicRepo := repository.NewEpicRepository(d.db)
+	svc.SetCascadeDeps(d.db, d.featureRepo, epicRepo, entityHistoryRepo, entityHistoryRepo)
+
 	// Wire sub-services for query delegation.
 	querySvc := services.NewTaskQueryService(d.taskRepo)
 	svc.SetQueryService(querySvc)
 
 	// Wire history sub-service for sessions/analytics.
-	epicRepo := repository.NewEpicRepository(d.db)
 	historySvc := services.NewTaskHistoryService(&taskHistoryAdapter{repo: d.historyRepo})
 	historySvc.SetSessionRepo(sessionRepo)
 	historySvc.SetFeatureRepo(d.featureRepo)

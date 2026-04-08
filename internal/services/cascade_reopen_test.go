@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	gosync "sync"
 	"testing"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
-	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
 // ============================================================
@@ -223,18 +223,6 @@ func newTestEpic(id int64, status string) *models.Epic {
 		},
 		Status: models.EpicStatus(status),
 	}
-}
-
-// workflowServiceAdapter wraps *workflow.Service and implements levelWorkflowProvider.
-// This is necessary because *workflow.Service.ForLevel returns *workflow.Service
-// (a concrete type), while levelWorkflowProvider.ForLevel must return levelWorkflow
-// (an interface). The adapter bridges the concrete→interface gap.
-type workflowServiceAdapter struct {
-	svc *workflow.Service
-}
-
-func (a *workflowServiceAdapter) ForLevel(level string) levelWorkflow {
-	return a.svc.ForLevel(level)
 }
 
 // ============================================================
@@ -472,6 +460,153 @@ func TestCascade_FeatureBackwardReopensEpic(t *testing.T) {
 	// Exactly one history row (for epic).
 	if histTx.calls != 1 {
 		t.Errorf("expected 1 history row (epic only), got %d", histTx.calls)
+	}
+}
+
+// ============================================================
+// epicID path: cascadeLegEpic + epicID skips feature lookup
+// ============================================================
+
+// TestCascade_EpicIDPathSkipsFeatureLookup verifies that when cascadeTrigger has
+// startLeg=cascadeLegEpic AND epicID != 0, the cascade goes directly to the epic
+// without calling featureRepo.GetByID at all. This is the code path used by
+// maybeReopenParentEpic (CreateFeature trigger) after the REQ-F-003 refactor.
+func TestCascade_EpicIDPathSkipsFeatureLookup(t *testing.T) {
+	ctx := context.Background()
+
+	epicID := int64(299)
+	epic := newTestEpic(epicID, "completed") // terminal — should be reopened
+
+	txBeginner, _ := newMockTxBeginner()
+	featureRepo := &mockCascadeFeatureRepo{
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Feature, error) {
+			t.Errorf("featureRepo.GetByID should NOT be called on the epicID path, got id=%d", id)
+			return nil, fmt.Errorf("unexpected call")
+		},
+	}
+	epicRepo := &mockCascadeEpicRepo{
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Epic, error) {
+			if id == epicID {
+				return epic, nil
+			}
+			return nil, fmt.Errorf("unexpected epic id %d", id)
+		},
+	}
+	histQuerier := &mockParentReopenHistoryQuerier{
+		GetLastNonTerminalStatusFunc: func(_ context.Context, entityType models.EntityType, _ int64, _ []string) (string, bool, error) {
+			if entityType == models.EntityTypeEpic {
+				return "in_development", true, nil
+			}
+			return "", false, nil
+		},
+	}
+	histTx := &mockEntityHistoryTxRecorder{}
+
+	wf := newTestTaskWorkflowService(t)
+
+	deps := cascadeDeps{
+		db:             txBeginner,
+		featureRepo:    featureRepo,
+		epicRepo:       epicRepo,
+		historyQuerier: histQuerier,
+		historyTx:      histTx,
+		workflowSvc:    wf,
+	}
+	// epicID path: startLeg=cascadeLegEpic and epicID is set — no featureID needed.
+	trigger := cascadeTrigger{
+		triggerKey:  "E07-F05",
+		triggerKind: "creation",
+		triggerType: models.EntityTypeFeature,
+		startLeg:    cascadeLegEpic,
+		epicID:      epicID,
+	}
+
+	cascadeParentReopens(ctx, deps, trigger)
+
+	// featureRepo.GetByID must not have been called.
+	if featureRepo.getByIDCalls != 0 {
+		t.Errorf("expected 0 featureRepo.GetByID calls, got %d", featureRepo.getByIDCalls)
+	}
+
+	// Feature must NOT be updated (epicID path has no feature leg).
+	if featureRepo.updateStatusTxCalls != 0 {
+		t.Errorf("expected 0 feature updates, got %d", featureRepo.updateStatusTxCalls)
+	}
+
+	// Epic must be reopened.
+	if epicRepo.updateStatusTxCalls != 1 {
+		t.Errorf("expected 1 epic update, got %d", epicRepo.updateStatusTxCalls)
+	}
+	if epicRepo.lastUpdateStatus != "in_development" {
+		t.Errorf("epic should reopen to in_development, got %q", epicRepo.lastUpdateStatus)
+	}
+
+	// Exactly one history row (for epic only).
+	if histTx.calls != 1 {
+		t.Errorf("expected 1 history row (epic only), got %d", histTx.calls)
+	}
+	row := histTx.captured[0]
+	if row.EntityType != models.EntityTypeEpic {
+		t.Errorf("expected history row EntityType=epic, got %q", row.EntityType)
+	}
+	if !strings.HasPrefix(*row.Notes, "auto_reopen:") {
+		t.Errorf("notes should start with auto_reopen: prefix, got %q", *row.Notes)
+	}
+}
+
+// TestCascade_EpicIDPathNoOpWhenEpicNonTerminal verifies the epicID path is a no-op
+// when the epic is already non-terminal, without touching the feature layer.
+func TestCascade_EpicIDPathNoOpWhenEpicNonTerminal(t *testing.T) {
+	ctx := context.Background()
+
+	epicID := int64(298)
+	epic := newTestEpic(epicID, "in_development") // non-terminal
+
+	txBeginner, _ := newMockTxBeginner()
+	featureRepo := &mockCascadeFeatureRepo{
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Feature, error) {
+			t.Errorf("featureRepo.GetByID should NOT be called on the epicID path, got id=%d", id)
+			return nil, fmt.Errorf("unexpected call")
+		},
+	}
+	epicRepo := &mockCascadeEpicRepo{
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Epic, error) {
+			return epic, nil
+		},
+	}
+	histTx := &mockEntityHistoryTxRecorder{}
+	wf := newTestTaskWorkflowService(t)
+
+	deps := cascadeDeps{
+		db:             txBeginner,
+		featureRepo:    featureRepo,
+		epicRepo:       epicRepo,
+		historyQuerier: &mockParentReopenHistoryQuerier{},
+		historyTx:      histTx,
+		workflowSvc:    wf,
+	}
+	trigger := cascadeTrigger{
+		triggerKey:  "E07-F06",
+		triggerKind: "creation",
+		triggerType: models.EntityTypeFeature,
+		startLeg:    cascadeLegEpic,
+		epicID:      epicID,
+	}
+
+	cascadeParentReopens(ctx, deps, trigger)
+
+	if featureRepo.getByIDCalls != 0 {
+		t.Errorf("expected 0 featureRepo.GetByID calls, got %d", featureRepo.getByIDCalls)
+	}
+	if epicRepo.updateStatusTxCalls != 0 {
+		t.Errorf("expected 0 epic updates (non-terminal), got %d", epicRepo.updateStatusTxCalls)
+	}
+	if histTx.calls != 0 {
+		t.Errorf("expected 0 history rows (no-op), got %d", histTx.calls)
+	}
+	// Transaction must not have been opened (early return before BeginTxContext).
+	if txBeginner.beginCalls != 0 {
+		t.Errorf("expected 0 BeginTx calls on no-op, got %d", txBeginner.beginCalls)
 	}
 }
 
@@ -753,7 +888,7 @@ func TestResolveReopenTarget_FallbackAggregation(t *testing.T) {
 
 	// Use a workflow service that has aggregation statuses.
 	// The basic profile uses "active" as _aggregation_.
-	wfAdapter := &workflowServiceAdapter{svc: newTestEpicWorkflowServiceForBackward(t)}
+	wfAdapter := &workflowProviderAdapter{svc: newTestEpicWorkflowServiceForBackward(t)}
 	levelWf := wfAdapter.ForLevel("epic")
 
 	status, fallbackKind, err := resolveReopenTarget(ctx, histQuerier, models.EntityTypeEpic, 99, levelWf)
@@ -785,7 +920,7 @@ func TestResolveReopenTarget_HistoryError(t *testing.T) {
 			return "", false, expectedErr
 		},
 	}
-	wfAdapter := &workflowServiceAdapter{svc: newTestEpicWorkflowServiceForBackward(t)}
+	wfAdapter := &workflowProviderAdapter{svc: newTestEpicWorkflowServiceForBackward(t)}
 	levelWf := wfAdapter.ForLevel("epic")
 
 	_, _, err := resolveReopenTarget(ctx, histQuerier, models.EntityTypeEpic, 99, levelWf)
@@ -1495,7 +1630,7 @@ func (m *mockLevelWorkflow) GetInitialStatusString() string {
 
 func newTestTaskWorkflowService(t *testing.T) levelWorkflowProvider {
 	t.Helper()
-	return &workflowServiceAdapter{svc: newTestEpicWorkflowServiceForBackward(t)}
+	return &workflowProviderAdapter{svc: newTestEpicWorkflowServiceForBackward(t)}
 }
 
 // ============================================================
@@ -1657,18 +1792,6 @@ func TestCascade_ConcurrentCascadeOnSameAncestorWritesExactlyOneHistoryRow(t *te
 		}
 	}
 
-	epicRepo := &mockCascadeEpicRepo{
-		GetByIDFunc: func(_ context.Context, _ int64) (*models.Epic, error) {
-			return newTestEpic(epicID, "in_development"), nil // non-terminal
-		},
-	}
-
-	histQuerier := &mockParentReopenHistoryQuerier{
-		GetLastNonTerminalStatusFunc: func(_ context.Context, _ models.EntityType, _ int64, _ []string) (string, bool, error) {
-			return "in_qa", true, nil
-		},
-	}
-
 	sharedHistTx := &mockEntityHistoryTxRecorder{
 		CreateTxFunc: func(ctx context.Context, tx *sql.Tx, history *models.EntityHistory) error {
 			mu.Lock()
@@ -1680,7 +1803,21 @@ func TestCascade_ConcurrentCascadeOnSameAncestorWritesExactlyOneHistoryRow(t *te
 		},
 	}
 
+	// epicRepo and histQuerier are constructed inside makeDeps so each goroutine
+	// gets its own instance. This eliminates the data races on the unsynchronized
+	// call-counter fields (getByIDCalls, calls) that would otherwise be mutated
+	// concurrently by both goroutines. (BUG-QA-001)
 	makeDeps := func(featureRepo *mockCascadeFeatureRepo) cascadeDeps {
+		epicRepo := &mockCascadeEpicRepo{
+			GetByIDFunc: func(_ context.Context, _ int64) (*models.Epic, error) {
+				return newTestEpic(epicID, "in_development"), nil // non-terminal
+			},
+		}
+		histQuerier := &mockParentReopenHistoryQuerier{
+			GetLastNonTerminalStatusFunc: func(_ context.Context, _ models.EntityType, _ int64, _ []string) (string, bool, error) {
+				return "in_qa", true, nil
+			},
+		}
 		return cascadeDeps{
 			db:             &mockTxBeginner{},
 			featureRepo:    featureRepo,
@@ -1794,6 +1931,46 @@ func TestResolveReopenTarget_EmptyTerminalSetFallsBackToInitial(t *testing.T) {
 // ============================================================
 // buildAutoReopenNotes helper tests
 // ============================================================
+
+// ============================================================
+// AC-11: Bug status transitions do not trigger cascade reopens
+// ============================================================
+
+// TestCascade_BugDoesNotTriggerCascade verifies that BugService has no cascade
+// reopen infrastructure. Bugs are standalone entities unrelated to the
+// epic→feature→task hierarchy, so no cascade hook should ever fire for them.
+//
+// This is a structural test: it confirms that BugService has none of the cascade
+// dependency fields (cascadeDB, cascadeFeatureRepo, cascadeEpicRepo,
+// cascadeHistQuerier, cascadeHistTx) and exposes no SetCascadeDeps method.
+// The reflect loop exhaustively checks field names so that future accidental
+// additions are caught automatically.
+func TestCascade_BugDoesNotTriggerCascade(t *testing.T) {
+	bugServiceType := reflect.TypeOf(BugService{})
+
+	cascadeFieldNames := []string{
+		"cascadeDB",
+		"cascadeFeatureRepo",
+		"cascadeEpicRepo",
+		"cascadeHistQuerier",
+		"cascadeHistTx",
+	}
+
+	for _, fieldName := range cascadeFieldNames {
+		if _, ok := bugServiceType.FieldByName(fieldName); ok {
+			t.Errorf("BugService must not have cascade field %q — bugs are standalone entities and must never trigger parent cascade reopens", fieldName)
+		}
+	}
+
+	// Also verify there is no SetCascadeDeps method on BugService or *BugService.
+	bugServicePtrType := reflect.TypeOf(&BugService{})
+	if _, ok := bugServiceType.MethodByName("SetCascadeDeps"); ok {
+		t.Error("BugService must not have a SetCascadeDeps method")
+	}
+	if _, ok := bugServicePtrType.MethodByName("SetCascadeDeps"); ok {
+		t.Error("*BugService must not have a SetCascadeDeps method")
+	}
+}
 
 func TestBuildAutoReopenNotes(t *testing.T) {
 	tests := []struct {

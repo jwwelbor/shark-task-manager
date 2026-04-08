@@ -44,12 +44,17 @@ func (i *Initializer) Initialize(ctx context.Context, opts InitOptions) (*InitRe
 	result.ConfigCreated = configCreated
 	result.ConfigPath, _ = filepath.Abs(opts.ConfigPath)
 
-	// Step 4: Copy templates
-	count, err := i.copyTemplates(opts.Force, opts.TemplateDir)
+	// Step 4: Copy templates (always runs — keeps shark-templates/ in sync with
+	// the embedded versions). Files modified by the user are left alone unless
+	// opts.Force is set; their paths are returned in TemplatesDiffered so the
+	// caller can warn.
+	tmpl, err := i.copyTemplates(opts.Force, opts.TemplateDir)
 	if err != nil {
 		return nil, &InitError{Step: "templates", Message: "Failed to copy templates", Err: err}
 	}
-	result.TemplatesCopied = count
+	result.TemplatesCopied = tmpl.Copied
+	result.TemplatesRefreshed = tmpl.Refreshed
+	result.TemplatesDiffered = tmpl.Differed
 
 	return result, nil
 }

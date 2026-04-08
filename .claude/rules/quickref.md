@@ -153,9 +153,11 @@ shark related-docs add --feature=E07-F01 --path="docs/design.md"
 ## Configuration & Setup
 
 ```bash
-# Initialize
-shark init --non-interactive
-shark init update --workflow=advanced      # Apply advanced workflow
+# Initialize / re-sync templates from embedded shark-templates/
+shark admin init --non-interactive
+shark admin init --force                   # Overwrite locally-modified template files
+# To switch workflows, edit workflow_config in .sharkconfig.json (point at
+# shark-templates/.sharkworkflow.json for the long-form workflow).
 
 # Configuration
 shark config show                          # Show full config

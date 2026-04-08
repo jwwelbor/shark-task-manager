@@ -114,8 +114,7 @@ Setup, maintenance, and configuration commands are grouped under `shark admin`.
 
 | Command | Description |
 |---------|-------------|
-| `shark admin init [--non-interactive]` | Initialize project |
-| `shark admin init update [--workflow=basic\|advanced]` | Update workflow configuration |
+| `shark admin init [--non-interactive] [--force]` | Initialize project / re-sync templates |
 | `shark admin validate` | Validate project structure |
 | `shark admin migrate slugs` | Backfill slugs for all entities |
 | `shark admin cloud init/status` | Cloud database management |

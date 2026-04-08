@@ -27,7 +27,20 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
+
+// workflowProviderAdapter wraps *workflow.Service and implements levelWorkflowProvider.
+// This is necessary because *workflow.Service.ForLevel returns *workflow.Service
+// (a concrete type), while levelWorkflowProvider.ForLevel must return levelWorkflow
+// (an interface). The adapter bridges the concrete→interface gap for production wiring.
+type workflowProviderAdapter struct {
+	svc *workflow.Service
+}
+
+func (a *workflowProviderAdapter) ForLevel(level string) levelWorkflow {
+	return a.svc.ForLevel(level)
+}
 
 // ============================================================
 // Narrow repository interfaces (defined at point of use per convention)
@@ -145,8 +158,8 @@ type cascadeTrigger struct {
 	triggerKind string            // "regression" or "creation"
 	triggerType models.EntityType // models.EntityTypeTask or models.EntityTypeFeature
 	startLeg    cascadeLeg        // cascadeLegFeature or cascadeLegEpic
-	featureID   int64             // feature to start from (for cascadeLegFeature) or
-	// the feature whose epic to walk (for cascadeLegEpic)
+	featureID   int64             // used when startLeg == cascadeLegFeature: feature to reopen and walk up from
+	epicID      int64             // used when startLeg == cascadeLegEpic && epicID != 0: bypasses feature lookup entirely
 }
 
 // ============================================================
@@ -179,27 +192,43 @@ func cascadeParentReopens(ctx context.Context, deps cascadeDeps, trigger cascade
 	var epic *models.Epic
 	var err error
 
-	// Always look up the feature to obtain feature.EpicID regardless of startLeg.
-	feature, err = deps.featureRepo.GetByID(ctx, trigger.featureID)
-	if err != nil || feature == nil {
-		slog.Warn("cascade: feature lookup failed",
-			"trigger_key", trigger.triggerKey,
-			"feature_id", trigger.featureID,
-			"error", err,
-		)
-		return
-	}
+	var featureNeedsReopen bool
 
-	featureNeedsReopen := trigger.startLeg == cascadeLegFeature && featureWf.IsTerminalStatus(string(feature.Status))
+	if trigger.startLeg == cascadeLegEpic && trigger.epicID != 0 {
+		// Epic-only path: caller already has the epic record and its ID.
+		// Skip the feature lookup entirely — there is no feature to reopen on this leg.
+		epic, err = deps.epicRepo.GetByID(ctx, trigger.epicID)
+		if err != nil || epic == nil {
+			slog.Warn("cascade: epic lookup failed",
+				"trigger_key", trigger.triggerKey,
+				"epic_id", trigger.epicID,
+				"error", err,
+			)
+			return
+		}
+	} else {
+		// Feature+epic path: look up the feature first to get its EpicID.
+		feature, err = deps.featureRepo.GetByID(ctx, trigger.featureID)
+		if err != nil || feature == nil {
+			slog.Warn("cascade: feature lookup failed",
+				"trigger_key", trigger.triggerKey,
+				"feature_id", trigger.featureID,
+				"error", err,
+			)
+			return
+		}
 
-	epic, err = deps.epicRepo.GetByID(ctx, feature.EpicID)
-	if err != nil || epic == nil {
-		slog.Warn("cascade: epic lookup failed",
-			"trigger_key", trigger.triggerKey,
-			"epic_id", feature.EpicID,
-			"error", err,
-		)
-		return
+		featureNeedsReopen = trigger.startLeg == cascadeLegFeature && featureWf.IsTerminalStatus(string(feature.Status))
+
+		epic, err = deps.epicRepo.GetByID(ctx, feature.EpicID)
+		if err != nil || epic == nil {
+			slog.Warn("cascade: epic lookup failed",
+				"trigger_key", trigger.triggerKey,
+				"epic_id", feature.EpicID,
+				"error", err,
+			)
+			return
+		}
 	}
 
 	epicNeedsReopen := epicWf.IsTerminalStatus(string(epic.Status))

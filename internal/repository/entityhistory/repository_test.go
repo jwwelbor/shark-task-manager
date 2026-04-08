@@ -272,6 +272,241 @@ func TestEntityHistoryRepo_ListByEntity(t *testing.T) {
 	})
 }
 
+func TestEntityHistoryRepo_GetLastNonTerminalStatus(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewEntityHistoryRepository(db)
+
+	const entityID int64 = 99970
+
+	cleanupEntityHistory(t, ctx, db, entityID)
+	defer cleanupEntityHistory(t, ctx, db, entityID)
+
+	baseTime := time.Now().UTC().Truncate(time.Second)
+
+	terminalStatuses := []string{"completed", "cancelled"}
+
+	t.Run("returns_most_recent_non_terminal", func(t *testing.T) {
+		cleanupEntityHistory(t, ctx, db, entityID)
+
+		// Insert: older non-terminal, then terminal, then newer non-terminal
+		histories := []*models.EntityHistory{
+			newTestEntityHistory(models.EntityTypeFeature, entityID, ehStrPtr("draft"), "in_development", baseTime.Add(0*time.Second)),
+			newTestEntityHistory(models.EntityTypeFeature, entityID, ehStrPtr("in_development"), "completed", baseTime.Add(1*time.Second)),
+			newTestEntityHistory(models.EntityTypeFeature, entityID, ehStrPtr("completed"), "in_qa", baseTime.Add(2*time.Second)),
+		}
+		for _, h := range histories {
+			if err := repo.Create(ctx, h); err != nil {
+				t.Fatalf("Create() error: %v", err)
+			}
+		}
+
+		status, found, err := repo.GetLastNonTerminalStatus(ctx, models.EntityTypeFeature, entityID, terminalStatuses)
+		if err != nil {
+			t.Fatalf("GetLastNonTerminalStatus() error: %v", err)
+		}
+		if !found {
+			t.Fatal("expected found=true, got false")
+		}
+		if status != "in_qa" {
+			t.Errorf("expected 'in_qa', got %q", status)
+		}
+	})
+
+	t.Run("returns_empty_when_all_terminal", func(t *testing.T) {
+		cleanupEntityHistory(t, ctx, db, entityID)
+
+		h := newTestEntityHistory(models.EntityTypeFeature, entityID, ehStrPtr("in_development"), "completed", baseTime)
+		if err := repo.Create(ctx, h); err != nil {
+			t.Fatalf("Create() error: %v", err)
+		}
+
+		status, found, err := repo.GetLastNonTerminalStatus(ctx, models.EntityTypeFeature, entityID, terminalStatuses)
+		if err != nil {
+			t.Fatalf("GetLastNonTerminalStatus() error: %v", err)
+		}
+		if found {
+			t.Errorf("expected found=false, got true (status=%q)", status)
+		}
+		if status != "" {
+			t.Errorf("expected empty status, got %q", status)
+		}
+	})
+
+	t.Run("returns_empty_when_no_rows", func(t *testing.T) {
+		cleanupEntityHistory(t, ctx, db, entityID)
+
+		status, found, err := repo.GetLastNonTerminalStatus(ctx, models.EntityTypeFeature, entityID, terminalStatuses)
+		if err != nil {
+			t.Fatalf("GetLastNonTerminalStatus() error: %v", err)
+		}
+		if found {
+			t.Errorf("expected found=false for empty table, got true (status=%q)", status)
+		}
+		if status != "" {
+			t.Errorf("expected empty status, got %q", status)
+		}
+	})
+
+	t.Run("filters_by_entity_type", func(t *testing.T) {
+		cleanupEntityHistory(t, ctx, db, entityID)
+
+		// Insert epic history with non-terminal status, feature history with only terminal
+		hEpic := newTestEntityHistory(models.EntityTypeEpic, entityID, ehStrPtr("draft"), "in_development", baseTime)
+		hFeature := newTestEntityHistory(models.EntityTypeFeature, entityID, ehStrPtr("in_qa"), "completed", baseTime.Add(time.Second))
+		if err := repo.Create(ctx, hEpic); err != nil {
+			t.Fatalf("Create() error: %v", err)
+		}
+		if err := repo.Create(ctx, hFeature); err != nil {
+			t.Fatalf("Create() error: %v", err)
+		}
+
+		// Query for feature type only: should find nothing (only terminal)
+		status, found, err := repo.GetLastNonTerminalStatus(ctx, models.EntityTypeFeature, entityID, terminalStatuses)
+		if err != nil {
+			t.Fatalf("GetLastNonTerminalStatus() error: %v", err)
+		}
+		if found {
+			t.Errorf("expected no non-terminal feature rows, got status=%q", status)
+		}
+	})
+
+	t.Run("empty_terminal_set_returns_most_recent", func(t *testing.T) {
+		cleanupEntityHistory(t, ctx, db, entityID)
+
+		h := newTestEntityHistory(models.EntityTypeFeature, entityID, ehStrPtr("draft"), "completed", baseTime)
+		if err := repo.Create(ctx, h); err != nil {
+			t.Fatalf("Create() error: %v", err)
+		}
+
+		// With empty terminal set, all statuses are non-terminal
+		status, found, err := repo.GetLastNonTerminalStatus(ctx, models.EntityTypeFeature, entityID, []string{})
+		if err != nil {
+			t.Fatalf("GetLastNonTerminalStatus() error: %v", err)
+		}
+		if !found {
+			t.Fatal("expected found=true with empty terminal set")
+		}
+		if status != "completed" {
+			t.Errorf("expected 'completed', got %q", status)
+		}
+	})
+}
+
+func TestEntityHistoryRepo_CreateTx(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewEntityHistoryRepository(db)
+
+	const entityID int64 = 99980
+
+	cleanupEntityHistory(t, ctx, db, entityID)
+	defer cleanupEntityHistory(t, ctx, db, entityID)
+
+	t.Run("inserts_within_transaction", func(t *testing.T) {
+		cleanupEntityHistory(t, ctx, db, entityID)
+
+		tx, err := database.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("BeginTx() error: %v", err)
+		}
+
+		h := &models.EntityHistory{
+			EntityType: models.EntityTypeFeature,
+			EntityID:   entityID,
+			FromStatus: ehStrPtr("completed"),
+			ToStatus:   "in_qa",
+			ChangedAt:  time.Now().UTC().Truncate(time.Second),
+		}
+
+		if err := repo.CreateTx(ctx, tx, h); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("CreateTx() error: %v", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("Commit() error: %v", err)
+		}
+
+		// Verify row is committed
+		results, err := repo.ListByEntity(ctx, models.EntityTypeFeature, entityID)
+		if err != nil {
+			t.Fatalf("ListByEntity() error: %v", err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("expected 1 row, got %d", len(results))
+		}
+		if results[0].ToStatus != "in_qa" {
+			t.Errorf("expected ToStatus 'in_qa', got %q", results[0].ToStatus)
+		}
+		if h.ID == 0 {
+			t.Error("expected ID to be set after CreateTx")
+		}
+	})
+
+	t.Run("rollback_leaves_no_row", func(t *testing.T) {
+		cleanupEntityHistory(t, ctx, db, entityID)
+
+		tx, err := database.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("BeginTx() error: %v", err)
+		}
+
+		h := &models.EntityHistory{
+			EntityType: models.EntityTypeFeature,
+			EntityID:   entityID,
+			FromStatus: ehStrPtr("completed"),
+			ToStatus:   "in_development",
+			ChangedAt:  time.Now().UTC().Truncate(time.Second),
+		}
+
+		if err := repo.CreateTx(ctx, tx, h); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("CreateTx() error: %v", err)
+		}
+
+		// Roll back instead of committing
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Rollback() error: %v", err)
+		}
+
+		// Verify no row persisted
+		results, err := repo.ListByEntity(ctx, models.EntityTypeFeature, entityID)
+		if err != nil {
+			t.Fatalf("ListByEntity() error: %v", err)
+		}
+		if len(results) != 0 {
+			t.Errorf("expected 0 rows after rollback, got %d", len(results))
+		}
+	})
+
+	t.Run("validates_before_insert", func(t *testing.T) {
+		tx, err := database.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("BeginTx() error: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		// Invalid: empty ToStatus
+		h := &models.EntityHistory{
+			EntityType: models.EntityTypeFeature,
+			EntityID:   entityID,
+			ToStatus:   "", // invalid
+			ChangedAt:  time.Now(),
+		}
+
+		err = repo.CreateTx(ctx, tx, h)
+		if err == nil {
+			t.Fatal("expected validation error, got nil")
+		}
+		if !strings.Contains(err.Error(), "validation failed") {
+			t.Errorf("expected 'validation failed' in error, got: %v", err)
+		}
+	})
+}
+
 func TestEntityHistoryRepo_NullHandling(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()

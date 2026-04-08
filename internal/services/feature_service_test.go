@@ -3357,21 +3357,16 @@ func TestFeatureService_GetFeatureDisplayData(t *testing.T) {
 // ============================================================================
 
 func TestFeatureService_CreateFeature_ReopensTerminalEpic(t *testing.T) {
-	epicUpdated := false
-	var capturedEpicStatus models.EpicStatus
+	theEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"},
+		Status:     "completed",
+	}
 
 	epicLookup := &mockFeatureEpicLookup{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"},
-				Status:     "completed",
-			}, nil
+			return theEpic, nil
 		},
-		updateFn: func(ctx context.Context, epic *models.Epic) error {
-			epicUpdated = true
-			capturedEpicStatus = epic.Status
-			return nil
-		},
+		// updateFn is intentionally absent: the cascade path uses UpdateStatusTx, not Update.
 	}
 
 	featureRepo := &mockFeatureRepo{
@@ -3385,6 +3380,18 @@ func TestFeatureService_CreateFeature_ReopensTerminalEpic(t *testing.T) {
 	}
 
 	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
+
+	// Wire cascade deps so maybeReopenParentEpic uses the cascade path.
+	txBeginner, _ := newMockTxBeginner()
+	cascadeEpicRepo := &mockCascadeEpicRepo{
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Epic, error) {
+			if id == theEpic.ID {
+				return theEpic, nil
+			}
+			return nil, fmt.Errorf("unexpected epic id %d", id)
+		},
+	}
+	svc.SetCascadeDeps(txBeginner, cascadeEpicRepo, &mockParentReopenHistoryQuerier{}, &mockEntityHistoryTxRecorder{})
 
 	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
 		EpicKey: "E01",
@@ -3397,26 +3404,27 @@ func TestFeatureService_CreateFeature_ReopensTerminalEpic(t *testing.T) {
 	if feature == nil {
 		t.Fatal("expected feature, got nil")
 	}
-	if !epicUpdated {
-		t.Error("expected epic to be updated (reopened)")
+	// Cascade should have called UpdateStatusTx on the epic.
+	if cascadeEpicRepo.updateStatusTxCalls != 1 {
+		t.Errorf("expected epic to be reopened via cascade (1 UpdateStatusTx call), got %d", cascadeEpicRepo.updateStatusTxCalls)
 	}
-	if capturedEpicStatus != "active" {
-		t.Errorf("expected epic status 'active', got %q", capturedEpicStatus)
+	// Aggregation fallback target for the default workflow is "active".
+	if cascadeEpicRepo.lastUpdateStatus != "active" {
+		t.Errorf("expected epic reopened to 'active' (aggregation fallback), got %q", cascadeEpicRepo.lastUpdateStatus)
 	}
 }
 
 // TestFeatureService_CreateFeature_ReopenRecordsHistory verifies that auto-reopen
-// creates an entity_history record with "auto-reopened" in notes (AC-3 audit trail).
+// via the cascade path writes an entity_history row with the "auto_reopen:" prefix.
 func TestFeatureService_CreateFeature_ReopenRecordsHistory(t *testing.T) {
+	theEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"},
+		Status:     "completed",
+	}
+
 	epicLookup := &mockFeatureEpicLookup{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"},
-				Status:     "completed",
-			}, nil
-		},
-		updateFn: func(ctx context.Context, epic *models.Epic) error {
-			return nil
+			return theEpic, nil
 		},
 	}
 
@@ -3432,8 +3440,15 @@ func TestFeatureService_CreateFeature_ReopenRecordsHistory(t *testing.T) {
 
 	svc := NewFeatureService(featureRepo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
 
-	historyRecorder := &mockEntityHistoryRecorder{}
-	svc.SetEntityHistoryRepo(historyRecorder)
+	// Wire cascade deps — history is recorded via historyTx in the cascade path.
+	txBeginner, _ := newMockTxBeginner()
+	cascadeEpicRepo := &mockCascadeEpicRepo{
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Epic, error) {
+			return theEpic, nil
+		},
+	}
+	histTx := &mockEntityHistoryTxRecorder{}
+	svc.SetCascadeDeps(txBeginner, cascadeEpicRepo, &mockParentReopenHistoryQuerier{}, histTx)
 
 	feature, err := svc.CreateFeature(context.Background(), CreateFeatureInput{
 		EpicKey: "E01",
@@ -3446,16 +3461,17 @@ func TestFeatureService_CreateFeature_ReopenRecordsHistory(t *testing.T) {
 	if feature == nil {
 		t.Fatal("expected feature, got nil")
 	}
-	if len(historyRecorder.created) != 1 {
-		t.Fatalf("expected 1 entity_history record, got %d", len(historyRecorder.created))
+	// Cascade writes history via historyTx, not the legacy recordEntityHistory path.
+	if histTx.calls != 1 {
+		t.Fatalf("expected 1 cascade history row, got %d", histTx.calls)
 	}
 
-	h := historyRecorder.created[0]
+	h := histTx.captured[0]
 	if h.EntityType != models.EntityTypeEpic {
 		t.Errorf("expected entity_type 'epic', got %q", h.EntityType)
 	}
-	if h.EntityID != 1 {
-		t.Errorf("expected entity_id 1, got %d", h.EntityID)
+	if h.EntityID != theEpic.ID {
+		t.Errorf("expected entity_id %d, got %d", theEpic.ID, h.EntityID)
 	}
 	if h.FromStatus == nil || *h.FromStatus != "completed" {
 		t.Errorf("expected from_status 'completed', got %v", h.FromStatus)
@@ -3463,8 +3479,9 @@ func TestFeatureService_CreateFeature_ReopenRecordsHistory(t *testing.T) {
 	if h.ToStatus != "active" {
 		t.Errorf("expected to_status 'active', got %q", h.ToStatus)
 	}
-	if h.Notes == nil || !strings.Contains(*h.Notes, "auto-reopened") {
-		t.Errorf("expected notes to contain 'auto-reopened', got %v", h.Notes)
+	// Cascade uses "auto_reopen:" prefix (underscore), visible in shark status history.
+	if h.Notes == nil || !strings.HasPrefix(*h.Notes, "auto_reopen:") {
+		t.Errorf("expected notes to have 'auto_reopen:' prefix, got %v", h.Notes)
 	}
 }
 
@@ -3552,18 +3569,14 @@ func TestFeatureService_CreateFeature_ReopenFailureDoesNotFailCreate(t *testing.
 }
 
 func TestFeatureService_CreateFeature_CustomAggregationStatus(t *testing.T) {
-	var capturedEpicStatus models.EpicStatus
+	theEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"},
+		Status:     "done", // Custom terminal status
+	}
 
 	epicLookup := &mockFeatureEpicLookup{
 		getByKeyFn: func(ctx context.Context, key string) (*models.Epic, error) {
-			return &models.Epic{
-				BaseEntity: models.BaseEntity{ID: 1, Key: "E01", Title: "Test Epic"},
-				Status:     "done", // Custom terminal status
-			}, nil
-		},
-		updateFn: func(ctx context.Context, epic *models.Epic) error {
-			capturedEpicStatus = epic.Status
-			return nil
+			return theEpic, nil
 		},
 	}
 
@@ -3618,6 +3631,15 @@ func TestFeatureService_CreateFeature_CustomAggregationStatus(t *testing.T) {
 	customWf := workflow.NewService(tempDir)
 	svc := NewFeatureService(featureRepo, NewEntityService(customWf), featureRepoAsEntityRepo(featureRepo), nil, epicLookup)
 
+	// Wire cascade deps — cascade uses the service's workflow, so the custom _aggregation_ applies.
+	txBeginner, _ := newMockTxBeginner()
+	cascadeEpicRepo := &mockCascadeEpicRepo{
+		GetByIDFunc: func(_ context.Context, id int64) (*models.Epic, error) {
+			return theEpic, nil
+		},
+	}
+	svc.SetCascadeDeps(txBeginner, cascadeEpicRepo, &mockParentReopenHistoryQuerier{}, &mockEntityHistoryTxRecorder{})
+
 	feature, createErr := svc.CreateFeature(context.Background(), CreateFeatureInput{
 		EpicKey: "E01",
 		Title:   "Feature under done epic with custom aggregation",
@@ -3629,8 +3651,12 @@ func TestFeatureService_CreateFeature_CustomAggregationStatus(t *testing.T) {
 	if feature == nil {
 		t.Fatal("expected feature, got nil")
 	}
-	if capturedEpicStatus != "tracking" {
-		t.Errorf("expected epic status 'tracking' (custom aggregation), got %q", capturedEpicStatus)
+	// Cascade should reopen the epic to the custom aggregation status "tracking".
+	if cascadeEpicRepo.updateStatusTxCalls != 1 {
+		t.Errorf("expected 1 cascade UpdateStatusTx call, got %d", cascadeEpicRepo.updateStatusTxCalls)
+	}
+	if cascadeEpicRepo.lastUpdateStatus != "tracking" {
+		t.Errorf("expected epic status 'tracking' (custom aggregation), got %q", cascadeEpicRepo.lastUpdateStatus)
 	}
 }
 

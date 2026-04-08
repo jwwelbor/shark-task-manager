@@ -133,57 +133,50 @@ Slugs are auto-generated from titles and both formats work in all commands.
 
 ### Task Lifecycle
 
-Shark supports two workflow profiles with different status sets and agent assignments.
+Shark loads its task workflow (statuses, transitions, agent routing) from
+a JSON file referenced by `workflow_config` in `.sharkconfig.json`. Two
+workflow files ship inside the embedded `shark-templates/` tree:
 
-**Basic Profile (Default):**
+| File | Description |
+|---|---|
+| `shark-templates/.sharkworkflow-short.json` | **Default.** Compact workflow for solo developers and small teams. |
+| `shark-templates/.sharkworkflow.json` | Long-form multi-stage TDD/refinement/QA pipeline with per-status agent routing. |
+
+Compact workflow at a glance:
 ```
 todo → in_progress → ready_for_review → completed
                   ↘ blocked ↗
 ```
 
-**Advanced Profile (TDD Workflow):**
-Comprehensive multi-stage workflow covering planning, development, review, QA, and approval phases. See [Workflow Profiles Guide](docs/guides/workflow-profiles.md) for details.
+The long-form workflow covers planning, development, code review, QA, and
+approval phases with agent routing per status (ba, tech_lead, developer,
+qa, product_owner).
 
 Commands:
-- `shark task next-status <task>` / `shark status advance <task>` - Advance to next workflow status
-- `shark status set <task> <status>` / `shark task set-status <task> <status>` - Set status directly
-- `shark task approve <task>` - Final approval/completion
-- `shark task reopen <task>` - Move back to in-progress
+- `shark task next-status <task>` / `shark status advance <task>` — Advance to next workflow status
+- `shark status set <task> <status>` / `shark task set-status <task> <status>` — Set status directly
+- `shark task approve <task>` — Final approval/completion
+- `shark task reopen <task>` — Move back to in-progress
 
-### Workflow Profiles & Agent Routing
+### Switching workflows
 
-Shark supports two workflow profiles that define task status flows and agent responsibilities.
+To switch workflows, edit `workflow_config` in `.sharkconfig.json`:
 
-**Basic Profile (5 statuses):**
-- Simple linear workflow: todo → in_progress → ready_for_review → completed
-- Suitable for solo developers or small teams
-- No status flow enforcement
-- Single agent responsibility
-
-**Advanced Profile (19 statuses):**
-- Comprehensive TDD workflow with multiple phases
-- Designed for team development with defined roles
-- Status flow enforcement
-- Agent routing by status:
-  - **ba** (Business Analyst): Refinement phase (ready_for_refinement_ba, in_refinement_ba)
-  - **developer**: Development phase (ready_for_development, in_development)
-  - **tech_lead**: Code review and technical refinement phases (ready_for_code_review, in_code_review, ready_for_refinement_tech, in_refinement_tech)
-  - **qa**: QA phase (ready_for_qa, in_qa)
-  - **product_owner**: Approval phase (ready_for_approval, in_approval)
-
-**Switching Profiles:**
-```bash
-# Apply basic workflow
-shark init update --workflow=basic
-
-# Apply advanced workflow
-shark init update --workflow=advanced
-
-# Preview changes before applying
-shark init update --workflow=advanced --dry-run
+```json
+{
+  "workflow_config": "shark-templates/.sharkworkflow.json"
+}
 ```
 
-See [Workflow Profiles Guide](docs/guides/workflow-profiles.md) for comprehensive documentation.
+To use a custom workflow, copy one of the shipped files to your own path,
+edit it, and point `workflow_config` at your copy. `shark admin init`
+re-syncs files inside `shark-templates/` on every run but leaves files
+outside that directory alone.
+
+> The basic/advanced "profile" subsystem (`shark init update --workflow=...`,
+> `shark init merge ...`) was removed. See
+> [Workflow Configuration Guide](docs/guides/workflow-profiles.md) for the
+> migration table.
 
 ### Project Root Auto-Detection
 

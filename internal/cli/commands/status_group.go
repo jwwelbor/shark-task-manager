@@ -506,7 +506,7 @@ func runStatusHistory(cmd *cobra.Command, args []string) error {
 			oldStatus,
 			e.NewStatus,
 			e.Agent,
-			truncateString(e.Notes, 40),
+			truncateString(formatHistoryNotesForDisplay(e.Notes), 60),
 		})
 	}
 
@@ -523,4 +523,15 @@ func truncateString(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// formatHistoryNotesForDisplay returns the notes string for human-readable table output.
+// If the notes start with the "auto_reopen:" prefix, a bracketed "[auto-reopen]" label
+// is appended so operators can visually distinguish automated cascade-reopens from
+// manually authored notes.  The raw notes value stored in JSON output is unchanged.
+func formatHistoryNotesForDisplay(notes string) string {
+	if strings.HasPrefix(notes, "auto_reopen:") {
+		return notes + " [auto-reopen]"
+	}
+	return notes
 }

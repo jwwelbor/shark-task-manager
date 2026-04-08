@@ -627,6 +627,73 @@ func (r *EpicRepository) UpdateStatus(ctx context.Context, epicID int64, status 
 	return nil
 }
 
+// GetByIDTx retrieves an epic by its ID within an existing transaction.
+// Provides snapshot isolation for cascade idempotency checks (REQ-F-008):
+// reading the entity inside the cascade transaction ensures the in-tx re-fetch
+// reflects the most-recent committed state at the moment the transaction started.
+func (r *EpicRepository) GetByIDTx(ctx context.Context, tx *sql.Tx, id int64) (*models.Epic, error) {
+	query := `
+		SELECT id, key, title, description, status, priority, business_value,
+		       slug, file_path, context_data, created_at, updated_at
+		FROM epics
+		WHERE id = ?
+	`
+
+	epic := &models.Epic{}
+	err := tx.QueryRowContext(ctx, query, id).Scan(
+		&epic.ID,
+		&epic.Key,
+		&epic.Title,
+		&epic.Description,
+		&epic.Status,
+		&epic.Priority,
+		&epic.BusinessValue,
+		&epic.Slug,
+		&epic.FilePath,
+		&epic.ContextData,
+		&epic.CreatedAt,
+		&epic.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("epic not found with id %d", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get epic by id in transaction: %w", err)
+	}
+
+	return epic, nil
+}
+
+// UpdateStatusTx updates an epic's status inside an existing transaction.
+// Mirrors UpdateStatus() but accepts *sql.Tx so the cascade can own the transaction
+// and roll back atomically across feature + epic updates.
+// The agent and notes parameters are accepted for interface symmetry but are not
+// written to the epics table (which has no agent/notes columns); they are
+// intended for caller use when writing accompanying history rows.
+func (r *EpicRepository) UpdateStatusTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	id int64,
+	status string,
+	_ *string, // agent — reserved for interface symmetry, not persisted to epics table
+	_ *string, // notes — reserved for interface symmetry, not persisted to epics table
+) error {
+	query := `UPDATE epics SET status = ? WHERE id = ?`
+	result, err := tx.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return fmt.Errorf("failed to update epic status in transaction: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("epic not found with id %d", id)
+	}
+	return nil
+}
+
 // CascadeStatusToFeaturesAndTasks updates the status of all child features and their tasks.
 // Used when --force is specified to override workflow validation.
 func (r *EpicRepository) CascadeStatusToFeaturesAndTasks(ctx context.Context, epicID int64, targetFeatureStatus models.FeatureStatus, targetTaskStatus models.TaskStatus) error {

@@ -156,6 +156,13 @@ type TaskService struct {
 	enrichRepo        config.TemplateEnrichmentRepository
 	docSvc            *EntityDocumentService // shared document operations; built by SetWritableDocRepo
 
+	// Cascade reopen dependencies (all optional; cascade fires only when all are non-nil).
+	cascadeDB          txBeginner
+	cascadeFeatureRepo CascadeFeatureRepo
+	cascadeEpicRepo    CascadeEpicRepo
+	cascadeHistQuerier ParentReopenHistoryQuerier
+	cascadeHistTx      EntityHistoryTxRecorder
+
 	// Sub-services for delegating extracted functionality.
 	// When non-nil, method calls are delegated to the sub-service instead of
 	// using the inline implementations in this file.
@@ -618,6 +625,21 @@ func (s *TaskService) TransitionStatus(ctx context.Context, key string, targetSt
 		s.recalculateFeatureProgress(ctx, task.FeatureID)
 	}
 
+	// Cascade post-hook: reopen terminal parents when a task regresses from
+	// a terminal status to a non-terminal status (AC-01 / REQ-F-001).
+	if s.cascadeEnabled() && taskErr == nil {
+		taskWf := s.entitySvc.GetWorkflowService().ForLevel(workflow.LevelTask)
+		if taskWf.IsTerminalStatus(result.FromStatus) && !taskWf.IsTerminalStatus(result.ToStatus) {
+			cascadeParentReopens(ctx, s.cascadeDepsBundle(), cascadeTrigger{
+				triggerKey:  key,
+				triggerKind: "regression",
+				triggerType: models.EntityTypeTask,
+				startLeg:    cascadeLegFeature,
+				featureID:   task.FeatureID,
+			})
+		}
+	}
+
 	return result, nil
 }
 
@@ -1030,6 +1052,34 @@ func (s *TaskService) SetFeatureService(featureService *FeatureService) {
 	s.featureService = featureService
 }
 
+// SetCascadeDeps wires the optional cascade reopen dependencies.
+// All five parameters must be non-nil for the cascade to fire; any nil value
+// disables the cascade silently (graceful degradation per AC-T5).
+func (s *TaskService) SetCascadeDeps(db txBeginner, fr CascadeFeatureRepo, er CascadeEpicRepo, hq ParentReopenHistoryQuerier, ht EntityHistoryTxRecorder) {
+	s.cascadeDB = db
+	s.cascadeFeatureRepo = fr
+	s.cascadeEpicRepo = er
+	s.cascadeHistQuerier = hq
+	s.cascadeHistTx = ht
+}
+
+// cascadeEnabled returns true iff all five cascade dependencies are non-nil.
+func (s *TaskService) cascadeEnabled() bool {
+	return s.cascadeDB != nil && s.cascadeFeatureRepo != nil && s.cascadeEpicRepo != nil && s.cascadeHistQuerier != nil && s.cascadeHistTx != nil
+}
+
+// cascadeDepsBundle packages the cascade dependencies into the cascadeDeps struct.
+func (s *TaskService) cascadeDepsBundle() cascadeDeps {
+	return cascadeDeps{
+		db:             s.cascadeDB,
+		featureRepo:    s.cascadeFeatureRepo,
+		epicRepo:       s.cascadeEpicRepo,
+		historyQuerier: s.cascadeHistQuerier,
+		historyTx:      s.cascadeHistTx,
+		workflowSvc:    &workflowProviderAdapter{svc: s.entitySvc.GetWorkflowService()},
+	}
+}
+
 // recalculateFeatureProgress triggers a feature progress recalculation after a task
 // status change. Non-fatal: logs a warning on error and ignores nil featureService.
 // Only recalculates when featureID is non-zero (i.e., task is associated with a feature).
@@ -1044,14 +1094,44 @@ func (s *TaskService) recalculateFeatureProgress(ctx context.Context, featureID 
 }
 
 // maybeReopenParentFeature checks if the parent feature is in a terminal status
-// and reopens it to the first aggregation status. Best-effort: logs a warning
-// on failure, never fails the caller.
+// and reopens it. When cascade deps are wired, it uses cascadeParentReopens for
+// the full two-level walk (feature + epic) with history lookup. When cascade deps
+// are not wired, it falls back to the legacy single-level aggregation-status jump.
+//
+// Best-effort: logs a warning on failure, never fails the caller.
 //
 // Parameters:
 //   - ctx: context for cancellation
 //   - featureKey: key of the parent feature (e.g., "E01-F01")
 //   - taskKey: key of the newly created task (for audit logging)
 func (s *TaskService) maybeReopenParentFeature(ctx context.Context, featureKey string, taskKey string) {
+	if !s.cascadeEnabled() {
+		// Preserve legacy behavior when cascade dependencies are not wired (e.g., in tests).
+		s.legacyMaybeReopenParentFeature(ctx, featureKey, taskKey)
+		return
+	}
+
+	// Look up the feature by key to obtain its ID for the cascade trigger.
+	if s.featureService == nil {
+		return
+	}
+	feature, err := s.featureService.GetFeature(ctx, featureKey)
+	if err != nil || feature == nil {
+		return
+	}
+
+	cascadeParentReopens(ctx, s.cascadeDepsBundle(), cascadeTrigger{
+		triggerKey:  taskKey,
+		triggerKind: "creation",
+		triggerType: models.EntityTypeTask,
+		startLeg:    cascadeLegFeature,
+		featureID:   feature.ID,
+	})
+}
+
+// legacyMaybeReopenParentFeature is the original inline reopen logic preserved
+// verbatim as a fallback for when cascade dependencies are not wired (AC-T3).
+func (s *TaskService) legacyMaybeReopenParentFeature(ctx context.Context, featureKey string, taskKey string) {
 	if s.featureService == nil {
 		return
 	}

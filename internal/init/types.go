@@ -5,82 +5,39 @@ type InitOptions struct {
 	DBPath         string // Database file path
 	ConfigPath     string // Config file path
 	NonInteractive bool   // Skip prompts
-	Force          bool   // Overwrite existing files
+	Force          bool   // Overwrite existing config and modified templates
 	TemplateDir    string // Template directory name (default: "shark-templates")
 }
 
 // InitResult contains initialization results
 type InitResult struct {
-	DatabaseCreated bool     `json:"database_created"`
-	DatabasePath    string   `json:"database_path"`
-	FoldersCreated  []string `json:"folders_created"`
-	ConfigCreated   bool     `json:"config_created"`
-	ConfigPath      string   `json:"config_path"`
-	TemplatesCopied int      `json:"templates_copied"`
+	DatabaseCreated    bool     `json:"database_created"`
+	DatabasePath       string   `json:"database_path"`
+	FoldersCreated     []string `json:"folders_created"`
+	ConfigCreated      bool     `json:"config_created"`
+	ConfigPath         string   `json:"config_path"`
+	TemplatesCopied    int      `json:"templates_copied"`    // Files newly copied (didn't exist)
+	TemplatesRefreshed int      `json:"templates_refreshed"` // Files overwritten via --force
+	TemplatesDiffered  []string `json:"templates_differed"`  // Files skipped because local copy differs (need --force to overwrite)
 }
 
-// ConfigDefaults contains default configuration values
+// ConfigDefaults is the JSON structure written by `shark admin init` when
+// creating a fresh .sharkconfig.json. It mirrors the relevant subset of
+// internal/config.Config so the file is immediately usable.
 type ConfigDefaults struct {
-	ColorEnabled bool `json:"color_enabled"`
-	JSONOutput   bool `json:"json_output"`
+	ColorEnabled           bool                   `json:"color_enabled"`
+	JSONOutput             bool                   `json:"json_output"`
+	InteractiveMode        bool                   `json:"interactive_mode"`
+	RequireRejectionReason bool                   `json:"require_rejection_reason"`
+	Database               *DatabaseConfigDefault `json:"database"`
+	WorkflowConfig         string                 `json:"workflow_config"`
 }
 
-// WorkflowProfile represents a predefined workflow configuration
-type WorkflowProfile struct {
-	Name              string                     `json:"name"`
-	Description       string                     `json:"description"`
-	StatusMetadata    map[string]*StatusMetadata `json:"status_metadata"`
-	StatusFlow        map[string][]string        `json:"status_flow,omitempty"`
-	SpecialStatuses   map[string][]string        `json:"special_statuses,omitempty"`
-	StatusFlowVersion string                     `json:"status_flow_version,omitempty"`
-}
-
-// StatusMetadata represents metadata for a single status
-type StatusMetadata struct {
-	Color               string   `json:"color"`
-	Phase               string   `json:"phase"`
-	ProgressWeight      float64  `json:"progress_weight"`
-	Responsibility      string   `json:"responsibility"`
-	BlocksFeature       bool     `json:"blocks_feature"`
-	AgentTypes          []string `json:"agent_types,omitempty"`
-	Description         string   `json:"description,omitempty"`
-	ExcludeFromProgress bool     `json:"exclude_from_progress,omitempty"`
-}
-
-// UpdateOptions represents options for updating config
-type UpdateOptions struct {
-	ConfigPath     string
-	WorkflowName   string
-	Force          bool
-	DryRun         bool
-	NonInteractive bool
-	Verbose        bool
-}
-
-// UpdateResult represents the result of a config update
-type UpdateResult struct {
-	Success            bool          `json:"success"`
-	ProfileName        string        `json:"profile_name,omitempty"`
-	BackupPath         string        `json:"backup_path,omitempty"`
-	WorkflowFilePath   string        `json:"workflow_file_path,omitempty"`
-	WorkflowBackupPath string        `json:"workflow_backup_path,omitempty"`
-	Changes            *ChangeReport `json:"changes"`
-	ConfigPath         string        `json:"config_path"`
-	DryRun             bool          `json:"dry_run"`
-}
-
-// ChangeReport details what changed during update
-type ChangeReport struct {
-	Added       []string     `json:"added"`
-	Preserved   []string     `json:"preserved"`
-	Overwritten []string     `json:"overwritten"`
-	Stats       *ChangeStats `json:"stats"`
-}
-
-// ChangeStats provides detailed change statistics
-type ChangeStats struct {
-	StatusesAdded   int `json:"statuses_added"`
-	FlowsAdded      int `json:"flows_added"`
-	GroupsAdded     int `json:"groups_added"`
-	FieldsPreserved int `json:"fields_preserved"`
+// DatabaseConfigDefault is the database section of the default config.
+// Mirrors internal/db.DatabaseConfig (kept local to avoid an import cycle risk
+// and to keep init self-contained).
+type DatabaseConfigDefault struct {
+	Backend        string `json:"backend"`
+	URL            string `json:"url"`
+	SkipMigrations bool   `json:"skip_migrations"`
 }

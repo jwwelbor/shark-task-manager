@@ -273,8 +273,8 @@ shark docs add --feature=E07-F01 --path="docs/design.md"
 Setup and maintenance commands are grouped under `shark admin`:
 
 ```bash
-shark admin init                           # Initialize project
-shark admin init update --workflow=advanced  # Apply advanced workflow
+shark admin init                           # Initialize project / re-sync templates
+shark admin init --force                   # Overwrite locally-modified templates
 shark admin validate                       # Validate project structure
 shark admin config show                    # Show full config
 shark admin config validate                # Validate config file

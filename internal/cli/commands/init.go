@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -17,112 +16,41 @@ import (
 var (
 	initNonInteractive bool
 	initForce          bool
-	initWorkflow       string
-	workflowName       string
-	updateForce        bool
-	updateDryRun       bool
-	mergeWorkflow      string
-	mergeForce         bool
 )
 
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize Shark CLI infrastructure",
 
-	Long: `Initialize Shark CLI infrastructure by creating database schema,
-folder structure, configuration file, and task templates.
+	Long: `Initialize Shark CLI infrastructure: create the database, the
+docs/plan/ and shark-templates/ folder structure, a default .sharkconfig.json,
+and copy the embedded shark-templates/ tree.
+
+The shark-templates/ tree is re-synced from the embedded version on every run
+so template/workflow updates shipped with a new shark binary flow through
+automatically. Files you have modified locally are NOT overwritten — they are
+reported as differing from the shipped version, and you can re-run with
+--force to accept the upstream version.
 
 This command is idempotent and safe to run multiple times.`,
 	Example: `  # Initialize with default settings
-  shark init
+  shark admin init
 
   # Initialize without prompts (for automation)
-  shark init --non-interactive
+  shark admin init --non-interactive
 
-  # Force overwrite existing config
-  shark init --force`,
+  # Force overwrite existing config and locally-modified templates
+  shark admin init --force`,
 	RunE: runInit,
-}
-
-var initUpdateCmd = &cobra.Command{
-	Use:   "update [flags]",
-	Short: "Update Shark configuration",
-	Long: `Update Shark configuration with workflow profiles or add missing fields.
-
-Without --workflow flag, adds missing configuration fields while preserving
-all existing values.
-
-With --workflow flag, applies the specified workflow profile (basic or advanced).
-
-Use --dry-run to preview changes before applying.`,
-	Example: `  # Add missing fields only
-  shark init update
-
-  # Apply basic workflow (5 statuses)
-  shark init update --workflow=basic
-
-  # Apply advanced workflow (19 statuses)
-  shark init update --workflow=advanced
-
-  # Preview changes without applying
-  shark init update --workflow=advanced --dry-run
-
-  # Force overwrite existing status configurations
-  shark init update --workflow=basic --force`,
-	RunE: runInitUpdate,
-}
-
-var initMergeCmd = &cobra.Command{
-	Use:   "merge --workflow=<profile> [--force]",
-	Short: "Merge a workflow profile into configuration",
-	Long: `Merge a workflow profile into the current configuration.
-
-By default, previews changes without applying them (dry-run).
-Use --force to actually apply the changes.
-
-Available profiles: basic, advanced
-
-Preserved fields (never touched): database, project_root, last_sync_time,
-  interactive_mode, require_rejection_reason
-Replaced fields (overwritten from profile): status_metadata, status_flow,
-  special_statuses, status_flow_version, epic_workflow, feature_workflow`,
-	Example: `  # Preview what advanced profile would change
-  shark init merge --workflow=advanced
-
-  # Apply advanced profile
-  shark init merge --workflow=advanced --force
-
-  # Switch to basic profile
-  shark init merge --workflow=basic --force`,
-	RunE: runInitMerge,
 }
 
 func init() {
 	adminCmd.AddCommand(initCmd)
-	initCmd.AddCommand(initUpdateCmd)
-	initCmd.AddCommand(initMergeCmd)
 
-	// Init flags
 	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false,
 		"Skip all prompts (use defaults)")
 	initCmd.Flags().BoolVar(&initForce, "force", false,
-		"Overwrite existing config and templates")
-	initCmd.Flags().StringVar(&initWorkflow, "workflow", "",
-		"Apply workflow profile on init (basic, advanced)")
-
-	// Update subcommand flags
-	initUpdateCmd.Flags().StringVar(&workflowName, "workflow", "",
-		"Apply workflow profile (basic, advanced)")
-	initUpdateCmd.Flags().BoolVar(&updateForce, "force", false,
-		"Overwrite existing status configurations")
-	initUpdateCmd.Flags().BoolVar(&updateDryRun, "dry-run", false,
-		"Preview changes without applying")
-
-	// Merge subcommand flags
-	initMergeCmd.Flags().StringVar(&mergeWorkflow, "workflow", "",
-		"Workflow profile to merge (basic, advanced)")
-	initMergeCmd.Flags().BoolVar(&mergeForce, "force", false,
-		"Apply changes (default is dry-run preview)")
+		"Overwrite existing config and locally-modified templates")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -178,45 +106,18 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If config was created, apply workflow profile
-	if result.ConfigCreated {
-		chosenWorkflow := initWorkflow
-		if chosenWorkflow == "" {
-			chosenWorkflow = "basic" // Default to basic
-		}
-
-		profileService := init_pkg.NewProfileService(result.ConfigPath)
-		profileOpts := init_pkg.UpdateOptions{
-			ConfigPath:     result.ConfigPath,
-			WorkflowName:   chosenWorkflow,
-			DryRun:         false,
-			Force:          false,
-			NonInteractive: initNonInteractive || cli.GlobalConfig.JSON,
-			Verbose:        cli.GlobalConfig.Verbose,
-		}
-
-		_, err := profileService.ApplyProfile(profileOpts)
-		if err != nil {
-			if cli.GlobalConfig.JSON {
-				return cli.OutputJSON(map[string]interface{}{
-					"status": "error",
-					"error":  fmt.Sprintf("failed to apply workflow profile: %v", err),
-				})
-			}
-			return fmt.Errorf("failed to apply workflow profile: %w", err)
-		}
-	}
-
 	// Output results
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(map[string]interface{}{
-			"status":           "success",
-			"database_created": result.DatabaseCreated,
-			"database_path":    result.DatabasePath,
-			"folders_created":  result.FoldersCreated,
-			"config_created":   result.ConfigCreated,
-			"config_path":      result.ConfigPath,
-			"templates_copied": result.TemplatesCopied,
+			"status":              "success",
+			"database_created":    result.DatabaseCreated,
+			"database_path":       result.DatabasePath,
+			"folders_created":     result.FoldersCreated,
+			"config_created":      result.ConfigCreated,
+			"config_path":         result.ConfigPath,
+			"templates_copied":    result.TemplatesCopied,
+			"templates_refreshed": result.TemplatesRefreshed,
+			"templates_differed":  result.TemplatesDiffered,
 		})
 	}
 
@@ -248,182 +149,31 @@ func displayInitSuccess(result *init_pkg.InitResult) {
 		fmt.Printf("✓ Config file exists: %s\n", result.ConfigPath)
 	}
 
-	if result.TemplatesCopied > 0 {
+	switch {
+	case result.TemplatesCopied > 0 && result.TemplatesRefreshed > 0:
+		fmt.Printf("✓ Templates: %d copied, %d refreshed\n", result.TemplatesCopied, result.TemplatesRefreshed)
+	case result.TemplatesCopied > 0:
 		fmt.Printf("✓ Templates copied: %d files\n", result.TemplatesCopied)
-	} else {
-		fmt.Println("✓ Templates exist")
+	case result.TemplatesRefreshed > 0:
+		fmt.Printf("✓ Templates refreshed: %d files\n", result.TemplatesRefreshed)
+	default:
+		fmt.Println("✓ Templates up to date")
+	}
+
+	// Surface locally-modified templates that diverge from the shipped version
+	// so the user knows an upgrade is available behind --force.
+	if len(result.TemplatesDiffered) > 0 {
+		fmt.Println()
+		cli.Warning(fmt.Sprintf("%d template file(s) differ from the shipped version and were left unchanged:", len(result.TemplatesDiffered)))
+		for _, p := range result.TemplatesDiffered {
+			fmt.Printf("  - %s\n", p)
+		}
+		fmt.Println("  Re-run with --force to overwrite local changes with the shipped version.")
 	}
 
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("1. Edit .sharkconfig.json to set default epic and agent")
-	fmt.Println("2. Create tasks with: shark task create \"Task title\" --epic=E01 --feature=F01 --agent=backend")
-	fmt.Println("3. Create tasks with: shark task create")
-
-	// Only show profile message if config was created
-	if result.ConfigCreated {
-		fmt.Println()
-		fmt.Println("Workflow profile applied: basic (4 statuses: todo, in_progress, completed, blocked)")
-		fmt.Println("To upgrade to advanced profile: shark init merge --workflow=advanced --force")
-	}
-}
-
-// configPathFromCmd returns the config file path from the --config flag, or the
-// default ".sharkconfig.json" if the flag is not set.
-func configPathFromCmd(cmd *cobra.Command) string {
-	if configFlag := cmd.Flag("config"); configFlag != nil && configFlag.Value.String() != "" {
-		return configFlag.Value.String()
-	}
-	return ".sharkconfig.json"
-}
-
-func runInitMerge(cmd *cobra.Command, args []string) error {
-	// Require --workflow flag
-	if mergeWorkflow == "" {
-		available, err := init_pkg.ListProfiles()
-		if err != nil {
-			return fmt.Errorf("--workflow flag is required (failed to list profiles: %w)", err)
-		}
-		return fmt.Errorf("--workflow flag is required (available: %s)",
-			strings.Join(available, ", "))
-	}
-
-	// Determine config path
-	configPath := configPathFromCmd(cmd)
-
-	// Create profile service
-	service := init_pkg.NewProfileService(configPath)
-
-	// Build options: dry-run by default, --force to apply
-	opts := init_pkg.UpdateOptions{
-		ConfigPath:     configPath,
-		WorkflowName:   mergeWorkflow,
-		Force:          true, // Always overwrite workflow fields when merging
-		DryRun:         !mergeForce,
-		NonInteractive: true,
-		Verbose:        cli.GlobalConfig.Verbose,
-	}
-
-	result, err := service.ApplyProfile(opts)
-	if err != nil {
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"success": false,
-				"error":   err.Error(),
-			})
-		}
-		return fmt.Errorf("failed to merge profile: %w", err)
-	}
-
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(result)
-	}
-
-	displayUpdateResult(result)
-	return nil
-}
-
-func runInitUpdate(cmd *cobra.Command, args []string) error {
-	// Determine config path
-	configPath := configPathFromCmd(cmd)
-
-	// Create profile service
-	service := init_pkg.NewProfileService(configPath)
-
-	// Build update options
-	opts := init_pkg.UpdateOptions{
-		ConfigPath:     configPath,
-		WorkflowName:   workflowName,
-		Force:          updateForce,
-		DryRun:         updateDryRun,
-		NonInteractive: cli.GlobalConfig.JSON,
-		Verbose:        cli.GlobalConfig.Verbose,
-	}
-
-	// Apply profile (or add missing fields if no workflow specified)
-	result, err := service.ApplyProfile(opts)
-	if err != nil {
-		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(map[string]interface{}{
-				"success": false,
-				"error":   err.Error(),
-			})
-		}
-		return fmt.Errorf("failed to update config: %w", err)
-	}
-
-	// Output results
-	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(result)
-	}
-
-	displayUpdateResult(result)
-	return nil
-}
-
-func displayUpdateResult(result *init_pkg.UpdateResult) {
-	// Header
-	if result.DryRun {
-		cli.Info("DRY RUN - No changes applied")
-		fmt.Println()
-	}
-
-	// Success message
-	if result.ProfileName != "" {
-		cli.Success(fmt.Sprintf("Applied %s workflow profile", result.ProfileName))
-	} else {
-		cli.Success("Updated configuration")
-	}
-	fmt.Println()
-
-	// Backup info
-	if result.BackupPath != "" {
-		fmt.Printf("✓ Backed up config to %s\n", result.BackupPath)
-	}
-	if result.WorkflowBackupPath != "" {
-		fmt.Printf("✓ Backed up workflow file to %s\n", result.WorkflowBackupPath)
-	}
-	if result.BackupPath != "" || result.WorkflowBackupPath != "" {
-		fmt.Println()
-	}
-
-	// Changes summary
-	changes := result.Changes
-	if len(changes.Added) > 0 {
-		fmt.Printf("  Added: %s\n", strings.Join(changes.Added, ", "))
-	}
-	if len(changes.Overwritten) > 0 {
-		fmt.Printf("  Overwritten: %s\n", strings.Join(changes.Overwritten, ", "))
-	}
-	if len(changes.Preserved) > 0 {
-		fmt.Printf("  Preserved: %s\n", strings.Join(changes.Preserved, ", "))
-	}
-
-	// Statistics
-	if changes.Stats != nil {
-		fmt.Println()
-		fmt.Printf("  Statuses: %d added\n", changes.Stats.StatusesAdded)
-		if changes.Stats.FlowsAdded > 0 {
-			fmt.Printf("  Flows: %d added\n", changes.Stats.FlowsAdded)
-		}
-		if changes.Stats.GroupsAdded > 0 {
-			fmt.Printf("  Groups: %d added\n", changes.Stats.GroupsAdded)
-		}
-		fmt.Printf("  Fields: %d preserved\n", changes.Stats.FieldsPreserved)
-	}
-
-	// Final status
-	if !result.DryRun {
-		fmt.Println()
-		fmt.Printf("✓ Config updated: %s\n", result.ConfigPath)
-		if result.WorkflowFilePath != "" {
-			fmt.Printf("✓ Workflow file written: %s\n", result.WorkflowFilePath)
-		}
-	} else {
-		fmt.Println()
-		if result.WorkflowFilePath != "" {
-			cli.Info(fmt.Sprintf("Would write workflow file: %s", result.WorkflowFilePath))
-		}
-		cli.Info("Run without --dry-run to apply these changes")
-	}
+	fmt.Println("1. Edit .sharkconfig.json to point at the workflow file you want (default: shark-templates/.sharkworkflow-short.json)")
+	fmt.Println("2. Create your first epic with: shark epic create \"Epic Title\"")
+	fmt.Println("3. Create your first task with: shark task create E01 F01 \"Task title\"")
 }

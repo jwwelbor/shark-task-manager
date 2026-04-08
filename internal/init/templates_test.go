@@ -6,146 +6,164 @@ import (
 	"testing"
 )
 
-func TestCopyTemplates(t *testing.T) {
-	tests := []struct {
-		name      string
-		force     bool
-		setupFunc func(string) error
-		wantMin   int // Minimum expected count
-		wantErr   bool
-	}{
-		{
-			name:    "copies templates to new directory",
-			force:   false,
-			wantMin: 10, // We have many templates now (entity + orchestrator + partials)
-			wantErr: false,
-		},
-		{
-			name:  "skips existing templates without force",
-			force: false,
-			setupFunc: func(baseDir string) error {
-				// Create entity templates directory with existing file
-				entityDir := filepath.Join(baseDir, "shark-templates", "entity")
-				if err := os.MkdirAll(entityDir, 0755); err != nil {
-					return err
-				}
-				return os.WriteFile(filepath.Join(entityDir, "task.md"), []byte("existing"), 0644)
-			},
-			wantMin: 10, // Still copies many new files, just skips the one that exists
-			wantErr: false,
-		},
-		{
-			name:  "overwrites existing templates with force",
-			force: true,
-			setupFunc: func(baseDir string) error {
-				entityDir := filepath.Join(baseDir, "shark-templates", "entity")
-				if err := os.MkdirAll(entityDir, 0755); err != nil {
-					return err
-				}
-				return os.WriteFile(filepath.Join(entityDir, "task.md"), []byte("existing"), 0644)
-			},
-			wantMin: 10, // Overwrites existing + copies all others
-			wantErr: false,
-		},
+// TestCopyTemplatesFreshCopy verifies that on a clean directory every embedded
+// template is copied and counted as Copied (not Refreshed).
+func TestCopyTemplatesFreshCopy(t *testing.T) {
+	tempDir := t.TempDir()
+	chdir(t, tempDir)
+
+	initializer := NewInitializer()
+	result, err := initializer.copyTemplates(false, "")
+	if err != nil {
+		t.Fatalf("copyTemplates() error = %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create temp directory
-			tempDir := t.TempDir()
-			originalDir, err := os.Getwd()
-			if err != nil {
-				t.Fatalf("Failed to get working directory: %v", err)
-			}
-			defer func() { _ = os.Chdir(originalDir) }()
+	if result.Copied < 10 {
+		t.Errorf("Copied = %d, want >= 10", result.Copied)
+	}
+	if result.Refreshed != 0 {
+		t.Errorf("Refreshed = %d, want 0", result.Refreshed)
+	}
+	if len(result.Differed) != 0 {
+		t.Errorf("Differed = %v, want empty", result.Differed)
+	}
 
-			if err := os.Chdir(tempDir); err != nil {
-				t.Fatalf("Failed to change to temp directory: %v", err)
-			}
-
-			// Setup
-			if tt.setupFunc != nil {
-				if err := tt.setupFunc(tempDir); err != nil {
-					t.Fatalf("Setup failed: %v", err)
-				}
-			}
-
-			// Execute
-			initializer := NewInitializer()
-			count, err := initializer.copyTemplates(tt.force, "")
-
-			// Assert
-			if (err != nil) != tt.wantErr {
-				t.Errorf("copyTemplates() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if count < tt.wantMin {
-				t.Errorf("copyTemplates() count = %d, want at least %d", count, tt.wantMin)
-			}
-
-			// Verify templates directory exists
-			templateDir := filepath.Join(tempDir, "shark-templates")
-			if _, err := os.Stat(templateDir); os.IsNotExist(err) {
-				t.Error("Templates directory does not exist")
-			}
-		})
+	if _, err := os.Stat(filepath.Join(tempDir, "shark-templates")); os.IsNotExist(err) {
+		t.Error("shark-templates directory was not created")
 	}
 }
 
-func TestCopyTemplatesCreatesDirectory(t *testing.T) {
+// TestCopyTemplatesSkipsIdentical verifies that running copy a second time
+// against unmodified files reports zero copied/refreshed/differed.
+func TestCopyTemplatesSkipsIdentical(t *testing.T) {
 	tempDir := t.TempDir()
-	originalDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Failed to get working directory: %v", err)
-	}
-	defer func() { _ = os.Chdir(originalDir) }()
+	chdir(t, tempDir)
 
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatalf("Failed to change to temp directory: %v", err)
+	initializer := NewInitializer()
+	if _, err := initializer.copyTemplates(false, ""); err != nil {
+		t.Fatalf("first copy failed: %v", err)
+	}
+
+	result, err := initializer.copyTemplates(false, "")
+	if err != nil {
+		t.Fatalf("second copy failed: %v", err)
+	}
+	if result.Copied != 0 {
+		t.Errorf("Copied on idempotent run = %d, want 0", result.Copied)
+	}
+	if result.Refreshed != 0 {
+		t.Errorf("Refreshed on idempotent run = %d, want 0", result.Refreshed)
+	}
+	if len(result.Differed) != 0 {
+		t.Errorf("Differed on idempotent run = %v, want empty", result.Differed)
+	}
+}
+
+// TestCopyTemplatesDifferedWithoutForce verifies user customization is
+// preserved and reported (but not overwritten) when force=false.
+func TestCopyTemplatesDifferedWithoutForce(t *testing.T) {
+	tempDir := t.TempDir()
+	chdir(t, tempDir)
+
+	// Plant a user-modified file ahead of the copy.
+	entityDir := filepath.Join(tempDir, "shark-templates", "entity")
+	if err := os.MkdirAll(entityDir, 0755); err != nil {
+		t.Fatalf("setup mkdir failed: %v", err)
+	}
+	customPath := filepath.Join(entityDir, "task.md")
+	customContent := []byte("user customized content")
+	if err := os.WriteFile(customPath, customContent, 0644); err != nil {
+		t.Fatalf("setup write failed: %v", err)
 	}
 
 	initializer := NewInitializer()
-	_, err = initializer.copyTemplates(false, "")
+	result, err := initializer.copyTemplates(false, "")
 	if err != nil {
-		t.Fatalf("copyTemplates() failed: %v", err)
+		t.Fatalf("copyTemplates() error = %v", err)
 	}
 
-	// Verify templates directory was created
-	templateDir := filepath.Join(tempDir, "shark-templates")
-	info, err := os.Stat(templateDir)
-	if err != nil {
-		t.Fatalf("Templates directory does not exist: %v", err)
+	if len(result.Differed) == 0 {
+		t.Fatal("expected at least one differed file, got none")
 	}
 
-	if !info.IsDir() {
-		t.Error("shark-templates is not a directory")
+	// Differed paths are relative to the working directory (since templateDir
+	// defaults to "shark-templates"). Match against the relative form.
+	wantRel := filepath.Join("shark-templates", "entity", "task.md")
+	foundCustom := false
+	for _, p := range result.Differed {
+		if p == wantRel {
+			foundCustom = true
+			break
+		}
+	}
+	if !foundCustom {
+		t.Errorf("Differed = %v, expected to contain %s", result.Differed, wantRel)
+	}
+
+	if result.Refreshed != 0 {
+		t.Errorf("Refreshed = %d, want 0 without --force", result.Refreshed)
+	}
+
+	// Verify the user's content was NOT clobbered.
+	got, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatalf("failed to read custom file: %v", err)
+	}
+	if string(got) != string(customContent) {
+		t.Errorf("user file was overwritten without --force\n  got:  %q\n  want: %q", got, customContent)
+	}
+}
+
+// TestCopyTemplatesForceOverwritesDiffered verifies --force replaces user-modified
+// files with the embedded version.
+func TestCopyTemplatesForceOverwritesDiffered(t *testing.T) {
+	tempDir := t.TempDir()
+	chdir(t, tempDir)
+
+	entityDir := filepath.Join(tempDir, "shark-templates", "entity")
+	if err := os.MkdirAll(entityDir, 0755); err != nil {
+		t.Fatalf("setup mkdir failed: %v", err)
+	}
+	customPath := filepath.Join(entityDir, "task.md")
+	if err := os.WriteFile(customPath, []byte("user customized content"), 0644); err != nil {
+		t.Fatalf("setup write failed: %v", err)
+	}
+
+	initializer := NewInitializer()
+	result, err := initializer.copyTemplates(true, "")
+	if err != nil {
+		t.Fatalf("copyTemplates() error = %v", err)
+	}
+
+	if result.Refreshed < 1 {
+		t.Errorf("Refreshed = %d, want >= 1", result.Refreshed)
+	}
+	if len(result.Differed) != 0 {
+		t.Errorf("Differed with --force = %v, want empty", result.Differed)
+	}
+
+	got, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatalf("failed to read overwritten file: %v", err)
+	}
+	if string(got) == "user customized content" {
+		t.Error("--force did not overwrite the user's customized file")
 	}
 }
 
 func TestCopyTemplatesIncludesAllSubdirectories(t *testing.T) {
 	tempDir := t.TempDir()
-	originalDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Failed to get working directory: %v", err)
-	}
-	defer func() { _ = os.Chdir(originalDir) }()
-
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatalf("Failed to change to temp directory: %v", err)
-	}
+	chdir(t, tempDir)
 
 	initializer := NewInitializer()
-	count, err := initializer.copyTemplates(false, "")
+	result, err := initializer.copyTemplates(false, "")
 	if err != nil {
 		t.Fatalf("copyTemplates() failed: %v", err)
 	}
-
-	if count == 0 {
+	if result.Copied == 0 {
 		t.Fatal("No templates were copied")
 	}
 
-	// Verify key subdirectories were created
 	templateDir := filepath.Join(tempDir, "shark-templates")
 	expectedDirs := []string{
 		"task_short",
@@ -154,10 +172,8 @@ func TestCopyTemplatesIncludesAllSubdirectories(t *testing.T) {
 		"bug",
 		"change",
 	}
-
 	for _, dir := range expectedDirs {
-		dirPath := filepath.Join(templateDir, dir)
-		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(templateDir, dir)); os.IsNotExist(err) {
 			t.Errorf("Expected subdirectory %s does not exist", dir)
 		}
 	}
@@ -168,7 +184,6 @@ func TestCopyTemplatesIncludesAllSubdirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read task_short directory: %v", err)
 	}
-
 	hasTmplFile := false
 	for _, entry := range entries {
 		if filepath.Ext(entry.Name()) == ".tmpl" {
@@ -176,7 +191,6 @@ func TestCopyTemplatesIncludesAllSubdirectories(t *testing.T) {
 			break
 		}
 	}
-
 	if !hasTmplFile {
 		t.Error("No .tmpl files found in task_short/ directory")
 	}
@@ -184,47 +198,33 @@ func TestCopyTemplatesIncludesAllSubdirectories(t *testing.T) {
 
 func TestCopyTemplatesFilePermissions(t *testing.T) {
 	tempDir := t.TempDir()
-	originalDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Failed to get working directory: %v", err)
-	}
-	defer func() { _ = os.Chdir(originalDir) }()
-
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatalf("Failed to change to temp directory: %v", err)
-	}
+	chdir(t, tempDir)
 
 	initializer := NewInitializer()
-	count, err := initializer.copyTemplates(false, "")
+	result, err := initializer.copyTemplates(false, "")
 	if err != nil {
 		t.Fatalf("copyTemplates() failed: %v", err)
 	}
-
-	if count == 0 {
+	if result.Copied == 0 {
 		t.Skip("No templates embedded, skipping permission check")
 	}
 
-	// Check permissions on copied files in task_short/ subdirectory
 	taskShortDir := filepath.Join(tempDir, "shark-templates", "task_short")
 	entries, err := os.ReadDir(taskShortDir)
 	if err != nil {
 		t.Fatalf("Failed to read task_short directory: %v", err)
 	}
-
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-
 		info, err := entry.Info()
 		if err != nil {
 			t.Errorf("Failed to get info for %s: %v", entry.Name(), err)
 			continue
 		}
-
 		gotPerms := info.Mode().Perm()
 		wantPerms := os.FileMode(0644)
-
 		if gotPerms != wantPerms {
 			t.Errorf("Template %s permissions = %o, want %o", entry.Name(), gotPerms, wantPerms)
 		}
@@ -233,33 +233,35 @@ func TestCopyTemplatesFilePermissions(t *testing.T) {
 
 func TestCopyTemplatesCustomDir(t *testing.T) {
 	tempDir := t.TempDir()
+	chdir(t, tempDir)
+
+	customDir := "my-custom-templates"
+	initializer := NewInitializer()
+	result, err := initializer.copyTemplates(false, customDir)
+	if err != nil {
+		t.Fatalf("copyTemplates() failed: %v", err)
+	}
+	if result.Copied == 0 {
+		t.Fatal("No templates were copied")
+	}
+
+	if _, err := os.Stat(filepath.Join(tempDir, customDir, "task_short")); os.IsNotExist(err) {
+		t.Error("Task orchestrator templates not found in custom directory")
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, customDir, "bug")); os.IsNotExist(err) {
+		t.Error("Bug templates not found in custom directory")
+	}
+}
+
+// chdir cd's into dir and registers a cleanup that restores the original wd.
+func chdir(t *testing.T, dir string) {
+	t.Helper()
 	originalDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer func() { _ = os.Chdir(originalDir) }()
-
-	if err := os.Chdir(tempDir); err != nil {
+	t.Cleanup(func() { _ = os.Chdir(originalDir) })
+	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Failed to change to temp directory: %v", err)
-	}
-
-	customDir := "my-custom-templates"
-	initializer := NewInitializer()
-	count, err := initializer.copyTemplates(false, customDir)
-	if err != nil {
-		t.Fatalf("copyTemplates() failed: %v", err)
-	}
-
-	if count == 0 {
-		t.Fatal("No templates were copied")
-	}
-
-	// Verify custom directory was used
-	if _, err := os.Stat(filepath.Join(tempDir, customDir, "task_short")); os.IsNotExist(err) {
-		t.Error("Task orchestrator templates not found in custom directory")
-	}
-
-	if _, err := os.Stat(filepath.Join(tempDir, customDir, "bug")); os.IsNotExist(err) {
-		t.Error("Bug templates not found in custom directory")
 	}
 }
