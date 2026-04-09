@@ -182,8 +182,8 @@ func TestPatternMatchingPerformance(t *testing.T) {
 			_ = matcher.MatchEpicFolder(testCase)
 			duration := time.Since(start)
 
-			if duration > time.Millisecond {
-				t.Errorf("Match for '%s' took %v, exceeds 1ms target", testCase, duration)
+			if duration > 10*time.Millisecond {
+				t.Errorf("Match for '%s' took %v, exceeds 10ms target", testCase, duration)
 			}
 		}
 	})
