@@ -640,3 +640,105 @@ func TestStatusHistory_EmptyResult(t *testing.T) {
 	assert.Equal(t, 0, parsed.Total)
 	assert.Empty(t, parsed.History)
 }
+
+// --- Test formatHistoryNotesForDisplay (AC-T1 through AC-T4) ---
+
+func TestStatusHistoryFormatter_AutoReopenLabel(t *testing.T) {
+	t.Run("AC-T1: auto_reopen prefix gets distinct label in human output", func(t *testing.T) {
+		notes := "auto_reopen: parent re-opened because child E07-F01-001 regressed to in_progress"
+		result := formatHistoryNotesForDisplay(notes)
+		assert.Contains(t, result, "[auto-reopen]", "human output should contain [auto-reopen] label")
+		assert.Contains(t, result, notes, "original notes should still be present")
+	})
+
+	t.Run("AC-T3: detection is purely strings.HasPrefix on auto_reopen:", func(t *testing.T) {
+		// Exact prefix required — no false positives on other prefixes
+		cases := []struct {
+			notes   string
+			wantTag bool
+		}{
+			{"auto_reopen: cascaded from child", true},
+			{"auto_reopen:", true}, // bare prefix still matches
+			{"manual note", false},
+			{"", false},
+			{"AUTO_REOPEN: uppercase should not match", false}, // case-sensitive
+			{"some auto_reopen: mid-string note", false},       // not a prefix
+		}
+		for _, c := range cases {
+			got := formatHistoryNotesForDisplay(c.notes)
+			if c.wantTag {
+				assert.Contains(t, got, "[auto-reopen]", "expected [auto-reopen] label for notes=%q", c.notes)
+			} else {
+				assert.NotContains(t, got, "[auto-reopen]", "did not expect [auto-reopen] label for notes=%q", c.notes)
+			}
+		}
+	})
+
+	t.Run("AC-T4: rows without prefix render identically to before", func(t *testing.T) {
+		normalNotes := "Implemented per spec"
+		result := formatHistoryNotesForDisplay(normalNotes)
+		assert.Equal(t, normalNotes, result, "non-auto_reopen notes should be unchanged")
+	})
+
+	t.Run("AC-T4: empty notes render identically to before", func(t *testing.T) {
+		result := formatHistoryNotesForDisplay("")
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("AC-T2: JSON output schema unchanged — Notes field raw, no label", func(t *testing.T) {
+		// Verify that StatusHistoryEntry (used for JSON output) never has [auto-reopen]
+		// injected — the formatter is only called in the human-output path.
+		notes := "auto_reopen: parent cascade"
+		entry := StatusHistoryEntry{
+			Timestamp: "2026-04-07T10:00:00Z",
+			OldStatus: "completed",
+			NewStatus: "in_progress",
+			Notes:     notes,
+		}
+
+		data, err := json.Marshal(entry)
+		require.NoError(t, err)
+
+		var parsed map[string]interface{}
+		err = json.Unmarshal(data, &parsed)
+		require.NoError(t, err)
+
+		// JSON notes field must be the raw value — no label injected
+		assert.Equal(t, notes, parsed["notes"], "JSON notes field must remain unchanged")
+		assert.NotContains(t, parsed["notes"].(string), "[auto-reopen]", "JSON output must not contain label")
+	})
+
+	t.Run("auto_reopen label visible in table row", func(t *testing.T) {
+		// Build two entries: one with auto_reopen prefix, one without.
+		// Simulate the table-row building logic from runStatusHistory.
+		autoNotes := "auto_reopen: cascade from child task"
+		manualNotes := "Manual status update"
+
+		entries := []StatusHistoryEntry{
+			{Timestamp: "2026-04-07T10:00:00Z", OldStatus: "completed", NewStatus: "in_progress", Notes: autoNotes},
+			{Timestamp: "2026-04-07T11:00:00Z", OldStatus: "in_progress", NewStatus: "completed", Notes: manualNotes},
+		}
+
+		rows := make([][]string, 0, len(entries))
+		for _, e := range entries {
+			oldStatus := e.OldStatus
+			if oldStatus == "" {
+				oldStatus = "(initial)"
+			}
+			rows = append(rows, []string{
+				e.Timestamp,
+				oldStatus,
+				e.NewStatus,
+				e.Agent,
+				truncateString(formatHistoryNotesForDisplay(e.Notes), 60),
+			})
+		}
+
+		require.Len(t, rows, 2)
+		// auto_reopen row: Notes column should contain [auto-reopen]
+		assert.Contains(t, rows[0][4], "[auto-reopen]", "auto_reopen row should have distinct label in Notes column")
+		// manual row: Notes column should not contain [auto-reopen]
+		assert.NotContains(t, rows[1][4], "[auto-reopen]", "manual row should not have label in Notes column")
+		assert.Contains(t, rows[1][4], manualNotes, "manual row should preserve original notes text")
+	})
+}

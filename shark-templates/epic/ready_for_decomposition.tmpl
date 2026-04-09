@@ -1,3 +1,5 @@
+After completing ALL work below, exit with: {{template "advance" .}}
+
 Decompose epic {{.id}}: "{{.title}}" into features.
 
 LOAD: specification-writing workflow decompose-epic.md.
@@ -13,7 +15,3 @@ READ:
 PRODUCE: For each feature: create in shark ({{template "create_feature" .}} "<title>"), write scope description, define execution order and dependencies, map to epic requirements. Output decomposition summary with feature tree and dependency graph.
 
 EXIT GATE: Every epic requirement traces to a feature. No scope overlap. Acyclic dependencies. Each feature sized for 1-3 sprints. Reviewed with user.
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

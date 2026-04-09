@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME BA refinement for feature {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME BA refinement for feature {{.id}}: "{{.title}}".
 
 CHECK COMPLEXITY TIER: Read feature metadata via {{template "get_json" .}} | jq -r '.metadata.complexity_tier'.
 
@@ -29,7 +32,3 @@ EXIT GATE varies by tier:
 - SIMPLE (core AC testable)
 - STANDARD (MoSCoW complete, AC testable, no ambiguity)
 - COMPLEX (all 6 files, write-feature-prd.md checklist passes)
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

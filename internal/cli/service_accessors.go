@@ -200,6 +200,10 @@ func GetFeatureService() *services.FeatureService {
 	svc.SetEnrichRepo(enrichRepo)
 	svc.SetEntityHistoryRepo(entityHistoryRepo)
 
+	// Wire cascade reopen dependencies so that a feature regression automatically
+	// reopens a terminal epic ancestor (AC-T3 / REQ-F-001).
+	svc.SetCascadeDeps(db, epicRepo, entityHistoryRepo, entityHistoryRepo)
+
 	// Wire the progress sub-service explicitly to avoid lazy-init on every call.
 	progressSvc := services.NewFeatureProgressService(featureRepo, taskRepo, workflowSvc)
 	svc.SetProgressService(progressSvc)

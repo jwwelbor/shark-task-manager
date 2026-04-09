@@ -358,13 +358,18 @@ func (s *TechDebtService) makeResolveActionFn() ResolveActionFn {
 			return nil
 		}
 		placeholders := config.TechDebtPlaceholders(td)
+		// Fresh transition context: suppress RESUME CONTEXT preamble in templates.
+		// is_resume="true" is reserved for shark get (GetOrchestratorAction).
+		placeholders["is_resume"] = "false"
 		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}
 }
 
 // GetOrchestratorAction returns the orchestrator action for the tech-debt item's current status.
+// Used by shark get — entity is already in this status, so RESUME CONTEXT preamble is shown.
 func (s *TechDebtService) GetOrchestratorAction(td *models.TechDebt) *config.PopulatedAction {
 	placeholders := config.TechDebtPlaceholders(td)
+	placeholders["is_resume"] = "true"
 	return s.entitySvc.ResolveActionForStatus(string(td.Status), placeholders)
 }
 

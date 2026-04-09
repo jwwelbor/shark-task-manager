@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Write epic PRD for {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Write epic PRD for {{.id}}: "{{.title}}".
 
 Check for existing PRD at {{.file_path}}. If PRD exists with all required sections populated, advance immediately.
 
@@ -25,7 +28,3 @@ EXIT GATE:
 - No TBDs, no vague language
 - Success criteria are testable
 - Scope boundaries are clear
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Fix bug {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Fix bug {{.id}}: "{{.title}}".
 
 Check for existing fix: review git diff and test files. If fix exists with regression test and quality gate passes, advance immediately.
 
@@ -33,7 +36,3 @@ EXIT GATE:
 - Regression test proves the bug is fixed
 - Quality gate passes
 - No unrelated changes
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

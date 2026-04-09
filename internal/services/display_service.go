@@ -480,6 +480,9 @@ func (s *DisplayService) ResolveEpicAction(ctx context.Context, epic *models.Epi
 	// Note: We don't have an epic relationship repository yet, so pass nil
 	placeholders := config.EpicPlaceholdersWithRelated(epic, s.deps.DocumentRepo, nil, ctx, enrichment)
 
+	// Display context (shark get): entity is already in this status, so show RESUME CONTEXT preamble.
+	placeholders["is_resume"] = "true"
+
 	return meta.OrchestratorAction.ToPopulatedAction(placeholders)
 }
 
@@ -665,6 +668,9 @@ func (s *DisplayService) ResolveFeatureAction(ctx context.Context, feature *mode
 	// Note: We don't have a feature relationship repository yet, so pass nil
 	placeholders := config.FeaturePlaceholdersWithRelated(ctx, feature, s.deps.DocumentRepo, nil, enrichment)
 
+	// Display context (shark get): entity is already in this status, so show RESUME CONTEXT preamble.
+	placeholders["is_resume"] = "true"
+
 	return meta.OrchestratorAction.ToPopulatedAction(placeholders)
 }
 
@@ -697,6 +703,9 @@ func (s *DisplayService) ResolveTaskAction(ctx context.Context, task *models.Tas
 
 	// Use TaskPlaceholdersWithRelated to populate placeholders with related docs and tasks
 	placeholders := config.TaskPlaceholdersWithRelated(ctx, task, s.deps.DocumentRepo, s.deps.TaskRelRepo, taskEnrichment)
+
+	// Display context (shark get): entity is already in this status, so show RESUME CONTEXT preamble.
+	placeholders["is_resume"] = "true"
 
 	return meta.OrchestratorAction.ToPopulatedAction(placeholders)
 }

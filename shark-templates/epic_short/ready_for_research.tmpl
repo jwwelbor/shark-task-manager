@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}Research codebase for epic {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+Research codebase for epic {{.id}}: "{{.title}}".
 
 Check for existing research report in epic directory. If report exists with all sections populated and file paths cited, advance immediately.
 
@@ -28,7 +31,3 @@ EXIT GATE:
 - Extension-vs-new analysis for every component
 - Feasibility confirmed or risks flagged
 - Actionable for architect
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

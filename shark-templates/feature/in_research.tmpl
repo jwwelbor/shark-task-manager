@@ -1,4 +1,7 @@
-{{template "_resume_preamble" .}}RESUME feature research for {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME feature research for {{.id}}: "{{.title}}".
 
 Check for existing feature research report at {{.file_path}}. If report exists with all 6 sections populated and file paths cited, advance immediately.
 
@@ -29,7 +32,3 @@ EXIT GATE:
 - File paths cited
 - Integration points identified
 - Actionable for BA and architect
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

@@ -929,17 +929,17 @@ ready_for_qa           → in_qa
    cp .sharkconfig.json .sharkconfig.backup.json
    ```
 
-2. Update `status_flow`
+2. Update `status_flow` in your workflow file (the file referenced by
+   `workflow_config` in `.sharkconfig.json` — typically
+   `shark-templates/.sharkworkflow-short.json`)
 
 3. Validate:
    ```bash
-   shark init update --dry-run
+   shark admin workflow validate
    ```
 
-4. Apply:
-   ```bash
-   shark init update
-   ```
+4. The new flow takes effect on the next `shark` command — no apply step
+   needed, since `workflow_config` is read on every invocation.
 
 ## Bug and Change-Card Workflows
 
@@ -950,7 +950,7 @@ Bugs and change-cards use the same configuration structure as other entities, un
 | Aspect | Tasks | Bugs | Change-Cards |
 |--------|-------|------|--------------|
 | Config key | `status_flow` / `status_metadata` | `bug_workflow` | `change_workflow` |
-| Profiles | `basic` / `advanced` (via `shark admin init update`) | Custom only | Custom only |
+| Bundled workflows | `.sharkworkflow-short.json` / `.sharkworkflow.json` (in `shark-templates/`, selected via `workflow_config`) | Custom only | Custom only |
 | Severity field | — | `critical`, `high`, `medium`, `low` | — |
 | Priority field | — | — | 1–10 |
 | Default start status | `todo` / `draft` | `reported` | `proposed` |

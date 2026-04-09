@@ -217,6 +217,13 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	// Wire FeatureService into TaskService for auto-reopen behavior
 	taskService.SetFeatureService(featureService)
 
+	// Wire cascade reopen dependencies into both services so that regressions
+	// automatically reopen terminal ancestors (AC-T3 / REQ-F-001).
+	// TaskService cascade: task regression → reopen feature + epic.
+	taskService.SetCascadeDeps(db, featureRepo, epicRepo, entityHistoryRepo, entityHistoryRepo)
+	// FeatureService cascade: feature regression → reopen epic.
+	featureService.SetCascadeDeps(db, epicRepo, entityHistoryRepo, entityHistoryRepo)
+
 	epicService := services.NewEpicService(
 		epicRepo,  // Epic data access
 		entitySvc, // Shared transition logic

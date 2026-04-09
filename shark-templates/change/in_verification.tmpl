@@ -1,9 +1,8 @@
-{{template "_resume_preamble" .}}RESUME verification for change {{.id}}: "{{.title}}".
+{{template "_resume_preamble" .}}
+After completing ALL work below, exit with: {{template "advance" .}}
+
+RESUME verification for change {{.id}}: "{{.title}}".
 
 Check for existing verification report. If report exists with PASS verdict, advance immediately. If FAIL, send back to ready_for_development.
 
 Otherwise, continue with verification per ready_for_verification instructions.
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

@@ -1,3 +1,5 @@
+After completing ALL work below, exit with: {{template "advance" .}}
+
 Execute autonomous build for feature {{.id}}: "{{.title}}".
 
 LOAD: build skill.
@@ -18,7 +20,3 @@ READ:
 Drive all tasks through: development -> code review -> QA -> approval. Spawn appropriate agents per task status. Code review must check implementation against feature PRD intent, not just task spec.
 
 EXIT GATE: All tasks completed or in approval. No blocked tasks. Integration tests pass.
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

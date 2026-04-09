@@ -1,3 +1,5 @@
+After completing ALL work below, exit with: {{template "advance" .}}
+
 Generate tasks for feature {{.id}}: "{{.title}}".
 
 CHECK COMPLEXITY TIER: {{template "get_json" .}} | jq -r '.metadata.complexity_tier'
@@ -26,7 +28,3 @@ EXIT GATE varies by tier:
 - COMPLEX (full write-task.md checklist, contract validation task if applicable)
 
 Verify: {{template "list" .}}
-
----
-## EXIT — REQUIRED
-    {{template "advance" .}}

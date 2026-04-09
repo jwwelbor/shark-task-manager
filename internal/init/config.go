@@ -33,10 +33,20 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 		}
 	}
 
-	// Create default config (workflow profile will be applied after init)
+	// Create default config. Workflow definitions live in the templates folder
+	// (shark-templates/.sharkworkflow-short.json) — referenced via WorkflowConfig
+	// rather than embedded inline so template upgrades automatically flow through.
 	config := ConfigDefaults{
-		ColorEnabled: true,
-		JSONOutput:   false,
+		ColorEnabled:           true,
+		JSONOutput:             false,
+		InteractiveMode:        false,
+		RequireRejectionReason: true,
+		Database: &DatabaseConfigDefault{
+			Backend:        "local",
+			URL:            "./shark-tasks.db",
+			SkipMigrations: false,
+		},
+		WorkflowConfig: "shark-templates/.sharkworkflow-short.json",
 	}
 
 	// Marshal to JSON without HTML escaping for readability

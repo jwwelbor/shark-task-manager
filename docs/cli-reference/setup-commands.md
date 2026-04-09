@@ -18,13 +18,23 @@ All commands listed here support the standard [global flags](global-flags.md) (`
 
 ## Initialization
 
-### shark init
+### shark admin init
 
-Initialize Shark CLI infrastructure by creating database schema, folder structure, configuration file, and task templates. This command is idempotent and safe to run multiple times.
+Initialize Shark CLI infrastructure by creating the database, the
+`docs/plan/` and `shark-templates/` folder structure, a default
+`.sharkconfig.json`, and copying the embedded `shark-templates/` tree.
+
+The `shark-templates/` tree is **re-synced from the embedded version on
+every run**, so template/workflow updates shipped with a new `shark` binary
+flow through automatically. Files you have modified locally are NOT
+overwritten — they are reported as differing from the shipped version, and
+you can re-run with `--force` to accept the upstream version.
+
+This command is idempotent and safe to run multiple times.
 
 ```
 Usage:
-  shark init [flags]
+  shark admin init [flags]
 ```
 
 **Flags:**
@@ -32,97 +42,36 @@ Usage:
 | Flag | Description |
 |------|-------------|
 | `--non-interactive` | Skip all prompts (use defaults) |
-| `--force` | Overwrite existing config and templates |
-| `--workflow <profile>` | Apply a workflow profile on init (`basic`, `advanced`) |
+| `--force` | Overwrite existing config and locally-modified templates |
 
 **Examples:**
 
 ```bash
 # Initialize with default settings (interactive)
-shark init
+shark admin init
 
 # Initialize without prompts (for automation / CI)
-shark init --non-interactive
+shark admin init --non-interactive
 
-# Force overwrite existing config
-shark init --force
+# Pick up template updates after upgrading the shark binary; locally-modified
+# files are reported but not touched
+shark admin init
 
-# Initialize and immediately apply the advanced workflow profile
-shark init --workflow=advanced
+# Force overwrite existing config and locally-modified templates with the
+# shipped versions
+shark admin init --force
 ```
 
----
+**Default config:** see [Initialization](initialization.md#default-sharkconfigjson)
+for the exact JSON shape written by a fresh init. Workflow definitions live
+in `shark-templates/.sharkworkflow-short.json` (default) or
+`shark-templates/.sharkworkflow.json` — referenced via the `workflow_config`
+field in `.sharkconfig.json` rather than embedded inline.
 
-### shark init update
-
-Update Shark configuration with workflow profiles or add missing fields. Without the `--workflow` flag it adds any missing configuration fields while preserving all existing values.
-
-```
-Usage:
-  shark init update [flags]
-```
-
-**Flags:**
-
-| Flag | Description |
-|------|-------------|
-| `--workflow <profile>` | Apply a workflow profile (`basic`, `advanced`) |
-| `--dry-run` | Preview changes without applying |
-| `--force` | Overwrite existing status configurations |
-
-**Examples:**
-
-```bash
-# Add missing fields only (safe, non-destructive)
-shark init update
-
-# Apply basic workflow (5 statuses)
-shark init update --workflow=basic
-
-# Apply advanced workflow (19 statuses)
-shark init update --workflow=advanced
-
-# Preview changes without applying
-shark init update --workflow=advanced --dry-run
-
-# Force overwrite existing status configurations
-shark init update --workflow=basic --force
-```
-
----
-
-### shark init merge
-
-Merge a workflow profile into the current configuration. By default this runs in dry-run mode and only previews changes. Use `--force` to apply.
-
-**Preserved fields** (never touched): `database`, `project_root`, `last_sync_time`, `interactive_mode`, `require_rejection_reason`.
-
-**Replaced fields** (overwritten from profile): `status_metadata`, `status_flow`, `special_statuses`, `status_flow_version`, `epic_workflow`, `feature_workflow`.
-
-```
-Usage:
-  shark init merge --workflow=<profile> [--force] [flags]
-```
-
-**Flags:**
-
-| Flag | Description |
-|------|-------------|
-| `--workflow <profile>` | Workflow profile to merge (`basic`, `advanced`) |
-| `--force` | Apply changes (default is dry-run preview) |
-
-**Examples:**
-
-```bash
-# Preview what the advanced profile would change
-shark init merge --workflow=advanced
-
-# Apply advanced profile
-shark init merge --workflow=advanced --force
-
-# Switch to basic profile
-shark init merge --workflow=basic --force
-```
+> **Note:** The basic/advanced workflow "profiles" subsystem
+> (`shark init update --workflow=...`, `shark init merge ...`) was removed.
+> To switch workflows, edit `workflow_config` in `.sharkconfig.json`. See
+> [Switching workflows](initialization.md#switching-workflows).
 
 ---
 

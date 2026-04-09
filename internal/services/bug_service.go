@@ -371,13 +371,18 @@ func (s *BugService) makeResolveActionFn() ResolveActionFn {
 			return nil
 		}
 		placeholders := config.BugPlaceholders(bug)
+		// Fresh transition context: suppress RESUME CONTEXT preamble in templates.
+		// is_resume="true" is reserved for shark get (GetOrchestratorAction).
+		placeholders["is_resume"] = "false"
 		return s.entitySvc.ResolveActionForStatus(status, placeholders)
 	}
 }
 
 // GetOrchestratorAction returns the orchestrator action for the bug's current status.
+// Used by shark get — entity is already in this status, so RESUME CONTEXT preamble is shown.
 func (s *BugService) GetOrchestratorAction(bug *models.Bug) *config.PopulatedAction {
 	placeholders := config.BugPlaceholders(bug)
+	placeholders["is_resume"] = "true"
 	return s.entitySvc.ResolveActionForStatus(string(bug.Status), placeholders)
 }
 

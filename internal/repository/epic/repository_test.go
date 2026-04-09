@@ -553,3 +553,64 @@ func TestEpicRepository_StatusRollups_Performance(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 50, taskRollup[string(models.TaskStatus("completed"))])
 }
+
+// TestEpicRepository_UpdateStatusTx tests the transactional status update method.
+func TestEpicRepository_UpdateStatusTx(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewEpicRepository(db)
+
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = 'E87'")
+
+	testEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: "E87", Title: "Epic for UpdateStatusTx Test"},
+		Status:     models.EpicStatusDraft,
+		Priority:   models.PriorityMedium,
+	}
+	require.NoError(t, repo.Create(ctx, testEpic))
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	}()
+
+	t.Run("commits_status_update", func(t *testing.T) {
+		// Reset status to draft
+		_, _ = database.ExecContext(ctx, "UPDATE epics SET status = 'draft' WHERE id = ?", testEpic.ID)
+
+		tx, err := database.BeginTx(ctx, nil)
+		require.NoError(t, err)
+
+		err = repo.UpdateStatusTx(ctx, tx, testEpic.ID, "active", nil, nil)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+
+		updated, err := repo.GetByID(ctx, testEpic.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.EpicStatus("active"), updated.Status)
+	})
+
+	t.Run("rollback_restores_original_status", func(t *testing.T) {
+		// Reset status to draft
+		_, _ = database.ExecContext(ctx, "UPDATE epics SET status = 'draft' WHERE id = ?", testEpic.ID)
+
+		tx, err := database.BeginTx(ctx, nil)
+		require.NoError(t, err)
+
+		err = repo.UpdateStatusTx(ctx, tx, testEpic.ID, "active", nil, nil)
+		require.NoError(t, err)
+		require.NoError(t, tx.Rollback())
+
+		current, err := repo.GetByID(ctx, testEpic.ID)
+		require.NoError(t, err)
+		assert.Equal(t, models.EpicStatusDraft, current.Status)
+	})
+
+	t.Run("not_found_returns_error", func(t *testing.T) {
+		tx, err := database.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+
+		err = repo.UpdateStatusTx(ctx, tx, 999999999, "active", nil, nil)
+		assert.Error(t, err, "expected error for non-existent epic ID")
+	})
+}
