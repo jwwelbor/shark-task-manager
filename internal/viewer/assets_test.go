@@ -486,3 +486,148 @@ func TestViewerHTMLDataLoadingFixes(t *testing.T) {
 		t.Error("viewer.html must unpack activity?.records into recentActivity (API returns {records:[...]})")
 	}
 }
+
+// TestViewerHTMLEntityViewSection verifies that the === ENTITY VIEW === section
+// label and the renderEntityView function are fully implemented. TC-VIS-08.
+func TestViewerHTMLEntityViewSection(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "=== ENTITY VIEW ===") {
+		t.Error("viewer.html missing '=== ENTITY VIEW ===' section label")
+	}
+	if !strings.Contains(content, "renderEntityView") {
+		t.Error("viewer.html missing 'renderEntityView' function")
+	}
+	// Must NOT still be a stub
+	if strings.Contains(content, "Entity View — coming in Task 6") {
+		t.Error("renderEntityView() is still a stub — must be implemented in Task 6")
+	}
+}
+
+// TestViewerHTMLEntityViewHelpers verifies helper functions for the entity view
+// are present. TC-VIS-08, TC-VIS-09.
+func TestViewerHTMLEntityViewHelpers(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	helpers := []string{
+		"findEntityByKey",
+		"renderPropertiesPanel",
+		"renderMarkdownPane",
+		"showToast",
+	}
+	for _, fn := range helpers {
+		if !strings.Contains(content, fn) {
+			t.Errorf("viewer.html missing entity view helper function: %q", fn)
+		}
+	}
+}
+
+// TestViewerHTMLEntityViewToggle verifies that the Info/Transitions toggle
+// buttons and the entityViewTab state variable are present. TC-VIS-08.
+func TestViewerHTMLEntityViewToggle(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "entityViewTab") {
+		t.Error("viewer.html missing 'entityViewTab' state variable")
+	}
+	if !strings.Contains(content, "ev-tab-info") {
+		t.Error("viewer.html missing 'ev-tab-info' button id for Info tab")
+	}
+	if !strings.Contains(content, "ev-tab-transitions") {
+		t.Error("viewer.html missing 'ev-tab-transitions' button id for Transitions tab")
+	}
+	if !strings.Contains(content, "toggle-btn") {
+		t.Error("viewer.html missing 'toggle-btn' CSS class for Info/Transitions buttons")
+	}
+}
+
+// TestViewerHTMLPropertiesPanelFields verifies that the properties panel
+// renders the required metadata fields. TC-VIS-08.
+func TestViewerHTMLPropertiesPanelFields(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	requiredFields := []string{
+		"File Path",
+		"Content Path",
+		"props-grid",
+		"props-label",
+		"props-value",
+		"copy-btn",
+		"navigator.clipboard",
+	}
+	for _, field := range requiredFields {
+		if !strings.Contains(content, field) {
+			t.Errorf("viewer.html missing properties panel field/element: %q", field)
+		}
+	}
+}
+
+// TestViewerHTMLMarkdownRendering verifies that Marked.js CDN script tag and
+// markdown rendering logic are present. TC-VIS-09, TC-API-08.
+func TestViewerHTMLMarkdownRendering(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Marked.js CDN script tag in <head>
+	if !strings.Contains(content, "cdn.jsdelivr.net/npm/marked/marked.min.js") {
+		t.Error("viewer.html missing Marked.js CDN script tag in <head>")
+	}
+
+	// marked.parse() call for rendering
+	if !strings.Contains(content, "marked.parse(") {
+		t.Error("viewer.html missing 'marked.parse()' call for markdown rendering")
+	}
+
+	// Fallback when CDN blocked
+	if !strings.Contains(content, "typeof marked") {
+		t.Error("viewer.html missing 'typeof marked' CDN availability check")
+	}
+	if !strings.Contains(content, "Markdown renderer unavailable (CDN blocked)") {
+		t.Error("viewer.html missing CDN-blocked fallback warning banner text")
+	}
+
+	// No content placeholder
+	if !strings.Contains(content, "No content available for this entity.") {
+		t.Error("viewer.html missing 'No content available for this entity.' placeholder")
+	}
+}
+
+// TestViewerHTMLEntityViewPropertiesStatusBadge verifies that the properties
+// panel renders status as a colored badge using getStatusColor. TC-VIS-08.
+func TestViewerHTMLEntityViewPropertiesStatusBadge(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderPropertiesPanel must use status-badge class + getStatusColor
+	if !strings.Contains(content, "status-badge") {
+		t.Error("viewer.html missing 'status-badge' class in properties panel")
+	}
+}
+
+// TestViewerHTMLEntityViewHistoryTable verifies that the transitions/history
+// view renders a table with from/to badges. TC-VIS-08.
+func TestViewerHTMLEntityViewHistoryTable(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "history-table") {
+		t.Error("viewer.html missing 'history-table' CSS class in entity view history")
+	}
+	if !strings.Contains(content, "history-date") {
+		t.Error("viewer.html missing 'history-date' CSS class in entity view history")
+	}
+	if !strings.Contains(content, "apiGetHistory") {
+		t.Error("viewer.html missing 'apiGetHistory' call in entity view transitions tab")
+	}
+}
+
+// TestViewerHTMLEntityViewFindEntityByKey verifies that findEntityByKey walks
+// epics, features and tasks to locate entities. TC-VIS-08.
+func TestViewerHTMLEntityViewFindEntityByKey(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "findEntityByKey") {
+		t.Error("viewer.html missing 'findEntityByKey' helper")
+	}
+	// Must walk treeData
+	if !strings.Contains(content, "treeData") {
+		t.Error("viewer.html missing 'treeData' reference in findEntityByKey")
+	}
+}

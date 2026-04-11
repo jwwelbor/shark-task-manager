@@ -1856,16 +1856,243 @@ function renderDashboard() {
 }
 
 // ============================================================
-// SECTION: Entity View (Stub — Task 6)
+// === ENTITY VIEW ===
 // ============================================================
 
 /**
+ * entityViewTab controls which pane is shown in entity view.
+ * Values: 'info' | 'transitions'
+ */
+let entityViewTab = 'info';
+
+/**
+ * Finds an entity in treeData by key.
+ * Walks epics → features → tasks recursively.
+ * @param {string} key - entity key to find
+ * @returns {Object|null} entity object or null if not found
+ */
+function findEntityByKey(key) {
+  if (!key || !Array.isArray(treeData)) return null;
+
+  for (const epic of treeData) {
+    if (epic.key === key) return Object.assign({ type: 'epic' }, epic);
+
+    const features = Array.isArray(epic.features) ? epic.features : [];
+    for (const feature of features) {
+      if (feature.key === key) return Object.assign({ type: 'feature', parent: epic.key }, feature);
+
+      const tasks = Array.isArray(feature.tasks) ? feature.tasks : [];
+      for (const task of tasks) {
+        if (task.key === key) return Object.assign({ type: 'task', parent: feature.key }, task);
+      }
+    }
+  }
+
+  // Also search flat sections (bugs, ideas, change_cards, etc.)
+  if (summaryData) {
+    const flatLists = [
+      ['bug',         summaryData.bugs],
+      ['idea',        summaryData.ideas],
+      ['change_card', summaryData.change_cards],
+    ];
+    for (const [type, items] of flatLists) {
+      if (!Array.isArray(items)) continue;
+      for (const item of items) {
+        const k = item.key || String(item.id || '');
+        if (k === key) return Object.assign({ type }, item);
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Renders the entity metadata properties panel.
+ * 2-column CSS grid: label | value.
+ * Omits fields that are null/undefined.
+ * @param {Object} entity - entity object from treeData / flat list
+ * @returns {string} HTML string
+ */
+function renderPropertiesPanel(entity) {
+  if (!entity) return '';
+
+  // Helper: copy-to-clipboard button
+  function copyBtn(value) {
+    return `<button class="copy-btn" onclick="if(navigator.clipboard){navigator.clipboard.writeText(${JSON.stringify(value)}).then(()=>showToast('Copied!'),()=>showToast('Copy failed','error'));}else{showToast('Clipboard unavailable','error');}" title="Copy to clipboard">Copy</button>`;
+  }
+
+  // Field definitions: [label, renderFn]
+  const fields = [
+    ['Key',          () => `<span class="mono">${escapeHtml(entity.key || '')}</span>`],
+    ['Status',       () => entity.status ? `<span class="status-badge" style="background:${escapeHtml(getStatusColor(entity.status))}">${escapeHtml(entity.status.replace(/_/g,' '))}</span>` : null],
+    ['Type',         () => entity.type ? escapeHtml(entity.type) : null],
+    ['Parent',       () => entity.parent ? `<span class="mono">${escapeHtml(entity.parent)}</span>` : null],
+    ['Agent',        () => entity.agent ? escapeHtml(entity.agent) : null],
+    ['Created',      () => entity.created_at ? escapeHtml(formatDate(entity.created_at)) : null],
+    ['Updated',      () => entity.updated_at ? escapeHtml(formatDate(entity.updated_at)) : null],
+    ['File Path',    () => entity.file_path
+      ? `<span style="word-break:break-all">${escapeHtml(entity.file_path)}</span>${copyBtn(entity.file_path)}`
+      : null],
+    ['Content Path', () => entity.linked_content_path
+      ? `<span style="word-break:break-all">${escapeHtml(entity.linked_content_path)}</span>${copyBtn(entity.linked_content_path)}`
+      : null],
+  ];
+
+  let rows = '';
+  for (const [label, renderFn] of fields) {
+    const val = renderFn();
+    if (val === null || val === undefined || val === '') continue;
+    rows += `<div class="props-label">${escapeHtml(label)}</div><div class="props-value">${val}</div>`;
+  }
+
+  if (!rows) return '';
+  return `<div class="props-grid">${rows}</div>`;
+}
+
+/**
+ * Shows a brief toast notification.
+ * @param {string} message
+ * @param {'info'|'error'} [type='info']
+ */
+function showToast(message, type) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (type === 'error' ? ' toast-error' : '');
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 2500);
+}
+
+/**
+ * Renders the markdown content pane for an entity.
+ * Calls apiGetFile(key), renders with Marked.js (or fallback <pre>).
+ * Sets innerHTML of paneEl when done.
+ * @param {string} key - entity key
+ * @param {HTMLElement} paneEl - container element to update
+ */
+async function renderMarkdownPane(key, paneEl) {
+  if (!paneEl) return;
+
+  // Show spinner while fetching
+  paneEl.innerHTML = `<div class="loading-indicator" style="padding:40px 0"><div class="loading-spinner"></div><div class="loading-text">Loading content\u2026</div></div>`;
+
+  const response = await apiGetFile(key);
+
+  if (!response) {
+    paneEl.innerHTML = `<div class="content-placeholder">Failed to load content for this entity.</div>`;
+    return;
+  }
+
+  if (!response.exists) {
+    paneEl.innerHTML = `<div class="content-placeholder">No content available for this entity.</div>`;
+    return;
+  }
+
+  const rawContent = response.content || '';
+
+  if (typeof marked !== 'undefined') {
+    const rendered = marked.parse(rawContent);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'markdown-body';
+    wrapper.innerHTML = rendered;
+    paneEl.innerHTML = '';
+    paneEl.appendChild(wrapper);
+  } else {
+    // Fallback: CDN blocked — show raw content as <pre> with warning banner
+    paneEl.innerHTML = `
+      <div class="error-banner" style="margin-bottom:12px">
+        <span class="error-banner-msg">Markdown renderer unavailable (CDN blocked). Showing raw content.</span>
+      </div>
+      <pre class="markdown-body" style="white-space:pre-wrap">${escapeHtml(rawContent)}</pre>`;
+  }
+}
+
+/**
  * Renders the Entity View (State 3).
- * Implemented in Task 6 (Properties + Markdown content).
+ * Shows entity properties panel, Info/Transitions toggle, and content pane.
  */
 function renderEntityView() {
   const content = document.getElementById('content');
-  content.innerHTML = '<div class="content-placeholder">Entity View — coming in Task 6</div>';
+
+  const entity = findEntityByKey(selectedKey);
+
+  // Build header and toggle bar
+  const title = entity ? escapeHtml(entity.title || entity.key || selectedKey) : escapeHtml(selectedKey || '');
+  const keyLabel = escapeHtml(selectedKey || '');
+
+  const infoActive  = entityViewTab === 'info'        ? ' active' : '';
+  const transActive = entityViewTab === 'transitions' ? ' active' : '';
+
+  const html = `
+    <div class="entity-view-header">
+      <div class="entity-view-title">${title}</div>
+      <div class="entity-view-key">${keyLabel}</div>
+    </div>
+    ${entity ? renderPropertiesPanel(entity) : ''}
+    <div class="toggle-bar">
+      <button class="toggle-btn${infoActive}"  id="ev-tab-info">Info</button>
+      <button class="toggle-btn${transActive}" id="ev-tab-transitions">Transitions</button>
+    </div>
+    <div id="ev-content-pane"></div>
+  `;
+
+  content.innerHTML = html;
+
+  // Wire toggle buttons
+  document.getElementById('ev-tab-info').addEventListener('click', () => {
+    entityViewTab = 'info';
+    renderEntityView();
+  });
+  document.getElementById('ev-tab-transitions').addEventListener('click', () => {
+    entityViewTab = 'transitions';
+    renderEntityView();
+  });
+
+  const paneEl = document.getElementById('ev-content-pane');
+
+  if (entityViewTab === 'info') {
+    // Async: fetch and render markdown content
+    renderMarkdownPane(selectedKey, paneEl);
+  } else {
+    // Transitions view
+    paneEl.innerHTML = `<div class="history-drawer"><div class="content-placeholder">Loading transition history\u2026</div></div>`;
+    apiGetHistory(selectedKey).then(history => {
+      if (!history || history.length === 0) {
+        paneEl.innerHTML = `<div class="history-drawer"><div class="content-placeholder">No transition history found.</div></div>`;
+        return;
+      }
+      // Sort reverse-chronological (most recent first)
+      const sorted = [...history].sort((a, b) => {
+        const ta = a.created_at || a.timestamp || '';
+        const tb = b.created_at || b.timestamp || '';
+        return tb.localeCompare(ta);
+      });
+      let rows = '';
+      for (const entry of sorted) {
+        const date     = escapeHtml(formatDate(entry.created_at || entry.timestamp || ''));
+        const from     = entry.from_status || entry.from || '';
+        const to       = entry.to_status   || entry.to   || '';
+        const note     = escapeHtml(entry.note || entry.reason || '');
+        const fromBadge = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(from))}">${escapeHtml(from.replace(/_/g,' '))}</span>`;
+        const toBadge   = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(to))}">${escapeHtml(to.replace(/_/g,' '))}</span>`;
+        rows += `<tr>
+          <td class="history-date">${date}</td>
+          <td>${fromBadge}</td>
+          <td style="color:var(--fg-dim);padding:0 4px">\u2192</td>
+          <td>${toBadge}</td>
+          <td class="activity-note">${note}</td>
+        </tr>`;
+      }
+      paneEl.innerHTML = `
+        <div class="history-drawer">
+          <table class="history-table">
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    });
+  }
 }
 
 // ============================================================
