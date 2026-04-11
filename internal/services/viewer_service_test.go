@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
 
@@ -110,7 +111,7 @@ func (m *mockViewerChangeCardRepo) CountByStatus(ctx context.Context) (map[strin
 
 type mockViewerHistoryRepo struct {
 	ListByEntityFunc             func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityHistory, error)
-	ListRecentAcrossEntitiesFunc func(ctx context.Context, opts RecentActivityOptions) ([]*models.EntityHistory, error)
+	ListRecentAcrossEntitiesFunc func(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error)
 }
 
 func (m *mockViewerHistoryRepo) ListByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityHistory, error) {
@@ -120,7 +121,7 @@ func (m *mockViewerHistoryRepo) ListByEntity(ctx context.Context, entityType mod
 	return nil, nil
 }
 
-func (m *mockViewerHistoryRepo) ListRecentAcrossEntities(ctx context.Context, opts RecentActivityOptions) ([]*models.EntityHistory, error) {
+func (m *mockViewerHistoryRepo) ListRecentAcrossEntities(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error) {
 	if m.ListRecentAcrossEntitiesFunc != nil {
 		return m.ListRecentAcrossEntitiesFunc(ctx, opts)
 	}
@@ -860,7 +861,7 @@ func TestViewerService_FeatureTasks_StatusColorPresent(t *testing.T) {
 // ----- RecentActivity tests -----
 
 func TestViewerService_RecentActivity_LimitClamp_ZeroBecomeFifty(t *testing.T) {
-	capturedOpts := RecentActivityOptions{}
+	capturedOpts := entityhistory.ListRecentAcrossEntitiesOptions{}
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{},
 		&mockViewerFeatureRepo{},
@@ -868,7 +869,7 @@ func TestViewerService_RecentActivity_LimitClamp_ZeroBecomeFifty(t *testing.T) {
 		&mockViewerBugRepo{},
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{
-			ListRecentAcrossEntitiesFunc: func(ctx context.Context, opts RecentActivityOptions) ([]*models.EntityHistory, error) {
+			ListRecentAcrossEntitiesFunc: func(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error) {
 				capturedOpts = opts
 				return nil, nil
 			},
@@ -885,7 +886,7 @@ func TestViewerService_RecentActivity_LimitClamp_ZeroBecomeFifty(t *testing.T) {
 }
 
 func TestViewerService_RecentActivity_LimitClamp_OverTwoHundred(t *testing.T) {
-	capturedOpts := RecentActivityOptions{}
+	capturedOpts := entityhistory.ListRecentAcrossEntitiesOptions{}
 	svc := buildViewerService(t,
 		&mockViewerEpicRepo{},
 		&mockViewerFeatureRepo{},
@@ -893,7 +894,7 @@ func TestViewerService_RecentActivity_LimitClamp_OverTwoHundred(t *testing.T) {
 		&mockViewerBugRepo{},
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{
-			ListRecentAcrossEntitiesFunc: func(ctx context.Context, opts RecentActivityOptions) ([]*models.EntityHistory, error) {
+			ListRecentAcrossEntitiesFunc: func(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error) {
 				capturedOpts = opts
 				return nil, nil
 			},
@@ -918,9 +919,9 @@ func TestViewerService_RecentActivity_ReturnsRecords(t *testing.T) {
 		&mockViewerBugRepo{},
 		&mockViewerChangeCardRepo{},
 		&mockViewerHistoryRepo{
-			ListRecentAcrossEntitiesFunc: func(ctx context.Context, opts RecentActivityOptions) ([]*models.EntityHistory, error) {
-				return []*models.EntityHistory{
-					{ID: 1, EntityType: models.EntityTypeTask, EntityID: 5, FromStatus: strPtr("todo"), ToStatus: "in_progress", ChangedAt: now},
+			ListRecentAcrossEntitiesFunc: func(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error) {
+				return []*entityhistory.RecentActivityRow{
+					{EntityType: "task", Key: "E07-F01-001", Title: "My Task", FromStatus: "todo", ToStatus: "in_progress", ChangedAt: now},
 				}, nil
 			},
 		},
@@ -932,6 +933,16 @@ func TestViewerService_RecentActivity_ReturnsRecords(t *testing.T) {
 	}
 	if len(resp.Records) != 1 {
 		t.Errorf("expected 1 record, got %d", len(resp.Records))
+	}
+	rec := resp.Records[0]
+	if rec.EntityType != "task" {
+		t.Errorf("expected entity_type %q, got %q", "task", rec.EntityType)
+	}
+	if rec.Key != "E07-F01-001" {
+		t.Errorf("expected key %q, got %q", "E07-F01-001", rec.Key)
+	}
+	if rec.ToStatus != "in_progress" {
+		t.Errorf("expected to_status %q, got %q", "in_progress", rec.ToStatus)
 	}
 }
 

@@ -9,9 +9,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
 	"github.com/jwwelbor/shark-task-manager/internal/status"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
 )
@@ -80,9 +82,13 @@ type ViewerChangeCardRepository interface {
 // ViewerEntityHistoryRepository is the entity-history query interface used by ViewerService.
 // It exposes both per-entity lookup and the cross-entity recent-activity method
 // that is implemented by T-E27-F02-001.
+//
+// ListRecentAcrossEntities uses the entityhistory package types directly so that the
+// concrete *entityhistory.EntityHistoryRepository satisfies this interface without
+// any adapter.
 type ViewerEntityHistoryRepository interface {
 	ListByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityHistory, error)
-	ListRecentAcrossEntities(ctx context.Context, opts RecentActivityOptions) ([]*models.EntityHistory, error)
+	ListRecentAcrossEntities(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error)
 }
 
 // ----- Request / Response types -----
@@ -184,13 +190,28 @@ type FeatureTasksResponse struct {
 
 // RecentActivityOptions carries filter/pagination options for ViewerService.RecentActivity.
 type RecentActivityOptions struct {
-	Limit  int // 0 → default 50; >200 → clamped to 200
+	// Limit caps the number of rows returned. 0 → default 50; >200 → clamped to 200.
+	Limit int
+	// Offset is reserved for future client-side pagination (not forwarded to the repository).
 	Offset int
+	// EntityType optionally restricts results to a single entity type (e.g. "task", "epic").
+	// Empty string means all entity types are included.
+	EntityType string
+	// Since optionally restricts results to activity recorded after this time.
+	// nil means no lower-bound time filter.
+	Since *time.Time
 }
 
-// ActivityRecord is one history entry enriched with a display label.
+// ActivityRecord is one recent activity entry returned by ViewerService.RecentActivity.
+// It wraps entityhistory.RecentActivityRow which already includes the entity key and title
+// from the INNER JOIN query executed by the repository.
 type ActivityRecord struct {
-	*models.EntityHistory
+	EntityType string    `json:"entity_type"`
+	Key        string    `json:"key"`
+	Title      string    `json:"title"`
+	FromStatus string    `json:"from_status,omitempty"`
+	ToStatus   string    `json:"to_status"`
+	ChangedAt  time.Time `json:"changed_at"`
 }
 
 // RecentActivityResponse is the response type for ViewerService.RecentActivity.
@@ -823,7 +844,7 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 }
 
 // RecentActivity returns the most recent status transitions across all entity types.
-// Limit is clamped to [1, 200]; Offset 0→50 default applied at the repository layer.
+// Limit is clamped to [1, 200]; zero defaults to 50.
 func (s *ViewerService) RecentActivity(ctx context.Context, opts RecentActivityOptions) (*RecentActivityResponse, error) {
 	// Clamp limit: 0 → 50; >200 → 200.
 	if opts.Limit <= 0 {
@@ -832,15 +853,29 @@ func (s *ViewerService) RecentActivity(ctx context.Context, opts RecentActivityO
 		opts.Limit = 200
 	}
 
-	records, err := s.historyRepo.ListRecentAcrossEntities(ctx, opts)
+	// Map service DTO → repository options.
+	repoOpts := entityhistory.ListRecentAcrossEntitiesOptions{
+		Limit:      opts.Limit,
+		EntityType: opts.EntityType,
+		Since:      opts.Since,
+	}
+
+	rows, err := s.historyRepo.ListRecentAcrossEntities(ctx, repoOpts)
 	if err != nil {
 		return nil, fmt.Errorf("viewer recent activity: %w", err)
 	}
 
-	// Omit orphan entries (entity was deleted — title empty/nil from JOIN).
-	result := make([]*ActivityRecord, 0, len(records))
-	for _, r := range records {
-		result = append(result, &ActivityRecord{EntityHistory: r})
+	// Map repository rows → ActivityRecord response type.
+	result := make([]*ActivityRecord, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, &ActivityRecord{
+			EntityType: row.EntityType,
+			Key:        row.Key,
+			Title:      row.Title,
+			FromStatus: row.FromStatus,
+			ToStatus:   row.ToStatus,
+			ChangedAt:  row.ChangedAt,
+		})
 	}
 
 	return &RecentActivityResponse{Records: result}, nil
