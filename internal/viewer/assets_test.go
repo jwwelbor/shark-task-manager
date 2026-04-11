@@ -390,3 +390,99 @@ func TestViewerHTMLDashboardStubsForTask5(t *testing.T) {
 		t.Error("viewer.html missing 'renderStaleEntities' stub function (Task 5 target)")
 	}
 }
+
+// TestViewerHTMLActiveTransitionsImplementation verifies that
+// renderActiveTransitions() is fully implemented (Task 5). TC-VIS-06.
+func TestViewerHTMLActiveTransitionsImplementation(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must NOT still be a stub
+	if strings.Contains(content, "Active Transitions — coming in Task 5") {
+		t.Error("renderActiveTransitions() is still a stub — must be implemented in Task 5")
+	}
+
+	// Empty-state placeholder
+	if !strings.Contains(content, "No recent transitions") {
+		t.Error("viewer.html missing 'No recent transitions' empty-state for Active Transitions")
+	}
+
+	// Must use recentActivity state variable
+	if !strings.Contains(content, "recentActivity") {
+		t.Error("viewer.html missing 'recentActivity' reference in renderActiveTransitions")
+	}
+
+	// Must use activity-table CSS class for the transitions table
+	if !strings.Contains(content, "activity-table") {
+		t.Error("viewer.html missing 'activity-table' CSS class in Active Transitions")
+	}
+
+	// Must use status badges with getStatusColor for from/to badges
+	if !strings.Contains(content, "from_status") {
+		t.Error("viewer.html missing 'from_status' field access in renderActiveTransitions")
+	}
+	if !strings.Contains(content, "to_status") {
+		t.Error("viewer.html missing 'to_status' field access in renderActiveTransitions")
+	}
+
+	// Click handler: data-navigate-key attribute on the key span
+	if !strings.Contains(content, "data-navigate-key") {
+		t.Error("viewer.html missing 'data-navigate-key' attribute for key click navigation")
+	}
+}
+
+// TestViewerHTMLStaleEntitiesImplementation verifies that renderStaleEntities()
+// is fully implemented (Task 5). TC-STALE-01, TC-STALE-02, TC-STALE-03.
+func TestViewerHTMLStaleEntitiesImplementation(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must NOT still be a stub
+	if strings.Contains(content, "Stale Entities — coming in Task 5") {
+		t.Error("renderStaleEntities() is still a stub — must be implemented in Task 5")
+	}
+
+	// Empty-state placeholder
+	if !strings.Contains(content, "No stale entities found") {
+		t.Error("viewer.html missing 'No stale entities found' empty-state for Stale Entities")
+	}
+
+	// Must use isTerminalStatus helper
+	if !strings.Contains(content, "isTerminalStatus") {
+		t.Error("viewer.html missing 'isTerminalStatus' call in renderStaleEntities")
+	}
+
+	// Must use daysSince helper
+	if !strings.Contains(content, "daysSince") {
+		t.Error("viewer.html missing 'daysSince' call in renderStaleEntities")
+	}
+
+	// Must guard with ?. on updated_at per spec
+	if !strings.Contains(content, "updated_at") {
+		t.Error("viewer.html missing 'updated_at' field access in renderStaleEntities")
+	}
+
+	// Must show "N days ago" text
+	if !strings.Contains(content, "days ago") {
+		t.Error("viewer.html missing 'days ago' text in Stale Entities rows")
+	}
+
+	// Sort descending by days (most stale first)
+	if !strings.Contains(content, "b.days - a.days") {
+		t.Error("viewer.html missing descending sort by days in renderStaleEntities (TC-STALE-03)")
+	}
+}
+
+// TestViewerHTMLDataLoadingFixes verifies that the treeData and recentActivity
+// assignments correctly unpack the API response objects. TC-VIS-06, TC-STALE-01.
+func TestViewerHTMLDataLoadingFixes(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// treeData should unpack hierarchy.epics (not treat the whole response as an array)
+	if !strings.Contains(content, "hierarchy?.epics") {
+		t.Error("viewer.html must unpack hierarchy?.epics into treeData (API returns {epics:[...]})")
+	}
+
+	// recentActivity should unpack activity.records
+	if !strings.Contains(content, "activity?.records") {
+		t.Error("viewer.html must unpack activity?.records into recentActivity (API returns {records:[...]})")
+	}
+}

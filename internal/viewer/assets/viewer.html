@@ -1460,7 +1460,7 @@ async function loadProjectData() {
   }
 
   // Step 4: set treeData, seed expandedEpics with all epic keys
-  treeData = Array.isArray(hierarchy) ? hierarchy : [];
+  treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
   expandedEpics = new Set(treeData.map(epic => epic.key).filter(Boolean));
 
   // Step 5: summary + recent-activity in parallel (non-blocking)
@@ -1471,7 +1471,7 @@ async function loadProjectData() {
 
   // Step 6: update caches (null = failed to load; renders handle gracefully)
   summaryData    = summary;   // null if failed
-  recentActivity = Array.isArray(activity) ? activity : [];
+  recentActivity = Array.isArray(activity?.records) ? activity.records : [];
 
   hideLoading();
 
@@ -1668,19 +1668,150 @@ function renderFeatureProgress() {
 }
 
 /**
- * Stub for Active Transitions section — implemented in Task 5.
+ * Renders the Active Transitions section.
+ * Shows the last 25 transitions from recentActivity, newest first.
+ * Each row: date, key (clickable), from-badge → to-badge, note, optional Open button.
  * @returns {string} HTML string
  */
 function renderActiveTransitions() {
-  return `<div class="content-placeholder">Active Transitions — coming in Task 5</div>`;
+  if (!recentActivity || recentActivity.length === 0) {
+    return `<div class="content-placeholder">No recent transitions</div>`;
+  }
+
+  // recentActivity is already sorted newest-first by the API; take up to 25
+  const rows = recentActivity.slice(0, 25);
+
+  let html = '<table class="activity-table"><tbody>';
+  for (const rec of rows) {
+    const key         = rec.key        || '';
+    const fromStatus  = rec.from_status || '';
+    const toStatus    = rec.to_status   || '';
+    const note        = rec.note        || '';
+    const changedAt   = rec.changed_at  || '';
+
+    const dateStr     = escapeHtml(formatDate(changedAt));
+    const keyHtml     = `<span class="activity-key" data-navigate-key="${escapeHtml(key)}">${escapeHtml(key)}</span>`;
+
+    const fromColor   = escapeHtml(getStatusColor(fromStatus));
+    const fromLabel   = escapeHtml(fromStatus.replace(/_/g, ' '));
+    const fromBadge   = fromStatus
+      ? `<span class="status-badge status-badge-sm" style="background:${fromColor}">${fromLabel}</span>`
+      : '';
+
+    const toColor     = escapeHtml(getStatusColor(toStatus));
+    const toLabel     = escapeHtml(toStatus.replace(/_/g, ' '));
+    const toBadge     = `<span class="status-badge status-badge-sm" style="background:${toColor}">${toLabel}</span>`;
+
+    const arrowHtml   = fromBadge
+      ? `${fromBadge}<span class="activity-arrow">→</span>${toBadge}`
+      : toBadge;
+
+    const noteTd      = note
+      ? `<td class="activity-note" title="${escapeHtml(note)}">${escapeHtml(note)}</td>`
+      : '<td></td>';
+
+    // Show Open button only if the record has linked_content_path or content_exists
+    const hasContent  = rec.linked_content_path || rec.content_exists;
+    const openBtn     = hasContent
+      ? `<td><button class="open-btn" data-navigate-key="${escapeHtml(key)}">Open</button></td>`
+      : '<td></td>';
+
+    html += `
+      <tr>
+        <td class="activity-date">${dateStr}</td>
+        <td>${keyHtml}</td>
+        <td>${arrowHtml}</td>
+        ${noteTd}
+        ${openBtn}
+      </tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
 }
 
 /**
- * Stub for Stale Entities section — implemented in Task 5.
+ * Renders the Stale Entities section.
+ * Client-side filter: entities not in a terminal status whose updated_at is > 7 days ago.
+ * Sorted by staleness descending (oldest first = most days since update at top).
  * @returns {string} HTML string
  */
 function renderStaleEntities() {
-  return `<div class="content-placeholder">Stale Entities — coming in Task 5</div>`;
+  /** @type {Array<{key:string, status:string, title:string, updated_at:string, days:number}>} */
+  const stale = [];
+
+  // Walk treeData: epics → features. Guard with ?. on updated_at per spec.
+  for (const epic of (treeData || [])) {
+    if (epic?.updated_at && !isTerminalStatus(epic.status || '')) {
+      const days = daysSince(epic.updated_at);
+      if (days > 7) {
+        stale.push({
+          key:        epic.key || '',
+          status:     epic.status || '',
+          title:      epic.title || '',
+          updated_at: epic.updated_at,
+          days,
+        });
+      }
+    }
+
+    const features = Array.isArray(epic?.features) ? epic.features : [];
+    for (const feature of features) {
+      if (feature?.updated_at && !isTerminalStatus(feature.status || '')) {
+        const days = daysSince(feature.updated_at);
+        if (days > 7) {
+          stale.push({
+            key:        feature.key || '',
+            status:     feature.status || '',
+            title:      feature.title || '',
+            updated_at: feature.updated_at,
+            days,
+          });
+        }
+      }
+
+      const tasks = Array.isArray(feature?.tasks) ? feature.tasks : [];
+      for (const task of tasks) {
+        if (task?.updated_at && !isTerminalStatus(task.status || '')) {
+          const days = daysSince(task.updated_at);
+          if (days > 7) {
+            stale.push({
+              key:        task.key || '',
+              status:     task.status || '',
+              title:      task.title || '',
+              updated_at: task.updated_at,
+              days,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  if (stale.length === 0) {
+    return `<div class="content-placeholder">No stale entities found</div>`;
+  }
+
+  // Sort descending by days (oldest first = highest daysSince at top)
+  stale.sort((a, b) => b.days - a.days);
+
+  let html = '<table class="activity-table"><tbody>';
+  for (const item of stale) {
+    const color    = escapeHtml(getStatusColor(item.status));
+    const label    = escapeHtml(item.status.replace(/_/g, ' '));
+    const badge    = `<span class="status-badge status-badge-sm" style="background:${color}">${label}</span>`;
+    const keyHtml  = `<span class="activity-key" data-navigate-key="${escapeHtml(item.key)}">${escapeHtml(item.key)}</span>`;
+    const daysText = escapeHtml(item.days + ' days ago');
+
+    html += `
+      <tr>
+        <td>${keyHtml}</td>
+        <td>${badge}</td>
+        <td class="activity-note">${escapeHtml(item.title)}</td>
+        <td class="activity-date">${daysText}</td>
+      </tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
 }
 
 /**
