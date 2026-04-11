@@ -152,6 +152,7 @@ type ServiceContainer struct {
 	NoteService       *services.NoteService
 	ContextService    *services.ContextService
 	ResumeService     *services.ResumeService
+	ViewerService     *services.ViewerService
 }
 
 // WireServices constructs all services with their dependencies.
@@ -265,7 +266,22 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		panic(fmt.Sprintf("failed to create ResumeService: %v", err))
 	}
 
-	// Step 5: Return container with all services
+	// Step 5: Construct ViewerService for the read-only dashboard API.
+	// statusCalc is optional and passed as nil; it can be wired in a later iteration
+	// when weighted-progress display is added to the viewer summary endpoint.
+	viewerService := services.NewViewerService(
+		epicRepo,
+		featureRepo,
+		taskRepo,
+		bugRepoAdapter,
+		changeCardRepoAdapter,
+		entityHistoryRepo,
+		workflowSvc,
+		nil, // statusCalc: optional, not required for current viewer endpoints
+		projectRoot,
+	)
+
+	// Step 6: Return container with all services
 	_ = historyRepo // available for future wiring
 	return &ServiceContainer{
 		TaskService:       taskService,
@@ -276,6 +292,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		NoteService:       noteService,
 		ContextService:    contextService,
 		ResumeService:     resumeService,
+		ViewerService:     viewerService,
 	}
 }
 

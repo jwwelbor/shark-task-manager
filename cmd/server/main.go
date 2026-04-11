@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/api"
+	"github.com/jwwelbor/shark-task-manager/internal/api/viewer"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/dbinit"
@@ -83,6 +84,10 @@ func main() {
 	api.NewTaskHandler(svcs.TaskService).RegisterRoutes(mux)
 	api.NewFeatureHandler(svcs.FeatureService).RegisterRoutes(mux)
 	api.NewEpicHandler(svcs.EpicService).RegisterRoutes(mux)
+
+	// Register read-only viewer dashboard routes under /api/v1/viewer/.
+	// CORS middleware is applied by RegisterRoutes (viewer-scoped, per ADR-E27-007).
+	viewer.NewViewerHandler(svcs.ViewerService).RegisterRoutes(mux, "/api/v1/viewer")
 
 	slog.Info("API routes registered", "prefix", "/api/v1")
 
