@@ -1562,12 +1562,56 @@ function renderPickFolder() {
 // ============================================================
 
 /**
- * Navigates to an entity by key: sets selectedKey, switches to entity_view,
- * and triggers a render + sidebar scroll.
- * @param {string} key - entity key (e.g. "E07-F01")
+ * Navigates to an entity by key: expands ancestor nodes in the sidebar tree,
+ * sets selectedKey, switches to entity_view, renders, and scrolls into view.
+ * No-op if key is not found in treeData (logs warning).
+ * @param {string} key - entity key (e.g. "E07", "E07-F01", "E07-F01-001")
  */
 function navigateToEntity(key) {
   if (!key) return;
+
+  // Determine entity type and expand ancestors
+  // Epic: E## — just expand the epic itself
+  // Feature: E##-F## or F## — expand parent epic + the feature
+  // Task: E##-F##-### or T-E##-F##-### — expand parent epic + parent feature
+  // Bug: B### — flat list, no expansion needed
+  if (Array.isArray(treeData)) {
+    let found = false;
+    for (const epic of treeData) {
+      if (epic.key === key) {
+        // It's an epic — expand it
+        expandedEpics.add(epic.key);
+        found = true;
+        break;
+      }
+      const features = Array.isArray(epic.features) ? epic.features : [];
+      for (const feature of features) {
+        if (feature.key === key) {
+          // It's a feature — expand parent epic + the feature
+          expandedEpics.add(epic.key);
+          expandedFeatures.add(feature.key);
+          found = true;
+          break;
+        }
+        const tasks = Array.isArray(feature.tasks) ? feature.tasks : [];
+        for (const task of tasks) {
+          if (task.key === key) {
+            // It's a task — expand parent epic + parent feature
+            expandedEpics.add(epic.key);
+            expandedFeatures.add(feature.key);
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+      if (found) break;
+    }
+    if (!found) {
+      console.warn('[navigateToEntity] key not found in treeData:', key);
+    }
+  }
+
   selectedKey = key;
   appState = 'entity_view';
   render();
@@ -2096,16 +2140,61 @@ function renderEntityView() {
 }
 
 // ============================================================
-// SECTION: Doc View (Stub — Task 7)
+// === DOC VIEW ===
 // ============================================================
 
 /**
  * Renders the Doc View (State 4).
- * Implemented in Task 7 (plain markdown rendering).
+ * Plain markdown rendering — no properties panel, no Info/Transitions toggle.
+ * Reuses renderMarkdownPane() for content rendering.
  */
 function renderDocView() {
   const content = document.getElementById('content');
-  content.innerHTML = '<div class="content-placeholder">Doc View — coming in Task 7</div>';
+
+  const docKey = selectedKey || '';
+
+  // Find doc metadata from treeData (docs are nested under epics/features)
+  let docMeta = null;
+  let parentKey = '';
+  if (Array.isArray(treeData)) {
+    outer:
+    for (const epic of treeData) {
+      const epicDocs = Array.isArray(epic.docs) ? epic.docs : [];
+      for (const doc of epicDocs) {
+        const k = doc.key || doc.path || doc.title || '';
+        if (k === docKey) { docMeta = doc; parentKey = epic.key || ''; break outer; }
+      }
+      const features = Array.isArray(epic.features) ? epic.features : [];
+      for (const feature of features) {
+        const fDocs = Array.isArray(feature.docs) ? feature.docs : [];
+        for (const doc of fDocs) {
+          const k = doc.key || doc.path || doc.title || '';
+          if (k === docKey) { docMeta = doc; parentKey = feature.key || epic.key || ''; break outer; }
+        }
+      }
+    }
+  }
+
+  const docTitle = docMeta ? escapeHtml(docMeta.title || docKey) : escapeHtml(docKey);
+  const pathVal  = docMeta ? escapeHtml(docMeta.path || docKey) : escapeHtml(docKey);
+  const parentVal = parentKey ? `<span class="mono">${escapeHtml(parentKey)}</span>` : '—';
+
+  content.innerHTML = `
+    <div class="ev-header">
+      <div class="ev-title">${docTitle}</div>
+      <div class="ev-key">${escapeHtml(docKey)}</div>
+    </div>
+    <div class="ev-body" style="display:flex;flex-direction:column;gap:16px">
+      <div class="props-grid">
+        <span class="props-label">Path</span><span class="props-value">${pathVal}</span>
+        <span class="props-label">Parent</span><span class="props-value">${parentVal}</span>
+      </div>
+      <div id="doc-content-pane" class="ev-content-pane"></div>
+    </div>`;
+
+  // Async render markdown content
+  const pane = document.getElementById('doc-content-pane');
+  renderMarkdownPane(docKey, pane);
 }
 
 // ============================================================
@@ -2365,13 +2454,18 @@ function renderSidebar() {
       return;
     }
 
-    // Node body click — select entity
+    // Node body click — select entity or doc
     const nodeEl = e.target.closest('[data-select-key]');
     if (nodeEl) {
       const key = nodeEl.getAttribute('data-select-key');
       if (key) {
         selectedKey = key;
-        appState = 'entity_view';
+        // Doc nodes (italic in sidebar) go to doc_view; all others go to entity_view
+        if (nodeEl.classList.contains('tree-node-doc-epic') || nodeEl.classList.contains('tree-node-doc-feature')) {
+          appState = 'doc_view';
+        } else {
+          appState = 'entity_view';
+        }
         render();
       }
     }

@@ -631,3 +631,102 @@ func TestViewerHTMLEntityViewFindEntityByKey(t *testing.T) {
 		t.Error("viewer.html missing 'treeData' reference in findEntityByKey")
 	}
 }
+
+// TestViewerHTMLDocViewImplemented verifies that renderDocView() is fully
+// implemented (not a stub) and contains the required structural elements.
+// TC-NAV-04: Clicking a doc node enters Doc View with plain markdown.
+func TestViewerHTMLDocViewImplemented(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must NOT still be a stub
+	if strings.Contains(content, "Doc View — coming in Task 7") {
+		t.Error("renderDocView() is still a stub — must be implemented in Task 7")
+	}
+
+	// Must have a doc_view section label
+	if !strings.Contains(content, "=== DOC VIEW ===") {
+		t.Error("viewer.html missing '=== DOC VIEW ===' section label")
+	}
+
+	// Doc View renders markdown pane (reuses renderMarkdownPane)
+	if !strings.Contains(content, "renderMarkdownPane") {
+		t.Error("viewer.html missing 'renderMarkdownPane' call in renderDocView")
+	}
+
+	// Shows doc title prominently
+	if !strings.Contains(content, "ev-title") {
+		t.Error("viewer.html missing 'ev-title' class for doc title in Doc View")
+	}
+
+	// Shows minimal props: path and parent
+	if !strings.Contains(content, "doc-content-pane") {
+		t.Error("viewer.html missing 'doc-content-pane' id for Doc View content area")
+	}
+}
+
+// TestViewerHTMLNavigateToEntityAncestorExpansion verifies that navigateToEntity()
+// expands ancestor nodes (epic → feature) before rendering.
+// TC-NAV-02, TC-NAV-03: ancestor expansion for cross-view navigation.
+func TestViewerHTMLNavigateToEntityAncestorExpansion(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// navigateToEntity must add to expandedEpics for feature/task navigation
+	if !strings.Contains(content, "expandedEpics.add") {
+		t.Error("viewer.html missing 'expandedEpics.add' call in navigateToEntity (ancestor expansion)")
+	}
+
+	// navigateToEntity must add to expandedFeatures for task navigation
+	if !strings.Contains(content, "expandedFeatures.add") {
+		t.Error("viewer.html missing 'expandedFeatures.add' call in navigateToEntity (ancestor expansion)")
+	}
+
+	// Must log a warning when key is not found (no-op safety guard)
+	if !strings.Contains(content, "key not found in treeData") {
+		t.Error("viewer.html missing 'key not found in treeData' warning in navigateToEntity")
+	}
+}
+
+// TestViewerHTMLDocNodeRouting verifies that sidebar doc node clicks are routed
+// to doc_view rather than entity_view. TC-NAV-04.
+func TestViewerHTMLDocNodeRouting(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The sidebar click handler must distinguish doc nodes by CSS class
+	if !strings.Contains(content, "tree-node-doc-epic") {
+		t.Error("viewer.html missing 'tree-node-doc-epic' check in sidebar click handler")
+	}
+	if !strings.Contains(content, "tree-node-doc-feature") {
+		t.Error("viewer.html missing 'tree-node-doc-feature' check in sidebar click handler")
+	}
+
+	// Doc nodes must route to doc_view state
+	if !strings.Contains(content, "appState = 'doc_view'") {
+		t.Error("viewer.html missing \"appState = 'doc_view'\" assignment for doc node clicks")
+	}
+}
+
+// TestViewerHTMLEscapeKeyHandler verifies that the Escape key handler is
+// registered and handles both entity_view and doc_view states. TC-KB-01.
+func TestViewerHTMLEscapeKeyHandler(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must listen for keydown event
+	if !strings.Contains(content, "addEventListener('keydown'") {
+		t.Error("viewer.html missing document.addEventListener('keydown') for keyboard handler")
+	}
+
+	// Must handle Escape key
+	if !strings.Contains(content, `e.key === 'Escape'`) {
+		t.Error("viewer.html missing e.key === 'Escape' check in keyboard handler")
+	}
+
+	// Must handle both entity_view and doc_view
+	if !strings.Contains(content, "appState === 'entity_view' || appState === 'doc_view'") {
+		t.Error("viewer.html missing combined entity_view/doc_view check in Escape handler")
+	}
+
+	// Must reset to dashboard on Escape
+	if !strings.Contains(content, "appState = 'dashboard'") {
+		t.Error("viewer.html missing \"appState = 'dashboard'\" reset in Escape handler")
+	}
+}
