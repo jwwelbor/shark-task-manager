@@ -14,8 +14,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/api"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/db"
+	"github.com/jwwelbor/shark-task-manager/internal/dbinit"
 	"github.com/jwwelbor/shark-task-manager/internal/observability"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -40,25 +40,24 @@ func main() {
 	}
 	observability.InitLogger(cfg)
 
-	// Initialize database
-	database, err := db.InitDB("shark-tasks.db")
+	// Initialize database (cloud-aware: reads .sharkconfig.json for backend selection).
+	repoDB, err := dbinit.Init(context.Background(), dbinit.Options{})
 	if err != nil {
 		slog.Error("Failed to initialize database", "error", err)
 		os.Exit(1)
 	}
-	defer database.Close()
+	defer repoDB.Close()
 
 	slog.Info("Database initialized successfully")
 
-	// Run integrity check
-	if err := db.CheckIntegrity(database); err != nil {
+	// Run integrity check on the underlying *sql.DB.
+	if err := db.CheckIntegrity(repoDB.DB); err != nil {
 		slog.Error("Database integrity check failed", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("Database integrity check passed")
 
-	// Wire up services using the repository.DB wrapper.
-	repoDB := repository.NewDB(database)
+	// Wire up services.
 	svcs := WireServices(repoDB, ".")
 
 	// Set up routes
@@ -70,7 +69,7 @@ func main() {
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		// Check database connection
-		if err := database.Ping(); err != nil {
+		if err := repoDB.Ping(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			fmt.Fprintf(w, "Database unavailable: %v", err)
 			return
