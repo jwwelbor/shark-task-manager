@@ -1,0 +1,1645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shark Status Viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    /* ============================================================
+       CSS CUSTOM PROPERTIES — Dark Slate Palette
+       ============================================================ */
+    :root {
+      --bg:             #0d0f12;
+      --bg-2:           #161920;
+      --bg-3:           #1e222b;
+      --bg-4:           #252a35;
+      --fg:             #e8eaf0;
+      --fg-muted:       #8a8f9e;
+      --fg-dim:         #555c6e;
+      --accent:         #4d77ff;
+      --accent-hover:   #6690ff;
+      --accent-dim:     #1e2d5a;
+      --border:         #2a2f3d;
+      --border-light:   #353b4d;
+      --sidebar-width:  320px;
+      --header-height:  44px;
+      --radius-sm:      4px;
+      --radius:         6px;
+      --radius-lg:      8px;
+      --shadow:         0 2px 8px rgba(0,0,0,0.4);
+      --transition:     150ms ease;
+    }
+
+    /* ============================================================
+       RESET & BASE
+       ============================================================ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      color: var(--accent-hover);
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      background: none;
+      font: inherit;
+      color: inherit;
+    }
+
+    /* ============================================================
+       TYPOGRAPHY
+       ============================================================ */
+
+    /* Monospace for entity keys */
+    .key, .mono {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+      color: var(--accent);
+      font-size: 12px;
+    }
+
+    /* Uppercase small-caps for section headers */
+    .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+    }
+
+    /* ============================================================
+       3-PANEL APP LAYOUT
+       ============================================================ */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    #header {
+      height: var(--header-height);
+      min-height: var(--header-height);
+      background: var(--bg-2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 12px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    #body-row {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    #sidebar {
+      width: var(--sidebar-width);
+      min-width: var(--sidebar-width);
+      background: var(--bg-2);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      overflow-x: hidden;
+      flex-shrink: 0;
+    }
+
+    #content {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--bg);
+      padding: 20px 24px;
+    }
+
+    /* Hide header/sidebar on pick_folder state */
+    .state-pick-folder #header,
+    .state-pick-folder #body-row #sidebar {
+      display: none;
+    }
+
+    .state-pick-folder #content {
+      padding: 0;
+    }
+
+    /* ============================================================
+       HEADER BAR
+       ============================================================ */
+    #header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+    }
+
+    #header-dashboard-btn {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      transition: background var(--transition);
+    }
+
+    #header-dashboard-btn:hover {
+      background: var(--bg-3);
+      color: var(--fg);
+    }
+
+    .header-pill {
+      font-size: 11px;
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2px 8px;
+      color: var(--fg-muted);
+      white-space: nowrap;
+    }
+
+    #header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-btn {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-3);
+      color: var(--fg-muted);
+      transition: background var(--transition), color var(--transition);
+    }
+
+    .header-btn:hover {
+      background: var(--bg-4);
+      color: var(--fg);
+    }
+
+    .header-btn-accent {
+      border-color: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .header-btn-accent:hover {
+      background: var(--accent-dim);
+      color: var(--fg);
+    }
+
+    /* ============================================================
+       SIDEBAR TREE
+       ============================================================ */
+    .sidebar-section-header {
+      position: sticky;
+      top: 0;
+      background: var(--bg-2);
+      padding: 10px 12px 6px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      border-bottom: 1px solid var(--border);
+      z-index: 1;
+    }
+
+    .tree-node {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px 4px 0;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      transition: background var(--transition);
+      user-select: none;
+      position: relative;
+    }
+
+    .tree-node:hover {
+      background: var(--bg-3);
+    }
+
+    /* Selected state: dark tint + accent left border + primary text */
+    .tree-node.selected {
+      background: rgba(0, 0, 0, 0.35);
+      border-left: 3px solid var(--accent);
+    }
+
+    .tree-node.selected .tree-node-title {
+      color: var(--fg);
+    }
+
+    /* Adjust padding when border adds 3px to left */
+    .tree-node.selected {
+      padding-left: 0;
+    }
+
+    /* Tree indentation levels */
+    .tree-node-epic    { padding-left: 16px; font-weight: 600; }
+    .tree-node-feature { padding-left: 40px; }
+    .tree-node-task    { padding-left: 56px; }
+    .tree-node-flat    { padding-left: 18px; }
+
+    /* Doc nodes: italic + muted */
+    .tree-node-doc-epic    { padding-left: 16px; font-style: italic; }
+    .tree-node-doc-feature { padding-left: 40px; font-style: italic; }
+
+    .tree-node-doc-epic .tree-node-title,
+    .tree-node-doc-feature .tree-node-title {
+      color: var(--fg-dim);
+      font-style: italic;
+    }
+
+    /* Compensate selected border for indented nodes */
+    .tree-node.selected.tree-node-epic    { padding-left: 13px; }
+    .tree-node.selected.tree-node-feature { padding-left: 37px; }
+    .tree-node.selected.tree-node-task    { padding-left: 53px; }
+    .tree-node.selected.tree-node-flat    { padding-left: 15px; }
+    .tree-node.selected.tree-node-doc-epic    { padding-left: 13px; }
+    .tree-node.selected.tree-node-doc-feature { padding-left: 37px; }
+
+    .tree-arrow {
+      width: 14px;
+      min-width: 14px;
+      font-size: 9px;
+      color: var(--fg-dim);
+      text-align: center;
+      transition: transform var(--transition);
+      flex-shrink: 0;
+    }
+
+    .tree-arrow-spacer {
+      width: 14px;
+      min-width: 14px;
+      flex-shrink: 0;
+    }
+
+    /* Status dot */
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      min-width: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: inline-block;
+    }
+
+    .tree-node-key {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+      color: var(--accent);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .tree-node-title {
+      color: var(--fg-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      flex: 1;
+    }
+
+    /* ============================================================
+       STATUS BADGES
+       ============================================================ */
+    .status-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      padding: 2px 7px;
+      border-radius: 10px;
+      color: #fff;
+      white-space: nowrap;
+      line-height: 1.6;
+      /* background set via JS using getStatusColor() */
+    }
+
+    .status-badge-sm {
+      font-size: 9px;
+      padding: 1px 5px;
+    }
+
+    /* ============================================================
+       PICK FOLDER SCREEN
+       ============================================================ */
+    #pick-folder-screen {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 40px 20px;
+      text-align: center;
+      gap: 0;
+    }
+
+    .state-pick-folder #pick-folder-screen {
+      display: flex;
+    }
+
+    .pick-folder-icon {
+      opacity: 0.18;
+      margin-bottom: 28px;
+    }
+
+    .pick-folder-icon svg {
+      width: 96px;
+      height: 96px;
+    }
+
+    .pick-folder-heading {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--fg);
+      margin-bottom: 12px;
+      letter-spacing: -0.02em;
+    }
+
+    .pick-folder-instruction {
+      font-size: 14px;
+      color: var(--fg-muted);
+      margin-bottom: 28px;
+      max-width: 340px;
+      line-height: 1.6;
+    }
+
+    .pick-folder-btn {
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 28px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      transition: background var(--transition), transform var(--transition);
+      box-shadow: 0 2px 12px rgba(77, 119, 255, 0.4);
+    }
+
+    .pick-folder-btn:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(77, 119, 255, 0.5);
+    }
+
+    .pick-folder-btn:active {
+      transform: translateY(0);
+    }
+
+    .pick-folder-note {
+      font-size: 11px;
+      color: var(--fg-dim);
+      margin-top: 16px;
+      max-width: 300px;
+    }
+
+    /* ============================================================
+       DASHBOARD
+       ============================================================ */
+    .dashboard-section {
+      margin-bottom: 32px;
+    }
+
+    .dashboard-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Status Breakdown cards */
+    .breakdown-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .breakdown-card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 14px 16px;
+    }
+
+    .breakdown-card-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+      margin-bottom: 6px;
+    }
+
+    .breakdown-card-total {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--fg);
+      line-height: 1.1;
+      margin-bottom: 12px;
+    }
+
+    .breakdown-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    /* Feature Progress */
+    .progress-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .progress-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+    }
+
+    .progress-key {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      color: var(--accent);
+      font-size: 11px;
+      flex-shrink: 0;
+      min-width: 90px;
+      cursor: pointer;
+    }
+
+    .progress-key:hover {
+      color: var(--accent-hover);
+      text-decoration: underline;
+    }
+
+    .progress-title {
+      color: var(--fg-muted);
+      font-size: 12px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .progress-bar-wrap {
+      width: 120px;
+      height: 6px;
+      background: var(--bg-4);
+      border-radius: 3px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    .progress-pct {
+      font-size: 11px;
+      color: var(--fg-muted);
+      min-width: 34px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    /* Activity / Transitions table */
+    .activity-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .activity-table tr {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .activity-table tr:hover {
+      background: var(--bg-2);
+    }
+
+    .activity-table td {
+      padding: 7px 8px;
+      vertical-align: middle;
+      font-size: 12px;
+    }
+
+    .activity-date {
+      color: var(--fg-dim);
+      white-space: nowrap;
+      font-size: 11px;
+    }
+
+    .activity-key {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      color: var(--accent);
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .activity-key:hover {
+      color: var(--accent-hover);
+      text-decoration: underline;
+    }
+
+    .activity-arrow {
+      color: var(--fg-dim);
+      padding: 0 4px;
+    }
+
+    .activity-note {
+      color: var(--fg-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+    }
+
+    .open-btn {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-3);
+      color: var(--fg-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    .open-btn:hover {
+      background: var(--bg-4);
+      color: var(--fg);
+    }
+
+    /* Stale entities table */
+    .stale-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .stale-table tr {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stale-table tr:hover {
+      background: var(--bg-2);
+    }
+
+    .stale-table td {
+      padding: 7px 8px;
+      vertical-align: middle;
+      font-size: 12px;
+    }
+
+    .stale-age {
+      color: var(--fg-dim);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    /* ============================================================
+       ENTITY VIEW
+       ============================================================ */
+    .entity-view-header {
+      margin-bottom: 18px;
+    }
+
+    .entity-view-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 4px;
+    }
+
+    .entity-view-key {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      color: var(--accent);
+      font-size: 13px;
+    }
+
+    .toggle-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+    }
+
+    .toggle-btn {
+      font-size: 12px;
+      padding: 5px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-2);
+      color: var(--fg-muted);
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    .toggle-btn:hover {
+      background: var(--bg-3);
+      color: var(--fg);
+    }
+
+    .toggle-btn.active {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Properties panel */
+    .props-grid {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 6px 12px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+
+    .props-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--fg-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding-top: 1px;
+    }
+
+    .props-value {
+      font-size: 12px;
+      color: var(--fg-muted);
+      word-break: break-all;
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .copy-btn {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-3);
+      color: var(--fg-dim);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background var(--transition);
+    }
+
+    .copy-btn:hover {
+      background: var(--bg-4);
+      color: var(--fg);
+    }
+
+    /* Markdown content */
+    .markdown-body {
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--fg-muted);
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+    }
+
+    .markdown-body h1, .markdown-body h2, .markdown-body h3,
+    .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+      color: var(--fg);
+      margin-top: 24px;
+      margin-bottom: 10px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .markdown-body h1 { font-size: 20px; }
+    .markdown-body h2 { font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    .markdown-body h3 { font-size: 14px; }
+
+    .markdown-body p {
+      margin-bottom: 12px;
+    }
+
+    .markdown-body ul, .markdown-body ol {
+      padding-left: 20px;
+      margin-bottom: 12px;
+    }
+
+    .markdown-body li {
+      margin-bottom: 4px;
+    }
+
+    .markdown-body code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      background: var(--bg-4);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 1px 5px;
+      color: var(--accent);
+    }
+
+    .markdown-body pre {
+      background: var(--bg-4);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      overflow-x: auto;
+      margin-bottom: 14px;
+    }
+
+    .markdown-body pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: var(--fg-muted);
+      font-size: 12px;
+    }
+
+    .markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 14px;
+    }
+
+    .markdown-body table th {
+      background: var(--bg-3);
+      color: var(--fg);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 7px 10px;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+
+    .markdown-body table td {
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+      font-size: 12px;
+    }
+
+    .markdown-body table tr:nth-child(even) td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .markdown-body blockquote {
+      border-left: 3px solid var(--accent-dim);
+      padding-left: 14px;
+      color: var(--fg-dim);
+      margin: 0 0 12px;
+    }
+
+    .markdown-body a {
+      color: var(--accent);
+    }
+
+    .markdown-body hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 18px 0;
+    }
+
+    .content-placeholder {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 40px 24px;
+      text-align: center;
+      color: var(--fg-dim);
+      font-size: 13px;
+    }
+
+    /* ============================================================
+       HISTORY DRAWER (implemented in Task 6/7)
+       ============================================================ */
+    .history-drawer {
+      border-top: 1px solid var(--border);
+      margin-top: 16px;
+      padding-top: 12px;
+    }
+
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .history-table tr {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .history-table tr:hover {
+      background: var(--bg-2);
+    }
+
+    .history-table td {
+      padding: 8px 10px;
+      vertical-align: middle;
+      font-size: 12px;
+    }
+
+    .history-date {
+      color: var(--fg-dim);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    /* ============================================================
+       TOAST / NOTIFICATION
+       ============================================================ */
+    #toast-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 100;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 16px;
+      font-size: 12px;
+      color: var(--fg);
+      box-shadow: var(--shadow);
+      pointer-events: auto;
+      max-width: 320px;
+      animation: toast-in 0.15s ease;
+    }
+
+    .toast-error {
+      border-color: #7a2020;
+      background: #1e0d0d;
+      color: #f87171;
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ============================================================
+       SCROLLBAR STYLING
+       ============================================================ */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-light);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--fg-dim);
+    }
+
+    /* ============================================================
+       UTILITY CLASSES
+       ============================================================ */
+    .hidden { display: none !important; }
+    .text-muted { color: var(--fg-muted); }
+    .text-dim   { color: var(--fg-dim); }
+    .text-accent { color: var(--accent); }
+    .flex-center { display: flex; align-items: center; gap: 6px; }
+
+    /* ============================================================
+       ERROR BANNER (Task 2 — API error feedback)
+       ============================================================ */
+    .error-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #1e0d0d;
+      border: 1px solid #7a2020;
+      border-radius: var(--radius);
+      color: #f87171;
+      font-size: 13px;
+      padding: 10px 14px;
+      margin: 12px 0 4px;
+    }
+
+    .error-banner-msg {
+      flex: 1;
+    }
+
+    .error-banner-dismiss {
+      background: none;
+      border: none;
+      color: #f87171;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0 4px;
+      opacity: 0.8;
+      flex-shrink: 0;
+    }
+
+    .error-banner-dismiss:hover {
+      opacity: 1;
+    }
+
+    /* ============================================================
+       LOADING INDICATOR (Task 2 — initial data load)
+       ============================================================ */
+    .loading-indicator {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 60px 24px;
+      color: var(--fg-dim);
+      font-size: 13px;
+    }
+
+    .loading-spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      color: var(--fg-dim);
+    }
+
+  </style>
+</head>
+<body>
+
+<!-- ============================================================
+     APP SHELL — 3-panel layout
+     ============================================================ -->
+<div id="app">
+
+  <!-- Header bar (hidden in pick_folder state) -->
+  <header id="header">
+    <div id="header-left">
+      <button id="header-dashboard-btn">Dashboard</button>
+      <div id="header-pills"></div>
+    </div>
+    <div id="header-right">
+      <button class="header-btn" id="header-refresh-btn">Refresh</button>
+      <button class="header-btn header-btn-accent" id="header-pick-folder-btn">Pick Folder</button>
+    </div>
+  </header>
+
+  <div id="body-row">
+
+    <!-- Sidebar (hidden in pick_folder state) -->
+    <aside id="sidebar">
+      <div id="sidebar-content"></div>
+    </aside>
+
+    <!-- Main content area -->
+    <main id="content">
+
+      <!-- Pick Folder screen — visible only in pick_folder state -->
+      <div id="pick-folder-screen">
+        <div class="pick-folder-icon">
+          <!-- SVG folder icon -->
+          <svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 24C8 19.582 11.582 16 16 16H38.4C40.507 16 42.524 16.843 44 18.343L48.686 23.029C50.162 24.529 52.179 25.372 54.286 25.372H80C84.418 25.372 88 28.954 88 33.372V72C88 76.418 84.418 80 80 80H16C11.582 80 8 76.418 8 72V24Z"
+                  fill="currentColor" stroke="currentColor" stroke-width="2"/>
+            <path d="M8 40H88" stroke="white" stroke-width="2" opacity="0.25"/>
+          </svg>
+        </div>
+        <h1 class="pick-folder-heading">Status Tracker</h1>
+        <p class="pick-folder-instruction">Select a shark project folder to browse.</p>
+        <button class="pick-folder-btn" id="pick-folder-btn">Pick Folder</button>
+        <p class="pick-folder-note">Read-only access. Does not modify project state.</p>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Toast notifications -->
+<div id="toast-container"></div>
+
+<!-- ============================================================
+     JAVASCRIPT
+     ============================================================ -->
+<script>
+'use strict';
+
+// ============================================================
+// SECTION: Status Color Mapping + Utilities
+// ============================================================
+
+/**
+ * Full status → hex color mapping table.
+ * Covers basic statuses + all shark long-form workflow statuses.
+ * Unknown statuses fall back to #666666 via getStatusColor().
+ */
+const STATUS_COLORS = {
+  // --- Basic statuses ---
+  draft:       '#8c8c8c',  // gray
+  todo:        '#4d4dbb',  // blue
+  in_progress: '#e7b30e',  // yellow
+  open:        '#e7b30e',  // yellow (same as in_progress)
+  done:        '#4d4269',  // dark green/purple
+  blocked:     '#8c5700',  // dark orange
+  cancelled:   '#4b4b36',  // dark gray
+  triaged:     '#e7b500',  // yellow
+  verified:    '#4d4269',  // dark green (same as done)
+  closed:      '#4b4b26',  // dark gray
+  wont_fix:    '#4b4b26',  // dark gray
+  identified:  '#8c8c8c',  // gray (same as draft)
+  confirmed:   '#4d4dbb',  // blue (same as todo)
+  proposed:    '#4d4dbb',  // blue
+  evaluating:  '#e7b500',  // yellow
+  accepted:    '#4d4269',  // dark green
+  promoted:    '#8c4dbb',  // purple
+  rejected:    '#8c4d6c',  // dark pink
+  reopened:    '#e7b500',  // yellow
+  approved:    '#4d4269',  // dark green
+
+  // --- Shark long-form workflow statuses ---
+  // ready_for_* → blue range (waiting/queued)
+  ready_for_development:    '#4d4dbb',
+  ready_for_review:         '#4d4dbb',
+  ready_for_qa:             '#4d4dbb',
+  ready_for_approval:       '#4d4dbb',
+  ready_for_research:       '#4d4dbb',
+  ready_for_decomposition:  '#4d4dbb',
+  ready_for_refinement:     '#4d4dbb',
+  ready_for_test_planning:  '#4d4dbb',
+  ready_for_task_generation:'#4d4dbb',
+  ready_for_task_review:    '#4d4dbb',
+
+  // in_* → yellow range (active work)
+  in_development:    '#e7b30e',
+  in_review:         '#e7b30e',
+  in_qa:             '#e7b30e',
+  in_research:       '#e7b30e',
+  in_decomposition:  '#e7b30e',
+  in_refinement:     '#e7b30e',
+  in_test_planning:  '#e7b30e',
+  in_task_generation:'#e7b30e',
+  in_task_review:    '#e7b30e',
+
+  // in_approval → purple (awaiting human decision)
+  in_approval: '#8c4dbb',
+
+  // Additional shark statuses
+  on_hold:   '#8c5700',  // dark orange (same as blocked)
+  active:    '#e7b30e',  // yellow (same as in_progress)
+  completed: '#4d4269',  // dark green (same as done)
+};
+
+/**
+ * Returns the hex color for a status string.
+ * Falls back to #666666 for unknown statuses.
+ * @param {string} status
+ * @returns {string} hex color
+ */
+function getStatusColor(status) {
+  return STATUS_COLORS[status] || '#666666';
+}
+
+/**
+ * Returns true if the status is a terminal/completed state
+ * (excluded from stale entity detection).
+ * @param {string} status
+ * @returns {boolean}
+ */
+function isTerminalStatus(status) {
+  const TERMINAL = new Set([
+    'done', 'cancelled', 'closed', 'wont_fix',
+    'verified', 'rejected', 'promoted', 'approved', 'completed',
+  ]);
+  return TERMINAL.has(status);
+}
+
+/**
+ * Formats an ISO timestamp to a short human-readable date.
+ * e.g. "Apr 9" or "Apr 9, 2024" if year differs from current.
+ * @param {string} isoString
+ * @returns {string}
+ */
+function formatDate(isoString) {
+  if (!isoString) return '—';
+  try {
+    const d = new Date(isoString);
+    const now = new Date();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mon = months[d.getMonth()];
+    const day = d.getDate();
+    if (d.getFullYear() !== now.getFullYear()) {
+      return `${mon} ${day}, ${d.getFullYear()}`;
+    }
+    return `${mon} ${day}`;
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * Returns the number of whole days since an ISO timestamp.
+ * @param {string} isoString
+ * @returns {number}
+ */
+function daysSince(isoString) {
+  if (!isoString) return 0;
+  try {
+    const d = new Date(isoString);
+    const now = new Date();
+    const ms = now.getTime() - d.getTime();
+    return Math.floor(ms / (1000 * 60 * 60 * 24));
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Creates a status badge element.
+ * @param {string} status
+ * @param {boolean} [small=false]
+ * @returns {HTMLElement}
+ */
+function makeStatusBadge(status, small = false) {
+  const el = document.createElement('span');
+  el.className = 'status-badge' + (small ? ' status-badge-sm' : '');
+  el.style.background = getStatusColor(status);
+  el.textContent = status.replace(/_/g, ' ');
+  return el;
+}
+
+/**
+ * Creates a status dot element.
+ * @param {string} status
+ * @returns {HTMLElement}
+ */
+function makeStatusDot(status) {
+  const el = document.createElement('span');
+  el.className = 'status-dot';
+  el.style.background = getStatusColor(status);
+  el.title = status;
+  return el;
+}
+
+// ============================================================
+// === API CLIENT ===
+// ============================================================
+
+/**
+ * Fetches workflow metadata from the server.
+ * Non-blocking on failure — STATUS_COLORS acts as fallback.
+ * @returns {Promise<Object|null>} parsed JSON or null on error
+ */
+async function apiGetWorkflowMeta() {
+  try {
+    const resp = await fetch('/api/v1/viewer/workflow-meta');
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the full entity hierarchy tree.
+ * Critical endpoint — failure should prevent dashboard transition.
+ * @returns {Promise<Array>} parsed JSON array
+ * @throws {Error} on HTTP error or network failure
+ */
+async function apiGetHierarchy() {
+  const resp = await fetch('/api/v1/viewer/hierarchy');
+  if (!resp.ok) throw new Error(`hierarchy fetch failed: HTTP ${resp.status}`);
+  return await resp.json();
+}
+
+/**
+ * Fetches project-wide entity summary (counts by type and status).
+ * @returns {Promise<Object|null>} parsed JSON or null on error
+ */
+async function apiGetSummary() {
+  try {
+    const resp = await fetch('/api/v1/viewer/summary');
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the most recent activity/transitions.
+ * @param {number} [limit=25]
+ * @returns {Promise<Array|null>} parsed JSON array or null on error
+ */
+async function apiGetRecentActivity(limit = 25) {
+  try {
+    const resp = await fetch(`/api/v1/viewer/recent-activity?limit=${limit}`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the markdown file content for an entity.
+ * @param {string} key - entity key (e.g. "E07-F01-001")
+ * @returns {Promise<Object|null>} parsed JSON or null on error
+ */
+async function apiGetFile(key) {
+  try {
+    const resp = await fetch(`/api/v1/viewer/file/${encodeURIComponent(key)}`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the status-change history for an entity.
+ * @param {string} key - entity key
+ * @returns {Promise<Array|null>} parsed JSON array or null on error
+ */
+async function apiGetHistory(key) {
+  try {
+    const resp = await fetch(`/api/v1/viewer/history/${encodeURIComponent(key)}`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches all tasks for a feature.
+ * @param {string} key - feature key (e.g. "E07-F01")
+ * @returns {Promise<Array|null>} parsed JSON array or null on error
+ */
+async function apiGetFeatureTasks(key) {
+  try {
+    const resp = await fetch(`/api/v1/viewer/features/${encodeURIComponent(key)}/tasks`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================
+// SECTION: UI Feedback Helpers
+// ============================================================
+
+/**
+ * Displays a dismissible error banner at the top of the content area.
+ * Also logs the message to the console for debugging.
+ * @param {string} message - Human-readable error description
+ */
+function showError(message) {
+  console.error('[viewer] Error:', message);
+  // Remove any existing error banner
+  const existing = document.getElementById('error-banner');
+  if (existing) existing.remove();
+
+  const banner = document.createElement('div');
+  banner.id = 'error-banner';
+  banner.className = 'error-banner';
+  banner.innerHTML = `
+    <span class="error-banner-msg">${escapeHtml(message)}</span>
+    <button class="error-banner-dismiss" aria-label="Dismiss">✕</button>
+  `;
+  banner.querySelector('.error-banner-dismiss').addEventListener('click', () => banner.remove());
+
+  // Insert at the top of #content (before any other children)
+  const content = document.getElementById('content');
+  content.insertBefore(banner, content.firstChild);
+}
+
+/**
+ * Shows a loading overlay/spinner in the content area.
+ * Clears content and inserts a centered loading indicator.
+ */
+function showLoading() {
+  const content = document.getElementById('content');
+  // Remove pick-folder-screen temporarily hidden by CSS; we inject a loader
+  let loader = document.getElementById('loading-indicator');
+  if (!loader) {
+    loader = document.createElement('div');
+    loader.id = 'loading-indicator';
+    loader.className = 'loading-indicator';
+    loader.innerHTML = '<div class="loading-spinner"></div><div class="loading-text">Loading project data…</div>';
+    content.appendChild(loader);
+  }
+  loader.style.display = 'flex';
+}
+
+/**
+ * Hides the loading overlay previously shown by showLoading().
+ */
+function hideLoading() {
+  const loader = document.getElementById('loading-indicator');
+  if (loader) loader.remove();
+}
+
+/**
+ * Escapes HTML special characters to prevent XSS in dynamic content.
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ============================================================
+// SECTION: Initial Data Load Sequence
+// ============================================================
+
+/**
+ * Performs the full initial data load sequence when "Pick Folder" is clicked.
+ *
+ * Load order:
+ * 1. Show loading state
+ * 2. Fetch workflow-meta (non-blocking — uses STATUS_COLORS as fallback)
+ * 3. Fetch hierarchy (blocking — failure stays on Pick Folder + shows error)
+ * 4. Seed expandedEpics with all epic keys from hierarchy
+ * 5. Fetch summary + recent-activity in parallel
+ * 6. Transition to dashboard state
+ *
+ * Partial failure (summary/activity): proceeds to dashboard; affected
+ * sections show inline "Failed to load" markers via null cache values.
+ */
+async function loadProjectData() {
+  showLoading();
+
+  // Step 2: workflow-meta (non-blocking)
+  try {
+    const meta = await apiGetWorkflowMeta();
+    if (meta && meta.statuses) {
+      workflowMeta = meta;
+      // Supplement STATUS_COLORS: add statuses from meta not already known
+      for (const [status, info] of Object.entries(meta.statuses)) {
+        if (!(status in STATUS_COLORS)) {
+          STATUS_COLORS[status] = (info && info.color) ? info.color : '#666666';
+        }
+      }
+    }
+  } catch {
+    // workflow-meta failure is non-fatal; STATUS_COLORS is the fallback
+  }
+
+  // Step 3: hierarchy (blocking — critical)
+  let hierarchy;
+  try {
+    hierarchy = await apiGetHierarchy();
+  } catch (err) {
+    hideLoading();
+    showError('Failed to load project hierarchy. Please check the server and try again.');
+    // Remain on Pick Folder screen — do NOT transition
+    return;
+  }
+
+  // Step 4: set treeData, seed expandedEpics with all epic keys
+  treeData = Array.isArray(hierarchy) ? hierarchy : [];
+  expandedEpics = new Set(treeData.map(epic => epic.key).filter(Boolean));
+
+  // Step 5: summary + recent-activity in parallel (non-blocking)
+  const [summary, activity] = await Promise.all([
+    apiGetSummary(),
+    apiGetRecentActivity(25),
+  ]);
+
+  // Step 6: update caches (null = failed to load; renders handle gracefully)
+  summaryData    = summary;   // null if failed
+  recentActivity = Array.isArray(activity) ? activity : [];
+
+  hideLoading();
+
+  // Transition to dashboard
+  appState = 'dashboard';
+  render();
+}
+
+// ============================================================
+// SECTION: State Machine — Variables
+// ============================================================
+
+let appState       = 'pick_folder';  // 'pick_folder' | 'dashboard' | 'entity_view' | 'doc_view'
+let selectedKey    = null;           // currently selected entity/doc key
+let treeData       = [];             // cached /hierarchy response
+let summaryData    = null;           // cached /summary response
+let recentActivity = [];             // cached /recent-activity response
+let workflowMeta   = null;           // cached /workflow-meta response
+let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
+let expandedFeatures = new Set();    // feature keys currently expanded in sidebar
+
+// ============================================================
+// SECTION: State Machine — render() Dispatcher
+// ============================================================
+
+/**
+ * Main render dispatcher. Reads appState and calls the
+ * appropriate render function. Also updates body class
+ * for CSS-driven show/hide of header/sidebar.
+ */
+function render() {
+  const body = document.body;
+  // Remove all state classes
+  body.className = body.className.replace(/\bstate-\S+/g, '').trim();
+  // Add current state class
+  body.classList.add('state-' + appState);
+
+  switch (appState) {
+    case 'pick_folder':
+      renderPickFolder();
+      break;
+    case 'dashboard':
+      renderDashboard();
+      break;
+    case 'entity_view':
+      renderEntityView();
+      break;
+    case 'doc_view':
+      renderDocView();
+      break;
+    default:
+      renderPickFolder();
+  }
+}
+
+// ============================================================
+// SECTION: Pick Folder Screen
+// ============================================================
+
+/**
+ * Renders the Pick Folder screen (State 1).
+ * Centered layout: SVG folder icon, heading, instruction,
+ * button, read-only note. Header and sidebar are hidden
+ * via CSS (.state-pick-folder rules).
+ *
+ * The "Pick Folder" button will be wired to API load
+ * logic in Task 2. For now it is a stub.
+ */
+function renderPickFolder() {
+  // The pick-folder-screen div is shown/hidden via CSS class.
+  // Content area cleared for other views; for pick_folder the
+  // #pick-folder-screen inside #content is shown by CSS.
+  const content = document.getElementById('content');
+  // Remove any non-pick-folder children injected by other render fns
+  Array.from(content.children).forEach(child => {
+    if (child.id !== 'pick-folder-screen') {
+      child.remove();
+    }
+  });
+  // Pick Folder screen is already in the HTML; nothing else to inject.
+}
+
+// ============================================================
+// SECTION: Dashboard (Stub — Task 4 & 5)
+// ============================================================
+
+/**
+ * Renders the Dashboard view (State 2).
+ * Implemented in Task 4 (Status Breakdown + Feature Progress)
+ * and Task 5 (Active Transitions + Stale Entities).
+ */
+function renderDashboard() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="content-placeholder">Dashboard — coming in Task 4 &amp; 5</div>';
+}
+
+// ============================================================
+// SECTION: Entity View (Stub — Task 6)
+// ============================================================
+
+/**
+ * Renders the Entity View (State 3).
+ * Implemented in Task 6 (Properties + Markdown content).
+ */
+function renderEntityView() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="content-placeholder">Entity View — coming in Task 6</div>';
+}
+
+// ============================================================
+// SECTION: Doc View (Stub — Task 7)
+// ============================================================
+
+/**
+ * Renders the Doc View (State 4).
+ * Implemented in Task 7 (plain markdown rendering).
+ */
+function renderDocView() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="content-placeholder">Doc View — coming in Task 7</div>';
+}
+
+// ============================================================
+// SECTION: Event Wiring
+// ============================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Set initial state and render
+  appState = 'pick_folder';
+  render();
+
+  // Pick Folder button (main screen) — triggers full data load
+  document.getElementById('pick-folder-btn').addEventListener('click', () => {
+    loadProjectData();
+  });
+
+  // Header: Dashboard title → return to dashboard
+  document.getElementById('header-dashboard-btn').addEventListener('click', () => {
+    if (appState === 'entity_view' || appState === 'doc_view') {
+      selectedKey = null;
+      appState = 'dashboard';
+      render();
+    }
+  });
+
+  // Header: Refresh button → reload all cached data
+  document.getElementById('header-refresh-btn').addEventListener('click', () => {
+    loadProjectData();
+  });
+
+  // Header: Pick Folder button → return to pick_folder
+  document.getElementById('header-pick-folder-btn').addEventListener('click', () => {
+    appState = 'pick_folder';
+    render();
+  });
+
+  // Keyboard: Escape → return to dashboard from entity/doc view
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (appState === 'entity_view' || appState === 'doc_view') {
+        selectedKey = null;
+        appState = 'dashboard';
+        render();
+      }
+    }
+  });
+});
+
+</script>
+</body>
+</html>
