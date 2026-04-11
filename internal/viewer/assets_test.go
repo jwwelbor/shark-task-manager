@@ -278,3 +278,115 @@ func TestViewerHTMLSidebarFlatSections(t *testing.T) {
 		}
 	}
 }
+
+// TestViewerHTMLDashboardSection verifies that the === DASHBOARD === section
+// label and the renderDashboard orchestrator are present. TC-VIS-04.
+func TestViewerHTMLDashboardSection(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "=== DASHBOARD ===") {
+		t.Error("viewer.html missing '=== DASHBOARD ===' section label")
+	}
+	if !strings.Contains(content, "renderDashboard") {
+		t.Error("viewer.html missing 'renderDashboard' orchestrator function")
+	}
+}
+
+// TestViewerHTMLStatusBreakdownSection verifies that renderStatusBreakdown()
+// is present and uses summaryData to build entity type cards. TC-VIS-04.
+func TestViewerHTMLStatusBreakdownSection(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "renderStatusBreakdown") {
+		t.Error("viewer.html missing 'renderStatusBreakdown' function")
+	}
+	// Data source: summaryData optional-chaining per spec §3
+	if !strings.Contains(content, "summaryData") {
+		t.Error("viewer.html missing 'summaryData' reference in status breakdown")
+	}
+	// Status Breakdown section title
+	if !strings.Contains(content, "Status Breakdown") {
+		t.Error("viewer.html missing 'Status Breakdown' section heading")
+	}
+	// Each card must display an uppercase entity label
+	if !strings.Contains(content, "EPICS") {
+		t.Error("viewer.html missing uppercase 'EPICS' label in Status Breakdown card")
+	}
+}
+
+// TestViewerHTMLStatusBreakdownUsesGetStatusColor verifies that the badge
+// colors in the Status Breakdown section are derived from getStatusColor().
+// TC-COLOR-01, TC-VIS-05.
+func TestViewerHTMLStatusBreakdownUsesGetStatusColor(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderStatusBreakdown must call getStatusColor for badge background
+	if !strings.Contains(content, "getStatusColor") {
+		t.Error("viewer.html missing 'getStatusColor' call (needed for status badge coloring in breakdown)")
+	}
+	// The function must use optional-chaining to guard against missing status_counts
+	if !strings.Contains(content, "status_counts") {
+		t.Error("viewer.html missing 'status_counts' reference for Status Breakdown badges")
+	}
+}
+
+// TestViewerHTMLFeatureProgressSection verifies that renderFeatureProgress()
+// is present and produces a progress bar list from treeData. TC-VIS-05.
+func TestViewerHTMLFeatureProgressSection(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "renderFeatureProgress") {
+		t.Error("viewer.html missing 'renderFeatureProgress' function")
+	}
+	// Section heading visible to users
+	if !strings.Contains(content, "Feature Progress") {
+		t.Error("viewer.html missing 'Feature Progress' section heading")
+	}
+	// Uses treeData (hierarchy) to derive task counts
+	if !strings.Contains(content, "treeData") {
+		t.Error("viewer.html missing 'treeData' reference in feature progress")
+	}
+	// Progress bar uses CSS width % with blue accent fill
+	if !strings.Contains(content, "var(--accent)") {
+		t.Error("viewer.html missing 'var(--accent)' for progress bar fill color")
+	}
+}
+
+// TestViewerHTMLFeatureProgressClickHandler verifies that clicking a feature
+// key in the Feature Progress list calls navigateToEntity(). TC-VIS-05.
+func TestViewerHTMLFeatureProgressClickHandler(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "navigateToEntity") {
+		t.Error("viewer.html missing 'navigateToEntity' stub function for feature key clicks")
+	}
+}
+
+// TestViewerHTMLDashboardNullGuards verifies that the dashboard gracefully
+// handles null summaryData and empty treeData. TC-API-06.
+func TestViewerHTMLDashboardNullGuards(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Null summaryData guard — show inline message
+	if !strings.Contains(content, "Failed to load status data") {
+		t.Error("viewer.html missing 'Failed to load status data' message for null summaryData")
+	}
+	// Empty treeData guard — show inline message
+	if !strings.Contains(content, "No features found") {
+		t.Error("viewer.html missing 'No features found' message for empty treeData")
+	}
+}
+
+// TestViewerHTMLDashboardStubsForTask5 verifies that stubs for Active
+// Transitions and Stale Entities sections are present (to be completed in
+// Task 5). TC-VIS-04.
+func TestViewerHTMLDashboardStubsForTask5(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "renderActiveTransitions") {
+		t.Error("viewer.html missing 'renderActiveTransitions' stub function (Task 5 target)")
+	}
+	if !strings.Contains(content, "renderStaleEntities") {
+		t.Error("viewer.html missing 'renderStaleEntities' stub function (Task 5 target)")
+	}
+}

@@ -1558,17 +1558,170 @@ function renderPickFolder() {
 }
 
 // ============================================================
-// SECTION: Dashboard (Stub — Task 4 & 5)
+// === DASHBOARD ===
 // ============================================================
 
 /**
+ * Navigates to an entity by key: sets selectedKey, switches to entity_view,
+ * and triggers a render + sidebar scroll.
+ * @param {string} key - entity key (e.g. "E07-F01")
+ */
+function navigateToEntity(key) {
+  if (!key) return;
+  selectedKey = key;
+  appState = 'entity_view';
+  render();
+  scrollSidebarToKey(key);
+}
+
+/**
+ * Renders the Status Breakdown section.
+ * Grid of cards — one per entity type that has items.
+ * Data source: summaryData.{epics,features,tasks,bugs}.status_counts
+ * @returns {string} HTML string
+ */
+function renderStatusBreakdown() {
+  if (!summaryData) {
+    return `<div class="content-placeholder">Failed to load status data</div>`;
+  }
+
+  // Entity types to display: [label, statusCounts object]
+  const entityTypes = [
+    ['EPICS',        summaryData?.epics?.status_counts],
+    ['FEATURES',     summaryData?.features?.status_counts],
+    ['TASKS',        summaryData?.tasks?.status_counts],
+    ['BUGS',         summaryData?.bugs?.status_counts],
+    ['IDEAS',        summaryData?.ideas?.status_counts],
+    ['CHANGE CARDS', summaryData?.change_cards?.status_counts],
+  ];
+
+  let cards = '';
+  for (const [label, statusCounts] of entityTypes) {
+    if (!statusCounts || typeof statusCounts !== 'object') continue;
+    const entries = Object.entries(statusCounts);
+    if (entries.length === 0) continue;
+
+    const total = entries.reduce((sum, [, count]) => sum + (count || 0), 0);
+    if (total === 0) continue;
+
+    let badges = '';
+    for (const [status, count] of entries) {
+      if (!count) continue;
+      const color = getStatusColor(status);
+      const label2 = escapeHtml(status.replace(/_/g, ' ')) + ' ' + count;
+      badges += `<span class="status-badge status-badge-sm" style="background:${escapeHtml(color)}">${label2}</span>`;
+    }
+
+    cards += `
+      <div class="breakdown-card">
+        <div class="breakdown-card-label">${escapeHtml(label)}</div>
+        <div class="breakdown-card-total">${total}</div>
+        <div class="breakdown-badges">${badges}</div>
+      </div>`;
+  }
+
+  if (!cards) {
+    return `<div class="content-placeholder">No entity data available</div>`;
+  }
+
+  return `<div class="breakdown-grid">${cards}</div>`;
+}
+
+/**
+ * Renders the Feature Progress section.
+ * List of features with horizontal progress bars derived from treeData task counts.
+ * @returns {string} HTML string
+ */
+function renderFeatureProgress() {
+  if (!treeData || treeData.length === 0) {
+    return `<div class="content-placeholder">No features found</div>`;
+  }
+
+  let rows = '';
+  for (const epic of treeData) {
+    const features = Array.isArray(epic.features) ? epic.features : [];
+    for (const feature of features) {
+      const featureKey = feature.key || '';
+      const tasks = Array.isArray(feature.tasks) ? feature.tasks : [];
+      const total = tasks.length;
+      const completed = tasks.filter(t => t.status === 'completed' || t.status === 'done').length;
+      const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+      const pctStr = pct + '%';
+
+      rows += `
+        <div class="progress-row">
+          <span class="progress-key" data-navigate-key="${escapeHtml(featureKey)}">${escapeHtml(featureKey)}</span>
+          <span class="progress-title">${escapeHtml(feature.title || '')}</span>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" style="width:${pct}%;background:var(--accent)"></div>
+          </div>
+          <span class="progress-pct">${pctStr}</span>
+        </div>`;
+    }
+  }
+
+  if (!rows) {
+    return `<div class="content-placeholder">No features found</div>`;
+  }
+
+  return `<div class="progress-list">${rows}</div>`;
+}
+
+/**
+ * Stub for Active Transitions section — implemented in Task 5.
+ * @returns {string} HTML string
+ */
+function renderActiveTransitions() {
+  return `<div class="content-placeholder">Active Transitions — coming in Task 5</div>`;
+}
+
+/**
+ * Stub for Stale Entities section — implemented in Task 5.
+ * @returns {string} HTML string
+ */
+function renderStaleEntities() {
+  return `<div class="content-placeholder">Stale Entities — coming in Task 5</div>`;
+}
+
+/**
  * Renders the Dashboard view (State 2).
- * Implemented in Task 4 (Status Breakdown + Feature Progress)
- * and Task 5 (Active Transitions + Stale Entities).
+ * Orchestrates 4 sections:
+ *   1. Status Breakdown (Task 4)
+ *   2. Feature Progress (Task 4)
+ *   3. Active Transitions (Task 5)
+ *   4. Stale Entities (Task 5)
  */
 function renderDashboard() {
   const content = document.getElementById('content');
-  content.innerHTML = '<div class="content-placeholder">Dashboard — coming in Task 4 &amp; 5</div>';
+
+  const html = `
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Status Breakdown</div>
+      ${renderStatusBreakdown()}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Feature Progress</div>
+      ${renderFeatureProgress()}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Active Transitions</div>
+      ${renderActiveTransitions()}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Stale Entities</div>
+      ${renderStaleEntities()}
+    </div>
+  `;
+
+  content.innerHTML = html;
+
+  // Wire click handlers for feature keys → navigateToEntity
+  content.querySelectorAll('[data-navigate-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      const key = el.getAttribute('data-navigate-key');
+      if (key) navigateToEntity(key);
+    });
+  });
 }
 
 // ============================================================
