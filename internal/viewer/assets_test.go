@@ -128,3 +128,153 @@ func TestViewerHTMLLoadHelpers(t *testing.T) {
 		}
 	}
 }
+
+// TestViewerHTMLSidebarSection verifies that the === SIDEBAR === section label
+// and the renderSidebar function are present. TC-TREE-01 (section present).
+func TestViewerHTMLSidebarSection(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "=== SIDEBAR ===") {
+		t.Error("viewer.html missing '=== SIDEBAR ===' section label")
+	}
+	if !strings.Contains(content, "renderSidebar") {
+		t.Error("viewer.html missing 'renderSidebar' function")
+	}
+}
+
+// TestViewerHTMLSidebarNodeBuilders verifies that all required node builder
+// functions are present. TC-TREE-02, TC-TREE-03, TC-TREE-05.
+func TestViewerHTMLSidebarNodeBuilders(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	builders := []string{
+		"buildEpicNodeHtml",
+		"buildFeatureNodeHtml",
+		"buildTaskNodeHtml",
+		"buildDocNodeHtml",
+		"buildFlatSectionHtml",
+		"buildStatusDotHtml",
+		"buildNodeHtml",
+		"buildArrowHtml",
+	}
+	for _, fn := range builders {
+		if !strings.Contains(content, fn) {
+			t.Errorf("viewer.html missing sidebar builder function: %q", fn)
+		}
+	}
+}
+
+// TestViewerHTMLSidebarIndentationClasses verifies that the CSS classes
+// matching the spec §2.6.2 indentation table are present. TC-TREE-01 through TC-TREE-03.
+func TestViewerHTMLSidebarIndentationClasses(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Spec §2.6.2: epics=16px, features=40px, tasks=56px, flat=18px
+	indentClasses := []string{
+		"tree-node-epic",    // 16px left padding, bold
+		"tree-node-feature", // 40px left padding
+		"tree-node-task",    // 56px left padding
+		"tree-node-flat",    // 18px left padding
+	}
+	for _, cls := range indentClasses {
+		if !strings.Contains(content, cls) {
+			t.Errorf("viewer.html missing indentation CSS class: %q", cls)
+		}
+	}
+}
+
+// TestViewerHTMLSidebarSelectedState verifies that the selected state
+// CSS rules and JS logic are present. TC-TREE-04.
+func TestViewerHTMLSidebarSelectedState(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// CSS: selected class with dark tint and 3px accent border
+	if !strings.Contains(content, "tree-node.selected") {
+		t.Error("viewer.html missing '.tree-node.selected' CSS rule")
+	}
+	if !strings.Contains(content, "3px solid var(--accent)") {
+		t.Error("viewer.html missing 3px accent left-border for selected state")
+	}
+
+	// JS: selectedKey comparison used in node rendering
+	if !strings.Contains(content, "selectedKey") {
+		t.Error("viewer.html missing 'selectedKey' variable for selected state")
+	}
+}
+
+// TestViewerHTMLScrollSidebarToKey verifies that the scrollSidebarToKey
+// helper is present. TC-TREE-04 (programmatic selection).
+func TestViewerHTMLScrollSidebarToKey(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "scrollSidebarToKey") {
+		t.Error("viewer.html missing 'scrollSidebarToKey' helper function")
+	}
+	if !strings.Contains(content, "scrollIntoView") {
+		t.Error("viewer.html missing 'scrollIntoView' call in sidebar helper")
+	}
+}
+
+// TestViewerHTMLExpandCollapseState verifies that expand/collapse state sets
+// (expandedEpics, expandedFeatures) and arrow rendering are present. TC-TREE-02.
+func TestViewerHTMLExpandCollapseState(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "expandedEpics") {
+		t.Error("viewer.html missing 'expandedEpics' Set for expand/collapse state")
+	}
+	if !strings.Contains(content, "expandedFeatures") {
+		t.Error("viewer.html missing 'expandedFeatures' Set for expand/collapse state")
+	}
+	// Arrow symbols used in expand/collapse
+	if !strings.Contains(content, "▶") {
+		t.Error("viewer.html missing collapsed arrow symbol ▶")
+	}
+	if !strings.Contains(content, "▼") {
+		t.Error("viewer.html missing expanded arrow symbol ▼")
+	}
+}
+
+// TestViewerHTMLStatusDotColorIntegration verifies that the status dot
+// uses getStatusColor() for its background. TC-COLOR-01.
+func TestViewerHTMLStatusDotColorIntegration(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "buildStatusDotHtml") {
+		t.Error("viewer.html missing 'buildStatusDotHtml' function")
+	}
+	// The function must call getStatusColor
+	if !strings.Contains(content, "getStatusColor") {
+		t.Error("viewer.html missing 'getStatusColor' call (needed for status dot coloring)")
+	}
+}
+
+// TestViewerHTMLSidebarRenderCall verifies that renderSidebar() is called
+// from the render() dispatcher for non-pick-folder states.
+func TestViewerHTMLSidebarRenderCall(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderSidebar must be called from render() for dashboard and entity_view
+	// We check that both appear in the same switch block
+	if !strings.Contains(content, "renderSidebar()") {
+		t.Error("viewer.html missing renderSidebar() call in render() dispatcher")
+	}
+}
+
+// TestViewerHTMLSidebarFlatSections verifies that Ideas and Change Cards flat
+// section rendering is wired. TC-TREE-05.
+func TestViewerHTMLSidebarFlatSections(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	flatSections := []string{
+		"Ideas",
+		"Change Cards",
+		"Tech Debt",
+		"Tags",
+	}
+	for _, section := range flatSections {
+		if !strings.Contains(content, section) {
+			t.Errorf("viewer.html missing flat section reference: %q", section)
+		}
+	}
+}

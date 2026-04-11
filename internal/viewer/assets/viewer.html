@@ -1514,12 +1514,15 @@ function render() {
       renderPickFolder();
       break;
     case 'dashboard':
+      renderSidebar();
       renderDashboard();
       break;
     case 'entity_view':
+      renderSidebar();
       renderEntityView();
       break;
     case 'doc_view':
+      renderSidebar();
       renderDocView();
       break;
     default:
@@ -1592,6 +1595,276 @@ function renderEntityView() {
 function renderDocView() {
   const content = document.getElementById('content');
   content.innerHTML = '<div class="content-placeholder">Doc View — coming in Task 7</div>';
+}
+
+// ============================================================
+// === SIDEBAR ===
+// ============================================================
+
+/**
+ * Scrolls the sidebar to make the node with the given key visible.
+ * Called programmatically when selectedKey is set externally.
+ * @param {string} key - entity key matching a data-key attribute in the sidebar
+ */
+function scrollSidebarToKey(key) {
+  if (!key) return;
+  const node = document.querySelector(`#sidebar-content [data-key="${CSS.escape(key)}"]`);
+  if (node) {
+    node.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+/**
+ * Builds an HTML string for a status dot circle.
+ * @param {string} status
+ * @returns {string} HTML string
+ */
+function buildStatusDotHtml(status) {
+  const color = getStatusColor(status || 'todo');
+  return `<span class="status-dot" style="background:${escapeHtml(color)}" title="${escapeHtml(status || '')}"></span>`;
+}
+
+/**
+ * Builds an HTML string for an arrow button (expandable) or a spacer (non-expandable).
+ * @param {boolean} expandable
+ * @param {boolean} expanded
+ * @param {string} key - used as data attribute for event delegation
+ * @returns {string} HTML string
+ */
+function buildArrowHtml(expandable, expanded, key) {
+  if (!expandable) {
+    return `<span class="tree-arrow-spacer"></span>`;
+  }
+  const symbol = expanded ? '▼' : '▶';
+  return `<span class="tree-arrow" data-arrow-key="${escapeHtml(key)}">${symbol}</span>`;
+}
+
+/**
+ * Builds an HTML string for a single tree node row.
+ * @param {Object} opts
+ * @param {string} opts.key
+ * @param {string} opts.title
+ * @param {string} opts.status
+ * @param {string} opts.nodeClass - CSS class for indentation level (e.g. 'tree-node-epic')
+ * @param {boolean} opts.expandable
+ * @param {boolean} opts.expanded
+ * @param {boolean} opts.bold - if true wraps key in <strong>
+ * @returns {string} HTML string
+ */
+function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bold }) {
+  const isSelected = key === selectedKey;
+  const selectedClass = isSelected ? ' selected' : '';
+  const arrowHtml = buildArrowHtml(expandable, expanded, key);
+  const dotHtml = buildStatusDotHtml(status);
+  const keyLabel = bold
+    ? `<strong class="tree-node-key">${escapeHtml(key)}</strong>`
+    : `<span class="tree-node-key">${escapeHtml(key)}</span>`;
+  const titleHtml = `<span class="tree-node-title">${escapeHtml(title || '')}</span>`;
+  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
+}
+
+/**
+ * Builds an HTML string for a task node.
+ * @param {Object} task - task object from hierarchy
+ * @returns {string} HTML string
+ */
+function buildTaskNodeHtml(task) {
+  return buildNodeHtml({
+    key: task.key || '',
+    title: task.title || '',
+    status: task.status || 'todo',
+    nodeClass: 'tree-node-task',
+    expandable: false,
+    expanded: false,
+    bold: false,
+  });
+}
+
+/**
+ * Builds an HTML string for a doc node.
+ * @param {Object} doc - doc object (has .title and optionally .key or .path)
+ * @param {'epic'|'feature'} level
+ * @returns {string} HTML string
+ */
+function buildDocNodeHtml(doc, level) {
+  const key = doc.key || doc.path || doc.title || '';
+  const nodeClass = level === 'epic' ? 'tree-node-doc-epic' : 'tree-node-doc-feature';
+  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span></div>`;
+}
+
+/**
+ * Builds an HTML string for a feature node and its children (tasks + docs) when expanded.
+ * @param {Object} feature - feature object from hierarchy
+ * @param {string} epicKey
+ * @returns {string} HTML string
+ */
+function buildFeatureNodeHtml(feature, epicKey) {
+  const featureKey = feature.key || '';
+  const isExpanded = expandedFeatures.has(featureKey);
+  let html = buildNodeHtml({
+    key: featureKey,
+    title: feature.title || '',
+    status: feature.status || 'todo',
+    nodeClass: 'tree-node-feature',
+    expandable: true,
+    expanded: isExpanded,
+    bold: false,
+  });
+
+  if (isExpanded) {
+    // Render tasks
+    const tasks = Array.isArray(feature.tasks) ? feature.tasks : [];
+    for (const task of tasks) {
+      html += buildTaskNodeHtml(task);
+    }
+    // Render feature-level docs
+    const docs = Array.isArray(feature.docs) ? feature.docs : [];
+    for (const doc of docs) {
+      html += buildDocNodeHtml(doc, 'feature');
+    }
+  }
+
+  return html;
+}
+
+/**
+ * Builds an HTML string for an epic node and its children (features + docs).
+ * Features start collapsed; epics start expanded.
+ * @param {Object} epic - epic object from treeData hierarchy
+ * @returns {string} HTML string
+ */
+function buildEpicNodeHtml(epic) {
+  const epicKey = epic.key || '';
+  const isExpanded = expandedEpics.has(epicKey);
+  let html = buildNodeHtml({
+    key: epicKey,
+    title: epic.title || '',
+    status: epic.status || 'todo',
+    nodeClass: 'tree-node-epic',
+    expandable: true,
+    expanded: isExpanded,
+    bold: true,
+  });
+
+  if (isExpanded) {
+    // Render features
+    const features = Array.isArray(epic.features) ? epic.features : [];
+    for (const feature of features) {
+      html += buildFeatureNodeHtml(feature, epicKey);
+    }
+    // Render epic-level docs
+    const docs = Array.isArray(epic.docs) ? epic.docs : [];
+    for (const doc of docs) {
+      html += buildDocNodeHtml(doc, 'epic');
+    }
+  }
+
+  return html;
+}
+
+/**
+ * Builds an HTML string for a flat section (Ideas, Change Cards, Tags, Tech Debt).
+ * Only called when items is a non-empty array.
+ * @param {string} title - section title (shown as uppercase label)
+ * @param {Array} items - array of items with .key/.title/.status
+ * @returns {string} HTML string
+ */
+function buildFlatSectionHtml(title, items) {
+  if (!Array.isArray(items) || items.length === 0) return '';
+  let html = `<div class="sidebar-section-header">${escapeHtml(title)}</div>`;
+  for (const item of items) {
+    const key = item.key || String(item.id || '');
+    const isSelected = key === selectedKey;
+    const selectedClass = isSelected ? ' selected' : '';
+    html += `<div class="tree-node tree-node-flat${selectedClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
+  }
+  return html;
+}
+
+/**
+ * Renders the sidebar tree navigator. Populates #sidebar-content
+ * and wires up expand/collapse and click-to-select via event delegation.
+ *
+ * Structure:
+ * - "HIERARCHY" section header
+ * - Epic nodes (start expanded) → Feature nodes (start collapsed) → Task nodes
+ * - Epic-level and feature-level doc nodes (italic, muted)
+ * - Flat sections (Ideas, Change Cards, Tags, Tech Debt) — only if items exist
+ */
+function renderSidebar() {
+  const sidebarContent = document.getElementById('sidebar-content');
+  if (!sidebarContent) return;
+
+  let html = '';
+
+  // ── Hierarchy section ──
+  html += `<div class="sidebar-section-header">Hierarchy</div>`;
+  for (const epic of treeData) {
+    html += buildEpicNodeHtml(epic);
+  }
+
+  // ── Flat sections — only render when data is present ──
+  if (treeData.length === 0 && !summaryData) {
+    // No data loaded yet — render nothing extra
+  }
+
+  // Ideas (from summaryData if present)
+  const ideas = (summaryData && Array.isArray(summaryData.ideas)) ? summaryData.ideas : [];
+  html += buildFlatSectionHtml('Ideas', ideas);
+
+  // Change Cards (from summaryData if present)
+  const changeCards = (summaryData && Array.isArray(summaryData.change_cards)) ? summaryData.change_cards : [];
+  html += buildFlatSectionHtml('Change Cards', changeCards);
+
+  // Tags (from summaryData if present)
+  const tags = (summaryData && Array.isArray(summaryData.tags)) ? summaryData.tags : [];
+  html += buildFlatSectionHtml('Tags', tags);
+
+  // Tech Debt (from summaryData if present)
+  const techDebt = (summaryData && Array.isArray(summaryData.tech_debt)) ? summaryData.tech_debt : [];
+  html += buildFlatSectionHtml('Tech Debt', techDebt);
+
+  sidebarContent.innerHTML = html;
+
+  // Wire event delegation once per render
+  // Remove previous listeners by replacing the element's handler.
+  // We use a single delegated click listener on sidebar-content.
+  sidebarContent.onclick = function(e) {
+    const arrowEl = e.target.closest('[data-arrow-key]');
+    if (arrowEl) {
+      // Expand/collapse — do NOT select
+      const key = arrowEl.getAttribute('data-arrow-key');
+      // Determine entity level from nearby node class
+      const parentNode = arrowEl.closest('.tree-node');
+      if (parentNode && parentNode.classList.contains('tree-node-epic')) {
+        if (expandedEpics.has(key)) {
+          expandedEpics.delete(key);
+        } else {
+          expandedEpics.add(key);
+        }
+      } else {
+        // Feature
+        if (expandedFeatures.has(key)) {
+          expandedFeatures.delete(key);
+        } else {
+          expandedFeatures.add(key);
+        }
+      }
+      renderSidebar();
+      return;
+    }
+
+    // Node body click — select entity
+    const nodeEl = e.target.closest('[data-select-key]');
+    if (nodeEl) {
+      const key = nodeEl.getAttribute('data-select-key');
+      if (key) {
+        selectedKey = key;
+        appState = 'entity_view';
+        render();
+      }
+    }
+  };
 }
 
 // ============================================================
