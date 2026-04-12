@@ -28,6 +28,7 @@ type Config struct {
 	TemplateDirectory      *string                `json:"template_directory,omitempty"`       // Template directory path relative to project root. Default: "shark-templates"
 	WorkflowConfig         *string                `json:"workflow_config,omitempty"`          // Path to workflow config file (default: .sharkworkflow.json). Read-only directive.
 	Observability          *ObservabilityConfig   `json:"observability,omitempty"`            // Observability subsystem configuration
+	Web                    *WebConfig             `json:"web,omitempty"`                      // Web dashboard server configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
 
 	// statusMetadata holds status metadata for work breakdown calculations
@@ -140,6 +141,20 @@ type ObservabilityConfig struct {
 	OTLPProtocol   string  `json:"otlp_protocol"`
 	ServiceName    string  `json:"service_name"`
 	SampleRate     float64 `json:"sample_rate,omitempty"`
+}
+
+// WebConfig holds configuration for the shark web dashboard server.
+// Port 0 means "use the default" (currently 7777, falling back to 7778–7790).
+type WebConfig struct {
+	Port int `json:"port,omitempty"` // TCP port for shark web; 0 means use default
+}
+
+// GetWebPort returns the configured web server port, or 0 if not set.
+func (c *Config) GetWebPort() int {
+	if c == nil || c.Web == nil {
+		return 0
+	}
+	return c.Web.Port
 }
 
 // GetTemplateDirectoryFromConfig loads the template directory setting from the given config file path.

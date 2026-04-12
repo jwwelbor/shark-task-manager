@@ -22,6 +22,9 @@ The `.sharkconfig.json` file is automatically created by `shark init` and contai
   "interactive_mode": false,
   "require_rejection_reason": true,
   "template_directory": "shark-templates",
+  "web": {
+    "port": 7777
+  },
   "default_agent": null,
   "default_epic": null,
   "last_sync_time": "2026-01-16T23:22:45-06:00",
@@ -75,6 +78,35 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 | `require_rejection_reason` | bool | `true` | Require reason when rejecting tasks |
 | `viewer` | string | `"cat"` | External viewer for `shark view` (e.g., `"glow"`, `"nano"`) |
 | `template_directory` | string | `"shark-templates"` | Template directory path relative to project root for `.tmpl` files |
+
+### Web Server Configuration
+
+The `web` key configures the `shark web` dashboard server.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `web.port` | int | `0` (use 7777) | TCP port for `shark web`; `0` means auto-select from 7777–7790 |
+
+**Port selection priority** (highest to lowest):
+1. `--port` CLI flag — exact port, fails if busy
+2. `web.port` in `.sharkconfig.json` — exact port, fails if busy
+3. Built-in default: try 7777, then 7778–7790
+
+**Example** — always start on port 9000:
+
+```json
+{
+  "web": {
+    "port": 9000
+  }
+}
+```
+
+You can still override it on the command line:
+
+```bash
+shark web --port 8888   # uses 8888 regardless of web.port in config
+```
 
 ### Default Values
 

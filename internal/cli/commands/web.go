@@ -27,9 +27,13 @@ var webCmd = &cobra.Command{
 	Long: `Start a local web server and open the Shark task-viewer dashboard in
 your default browser.
 
-By default the server binds to 127.0.0.1:7777 (falling back to 7778–7790 if
-7777 is already in use).  Use --port to require a specific port; the command
-will fail with a clear error if that port is busy.`,
+Port selection priority (highest to lowest):
+  1. --port flag — use exactly this port; fail if busy
+  2. web.port in .sharkconfig.json — use this port; fail if busy
+  3. Default: bind to 127.0.0.1:7777 (falling back to 7778–7790 if busy)
+
+Configure a persistent default port in .sharkconfig.json:
+  { "web": { "port": 8080 } }`,
 	Example: `  shark web                   # Start on first free port from 7777
   shark web --port 8080       # Use port 8080 exactly (fail if busy)
   shark web --no-open         # Start server but do not open browser`,
@@ -89,20 +93,32 @@ func openBrowser(url string) error {
 	return openBrowserForOS(runtime.GOOS, url)
 }
 
+func loadConfigPort() int {
+	cfg, err := cli.GetConfig()
+	if err != nil {
+		return 0
+	}
+	return cfg.GetWebPort()
+}
+
 func runWeb(cmd *cobra.Command, args []string) error {
 	// --- 1. Find a free port -------------------------------------------------
 
 	var port int
 	var err error
 	if cmd.Flags().Changed("port") {
-		// User explicitly specified a port — use exactly that port and fail fast
-		// if it is busy rather than silently falling back to another port.
+		// User explicitly specified a port — fail fast if busy rather than
+		// silently falling back to another port.
 		port, err = findFreePort(webPort, webPort)
 		if err != nil {
 			return fmt.Errorf("port %d is already in use", webPort)
 		}
+	} else if cfgPort := loadConfigPort(); cfgPort > 0 {
+		port, err = findFreePort(cfgPort, cfgPort)
+		if err != nil {
+			return fmt.Errorf("port %d (from .sharkconfig.json web.port) is already in use", cfgPort)
+		}
 	} else {
-		// Default behaviour: try the range 7777–7790.
 		port, err = findFreePort(webPort, webPort+13)
 		if err != nil {
 			return fmt.Errorf("could not find a free port: %w", err)
