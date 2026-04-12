@@ -50,7 +50,7 @@ func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	mux.Handle("GET "+prefix+"/summary", wrap(http.HandlerFunc(h.Summary)))
 	mux.Handle("GET "+prefix+"/hierarchy", wrap(http.HandlerFunc(h.Hierarchy)))
 	mux.Handle("GET "+prefix+"/history/{key}", wrap(http.HandlerFunc(h.History)))
-	mux.Handle("GET "+prefix+"/file/{key}", wrap(http.HandlerFunc(h.File)))
+	mux.Handle("GET "+prefix+"/file/{key...}", wrap(http.HandlerFunc(h.File)))
 	mux.Handle("GET "+prefix+"/features/{key}/tasks", wrap(http.HandlerFunc(h.FeatureTasks)))
 	mux.Handle("GET "+prefix+"/recent-activity", wrap(http.HandlerFunc(h.RecentActivity)))
 	mux.Handle("GET "+prefix+"/workflow-meta", wrap(http.HandlerFunc(h.WorkflowMeta)))
@@ -110,17 +110,32 @@ func (h *ViewerHandler) History(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// File returns the raw markdown content of an entity's spec file.
-// GET /api/v1/viewer/file/{key}
+// File returns the raw markdown content of an entity's spec file or any project file by path.
+// GET /api/v1/viewer/file/{key...}
+//
+// Accepts two forms:
+//  1. Entity key (e.g. "E07-F01-001") — looks up the entity's stored file_path.
+//  2. Relative file path (e.g. "docs/plan/E27/spec.md") — served directly from project root.
 func (h *ViewerHandler) File(w http.ResponseWriter, r *http.Request) {
 	rawKey := r.PathValue("key")
-	key, err := validateAndNormalizeAnyKey(rawKey)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "invalid entity key: "+rawKey)
-		return
+
+	// Detect whether rawKey is a file path (contains "/" or has a file extension).
+	isFilePath := strings.Contains(rawKey, "/") || strings.Contains(rawKey, ".")
+
+	var result *services.FileResponse
+	var err error
+
+	if isFilePath {
+		result, err = h.svc.FileByPath(r.Context(), rawKey)
+	} else {
+		key, keyErr := validateAndNormalizeAnyKey(rawKey)
+		if keyErr != nil {
+			respondError(w, http.StatusBadRequest, "invalid entity key or file path: "+rawKey)
+			return
+		}
+		result, err = h.svc.File(r.Context(), key)
 	}
 
-	result, err := h.svc.File(r.Context(), key)
 	if err != nil {
 		var secErr *services.SecurityError
 		if errors.As(err, &secErr) {
@@ -133,10 +148,10 @@ func (h *ViewerHandler) File(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if isNotFound(err) {
-			respondError(w, http.StatusNotFound, "entity not found: "+key)
+			respondError(w, http.StatusNotFound, "file not found: "+rawKey)
 			return
 		}
-		slog.Error("viewer file failed", "entity", key, "endpoint", "file", "error", err)
+		slog.Error("viewer file failed", "key", rawKey, "endpoint", "file", "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to load file")
 		return
 	}

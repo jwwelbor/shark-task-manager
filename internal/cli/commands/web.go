@@ -28,15 +28,16 @@ var webCmd = &cobra.Command{
 your default browser.
 
 By default the server binds to 127.0.0.1:7777 (falling back to 7778–7790 if
-7777 is already in use).  Use --port to override the starting port.`,
+7777 is already in use).  Use --port to require a specific port; the command
+will fail with a clear error if that port is busy.`,
 	Example: `  shark web                   # Start on first free port from 7777
-  shark web --port 8080       # Start on first free port from 8080
+  shark web --port 8080       # Use port 8080 exactly (fail if busy)
   shark web --no-open         # Start server but do not open browser`,
 	RunE: runWeb,
 }
 
 func init() {
-	webCmd.Flags().IntVar(&webPort, "port", 7777, "Starting port to try (falls back to port+1 … port+13)")
+	webCmd.Flags().IntVar(&webPort, "port", 7777, "Port to listen on; when set explicitly, fails if the port is busy instead of falling back")
 	webCmd.Flags().BoolVar(&webNoOpen, "no-open", false, "Do not open a browser after the server starts")
 	cli.RootCmd.AddCommand(webCmd)
 }
@@ -91,9 +92,21 @@ func openBrowser(url string) error {
 func runWeb(cmd *cobra.Command, args []string) error {
 	// --- 1. Find a free port -------------------------------------------------
 
-	port, err := findFreePort(webPort, webPort+13)
-	if err != nil {
-		return fmt.Errorf("could not find a free port: %w", err)
+	var port int
+	var err error
+	if cmd.Flags().Changed("port") {
+		// User explicitly specified a port — use exactly that port and fail fast
+		// if it is busy rather than silently falling back to another port.
+		port, err = findFreePort(webPort, webPort)
+		if err != nil {
+			return fmt.Errorf("port %d is already in use", webPort)
+		}
+	} else {
+		// Default behaviour: try the range 7777–7790.
+		port, err = findFreePort(webPort, webPort+13)
+		if err != nil {
+			return fmt.Errorf("could not find a free port: %w", err)
+		}
 	}
 
 	// --- 2. Obtain DB connection ---------------------------------------------

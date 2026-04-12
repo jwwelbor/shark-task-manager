@@ -91,6 +91,26 @@ type ViewerEntityHistoryRepository interface {
 	ListRecentAcrossEntities(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error)
 }
 
+// BulkEntityDoc is a document linked to an entity, returned by ViewerEntityDocRepository.ListAll.
+type BulkEntityDoc struct {
+	EntityType string
+	EntityID   int64
+	Title      string
+	FilePath   string
+}
+
+// ViewerEntityDocRepository is the minimal interface for bulk-loading all entity-linked documents.
+// It is optional — ViewerService degrades gracefully if nil.
+type ViewerEntityDocRepository interface {
+	ListAll(ctx context.Context) ([]*BulkEntityDoc, error)
+}
+
+// ViewerIdeaRepository is the minimal idea repository interface used by ViewerService.
+// It is optional — ViewerService degrades gracefully if nil (ideas section omitted from Summary).
+type ViewerIdeaRepository interface {
+	ListAll(ctx context.Context) ([]*models.Idea, error)
+}
+
 // ----- Request / Response types -----
 
 // StatusColorInfo carries workflow-derived display metadata for a single status bucket.
@@ -122,28 +142,38 @@ type SummaryBugCounts struct {
 
 // SummaryResponse is the response type for ViewerService.Summary.
 type SummaryResponse struct {
-	Epics       SummaryEntityCounts `json:"epics"`
-	Features    SummaryEntityCounts `json:"features"`
-	Tasks       SummaryTaskCounts   `json:"tasks"`
-	Bugs        SummaryBugCounts    `json:"bugs"`
-	ChangeCards SummaryEntityCounts `json:"change_cards"`
+	Epics       SummaryEntityCounts  `json:"epics"`
+	Features    SummaryEntityCounts  `json:"features"`
+	Tasks       SummaryTaskCounts    `json:"tasks"`
+	Bugs        SummaryBugCounts     `json:"bugs"`
+	ChangeCards SummaryEntityCounts  `json:"change_cards"`
+	Ideas       *SummaryEntityCounts `json:"ideas,omitempty"`
 }
 
-// HierarchyFeature is a feature with its task counts embedded.
+// HierarchyDoc is a document linked to an epic or feature.
+type HierarchyDoc struct {
+	Title string `json:"title"`
+	Path  string `json:"path"`
+}
+
+// HierarchyFeature is a feature with its tasks and linked docs embedded.
 type HierarchyFeature struct {
 	*models.Feature
-	TaskCount    int    `json:"task_count"`
-	BlockedCount int    `json:"blocked_count"`
-	StatusColor  string `json:"status_color"`
-	StatusPhase  string `json:"status_phase"`
+	TaskCount    int             `json:"task_count"`
+	BlockedCount int             `json:"blocked_count"`
+	StatusColor  string          `json:"status_color"`
+	StatusPhase  string          `json:"status_phase"`
+	Tasks        []*ViewerTask   `json:"tasks"`
+	Docs         []*HierarchyDoc `json:"docs"`
 }
 
-// HierarchyEpic is an epic with its child features embedded.
+// HierarchyEpic is an epic with its child features and linked docs embedded.
 type HierarchyEpic struct {
 	*models.Epic
 	Features    []*HierarchyFeature `json:"features"`
 	StatusColor string              `json:"status_color"`
 	StatusPhase string              `json:"status_phase"`
+	Docs        []*HierarchyDoc     `json:"docs"`
 }
 
 // HierarchyResponse is the response type for ViewerService.Hierarchy.
@@ -260,6 +290,8 @@ type ViewerService struct {
 	bugRepo        ViewerBugRepository
 	changeCardRepo ViewerChangeCardRepository
 	historyRepo    ViewerEntityHistoryRepository
+	entityDocRepo  ViewerEntityDocRepository // optional; used by Hierarchy for linked docs
+	ideaRepo       ViewerIdeaRepository      // optional; used by Summary for idea counts
 	workflowSvc    *workflow.Service
 	statusCalc     *status.CalculationService // optional; reserved for future use
 	projectRoot    string
@@ -299,6 +331,18 @@ func NewViewerService(
 		statusCalc:     statusCalc,
 		projectRoot:    projectRoot,
 	}
+}
+
+// WithEntityDocRepo wires the optional entity-document repository used by Hierarchy.
+// Call after NewViewerService; safe to skip (docs section will be empty).
+func (s *ViewerService) WithEntityDocRepo(r ViewerEntityDocRepository) {
+	s.entityDocRepo = r
+}
+
+// WithIdeaRepo wires the optional idea repository used by Summary.
+// Call after NewViewerService; safe to skip (ideas field omitted from Summary response).
+func (s *ViewerService) WithIdeaRepo(r ViewerIdeaRepository) {
+	s.ideaRepo = r
 }
 
 // Summary returns entity-type counts with per-status color/phase metadata
@@ -356,6 +400,20 @@ func (s *ViewerService) Summary(ctx context.Context) (*SummaryResponse, error) {
 	bugSvc := s.workflowSvc.ForLevel(workflow.LevelBug)
 	ccSvc := s.workflowSvc.ForLevel(workflow.LevelChange)
 
+	var ideaCounts *SummaryEntityCounts
+	if s.ideaRepo != nil {
+		ideas, err := s.ideaRepo.ListAll(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("viewer summary: failed to list ideas: %w", err)
+		}
+		raw := make(map[string]int, len(ideas))
+		for _, i := range ideas {
+			raw[string(i.Status)]++
+		}
+		ic := enrichIdeaCounts(raw)
+		ideaCounts = &ic
+	}
+
 	return &SummaryResponse{
 		Epics:    enrichEntityCounts(epicCounts, epicSvc),
 		Features: enrichEntityCounts(featureCounts, featureSvc),
@@ -368,6 +426,7 @@ func (s *ViewerService) Summary(ctx context.Context) (*SummaryResponse, error) {
 			BySeverity:          bugSeverity,
 		},
 		ChangeCards: enrichEntityCounts(ccCounts, ccSvc),
+		Ideas:       ideaCounts,
 	}, nil
 }
 
@@ -425,6 +484,59 @@ func enrichEntityCounts(counts map[string]int, svc *workflow.Service) SummaryEnt
 	return result
 }
 
+// ideaStatusOrder defines the display order for idea status buckets.
+var ideaStatusOrder = []string{"new", "on_hold", "converted", "archived"}
+
+// ideaStatusColors maps idea status names to display hex colors.
+// Ideas are not workflow-driven, so colors are static.
+var ideaStatusColors = map[string]string{
+	"new":       "#60a5fa", // blue
+	"on_hold":   "#fbbf24", // amber
+	"converted": "#34d399", // green
+	"archived":  "#6b7280", // gray
+}
+
+// enrichIdeaCounts converts a raw idea status→count map into a SummaryEntityCounts
+// using static color assignments (ideas are not workflow-driven).
+func enrichIdeaCounts(counts map[string]int) SummaryEntityCounts {
+	result := SummaryEntityCounts{}
+	seen := make(map[string]bool, len(counts))
+	for st := range counts {
+		seen[st] = true
+	}
+
+	for _, st := range ideaStatusOrder {
+		if c, ok := counts[st]; ok && c > 0 {
+			color := ideaStatusColors[st]
+			if color == "" {
+				color = "#6b7280"
+			}
+			result.ByStatus = append(result.ByStatus, StatusColorInfo{
+				Status: st,
+				Count:  c,
+				Color:  color,
+			})
+			result.Total += c
+			seen[st] = false
+		}
+	}
+	// Any statuses not in the predefined order.
+	for st, c := range counts {
+		if seen[st] && c > 0 {
+			result.ByStatus = append(result.ByStatus, StatusColorInfo{
+				Status: st,
+				Count:  c,
+				Color:  "#6b7280",
+			})
+			result.Total += c
+		}
+	}
+	if result.ByStatus == nil {
+		result.ByStatus = []StatusColorInfo{}
+	}
+	return result
+}
+
 // getProgressWeight retrieves the ProgressWeight for a status from the underlying
 // workflow config. Falls back to 0.0 for unknown statuses.
 func getProgressWeight(svc *workflow.Service, statusName string) float64 {
@@ -442,9 +554,34 @@ func getProgressWeight(svc *workflow.Service, statusName string) float64 {
 // Hierarchy returns epics ordered by execution_order ASC, created_at ASC,
 // with features and task/blocked counts embedded.
 func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, error) {
+	// Bulk-load all three entity types in 3 queries, then assemble in memory.
+	// This replaces the prior N+1 pattern (1 + 23 epics + 168 features ≈ 192 queries).
+
 	epics, err := s.epicRepo.List(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("viewer hierarchy: failed to list epics: %w", err)
+	}
+
+	allFeatures, err := s.featureRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("viewer hierarchy: failed to list features: %w", err)
+	}
+
+	allTasks, err := s.taskRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("viewer hierarchy: failed to list tasks: %w", err)
+	}
+
+	// Index features by epic ID.
+	featuresByEpic := make(map[int64][]*models.Feature, len(allFeatures))
+	for _, f := range allFeatures {
+		featuresByEpic[f.EpicID] = append(featuresByEpic[f.EpicID], f)
+	}
+
+	// Index tasks by feature ID.
+	tasksByFeature := make(map[int64][]*models.Task, len(allTasks))
+	for _, t := range allTasks {
+		tasksByFeature[t.FeatureID] = append(tasksByFeature[t.FeatureID], t)
 	}
 
 	// Sort epics by key ASC (epics have no execution_order; key is already ordered E01, E02, …).
@@ -455,6 +592,24 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 	epicSvc := s.workflowSvc.ForLevel(workflow.LevelEpic)
 	featureSvc := s.workflowSvc.ForLevel(workflow.LevelFeature)
 	taskSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
+
+	// Bulk-load linked docs (optional — skipped when entityDocRepo is nil).
+	docsByEpic := make(map[int64][]*HierarchyDoc)
+	docsByFeature := make(map[int64][]*HierarchyDoc)
+	if s.entityDocRepo != nil {
+		bulkDocs, err := s.entityDocRepo.ListAll(ctx)
+		if err == nil {
+			for _, d := range bulkDocs {
+				hd := &HierarchyDoc{Title: d.Title, Path: d.FilePath}
+				switch d.EntityType {
+				case "epic":
+					docsByEpic[d.EntityID] = append(docsByEpic[d.EntityID], hd)
+				case "feature":
+					docsByFeature[d.EntityID] = append(docsByFeature[d.EntityID], hd)
+				}
+			}
+		}
+	}
 
 	result := &HierarchyResponse{
 		Epics: make([]*HierarchyEpic, 0, len(epics)),
@@ -467,12 +622,13 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 			Features:    []*HierarchyFeature{},
 			StatusColor: colorOrGray(epicMeta.Color),
 			StatusPhase: phaseOrUnknown(epicMeta.Phase),
+			Docs:        docsByEpic[epic.ID],
+		}
+		if he.Docs == nil {
+			he.Docs = []*HierarchyDoc{}
 		}
 
-		features, err := s.featureRepo.ListByEpic(ctx, epic.ID)
-		if err != nil {
-			return nil, fmt.Errorf("viewer hierarchy: failed to list features for epic %s: %w", epic.Key, err)
-		}
+		features := featuresByEpic[epic.ID]
 
 		// Sort features by execution_order ASC (nil → MaxInt), then created_at ASC.
 		sort.Slice(features, func(i, j int) bool {
@@ -491,28 +647,41 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 		})
 
 		for _, f := range features {
-			tasks, err := s.taskRepo.ListByFeature(ctx, f.ID)
-			if err != nil {
-				return nil, fmt.Errorf("viewer hierarchy: failed to list tasks for feature %s: %w", f.Key, err)
-			}
+			rawTasks := tasksByFeature[f.ID]
 
-			taskCount := len(tasks)
+			taskCount := len(rawTasks)
 			blockedCount := 0
-			for _, t := range tasks {
+			for _, t := range rawTasks {
 				if t.BlockedReason != nil {
 					blockedCount++
 				}
 			}
 
-			fMeta := featureSvc.GetStatusMetadata(string(f.Status))
-			_ = taskSvc // used indirectly via enrichEntityCounts elsewhere
+			// Build ViewerTask slice with status color/phase metadata.
+			viewerTasks := make([]*ViewerTask, 0, len(rawTasks))
+			for _, t := range rawTasks {
+				meta := taskSvc.GetStatusMetadata(string(t.Status))
+				viewerTasks = append(viewerTasks, &ViewerTask{
+					Task:        t,
+					StatusColor: colorOrGray(meta.Color),
+					StatusPhase: phaseOrUnknown(meta.Phase),
+				})
+			}
 
+			fDocs := docsByFeature[f.ID]
+			if fDocs == nil {
+				fDocs = []*HierarchyDoc{}
+			}
+
+			fMeta := featureSvc.GetStatusMetadata(string(f.Status))
 			he.Features = append(he.Features, &HierarchyFeature{
 				Feature:      f,
 				TaskCount:    taskCount,
 				BlockedCount: blockedCount,
 				StatusColor:  colorOrGray(fMeta.Color),
 				StatusPhase:  phaseOrUnknown(fMeta.Phase),
+				Tasks:        viewerTasks,
+				Docs:         fDocs,
 			})
 		}
 
@@ -641,14 +810,21 @@ func (s *ViewerService) File(ctx context.Context, key string) (*FileResponse, er
 		return &FileResponse{Exists: false}, nil
 	}
 
+	// Resolve project root to an absolute path so that EvalSymlinks produces
+	// absolute canonical paths (necessary when projectRoot is "." or similar).
+	absRoot, err := filepath.Abs(s.projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("viewer file: failed to resolve project root: %w", err)
+	}
+
 	// Make the stored path absolute relative to project root.
 	absPath := filePath
 	if !filepath.IsAbs(filePath) {
-		absPath = filepath.Join(s.projectRoot, filePath)
+		absPath = filepath.Join(absRoot, filePath)
 	}
 
 	// Canonicalize project root.
-	rootCanon, err := filepath.EvalSymlinks(s.projectRoot)
+	rootCanon, err := filepath.EvalSymlinks(absRoot)
 	if err != nil {
 		return nil, fmt.Errorf("viewer file: failed to canonicalize project root: %w", err)
 	}
@@ -682,6 +858,82 @@ func (s *ViewerService) File(ctx context.Context, key string) (*FileResponse, er
 	raw, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, fmt.Errorf("viewer file: failed to read %q: %w", targetCanon, err)
+	}
+
+	if len(raw) > viewerFileSizeLimit {
+		return nil, &FileTooLargeError{Path: targetCanon, LimitMiB: 2}
+	}
+
+	relPath, err := filepath.Rel(rootCanon, targetCanon)
+	if err != nil {
+		relPath = filePath
+	}
+
+	return &FileResponse{
+		Exists:  true,
+		Content: string(raw),
+		Path:    relPath,
+	}, nil
+}
+
+// FileByPath reads an arbitrary file within the project root by its relative path.
+// This is used for linked documents (related-docs) that are not entity spec files.
+//
+// Returns:
+//   - FileResponse{Exists:false} (no error) when the file does not exist.
+//   - SecurityError when the resolved path lies outside the project root.
+//   - FileTooLargeError when the file exceeds 2 MiB.
+//   - FileResponse{Exists:true, Content:..., Path:relPath} on success.
+func (s *ViewerService) FileByPath(ctx context.Context, filePath string) (*FileResponse, error) {
+	// Reject absolute paths and obvious traversal.
+	if filepath.IsAbs(filePath) {
+		return nil, &SecurityError{Path: filePath}
+	}
+
+	// Resolve project root to an absolute path so that EvalSymlinks produces
+	// absolute canonical paths (necessary when projectRoot is "." or similar).
+	absRoot, err := filepath.Abs(s.projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("viewer file by path: failed to resolve project root: %w", err)
+	}
+
+	absPath := filepath.Join(absRoot, filePath)
+
+	// Canonicalize project root.
+	rootCanon, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return nil, fmt.Errorf("viewer file by path: failed to canonicalize project root: %w", err)
+	}
+
+	// Canonicalize the target path.
+	targetCanon, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &FileResponse{Exists: false}, nil
+		}
+		return nil, fmt.Errorf("viewer file by path: failed to canonicalize file path: %w", err)
+	}
+
+	// Containment check: resolved path must start with rootCanon + separator.
+	prefix := rootCanon + string(os.PathSeparator)
+	if targetCanon != rootCanon && !strings.HasPrefix(targetCanon, prefix) {
+		return nil, &SecurityError{Path: targetCanon}
+	}
+
+	// Open and read with size limit.
+	f, err := os.Open(targetCanon)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &FileResponse{Exists: false}, nil
+		}
+		return nil, fmt.Errorf("viewer file by path: failed to open %q: %w", targetCanon, err)
+	}
+	defer f.Close()
+
+	limited := io.LimitReader(f, int64(viewerFileSizeLimit)+1)
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("viewer file by path: failed to read %q: %w", targetCanon, err)
 	}
 
 	if len(raw) > viewerFileSizeLimit {

@@ -1036,7 +1036,7 @@
     </div>
     <div id="header-right">
       <button class="header-btn" id="header-refresh-btn">Refresh</button>
-      <button class="header-btn header-btn-accent" id="header-pick-folder-btn">Pick Folder</button>
+      <button class="header-btn header-btn-accent" id="header-pick-folder-btn" style="display:none">Pick Folder</button>
     </div>
   </header>
 
@@ -1303,7 +1303,12 @@ async function apiGetRecentActivity(limit = 25) {
  */
 async function apiGetFile(key) {
   try {
-    const resp = await fetch(`/api/v1/viewer/file/${encodeURIComponent(key)}`);
+    // For file paths (containing "/"), encode each segment separately to preserve path structure.
+    // For entity keys (e.g. "E07-F01-001"), encodeURIComponent is safe.
+    const encoded = key.includes('/')
+      ? key.split('/').map(encodeURIComponent).join('/')
+      : encodeURIComponent(key);
+    const resp = await fetch(`/api/v1/viewer/file/${encoded}`);
     if (!resp.ok) return null;
     return await resp.json();
   } catch {
@@ -1639,30 +1644,29 @@ function renderStatusBreakdown() {
     return `<div class="content-placeholder">Failed to load status data</div>`;
   }
 
-  // Entity types to display: [label, statusCounts object]
+  // Entity types to display: [label, byStatus array]
+  // API returns by_status as [{status, count, color, phase, progress_weight}, ...]
   const entityTypes = [
-    ['EPICS',        summaryData?.epics?.status_counts],
-    ['FEATURES',     summaryData?.features?.status_counts],
-    ['TASKS',        summaryData?.tasks?.status_counts],
-    ['BUGS',         summaryData?.bugs?.status_counts],
-    ['IDEAS',        summaryData?.ideas?.status_counts],
-    ['CHANGE CARDS', summaryData?.change_cards?.status_counts],
+    ['EPICS',        summaryData?.epics?.by_status],
+    ['FEATURES',     summaryData?.features?.by_status],
+    ['TASKS',        summaryData?.tasks?.by_status],
+    ['BUGS',         summaryData?.bugs?.by_status],
+    ['IDEAS',        summaryData?.ideas?.by_status],
+    ['CHANGE CARDS', summaryData?.change_cards?.by_status],
   ];
 
   let cards = '';
-  for (const [label, statusCounts] of entityTypes) {
-    if (!statusCounts || typeof statusCounts !== 'object') continue;
-    const entries = Object.entries(statusCounts);
-    if (entries.length === 0) continue;
+  for (const [label, byStatus] of entityTypes) {
+    if (!Array.isArray(byStatus) || byStatus.length === 0) continue;
 
-    const total = entries.reduce((sum, [, count]) => sum + (count || 0), 0);
+    const total = byStatus.reduce((sum, s) => sum + (s.count || 0), 0);
     if (total === 0) continue;
 
     let badges = '';
-    for (const [status, count] of entries) {
-      if (!count) continue;
-      const color = getStatusColor(status);
-      const label2 = escapeHtml(status.replace(/_/g, ' ')) + ' ' + count;
+    for (const s of byStatus) {
+      if (!s.count) continue;
+      const color = s.color || getStatusColor(s.status);
+      const label2 = escapeHtml((s.status || '').replace(/_/g, ' ')) + ' ' + s.count;
       badges += `<span class="status-badge status-badge-sm" style="background:${escapeHtml(color)}">${label2}</span>`;
     }
 
@@ -1881,7 +1885,7 @@ function renderDashboard() {
 
   const html = `
     <div class="dashboard-section">
-      <div class="dashboard-section-title">Status Breakdown</div>
+      <div class="dashboard-section-title">Status Overview</div>
       ${renderStatusBreakdown()}
     </div>
     <div class="dashboard-section">
@@ -1889,7 +1893,7 @@ function renderDashboard() {
       ${renderFeatureProgress()}
     </div>
     <div class="dashboard-section">
-      <div class="dashboard-section-title">Active Transitions</div>
+      <div class="dashboard-section-title">Recent Activity</div>
       ${renderActiveTransitions()}
     </div>
     <div class="dashboard-section">
@@ -2112,8 +2116,10 @@ function renderEntityView() {
   } else {
     // Transitions view
     paneEl.innerHTML = `<div class="history-drawer"><div class="content-placeholder">Loading transition history\u2026</div></div>`;
-    apiGetHistory(selectedKey).then(history => {
-      if (!history || history.length === 0) {
+    apiGetHistory(selectedKey).then(historyResp => {
+      // API returns {entity_type, entity_key, records: [...]}
+      const history = historyResp?.records;
+      if (!Array.isArray(history) || history.length === 0) {
         paneEl.innerHTML = `<div class="history-drawer"><div class="content-placeholder">No transition history found.</div></div>`;
         return;
       }
@@ -2497,9 +2503,9 @@ function renderSidebar() {
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Set initial state and render
-  appState = 'pick_folder';
-  render();
+  // Auto-load project data immediately — shark web is always pre-connected to
+  // a single project, so no folder selection is needed.
+  loadProjectData();
 
   // Pick Folder button (main screen) — triggers full data load
   document.getElementById('pick-folder-btn').addEventListener('click', () => {

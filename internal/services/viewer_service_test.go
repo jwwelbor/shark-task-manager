@@ -129,6 +129,17 @@ func (m *mockViewerHistoryRepo) ListRecentAcrossEntities(ctx context.Context, op
 	return nil, nil
 }
 
+type mockViewerEntityDocRepo struct {
+	ListAllFunc func(ctx context.Context) ([]*BulkEntityDoc, error)
+}
+
+func (m *mockViewerEntityDocRepo) ListAll(ctx context.Context) ([]*BulkEntityDoc, error) {
+	if m.ListAllFunc != nil {
+		return m.ListAllFunc(ctx)
+	}
+	return nil, nil
+}
+
 // ----- helpers -----
 
 func testWorkflowSvc(t *testing.T) *workflow.Service {
@@ -376,18 +387,18 @@ func TestViewerService_Hierarchy_EmbedsTasks(t *testing.T) {
 			},
 		},
 		&mockViewerFeatureRepo{
-			ListByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
 				return []*models.Feature{
-					{BaseEntity: models.BaseEntity{ID: 20}, EpicID: epicID, Status: "in_progress"},
+					{BaseEntity: models.BaseEntity{ID: 20}, EpicID: 10, Status: "in_progress"},
 				}, nil
 			},
 		},
 		&mockViewerTaskRepo{
-			ListByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 				return []*models.Task{
-					{BaseEntity: models.BaseEntity{ID: 1}, Status: "todo"},
-					{BaseEntity: models.BaseEntity{ID: 2}, Status: "todo", BlockedReason: &reason},
-					{BaseEntity: models.BaseEntity{ID: 3}, Status: "completed"},
+					{BaseEntity: models.BaseEntity{ID: 1}, FeatureID: 20, Status: "todo"},
+					{BaseEntity: models.BaseEntity{ID: 2}, FeatureID: 20, Status: "todo", BlockedReason: &reason},
+					{BaseEntity: models.BaseEntity{ID: 3}, FeatureID: 20, Status: "completed"},
 				}, nil
 			},
 		},
@@ -413,6 +424,61 @@ func TestViewerService_Hierarchy_EmbedsTasks(t *testing.T) {
 	}
 	if f.BlockedCount != 1 {
 		t.Errorf("expected BlockedCount=1, got %d", f.BlockedCount)
+	}
+}
+
+func TestViewerService_Hierarchy_EmbedsDocs(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 20}, EpicID: 10, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+				return nil, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	docRepo := &mockViewerEntityDocRepo{
+		ListAllFunc: func(ctx context.Context) ([]*BulkEntityDoc, error) {
+			return []*BulkEntityDoc{
+				{EntityType: "epic", EntityID: 10, Title: "Epic Spec", FilePath: "docs/e01/spec.md"},
+				{EntityType: "feature", EntityID: 20, Title: "Feature Design", FilePath: "docs/e01/f01/design.md"},
+			}, nil
+		},
+	}
+	svc.WithEntityDocRepo(docRepo)
+
+	resp, err := svc.Hierarchy(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Epics) != 1 {
+		t.Fatalf("expected 1 epic, got %d", len(resp.Epics))
+	}
+	epic := resp.Epics[0]
+	if len(epic.Docs) != 1 || epic.Docs[0].Title != "Epic Spec" {
+		t.Errorf("expected 1 epic doc with title 'Epic Spec', got %v", epic.Docs)
+	}
+	if len(epic.Features) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(epic.Features))
+	}
+	f := epic.Features[0]
+	if len(f.Docs) != 1 || f.Docs[0].Title != "Feature Design" {
+		t.Errorf("expected 1 feature doc with title 'Feature Design', got %v", f.Docs)
 	}
 }
 
@@ -1204,7 +1270,7 @@ func TestViewerService_Hierarchy_FeatureRepoError(t *testing.T) {
 			},
 		},
 		&mockViewerFeatureRepo{
-			ListByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
 				return nil, fmt.Errorf("feature repo error")
 			},
 		},
@@ -1229,14 +1295,14 @@ func TestViewerService_Hierarchy_TaskRepoError(t *testing.T) {
 			},
 		},
 		&mockViewerFeatureRepo{
-			ListByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
 				return []*models.Feature{
-					{BaseEntity: models.BaseEntity{ID: 20}, EpicID: epicID, Status: "in_progress"},
+					{BaseEntity: models.BaseEntity{ID: 20}, EpicID: 10, Status: "in_progress"},
 				}, nil
 			},
 		},
 		&mockViewerTaskRepo{
-			ListByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
 				return nil, fmt.Errorf("task repo error")
 			},
 		},
@@ -1262,11 +1328,11 @@ func TestViewerService_Hierarchy_SortsFeaturesByExecutionOrder(t *testing.T) {
 			},
 		},
 		&mockViewerFeatureRepo{
-			ListByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
 				// Return in reverse order; service should sort by execution_order.
 				return []*models.Feature{
-					{BaseEntity: models.BaseEntity{ID: 22, Key: "E01-F02"}, EpicID: epicID, Status: "todo", ExecutionOrder: &ord2},
-					{BaseEntity: models.BaseEntity{ID: 21, Key: "E01-F01"}, EpicID: epicID, Status: "todo", ExecutionOrder: &ord1},
+					{BaseEntity: models.BaseEntity{ID: 22, Key: "E01-F02"}, EpicID: 10, Status: "todo", ExecutionOrder: &ord2},
+					{BaseEntity: models.BaseEntity{ID: 21, Key: "E01-F01"}, EpicID: 10, Status: "todo", ExecutionOrder: &ord1},
 				}, nil
 			},
 		},

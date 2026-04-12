@@ -6,6 +6,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/entitydoc"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -14,9 +16,43 @@ import (
 
 // Compile-time interface satisfaction checks for adapters.
 var (
-	_ services.WorkSessionRepository = (*workSessionAdapter)(nil)
-	_ services.TaskHistoryRepository = (*taskHistoryAdapter)(nil)
+	_ services.WorkSessionRepository     = (*workSessionAdapter)(nil)
+	_ services.TaskHistoryRepository     = (*taskHistoryAdapter)(nil)
+	_ services.ViewerEntityDocRepository = (*entityDocAdapter)(nil)
+	_ services.ViewerIdeaRepository      = (*ideaAdapter)(nil)
 )
+
+// ideaAdapter adapts *idea.IdeaRepository to services.ViewerIdeaRepository.
+type ideaAdapter struct {
+	repo *idea.IdeaRepository
+}
+
+func (a *ideaAdapter) ListAll(ctx context.Context) ([]*models.Idea, error) {
+	return a.repo.List(ctx, nil)
+}
+
+// entityDocAdapter adapts *entitydoc.EntityDocumentRepository to the
+// services.ViewerEntityDocRepository interface, converting BulkDoc types.
+type entityDocAdapter struct {
+	repo *entitydoc.EntityDocumentRepository
+}
+
+func (a *entityDocAdapter) ListAll(ctx context.Context) ([]*services.BulkEntityDoc, error) {
+	raw, err := a.repo.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*services.BulkEntityDoc, len(raw))
+	for i, d := range raw {
+		out[i] = &services.BulkEntityDoc{
+			EntityType: d.EntityType,
+			EntityID:   d.EntityID,
+			Title:      d.Title,
+			FilePath:   d.FilePath,
+		}
+	}
+	return out, nil
+}
 
 // workSessionAdapter adapts *repository.WorkSessionRepository to the services.WorkSessionRepository interface.
 type workSessionAdapter struct {
@@ -226,6 +262,8 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		nil, // statusCalc: optional, not required for current viewer endpoints
 		projectRoot,
 	)
+	viewerService.WithEntityDocRepo(&entityDocAdapter{repo: entitydoc.NewEntityDocumentRepository(db)})
+	viewerService.WithIdeaRepo(&ideaAdapter{repo: idea.NewIdeaRepository(db)})
 
 	_ = historyRepo // available for future wiring
 	return &ServiceContainer{

@@ -17,6 +17,7 @@ type ViewerServicer interface {
 	Hierarchy(ctx context.Context) (*services.HierarchyResponse, error)
 	History(ctx context.Context, key string) (*services.HistoryResponse, error)
 	File(ctx context.Context, key string) (*services.FileResponse, error)
+	FileByPath(ctx context.Context, filePath string) (*services.FileResponse, error)
 	FeatureTasks(ctx context.Context, featureKey string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error)
 	RecentActivity(ctx context.Context, opts services.RecentActivityOptions) (*services.RecentActivityResponse, error)
 	WorkflowMeta(ctx context.Context) (*services.WorkflowMetaResponse, error)

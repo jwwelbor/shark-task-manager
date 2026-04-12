@@ -31,6 +31,16 @@ func TestFindFreePort(t *testing.T) {
 	}
 }
 
+// TestFindFreePort_InvalidRange verifies that findFreePort returns an error
+// immediately when start > end (the loop never executes and falls through to
+// the error return).
+func TestFindFreePort_InvalidRange(t *testing.T) {
+	_, err := findFreePort(8080, 8079)
+	if err == nil {
+		t.Error("expected error when start > end, got nil")
+	}
+}
+
 // TestFindFreePort_AllBusy verifies that an error is returned when every
 // port in the range is already in use.
 func TestFindFreePort_AllBusy(t *testing.T) {
