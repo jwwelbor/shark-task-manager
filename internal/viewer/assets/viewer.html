@@ -1073,6 +1073,33 @@
     }
 
     /* ============================================================
+       EDIT MODE TOOLBAR (T-E27-F07-004)
+       ============================================================ */
+    .edit-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .edit-save-btn {
+      background: var(--accent, #39d353);
+      color: #000;
+      border-color: var(--accent, #39d353);
+      font-weight: 600;
+    }
+
+    .edit-save-btn:hover:not(:disabled) {
+      opacity: 0.85;
+    }
+
+    .edit-save-btn:disabled,
+    .edit-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    /* ============================================================
        LOADING INDICATOR (Task 2 — initial data load)
        ============================================================ */
     .loading-indicator {
@@ -2204,6 +2231,18 @@ function renderDashboard() {
  */
 let entityViewTab = 'info';
 
+// ============================================================
+// Edit mode state variables (T-E27-F07-004)
+// ============================================================
+/** Whether the content pane is in edit mode. */
+let editMode = false;
+/** Raw markdown before edit — used by Cancel to restore the previous view. */
+let editOriginalContent = '';
+/** Relative path from FileResponse — sent to PUT /api/v1/edit/file. */
+let editFilePath = '';
+/** The pane element that owns the current edit UI. */
+let editPaneEl = null;
+
 /**
  * Finds an entity in treeData by key.
  * Walks epics → features → tasks recursively.
@@ -2308,11 +2347,15 @@ function showToast(message, type) {
  * Renders the markdown content pane for an entity.
  * Calls apiGetFile(key), renders with Marked.js (or fallback <pre>).
  * Sets innerHTML of paneEl when done.
+ * Also stores raw content and file path for the Edit flow.
  * @param {string} key - entity key
  * @param {HTMLElement} paneEl - container element to update
  */
 async function renderMarkdownPane(key, paneEl) {
   if (!paneEl) return;
+
+  // Reset edit mode state whenever we load a new pane.
+  editMode = false;
 
   // Show spinner while fetching
   paneEl.innerHTML = `<div class="loading-indicator" style="padding:40px 0"><div class="loading-spinner"></div><div class="loading-text">Loading content\u2026</div></div>`;
@@ -2331,20 +2374,155 @@ async function renderMarkdownPane(key, paneEl) {
 
   const rawContent = response.content || '';
 
+  // Store edit state for this pane.
+  editOriginalContent = rawContent;
+  editFilePath = response.path || '';
+  editPaneEl = paneEl;
+
+  renderMarkdownFromString(rawContent, paneEl);
+}
+
+/**
+ * Renders a markdown string into paneEl and appends an Edit button toolbar.
+ * Used by the initial load AND after a successful save (to re-render updated content).
+ * @param {string} rawContent - raw markdown string to render
+ * @param {HTMLElement} paneEl - container element to update
+ */
+function renderMarkdownFromString(rawContent, paneEl) {
+  if (!paneEl) return;
+
+  // Build main content area.
+  const contentWrapper = document.createElement('div');
+  contentWrapper.className = 'edit-content-wrapper';
+
   if (typeof marked !== 'undefined') {
     const rendered = marked.parse(rawContent);
-    const wrapper = document.createElement('div');
-    wrapper.className = 'markdown-body';
-    wrapper.innerHTML = rendered;
-    paneEl.innerHTML = '';
-    paneEl.appendChild(wrapper);
+    const mdDiv = document.createElement('div');
+    mdDiv.className = 'markdown-body';
+    mdDiv.innerHTML = rendered;
+    contentWrapper.appendChild(mdDiv);
   } else {
     // Fallback: CDN blocked — show raw content as <pre> with warning banner
-    paneEl.innerHTML = `
+    contentWrapper.innerHTML = `
       <div class="error-banner" style="margin-bottom:12px">
         <span class="error-banner-msg">Markdown renderer unavailable (CDN blocked). Showing raw content.</span>
       </div>
       <pre class="markdown-body" style="white-space:pre-wrap">${escapeHtml(rawContent)}</pre>`;
+  }
+
+  // Build Edit button toolbar (only when a file path is available).
+  paneEl.innerHTML = '';
+  if (editFilePath) {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'edit-toolbar';
+    toolbar.innerHTML = `<button class="open-btn edit-btn" id="edit-start-btn">Edit</button>`;
+    paneEl.appendChild(toolbar);
+
+    paneEl.querySelector('#edit-start-btn').addEventListener('click', () => {
+      enterEditMode(paneEl);
+    });
+  }
+  paneEl.appendChild(contentWrapper);
+}
+
+// ============================================================
+// EDIT MODE (T-E27-F07-004)
+// ============================================================
+
+/**
+ * Enters edit mode: replaces the rendered markdown in paneEl with a textarea
+ * pre-filled with the current raw content and shows Save/Cancel buttons.
+ * @param {HTMLElement} paneEl - the pane container to transform
+ */
+function enterEditMode(paneEl) {
+  editMode = true;
+  editPaneEl = paneEl;
+
+  paneEl.innerHTML = `
+    <div class="edit-toolbar" id="edit-action-toolbar">
+      <button class="open-btn edit-save-btn" id="edit-save-btn">Save</button>
+      <button class="open-btn" id="edit-cancel-btn" style="margin-left:6px">Cancel</button>
+    </div>
+    <div id="edit-error-container"></div>
+    <textarea id="edit-textarea"
+      style="width:100%;min-height:400px;box-sizing:border-box;background:var(--bg-2);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--font-mono,monospace);font-size:13px;resize:vertical;margin-top:8px"
+      spellcheck="false">${escapeHtml(editOriginalContent)}</textarea>`;
+
+  paneEl.querySelector('#edit-save-btn').addEventListener('click', () => saveEdit());
+  paneEl.querySelector('#edit-cancel-btn').addEventListener('click', () => cancelEdit());
+}
+
+/**
+ * Displays an inline error banner above the textarea during edit mode.
+ * @param {string} message - error message to display
+ */
+function showEditError(message) {
+  const container = document.getElementById('edit-error-container');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="error-banner" style="margin-bottom:8px">
+      <span class="error-banner-msg">${escapeHtml(message)}</span>
+      <button class="error-banner-dismiss" aria-label="Dismiss">&#x2715;</button>
+    </div>`;
+  container.querySelector('.error-banner-dismiss').addEventListener('click', () => {
+    container.innerHTML = '';
+  });
+}
+
+/**
+ * Sends the textarea content to PUT /api/v1/edit/file.
+ * On success, exits edit mode and re-renders the updated markdown.
+ * On failure, shows an inline error and leaves the textarea open.
+ */
+async function saveEdit() {
+  const textarea = document.getElementById('edit-textarea');
+  if (!textarea) return;
+
+  const saveBtn = document.getElementById('edit-save-btn');
+  const cancelBtn = document.getElementById('edit-cancel-btn');
+
+  // Disable buttons during in-flight request (AC-T7).
+  if (saveBtn) saveBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
+
+  const content = textarea.value;
+
+  try {
+    const resp = await fetch('/api/v1/edit/file', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: editFilePath, content: content }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ message: 'Save failed' }));
+      showEditError(err.message || 'Save failed');
+      if (saveBtn) saveBtn.disabled = false;
+      if (cancelBtn) cancelBtn.disabled = false;
+      return;
+    }
+
+    // Success: update cached raw content and re-render without an extra fetch.
+    editMode = false;
+    editOriginalContent = content;
+    if (editPaneEl) {
+      renderMarkdownFromString(content, editPaneEl);
+    }
+  } catch (e) {
+    showEditError('Network error: ' + e.message);
+    if (saveBtn) saveBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
+  }
+}
+
+/**
+ * Cancels edit mode and restores the previously rendered markdown view.
+ * No write is issued.
+ */
+function cancelEdit() {
+  editMode = false;
+  if (editPaneEl) {
+    renderMarkdownFromString(editOriginalContent, editPaneEl);
   }
 }
 
