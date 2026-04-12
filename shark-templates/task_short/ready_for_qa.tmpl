@@ -1,30 +1,3 @@
 QA testing for task {{.id}}: "{{.title}}".
 
-LOAD: quality skill.
-
-READ:
-(1) Task spec at {{.file_path}} for acceptance criteria
-(2) Feature test-plan.md for test cases mapped to this task
-(3) Feature spec.md for feature-level intent
-(4) Code review report from code_review/ directory
-(5) Implementation code and existing test results
-
-VALIDATE:
-- Run full test suite: `make fmt && make lint && make test`
-- All tests pass (zero failures)
-- Test coverage adequate for changes
-- Run test cases from feature test-plan.md that map to this task
-- Verify acceptance criteria are met per the feature test plan, not just the task spec
-- Check edge cases identified in the test plan
-- Validate integration points behave correctly
-- No regressions in existing functionality
-
-PRODUCE QA report at code_review/<timestamp>-{{.id}}-qa.md:
-- Verdict: PASS or FAIL
-- Test results summary
-- AC verification status
-- Edge cases tested
-
-DECISION:
-- ALL PASS → {{template "advance" .}}
-- ANY FAIL → shark status set {{.id}} ready_for_development --reason "<specific failures to fix>"
+{{template "_qa_process" .}}

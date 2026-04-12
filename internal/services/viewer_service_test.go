@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1030,4 +1031,922 @@ func TestViewerService_WorkflowMeta_StatusesHaveColor(t *testing.T) {
 			t.Errorf("status %q has empty phase (expected at least 'unknown' fallback)", st.Name)
 		}
 	}
+}
+
+// ----- Error type string tests -----
+
+func TestSecurityError_Error(t *testing.T) {
+	err := &SecurityError{Path: "/etc/passwd"}
+	msg := err.Error()
+	if msg == "" {
+		t.Fatal("expected non-empty error message")
+	}
+	if !contains(msg, "/etc/passwd") {
+		t.Errorf("expected path in error message, got %q", msg)
+	}
+}
+
+func TestFileTooLargeError_Error(t *testing.T) {
+	err := &FileTooLargeError{Path: "/some/file.md", LimitMiB: 2}
+	msg := err.Error()
+	if msg == "" {
+		t.Fatal("expected non-empty error message")
+	}
+	if !contains(msg, "/some/file.md") {
+		t.Errorf("expected path in error message, got %q", msg)
+	}
+}
+
+// ----- Summary error path tests -----
+
+func TestViewerService_Summary_EpicRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return nil, fmt.Errorf("epic repo error")
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Summary(context.Background())
+	if err == nil {
+		t.Fatal("expected error from epic repo failure")
+	}
+}
+
+func TestViewerService_Summary_FeatureRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return nil, fmt.Errorf("feature repo error")
+			},
+		},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Summary(context.Background())
+	if err == nil {
+		t.Fatal("expected error from feature repo failure")
+	}
+}
+
+func TestViewerService_Summary_TaskRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+				return nil, fmt.Errorf("task repo error")
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Summary(context.Background())
+	if err == nil {
+		t.Fatal("expected error from task repo failure")
+	}
+}
+
+func TestViewerService_Summary_BugStatusRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+				return nil, fmt.Errorf("bug status repo error")
+			},
+		},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Summary(context.Background())
+	if err == nil {
+		t.Fatal("expected error from bug status repo failure")
+	}
+}
+
+func TestViewerService_Summary_BugSeverityRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{
+			CountBySeverityFunc: func(ctx context.Context) (map[string]int, error) {
+				return nil, fmt.Errorf("bug severity repo error")
+			},
+		},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Summary(context.Background())
+	if err == nil {
+		t.Fatal("expected error from bug severity repo failure")
+	}
+}
+
+func TestViewerService_Summary_ChangeCardRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{
+			CountByStatusFunc: func(ctx context.Context) (map[string]int, error) {
+				return nil, fmt.Errorf("change card repo error")
+			},
+		},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Summary(context.Background())
+	if err == nil {
+		t.Fatal("expected error from change card repo failure")
+	}
+}
+
+// ----- Hierarchy error path tests -----
+
+func TestViewerService_Hierarchy_EpicRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return nil, fmt.Errorf("epic repo error")
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Hierarchy(context.Background())
+	if err == nil {
+		t.Fatal("expected error from epic repo failure")
+	}
+}
+
+func TestViewerService_Hierarchy_FeatureRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+				return nil, fmt.Errorf("feature repo error")
+			},
+		},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Hierarchy(context.Background())
+	if err == nil {
+		t.Fatal("expected error from feature repo failure")
+	}
+}
+
+func TestViewerService_Hierarchy_TaskRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 20}, EpicID: epicID, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+				return nil, fmt.Errorf("task repo error")
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.Hierarchy(context.Background())
+	if err == nil {
+		t.Fatal("expected error from task repo failure")
+	}
+}
+
+func TestViewerService_Hierarchy_SortsFeaturesByExecutionOrder(t *testing.T) {
+	ord1 := 1
+	ord2 := 2
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListByEpicFunc: func(ctx context.Context, epicID int64) ([]*models.Feature, error) {
+				// Return in reverse order; service should sort by execution_order.
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 22, Key: "E01-F02"}, EpicID: epicID, Status: "todo", ExecutionOrder: &ord2},
+					{BaseEntity: models.BaseEntity{ID: 21, Key: "E01-F01"}, EpicID: epicID, Status: "todo", ExecutionOrder: &ord1},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	resp, err := svc.Hierarchy(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Epics) != 1 {
+		t.Fatalf("expected 1 epic")
+	}
+	feats := resp.Epics[0].Features
+	if len(feats) != 2 {
+		t.Fatalf("expected 2 features, got %d", len(feats))
+	}
+	if feats[0].ExecutionOrder == nil || *feats[0].ExecutionOrder != 1 {
+		t.Errorf("expected first feature to have execution_order=1, got %v", feats[0].ExecutionOrder)
+	}
+}
+
+// ----- History additional tests -----
+
+func TestViewerService_History_Epic(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 55, Key: "E07"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{
+			ListByEntityFunc: func(ctx context.Context, et models.EntityType, entityID int64) ([]*models.EntityHistory, error) {
+				if entityID != 55 {
+					return nil, fmt.Errorf("wrong entity ID: %d", entityID)
+				}
+				return []*models.EntityHistory{
+					{ID: 1, EntityType: et, EntityID: entityID, ToStatus: "active"},
+				}, nil
+			},
+		},
+	)
+	resp, err := svc.History(context.Background(), "E07")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.EntityType != models.EntityTypeEpic {
+		t.Errorf("expected EntityTypeEpic, got %q", resp.EntityType)
+	}
+	if len(resp.Records) != 1 {
+		t.Errorf("expected 1 history record, got %d", len(resp.Records))
+	}
+}
+
+func TestViewerService_History_Feature(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+				return &models.Feature{BaseEntity: models.BaseEntity{ID: 77, Key: key}}, nil
+			},
+		},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{
+			ListByEntityFunc: func(ctx context.Context, et models.EntityType, entityID int64) ([]*models.EntityHistory, error) {
+				if entityID != 77 {
+					return nil, fmt.Errorf("wrong entity ID: %d", entityID)
+				}
+				return []*models.EntityHistory{
+					{ID: 1, EntityType: et, EntityID: entityID, ToStatus: "in_progress"},
+				}, nil
+			},
+		},
+	)
+	resp, err := svc.History(context.Background(), "E01-F01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.EntityType != models.EntityTypeFeature {
+		t.Errorf("expected EntityTypeFeature, got %q", resp.EntityType)
+	}
+	if len(resp.Records) != 1 {
+		t.Errorf("expected 1 history record, got %d", len(resp.Records))
+	}
+}
+
+func TestViewerService_History_EpicNotFound(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{}, nil // empty — epic not found
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.History(context.Background(), "E99")
+	if err == nil {
+		t.Fatal("expected error for not-found epic")
+	}
+}
+
+func TestViewerService_History_HistoryRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{
+			ListByEntityFunc: func(ctx context.Context, et models.EntityType, entityID int64) ([]*models.EntityHistory, error) {
+				return nil, fmt.Errorf("history repo error")
+			},
+		},
+	)
+	_, err := svc.History(context.Background(), "E01-F01-001")
+	if err == nil {
+		t.Fatal("expected error from history repo failure")
+	}
+}
+
+// ----- File additional tests -----
+
+func TestViewerService_File_EpicFile(t *testing.T) {
+	dir := t.TempDir()
+	content := "# Epic Content"
+	fpath := filepath.Join(dir, "epic.md")
+	if err := os.WriteFile(fpath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	relPath := "epic.md"
+	svc := NewViewerService(
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01", FilePath: &relPath}},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+	)
+
+	resp, err := svc.File(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Exists {
+		t.Fatal("expected Exists=true")
+	}
+	if resp.Content != content {
+		t.Errorf("expected content %q, got %q", content, resp.Content)
+	}
+}
+
+func TestViewerService_File_TaskFile(t *testing.T) {
+	dir := t.TempDir()
+	content := "# Task Content"
+	fpath := filepath.Join(dir, "task.md")
+	if err := os.WriteFile(fpath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	relPath := "task.md"
+	svc := NewViewerService(
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key, FilePath: &relPath}}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+	)
+
+	resp, err := svc.File(context.Background(), "E01-F01-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Exists {
+		t.Fatal("expected Exists=true")
+	}
+	if resp.Content != content {
+		t.Errorf("expected content %q, got %q", content, resp.Content)
+	}
+}
+
+func TestViewerService_File_EpicNoFilePath(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewViewerService(
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01"}}, // FilePath is nil
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+	)
+
+	resp, err := svc.File(context.Background(), "E01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Exists {
+		t.Error("expected Exists=false when epic has no file_path")
+	}
+}
+
+func TestViewerService_File_TaskNoFilePath(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewViewerService(
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+				return &models.Task{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil // FilePath nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+	)
+
+	resp, err := svc.File(context.Background(), "E01-F01-001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Exists {
+		t.Error("expected Exists=false when task has no file_path")
+	}
+}
+
+func TestViewerService_File_EpicNotFound(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewViewerService(
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{}, nil // empty
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+	)
+
+	_, err := svc.File(context.Background(), "E99")
+	if err == nil {
+		t.Fatal("expected error for not-found epic")
+	}
+}
+
+func TestViewerService_File_UnsupportedEntityType(t *testing.T) {
+	// Bug key format is unsupported for file read.
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	_, err := svc.File(context.Background(), "B001")
+	if err == nil {
+		t.Fatal("expected error for unsupported entity type (bug)")
+	}
+}
+
+// ----- FeatureTasks additional tests -----
+
+func TestViewerService_FeatureTasks_FeatureNotFound(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+				return nil, fmt.Errorf("feature not found: %s", key)
+			},
+		},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.FeatureTasks(context.Background(), "E01-F99", FeatureTaskOptions{})
+	if err == nil {
+		t.Fatal("expected error for not-found feature")
+	}
+}
+
+func TestViewerService_FeatureTasks_TaskRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+				return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+				return nil, fmt.Errorf("task repo error")
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{})
+	if err == nil {
+		t.Fatal("expected error from task repo failure")
+	}
+}
+
+func TestViewerService_FeatureTasks_FilterByAgent(t *testing.T) {
+	agentBackend := "backend"
+	agentFrontend := "frontend"
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+				return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+				return []*models.Task{
+					{BaseEntity: models.BaseEntity{ID: 1}, Status: "todo", AgentType: &agentBackend},
+					{BaseEntity: models.BaseEntity{ID: 2}, Status: "todo", AgentType: &agentFrontend},
+					{BaseEntity: models.BaseEntity{ID: 3}, Status: "todo"}, // no agent
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{Agent: "backend"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Tasks) != 1 {
+		t.Errorf("expected 1 backend task, got %d", len(resp.Tasks))
+	}
+}
+
+func TestViewerService_FeatureTasks_Pagination(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+				return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+				tasks := make([]*models.Task, 5)
+				for i := range tasks {
+					tasks[i] = &models.Task{BaseEntity: models.BaseEntity{ID: int64(i + 1)}, Status: "todo"}
+				}
+				return tasks, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	// Offset=2, Limit=2 → should get tasks 3 and 4.
+	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Total != 5 {
+		t.Errorf("expected Total=5 (pre-filter), got %d", resp.Total)
+	}
+	if len(resp.Tasks) != 2 {
+		t.Errorf("expected 2 paginated tasks, got %d", len(resp.Tasks))
+	}
+}
+
+func TestViewerService_FeatureTasks_OffsetPastEnd(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+				return &models.Feature{BaseEntity: models.BaseEntity{ID: 1, Key: key}}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListByFeatureFunc: func(ctx context.Context, featureID int64) ([]*models.Task, error) {
+				return []*models.Task{
+					{BaseEntity: models.BaseEntity{ID: 1}, Status: "todo"},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	// Offset=100 > len(tasks)=1 → should return empty slice.
+	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{Offset: 100})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Tasks) != 0 {
+		t.Errorf("expected 0 tasks when offset past end, got %d", len(resp.Tasks))
+	}
+}
+
+// ----- resolveEntityID additional coverage tests -----
+
+func TestViewerService_History_BugKey_Unsupported(t *testing.T) {
+	// Bug keys are detected by detectEntityType but resolveEntityID has no case for them.
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.History(context.Background(), "B001")
+	if err == nil {
+		t.Fatal("expected error for bug key (unsupported in resolveEntityID)")
+	}
+}
+
+func TestViewerService_History_ChangeCardKey_Unsupported(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.History(context.Background(), "CC-001")
+	if err == nil {
+		t.Fatal("expected error for change card key (unsupported in resolveEntityID)")
+	}
+}
+
+func TestViewerService_History_EpicRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return nil, fmt.Errorf("epic repo error")
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.History(context.Background(), "E07")
+	if err == nil {
+		t.Fatal("expected error from epic repo failure in resolveEntityID")
+	}
+}
+
+func TestViewerService_History_FeatureRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+				return nil, fmt.Errorf("feature repo error")
+			},
+		},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.History(context.Background(), "E01-F01")
+	if err == nil {
+		t.Fatal("expected error from feature repo failure in resolveEntityID")
+	}
+}
+
+func TestViewerService_History_TaskRepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+				return nil, fmt.Errorf("task repo error")
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	_, err := svc.History(context.Background(), "E01-F01-001")
+	if err == nil {
+		t.Fatal("expected error from task repo failure in resolveEntityID")
+	}
+}
+
+// ----- resolveFilePath additional coverage tests -----
+
+func TestViewerService_File_EpicRepoError(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewViewerService(
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return nil, fmt.Errorf("epic repo error")
+			},
+		},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+	)
+	_, err := svc.File(context.Background(), "E01")
+	if err == nil {
+		t.Fatal("expected error from epic repo failure in resolveFilePath")
+	}
+}
+
+func TestViewerService_File_FeatureRepoError(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewViewerService(
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Feature, error) {
+				return nil, fmt.Errorf("feature repo error")
+			},
+		},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+	)
+	_, err := svc.File(context.Background(), "E01-F01")
+	if err == nil {
+		t.Fatal("expected error from feature repo failure in resolveFilePath")
+	}
+}
+
+func TestViewerService_File_TaskRepoError(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewViewerService(
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+				return nil, fmt.Errorf("task repo error")
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+		testWorkflowSvc(t),
+		nil,
+		dir,
+	)
+	_, err := svc.File(context.Background(), "E01-F01-001")
+	if err == nil {
+		t.Fatal("expected error from task repo failure in resolveFilePath")
+	}
+}
+
+// ----- RecentActivity additional tests -----
+
+func TestViewerService_RecentActivity_RepoError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{
+			ListRecentAcrossEntitiesFunc: func(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error) {
+				return nil, fmt.Errorf("history repo error")
+			},
+		},
+	)
+	_, err := svc.RecentActivity(context.Background(), RecentActivityOptions{Limit: 10})
+	if err == nil {
+		t.Fatal("expected error from history repo failure")
+	}
+}
+
+func TestViewerService_RecentActivity_EntityTypeFilter(t *testing.T) {
+	capturedOpts := entityhistory.ListRecentAcrossEntitiesOptions{}
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{
+			ListRecentAcrossEntitiesFunc: func(ctx context.Context, opts entityhistory.ListRecentAcrossEntitiesOptions) ([]*entityhistory.RecentActivityRow, error) {
+				capturedOpts = opts
+				return nil, nil
+			},
+		},
+	)
+
+	since := time.Now().Add(-24 * time.Hour)
+	_, err := svc.RecentActivity(context.Background(), RecentActivityOptions{
+		Limit:      10,
+		EntityType: "task",
+		Since:      &since,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOpts.EntityType != "task" {
+		t.Errorf("expected entity_type=%q forwarded, got %q", "task", capturedOpts.EntityType)
+	}
+	if capturedOpts.Since == nil || !capturedOpts.Since.Equal(since) {
+		t.Errorf("expected since timestamp forwarded to repo")
+	}
+}
+
+// contains is a test helper for string contains checks.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

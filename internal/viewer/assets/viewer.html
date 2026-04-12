@@ -1459,9 +1459,19 @@ async function loadProjectData() {
     return;
   }
 
-  // Step 4: set treeData, seed expandedEpics with all epic keys
+  // Step 4: set treeData; only seed expandedEpics on initial load (from pick_folder state)
   treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
-  expandedEpics = new Set(treeData.map(epic => epic.key).filter(Boolean));
+  const newEpicKeys = new Set(treeData.map(epic => epic.key).filter(Boolean));
+  if (appState === 'pick_folder') {
+    // First load: expand all epics, reset feature expansion
+    expandedEpics = newEpicKeys;
+    expandedFeatures = new Set();
+  } else {
+    // Refresh: preserve existing expansion state, add any newly-appeared epic keys
+    for (const k of newEpicKeys) {
+      if (!expandedEpics.has(k)) expandedEpics.add(k);
+    }
+  }
 
   // Step 5: summary + recent-activity in parallel (non-blocking)
   const [summary, activity] = await Promise.all([
@@ -2131,10 +2141,20 @@ function renderEntityView() {
       }
       paneEl.innerHTML = `
         <div class="history-drawer">
+          <div class="history-drawer-toolbar">
+            <button class="open-btn" id="ev-history-open-btn">Open</button>
+          </div>
           <table class="history-table">
             <tbody>${rows}</tbody>
           </table>
         </div>`;
+      const openBtn = document.getElementById('ev-history-open-btn');
+      if (openBtn) {
+        openBtn.addEventListener('click', () => {
+          entityViewTab = 'info';
+          renderEntityView();
+        });
+      }
     });
   }
 }
@@ -2506,10 +2526,21 @@ document.addEventListener('DOMContentLoaded', () => {
     render();
   });
 
-  // Keyboard: Escape → return to dashboard from entity/doc view
+  // Keyboard: Escape → if transitions drawer is open, close it first; second Escape returns to dashboard
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (appState === 'entity_view' || appState === 'doc_view') {
+      if (appState === 'entity_view') {
+        if (entityViewTab === 'transitions') {
+          // Drawer is open — close it first (switch to Info pane)
+          entityViewTab = 'info';
+          renderEntityView();
+        } else {
+          // Info pane already showing — return to dashboard
+          selectedKey = null;
+          appState = 'dashboard';
+          render();
+        }
+      } else if (appState === 'doc_view') {
         selectedKey = null;
         appState = 'dashboard';
         render();

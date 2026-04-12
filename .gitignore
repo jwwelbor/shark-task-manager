@@ -51,5 +51,7 @@ shark-tasks.*
 
 docs/workflow/activity.jsonl
 
-server
-shark
+bin/server
+bin/shark
+/server
+/shark
