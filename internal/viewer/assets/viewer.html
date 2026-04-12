@@ -214,6 +214,22 @@
     /* ============================================================
        SIDEBAR TREE
        ============================================================ */
+    .sidebar-filter-bar {
+      padding: 8px 12px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-filter-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--fg-dim);
+      cursor: pointer;
+      user-select: none;
+    }
+    .sidebar-filter-label input[type="checkbox"] {
+      cursor: pointer;
+    }
     .sidebar-section-header {
       position: sticky;
       top: 0;
@@ -468,6 +484,15 @@
       color: var(--fg);
       line-height: 1.1;
       margin-bottom: 12px;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .breakdown-card-active {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--fg-muted);
     }
 
     .breakdown-badges {
@@ -633,6 +658,65 @@
       color: var(--fg-dim);
       font-size: 11px;
       white-space: nowrap;
+    }
+
+    /* ============================================================
+       ENTITY CHARTS (pie/donut charts)
+       ============================================================ */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 14px;
+    }
+
+    .chart-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 14px 12px;
+    }
+
+    .chart-title {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--fg-dim);
+    }
+
+    .chart-legend {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: 2px;
+    }
+
+    .chart-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      color: var(--fg-muted);
+      line-height: 1.4;
+    }
+
+    .chart-legend-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .chart-legend-count {
+      margin-left: auto;
+      color: var(--fg);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
     }
 
     /* ============================================================
@@ -1155,17 +1239,74 @@ function getStatusColor(status) {
 }
 
 /**
+ * Returns '#000' or '#fff' for maximum contrast against the given hex background color.
+ * Uses relative luminance per WCAG 2.1.
+ * @param {string} hex - background color, e.g. '#e7b30e'
+ * @returns {string} '#000' (dark text) or '#fff' (light text)
+ */
+function getContrastColor(hex) {
+  // Strip leading '#'
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0,2), 16) / 255;
+  const g = parseInt(h.substring(2,4), 16) / 255;
+  const b = parseInt(h.substring(4,6), 16) / 255;
+  // sRGB linearization
+  const toLinear = c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  const L = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  return L > 0.179 ? '#000' : '#fff';
+}
+
+/**
+ * Maps CSS named colors (as returned by the workflow service color metadata)
+ * to their hex equivalents that fit the dark dashboard palette.
+ * Only named strings need mapping; '#rrggbb' values pass through unchanged.
+ */
+const NAMED_TO_HEX = {
+  yellow:  '#e7b30e',
+  amber:   '#e7b500',
+  blue:    '#4d4dbb',
+  green:   '#22a362',
+  lime:    '#65a30d',
+  red:     '#c0392b',
+  orange:  '#8c5700',
+  purple:  '#8c4dbb',
+  magenta: '#c0287a',
+  pink:    '#8c4d6c',
+  gray:    '#6b7280',
+  grey:    '#6b7280',
+  white:   '#d0d0d0',
+  black:   '#444444',
+  cyan:    '#0891b2',
+  teal:    '#0f766e',
+};
+
+/**
+ * Normalizes a color value to a hex string.
+ * Named color strings (e.g. 'yellow') are mapped to their hex equivalents.
+ * Hex strings (e.g. '#e7b30e') pass through unchanged.
+ * @param {string} color
+ * @returns {string} hex color string starting with '#'
+ */
+function normalizeToHex(color) {
+  if (!color) return '#666666';
+  const c = color.trim();
+  if (c.startsWith('#')) return c;
+  return NAMED_TO_HEX[c.toLowerCase()] || '#666666';
+}
+
+/**
  * Returns true if the status is a terminal/completed state
  * (excluded from stale entity detection).
  * @param {string} status
  * @returns {boolean}
  */
+const TERMINAL_STATUSES = new Set([
+  'done', 'cancelled', 'closed', 'wont_fix',
+  'verified', 'rejected', 'promoted', 'approved', 'completed',
+]);
+
 function isTerminalStatus(status) {
-  const TERMINAL = new Set([
-    'done', 'cancelled', 'closed', 'wont_fix',
-    'verified', 'rejected', 'promoted', 'approved', 'completed',
-  ]);
-  return TERMINAL.has(status);
+  return TERMINAL_STATUSES.has(status);
 }
 
 /**
@@ -1464,19 +1605,15 @@ async function loadProjectData() {
     return;
   }
 
-  // Step 4: set treeData; only seed expandedEpics on initial load (from pick_folder state)
+  // Step 4: set treeData + hierarchyData; on initial load start fully collapsed
+  hierarchyData = hierarchy;
   treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
-  const newEpicKeys = new Set(treeData.map(epic => epic.key).filter(Boolean));
   if (appState === 'pick_folder') {
-    // First load: expand all epics, reset feature expansion
-    expandedEpics = newEpicKeys;
+    // First load: start fully collapsed — epics expand on first user interaction
+    expandedEpics = new Set();
     expandedFeatures = new Set();
-  } else {
-    // Refresh: preserve existing expansion state, add any newly-appeared epic keys
-    for (const k of newEpicKeys) {
-      if (!expandedEpics.has(k)) expandedEpics.add(k);
-    }
   }
+  // Refresh: preserve existing expansion state (don't auto-expand new epics)
 
   // Step 5: summary + recent-activity in parallel (non-blocking)
   const [summary, activity] = await Promise.all([
@@ -1501,10 +1638,12 @@ async function loadProjectData() {
 
 let appState       = 'pick_folder';  // 'pick_folder' | 'dashboard' | 'entity_view' | 'doc_view'
 let selectedKey    = null;           // currently selected entity/doc key
-let treeData       = [];             // cached /hierarchy response
+let treeData       = [];             // cached hierarchy epics array (hierarchy.epics)
+let hierarchyData  = null;           // full cached /hierarchy response (includes bugs, change_cards, ideas)
 let summaryData    = null;           // cached /summary response
 let recentActivity = [];             // cached /recent-activity response
 let workflowMeta   = null;           // cached /workflow-meta response
+let showCompleted    = false;         // sidebar filter: show completed entities
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
 let expandedFeatures = new Set();    // feature keys currently expanded in sidebar
 
@@ -1662,18 +1801,26 @@ function renderStatusBreakdown() {
     const total = byStatus.reduce((sum, s) => sum + (s.count || 0), 0);
     if (total === 0) continue;
 
+    // Active = non-terminal statuses (exclude completed, cancelled, done, etc.)
+    const active = byStatus
+      .filter(s => !isTerminalStatus(s.status || '') && (s.phase || '') !== 'done')
+      .reduce((sum, s) => sum + (s.count || 0), 0);
+    const activeHtml = (active < total)
+      ? `<span class="breakdown-card-active">${active} active</span>`
+      : '';
+
     let badges = '';
     for (const s of byStatus) {
       if (!s.count) continue;
-      const color = s.color || getStatusColor(s.status);
+      const color = normalizeToHex(s.color || getStatusColor(s.status));
       const label2 = escapeHtml((s.status || '').replace(/_/g, ' ')) + ' ' + s.count;
-      badges += `<span class="status-badge status-badge-sm" style="background:${escapeHtml(color)}">${label2}</span>`;
+      badges += `<span class="status-badge status-badge-sm" style="background:${escapeHtml(color)};color:${getContrastColor(color)}">${label2}</span>`;
     }
 
     cards += `
       <div class="breakdown-card">
         <div class="breakdown-card-label">${escapeHtml(label)}</div>
-        <div class="breakdown-card-total">${total}</div>
+        <div class="breakdown-card-total">${total}${activeHtml}</div>
         <div class="breakdown-badges">${badges}</div>
       </div>`;
   }
@@ -1750,15 +1897,15 @@ function renderActiveTransitions() {
     const dateStr     = escapeHtml(formatDate(changedAt));
     const keyHtml     = `<span class="activity-key" data-navigate-key="${escapeHtml(key)}">${escapeHtml(key)}</span>`;
 
-    const fromColor   = escapeHtml(getStatusColor(fromStatus));
+    const fromColor   = getStatusColor(fromStatus);
     const fromLabel   = escapeHtml(fromStatus.replace(/_/g, ' '));
     const fromBadge   = fromStatus
-      ? `<span class="status-badge status-badge-sm" style="background:${fromColor}">${fromLabel}</span>`
+      ? `<span class="status-badge status-badge-sm" style="background:${escapeHtml(fromColor)};color:${getContrastColor(fromColor)}">${fromLabel}</span>`
       : '';
 
-    const toColor     = escapeHtml(getStatusColor(toStatus));
+    const toColor     = getStatusColor(toStatus);
     const toLabel     = escapeHtml(toStatus.replace(/_/g, ' '));
-    const toBadge     = `<span class="status-badge status-badge-sm" style="background:${toColor}">${toLabel}</span>`;
+    const toBadge     = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(toColor)};color:${getContrastColor(toColor)}">${toLabel}</span>`;
 
     const arrowHtml   = fromBadge
       ? `${fromBadge}<span class="activity-arrow">→</span>${toBadge}`
@@ -1854,9 +2001,9 @@ function renderStaleEntities() {
 
   let html = '<table class="activity-table"><tbody>';
   for (const item of stale) {
-    const color    = escapeHtml(getStatusColor(item.status));
+    const color    = getStatusColor(item.status);
     const label    = escapeHtml(item.status.replace(/_/g, ' '));
-    const badge    = `<span class="status-badge status-badge-sm" style="background:${color}">${label}</span>`;
+    const badge    = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(color)};color:${getContrastColor(color)}">${label}</span>`;
     const keyHtml  = `<span class="activity-key" data-navigate-key="${escapeHtml(item.key)}">${escapeHtml(item.key)}</span>`;
     const daysText = escapeHtml(item.days + ' days ago');
 
@@ -1873,6 +2020,133 @@ function renderStaleEntities() {
 }
 
 /**
+ * Builds an SVG donut chart from a by_status array.
+ * Uses the stroke-dasharray + rotation technique: each segment is a full circle
+ * with only a portion of the circumference visible, rotated to its starting angle.
+ * @param {Array<{status:string, count:number, color:string}>} byStatus
+ * @param {number} size - SVG size in px (default 100)
+ * @returns {string} SVG HTML string, or '' if no data
+ */
+function buildDonutChart(byStatus, size = 100) {
+  if (!Array.isArray(byStatus)) return '';
+  const total = byStatus.reduce((sum, s) => sum + (s.count || 0), 0);
+  if (total === 0) return '';
+
+  const strokeW = Math.max(12, Math.round(size * 0.14));
+  const r = (size - strokeW - 2) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const C = 2 * Math.PI * r;
+
+  // Background track
+  let svg = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg-3)" stroke-width="${strokeW}"/>`;
+
+  let cumDeg = 0;
+  for (const s of byStatus) {
+    if (!s.count) continue;
+    const pct = s.count / total;
+    const dash = pct * C;
+    const gap = C - dash;
+    const hex = normalizeToHex(s.color || getStatusColor(s.status || ''));
+    // Rotate so each segment starts right after the previous one.
+    // stroke-dashoffset C/4 positions the first dash at 12 o'clock.
+    svg += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${escapeHtml(hex)}" stroke-width="${strokeW}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}" stroke-dashoffset="${(C / 4).toFixed(2)}" transform="rotate(${cumDeg} ${cx} ${cy})" stroke-linecap="butt"/>`;
+    cumDeg += pct * 360;
+  }
+
+  // Center total label
+  const fontSize = Math.max(10, Math.round(size * 0.18));
+  svg += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" fill="var(--fg)" font-size="${fontSize}px" font-weight="700" font-family="system-ui,sans-serif">${total}</text>`;
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${svg}</svg>`;
+}
+
+/**
+ * Renders the Entity Charts section.
+ * One donut chart per entity type (epics, features, tasks, bugs, ideas, change cards)
+ * plus an overall "All Entities" chart showing type distribution.
+ * @returns {string} HTML string, or '' if no data
+ */
+function renderEntityCharts() {
+  if (!summaryData) return '';
+
+  const typeConfigs = [
+    { label: 'Epics',        data: summaryData.epics,        overallColor: '#4d4dbb' },
+    { label: 'Features',     data: summaryData.features,     overallColor: '#22a362' },
+    { label: 'Tasks',        data: summaryData.tasks,        overallColor: '#e7b30e' },
+    { label: 'Bugs',         data: summaryData.bugs,         overallColor: '#c0392b' },
+    { label: 'Ideas',        data: summaryData.ideas,        overallColor: '#60a5fa' },
+    { label: 'Change Cards', data: summaryData.change_cards, overallColor: '#8c4dbb' },
+  ];
+
+  // Helper: compute active (non-terminal) count for an entity type's by_status array.
+  function activeCount(byStatus) {
+    if (!Array.isArray(byStatus)) return 0;
+    return byStatus
+      .filter(s => !isTerminalStatus(s.status || '') && (s.phase || '') !== 'done')
+      .reduce((sum, s) => sum + (s.count || 0), 0);
+  }
+
+  // Build "All Entities" slice list: one slice per type (active counts only)
+  const overallByStatus = [];
+  for (const tc of typeConfigs) {
+    if (!tc.data) continue;
+    const active = activeCount(tc.data.by_status);
+    if (active > 0) {
+      overallByStatus.push({ status: tc.label, count: active, color: tc.overallColor });
+    }
+  }
+
+  let cells = '';
+
+  // Overall chart (active counts)
+  if (overallByStatus.length > 0) {
+    const chartSvg = buildDonutChart(overallByStatus, 100);
+    if (chartSvg) {
+      let legend = '';
+      for (const s of overallByStatus) {
+        const hex = normalizeToHex(s.color);
+        legend += `<div class="chart-legend-item">
+          <span class="chart-legend-dot" style="background:${escapeHtml(hex)}"></span>
+          <span>${escapeHtml(s.status)}</span>
+          <span class="chart-legend-count">${s.count}</span>
+        </div>`;
+      }
+      cells += `<div class="chart-cell">
+        <div class="chart-title">Active Entities</div>
+        ${chartSvg}
+        <div class="chart-legend">${legend}</div>
+      </div>`;
+    }
+  }
+
+  // Per-type charts
+  for (const tc of typeConfigs) {
+    if (!tc.data || !Array.isArray(tc.data.by_status) || tc.data.total === 0) continue;
+    const chartSvg = buildDonutChart(tc.data.by_status, 100);
+    if (!chartSvg) continue;
+    let legend = '';
+    for (const s of tc.data.by_status) {
+      if (!s.count) continue;
+      const hex = normalizeToHex(s.color || getStatusColor(s.status || ''));
+      legend += `<div class="chart-legend-item">
+        <span class="chart-legend-dot" style="background:${escapeHtml(hex)}"></span>
+        <span>${escapeHtml((s.status || '').replace(/_/g, ' '))}</span>
+        <span class="chart-legend-count">${s.count}</span>
+      </div>`;
+    }
+    cells += `<div class="chart-cell">
+      <div class="chart-title">${escapeHtml(tc.label)}</div>
+      ${chartSvg}
+      <div class="chart-legend">${legend}</div>
+    </div>`;
+  }
+
+  if (!cells) return '';
+  return `<div class="charts-grid">${cells}</div>`;
+}
+
+/**
  * Renders the Dashboard view (State 2).
  * Orchestrates 4 sections:
  *   1. Status Breakdown (Task 4)
@@ -1883,7 +2157,13 @@ function renderStaleEntities() {
 function renderDashboard() {
   const content = document.getElementById('content');
 
+  const chartsHtml = renderEntityCharts();
+
   const html = `
+    ${chartsHtml ? `<div class="dashboard-section">
+      <div class="dashboard-section-title">Entity Charts</div>
+      ${chartsHtml}
+    </div>` : ''}
     <div class="dashboard-section">
       <div class="dashboard-section-title">Status Overview</div>
       ${renderStatusBreakdown()}
@@ -1946,12 +2226,12 @@ function findEntityByKey(key) {
     }
   }
 
-  // Also search flat sections (bugs, ideas, change_cards, etc.)
-  if (summaryData) {
+  // Also search flat sections (bugs, change_cards, ideas) from hierarchy
+  if (hierarchyData) {
     const flatLists = [
-      ['bug',         summaryData.bugs],
-      ['idea',        summaryData.ideas],
-      ['change_card', summaryData.change_cards],
+      ['bug',         hierarchyData.bugs],
+      ['change_card', hierarchyData.change_cards],
+      ['idea',        hierarchyData.ideas],
     ];
     for (const [type, items] of flatLists) {
       if (!Array.isArray(items)) continue;
@@ -1975,15 +2255,15 @@ function findEntityByKey(key) {
 function renderPropertiesPanel(entity) {
   if (!entity) return '';
 
-  // Helper: copy-to-clipboard button
+  // Helper: copy-to-clipboard button (uses data attribute + global delegation handler)
   function copyBtn(value) {
-    return `<button class="copy-btn" onclick="if(navigator.clipboard){navigator.clipboard.writeText(${JSON.stringify(value)}).then(()=>showToast('Copied!'),()=>showToast('Copy failed','error'));}else{showToast('Clipboard unavailable','error');}" title="Copy to clipboard">Copy</button>`;
+    return `<button class="copy-btn" data-copy-value="${escapeHtml(value)}" title="Copy to clipboard">⎘</button>`;
   }
 
   // Field definitions: [label, renderFn]
   const fields = [
     ['Key',          () => `<span class="mono">${escapeHtml(entity.key || '')}</span>`],
-    ['Status',       () => entity.status ? `<span class="status-badge" style="background:${escapeHtml(getStatusColor(entity.status))}">${escapeHtml(entity.status.replace(/_/g,' '))}</span>` : null],
+    ['Status',       () => { if (!entity.status) return null; const sc = getStatusColor(entity.status); return `<span class="status-badge" style="background:${escapeHtml(sc)};color:${getContrastColor(sc)}">${escapeHtml(entity.status.replace(/_/g,' '))}</span>`; }],
     ['Type',         () => entity.type ? escapeHtml(entity.type) : null],
     ['Parent',       () => entity.parent ? `<span class="mono">${escapeHtml(entity.parent)}</span>` : null],
     ['Agent',        () => entity.agent ? escapeHtml(entity.agent) : null],
@@ -2124,19 +2404,22 @@ function renderEntityView() {
         return;
       }
       // Sort reverse-chronological (most recent first)
+      // History records use 'changed_at' (EntityHistory model field)
       const sorted = [...history].sort((a, b) => {
-        const ta = a.created_at || a.timestamp || '';
-        const tb = b.created_at || b.timestamp || '';
+        const ta = a.changed_at || a.created_at || a.timestamp || '';
+        const tb = b.changed_at || b.created_at || b.timestamp || '';
         return tb.localeCompare(ta);
       });
       let rows = '';
       for (const entry of sorted) {
-        const date     = escapeHtml(formatDate(entry.created_at || entry.timestamp || ''));
+        const date     = escapeHtml(formatDate(entry.changed_at || entry.created_at || entry.timestamp || ''));
         const from     = entry.from_status || entry.from || '';
         const to       = entry.to_status   || entry.to   || '';
         const note     = escapeHtml(entry.note || entry.reason || '');
-        const fromBadge = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(from))}">${escapeHtml(from.replace(/_/g,' '))}</span>`;
-        const toBadge   = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(getStatusColor(to))}">${escapeHtml(to.replace(/_/g,' '))}</span>`;
+        const fromC = getStatusColor(from);
+        const fromBadge = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(fromC)};color:${getContrastColor(fromC)}">${escapeHtml(from.replace(/_/g,' '))}</span>`;
+        const toC   = getStatusColor(to);
+        const toBadge   = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(toC)};color:${getContrastColor(toC)}">${escapeHtml(to.replace(/_/g,' '))}</span>`;
         rows += `<tr>
           <td class="history-date">${date}</td>
           <td>${fromBadge}</td>
@@ -2314,8 +2597,12 @@ function buildTaskNodeHtml(task) {
  */
 function buildDocNodeHtml(doc, level) {
   const key = doc.key || doc.path || doc.title || '';
+  // Show only the filename portion of path-like keys (e.g. "docs/plan/E27/foo.md" → "foo.md")
+  const displayKey = key.includes('/') ? key.split('/').pop() : key;
   const nodeClass = level === 'epic' ? 'tree-node-doc-epic' : 'tree-node-doc-feature';
-  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span></div>`;
+  // Add copy button for doc paths
+  const copyHtml = key ? `<button class="copy-btn" data-copy-value="${escapeHtml(key)}" title="Copy path" style="margin-left:4px;font-size:10px;padding:1px 4px">⎘</button>` : '';
+  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span>${copyHtml}</div>`;
 }
 
 /**
@@ -2341,6 +2628,7 @@ function buildFeatureNodeHtml(feature, epicKey) {
     // Render tasks
     const tasks = Array.isArray(feature.tasks) ? feature.tasks : [];
     for (const task of tasks) {
+      if (!showCompleted && task.status === 'completed') continue;
       html += buildTaskNodeHtml(task);
     }
     // Render feature-level docs
@@ -2376,6 +2664,7 @@ function buildEpicNodeHtml(epic) {
     // Render features
     const features = Array.isArray(epic.features) ? epic.features : [];
     for (const feature of features) {
+      if (!showCompleted && feature.status === 'completed') continue;
       html += buildFeatureNodeHtml(feature, epicKey);
     }
     // Render epic-level docs
@@ -2397,8 +2686,10 @@ function buildEpicNodeHtml(epic) {
  */
 function buildFlatSectionHtml(title, items) {
   if (!Array.isArray(items) || items.length === 0) return '';
+  const filtered = showCompleted ? items : items.filter(i => i.status !== 'completed');
+  if (filtered.length === 0) return '';
   let html = `<div class="sidebar-section-header">${escapeHtml(title)}</div>`;
-  for (const item of items) {
+  for (const item of filtered) {
     const key = item.key || String(item.id || '');
     const isSelected = key === selectedKey;
     const selectedClass = isSelected ? ' selected' : '';
@@ -2423,9 +2714,18 @@ function renderSidebar() {
 
   let html = '';
 
+  // ── Filter bar ──
+  html += `<div class="sidebar-filter-bar">
+    <label class="sidebar-filter-label">
+      <input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}>
+      Show completed
+    </label>
+  </div>`;
+
   // ── Hierarchy section ──
   html += `<div class="sidebar-section-header">Hierarchy</div>`;
   for (const epic of treeData) {
+    if (!showCompleted && epic.status === 'completed') continue;
     html += buildEpicNodeHtml(epic);
   }
 
@@ -2434,28 +2734,36 @@ function renderSidebar() {
     // No data loaded yet — render nothing extra
   }
 
-  // Ideas (from summaryData if present)
-  const ideas = (summaryData && Array.isArray(summaryData.ideas)) ? summaryData.ideas : [];
-  html += buildFlatSectionHtml('Ideas', ideas);
+  // Bugs (from hierarchy flat section)
+  const bugs = Array.isArray(hierarchyData?.bugs) ? hierarchyData.bugs : [];
+  html += buildFlatSectionHtml('Bugs', bugs);
 
-  // Change Cards (from summaryData if present)
-  const changeCards = (summaryData && Array.isArray(summaryData.change_cards)) ? summaryData.change_cards : [];
+  // Change Cards (from hierarchy flat section)
+  const changeCards = Array.isArray(hierarchyData?.change_cards) ? hierarchyData.change_cards : [];
   html += buildFlatSectionHtml('Change Cards', changeCards);
 
-  // Tags (from summaryData if present)
-  const tags = (summaryData && Array.isArray(summaryData.tags)) ? summaryData.tags : [];
-  html += buildFlatSectionHtml('Tags', tags);
-
-  // Tech Debt (from summaryData if present)
-  const techDebt = (summaryData && Array.isArray(summaryData.tech_debt)) ? summaryData.tech_debt : [];
-  html += buildFlatSectionHtml('Tech Debt', techDebt);
+  // Ideas (from hierarchy flat section)
+  const ideas = Array.isArray(hierarchyData?.ideas) ? hierarchyData.ideas : [];
+  html += buildFlatSectionHtml('Ideas', ideas);
 
   sidebarContent.innerHTML = html;
+
+  // Wire show-completed checkbox
+  const showCompletedCb = document.getElementById('show-completed-checkbox');
+  if (showCompletedCb) {
+    showCompletedCb.onchange = function() {
+      showCompleted = this.checked;
+      renderSidebar();
+    };
+  }
 
   // Wire event delegation once per render
   // Remove previous listeners by replacing the element's handler.
   // We use a single delegated click listener on sidebar-content.
   sidebarContent.onclick = function(e) {
+    // Copy buttons are handled by the global delegation handler — skip here
+    if (e.target.closest('.copy-btn')) return;
+
     const arrowEl = e.target.closest('[data-arrow-key]');
     if (arrowEl) {
       // Expand/collapse — do NOT select
@@ -2530,6 +2838,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('header-pick-folder-btn').addEventListener('click', () => {
     appState = 'pick_folder';
     render();
+  });
+
+  // Global copy button delegation — handles .copy-btn elements anywhere in the document
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.copy-btn');
+    if (!btn) return;
+    const value = btn.dataset.copyValue || '';
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(value)
+        .then(() => showToast('Copied!'))
+        .catch(() => showToast('Copy failed', 'error'));
+    } else {
+      showToast('Clipboard unavailable', 'error');
+    }
   });
 
   // Keyboard: Escape → if transitions drawer is open, close it first; second Escape returns to dashboard

@@ -109,6 +109,32 @@ type ViewerEntityDocRepository interface {
 // It is optional — ViewerService degrades gracefully if nil (ideas section omitted from Summary).
 type ViewerIdeaRepository interface {
 	ListAll(ctx context.Context) ([]*models.Idea, error)
+	GetByKey(ctx context.Context, key string) (*models.Idea, error)
+}
+
+// ViewerBugListRepository lists all bugs for the hierarchy sidebar.
+// It is optional — ViewerService degrades gracefully if nil (bugs section omitted from Hierarchy).
+// Also used by resolveEntityID for bug history lookups.
+type ViewerBugListRepository interface {
+	ListAll(ctx context.Context) ([]*models.Bug, error)
+	GetByKey(ctx context.Context, key string) (*models.Bug, error)
+}
+
+// ViewerChangeCardListRepository lists all change cards for the hierarchy sidebar.
+// It is optional — ViewerService degrades gracefully if nil (change cards section omitted from Hierarchy).
+// Also used by resolveFilePath and resolveEntityID for change card lookups.
+type ViewerChangeCardListRepository interface {
+	ListAll(ctx context.Context) ([]*models.ChangeCard, error)
+	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
+}
+
+// FlatEntity is a lightweight summary of a non-hierarchical entity (bug, change card, idea)
+// used in the hierarchy sidebar flat sections.
+type FlatEntity struct {
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Status      string `json:"status"`
+	StatusColor string `json:"status_color"`
 }
 
 // ----- Request / Response types -----
@@ -178,7 +204,10 @@ type HierarchyEpic struct {
 
 // HierarchyResponse is the response type for ViewerService.Hierarchy.
 type HierarchyResponse struct {
-	Epics []*HierarchyEpic `json:"epics"`
+	Epics       []*HierarchyEpic `json:"epics"`
+	Bugs        []*FlatEntity    `json:"bugs,omitempty"`
+	ChangeCards []*FlatEntity    `json:"change_cards,omitempty"`
+	Ideas       []*FlatEntity    `json:"ideas,omitempty"`
 }
 
 // HistoryResponse is the response type for ViewerService.History.
@@ -284,17 +313,19 @@ type WorkflowMetaResponse struct {
 //
 // ViewerService has NO mutation methods (ADR-E27-003).
 type ViewerService struct {
-	epicRepo       ViewerEpicRepository
-	featureRepo    ViewerFeatureRepository
-	taskRepo       ViewerTaskRepository
-	bugRepo        ViewerBugRepository
-	changeCardRepo ViewerChangeCardRepository
-	historyRepo    ViewerEntityHistoryRepository
-	entityDocRepo  ViewerEntityDocRepository // optional; used by Hierarchy for linked docs
-	ideaRepo       ViewerIdeaRepository      // optional; used by Summary for idea counts
-	workflowSvc    *workflow.Service
-	statusCalc     *status.CalculationService // optional; reserved for future use
-	projectRoot    string
+	epicRepo           ViewerEpicRepository
+	featureRepo        ViewerFeatureRepository
+	taskRepo           ViewerTaskRepository
+	bugRepo            ViewerBugRepository
+	changeCardRepo     ViewerChangeCardRepository
+	historyRepo        ViewerEntityHistoryRepository
+	entityDocRepo      ViewerEntityDocRepository      // optional; used by Hierarchy for linked docs
+	ideaRepo           ViewerIdeaRepository           // optional; used by Summary and Hierarchy
+	bugListRepo        ViewerBugListRepository        // optional; used by Hierarchy for bug flat list
+	changeCardListRepo ViewerChangeCardListRepository // optional; used by Hierarchy for change card flat list
+	workflowSvc        *workflow.Service
+	statusCalc         *status.CalculationService // optional; reserved for future use
+	projectRoot        string
 }
 
 // NewViewerService constructs a ViewerService.
@@ -339,10 +370,22 @@ func (s *ViewerService) WithEntityDocRepo(r ViewerEntityDocRepository) {
 	s.entityDocRepo = r
 }
 
-// WithIdeaRepo wires the optional idea repository used by Summary.
-// Call after NewViewerService; safe to skip (ideas field omitted from Summary response).
+// WithIdeaRepo wires the optional idea repository used by Summary and Hierarchy.
+// Call after NewViewerService; safe to skip (ideas fields omitted when nil).
 func (s *ViewerService) WithIdeaRepo(r ViewerIdeaRepository) {
 	s.ideaRepo = r
+}
+
+// WithBugListRepo wires the optional bug-list repository used by Hierarchy.
+// Call after NewViewerService; safe to skip (bugs section omitted when nil).
+func (s *ViewerService) WithBugListRepo(r ViewerBugListRepository) {
+	s.bugListRepo = r
+}
+
+// WithChangeCardListRepo wires the optional change-card-list repository used by Hierarchy.
+// Call after NewViewerService; safe to skip (change_cards section omitted when nil).
+func (s *ViewerService) WithChangeCardListRepo(r ViewerChangeCardListRepository) {
+	s.changeCardListRepo = r
 }
 
 // Summary returns entity-type counts with per-status color/phase metadata
@@ -688,6 +731,61 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 		result.Epics = append(result.Epics, he)
 	}
 
+	// ── Flat sections: bugs, change cards, ideas ──
+	bugSvc := s.workflowSvc.ForLevel(workflow.LevelBug)
+	ccSvc := s.workflowSvc.ForLevel(workflow.LevelChange)
+
+	if s.bugListRepo != nil {
+		bugs, err := s.bugListRepo.ListAll(ctx)
+		if err == nil {
+			result.Bugs = make([]*FlatEntity, 0, len(bugs))
+			for _, b := range bugs {
+				meta := bugSvc.GetStatusMetadata(string(b.Status))
+				result.Bugs = append(result.Bugs, &FlatEntity{
+					Key:         b.Key,
+					Title:       b.Title,
+					Status:      string(b.Status),
+					StatusColor: colorOrGray(meta.Color),
+				})
+			}
+		}
+	}
+
+	if s.changeCardListRepo != nil {
+		ccs, err := s.changeCardListRepo.ListAll(ctx)
+		if err == nil {
+			result.ChangeCards = make([]*FlatEntity, 0, len(ccs))
+			for _, cc := range ccs {
+				meta := ccSvc.GetStatusMetadata(string(cc.Status))
+				result.ChangeCards = append(result.ChangeCards, &FlatEntity{
+					Key:         cc.Key,
+					Title:       cc.Title,
+					Status:      string(cc.Status),
+					StatusColor: colorOrGray(meta.Color),
+				})
+			}
+		}
+	}
+
+	if s.ideaRepo != nil {
+		allIdeas, err := s.ideaRepo.ListAll(ctx)
+		if err == nil {
+			result.Ideas = make([]*FlatEntity, 0, len(allIdeas))
+			for _, idea := range allIdeas {
+				color, ok := ideaStatusColors[string(idea.Status)]
+				if !ok {
+					color = "#6b7280"
+				}
+				result.Ideas = append(result.Ideas, &FlatEntity{
+					Key:         idea.Key,
+					Title:       idea.Title,
+					Status:      string(idea.Status),
+					StatusColor: color,
+				})
+			}
+		}
+	}
+
 	return result, nil
 }
 
@@ -697,6 +795,47 @@ func colorOrGray(color string) string {
 		return "gray"
 	}
 	return color
+}
+
+// synthesizeIdeaContent looks up an idea by key and returns a synthesized
+// markdown FileResponse built from the idea's stored fields (title, description,
+// notes, status, priority). Ideas have no file_path in the database.
+func (s *ViewerService) synthesizeIdeaContent(ctx context.Context, key string) (*FileResponse, error) {
+	if s.ideaRepo == nil {
+		return &FileResponse{Exists: false}, nil
+	}
+	idea, err := s.ideaRepo.GetByKey(ctx, key)
+	if err != nil {
+		return &FileResponse{Exists: false}, nil
+	}
+	return &FileResponse{
+		Exists:  true,
+		Content: synthesizeIdeaMarkdown(idea),
+		Path:    "ideas/" + idea.Key,
+	}, nil
+}
+
+// synthesizeIdeaMarkdown builds a markdown document from an idea's stored fields.
+func synthesizeIdeaMarkdown(idea *models.Idea) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "# %s\n\n", idea.Title)
+	fmt.Fprintf(&sb, "**Key**: `%s`  \n", idea.Key)
+	fmt.Fprintf(&sb, "**Status**: %s  \n", idea.Status)
+	if idea.Priority != nil {
+		fmt.Fprintf(&sb, "**Priority**: %d  \n", *idea.Priority)
+	}
+	sb.WriteString("\n")
+	if idea.Description != nil && *idea.Description != "" {
+		sb.WriteString("## Description\n\n")
+		sb.WriteString(*idea.Description)
+		sb.WriteString("\n\n")
+	}
+	if idea.Notes != nil && *idea.Notes != "" {
+		sb.WriteString("## Notes\n\n")
+		sb.WriteString(*idea.Notes)
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 // phaseOrUnknown returns the phase if non-empty, otherwise "unknown".
@@ -783,6 +922,26 @@ func (s *ViewerService) resolveEntityID(ctx context.Context, entityType models.E
 		}
 		return t.ID, nil
 
+	case models.EntityTypeBug:
+		if s.bugListRepo == nil {
+			return 0, fmt.Errorf("bug history lookup not available")
+		}
+		b, err := s.bugListRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("failed to look up bug %q: %w", key, err)
+		}
+		return b.ID, nil
+
+	case models.EntityTypeChange:
+		if s.changeCardListRepo == nil {
+			return 0, fmt.Errorf("change card history lookup not available")
+		}
+		cc, err := s.changeCardListRepo.GetByKey(ctx, key)
+		if err != nil {
+			return 0, fmt.Errorf("failed to look up change card %q: %w", key, err)
+		}
+		return cc.ID, nil
+
 	default:
 		return 0, fmt.Errorf("unsupported entity type for history lookup: %q", entityType)
 	}
@@ -797,6 +956,11 @@ func (s *ViewerService) resolveEntityID(ctx context.Context, entityType models.E
 //   - FileTooLargeError when the file exceeds 2 MiB.
 //   - FileResponse{Exists:true, Content:..., Path:relPath} on success.
 func (s *ViewerService) File(ctx context.Context, key string) (*FileResponse, error) {
+	// Ideas have no file_path; synthesize markdown from stored fields.
+	if keys.IsIdeaKey(strings.ToUpper(strings.TrimSpace(key))) {
+		return s.synthesizeIdeaContent(ctx, key)
+	}
+
 	entityType, err := detectEntityType(key)
 	if err != nil {
 		return nil, fmt.Errorf("viewer file: %w", err)
@@ -989,6 +1153,19 @@ func (s *ViewerService) resolveFilePath(ctx context.Context, entityType models.E
 		}
 		if t.FilePath != nil {
 			return *t.FilePath, nil
+		}
+		return "", nil
+
+	case models.EntityTypeChange:
+		if s.changeCardListRepo == nil {
+			return "", nil
+		}
+		cc, err := s.changeCardListRepo.GetByKey(ctx, key)
+		if err != nil {
+			return "", fmt.Errorf("failed to look up change card %q: %w", key, err)
+		}
+		if cc.FilePath != nil {
+			return *cc.FilePath, nil
 		}
 		return "", nil
 

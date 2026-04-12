@@ -6,6 +6,8 @@ import (
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/bug"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/changecard"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entitydoc"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -16,10 +18,12 @@ import (
 
 // Compile-time interface satisfaction checks for adapters.
 var (
-	_ services.WorkSessionRepository     = (*workSessionAdapter)(nil)
-	_ services.TaskHistoryRepository     = (*taskHistoryAdapter)(nil)
-	_ services.ViewerEntityDocRepository = (*entityDocAdapter)(nil)
-	_ services.ViewerIdeaRepository      = (*ideaAdapter)(nil)
+	_ services.WorkSessionRepository          = (*workSessionAdapter)(nil)
+	_ services.TaskHistoryRepository          = (*taskHistoryAdapter)(nil)
+	_ services.ViewerEntityDocRepository      = (*entityDocAdapter)(nil)
+	_ services.ViewerIdeaRepository           = (*ideaAdapter)(nil)
+	_ services.ViewerBugListRepository        = (*bugListAdapter)(nil)
+	_ services.ViewerChangeCardListRepository = (*changeCardListAdapter)(nil)
 )
 
 // ideaAdapter adapts *idea.IdeaRepository to services.ViewerIdeaRepository.
@@ -29,6 +33,36 @@ type ideaAdapter struct {
 
 func (a *ideaAdapter) ListAll(ctx context.Context) ([]*models.Idea, error) {
 	return a.repo.List(ctx, nil)
+}
+
+func (a *ideaAdapter) GetByKey(ctx context.Context, key string) (*models.Idea, error) {
+	return a.repo.GetByKey(ctx, key)
+}
+
+// bugListAdapter adapts *bug.BugRepository to services.ViewerBugListRepository.
+type bugListAdapter struct {
+	repo *bug.BugRepository
+}
+
+func (a *bugListAdapter) ListAll(ctx context.Context) ([]*models.Bug, error) {
+	return a.repo.List(ctx, nil)
+}
+
+func (a *bugListAdapter) GetByKey(ctx context.Context, key string) (*models.Bug, error) {
+	return a.repo.GetByKey(ctx, key)
+}
+
+// changeCardListAdapter adapts *changecard.ChangeCardRepository to services.ViewerChangeCardListRepository.
+type changeCardListAdapter struct {
+	repo *changecard.ChangeCardRepository
+}
+
+func (a *changeCardListAdapter) ListAll(ctx context.Context) ([]*models.ChangeCard, error) {
+	return a.repo.List(ctx, nil)
+}
+
+func (a *changeCardListAdapter) GetByKey(ctx context.Context, key string) (*models.ChangeCard, error) {
+	return a.repo.GetByKey(ctx, key)
 }
 
 // entityDocAdapter adapts *entitydoc.EntityDocumentRepository to the
@@ -264,6 +298,8 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	)
 	viewerService.WithEntityDocRepo(&entityDocAdapter{repo: entitydoc.NewEntityDocumentRepository(db)})
 	viewerService.WithIdeaRepo(&ideaAdapter{repo: idea.NewIdeaRepository(db)})
+	viewerService.WithBugListRepo(&bugListAdapter{repo: bugRepoAdapter})
+	viewerService.WithChangeCardListRepo(&changeCardListAdapter{repo: changeCardRepoAdapter})
 
 	_ = historyRepo // available for future wiring
 	return &ServiceContainer{
