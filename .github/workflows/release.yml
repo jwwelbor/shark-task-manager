@@ -69,7 +69,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu libc6-dev-arm64-cross rpm
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -90,5 +90,7 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.deb
+            dist/*.rpm
             dist/checksums.txt
           retention-days: 5
