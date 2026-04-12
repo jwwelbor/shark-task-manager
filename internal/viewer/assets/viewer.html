@@ -1767,6 +1767,7 @@ function navigateToEntity(key) {
   }
 
   selectedKey = key;
+  entityViewTab = 'info';  // reset to Info tab on every navigation
   appState = 'entity_view';
   render();
   scrollSidebarToKey(key);

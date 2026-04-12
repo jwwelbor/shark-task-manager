@@ -12,6 +12,15 @@ import (
 	viewerserver "github.com/jwwelbor/shark-task-manager/internal/viewer/server"
 )
 
+// serverAddr returns the TCP address to bind. It checks the PORT environment
+// variable first, then falls back to ":8080".
+func serverAddr() string {
+	if port := os.Getenv("PORT"); port != "" {
+		return ":" + port
+	}
+	return ":8080"
+}
+
 func main() {
 	// Initialize observability (tracing, metrics, structured logging).
 	// Loads config from .sharkconfig.json; defaults to disabled if missing.
@@ -33,7 +42,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := viewerserver.StartServer(ctx, viewerserver.Options{Addr: ":8080"}); err != nil {
+	if err := viewerserver.StartServer(ctx, viewerserver.Options{Addr: serverAddr()}); err != nil {
 		slog.Error("Server stopped with error", "error", err)
 		os.Exit(1)
 	}
