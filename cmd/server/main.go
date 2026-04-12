@@ -2,27 +2,24 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/jwwelbor/shark-task-manager/internal/api"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
-	"github.com/jwwelbor/shark-task-manager/internal/db"
 	"github.com/jwwelbor/shark-task-manager/internal/observability"
-	"github.com/jwwelbor/shark-task-manager/internal/repository"
-
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	viewerserver "github.com/jwwelbor/shark-task-manager/internal/viewer/server"
 )
 
-// shutdownTimeout is the maximum time the server waits for in-flight requests
-// to complete before forcibly closing connections on shutdown.
-const shutdownTimeout = 30 * time.Second
+// serverAddr returns the TCP address to bind. It checks the PORT environment
+// variable first, then falls back to ":8080".
+func serverAddr() string {
+	if port := os.Getenv("PORT"); port != "" {
+		return ":" + port
+	}
+	return ":8080"
+}
 
 func main() {
 	// Initialize observability (tracing, metrics, structured logging).
@@ -40,95 +37,15 @@ func main() {
 	}
 	observability.InitLogger(cfg)
 
-	// Initialize database
-	database, err := db.InitDB("shark-tasks.db")
-	if err != nil {
-		slog.Error("Failed to initialize database", "error", err)
+	// Build a context that is cancelled on SIGINT/SIGTERM so StartServer can
+	// initiate graceful shutdown.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := viewerserver.StartServer(ctx, viewerserver.Options{Addr: serverAddr()}); err != nil {
+		slog.Error("Server stopped with error", "error", err)
 		os.Exit(1)
 	}
-	defer database.Close()
-
-	slog.Info("Database initialized successfully")
-
-	// Run integrity check
-	if err := db.CheckIntegrity(database); err != nil {
-		slog.Error("Database integrity check failed", "error", err)
-		os.Exit(1)
-	}
-	slog.Info("Database integrity check passed")
-
-	// Wire up services using the repository.DB wrapper.
-	repoDB := repository.NewDB(database)
-	svcs := WireServices(repoDB, ".")
-
-	// Set up routes
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Shark Task Manager API - Database Ready")
-	})
-
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		// Check database connection
-		if err := database.Ping(); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, "Database unavailable: %v", err)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "OK")
-	})
-
-	// Register CRUD handlers for tasks, features, and epics.
-	api.NewTaskHandler(svcs.TaskService).RegisterRoutes(mux)
-	api.NewFeatureHandler(svcs.FeatureService).RegisterRoutes(mux)
-	api.NewEpicHandler(svcs.EpicService).RegisterRoutes(mux)
-
-	slog.Info("API routes registered", "prefix", "/api/v1")
-
-	// Wrap the mux with otelhttp middleware for automatic span creation
-	// and request metrics on all routes.
-	handler := otelhttp.NewHandler(mux, "shark-api")
-
-	// Build the HTTP server struct so we can call Shutdown later.
-	port := "8080"
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: handler,
-	}
-
-	// Start server in a goroutine so the main goroutine can listen for signals.
-	srvErr := make(chan error, 1)
-	go func() {
-		slog.Info("Starting server", "port", port)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			srvErr <- err
-		}
-	}()
-
-	// Block until an OS signal or a server startup error is received.
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case err := <-srvErr:
-		slog.Error("Server failed to start", "error", err)
-		os.Exit(1)
-	case sig := <-quit:
-		slog.Info("Shutdown signal received", "signal", sig.String())
-	}
-
-	// Give in-flight requests up to shutdownTimeout to complete.
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		slog.Error("Server shutdown error", "error", err)
-		os.Exit(1)
-	}
-
-	slog.Info("Server stopped gracefully")
 }
 
 // loadObservabilityConfig loads the observability configuration from .sharkconfig.json.

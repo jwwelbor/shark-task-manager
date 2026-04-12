@@ -1,22 +1,15 @@
 {{template "_resume_preamble" .}}RESUME approval for task {{.task_id}}: "{{.title}}".
 
-Check for existing UAT documentation for this task. If UAT doc exists and task has been reviewed, advance to completed or route back based on review outcome.
-
----
-
-Launch UAT agent to include {{.task_id}} in the UAT documentation.
+Check for existing UAT report in code_review/ for this task (file pattern: *-{{.task_id}}-uat.md).
+- If UAT report exists with APPROVED verdict → {{template "advance" .}}
+- If UAT report exists with REJECTED verdict → route back to appropriate status with rejection reason
+- If NO UAT report exists → re-launch the UAT reviewer:
+{{template "uat_spawn_hint" .}}
 
 READ:
 (1) Task spec at {{.file_path}}
 (2) Implementation code and test results
-(3) Code review notes
+(3) Code review report from code_review/ directory
 (4) QA test results
 
-Prepare UAT documentation showing:
-- What was implemented vs what was specified
-- Test results summary
-- Any deviations or notes for reviewer
-
-This task requires human review. Present the UAT documentation and await human decision:
-- APPROVED → {{template "advance" .}} (completes the task)
-- REJECTED → route back to appropriate status with rejection reason
+This task requires the red-team UAT review to complete before advancing.

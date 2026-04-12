@@ -1,1 +1,5 @@
-Epic {{.id}} is on hold. Do not spawn agent. Wait for product decision to resume.
+Epic {{.id}} is on hold. No further action required — wait for product decision to resume.
+{{if .blocked_reason}}
+Reason: {{.blocked_reason}}
+{{end}}
+Once ready, resume with: shark status advance {{.id}}

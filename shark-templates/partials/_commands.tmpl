@@ -1,5 +1,6 @@
 {{/* ===== Status Commands ===== */}}
 {{define "advance"}}shark status advance {{.id}}{{end}}
+{{define "advance_preamble"}}After completing ALL work below, exit with: {{template "advance" .}}{{end}}
 {{define "status_set"}}shark status set {{.id}}{{end}}
 {{define "status_set_task"}}shark status set {{.task_id}}{{end}}
 

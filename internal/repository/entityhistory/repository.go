@@ -5,10 +5,52 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/dbconn"
 )
+
+// ListRecentAcrossEntitiesOptions configures the ListRecentAcrossEntities query.
+// All fields are optional — zero values mean "no filter / use default".
+type ListRecentAcrossEntitiesOptions struct {
+	// EntityType restricts results to a single entity type (e.g. "task", "epic").
+	// Empty string means all entity types are included.
+	EntityType string
+
+	// Since restricts results to history rows recorded after this time.
+	// nil means no lower-bound time filter.
+	Since *time.Time
+
+	// Limit caps the number of rows returned, ordered DESC by changed_at.
+	// A value of 0 or negative returns an empty slice (caller is responsible for
+	// clamping to a useful value before calling). Max meaningful value is
+	// effectively unlimited; callers should apply their own cap.
+	Limit int
+}
+
+// RecentActivityRow is a single result row from ListRecentAcrossEntities.
+// It combines columns from the entity_history table with the key and title
+// of the parent entity, resolved via INNER JOIN.
+type RecentActivityRow struct {
+	// EntityType identifies the kind of entity (e.g. "epic", "feature", "task", "bug", "change").
+	EntityType string
+
+	// Key is the business key of the parent entity (e.g. "E07", "E07-F01", "T-E07-F01-001").
+	Key string
+
+	// Title is the human-readable title of the parent entity.
+	Title string
+
+	// FromStatus is the status the entity transitioned from (may be empty for initial creation).
+	FromStatus string
+
+	// ToStatus is the status the entity transitioned to.
+	ToStatus string
+
+	// ChangedAt is when the status change was recorded.
+	ChangedAt time.Time
+}
 
 // EntityHistoryRepository handles CRUD operations for the entity_history table.
 // It provides polymorphic history recording and querying for all entity types
@@ -188,6 +230,108 @@ func (r *EntityHistoryRepository) CreateTx(
 
 	history.ID = id
 	return nil
+}
+
+// ListRecentAcrossEntities returns recent status-change activity across all entity
+// types (epic, feature, task, bug, change) in a single SQL round-trip.
+//
+// Each SELECT arm in the UNION ALL emits: entity_type (literal string), key,
+// title, from_status, to_status, changed_at. An INNER JOIN to the parent entity
+// table ensures orphaned history rows (whose parent was deleted) are omitted.
+//
+// Results are ordered DESC by changed_at (most recent first) and capped by
+// opts.Limit. When opts.Limit is 0 or negative, an empty slice is returned
+// immediately without hitting the database.
+func (r *EntityHistoryRepository) ListRecentAcrossEntities(ctx context.Context, opts ListRecentAcrossEntitiesOptions) ([]*RecentActivityRow, error) {
+	if opts.Limit <= 0 {
+		return []*RecentActivityRow{}, nil
+	}
+
+	// Build the UNION ALL query. Each arm joins entity_history to its parent
+	// entity table using INNER JOIN so orphaned rows are excluded.
+	//
+	// Columns in each SELECT arm (must match scan order below):
+	//   entity_type, key, title, from_status, to_status, changed_at
+	const unionQuery = `
+		SELECT 'epic'    AS entity_type, e.key, e.title, eh.from_status, eh.to_status, eh.changed_at
+		FROM entity_history eh
+		INNER JOIN epics e ON e.id = eh.entity_id AND eh.entity_type = 'epic'
+		UNION ALL
+		SELECT 'feature' AS entity_type, f.key, f.title, eh.from_status, eh.to_status, eh.changed_at
+		FROM entity_history eh
+		INNER JOIN features f ON f.id = eh.entity_id AND eh.entity_type = 'feature'
+		UNION ALL
+		SELECT 'task'    AS entity_type, t.key, t.title, eh.from_status, eh.to_status, eh.changed_at
+		FROM entity_history eh
+		INNER JOIN tasks t ON t.id = eh.entity_id AND eh.entity_type = 'task'
+		UNION ALL
+		SELECT 'bug'     AS entity_type, b.key, b.title, eh.from_status, eh.to_status, eh.changed_at
+		FROM entity_history eh
+		INNER JOIN bugs b ON b.id = eh.entity_id AND eh.entity_type = 'bug'
+		UNION ALL
+		SELECT 'change'  AS entity_type, cc.key, cc.title, eh.from_status, eh.to_status, eh.changed_at
+		FROM entity_history eh
+		INNER JOIN change_cards cc ON cc.id = eh.entity_id AND eh.entity_type = 'change'
+	`
+
+	// Wrap in an outer SELECT so we can apply WHERE filters and ORDER BY / LIMIT
+	// after the UNION ALL is evaluated.
+	var sb strings.Builder
+	sb.WriteString("SELECT entity_type, key, title, from_status, to_status, changed_at FROM (")
+	sb.WriteString(unionQuery)
+	sb.WriteString(") AS combined WHERE 1=1")
+
+	args := make([]interface{}, 0, 3)
+
+	if opts.EntityType != "" {
+		sb.WriteString(" AND entity_type = ?")
+		args = append(args, opts.EntityType)
+	}
+
+	if opts.Since != nil {
+		sb.WriteString(" AND changed_at > ?")
+		args = append(args, opts.Since.UTC())
+	}
+
+	sb.WriteString(" ORDER BY changed_at DESC LIMIT ?")
+	args = append(args, opts.Limit)
+
+	rows, err := r.db.QueryContext(ctx, sb.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list recent activity across entities: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*RecentActivityRow
+	for rows.Next() {
+		row := &RecentActivityRow{}
+		var fromStatus sql.NullString
+		err := rows.Scan(
+			&row.EntityType,
+			&row.Key,
+			&row.Title,
+			&fromStatus,
+			&row.ToStatus,
+			&row.ChangedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan recent activity row: %w", err)
+		}
+		if fromStatus.Valid {
+			row.FromStatus = fromStatus.String
+		}
+		results = append(results, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating recent activity rows: %w", err)
+	}
+
+	if results == nil {
+		results = []*RecentActivityRow{}
+	}
+
+	return results, nil
 }
 
 // scanEntityHistories scans rows into a slice of EntityHistory pointers.

@@ -83,6 +83,47 @@ func (r *EntityDocumentRepository) Unlink(ctx context.Context, entityType models
 	return nil
 }
 
+// BulkDoc holds a document's key fields alongside the entity it is linked to,
+// used for bulk loading all entity-document associations in one query.
+type BulkDoc struct {
+	EntityType string
+	EntityID   int64
+	Title      string
+	FilePath   string
+}
+
+// ListAll returns every entity-document link in one query, suitable for bulk
+// assembly of hierarchy responses without N+1 sub-queries.
+func (r *EntityDocumentRepository) ListAll(ctx context.Context) ([]*BulkDoc, error) {
+	query := `
+		SELECT ed.entity_type, ed.entity_id, d.title, d.file_path
+		FROM documents d
+		INNER JOIN entity_documents ed ON d.id = ed.document_id
+		ORDER BY ed.entity_type, ed.entity_id, ed.created_at ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all entity documents: %w", err)
+	}
+	defer rows.Close()
+
+	docs := make([]*BulkDoc, 0)
+	for rows.Next() {
+		d := &BulkDoc{}
+		if err := rows.Scan(&d.EntityType, &d.EntityID, &d.Title, &d.FilePath); err != nil {
+			return nil, fmt.Errorf("failed to scan bulk entity document: %w", err)
+		}
+		docs = append(docs, d)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating entity documents: %w", err)
+	}
+
+	return docs, nil
+}
+
 // ListForEntity returns all documents linked to a specific entity,
 // ordered by link creation time (most recently linked first).
 // Returns an empty non-nil slice if no documents are linked.

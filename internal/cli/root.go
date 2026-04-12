@@ -354,6 +354,17 @@ func GetConfigPath() (string, error) {
 	return filepath.Join(projectRoot, ".sharkconfig.json"), nil
 }
 
+// GetConfig loads and returns the project configuration from .sharkconfig.json.
+// Returns nil and an error if the config path cannot be determined or the file
+// cannot be read; callers should treat nil as "use defaults".
+func GetConfig() (*config.Config, error) {
+	configPath, err := GetConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	return config.NewManager(configPath).Load()
+}
+
 // initConfig reads in config file and ENV variables if set
 func initConfig() error {
 	// Find project root (unless explicit config path was given)

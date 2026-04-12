@@ -1,1 +1,15 @@
-Launch UAT agent to include {{.id}} in the UAT documentation.
+{{template "uat_spawn_hint" .}}
+
+Launch the UAT red-team reviewer for task {{.id}}: "{{.title}}".
+
+READ before spawning:
+(1) Task spec at {{.file_path}}
+(2) Implementation code and test results
+(3) Code review report from code_review/ directory
+(4) QA test results from code_review/ directory
+
+The UAT agent will:
+- Independently verify each acceptance criterion against actual code
+- Produce a report at code_review/<timestamp>-{{.id}}-uat.md with APPROVED or REJECTED verdict
+- On APPROVED → {{template "advance" .}}
+- On REJECTED → route back to ready_for_development with rejection findings
