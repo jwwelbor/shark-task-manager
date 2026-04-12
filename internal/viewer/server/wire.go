@@ -182,6 +182,7 @@ type ServiceContainer struct {
 	ContextService    *services.ContextService
 	ResumeService     *services.ResumeService
 	ViewerService     *services.ViewerService
+	EditSvc           *services.EditService
 }
 
 // WireServices constructs all services with their dependencies.
@@ -301,6 +302,9 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	viewerService.WithBugListRepo(&bugListAdapter{repo: bugRepoAdapter})
 	viewerService.WithChangeCardListRepo(&changeCardListAdapter{repo: changeCardRepoAdapter})
 
+	// Step 6: Construct EditService for the file-write endpoint.
+	editService := services.NewEditService(projectRoot)
+
 	_ = historyRepo // available for future wiring
 	return &ServiceContainer{
 		TaskService:       taskService,
@@ -312,5 +316,6 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		ContextService:    contextService,
 		ResumeService:     resumeService,
 		ViewerService:     viewerService,
+		EditSvc:           editService,
 	}
 }

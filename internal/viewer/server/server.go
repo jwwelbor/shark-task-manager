@@ -132,6 +132,14 @@ func StartServer(ctx context.Context, opts Options) error {
 	// Read-only viewer dashboard routes under /api/v1/viewer/ (with CORS).
 	viewer.NewViewerHandler(svcs.ViewerService).RegisterRoutes(mux, "/api/v1/viewer")
 
+	// Edit routes (file write) under /api/v1/edit/ (with CORS).
+	editHandler := viewer.NewEditHandler(svcs.EditSvc)
+	mux.Handle("PUT /api/v1/edit/file", viewer.WithLocalCORS(http.HandlerFunc(editHandler.PutFile)))
+	// OPTIONS preflight for edit routes.
+	mux.Handle("OPTIONS /api/v1/edit/file", viewer.WithLocalCORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
 	slog.Info("API routes registered", "prefix", "/api/v1")
 
 	// --- Step 5: Wrap with otelhttp --------------------------------------------
