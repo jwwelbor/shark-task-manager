@@ -204,6 +204,7 @@ type HierarchyEpic struct {
 
 // HierarchyResponse is the response type for ViewerService.Hierarchy.
 type HierarchyResponse struct {
+	ProjectName string           `json:"project_name"`
 	Epics       []*HierarchyEpic `json:"epics"`
 	Bugs        []*FlatEntity    `json:"bugs,omitempty"`
 	ChangeCards []*FlatEntity    `json:"change_cards,omitempty"`
@@ -222,6 +223,20 @@ type FileResponse struct {
 	Exists  bool   `json:"exists"`
 	Content string `json:"content,omitempty"`
 	Path    string `json:"path,omitempty"` // relative path under project root
+}
+
+// FolderFileEntry is one entry returned by ViewerService.FolderFiles.
+type FolderFileEntry struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"` // relative to project root
+	IsDir bool   `json:"is_dir"`
+	Size  int64  `json:"size"`
+}
+
+// FolderFilesResponse is the response type for ViewerService.FolderFiles.
+type FolderFilesResponse struct {
+	DirPath string             `json:"dir_path"` // relative to project root
+	Entries []*FolderFileEntry `json:"entries"`
 }
 
 // FeatureTaskOptions carries filters and pagination for ViewerService.FeatureTasks.
@@ -655,7 +670,8 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 	}
 
 	result := &HierarchyResponse{
-		Epics: make([]*HierarchyEpic, 0, len(epics)),
+		ProjectName: projectNameFromRoot(s.projectRoot),
+		Epics:       make([]*HierarchyEpic, 0, len(epics)),
 	}
 
 	for _, epic := range epics {
@@ -1002,9 +1018,7 @@ func (s *ViewerService) File(ctx context.Context, key string) (*FileResponse, er
 		return nil, fmt.Errorf("viewer file: failed to canonicalize file path: %w", err)
 	}
 
-	// Containment check: resolved path must start with rootCanon + separator.
-	prefix := rootCanon + string(os.PathSeparator)
-	if targetCanon != rootCanon && !strings.HasPrefix(targetCanon, prefix) {
+	if !isContained(rootCanon, targetCanon) {
 		return nil, &SecurityError{Path: targetCanon}
 	}
 
@@ -1078,9 +1092,7 @@ func (s *ViewerService) FileByPath(ctx context.Context, filePath string) (*FileR
 		return nil, fmt.Errorf("viewer file by path: failed to canonicalize file path: %w", err)
 	}
 
-	// Containment check: resolved path must start with rootCanon + separator.
-	prefix := rootCanon + string(os.PathSeparator)
-	if targetCanon != rootCanon && !strings.HasPrefix(targetCanon, prefix) {
+	if !isContained(rootCanon, targetCanon) {
 		return nil, &SecurityError{Path: targetCanon}
 	}
 
@@ -1377,4 +1389,86 @@ func (s *ViewerService) WorkflowMeta(_ context.Context) (*WorkflowMetaResponse, 
 	}
 
 	return response, nil
+}
+
+// projectNameFromRoot returns the folder name from projectRoot.
+// Handles ".", "..", "/", and empty string gracefully.
+func projectNameFromRoot(projectRoot string) string {
+	abs, err := filepath.Abs(projectRoot)
+	if err != nil || abs == "" {
+		return "Project"
+	}
+	name := filepath.Base(abs)
+	if name == "." || name == "/" || name == "" {
+		return "Project"
+	}
+	return name
+}
+
+// FolderFiles lists the immediate children of the directory at relPath within the project root.
+// It performs the same path-containment security check as FileByPath.
+// Hidden files (starting with ".") and common noise entries are included.
+// Returns a SecurityError if relPath escapes the project root.
+func (s *ViewerService) FolderFiles(ctx context.Context, relPath string) (*FolderFilesResponse, error) {
+	if filepath.IsAbs(relPath) {
+		return nil, &SecurityError{Path: relPath}
+	}
+
+	absRoot, err := filepath.Abs(s.projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("folder files: failed to resolve project root: %w", err)
+	}
+
+	absPath := filepath.Join(absRoot, relPath)
+
+	rootCanon, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return nil, fmt.Errorf("folder files: failed to canonicalize project root: %w", err)
+	}
+
+	targetCanon, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &FolderFilesResponse{DirPath: relPath, Entries: []*FolderFileEntry{}}, nil
+		}
+		return nil, fmt.Errorf("folder files: failed to canonicalize dir path: %w", err)
+	}
+
+	if !isContained(rootCanon, targetCanon) {
+		return nil, &SecurityError{Path: targetCanon}
+	}
+
+	entries, err := os.ReadDir(targetCanon)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &FolderFilesResponse{DirPath: relPath, Entries: []*FolderFileEntry{}}, nil
+		}
+		return nil, fmt.Errorf("folder files: failed to read directory %q: %w", targetCanon, err)
+	}
+
+	relDir, err := filepath.Rel(rootCanon, targetCanon)
+	if err != nil {
+		relDir = relPath
+	}
+
+	result := &FolderFilesResponse{
+		DirPath: relDir,
+		Entries: make([]*FolderFileEntry, 0, len(entries)),
+	}
+	for _, entry := range entries {
+		info, err := entry.Info()
+		var size int64
+		if err == nil && !entry.IsDir() {
+			size = info.Size()
+		}
+		entryRelPath := filepath.Join(relDir, entry.Name())
+		result.Entries = append(result.Entries, &FolderFileEntry{
+			Name:  entry.Name(),
+			Path:  filepath.ToSlash(entryRelPath),
+			IsDir: entry.IsDir(),
+			Size:  size,
+		})
+	}
+
+	return result, nil
 }

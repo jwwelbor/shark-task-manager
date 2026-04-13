@@ -146,6 +146,26 @@ func TestEditService_WriteFile_TraversalOutsideRoot(t *testing.T) {
 	}
 }
 
+// TC-F07-006b: EditService.WriteFile — deep traversal to non-existent dir outside root
+// Regression: before the pre-flight check, ../../../etc/passwd returned a generic error
+// (500) instead of SecurityError (400) because EvalSymlinks on a non-existent parent
+// returned os.ErrNotExist which was wrapped as a plain error.
+func TestEditService_WriteFile_TraversalNonExistentParentOutsideRoot(t *testing.T) {
+	root := t.TempDir()
+	svc := NewEditService(root)
+
+	// This path resolves above the root, and the intermediate directories don't exist.
+	_, err := svc.WriteFile(context.Background(), "../../../etc/passwd", "evil")
+	if err == nil {
+		t.Fatal("WriteFile() expected SecurityError for deep traversal, got nil")
+	}
+
+	var secErr *SecurityError
+	if !asErr(err, &secErr) {
+		t.Errorf("expected *SecurityError, got %T: %v", err, err)
+	}
+}
+
 // TC-F07-007: EditService.WriteFile — symlink resolving outside root rejected
 func TestEditService_WriteFile_SymlinkEscape(t *testing.T) {
 	root := t.TempDir()

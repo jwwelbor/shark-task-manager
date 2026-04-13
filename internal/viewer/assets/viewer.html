@@ -1130,6 +1130,55 @@
       color: var(--fg-dim);
     }
 
+    /* Folder files pane */
+    .folder-files-pane {
+      padding: 12px 16px;
+    }
+    .folder-files-header {
+      font-size: 11px;
+      color: var(--fg-dim);
+      font-family: 'SF Mono', monospace;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .folder-files-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .folder-file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+      transition: background var(--transition);
+    }
+    .folder-file-item:hover {
+      background: var(--bg-3);
+    }
+    .folder-file-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .folder-file-size {
+      font-size: 11px;
+      color: var(--fg-dim);
+      font-family: 'SF Mono', monospace;
+      white-space: nowrap;
+    }
+    .folder-file-dir {
+      color: var(--fg-muted);
+    }
+    .tree-node-folder-icon {
+      margin-right: 4px;
+    }
+
   </style>
 </head>
 <body>
@@ -1142,6 +1191,7 @@
   <!-- Header bar (hidden in pick_folder state) -->
   <header id="header">
     <div id="header-left">
+      <button class="header-btn" id="header-back-btn" style="display:none">← Back</button>
       <button id="header-dashboard-btn">Dashboard</button>
       <div id="header-pills"></div>
     </div>
@@ -1635,6 +1685,9 @@ async function loadProjectData() {
   // Step 4: set treeData + hierarchyData; on initial load start fully collapsed
   hierarchyData = hierarchy;
   treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
+  projectName = hierarchy?.project_name || '';
+  updateHeaderProjectName();
+  folderFilesCache.clear();
   if (appState === 'pick_folder') {
     // First load: start fully collapsed — epics expand on first user interaction
     expandedEpics = new Set();
@@ -1656,7 +1709,18 @@ async function loadProjectData() {
 
   // Transition to dashboard
   appState = 'dashboard';
+  history.replaceState({ appState, selectedKey: null, entityViewTab: 'info' }, '');
   render();
+}
+
+function updateHeaderProjectName() {
+  const btn = document.getElementById('header-dashboard-btn');
+  if (!btn) return;
+  if (projectName) {
+    btn.textContent = projectName;
+  } else {
+    btn.textContent = 'Dashboard';
+  }
 }
 
 // ============================================================
@@ -1671,6 +1735,8 @@ let summaryData    = null;           // cached /summary response
 let recentActivity = [];             // cached /recent-activity response
 let workflowMeta   = null;           // cached /workflow-meta response
 let showCompleted    = false;         // sidebar filter: show completed entities
+let showAllFiles     = false;         // sidebar filter: show untracked folder files
+let projectName      = '';            // project folder name for header
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
 let expandedFeatures = new Set();    // feature keys currently expanded in sidebar
 
@@ -1689,6 +1755,12 @@ function render() {
   body.className = body.className.replace(/\bstate-\S+/g, '').trim();
   // Add current state class
   body.classList.add('state-' + appState);
+
+  // Show back button when not on dashboard/pick_folder
+  const backBtn = document.getElementById('header-back-btn');
+  if (backBtn) {
+    backBtn.style.display = (appState === 'entity_view' || appState === 'doc_view') ? '' : 'none';
+  }
 
   switch (appState) {
     case 'pick_folder':
@@ -1709,6 +1781,26 @@ function render() {
     default:
       renderPickFolder();
   }
+}
+
+/**
+ * Saves the current navigation state to browser history so the back button works.
+ * Call after every intentional navigation (entity select, doc open, dashboard).
+ */
+function pushNavState() {
+  const state = { appState, selectedKey, entityViewTab };
+  history.pushState(state, '');
+}
+
+/**
+ * Restores app state from a history entry (called on popstate).
+ */
+function restoreNavState(state) {
+  if (!state) return;
+  appState      = state.appState      || 'dashboard';
+  selectedKey   = state.selectedKey   || null;
+  entityViewTab = state.entityViewTab || 'info';
+  render();
 }
 
 // ============================================================
@@ -1796,6 +1888,7 @@ function navigateToEntity(key) {
   selectedKey = key;
   entityViewTab = 'info';  // reset to Info tab on every navigation
   appState = 'entity_view';
+  pushNavState();
   render();
   scrollSidebarToKey(key);
 }
@@ -2410,19 +2503,15 @@ function renderMarkdownFromString(rawContent, paneEl) {
       <pre class="markdown-body" style="white-space:pre-wrap">${escapeHtml(rawContent)}</pre>`;
   }
 
-  // Build Edit button toolbar (only when a file path is available).
+  // Populate pane with content.
   paneEl.innerHTML = '';
-  if (editFilePath) {
-    const toolbar = document.createElement('div');
-    toolbar.className = 'edit-toolbar';
-    toolbar.innerHTML = `<button class="open-btn edit-btn" id="edit-start-btn">Edit</button>`;
-    paneEl.appendChild(toolbar);
-
-    paneEl.querySelector('#edit-start-btn').addEventListener('click', () => {
-      enterEditMode(paneEl);
-    });
-  }
   paneEl.appendChild(contentWrapper);
+
+  // Enable the Edit button in the toggle bar once content is ready.
+  if (editFilePath) {
+    const editBtn = document.getElementById('ev-edit-btn');
+    if (editBtn) editBtn.disabled = false;
+  }
 }
 
 // ============================================================
@@ -2435,8 +2524,13 @@ function renderMarkdownFromString(rawContent, paneEl) {
  * @param {HTMLElement} paneEl - the pane container to transform
  */
 function enterEditMode(paneEl) {
+  if (editMode) return;  // already editing — don't clobber the textarea
   editMode = true;
   editPaneEl = paneEl;
+
+  // Disable the toggle-bar edit button while editing.
+  const editBtn = document.getElementById('ev-edit-btn');
+  if (editBtn) editBtn.disabled = true;
 
   paneEl.innerHTML = `
     <div class="edit-toolbar" id="edit-action-toolbar">
@@ -2541,6 +2635,16 @@ function renderEntityView() {
 
   const infoActive  = entityViewTab === 'info'        ? ' active' : '';
   const transActive = entityViewTab === 'transitions' ? ' active' : '';
+  const filesActive = entityViewTab === 'files'       ? ' active' : '';
+
+  const hasFilePath = entity && (entity.file_path || entity.linked_content_path);
+  const editBtnHtml = (entityViewTab === 'info' && hasFilePath)
+    ? `<button class="toggle-btn ev-edit-btn" id="ev-edit-btn" disabled title="Edit file" style="margin-left:auto">✎ Edit</button>`
+    : '';
+
+  const entityDir = entity ? (entity.file_path || entity.linked_content_path || '') : '';
+  const filesDirPath = entityDir ? parentDir(entityDir) : '';
+  const filesBtnHtml = filesDirPath ? `<button class="toggle-btn${filesActive}" id="ev-tab-files">Files</button>` : '';
 
   const html = `
     <div class="entity-view-header">
@@ -2551,6 +2655,8 @@ function renderEntityView() {
     <div class="toggle-bar">
       <button class="toggle-btn${infoActive}"  id="ev-tab-info">Info</button>
       <button class="toggle-btn${transActive}" id="ev-tab-transitions">Transitions</button>
+      ${filesBtnHtml}
+      ${editBtnHtml}
     </div>
     <div id="ev-content-pane"></div>
   `;
@@ -2566,12 +2672,29 @@ function renderEntityView() {
     entityViewTab = 'transitions';
     renderEntityView();
   });
+  const filesTabBtn = document.getElementById('ev-tab-files');
+  if (filesTabBtn) {
+    filesTabBtn.addEventListener('click', () => {
+      entityViewTab = 'files';
+      renderEntityView();
+    });
+  }
+
+  // Wire edit button (enabled after content loads in renderMarkdownFromString)
+  const editToggleBtn = document.getElementById('ev-edit-btn');
+  if (editToggleBtn) {
+    editToggleBtn.addEventListener('click', () => {
+      enterEditMode(document.getElementById('ev-content-pane'));
+    });
+  }
 
   const paneEl = document.getElementById('ev-content-pane');
 
   if (entityViewTab === 'info') {
     // Async: fetch and render markdown content
     renderMarkdownPane(selectedKey, paneEl);
+  } else if (entityViewTab === 'files') {
+    renderFolderFilesPane(filesDirPath, paneEl);
   } else {
     // Transitions view
     paneEl.innerHTML = `<div class="history-drawer"><div class="content-placeholder">Loading transition history\u2026</div></div>`;
@@ -2663,25 +2786,42 @@ function renderDocView() {
     }
   }
 
-  const docTitle = docMeta ? escapeHtml(docMeta.title || docKey) : escapeHtml(docKey);
-  const pathVal  = docMeta ? escapeHtml(docMeta.path || docKey) : escapeHtml(docKey);
-  const parentVal = parentKey ? `<span class="mono">${escapeHtml(parentKey)}</span>` : '—';
+  // Title: use docMeta title if available; otherwise just the filename (basename of path)
+  const rawPath = docMeta ? (docMeta.path || docKey) : docKey;
+  const baseName = rawPath.split('/').pop() || rawPath;
+  const docTitle = docMeta ? escapeHtml(docMeta.title || baseName) : escapeHtml(baseName);
+
+  // Path subtitle — always the full relative path with a copy button
+  const pathCopyBtn = `<button class="copy-btn" data-copy-value="${escapeHtml(rawPath)}" title="Copy path">⎘</button>`;
+  const pathSubtitle = `<span style="word-break:break-all;color:var(--fg-dim);font-size:12px;font-family:'SF Mono',monospace">${escapeHtml(rawPath)}</span>${pathCopyBtn}`;
+
+  // Parent row — only shown when there's a real parent key
+  const parentRowHtml = parentKey
+    ? `<div class="props-grid" style="margin-bottom:0"><span class="props-label">Parent</span><span class="props-value"><span class="mono">${escapeHtml(parentKey)}</span></span></div>`
+    : '';
 
   content.innerHTML = `
-    <div class="ev-header">
-      <div class="ev-title">${docTitle}</div>
-      <div class="ev-key">${escapeHtml(docKey)}</div>
-    </div>
-    <div class="ev-body" style="display:flex;flex-direction:column;gap:16px">
-      <div class="props-grid">
-        <span class="props-label">Path</span><span class="props-value">${pathVal}</span>
-        <span class="props-label">Parent</span><span class="props-value">${parentVal}</span>
+    <div class="entity-view-header" style="display:flex;align-items:flex-start;justify-content:space-between">
+      <div>
+        <div class="entity-view-title ev-title">${docTitle}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">${pathSubtitle}</div>
       </div>
-      <div id="doc-content-pane" class="ev-content-pane"></div>
-    </div>`;
+      <button class="toggle-btn ev-edit-btn" id="ev-edit-btn" disabled title="Edit file" style="margin-left:12px;flex-shrink:0;align-self:center">✎ Edit</button>
+    </div>
+    ${parentRowHtml}
+    <div id="doc-content-pane" class="ev-content-pane" style="margin-top:${parentKey ? '16px' : '8px'}"></div>`;
 
   // Async render markdown content
   const pane = document.getElementById('doc-content-pane');
+
+  // Wire edit button after DOM is ready
+  const docEditBtn = document.getElementById('ev-edit-btn');
+  if (docEditBtn) {
+    docEditBtn.addEventListener('click', () => {
+      enterEditMode(pane);
+    });
+  }
+
   renderMarkdownPane(docKey, pane);
 }
 
@@ -2779,9 +2919,7 @@ function buildDocNodeHtml(doc, level) {
   // Show only the filename portion of path-like keys (e.g. "docs/plan/E27/foo.md" → "foo.md")
   const displayKey = key.includes('/') ? key.split('/').pop() : key;
   const nodeClass = level === 'epic' ? 'tree-node-doc-epic' : 'tree-node-doc-feature';
-  // Add copy button for doc paths
-  const copyHtml = key ? `<button class="copy-btn" data-copy-value="${escapeHtml(key)}" title="Copy path" style="margin-left:4px;font-size:10px;padding:1px 4px">⎘</button>` : '';
-  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span>${copyHtml}</div>`;
+  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span></div>`;
 }
 
 /**
@@ -2814,6 +2952,12 @@ function buildFeatureNodeHtml(feature, epicKey) {
     const docs = Array.isArray(feature.docs) ? feature.docs : [];
     for (const doc of docs) {
       html += buildDocNodeHtml(doc, 'feature');
+    }
+    // Render folder files link when showAllFiles is enabled
+    if (showAllFiles && feature.file_path) {
+      const featureDir = parentDir(feature.file_path);
+      const folderKey = 'folder:' + featureDir;
+      html += `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="${escapeHtml(featureDir)}"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Folder files</span></div>`;
     }
   }
 
@@ -2850,6 +2994,12 @@ function buildEpicNodeHtml(epic) {
     const docs = Array.isArray(epic.docs) ? epic.docs : [];
     for (const doc of docs) {
       html += buildDocNodeHtml(doc, 'epic');
+    }
+    // Render folder files link when showAllFiles is enabled
+    if (showAllFiles && epic.file_path) {
+      const epicDir = parentDir(epic.file_path);
+      const folderKey = 'folder:' + epicDir;
+      html += `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="${escapeHtml(epicDir)}"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Folder files</span></div>`;
     }
   }
 
@@ -2899,6 +3049,10 @@ function renderSidebar() {
       <input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}>
       Show completed
     </label>
+    <label class="sidebar-filter-label">
+      <input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}>
+      Show all files
+    </label>
   </div>`;
 
   // ── Hierarchy section ──
@@ -2932,6 +3086,13 @@ function renderSidebar() {
   if (showCompletedCb) {
     showCompletedCb.onchange = function() {
       showCompleted = this.checked;
+      renderSidebar();
+    };
+  }
+  const showAllFilesCb = document.getElementById('show-all-files-checkbox');
+  if (showAllFilesCb) {
+    showAllFilesCb.onchange = function() {
+      showAllFiles = this.checked;
       renderSidebar();
     };
   }
@@ -2972,13 +3133,20 @@ function renderSidebar() {
     if (nodeEl) {
       const key = nodeEl.getAttribute('data-select-key');
       if (key) {
+        if (key.startsWith('folder:')) {
+          const folderPath = nodeEl.getAttribute('data-folder-path') || key.slice(7);
+          openFolderView(folderPath);
+          return;
+        }
         selectedKey = key;
         // Doc nodes (italic in sidebar) go to doc_view; all others go to entity_view
         if (nodeEl.classList.contains('tree-node-doc-epic') || nodeEl.classList.contains('tree-node-doc-feature')) {
           appState = 'doc_view';
         } else {
+          entityViewTab = 'info';
           appState = 'entity_view';
         }
+        pushNavState();
         render();
       }
     }
@@ -2999,11 +3167,22 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjectData();
   });
 
+  // Header: Back button → browser history back
+  document.getElementById('header-back-btn').addEventListener('click', () => {
+    history.back();
+  });
+
+  // Browser popstate — restore state when back/forward is pressed
+  window.addEventListener('popstate', (e) => {
+    restoreNavState(e.state);
+  });
+
   // Header: Dashboard title → return to dashboard
   document.getElementById('header-dashboard-btn').addEventListener('click', () => {
     if (appState === 'entity_view' || appState === 'doc_view') {
       selectedKey = null;
       appState = 'dashboard';
+      history.replaceState({ appState, selectedKey: null, entityViewTab: 'info' }, '');
       render();
     }
   });
@@ -3033,28 +3212,161 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Keyboard: Escape → if transitions drawer is open, close it first; second Escape returns to dashboard
+  // Keyboard: Escape → close open drawer first, then go back in history
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (appState === 'entity_view') {
-        if (entityViewTab === 'transitions') {
-          // Drawer is open — close it first (switch to Info pane)
-          entityViewTab = 'info';
-          renderEntityView();
-        } else {
-          // Info pane already showing — return to dashboard
-          selectedKey = null;
-          appState = 'dashboard';
-          render();
-        }
-      } else if (appState === 'doc_view') {
-        selectedKey = null;
-        appState = 'dashboard';
-        render();
+      if (appState === 'entity_view' && entityViewTab === 'transitions') {
+        // Transitions drawer open — close it first
+        entityViewTab = 'info';
+        renderEntityView();
+      } else if (appState === 'entity_view' || appState === 'doc_view') {
+        history.back();
       }
     }
   });
 });
+
+// ============================================================
+// SECTION: Folder Files View
+// ============================================================
+
+/** Cache: dirPath → FolderFilesResponse, cleared on project reload. */
+const folderFilesCache = new Map();
+
+/**
+ * Fetches and renders the folder files listing in the given pane element.
+ * Uses an in-memory cache keyed by dirPath to avoid re-fetching on every tab switch.
+ */
+async function renderFolderFilesPane(dirPath, paneEl) {
+  if (!dirPath) {
+    paneEl.innerHTML = `<div class="content-placeholder">No folder path available.</div>`;
+    return;
+  }
+
+  let result = folderFilesCache.get(dirPath);
+  if (!result) {
+    paneEl.innerHTML = `<div class="content-placeholder">Loading folder files\u2026</div>`;
+    try {
+      result = await apiGetFolderFiles(dirPath);
+      if (result) folderFilesCache.set(dirPath, result);
+    } catch (err) {
+      paneEl.innerHTML = `<div class="content-placeholder">Failed to load folder files.</div>`;
+      return;
+    }
+  }
+
+  if (!result || !result.entries || result.entries.length === 0) {
+    paneEl.innerHTML = `<div class="content-placeholder">No files found in <code>${escapeHtml(dirPath)}</code>.</div>`;
+    return;
+  }
+
+  let html = `<div class="folder-files-pane"><div class="folder-files-header">${escapeHtml(result.dir_path || dirPath)}</div><div class="folder-files-list">`;
+  for (const entry of result.entries) {
+    const icon = entry.is_dir ? '📁' : fileIcon(entry.name);
+    const sizeStr = (!entry.is_dir && entry.size > 0) ? formatFileSize(entry.size) : '';
+    const sizeHtml = sizeStr ? `<span class="folder-file-size">${escapeHtml(sizeStr)}</span>` : '';
+    if (entry.is_dir) {
+      html += `<div class="folder-file-item folder-file-dir" data-folder-path="${escapeHtml(entry.path)}">${icon} <span class="folder-file-name">${escapeHtml(entry.name)}</span>${sizeHtml}</div>`;
+    } else {
+      html += `<div class="folder-file-item" data-file-path="${escapeHtml(entry.path)}">${icon} <span class="folder-file-name">${escapeHtml(entry.name)}</span>${sizeHtml}</div>`;
+    }
+  }
+  html += `</div></div>`;
+  paneEl.innerHTML = html;
+
+  // Single delegated click handler for the whole list
+  paneEl.querySelector('.folder-files-list').addEventListener('click', (e) => {
+    const item = e.target.closest('.folder-file-item');
+    if (!item) return;
+    const filePath = item.getAttribute('data-file-path');
+    if (filePath) {
+      selectedKey = filePath;
+      appState = 'doc_view';
+      pushNavState();
+      render();
+      return;
+    }
+    const folderPath = item.getAttribute('data-folder-path');
+    if (folderPath) {
+      pushNavState();
+      renderFolderFilesPane(folderPath, paneEl);
+    }
+  });
+}
+
+/**
+ * Opens a folder view for the given dirPath by navigating to the nearest
+ * entity and opening the Files tab, or rendering directly if no entity found.
+ */
+function openFolderView(dirPath) {
+  // Try to find an entity whose file_path is in this dir
+  for (const epic of treeData) {
+    const epicDir = epic.file_path ? parentDir(epic.file_path) : '';
+    if (epicDir === dirPath) {
+      selectedKey = epic.key;
+      entityViewTab = 'files';
+      appState = 'entity_view';
+      pushNavState();
+      render();
+      return;
+    }
+    for (const feature of (epic.features || [])) {
+      const fDir = feature.file_path ? parentDir(feature.file_path) : '';
+      if (fDir === dirPath) {
+        selectedKey = feature.key;
+        entityViewTab = 'files';
+        appState = 'entity_view';
+        pushNavState();
+        render();
+        return;
+      }
+    }
+  }
+  // No entity found — open doc view with a synthetic folder key
+  selectedKey = 'folder:' + dirPath;
+  appState = 'doc_view';
+  pushNavState();
+  render();
+}
+
+/** Returns the parent directory of a relative file path (strips the last segment). */
+function parentDir(filePath) { return filePath.replace(/\/[^/]+$/, ''); }
+
+/**
+ * Returns a file icon character based on the file extension.
+ */
+function fileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  switch(ext) {
+    case 'md': case 'markdown': return '📝';
+    case 'go': return '🔵';
+    case 'js': case 'ts': return '📜';
+    case 'json': return '📋';
+    case 'yaml': case 'yml': return '⚙️';
+    case 'sh': case 'bash': return '💻';
+    case 'png': case 'jpg': case 'gif': case 'svg': return '🖼️';
+    case 'pdf': return '📄';
+    default: return '📃';
+  }
+}
+
+/**
+ * Formats a file size in bytes as a human-readable string.
+ */
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/**
+ * Fetches the folder file listing from the API.
+ */
+async function apiGetFolderFiles(dirPath) {
+  const resp = await fetch('/api/v1/viewer/folder-files/' + encodeURIComponent(dirPath).replace(/%2F/g, '/'));
+  if (!resp.ok) throw new Error('folder files fetch failed: ' + resp.status);
+  return resp.json();
+}
 
 </script>
 </body>

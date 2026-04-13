@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // EditService provides filesystem write operations for the web viewer.
@@ -56,9 +55,19 @@ func (s *EditService) WriteFile(ctx context.Context, relPath string, content str
 		return nil, fmt.Errorf("edit service: failed to canonicalize project root: %w", err)
 	}
 
-	// Step 4b: Canonicalize the target path via EvalSymlinks.
-	// For write operations the target file may not exist yet, so we evaluate
-	// the parent directory and re-attach the base name.
+	// Step 4a: Pre-flight containment check on the clean (non-symlink-resolved)
+	// path. filepath.Join already calls filepath.Clean, so absPath has no ".."
+	// components. If it doesn't start with absRoot we know it's outside the root
+	// before touching the filesystem — return SecurityError immediately.
+	// This handles traversal paths like "../../etc/passwd" whose parent directory
+	// doesn't exist, which would otherwise fall through to an opaque OS error.
+	if !isContained(absRoot, absPath) {
+		return nil, &SecurityError{Path: absPath}
+	}
+
+	// Step 4b: Canonicalize the target path via EvalSymlinks to catch symlink
+	// escapes. For write operations the target file may not exist yet, so we
+	// evaluate the parent directory and re-attach the base name.
 	targetCanon, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -67,14 +76,16 @@ func (s *EditService) WriteFile(ctx context.Context, relPath string, content str
 		// File doesn't exist yet — evaluate parent directory instead.
 		parentCanon, parentErr := filepath.EvalSymlinks(filepath.Dir(absPath))
 		if parentErr != nil {
+			// Parent directory itself doesn't exist. The pre-flight check above
+			// already confirmed the clean path is inside the root, so this is a
+			// legitimate "directory not found" error rather than a security issue.
 			return nil, fmt.Errorf("edit service: failed to canonicalize parent directory: %w", parentErr)
 		}
 		targetCanon = filepath.Join(parentCanon, filepath.Base(absPath))
 	}
 
 	// Step 5: Containment check — resolved target must be within rootCanon.
-	prefix := rootCanon + string(os.PathSeparator)
-	if targetCanon != rootCanon && !strings.HasPrefix(targetCanon, prefix) {
+	if !isContained(rootCanon, targetCanon) {
 		return nil, &SecurityError{Path: targetCanon}
 	}
 
