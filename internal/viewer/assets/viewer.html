@@ -1194,6 +1194,25 @@
       margin-right: 4px;
     }
 
+    /* Orchestrator action collapsible disclosure */
+    .orch-action {
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 10px;
+      background: var(--bg-2);
+    }
+    .orch-action > summary {
+      cursor: pointer;
+      color: var(--fg-dim);
+      font-size: 12px;
+      user-select: none;
+      padding: 2px 0;
+    }
+    .orch-action[open] > summary { color: var(--fg); }
+    .orch-action .props-grid   { margin-top: 8px; }
+    .orch-instruction          { font-family: var(--font-mono,monospace); font-size: 12px; background: var(--bg-3); padding: 8px; border-radius: var(--radius); }
+
   </style>
 </head>
 <body>
@@ -2396,6 +2415,160 @@ function findEntityByKey(key) {
  * @param {Object} entity - entity object from treeData / flat list
  * @returns {string} HTML string
  */
+/**
+ * Pushes a label+value row into the rows array.
+ * Omits the row if valueHtml is null, undefined, or empty string (AC-003.7).
+ * @param {string[]} rows
+ * @param {string} label
+ * @param {string|null|undefined} valueHtml
+ */
+function pushRow(rows, label, valueHtml) {
+  if (valueHtml === null || valueHtml === undefined || valueHtml === '') return;
+  rows.push(`<div class="props-label">${escapeHtml(label)}</div><div class="props-value">${valueHtml}</div>`);
+}
+
+/**
+ * Returns a monospace-styled HTML span for a value, or null if falsy.
+ * @param {string|null|undefined} v
+ * @returns {string|null}
+ */
+function monoCell(v) {
+  return v ? `<span class="mono">${escapeHtml(v)}</span>` : null;
+}
+
+/**
+ * Returns a status badge HTML string, or null if status is falsy.
+ * @param {string|null|undefined} s
+ * @returns {string|null}
+ */
+function statusBadgeCell(s) {
+  if (!s) return null;
+  const c = getStatusColor(s);
+  return `<span class="status-badge" style="background:${escapeHtml(c)};color:${getContrastColor(c)}">${escapeHtml(s.replace(/_/g,' '))}</span>`;
+}
+
+/**
+ * Appends epic-specific fields to the rows array. (AC-003.1)
+ * @param {string[]} rows
+ * @param {Object} e - epic entity
+ */
+function appendEpicFields(rows, e) {
+  if (e.priority != null)       pushRow(rows, 'Priority',       String(e.priority));
+  if (e.business_value != null) pushRow(rows, 'Business Value', String(e.business_value));
+  if (e.progress_pct != null)   pushRow(rows, 'Progress',       e.progress_pct + '%');
+  if (e.phase)                  pushRow(rows, 'Phase',          escapeHtml(e.phase));
+  if (e.approval_backlog_count) pushRow(rows, 'Approval Backlog', String(e.approval_backlog_count));
+  if (e.feature_status_rollup && typeof e.feature_status_rollup === 'object') {
+    const chips = Object.entries(e.feature_status_rollup).map(([s, n]) => {
+      const c = getStatusColor(s);
+      return `<span class="status-badge status-badge-sm" style="background:${escapeHtml(c)};color:${getContrastColor(c)}">${escapeHtml(s.replace(/_/g,' '))} ${n}</span>`;
+    }).join(' ');
+    pushRow(rows, 'Feature Rollup', chips || null);
+  }
+}
+
+/**
+ * Appends feature-specific fields to the rows array. (AC-003.2)
+ * @param {string[]} rows
+ * @param {Object} e - feature entity
+ */
+function appendFeatureFields(rows, e) {
+  if (e.progress_pct != null)   pushRow(rows, 'Progress',           e.progress_pct + '%');
+  if (e.execution_order != null) pushRow(rows, 'Execution Order',   String(e.execution_order));
+  if (e.phase)                  pushRow(rows, 'Phase',              escapeHtml(e.phase));
+  if (e.phase_description)      pushRow(rows, 'Phase Description',  escapeHtml(e.phase_description));
+  if (e.display_mode)           pushRow(rows, 'Display Mode',       escapeHtml(e.display_mode));
+  if (e.workflow_position && typeof e.workflow_position === 'object') {
+    const wp = e.workflow_position;
+    if (wp.current_index != null && wp.statuses && wp.statuses.length) {
+      pushRow(rows, 'Workflow Position', `${escapeHtml(String(wp.current_index + 1))}/${escapeHtml(String(wp.statuses.length))}`);
+    }
+  }
+}
+
+/**
+ * Appends task-specific fields to the rows array. (AC-003.3)
+ * @param {string[]} rows
+ * @param {Object} e - task entity
+ */
+function appendTaskFields(rows, e) {
+  const agentVal = e.agent_type || e.agent;
+  if (agentVal)                     pushRow(rows, 'Agent',              escapeHtml(agentVal));
+  if (e.priority != null)           pushRow(rows, 'Priority',           String(e.priority));
+  if (e.execution_order != null)    pushRow(rows, 'Execution Order',    String(e.execution_order));
+  if (e.completed_at)               pushRow(rows, 'Completed',          escapeHtml(formatDate(e.completed_at)));
+  if (e.rejection_count != null)    pushRow(rows, 'Rejection Count',    String(e.rejection_count));
+  if (e.verification_status)        pushRow(rows, 'Verification',       escapeHtml(e.verification_status));
+  if (e.tests_passed != null)       pushRow(rows, 'Tests Passed',       String(e.tests_passed));
+  if (Array.isArray(e.dependencies) && e.dependencies.length) {
+    const depHtml = e.dependencies.map(d => `<span class="mono">${escapeHtml(d)}</span>`).join(', ');
+    pushRow(rows, 'Dependencies', depHtml);
+  } else if (e.dependencies && typeof e.dependencies === 'string' && e.dependencies) {
+    pushRow(rows, 'Dependencies', `<span class="mono">${escapeHtml(e.dependencies)}</span>`);
+  }
+  if (Array.isArray(e.blocked_by) && e.blocked_by.length) {
+    pushRow(rows, 'Blocked By', e.blocked_by.map(d => `<span class="mono">${escapeHtml(d)}</span>`).join(', '));
+  }
+  if (Array.isArray(e.blocks) && e.blocks.length) {
+    pushRow(rows, 'Blocks', e.blocks.map(d => `<span class="mono">${escapeHtml(d)}</span>`).join(', '));
+  }
+}
+
+/**
+ * Appends bug-specific fields to the rows array. (AC-003.4)
+ * @param {string[]} rows
+ * @param {Object} e - bug entity
+ */
+function appendBugFields(rows, e) {
+  if (e.severity)            pushRow(rows, 'Severity',  escapeHtml(e.severity));
+  if (e.priority != null)    pushRow(rows, 'Priority',  String(e.priority));
+  if (e.assignee)            pushRow(rows, 'Assignee',  escapeHtml(e.assignee));
+  if (e.linked_entity_key)   pushRow(rows, 'Linked To', monoCell(e.linked_entity_key));
+}
+
+/**
+ * Appends change-card-specific fields to the rows array. (AC-003.5)
+ * @param {string[]} rows
+ * @param {Object} e - change_card entity
+ */
+function appendChangeCardFields(rows, e) {
+  if (e.priority != null)    pushRow(rows, 'Priority',  String(e.priority));
+  if (e.assignee)            pushRow(rows, 'Assignee',  escapeHtml(e.assignee));
+  if (e.linked_entity_key)   pushRow(rows, 'Linked To', monoCell(e.linked_entity_key));
+}
+
+/**
+ * Renders the orchestrator action collapsible <details> block (AC-003.6).
+ * The block defaults to closed (no open attribute).
+ * Returns '' if oa is absent or not an object.
+ * @param {Object|null|undefined} oa - orchestrator_action object
+ * @returns {string} HTML string
+ */
+function renderOrchestratorDetails(oa) {
+  if (!oa || typeof oa !== 'object') return '';
+  const innerRows = [];
+  if (oa.action)     innerRows.push(`<div class="props-label">${escapeHtml('Action')}</div><div class="props-value">${escapeHtml(oa.action)}</div>`);
+  if (oa.agent_type) innerRows.push(`<div class="props-label">${escapeHtml('Agent')}</div><div class="props-value">${escapeHtml(oa.agent_type)}</div>`);
+  if (oa.model)      innerRows.push(`<div class="props-label">${escapeHtml('Model')}</div><div class="props-value">${escapeHtml(oa.model)}</div>`);
+  if (Array.isArray(oa.skills) && oa.skills.length)
+    innerRows.push(`<div class="props-label">${escapeHtml('Skills')}</div><div class="props-value">${oa.skills.map(escapeHtml).join(', ')}</div>`);
+  const instr = oa.instruction
+    ? `<pre class="orch-instruction" style="white-space:pre-wrap;margin:8px 0 0">${escapeHtml(oa.instruction)}</pre>`
+    : '';
+  return `
+    <details class="orch-action">
+      <summary>Orchestrator Action</summary>
+      <div class="props-grid" style="margin-top:8px">${innerRows.join('')}</div>
+      ${instr}
+    </details>`;
+}
+
+/**
+ * Renders the properties panel for an entity using a dispatch-by-type pattern.
+ * Omits fields that are null/undefined/empty (AC-003.7).
+ * @param {Object} entity - entity object from treeData / flat list
+ * @returns {string} HTML string
+ */
 function renderPropertiesPanel(entity) {
   if (!entity) return '';
 
@@ -2404,32 +2577,38 @@ function renderPropertiesPanel(entity) {
     return `<button class="copy-btn" data-copy-value="${escapeHtml(value)}" title="Copy to clipboard">⎘</button>`;
   }
 
-  // Field definitions: [label, renderFn]
-  const fields = [
-    ['Key',          () => `<span class="mono">${escapeHtml(entity.key || '')}</span>`],
-    ['Status',       () => { if (!entity.status) return null; const sc = getStatusColor(entity.status); return `<span class="status-badge" style="background:${escapeHtml(sc)};color:${getContrastColor(sc)}">${escapeHtml(entity.status.replace(/_/g,' '))}</span>`; }],
-    ['Type',         () => entity.type ? escapeHtml(entity.type) : null],
-    ['Parent',       () => entity.parent ? `<span class="mono">${escapeHtml(entity.parent)}</span>` : null],
-    ['Agent',        () => entity.agent ? escapeHtml(entity.agent) : null],
-    ['Created',      () => entity.created_at ? escapeHtml(formatDate(entity.created_at)) : null],
-    ['Updated',      () => entity.updated_at ? escapeHtml(formatDate(entity.updated_at)) : null],
-    ['File Path',    () => entity.file_path
-      ? `<span style="word-break:break-all">${escapeHtml(entity.file_path)}</span>${copyBtn(entity.file_path)}`
-      : null],
-    ['Content Path', () => entity.linked_content_path
-      ? `<span style="word-break:break-all">${escapeHtml(entity.linked_content_path)}</span>${copyBtn(entity.linked_content_path)}`
-      : null],
-  ];
+  const rows = [];
 
-  let rows = '';
-  for (const [label, renderFn] of fields) {
-    const val = renderFn();
-    if (val === null || val === undefined || val === '') continue;
-    rows += `<div class="props-label">${escapeHtml(label)}</div><div class="props-value">${val}</div>`;
+  // Shared base fields
+  pushRow(rows, 'Key',    monoCell(entity.key));
+  pushRow(rows, 'Status', statusBadgeCell(entity.status));
+  pushRow(rows, 'Type',   entity.type ? escapeHtml(entity.type) : null);
+  if (entity.parent) pushRow(rows, 'Parent', monoCell(entity.parent));
+
+  // Type-specific fields
+  switch (entity.type) {
+    case 'epic':        appendEpicFields(rows, entity);        break;
+    case 'feature':     appendFeatureFields(rows, entity);     break;
+    case 'task':        appendTaskFields(rows, entity);        break;
+    case 'bug':         appendBugFields(rows, entity);         break;
+    case 'change_card': appendChangeCardFields(rows, entity);  break;
   }
 
-  if (!rows) return '';
-  return `<div class="props-grid">${rows}</div>`;
+  // Shared trailing timestamps and paths
+  if (entity.created_at) pushRow(rows, 'Created', escapeHtml(formatDate(entity.created_at)));
+  if (entity.updated_at) pushRow(rows, 'Updated', escapeHtml(formatDate(entity.updated_at)));
+  if (entity.file_path)  pushRow(rows, 'File Path',
+    `<span style="word-break:break-all">${escapeHtml(entity.file_path)}</span>${copyBtn(entity.file_path)}`);
+  if (entity.linked_content_path) pushRow(rows, 'Content Path',
+    `<span style="word-break:break-all">${escapeHtml(entity.linked_content_path)}</span>${copyBtn(entity.linked_content_path)}`);
+
+  // Trailing orchestrator-action disclosure (collapsible, outside the grid)
+  const orchHtml = renderOrchestratorDetails(entity.orchestrator_action);
+
+  const grid = rows.length
+    ? `<div class="props-grid">${rows.join('')}</div>`
+    : '';
+  return grid + orchHtml;
 }
 
 /**
@@ -2665,7 +2844,7 @@ function renderEntityView() {
     </div>
     ${entity ? renderPropertiesPanel(entity) : ''}
     <div class="toggle-bar">
-      <button class="toggle-btn${infoActive}"  id="ev-tab-info">Info</button>
+      <button class="toggle-btn${infoActive}"  id="ev-tab-info">Spec</button>
       <button class="toggle-btn${transActive}" id="ev-tab-transitions">Transitions</button>
       ${filesBtnHtml}
       ${editBtnHtml}

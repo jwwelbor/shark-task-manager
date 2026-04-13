@@ -730,3 +730,290 @@ func TestViewerHTMLEscapeKeyHandler(t *testing.T) {
 		t.Error("viewer.html missing \"appState = 'dashboard'\" reset in Escape handler")
 	}
 }
+
+// =============================================================================
+// E27-F08 Tests: Spec rename and properties panel rewrite
+// =============================================================================
+
+// TestViewerHTMLSpecTabLabel verifies that the toggle button reads "Spec" (not "Info").
+// TC-F08-007, AC-002.1.
+func TestViewerHTMLSpecTabLabel(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Button inner text must read ">Spec<"
+	if !strings.Contains(content, ">Spec<") {
+		t.Error("viewer.html missing \">Spec<\" button label — Info tab must be renamed to Spec")
+	}
+
+	// Old ">Info<" label must be absent (visual-only rename; ID is preserved)
+	if strings.Contains(content, ">Info<") {
+		t.Error("viewer.html still contains \">Info<\" button label — must be renamed to Spec")
+	}
+
+	// Internal ID must still be present
+	if !strings.Contains(content, "ev-tab-info") {
+		t.Error("viewer.html missing \"ev-tab-info\" button id — internal id must be preserved")
+	}
+}
+
+// TestViewerHTMLSpecTabInternalId verifies that ev-tab-info ID and renderMarkdownPane
+// are preserved after the rename. TC-F08-008, AC-002.2.
+func TestViewerHTMLSpecTabInternalId(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "ev-tab-info") {
+		t.Error("viewer.html missing \"ev-tab-info\" — internal tab ID must be preserved after Spec rename")
+	}
+	if !strings.Contains(content, "renderMarkdownPane") {
+		t.Error("viewer.html missing \"renderMarkdownPane\" — Spec tab must still render markdown")
+	}
+}
+
+// TestViewerHTMLSpecTabHistoryState verifies that pushNavState and the 'info' state
+// value are preserved for history/hash compatibility. TC-F08-009, AC-002.3.
+func TestViewerHTMLSpecTabHistoryState(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "pushNavState") {
+		t.Error("viewer.html missing \"pushNavState\" — navigation history must be preserved")
+	}
+	// The internal tab state value 'info' must still be used
+	if !strings.Contains(content, "'info'") {
+		t.Error("viewer.html missing \"'info'\" tab state value — internal state must be preserved")
+	}
+}
+
+// TestViewerHTMLPropertiesPanelEpicFields verifies that the rewritten properties panel
+// includes epic-specific fields and the appendEpicFields function. TC-F08-010, AC-003.1.
+func TestViewerHTMLPropertiesPanelEpicFields(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	markers := []string{
+		"appendEpicFields",
+		"Priority",
+		"Business Value",
+		"Feature Rollup",
+		"Approval Backlog",
+		"approval_backlog_count",
+		"feature_status_rollup",
+	}
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing epic field marker: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLPropertiesPanelFeatureFields verifies that the rewritten properties panel
+// includes feature-specific fields and the appendFeatureFields function. TC-F08-011, AC-003.2.
+func TestViewerHTMLPropertiesPanelFeatureFields(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	markers := []string{
+		"appendFeatureFields",
+		"Execution Order",
+		"execution_order",
+		"workflow_position",
+		"Phase Description",
+		"phase_description",
+		"Display Mode",
+	}
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing feature field marker: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLPropertiesPanelTaskFields verifies that the rewritten properties panel
+// includes task-specific fields and the appendTaskFields function. TC-F08-012, AC-003.3.
+func TestViewerHTMLPropertiesPanelTaskFields(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	markers := []string{
+		"appendTaskFields",
+		"rejection_count",
+		"verification_status",
+		"tests_passed",
+		"completed_at",
+		"blocked_by",
+		"Blocked By",
+		"Blocks",
+	}
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing task field marker: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLPropertiesPanelBugFields verifies that the rewritten properties panel
+// includes bug-specific fields and the appendBugFields function. TC-F08-013, AC-003.4.
+func TestViewerHTMLPropertiesPanelBugFields(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	markers := []string{
+		"appendBugFields",
+		"severity",
+		"Severity",
+		"assignee",
+		"Assignee",
+	}
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing bug field marker: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLPropertiesPanelChangeCardFields verifies that the rewritten properties panel
+// includes change card-specific fields and the appendChangeCardFields function. TC-F08-014, AC-003.5.
+func TestViewerHTMLPropertiesPanelChangeCardFields(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	markers := []string{
+		"appendChangeCardFields",
+		"change_card",
+	}
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing change card field marker: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLOrchestratorActionDisclosure verifies that the orchestrator action block
+// uses a native <details> element that defaults to collapsed. TC-F08-015, AC-003.6, Scenario 5.
+func TestViewerHTMLOrchestratorActionDisclosure(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	markers := []string{
+		"renderOrchestratorDetails",
+		"<details",
+		"<summary>Orchestrator Action</summary>",
+		"orch-action",
+		"orch-instruction",
+		"orchestrator_action",
+	}
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing orchestrator action marker: %q", marker)
+		}
+	}
+
+	// The null guard must be present
+	if !strings.Contains(content, "typeof oa !== 'object'") {
+		t.Error("viewer.html missing null guard in renderOrchestratorDetails: \"typeof oa !== 'object'\"")
+	}
+
+	// The <details> must NOT have an open attribute — must be collapsed by default
+	if strings.Contains(content, "<details open") {
+		t.Error("viewer.html has \"<details open\" — orchestrator action block must be collapsed by default")
+	}
+}
+
+// TestViewerHTMLPropertiesPanelNullGuard verifies that pushRow omits null/undefined/empty fields.
+// TC-F08-016, AC-003.7.
+func TestViewerHTMLPropertiesPanelNullGuard(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "function pushRow") {
+		t.Error("viewer.html missing \"function pushRow\" — helper must be defined")
+	}
+	// The guard must check for null/undefined/empty
+	if !strings.Contains(content, "valueHtml === null") {
+		t.Error("viewer.html missing null guard in pushRow: \"valueHtml === null\"")
+	}
+}
+
+// TestViewerHTMLPropertiesPanelStatusBadge verifies that the rewritten panel uses
+// statusBadgeCell and getContrastColor for status rendering. TC-F08-017, AC-003.8.
+func TestViewerHTMLPropertiesPanelStatusBadge(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "statusBadgeCell") {
+		t.Error("viewer.html missing \"statusBadgeCell\" helper function")
+	}
+	if !strings.Contains(content, "getContrastColor") {
+		t.Error("viewer.html missing \"getContrastColor\" call in properties panel")
+	}
+}
+
+// TestViewerHTMLPropertiesPanelCopyButton verifies that copyBtn helper is present
+// for File Path and Content Path. TC-F08-018, AC-003.9.
+func TestViewerHTMLPropertiesPanelCopyButton(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "copyBtn") {
+		t.Error("viewer.html missing \"copyBtn\" helper function in properties panel")
+	}
+	if !strings.Contains(content, "navigator.clipboard") {
+		t.Error("viewer.html missing \"navigator.clipboard\" — copy button implementation required")
+	}
+}
+
+// TestViewerHTMLPropertiesPanelRegressionGate verifies that no existing properties panel
+// field markers were removed by the rewrite. TC-F08-019, AC-003.10.
+func TestViewerHTMLPropertiesPanelRegressionGate(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// All markers from the pre-F08 TestViewerHTMLPropertiesPanelFields must still pass
+	regressionMarkers := []string{
+		"File Path",
+		"Content Path",
+		"props-grid",
+		"props-label",
+		"props-value",
+		"copy-btn",
+		"navigator.clipboard",
+	}
+	for _, marker := range regressionMarkers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html regression: existing properties panel marker removed: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLNoNewAPIEndpoints verifies that the seven existing API fetch wrapper
+// functions remain unchanged — no new apiGet* functions were added. TC-F08-020, AC-NF-001.1.
+func TestViewerHTMLNoNewAPIEndpoints(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// All 7 existing functions must be present
+	expectedFunctions := []string{
+		"apiGetWorkflowMeta",
+		"apiGetHierarchy",
+		"apiGetSummary",
+		"apiGetRecentActivity",
+		"apiGetFile",
+		"apiGetHistory",
+		"apiGetFeatureTasks",
+	}
+	for _, fn := range expectedFunctions {
+		if !strings.Contains(content, fn) {
+			t.Errorf("viewer.html missing expected API function: %q", fn)
+		}
+	}
+}
+
+// TestViewerHTMLF08RegressionGate verifies that the highest-risk existing markers
+// survive the F08 rewrite. TC-F08-022, Scenario 6.
+func TestViewerHTMLF08RegressionGate(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	regressionMarkers := []string{
+		"renderEntityView",
+		"renderMarkdownPane",
+		"renderDashboard",
+		"ev-tab-transitions",
+		"ev-tab-info",
+		"history-table",
+		"toggle-btn",
+		"props-grid",
+	}
+	for _, marker := range regressionMarkers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html F08 regression: marker missing: %q", marker)
+		}
+	}
+}
