@@ -2679,21 +2679,15 @@ function renderEntityView() {
 
   // Wire toggle buttons
   document.getElementById('ev-tab-info').addEventListener('click', () => {
-    entityViewTab = 'info';
-    pushNavState();
-    renderEntityView();
+    if (entityViewTab !== 'info') { entityViewTab = 'info'; pushNavState(); renderEntityView(); }
   });
   document.getElementById('ev-tab-transitions').addEventListener('click', () => {
-    entityViewTab = 'transitions';
-    pushNavState();
-    renderEntityView();
+    if (entityViewTab !== 'transitions') { entityViewTab = 'transitions'; pushNavState(); renderEntityView(); }
   });
   const filesTabBtn = document.getElementById('ev-tab-files');
   if (filesTabBtn) {
     filesTabBtn.addEventListener('click', () => {
-      entityViewTab = 'files';
-      pushNavState();
-      renderEntityView();
+      if (entityViewTab !== 'files') { entityViewTab = 'files'; pushNavState(); renderEntityView(); }
     });
   }
 
@@ -3299,9 +3293,8 @@ async function renderFolderFilesPane(dirPath, paneEl) {
 
   let html = `<div class="folder-files-pane"><div class="folder-files-header">${escapeHtml(result.dir_path || dirPath)}</div><div class="folder-files-list">`;
   // Add ../ entry when not at the project root
-  const upDir = parentDir(dirPath);
   if (dirPath !== '.' && dirPath !== '') {
-    html += `<div class="folder-file-item folder-file-dir" data-folder-path="${escapeHtml(upDir)}">📁 <span class="folder-file-name">../</span></div>`;
+    html += `<div class="folder-file-item folder-file-dir" data-folder-path="${escapeHtml(parentDir(dirPath))}">📁 <span class="folder-file-name">../</span></div>`;
   }
   for (const entry of result.entries) {
     const icon = entry.is_dir ? '📁' : fileIcon(entry.name);
