@@ -211,6 +211,21 @@
       color: var(--fg);
     }
 
+    .content-back-link {
+      display: inline-block;
+      margin: 8px 0 4px;
+      font-size: 13px;
+      color: var(--fg-muted);
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .content-back-link:hover {
+      color: var(--fg);
+    }
+
     /* ============================================================
        SIDEBAR TREE
        ============================================================ */
@@ -1191,7 +1206,6 @@
   <!-- Header bar (hidden in pick_folder state) -->
   <header id="header">
     <div id="header-left">
-      <button class="header-btn" id="header-back-btn" style="display:none">← Back</button>
       <button id="header-dashboard-btn">Dashboard</button>
       <div id="header-pills"></div>
     </div>
@@ -1758,12 +1772,6 @@ function render() {
   body.className = body.className.replace(/\bstate-\S+/g, '').trim();
   // Add current state class
   body.classList.add('state-' + appState);
-
-  // Show back button when not on dashboard/pick_folder
-  const backBtn = document.getElementById('header-back-btn');
-  if (backBtn) {
-    backBtn.style.display = (appState === 'entity_view' || appState === 'doc_view') ? '' : 'none';
-  }
 
   switch (appState) {
     case 'pick_folder':
@@ -2650,6 +2658,7 @@ function renderEntityView() {
   const filesBtnHtml = filesDirPath ? `<button class="toggle-btn${filesActive}" id="ev-tab-files">Files</button>` : '';
 
   const html = `
+    <button class="content-back-link" id="ev-back-btn">← Back</button>
     <div class="entity-view-header">
       <div class="entity-view-title">${title}</div>
       <div class="entity-view-key">${keyLabel}</div>
@@ -2666,19 +2675,24 @@ function renderEntityView() {
 
   content.innerHTML = html;
 
+  document.getElementById('ev-back-btn').addEventListener('click', () => history.back());
+
   // Wire toggle buttons
   document.getElementById('ev-tab-info').addEventListener('click', () => {
     entityViewTab = 'info';
+    pushNavState();
     renderEntityView();
   });
   document.getElementById('ev-tab-transitions').addEventListener('click', () => {
     entityViewTab = 'transitions';
+    pushNavState();
     renderEntityView();
   });
   const filesTabBtn = document.getElementById('ev-tab-files');
   if (filesTabBtn) {
     filesTabBtn.addEventListener('click', () => {
       entityViewTab = 'files';
+      pushNavState();
       renderEntityView();
     });
   }
@@ -2770,10 +2784,12 @@ function renderDocView() {
   if (docKey.startsWith(FOLDER_KEY_PREFIX)) {
     const dirPath = docKey.slice(FOLDER_KEY_PREFIX.length);
     content.innerHTML = `
+      <button class="content-back-link" id="doc-back-btn">← Back</button>
       <div class="entity-view-header">
         <div class="entity-view-title ev-title">${escapeHtml(dirPath || 'Folder')}</div>
       </div>
       <div id="doc-content-pane" class="ev-content-pane" style="margin-top:8px"></div>`;
+    document.getElementById('doc-back-btn').addEventListener('click', () => history.back());
     renderFolderFilesPane(dirPath, document.getElementById('doc-content-pane'));
     return;
   }
@@ -2815,6 +2831,7 @@ function renderDocView() {
     : '';
 
   content.innerHTML = `
+    <button class="content-back-link" id="doc-back-btn">← Back</button>
     <div class="entity-view-header" style="display:flex;align-items:flex-start;justify-content:space-between">
       <div>
         <div class="entity-view-title ev-title">${docTitle}</div>
@@ -2824,6 +2841,7 @@ function renderDocView() {
     </div>
     ${parentRowHtml}
     <div id="doc-content-pane" class="ev-content-pane" style="margin-top:${parentKey ? '16px' : '8px'}"></div>`;
+  document.getElementById('doc-back-btn').addEventListener('click', () => history.back());
 
   // Async render markdown content
   const pane = document.getElementById('doc-content-pane');
@@ -3107,6 +3125,12 @@ function renderSidebar() {
   if (showAllFilesCb) {
     showAllFilesCb.onchange = function() {
       showAllFiles = this.checked;
+      if (showAllFiles) {
+        // Auto-expand all epics so Folder files links become visible
+        for (const epic of treeData) {
+          expandedEpics.add(epic.key || '');
+        }
+      }
       renderSidebar();
     };
   }
@@ -3179,11 +3203,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Pick Folder button (main screen) — triggers full data load
   document.getElementById('pick-folder-btn').addEventListener('click', () => {
     loadProjectData();
-  });
-
-  // Header: Back button → browser history back
-  document.getElementById('header-back-btn').addEventListener('click', () => {
-    history.back();
   });
 
   // Browser popstate — restore state when back/forward is pressed
@@ -3279,6 +3298,11 @@ async function renderFolderFilesPane(dirPath, paneEl) {
   }
 
   let html = `<div class="folder-files-pane"><div class="folder-files-header">${escapeHtml(result.dir_path || dirPath)}</div><div class="folder-files-list">`;
+  // Add ../ entry when not at the project root
+  const upDir = parentDir(dirPath);
+  if (dirPath !== '.' && dirPath !== '') {
+    html += `<div class="folder-file-item folder-file-dir" data-folder-path="${escapeHtml(upDir)}">📁 <span class="folder-file-name">../</span></div>`;
+  }
   for (const entry of result.entries) {
     const icon = entry.is_dir ? '📁' : fileIcon(entry.name);
     const sizeStr = (!entry.is_dir && entry.size > 0) ? formatFileSize(entry.size) : '';
