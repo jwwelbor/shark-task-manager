@@ -66,8 +66,7 @@ builds:
 
 # Archive configuration
 archives:
-  - # Archive format (automatically uses .zip for windows, .tar.gz for others in v2)
-    id: default
+  - id: default
 
     # Files to include in each archive
     files:
@@ -80,6 +79,29 @@ archives:
       {{- .Version }}_
       {{- .Os }}_
       {{- .Arch }}
+
+    # Use .zip for Windows, .tar.gz for everything else
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+# Linux package configuration (generates .deb and .rpm packages)
+nfpms:
+  - id: packages
+    package_name: shark
+    homepage: https://github.com/jwwelbor/shark-task-manager
+    maintainer: John Welborn <jwwelbor@gmail.com>
+    description: Task management CLI for AI-driven development workflows
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/local/bin
+    contents:
+      - src: ./LICENSE
+        dst: /usr/share/doc/shark/LICENSE
+      - src: ./README.md
+        dst: /usr/share/doc/shark/README.md
 
 # Checksum configuration
 # Generates checksums.txt file for verifying downloads
@@ -103,43 +125,41 @@ changelog:
       - '^chore:'
       - '^ci:'
 
-# Homebrew Tap configuration - DISABLED until homebrew-shark repository is set up
-# To re-enable: Set up homebrew-shark repository and add HOMEBREW_TAP_TOKEN secret
-# brews:
-#   - repository:
-#       owner: jwwelbor
-#       name: homebrew-shark
-#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-#     name: shark
-#     homepage: https://github.com/jwwelbor/shark-task-manager
-#     description: "Task management CLI for AI-driven development workflows"
-#     license: "MIT"
-#     ids:
-#       - default
-#     install: |
-#       bin.install "shark"
-#     test: |
-#       system "#{bin}/shark", "--version"
-#     commit_author:
-#       name: goreleaserbot
-#       email: bot@goreleaser.com
+# Homebrew Tap configuration
+brews:
+  - repository:
+      owner: jwwelbor
+      name: homebrew-shark
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    name: shark
+    homepage: https://github.com/jwwelbor/shark-task-manager
+    description: "Task management CLI for AI-driven development workflows"
+    license: "MIT"
+    ids:
+      - default
+    install: |
+      bin.install "shark"
+    test: |
+      system "#{bin}/shark", "--version"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
 
-# Scoop Bucket configuration - DISABLED until scoop-shark repository is set up
-# To re-enable: Set up scoop-shark repository and add SCOOP_BUCKET_TOKEN secret
-# scoops:
-#   - repository:
-#       owner: jwwelbor
-#       name: scoop-shark
-#       token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
-#     name: shark
-#     homepage: https://github.com/jwwelbor/shark-task-manager
-#     description: "Task management CLI for AI-driven development workflows"
-#     license: MIT
-#     ids:
-#       - default
-#     commit_author:
-#       name: goreleaserbot
-#       email: bot@goreleaser.com
+# Scoop Bucket configuration
+scoops:
+  - repository:
+      owner: jwwelbor
+      name: scoop-shark
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+    name: shark
+    homepage: https://github.com/jwwelbor/shark-task-manager
+    description: "Task management CLI for AI-driven development workflows"
+    license: MIT
+    ids:
+      - default
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
 
 # Release configuration
 # Creates GitHub releases as drafts for manual review
@@ -159,9 +179,32 @@ release:
 
     ### Installation
 
-    - **Homebrew (macOS)**: `brew install jwwelbor/shark/shark`
-    - **Scoop (Windows)**: `scoop bucket add shark https://github.com/jwwelbor/scoop-shark && scoop install shark`
-    - **Manual**: Download the appropriate binary for your platform from the assets below
+    **Homebrew (macOS/Linux)**
+    ```bash
+    brew tap jwwelbor/shark
+    brew install shark
+    ```
+
+    **Scoop (Windows)**
+    ```powershell
+    scoop bucket add shark https://github.com/jwwelbor/scoop-shark
+    scoop install shark
+    ```
+
+    **Linux (.deb / Debian, Ubuntu)**
+    ```bash
+    # Download the .deb from assets below, then:
+    sudo dpkg -i shark_{{ .Version }}_linux_amd64.deb
+    ```
+
+    **Linux (.rpm / Fedora, RHEL)**
+    ```bash
+    # Download the .rpm from assets below, then:
+    sudo rpm -i shark_{{ .Version }}_linux_amd64.rpm
+    ```
+
+    **Manual install**
+    Download the appropriate binary archive from the assets below, extract, and place `shark` in your PATH.
 
     ### Verifying Downloads
 

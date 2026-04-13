@@ -14,6 +14,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
+const errMsgPathEscapesRoot = "file path escapes project root"
+
 // ViewerHandler handles the read-only dashboard API requests under /api/v1/viewer/.
 // It is a thin wrapper: parse/validate → call service → format JSON response.
 // All business logic lives in the service layer.
@@ -41,6 +43,7 @@ func NewViewerHandler(svc ViewerServicer) *ViewerHandler {
 //	GET /api/v1/viewer/features/{key}/tasks
 //	GET /api/v1/viewer/recent-activity
 //	GET /api/v1/viewer/workflow-meta
+//	GET /api/v1/viewer/folder-files/{path...}
 func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	// Normalize prefix: trim trailing slash.
 	prefix = strings.TrimRight(prefix, "/")
@@ -54,6 +57,7 @@ func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	mux.Handle("GET "+prefix+"/features/{key}/tasks", wrap(http.HandlerFunc(h.FeatureTasks)))
 	mux.Handle("GET "+prefix+"/recent-activity", wrap(http.HandlerFunc(h.RecentActivity)))
 	mux.Handle("GET "+prefix+"/workflow-meta", wrap(http.HandlerFunc(h.WorkflowMeta)))
+	mux.Handle("GET "+prefix+"/folder-files/{path...}", wrap(http.HandlerFunc(h.FolderFiles)))
 
 	// Allow OPTIONS preflight for all viewer routes by catching the prefix.
 	mux.Handle("OPTIONS "+prefix+"/", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +143,7 @@ func (h *ViewerHandler) File(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var secErr *services.SecurityError
 		if errors.As(err, &secErr) {
-			respondError(w, http.StatusForbidden, "file path escapes project root")
+			respondError(w, http.StatusForbidden, errMsgPathEscapesRoot)
 			return
 		}
 		var largeErr *services.FileTooLargeError
@@ -291,6 +295,29 @@ func (h *ViewerHandler) WorkflowMeta(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("viewer workflow meta failed", "endpoint", "workflow_meta", "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to load workflow metadata")
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// FolderFiles returns a directory listing for a relative path within the project root.
+// GET /api/v1/viewer/folder-files/{path...}
+func (h *ViewerHandler) FolderFiles(w http.ResponseWriter, r *http.Request) {
+	rawPath := r.PathValue("path")
+	if rawPath == "" {
+		respondError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	result, err := h.svc.FolderFiles(r.Context(), rawPath)
+	if err != nil {
+		var secErr *services.SecurityError
+		if errors.As(err, &secErr) {
+			respondError(w, http.StatusForbidden, "path escapes project root")
+			return
+		}
+		slog.Error("viewer folder files failed", "path", rawPath, "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to list folder")
 		return
 	}
 	respondJSON(w, http.StatusOK, result)

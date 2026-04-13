@@ -3,6 +3,7 @@ package viewer
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -35,8 +36,8 @@ func TestWithLocalCORS_LocalhostOrigin(t *testing.T) {
 	if got := rec.Header().Get("Vary"); got != "Origin" {
 		t.Errorf("expected Vary = %q, got %q", "Origin", got)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, OPTIONS" {
-		t.Errorf("expected Access-Control-Allow-Methods = %q, got %q", "GET, OPTIONS", got)
+	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, PUT, OPTIONS" {
+		t.Errorf("expected Access-Control-Allow-Methods = %q, got %q", "GET, PUT, OPTIONS", got)
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type" {
 		t.Errorf("expected Access-Control-Allow-Headers = %q, got %q", "Content-Type", got)
@@ -64,8 +65,8 @@ func TestWithLocalCORS_127001Origin(t *testing.T) {
 	if got := rec.Header().Get("Vary"); got != "Origin" {
 		t.Errorf("expected Vary = %q, got %q", "Origin", got)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, OPTIONS" {
-		t.Errorf("expected Access-Control-Allow-Methods = %q, got %q", "GET, OPTIONS", got)
+	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "GET, PUT, OPTIONS" {
+		t.Errorf("expected Access-Control-Allow-Methods = %q, got %q", "GET, PUT, OPTIONS", got)
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "Content-Type" {
 		t.Errorf("expected Access-Control-Allow-Headers = %q, got %q", "Content-Type", got)
@@ -174,6 +175,50 @@ func TestWithLocalCORS_PreflightLocalhost(t *testing.T) {
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Methods"); got == "" {
 		t.Error("expected Access-Control-Allow-Methods header to be set")
+	}
+}
+
+// TC-F07-011: PUT from localhost origin — inner handler called; Allow-Methods includes "PUT".
+func TestWithLocalCORS_PUTLocalhost(t *testing.T) {
+	called := false
+	handler := WithLocalCORS(innerHandler(&called))
+
+	req := httptest.NewRequest(http.MethodPut, "/", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if !called {
+		t.Error("expected inner handler to be called for PUT request")
+	}
+	allowMethods := rec.Header().Get("Access-Control-Allow-Methods")
+	if !strings.Contains(allowMethods, "PUT") {
+		t.Errorf("expected Access-Control-Allow-Methods to contain %q, got %q", "PUT", allowMethods)
+	}
+}
+
+// TC-F07-012: OPTIONS preflight for PUT from localhost — 204; Allow-Methods contains "PUT"; inner NOT called.
+func TestWithLocalCORS_PreflightPUT(t *testing.T) {
+	called := false
+	handler := WithLocalCORS(innerHandler(&called))
+
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.Header.Set("Access-Control-Request-Method", "PUT")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if called {
+		t.Error("inner handler must NOT be called for OPTIONS preflight")
+	}
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", rec.Code)
+	}
+	allowMethods := rec.Header().Get("Access-Control-Allow-Methods")
+	if !strings.Contains(allowMethods, "PUT") {
+		t.Errorf("expected Access-Control-Allow-Methods to contain %q, got %q", "PUT", allowMethods)
 	}
 }
 

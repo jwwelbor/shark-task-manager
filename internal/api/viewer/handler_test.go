@@ -25,6 +25,7 @@ type MockViewerServicer struct {
 	HistoryFunc        func(ctx context.Context, key string) (*services.HistoryResponse, error)
 	FileFunc           func(ctx context.Context, key string) (*services.FileResponse, error)
 	FileByPathFunc     func(ctx context.Context, filePath string) (*services.FileResponse, error)
+	FolderFilesFunc    func(ctx context.Context, dirPath string) (*services.FolderFilesResponse, error)
 	FeatureTasksFunc   func(ctx context.Context, featureKey string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error)
 	RecentActivityFunc func(ctx context.Context, opts services.RecentActivityOptions) (*services.RecentActivityResponse, error)
 	WorkflowMetaFunc   func(ctx context.Context) (*services.WorkflowMetaResponse, error)
@@ -63,6 +64,13 @@ func (m *MockViewerServicer) FileByPath(ctx context.Context, filePath string) (*
 		return m.FileByPathFunc(ctx, filePath)
 	}
 	return nil, errors.New("FileByPathFunc not set in mock")
+}
+
+func (m *MockViewerServicer) FolderFiles(ctx context.Context, dirPath string) (*services.FolderFilesResponse, error) {
+	if m.FolderFilesFunc != nil {
+		return m.FolderFilesFunc(ctx, dirPath)
+	}
+	return nil, errors.New("FolderFilesFunc not set in mock")
 }
 
 func (m *MockViewerServicer) FeatureTasks(ctx context.Context, featureKey string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error) {

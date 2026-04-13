@@ -211,6 +211,21 @@
       color: var(--fg);
     }
 
+    .content-back-link {
+      display: inline-block;
+      margin: 8px 0 4px;
+      font-size: 13px;
+      color: var(--fg-muted);
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .content-back-link:hover {
+      color: var(--fg);
+    }
+
     /* ============================================================
        SIDEBAR TREE
        ============================================================ */
@@ -1073,6 +1088,33 @@
     }
 
     /* ============================================================
+       EDIT MODE TOOLBAR (T-E27-F07-004)
+       ============================================================ */
+    .edit-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .edit-save-btn {
+      background: var(--accent, #39d353);
+      color: #000;
+      border-color: var(--accent, #39d353);
+      font-weight: 600;
+    }
+
+    .edit-save-btn:hover:not(:disabled) {
+      opacity: 0.85;
+    }
+
+    .edit-save-btn:disabled,
+    .edit-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    /* ============================================================
        LOADING INDICATOR (Task 2 — initial data load)
        ============================================================ */
     .loading-indicator {
@@ -1101,6 +1143,55 @@
 
     .loading-text {
       color: var(--fg-dim);
+    }
+
+    /* Folder files pane */
+    .folder-files-pane {
+      padding: 12px 16px;
+    }
+    .folder-files-header {
+      font-size: 11px;
+      color: var(--fg-dim);
+      font-family: 'SF Mono', monospace;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .folder-files-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .folder-file-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+      transition: background var(--transition);
+    }
+    .folder-file-item:hover {
+      background: var(--bg-3);
+    }
+    .folder-file-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .folder-file-size {
+      font-size: 11px;
+      color: var(--fg-dim);
+      font-family: 'SF Mono', monospace;
+      white-space: nowrap;
+    }
+    .folder-file-dir {
+      color: var(--fg-muted);
+    }
+    .tree-node-folder-icon {
+      margin-right: 4px;
     }
 
   </style>
@@ -1308,6 +1399,9 @@ const TERMINAL_STATUSES = new Set([
 function isTerminalStatus(status) {
   return TERMINAL_STATUSES.has(status);
 }
+
+/** Prefix for synthetic folder keys used when a clicked directory has no associated entity. */
+const FOLDER_KEY_PREFIX = 'folder:';
 
 /**
  * Formats an ISO timestamp to a short human-readable date.
@@ -1608,6 +1702,9 @@ async function loadProjectData() {
   // Step 4: set treeData + hierarchyData; on initial load start fully collapsed
   hierarchyData = hierarchy;
   treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
+  projectName = hierarchy?.project_name || '';
+  updateHeaderProjectName();
+  folderFilesCache.clear();
   if (appState === 'pick_folder') {
     // First load: start fully collapsed — epics expand on first user interaction
     expandedEpics = new Set();
@@ -1629,7 +1726,18 @@ async function loadProjectData() {
 
   // Transition to dashboard
   appState = 'dashboard';
+  history.replaceState({ appState, selectedKey: null, entityViewTab: 'info' }, '');
   render();
+}
+
+function updateHeaderProjectName() {
+  const btn = document.getElementById('header-dashboard-btn');
+  if (!btn) return;
+  if (projectName) {
+    btn.textContent = projectName;
+  } else {
+    btn.textContent = 'Dashboard';
+  }
 }
 
 // ============================================================
@@ -1644,6 +1752,8 @@ let summaryData    = null;           // cached /summary response
 let recentActivity = [];             // cached /recent-activity response
 let workflowMeta   = null;           // cached /workflow-meta response
 let showCompleted    = false;         // sidebar filter: show completed entities
+let showAllFiles     = false;         // sidebar filter: show untracked folder files
+let projectName      = '';            // project folder name for header
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
 let expandedFeatures = new Set();    // feature keys currently expanded in sidebar
 
@@ -1682,6 +1792,26 @@ function render() {
     default:
       renderPickFolder();
   }
+}
+
+/**
+ * Saves the current navigation state to browser history so the back button works.
+ * Call after every intentional navigation (entity select, doc open, dashboard).
+ */
+function pushNavState() {
+  const state = { appState, selectedKey, entityViewTab };
+  history.pushState(state, '');
+}
+
+/**
+ * Restores app state from a history entry (called on popstate).
+ */
+function restoreNavState(state) {
+  if (!state) return;
+  appState      = state.appState      || 'dashboard';
+  selectedKey   = state.selectedKey   || null;
+  entityViewTab = state.entityViewTab || 'info';
+  render();
 }
 
 // ============================================================
@@ -1769,6 +1899,7 @@ function navigateToEntity(key) {
   selectedKey = key;
   entityViewTab = 'info';  // reset to Info tab on every navigation
   appState = 'entity_view';
+  pushNavState();
   render();
   scrollSidebarToKey(key);
 }
@@ -2204,6 +2335,18 @@ function renderDashboard() {
  */
 let entityViewTab = 'info';
 
+// ============================================================
+// Edit mode state variables (T-E27-F07-004)
+// ============================================================
+/** Whether the content pane is in edit mode. */
+let editMode = false;
+/** Raw markdown before edit — used by Cancel to restore the previous view. */
+let editOriginalContent = '';
+/** Relative path from FileResponse — sent to PUT /api/v1/edit/file. */
+let editFilePath = '';
+/** The pane element that owns the current edit UI. */
+let editPaneEl = null;
+
 /**
  * Finds an entity in treeData by key.
  * Walks epics → features → tasks recursively.
@@ -2308,11 +2451,15 @@ function showToast(message, type) {
  * Renders the markdown content pane for an entity.
  * Calls apiGetFile(key), renders with Marked.js (or fallback <pre>).
  * Sets innerHTML of paneEl when done.
+ * Also stores raw content and file path for the Edit flow.
  * @param {string} key - entity key
  * @param {HTMLElement} paneEl - container element to update
  */
 async function renderMarkdownPane(key, paneEl) {
   if (!paneEl) return;
+
+  // Reset edit mode state whenever we load a new pane.
+  editMode = false;
 
   // Show spinner while fetching
   paneEl.innerHTML = `<div class="loading-indicator" style="padding:40px 0"><div class="loading-spinner"></div><div class="loading-text">Loading content\u2026</div></div>`;
@@ -2331,20 +2478,156 @@ async function renderMarkdownPane(key, paneEl) {
 
   const rawContent = response.content || '';
 
+  // Store edit state for this pane.
+  editOriginalContent = rawContent;
+  editFilePath = response.path || '';
+  editPaneEl = paneEl;
+
+  renderMarkdownFromString(rawContent, paneEl);
+}
+
+/**
+ * Renders a markdown string into paneEl and appends an Edit button toolbar.
+ * Used by the initial load AND after a successful save (to re-render updated content).
+ * @param {string} rawContent - raw markdown string to render
+ * @param {HTMLElement} paneEl - container element to update
+ */
+function renderMarkdownFromString(rawContent, paneEl) {
+  if (!paneEl) return;
+
+  // Build main content area.
+  const contentWrapper = document.createElement('div');
+  contentWrapper.className = 'edit-content-wrapper';
+
   if (typeof marked !== 'undefined') {
     const rendered = marked.parse(rawContent);
-    const wrapper = document.createElement('div');
-    wrapper.className = 'markdown-body';
-    wrapper.innerHTML = rendered;
-    paneEl.innerHTML = '';
-    paneEl.appendChild(wrapper);
+    const mdDiv = document.createElement('div');
+    mdDiv.className = 'markdown-body';
+    mdDiv.innerHTML = rendered;
+    contentWrapper.appendChild(mdDiv);
   } else {
     // Fallback: CDN blocked — show raw content as <pre> with warning banner
-    paneEl.innerHTML = `
+    contentWrapper.innerHTML = `
       <div class="error-banner" style="margin-bottom:12px">
         <span class="error-banner-msg">Markdown renderer unavailable (CDN blocked). Showing raw content.</span>
       </div>
       <pre class="markdown-body" style="white-space:pre-wrap">${escapeHtml(rawContent)}</pre>`;
+  }
+
+  // Populate pane with content.
+  paneEl.innerHTML = '';
+  paneEl.appendChild(contentWrapper);
+
+  // Enable the Edit button in the toggle bar once content is ready.
+  if (editFilePath) {
+    const editBtn = document.getElementById('ev-edit-btn');
+    if (editBtn) editBtn.disabled = false;
+  }
+}
+
+// ============================================================
+// EDIT MODE (T-E27-F07-004)
+// ============================================================
+
+/**
+ * Enters edit mode: replaces the rendered markdown in paneEl with a textarea
+ * pre-filled with the current raw content and shows Save/Cancel buttons.
+ * @param {HTMLElement} paneEl - the pane container to transform
+ */
+function enterEditMode(paneEl) {
+  if (editMode) return;  // already editing — don't clobber the textarea
+  editMode = true;
+  editPaneEl = paneEl;
+
+  // Disable the toggle-bar edit button while editing.
+  const editBtn = document.getElementById('ev-edit-btn');
+  if (editBtn) editBtn.disabled = true;
+
+  paneEl.innerHTML = `
+    <div class="edit-toolbar" id="edit-action-toolbar">
+      <button class="open-btn edit-save-btn" id="edit-save-btn">Save</button>
+      <button class="open-btn" id="edit-cancel-btn" style="margin-left:6px">Cancel</button>
+    </div>
+    <div id="edit-error-container"></div>
+    <textarea id="edit-textarea"
+      style="width:100%;min-height:400px;box-sizing:border-box;background:var(--bg-2);color:var(--fg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:var(--font-mono,monospace);font-size:13px;resize:vertical;margin-top:8px"
+      spellcheck="false">${escapeHtml(editOriginalContent)}</textarea>`;
+
+  paneEl.querySelector('#edit-save-btn').addEventListener('click', () => saveEdit());
+  paneEl.querySelector('#edit-cancel-btn').addEventListener('click', () => cancelEdit());
+}
+
+/**
+ * Displays an inline error banner above the textarea during edit mode.
+ * @param {string} message - error message to display
+ */
+function showEditError(message) {
+  const container = document.getElementById('edit-error-container');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="error-banner" style="margin-bottom:8px">
+      <span class="error-banner-msg">${escapeHtml(message)}</span>
+      <button class="error-banner-dismiss" aria-label="Dismiss">&#x2715;</button>
+    </div>`;
+  container.querySelector('.error-banner-dismiss').addEventListener('click', () => {
+    container.innerHTML = '';
+  });
+}
+
+/**
+ * Sends the textarea content to PUT /api/v1/edit/file.
+ * On success, exits edit mode and re-renders the updated markdown.
+ * On failure, shows an inline error and leaves the textarea open.
+ */
+async function saveEdit() {
+  const textarea = document.getElementById('edit-textarea');
+  if (!textarea) return;
+
+  const saveBtn = document.getElementById('edit-save-btn');
+  const cancelBtn = document.getElementById('edit-cancel-btn');
+
+  // Disable buttons during in-flight request (AC-T7).
+  if (saveBtn) saveBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
+
+  const content = textarea.value;
+
+  try {
+    const resp = await fetch('/api/v1/edit/file', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: editFilePath, content: content }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ message: 'Save failed' }));
+      showEditError(err.message || 'Save failed');
+      if (saveBtn) saveBtn.disabled = false;
+      if (cancelBtn) cancelBtn.disabled = false;
+      return;
+    }
+
+    // Success: update cached raw content and re-render without an extra fetch.
+    editMode = false;
+    editOriginalContent = content;
+    if (editPaneEl) {
+      renderMarkdownFromString(content, editPaneEl);
+    }
+  } catch (e) {
+    showEditError('Network error: ' + e.message);
+    if (saveBtn) saveBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
+  }
+}
+
+/**
+ * Cancels edit mode and restores the previously rendered markdown view.
+ * No write is issued.
+ */
+function cancelEdit() {
+  editMode = false;
+  if (editPaneEl) {
+    renderMarkdownFromString(editOriginalContent, editPaneEl);
   }
 }
 
@@ -2363,8 +2646,19 @@ function renderEntityView() {
 
   const infoActive  = entityViewTab === 'info'        ? ' active' : '';
   const transActive = entityViewTab === 'transitions' ? ' active' : '';
+  const filesActive = entityViewTab === 'files'       ? ' active' : '';
+
+  const hasFilePath = entity && (entity.file_path || entity.linked_content_path);
+  const editBtnHtml = (entityViewTab === 'info' && hasFilePath)
+    ? `<button class="toggle-btn ev-edit-btn" id="ev-edit-btn" disabled title="Edit file" style="margin-left:auto">✎ Edit</button>`
+    : '';
+
+  const entityDir = entity ? (entity.file_path || entity.linked_content_path || '') : '';
+  const filesDirPath = entityDir ? parentDir(entityDir) : '';
+  const filesBtnHtml = filesDirPath ? `<button class="toggle-btn${filesActive}" id="ev-tab-files">Files</button>` : '';
 
   const html = `
+    <button class="content-back-link" id="ev-back-btn">← Back</button>
     <div class="entity-view-header">
       <div class="entity-view-title">${title}</div>
       <div class="entity-view-key">${keyLabel}</div>
@@ -2373,27 +2667,45 @@ function renderEntityView() {
     <div class="toggle-bar">
       <button class="toggle-btn${infoActive}"  id="ev-tab-info">Info</button>
       <button class="toggle-btn${transActive}" id="ev-tab-transitions">Transitions</button>
+      ${filesBtnHtml}
+      ${editBtnHtml}
     </div>
     <div id="ev-content-pane"></div>
   `;
 
   content.innerHTML = html;
 
+  document.getElementById('ev-back-btn').addEventListener('click', () => history.back());
+
   // Wire toggle buttons
   document.getElementById('ev-tab-info').addEventListener('click', () => {
-    entityViewTab = 'info';
-    renderEntityView();
+    if (entityViewTab !== 'info') { entityViewTab = 'info'; pushNavState(); renderEntityView(); }
   });
   document.getElementById('ev-tab-transitions').addEventListener('click', () => {
-    entityViewTab = 'transitions';
-    renderEntityView();
+    if (entityViewTab !== 'transitions') { entityViewTab = 'transitions'; pushNavState(); renderEntityView(); }
   });
+  const filesTabBtn = document.getElementById('ev-tab-files');
+  if (filesTabBtn) {
+    filesTabBtn.addEventListener('click', () => {
+      if (entityViewTab !== 'files') { entityViewTab = 'files'; pushNavState(); renderEntityView(); }
+    });
+  }
+
+  // Wire edit button (enabled after content loads in renderMarkdownFromString)
+  const editToggleBtn = document.getElementById('ev-edit-btn');
+  if (editToggleBtn) {
+    editToggleBtn.addEventListener('click', () => {
+      enterEditMode(document.getElementById('ev-content-pane'));
+    });
+  }
 
   const paneEl = document.getElementById('ev-content-pane');
 
   if (entityViewTab === 'info') {
     // Async: fetch and render markdown content
     renderMarkdownPane(selectedKey, paneEl);
+  } else if (entityViewTab === 'files') {
+    renderFolderFilesPane(filesDirPath, paneEl);
   } else {
     // Transitions view
     paneEl.innerHTML = `<div class="history-drawer"><div class="content-placeholder">Loading transition history\u2026</div></div>`;
@@ -2463,6 +2775,19 @@ function renderDocView() {
 
   const docKey = selectedKey || '';
 
+  if (docKey.startsWith(FOLDER_KEY_PREFIX)) {
+    const dirPath = docKey.slice(FOLDER_KEY_PREFIX.length);
+    content.innerHTML = `
+      <button class="content-back-link" id="doc-back-btn">← Back</button>
+      <div class="entity-view-header">
+        <div class="entity-view-title ev-title">${escapeHtml(dirPath || 'Folder')}</div>
+      </div>
+      <div id="doc-content-pane" class="ev-content-pane" style="margin-top:8px"></div>`;
+    document.getElementById('doc-back-btn').addEventListener('click', () => history.back());
+    renderFolderFilesPane(dirPath, document.getElementById('doc-content-pane'));
+    return;
+  }
+
   // Find doc metadata from treeData (docs are nested under epics/features)
   let docMeta = null;
   let parentKey = '';
@@ -2485,25 +2810,44 @@ function renderDocView() {
     }
   }
 
-  const docTitle = docMeta ? escapeHtml(docMeta.title || docKey) : escapeHtml(docKey);
-  const pathVal  = docMeta ? escapeHtml(docMeta.path || docKey) : escapeHtml(docKey);
-  const parentVal = parentKey ? `<span class="mono">${escapeHtml(parentKey)}</span>` : '—';
+  // Title: use docMeta title if available; otherwise just the filename (basename of path)
+  const rawPath = docMeta ? (docMeta.path || docKey) : docKey;
+  const baseName = rawPath.split('/').pop() || rawPath;
+  const docTitle = docMeta ? escapeHtml(docMeta.title || baseName) : escapeHtml(baseName);
+
+  // Path subtitle — always the full relative path with a copy button
+  const pathCopyBtn = `<button class="copy-btn" data-copy-value="${escapeHtml(rawPath)}" title="Copy path">⎘</button>`;
+  const pathSubtitle = `<span style="word-break:break-all;color:var(--fg-dim);font-size:12px;font-family:'SF Mono',monospace">${escapeHtml(rawPath)}</span>${pathCopyBtn}`;
+
+  // Parent row — only shown when there's a real parent key
+  const parentRowHtml = parentKey
+    ? `<div class="props-grid" style="margin-bottom:0"><span class="props-label">Parent</span><span class="props-value"><span class="mono">${escapeHtml(parentKey)}</span></span></div>`
+    : '';
 
   content.innerHTML = `
-    <div class="ev-header">
-      <div class="ev-title">${docTitle}</div>
-      <div class="ev-key">${escapeHtml(docKey)}</div>
-    </div>
-    <div class="ev-body" style="display:flex;flex-direction:column;gap:16px">
-      <div class="props-grid">
-        <span class="props-label">Path</span><span class="props-value">${pathVal}</span>
-        <span class="props-label">Parent</span><span class="props-value">${parentVal}</span>
+    <button class="content-back-link" id="doc-back-btn">← Back</button>
+    <div class="entity-view-header" style="display:flex;align-items:flex-start;justify-content:space-between">
+      <div>
+        <div class="entity-view-title ev-title">${docTitle}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">${pathSubtitle}</div>
       </div>
-      <div id="doc-content-pane" class="ev-content-pane"></div>
-    </div>`;
+      <button class="toggle-btn ev-edit-btn" id="ev-edit-btn" disabled title="Edit file" style="margin-left:12px;flex-shrink:0;align-self:center">✎ Edit</button>
+    </div>
+    ${parentRowHtml}
+    <div id="doc-content-pane" class="ev-content-pane" style="margin-top:${parentKey ? '16px' : '8px'}"></div>`;
+  document.getElementById('doc-back-btn').addEventListener('click', () => history.back());
 
   // Async render markdown content
   const pane = document.getElementById('doc-content-pane');
+
+  // Wire edit button after DOM is ready
+  const docEditBtn = document.getElementById('ev-edit-btn');
+  if (docEditBtn) {
+    docEditBtn.addEventListener('click', () => {
+      enterEditMode(pane);
+    });
+  }
+
   renderMarkdownPane(docKey, pane);
 }
 
@@ -2601,9 +2945,7 @@ function buildDocNodeHtml(doc, level) {
   // Show only the filename portion of path-like keys (e.g. "docs/plan/E27/foo.md" → "foo.md")
   const displayKey = key.includes('/') ? key.split('/').pop() : key;
   const nodeClass = level === 'epic' ? 'tree-node-doc-epic' : 'tree-node-doc-feature';
-  // Add copy button for doc paths
-  const copyHtml = key ? `<button class="copy-btn" data-copy-value="${escapeHtml(key)}" title="Copy path" style="margin-left:4px;font-size:10px;padding:1px 4px">⎘</button>` : '';
-  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span>${copyHtml}</div>`;
+  return `<div class="tree-node ${nodeClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(doc.status || '')}<span class="tree-node-key">${escapeHtml(displayKey)}</span><span class="tree-node-title">${escapeHtml(doc.title || '')}</span></div>`;
 }
 
 /**
@@ -2636,6 +2978,12 @@ function buildFeatureNodeHtml(feature, epicKey) {
     const docs = Array.isArray(feature.docs) ? feature.docs : [];
     for (const doc of docs) {
       html += buildDocNodeHtml(doc, 'feature');
+    }
+    // Render folder files link when showAllFiles is enabled
+    if (showAllFiles && feature.file_path) {
+      const featureDir = parentDir(feature.file_path);
+      const folderKey = FOLDER_KEY_PREFIX + featureDir;
+      html += `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="${escapeHtml(featureDir)}"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Folder files</span></div>`;
     }
   }
 
@@ -2672,6 +3020,12 @@ function buildEpicNodeHtml(epic) {
     const docs = Array.isArray(epic.docs) ? epic.docs : [];
     for (const doc of docs) {
       html += buildDocNodeHtml(doc, 'epic');
+    }
+    // Render folder files link when showAllFiles is enabled
+    if (showAllFiles && epic.file_path) {
+      const epicDir = parentDir(epic.file_path);
+      const folderKey = FOLDER_KEY_PREFIX + epicDir;
+      html += `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="${escapeHtml(epicDir)}"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Folder files</span></div>`;
     }
   }
 
@@ -2721,6 +3075,10 @@ function renderSidebar() {
       <input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}>
       Show completed
     </label>
+    <label class="sidebar-filter-label">
+      <input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}>
+      Show all files
+    </label>
   </div>`;
 
   // ── Hierarchy section ──
@@ -2754,6 +3112,19 @@ function renderSidebar() {
   if (showCompletedCb) {
     showCompletedCb.onchange = function() {
       showCompleted = this.checked;
+      renderSidebar();
+    };
+  }
+  const showAllFilesCb = document.getElementById('show-all-files-checkbox');
+  if (showAllFilesCb) {
+    showAllFilesCb.onchange = function() {
+      showAllFiles = this.checked;
+      if (showAllFiles) {
+        // Auto-expand all epics so Folder files links become visible
+        for (const epic of treeData) {
+          expandedEpics.add(epic.key || '');
+        }
+      }
       renderSidebar();
     };
   }
@@ -2794,13 +3165,20 @@ function renderSidebar() {
     if (nodeEl) {
       const key = nodeEl.getAttribute('data-select-key');
       if (key) {
+        if (key.startsWith(FOLDER_KEY_PREFIX)) {
+          const folderPath = nodeEl.getAttribute('data-folder-path') || key.slice(FOLDER_KEY_PREFIX.length);
+          openFolderView(folderPath);
+          return;
+        }
         selectedKey = key;
         // Doc nodes (italic in sidebar) go to doc_view; all others go to entity_view
         if (nodeEl.classList.contains('tree-node-doc-epic') || nodeEl.classList.contains('tree-node-doc-feature')) {
           appState = 'doc_view';
         } else {
+          entityViewTab = 'info';
           appState = 'entity_view';
         }
+        pushNavState();
         render();
       }
     }
@@ -2821,11 +3199,17 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjectData();
   });
 
+  // Browser popstate — restore state when back/forward is pressed
+  window.addEventListener('popstate', (e) => {
+    restoreNavState(e.state);
+  });
+
   // Header: Dashboard title → return to dashboard
   document.getElementById('header-dashboard-btn').addEventListener('click', () => {
     if (appState === 'entity_view' || appState === 'doc_view') {
       selectedKey = null;
       appState = 'dashboard';
+      history.replaceState({ appState, selectedKey: null, entityViewTab: 'info' }, '');
       render();
     }
   });
@@ -2855,28 +3239,172 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Keyboard: Escape → if transitions drawer is open, close it first; second Escape returns to dashboard
+  // Keyboard: Escape → cancel edit first, then close open drawer, then go back in history
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (appState === 'entity_view') {
-        if (entityViewTab === 'transitions') {
-          // Drawer is open — close it first (switch to Info pane)
-          entityViewTab = 'info';
-          renderEntityView();
-        } else {
-          // Info pane already showing — return to dashboard
-          selectedKey = null;
-          appState = 'dashboard';
-          render();
-        }
-      } else if (appState === 'doc_view') {
-        selectedKey = null;
-        appState = 'dashboard';
-        render();
+      if (editMode) {
+        cancelEdit();
+        return;
+      }
+      if (appState === 'entity_view' && entityViewTab === 'transitions') {
+        // Transitions drawer open — close it first
+        entityViewTab = 'info';
+        renderEntityView();
+      } else if (appState === 'entity_view' || appState === 'doc_view') {
+        history.back();
       }
     }
   });
 });
+
+// ============================================================
+// SECTION: Folder Files View
+// ============================================================
+
+/** Cache: dirPath → FolderFilesResponse, cleared on project reload. */
+const folderFilesCache = new Map();
+
+/**
+ * Fetches and renders the folder files listing in the given pane element.
+ * Uses an in-memory cache keyed by dirPath to avoid re-fetching on every tab switch.
+ */
+async function renderFolderFilesPane(dirPath, paneEl) {
+  if (!dirPath) {
+    paneEl.innerHTML = `<div class="content-placeholder">No folder path available.</div>`;
+    return;
+  }
+
+  let result = folderFilesCache.get(dirPath);
+  if (!result) {
+    paneEl.innerHTML = `<div class="content-placeholder">Loading folder files\u2026</div>`;
+    try {
+      result = await apiGetFolderFiles(dirPath);
+      if (result) folderFilesCache.set(dirPath, result);
+    } catch (err) {
+      paneEl.innerHTML = `<div class="content-placeholder">Failed to load folder files.</div>`;
+      return;
+    }
+  }
+
+  if (!result || !result.entries || result.entries.length === 0) {
+    paneEl.innerHTML = `<div class="content-placeholder">No files found in <code>${escapeHtml(dirPath)}</code>.</div>`;
+    return;
+  }
+
+  let html = `<div class="folder-files-pane"><div class="folder-files-header">${escapeHtml(result.dir_path || dirPath)}</div><div class="folder-files-list">`;
+  // Add ../ entry when not at the project root
+  if (dirPath !== '.' && dirPath !== '') {
+    html += `<div class="folder-file-item folder-file-dir" data-folder-path="${escapeHtml(parentDir(dirPath))}">📁 <span class="folder-file-name">../</span></div>`;
+  }
+  for (const entry of result.entries) {
+    const icon = entry.is_dir ? '📁' : fileIcon(entry.name);
+    const sizeStr = (!entry.is_dir && entry.size > 0) ? formatFileSize(entry.size) : '';
+    const sizeHtml = sizeStr ? `<span class="folder-file-size">${escapeHtml(sizeStr)}</span>` : '';
+    if (entry.is_dir) {
+      html += `<div class="folder-file-item folder-file-dir" data-folder-path="${escapeHtml(entry.path)}">${icon} <span class="folder-file-name">${escapeHtml(entry.name)}</span>${sizeHtml}</div>`;
+    } else {
+      html += `<div class="folder-file-item" data-file-path="${escapeHtml(entry.path)}">${icon} <span class="folder-file-name">${escapeHtml(entry.name)}</span>${sizeHtml}</div>`;
+    }
+  }
+  html += `</div></div>`;
+  paneEl.innerHTML = html;
+
+  // Single delegated click handler for the whole list
+  paneEl.querySelector('.folder-files-list').addEventListener('click', (e) => {
+    const item = e.target.closest('.folder-file-item');
+    if (!item) return;
+    const filePath = item.getAttribute('data-file-path');
+    if (filePath) {
+      selectedKey = filePath;
+      appState = 'doc_view';
+      pushNavState();
+      render();
+      return;
+    }
+    const folderPath = item.getAttribute('data-folder-path');
+    if (folderPath) {
+      pushNavState();
+      renderFolderFilesPane(folderPath, paneEl);
+    }
+  });
+}
+
+/**
+ * Opens a folder view for the given dirPath by navigating to the nearest
+ * entity and opening the Files tab, or rendering directly if no entity found.
+ */
+function openFolderView(dirPath) {
+  // Try to find an entity whose file_path is in this dir
+  for (const epic of treeData) {
+    const epicDir = epic.file_path ? parentDir(epic.file_path) : '';
+    if (epicDir === dirPath) {
+      selectedKey = epic.key;
+      entityViewTab = 'files';
+      appState = 'entity_view';
+      pushNavState();
+      render();
+      return;
+    }
+    for (const feature of (epic.features || [])) {
+      const fDir = feature.file_path ? parentDir(feature.file_path) : '';
+      if (fDir === dirPath) {
+        selectedKey = feature.key;
+        entityViewTab = 'files';
+        appState = 'entity_view';
+        pushNavState();
+        render();
+        return;
+      }
+    }
+  }
+  // No entity found — open doc view with a synthetic folder key
+  selectedKey = FOLDER_KEY_PREFIX + dirPath;
+  appState = 'doc_view';
+  pushNavState();
+  render();
+}
+
+/** Returns the parent directory of a relative file path (strips the last segment). */
+function parentDir(filePath) {
+  const lastSlash = filePath.lastIndexOf('/');
+  return lastSlash === -1 ? '.' : filePath.substring(0, lastSlash);
+}
+
+/**
+ * Returns a file icon character based on the file extension.
+ */
+function fileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  switch(ext) {
+    case 'md': case 'markdown': return '📝';
+    case 'go': return '🔵';
+    case 'js': case 'ts': return '📜';
+    case 'json': return '📋';
+    case 'yaml': case 'yml': return '⚙️';
+    case 'sh': case 'bash': return '💻';
+    case 'png': case 'jpg': case 'gif': case 'svg': return '🖼️';
+    case 'pdf': return '📄';
+    default: return '📃';
+  }
+}
+
+/**
+ * Formats a file size in bytes as a human-readable string.
+ */
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/**
+ * Fetches the folder file listing from the API.
+ */
+async function apiGetFolderFiles(dirPath) {
+  const resp = await fetch('/api/v1/viewer/folder-files/' + encodeURIComponent(dirPath).replace(/%2F/g, '/'));
+  if (!resp.ok) throw new Error('folder files fetch failed: ' + resp.status);
+  return resp.json();
+}
 
 </script>
 </body>

@@ -28,6 +28,7 @@ Add a `shark web` command that starts a local HTTP server and opens a browser to
 - Spec documents readable inline alongside status/history context
 - Agent operators can audit transition history for any entity at a glance
 - Works from any directory in a shark project (auto-detects project root)
+- Need to be able to edit and view specs easily when reviewing.
 
 ---
 
