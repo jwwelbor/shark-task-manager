@@ -1017,3 +1017,131 @@ func TestViewerHTMLF08RegressionGate(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// E27-F08-002 Tests: Epic Dashboard Pane and Section Renderer Extensions
+// =============================================================================
+
+// TestViewerHTMLEpicDashboardTab verifies that the Dashboard tab is wired for epics.
+// TC-F08-001, AC-001.1.
+func TestViewerHTMLEpicDashboardTab(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	markers := []string{
+		"ev-tab-dashboard",
+		"renderEpicDashboardPane",
+	}
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing epic dashboard tab marker: %q", marker)
+		}
+	}
+
+	// Guard: entityViewTab === 'dashboard' check must be present for the pane switch
+	if !strings.Contains(content, "entityViewTab === 'dashboard'") {
+		t.Error("viewer.html missing \"entityViewTab === 'dashboard'\" — pane dispatch guard required")
+	}
+}
+
+// TestViewerHTMLDashboardTabPosition verifies Dashboard tab button appears before
+// the Spec (ev-tab-info) button in the toggle bar. TC-F08-002, AC-001.2.
+func TestViewerHTMLDashboardTabPosition(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	dashIdx := strings.Index(content, "ev-tab-dashboard")
+	infoIdx := strings.Index(content, "ev-tab-info")
+	if dashIdx == -1 {
+		t.Fatal("viewer.html missing ev-tab-dashboard button id")
+	}
+	if infoIdx == -1 {
+		t.Fatal("viewer.html missing ev-tab-info button id")
+	}
+	if dashIdx > infoIdx {
+		t.Error("ev-tab-dashboard must appear before ev-tab-info in viewer.html (Dashboard tab must precede Spec tab)")
+	}
+}
+
+// TestViewerHTMLEpicDashboardSections verifies that renderEpicDashboardPane renders
+// all five section titles. TC-F08-003, AC-001.3.
+func TestViewerHTMLEpicDashboardSections(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	markers := []string{
+		"renderEpicDashboardPane",
+		"Entity Charts",
+		"Status Overview",
+		"Feature Progress",
+		"Recent Activity",
+		"Stale Entities",
+	}
+	for _, marker := range markers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing epic dashboard section marker: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLEpicScopedFiltering verifies that all five section renderers accept
+// an optional epicKey parameter. TC-F08-004, AC-001.4–AC-001.7.
+func TestViewerHTMLEpicScopedFiltering(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Each renderer must accept epicKey as parameter
+	rendererMarkers := []string{
+		"renderStatusBreakdown(epicKey",
+		"renderFeatureProgress(epicKey",
+		"renderActiveTransitions(epicKey",
+		"renderStaleEntities(epicKey",
+		"renderEntityCharts(epicKey",
+	}
+	for _, marker := range rendererMarkers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html missing epicKey parameter in renderer: %q", marker)
+		}
+	}
+}
+
+// TestViewerHTMLNoDashboardForNonEpic verifies that the Dashboard tab is guarded by
+// isEpic so features and tasks never get the tab. TC-F08-005, AC-001.8.
+func TestViewerHTMLNoDashboardForNonEpic(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// isEpic variable must be present to gate the dashBtnHtml
+	if !strings.Contains(content, "isEpic") {
+		t.Error("viewer.html missing \"isEpic\" variable — required to guard Dashboard tab for epics only")
+	}
+	// dashBtnHtml must be present (conditionally rendered)
+	if !strings.Contains(content, "dashBtnHtml") {
+		t.Error("viewer.html missing \"dashBtnHtml\" — Dashboard button HTML must be conditional")
+	}
+}
+
+// TestViewerHTMLEpicDashboardNavigation verifies that renderEpicDashboardPane
+// wires data-navigate-key delegation. TC-F08-006, AC-001.9.
+func TestViewerHTMLEpicDashboardNavigation(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderEpicDashboardPane must be defined
+	if !strings.Contains(content, "function renderEpicDashboardPane") {
+		t.Error("viewer.html missing \"function renderEpicDashboardPane\" definition")
+	}
+	// data-navigate-key must be referenced (existing pattern reused)
+	if !strings.Contains(content, "data-navigate-key") {
+		t.Error("viewer.html missing \"data-navigate-key\" — navigation delegation pattern required")
+	}
+}
+
+// TestViewerHTMLEpicDashboardUsesExistingData verifies that renderEpicDashboardPane
+// uses treeData (no new fetches). TC-F08-021, AC-NF-002.1.
+func TestViewerHTMLEpicDashboardUsesExistingData(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderEpicDashboardPane function must be present
+	if !strings.Contains(content, "renderEpicDashboardPane") {
+		t.Error("viewer.html missing renderEpicDashboardPane function")
+	}
+	// treeData must be referenced (existing cached data source)
+	if !strings.Contains(content, "treeData") {
+		t.Error("viewer.html missing treeData reference — epic dashboard must use existing cached data")
+	}
+}

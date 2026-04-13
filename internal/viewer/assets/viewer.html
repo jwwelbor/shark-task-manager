@@ -1916,7 +1916,9 @@ function navigateToEntity(key) {
   }
 
   selectedKey = key;
-  entityViewTab = 'info';  // reset to Info tab on every navigation
+  // Default to Dashboard tab for epics; Info (Spec) for all other entity types
+  const navEntity = findEntityByKey(key);
+  entityViewTab = (navEntity && navEntity.type === 'epic') ? 'dashboard' : 'info';
   appState = 'entity_view';
   pushNavState();
   render();
@@ -1926,10 +1928,75 @@ function navigateToEntity(key) {
 /**
  * Renders the Status Breakdown section.
  * Grid of cards — one per entity type that has items.
- * Data source: summaryData.{epics,features,tasks,bugs}.status_counts
+ * Data source: summaryData.{epics,features,tasks,bugs}.status_counts (project-wide),
+ * or treeData filtered to epicKey (epic-scoped).
+ * @param {string} [epicKey] - Optional. When provided, filters to that epic's entities.
  * @returns {string} HTML string
  */
-function renderStatusBreakdown() {
+function renderStatusBreakdown(epicKey) {
+  // Epic-scoped path: derive counts from treeData filtered by epicKey
+  if (epicKey) {
+    const epic = (treeData || []).find(e => e.key === epicKey);
+    if (!epic) return `<div class="content-placeholder">Epic not found</div>`;
+
+    const featureCounts = {};
+    const taskCounts    = {};
+    const epicCounts    = {};
+    epicCounts[epic.status || 'unknown'] = (epicCounts[epic.status || 'unknown'] || 0) + 1;
+
+    for (const f of (epic.features || [])) {
+      const s = f.status || 'unknown';
+      featureCounts[s] = (featureCounts[s] || 0) + 1;
+      for (const t of (f.tasks || [])) {
+        const ts = t.status || 'unknown';
+        taskCounts[ts] = (taskCounts[ts] || 0) + 1;
+      }
+    }
+
+    const toByStatus = obj => Object.entries(obj).map(([status, count]) => ({
+      status, count, color: getStatusColor(status),
+    }));
+
+    const epicTypes = [
+      ['EPICS',    toByStatus(epicCounts)],
+      ['FEATURES', toByStatus(featureCounts)],
+      ['TASKS',    toByStatus(taskCounts)],
+    ];
+
+    let cards = '';
+    for (const [label, byStatus] of epicTypes) {
+      if (!Array.isArray(byStatus) || byStatus.length === 0) continue;
+      const total = byStatus.reduce((sum, s) => sum + (s.count || 0), 0);
+      if (total === 0) continue;
+
+      const active = byStatus
+        .filter(s => !isTerminalStatus(s.status || ''))
+        .reduce((sum, s) => sum + (s.count || 0), 0);
+      const activeHtml = (active < total)
+        ? `<span class="breakdown-card-active">${active} active</span>`
+        : '';
+
+      let badges = '';
+      for (const s of byStatus) {
+        if (!s.count) continue;
+        const color = normalizeToHex(s.color || getStatusColor(s.status));
+        const lbl = escapeHtml((s.status || '').replace(/_/g, ' ')) + ' ' + s.count;
+        badges += `<span class="status-badge status-badge-sm" style="background:${escapeHtml(color)};color:${getContrastColor(color)}">${lbl}</span>`;
+      }
+
+      cards += `
+        <div class="breakdown-card">
+          <div class="breakdown-card-label">${escapeHtml(label)}</div>
+          <div class="breakdown-card-total">${total}${activeHtml}</div>
+          <div class="breakdown-badges">${badges}</div>
+        </div>`;
+    }
+
+    if (!cards) return `<div class="content-placeholder">No entity data available</div>`;
+    return `<div class="breakdown-grid">${cards}</div>`;
+  }
+
+  // Project-wide path (unchanged)
   if (!summaryData) {
     return `<div class="content-placeholder">Failed to load status data</div>`;
   }
@@ -1986,15 +2053,20 @@ function renderStatusBreakdown() {
 /**
  * Renders the Feature Progress section.
  * List of features with horizontal progress bars derived from treeData task counts.
+ * @param {string} [epicKey] - Optional. When provided, filters to that epic's features only.
  * @returns {string} HTML string
  */
-function renderFeatureProgress() {
-  if (!treeData || treeData.length === 0) {
+function renderFeatureProgress(epicKey) {
+  const epics = epicKey
+    ? (treeData || []).filter(e => e.key === epicKey)
+    : (treeData || []);
+
+  if (epics.length === 0) {
     return `<div class="content-placeholder">No features found</div>`;
   }
 
   let rows = '';
-  for (const epic of treeData) {
+  for (const epic of epics) {
     const features = Array.isArray(epic.features) ? epic.features : [];
     for (const feature of features) {
       const featureKey = feature.key || '';
@@ -2027,15 +2099,35 @@ function renderFeatureProgress() {
  * Renders the Active Transitions section.
  * Shows the last 25 transitions from recentActivity, newest first.
  * Each row: date, key (clickable), from-badge → to-badge, note, optional Open button.
+ * @param {string} [epicKey] - Optional. When provided, filters to transitions for entities in that epic.
  * @returns {string} HTML string
  */
-function renderActiveTransitions() {
+function renderActiveTransitions(epicKey) {
   if (!recentActivity || recentActivity.length === 0) {
     return `<div class="content-placeholder">No recent transitions</div>`;
   }
 
+  let filteredActivity = recentActivity;
+  if (epicKey) {
+    // Build membership set from treeData: epic key + its features + its tasks
+    const epic = (treeData || []).find(e => e.key === epicKey);
+    const keys = new Set();
+    if (epic) {
+      keys.add(epic.key);
+      for (const f of (epic.features || [])) {
+        keys.add(f.key);
+        for (const t of (f.tasks || [])) keys.add(t.key);
+      }
+    }
+    filteredActivity = recentActivity.filter(r => keys.has(r.key));
+  }
+
+  if (filteredActivity.length === 0) {
+    return `<div class="content-placeholder">No recent transitions</div>`;
+  }
+
   // recentActivity is already sorted newest-first by the API; take up to 25
-  const rows = recentActivity.slice(0, 25);
+  const rows = filteredActivity.slice(0, 25);
 
   let html = '<table class="activity-table"><tbody>';
   for (const rec of rows) {
@@ -2089,14 +2181,18 @@ function renderActiveTransitions() {
  * Renders the Stale Entities section.
  * Client-side filter: entities not in a terminal status whose updated_at is > 7 days ago.
  * Sorted by staleness descending (oldest first = most days since update at top).
+ * @param {string} [epicKey] - Optional. When provided, filters to entities in that epic only.
  * @returns {string} HTML string
  */
-function renderStaleEntities() {
+function renderStaleEntities(epicKey) {
   /** @type {Array<{key:string, status:string, title:string, updated_at:string, days:number}>} */
   const stale = [];
 
   // Walk treeData: epics → features. Guard with ?. on updated_at per spec.
-  for (const epic of (treeData || [])) {
+  const epics = epicKey
+    ? (treeData || []).filter(e => e.key === epicKey)
+    : (treeData || []);
+  for (const epic of epics) {
     if (epic?.updated_at && !isTerminalStatus(epic.status || '')) {
       const days = daysSince(epic.updated_at);
       if (days > 7) {
@@ -2216,9 +2312,98 @@ function buildDonutChart(byStatus, size = 100) {
  * Renders the Entity Charts section.
  * One donut chart per entity type (epics, features, tasks, bugs, ideas, change cards)
  * plus an overall "All Entities" chart showing type distribution.
+ * @param {string} [epicKey] - Optional. When provided, builds charts from treeData for that epic.
  * @returns {string} HTML string, or '' if no data
  */
-function renderEntityCharts() {
+function renderEntityCharts(epicKey) {
+  // Epic-scoped path: derive counts from treeData
+  if (epicKey) {
+    const epic = (treeData || []).find(e => e.key === epicKey);
+    if (!epic) return '';
+
+    const featureCounts = {};
+    const taskCounts    = {};
+    const epicCounts    = {};
+    epicCounts[epic.status || 'unknown'] = (epicCounts[epic.status || 'unknown'] || 0) + 1;
+
+    for (const f of (epic.features || [])) {
+      const s = f.status || 'unknown';
+      featureCounts[s] = (featureCounts[s] || 0) + 1;
+      for (const t of (f.tasks || [])) {
+        const ts = t.status || 'unknown';
+        taskCounts[ts] = (taskCounts[ts] || 0) + 1;
+      }
+    }
+
+    const toByStatus = obj => Object.entries(obj).map(([status, count]) => ({
+      status, count, color: getStatusColor(status),
+    }));
+
+    const epicTypeConfigs = [
+      { label: 'Epics',    byStatus: toByStatus(epicCounts),    overallColor: '#4d4dbb' },
+      { label: 'Features', byStatus: toByStatus(featureCounts), overallColor: '#22a362' },
+      { label: 'Tasks',    byStatus: toByStatus(taskCounts),    overallColor: '#e7b30e' },
+    ];
+
+    // Build "Active Entities" slice for epic scope
+    const overallByStatus = [];
+    for (const tc of epicTypeConfigs) {
+      const active = tc.byStatus
+        .filter(s => !isTerminalStatus(s.status || ''))
+        .reduce((sum, s) => sum + (s.count || 0), 0);
+      if (active > 0) {
+        overallByStatus.push({ status: tc.label, count: active, color: tc.overallColor });
+      }
+    }
+
+    let cells = '';
+
+    if (overallByStatus.length > 0) {
+      const chartSvg = buildDonutChart(overallByStatus, 100);
+      if (chartSvg) {
+        let legend = '';
+        for (const s of overallByStatus) {
+          const hex = normalizeToHex(s.color);
+          legend += `<div class="chart-legend-item">
+            <span class="chart-legend-dot" style="background:${escapeHtml(hex)}"></span>
+            <span>${escapeHtml(s.status)}</span>
+            <span class="chart-legend-count">${s.count}</span>
+          </div>`;
+        }
+        cells += `<div class="chart-cell">
+          <div class="chart-title">Active Entities</div>
+          ${chartSvg}
+          <div class="chart-legend">${legend}</div>
+        </div>`;
+      }
+    }
+
+    for (const tc of epicTypeConfigs) {
+      if (!tc.byStatus || tc.byStatus.length === 0) continue;
+      const chartSvg = buildDonutChart(tc.byStatus, 100);
+      if (!chartSvg) continue;
+      let legend = '';
+      for (const s of tc.byStatus) {
+        if (!s.count) continue;
+        const hex = normalizeToHex(s.color || getStatusColor(s.status || ''));
+        legend += `<div class="chart-legend-item">
+          <span class="chart-legend-dot" style="background:${escapeHtml(hex)}"></span>
+          <span>${escapeHtml((s.status || '').replace(/_/g, ' '))}</span>
+          <span class="chart-legend-count">${s.count}</span>
+        </div>`;
+      }
+      cells += `<div class="chart-cell">
+        <div class="chart-title">${escapeHtml(tc.label)}</div>
+        ${chartSvg}
+        <div class="chart-legend">${legend}</div>
+      </div>`;
+    }
+
+    if (!cells) return '';
+    return `<div class="charts-grid">${cells}</div>`;
+  }
+
+  // Project-wide path (unchanged)
   if (!summaryData) return '';
 
   const typeConfigs = [
@@ -2344,13 +2529,54 @@ function renderDashboard() {
   });
 }
 
+/**
+ * Renders the epic-scoped dashboard inside an entity-view pane.
+ * Mirrors renderDashboard() but passes epicKey to each section for client-side filtering.
+ * No new fetch() calls — uses existing treeData and recentActivity.
+ * @param {string} epicKey
+ * @param {HTMLElement} paneEl
+ */
+function renderEpicDashboardPane(epicKey, paneEl) {
+  const chartsHtml = renderEntityCharts(epicKey);
+  paneEl.innerHTML = `
+    ${chartsHtml ? `<div class="dashboard-section">
+      <div class="dashboard-section-title">Entity Charts</div>
+      ${chartsHtml}
+    </div>` : ''}
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Status Overview</div>
+      ${renderStatusBreakdown(epicKey)}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Feature Progress</div>
+      ${renderFeatureProgress(epicKey)}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Recent Activity</div>
+      ${renderActiveTransitions(epicKey)}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Stale Entities</div>
+      ${renderStaleEntities(epicKey)}
+    </div>
+  `;
+
+  // Reuse existing delegation for [data-navigate-key]
+  paneEl.querySelectorAll('[data-navigate-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.getAttribute('data-navigate-key');
+      if (k) navigateToEntity(k);
+    });
+  });
+}
+
 // ============================================================
 // === ENTITY VIEW ===
 // ============================================================
 
 /**
  * entityViewTab controls which pane is shown in entity view.
- * Values: 'info' | 'transitions'
+ * Values: 'info' | 'transitions' | 'files' | 'dashboard'
  */
 let entityViewTab = 'info';
 
@@ -2818,14 +3044,26 @@ function renderEntityView() {
   const content = document.getElementById('content');
 
   const entity = findEntityByKey(selectedKey);
+  const isEpic = entity?.type === 'epic';
+
+  // Guard: if history state restored dashboard tab for a non-epic, coerce to info
+  if (entityViewTab === 'dashboard' && !isEpic) {
+    entityViewTab = 'info';
+  }
 
   // Build header and toggle bar
   const title = entity ? escapeHtml(entity.title || entity.key || selectedKey) : escapeHtml(selectedKey || '');
   const keyLabel = escapeHtml(selectedKey || '');
 
+  const dashActive  = entityViewTab === 'dashboard'   ? ' active' : '';
   const infoActive  = entityViewTab === 'info'        ? ' active' : '';
   const transActive = entityViewTab === 'transitions' ? ' active' : '';
   const filesActive = entityViewTab === 'files'       ? ' active' : '';
+
+  // Dashboard button is only rendered for epics
+  const dashBtnHtml = isEpic
+    ? `<button class="toggle-btn${dashActive}" id="ev-tab-dashboard">Dashboard</button>`
+    : '';
 
   const hasFilePath = entity && (entity.file_path || entity.linked_content_path);
   const editBtnHtml = (entityViewTab === 'info' && hasFilePath)
@@ -2844,6 +3082,7 @@ function renderEntityView() {
     </div>
     ${entity ? renderPropertiesPanel(entity) : ''}
     <div class="toggle-bar">
+      ${dashBtnHtml}
       <button class="toggle-btn${infoActive}"  id="ev-tab-info">Spec</button>
       <button class="toggle-btn${transActive}" id="ev-tab-transitions">Transitions</button>
       ${filesBtnHtml}
@@ -2855,6 +3094,14 @@ function renderEntityView() {
   content.innerHTML = html;
 
   document.getElementById('ev-back-btn').addEventListener('click', () => history.back());
+
+  // Wire Dashboard tab button (epics only)
+  const dashTabBtn = document.getElementById('ev-tab-dashboard');
+  if (dashTabBtn) {
+    dashTabBtn.addEventListener('click', () => {
+      if (entityViewTab !== 'dashboard') { entityViewTab = 'dashboard'; pushNavState(); renderEntityView(); }
+    });
+  }
 
   // Wire toggle buttons
   document.getElementById('ev-tab-info').addEventListener('click', () => {
@@ -2880,7 +3127,9 @@ function renderEntityView() {
 
   const paneEl = document.getElementById('ev-content-pane');
 
-  if (entityViewTab === 'info') {
+  if (entityViewTab === 'dashboard' && isEpic) {
+    renderEpicDashboardPane(entity.key, paneEl);
+  } else if (entityViewTab === 'info') {
     // Async: fetch and render markdown content
     renderMarkdownPane(selectedKey, paneEl);
   } else if (entityViewTab === 'files') {
