@@ -14,6 +14,8 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 )
 
+const errMsgPathEscapesRoot = "file path escapes project root"
+
 // ViewerHandler handles the read-only dashboard API requests under /api/v1/viewer/.
 // It is a thin wrapper: parse/validate → call service → format JSON response.
 // All business logic lives in the service layer.
@@ -141,7 +143,7 @@ func (h *ViewerHandler) File(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var secErr *services.SecurityError
 		if errors.As(err, &secErr) {
-			respondError(w, http.StatusForbidden, "file path escapes project root")
+			respondError(w, http.StatusForbidden, errMsgPathEscapesRoot)
 			return
 		}
 		var largeErr *services.FileTooLargeError

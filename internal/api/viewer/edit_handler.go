@@ -77,7 +77,7 @@ func (h *EditHandler) PutFile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var secErr *services.SecurityError
 		if errors.As(err, &secErr) {
-			respondError(w, http.StatusBadRequest, "file path escapes project root")
+			respondError(w, http.StatusForbidden, errMsgPathEscapesRoot)
 			return
 		}
 		slog.Error("edit file failed", "path", req.Path, "endpoint", "put_file", "error", err)

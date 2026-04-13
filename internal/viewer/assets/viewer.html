@@ -1386,6 +1386,9 @@ function isTerminalStatus(status) {
   return TERMINAL_STATUSES.has(status);
 }
 
+/** Prefix for synthetic folder keys used when a clicked directory has no associated entity. */
+const FOLDER_KEY_PREFIX = 'folder:';
+
 /**
  * Formats an ISO timestamp to a short human-readable date.
  * e.g. "Apr 9" or "Apr 9, 2024" if year differs from current.
@@ -2764,6 +2767,17 @@ function renderDocView() {
 
   const docKey = selectedKey || '';
 
+  if (docKey.startsWith(FOLDER_KEY_PREFIX)) {
+    const dirPath = docKey.slice(FOLDER_KEY_PREFIX.length);
+    content.innerHTML = `
+      <div class="entity-view-header">
+        <div class="entity-view-title ev-title">${escapeHtml(dirPath || 'Folder')}</div>
+      </div>
+      <div id="doc-content-pane" class="ev-content-pane" style="margin-top:8px"></div>`;
+    renderFolderFilesPane(dirPath, document.getElementById('doc-content-pane'));
+    return;
+  }
+
   // Find doc metadata from treeData (docs are nested under epics/features)
   let docMeta = null;
   let parentKey = '';
@@ -2956,7 +2970,7 @@ function buildFeatureNodeHtml(feature, epicKey) {
     // Render folder files link when showAllFiles is enabled
     if (showAllFiles && feature.file_path) {
       const featureDir = parentDir(feature.file_path);
-      const folderKey = 'folder:' + featureDir;
+      const folderKey = FOLDER_KEY_PREFIX + featureDir;
       html += `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="${escapeHtml(featureDir)}"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Folder files</span></div>`;
     }
   }
@@ -2998,7 +3012,7 @@ function buildEpicNodeHtml(epic) {
     // Render folder files link when showAllFiles is enabled
     if (showAllFiles && epic.file_path) {
       const epicDir = parentDir(epic.file_path);
-      const folderKey = 'folder:' + epicDir;
+      const folderKey = FOLDER_KEY_PREFIX + epicDir;
       html += `<div class="tree-node tree-node-flat tree-node-folder" data-select-key="${escapeHtml(folderKey)}" data-folder-path="${escapeHtml(epicDir)}"><span class="tree-arrow-spacer"></span><span class="tree-node-folder-icon">📂</span><span class="tree-node-title" style="color:var(--fg-dim);font-style:italic">Folder files</span></div>`;
     }
   }
@@ -3133,8 +3147,8 @@ function renderSidebar() {
     if (nodeEl) {
       const key = nodeEl.getAttribute('data-select-key');
       if (key) {
-        if (key.startsWith('folder:')) {
-          const folderPath = nodeEl.getAttribute('data-folder-path') || key.slice(7);
+        if (key.startsWith(FOLDER_KEY_PREFIX)) {
+          const folderPath = nodeEl.getAttribute('data-folder-path') || key.slice(FOLDER_KEY_PREFIX.length);
           openFolderView(folderPath);
           return;
         }
@@ -3212,9 +3226,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Keyboard: Escape → close open drawer first, then go back in history
+  // Keyboard: Escape → cancel edit first, then close open drawer, then go back in history
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (editMode) {
+        cancelEdit();
+        return;
+      }
       if (appState === 'entity_view' && entityViewTab === 'transitions') {
         // Transitions drawer open — close it first
         entityViewTab = 'info';
@@ -3323,14 +3341,17 @@ function openFolderView(dirPath) {
     }
   }
   // No entity found — open doc view with a synthetic folder key
-  selectedKey = 'folder:' + dirPath;
+  selectedKey = FOLDER_KEY_PREFIX + dirPath;
   appState = 'doc_view';
   pushNavState();
   render();
 }
 
 /** Returns the parent directory of a relative file path (strips the last segment). */
-function parentDir(filePath) { return filePath.replace(/\/[^/]+$/, ''); }
+function parentDir(filePath) {
+  const lastSlash = filePath.lastIndexOf('/');
+  return lastSlash === -1 ? '.' : filePath.substring(0, lastSlash);
+}
 
 /**
  * Returns a file icon character based on the file extension.

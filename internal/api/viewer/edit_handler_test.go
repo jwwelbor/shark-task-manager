@@ -110,16 +110,16 @@ func TestEditHandler_PutFile_PathTraversal(t *testing.T) {
 
 	rec := putFile(t, http.HandlerFunc(h.PutFile), `{"path":"../../etc/passwd","content":"evil"}`)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d; body: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d; body: %s", rec.Code, rec.Body.String())
 	}
 
 	var errResp map[string]string
 	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
 		t.Fatalf("failed to decode error response: %v", err)
 	}
-	if errResp["error"] != "Bad Request" {
-		t.Errorf("expected error %q, got %q", "Bad Request", errResp["error"])
+	if errResp["error"] != "Forbidden" {
+		t.Errorf("expected error %q, got %q", "Forbidden", errResp["error"])
 	}
 }
 
