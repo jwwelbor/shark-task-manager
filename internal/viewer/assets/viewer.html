@@ -817,6 +817,16 @@
       color: var(--fg);
     }
 
+    /* Breadcrumb (REQ-F-003, E27-F09-005) */
+    .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-dim); margin: 2px 0 10px; }
+    .breadcrumb-seg { padding: 2px 4px; border-radius: 3px; cursor: pointer; font-family: var(--font-mono, monospace); }
+    .breadcrumb-seg:hover { background: var(--bg-3); color: var(--fg); }
+    .breadcrumb-seg.current { color: var(--fg); cursor: default; }
+    .breadcrumb-sep { color: var(--fg-dim); user-select: none; }
+
+    /* Properties-panel status accent (REQ-F-012) */
+    .props-grid[data-status-accent] { padding-left: calc(var(--pad, 10px) + 3px); }
+
     /* Overview pane (E27-F09) */
     .overview-pane {
       padding: 4px 0;
@@ -2743,6 +2753,42 @@ function findEntityByKey(key) {
 }
 
 /**
+ * Renders the breadcrumb navigation bar for an entity.
+ * Builds the parent chain from hierarchyData without a network call.
+ * Returns an HTML string to insert between the entity title and the properties panel.
+ * REQ-F-003, AC-003.1–AC-003.4, E27-F09-005.
+ * @param {Object} entity - entity object with type, key, and parent fields
+ * @returns {string} HTML string for the breadcrumb
+ */
+function renderBreadcrumb(entity) {
+  if (!entity) return '';
+  const chain = []; // [{key, isCurrent}]
+  switch (entity.type) {
+    case 'task':
+      chain.push({ key: entity.epic_key || entity.parent_epic_key });
+      chain.push({ key: entity.feature_key || entity.parent });
+      chain.push({ key: entity.key, isCurrent: true });
+      break;
+    case 'feature':
+      chain.push({ key: entity.epic_key || entity.parent });
+      chain.push({ key: entity.key, isCurrent: true });
+      break;
+    case 'epic':
+      chain.push({ key: entity.key, isCurrent: true });
+      break;
+    default:
+      return ''; // bug / change-card / idea — no breadcrumb
+  }
+  // Filter out segments with undefined/empty keys (guard for missing parent data)
+  const validChain = chain.filter(seg => seg.key);
+  if (validChain.length === 0) return '';
+  return `<div class="breadcrumb">${validChain.map(seg => seg.isCurrent
+    ? `<span class="breadcrumb-seg current">${escapeHtml(seg.key)}</span>`
+    : `<span class="breadcrumb-seg" role="button" tabindex="0" data-navigate-key="${escapeHtml(seg.key)}">${escapeHtml(seg.key)}</span>`
+  ).join('<span class="breadcrumb-sep">›</span>')}</div>`;
+}
+
+/**
  * Renders the entity metadata properties panel.
  * 2-column CSS grid: label | value.
  * Omits fields that are null/undefined.
@@ -2939,8 +2985,14 @@ function renderPropertiesPanel(entity) {
   // Trailing orchestrator-action disclosure (collapsible, outside the grid)
   const orchHtml = renderOrchestratorDetails(entity.orchestrator_action);
 
+  // Status left-border accent (REQ-F-012, AC-012.1–AC-012.3)
+  const statusColor = entity.status ? getStatusColor(entity.status) : '';
+  const accentStyle = statusColor
+    ? ` style="border-left:3px solid ${escapeHtml(statusColor)}" data-status-accent="${escapeHtml(entity.status)}"`
+    : '';
+
   const grid = rows.length
-    ? `<div class="props-grid">${rows.join('')}</div>`
+    ? `<div class="props-grid"${accentStyle}>${rows.join('')}</div>`
     : '';
   return grid + orchHtml;
 }
@@ -3273,6 +3325,7 @@ function renderEntityView() {
       <div class="entity-view-title">${title}</div>
       <div class="entity-view-key">${keyLabel}</div>
     </div>
+    ${entity ? renderBreadcrumb(entity) : ''}
     ${entity ? renderPropertiesPanel(entity) : ''}
     <div class="toggle-bar">
       ${overviewBtnHtml}
@@ -3885,6 +3938,17 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (appState === 'entity_view' || appState === 'doc_view') {
         history.back();
       }
+    }
+  });
+
+  // Keyboard: Enter / Space → activate any [data-navigate-key][role="button"] element.
+  // Added once globally for breadcrumb segments, child-table KEY cells, and any other
+  // keyboard-focusable navigation targets. REQ-NF-002, AC-NF-002.1, E27-F09-005.
+  document.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-navigate-key][role="button"]')) {
+      e.preventDefault();
+      const k = e.target.getAttribute('data-navigate-key');
+      if (k) navigateToEntity(k);
     }
   });
 });

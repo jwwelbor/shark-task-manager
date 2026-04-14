@@ -1307,3 +1307,167 @@ func TestViewerHTMLF09RegressionGate(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// E27-F09-005 Tests: Breadcrumb component and properties panel status accent
+// =============================================================================
+
+// TestViewerHTMLBreadcrumbFunction verifies that renderBreadcrumb function is
+// defined and produces the correct structure. TC-F003-1, AC-003.1.
+func TestViewerHTMLBreadcrumbFunction(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderBreadcrumb function must be defined
+	if !strings.Contains(content, "function renderBreadcrumb(") {
+		t.Error("viewer.html missing \"function renderBreadcrumb(\" — breadcrumb helper is required (AC-003.1)")
+	}
+
+	// Must produce a .breadcrumb wrapper element
+	if !strings.Contains(content, `"breadcrumb"`) {
+		t.Error("viewer.html missing breadcrumb class reference in renderBreadcrumb — wrapper element required (AC-003.1)")
+	}
+
+	// Must produce .breadcrumb-seg elements for segments
+	if !strings.Contains(content, "breadcrumb-seg") {
+		t.Error("viewer.html missing \"breadcrumb-seg\" class — segment elements required (AC-003.1)")
+	}
+}
+
+// TestViewerHTMLBreadcrumbNavigableSegments verifies that non-current segments
+// carry data-navigate-key and role="button". TC-F003-2, AC-003.2.
+func TestViewerHTMLBreadcrumbNavigableSegments(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Parent segments must carry data-navigate-key
+	if !strings.Contains(content, `data-navigate-key="${escapeHtml(seg.key)}"`) {
+		t.Error("viewer.html breadcrumb: parent segments must carry data-navigate-key (AC-003.2)")
+	}
+
+	// Parent segments must carry role="button" for accessibility
+	if !strings.Contains(content, `role="button"`) {
+		t.Error("viewer.html breadcrumb: parent segments must carry role=\"button\" (AC-003.2, AC-NF-002.1)")
+	}
+
+	// Parent segments must carry tabindex="0" for keyboard focus
+	if !strings.Contains(content, `tabindex="0"`) {
+		t.Error("viewer.html breadcrumb: parent segments must carry tabindex=\"0\" (AC-NF-002.1)")
+	}
+}
+
+// TestViewerHTMLBreadcrumbCurrentSegment verifies that the last segment (current
+// entity) has the .current class and no data-navigate-key. TC-F003-3, AC-003.3.
+func TestViewerHTMLBreadcrumbCurrentSegment(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Current segment must have .current class
+	if !strings.Contains(content, `breadcrumb-seg current`) {
+		t.Error("viewer.html breadcrumb: current segment must carry class \"breadcrumb-seg current\" (AC-003.3)")
+	}
+
+	// Current segment must NOT have data-navigate-key (it is not clickable)
+	// Verify the current segment template does not contain data-navigate-key
+	if !strings.Contains(content, `isCurrent`) {
+		t.Error("viewer.html breadcrumb: must distinguish current segment via isCurrent flag (AC-003.3)")
+	}
+}
+
+// TestViewerHTMLBreadcrumbSeparator verifies that the separator character › is
+// used between segments. TC-F003-4, AC-003.4.
+func TestViewerHTMLBreadcrumbSeparator(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Separator must use the › character
+	if !strings.Contains(content, "breadcrumb-sep") {
+		t.Error("viewer.html breadcrumb: missing .breadcrumb-sep separator class (AC-003.4)")
+	}
+}
+
+// TestViewerHTMLBreadcrumbInEntityView verifies that renderBreadcrumb is called
+// inside renderEntityView, between the title and the properties panel. AC-003.1.
+func TestViewerHTMLBreadcrumbInEntityView(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderBreadcrumb must be called in renderEntityView context
+	if !strings.Contains(content, "renderBreadcrumb(entity)") {
+		t.Error("viewer.html missing \"renderBreadcrumb(entity)\" call in renderEntityView (AC-003.1)")
+	}
+}
+
+// TestViewerHTMLBreadcrumbCSS verifies that the breadcrumb CSS rules are present.
+// TC-F003-1, AC-003.1.
+func TestViewerHTMLBreadcrumbCSS(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	cssRules := []string{
+		".breadcrumb",
+		".breadcrumb-seg",
+		".breadcrumb-sep",
+	}
+	for _, rule := range cssRules {
+		if !strings.Contains(content, rule) {
+			t.Errorf("viewer.html missing CSS rule for %q (breadcrumb requires its own CSS)", rule)
+		}
+	}
+}
+
+// TestViewerHTMLStatusAccentPropsGrid verifies that the properties panel
+// (.props-grid) gets a status-driven left-border accent. TC-F012-1, AC-012.1.
+func TestViewerHTMLStatusAccentPropsGrid(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// props-grid must include data-status-accent attribute when a status is known
+	if !strings.Contains(content, "data-status-accent") {
+		t.Error("viewer.html missing \"data-status-accent\" — props-grid must carry status accent attribute (AC-012.1)")
+	}
+
+	// CSS rule for .props-grid[data-status-accent] must be present
+	if !strings.Contains(content, ".props-grid[data-status-accent]") {
+		t.Error("viewer.html missing CSS rule \".props-grid[data-status-accent]\" (AC-012.1)")
+	}
+}
+
+// TestViewerHTMLStatusAccentBorderStyle verifies that the status accent uses
+// border-left inline style on the props-grid. TC-F012-1, AC-012.1.
+func TestViewerHTMLStatusAccentBorderStyle(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The renderPropertiesPanel must apply a border-left style using the status color
+	if !strings.Contains(content, "border-left") {
+		t.Error("viewer.html missing \"border-left\" in renderPropertiesPanel — status accent must use left border (AC-012.1)")
+	}
+
+	// The accent color must come from getStatusColor
+	if !strings.Contains(content, "getStatusColor(entity.status)") {
+		t.Error("viewer.html missing getStatusColor(entity.status) call for border accent (AC-012.1)")
+	}
+}
+
+// TestViewerHTMLKeydownNavigationHandler verifies that the global keydown handler
+// for Enter/Space on [data-navigate-key][role="button"] is added. TC-NF-002,
+// AC-NF-002.1, AC-T4.
+func TestViewerHTMLKeydownNavigationHandler(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must check for both Enter and Space keys
+	if !strings.Contains(content, `e.key === 'Enter'`) {
+		t.Error("viewer.html keydown handler missing e.key === 'Enter' check (AC-NF-002.1)")
+	}
+	if !strings.Contains(content, `e.key === ' '`) {
+		t.Error("viewer.html keydown handler missing e.key === ' ' (Space) check (AC-NF-002.1)")
+	}
+
+	// Must match [data-navigate-key][role="button"] elements
+	if !strings.Contains(content, `[data-navigate-key][role="button"]`) {
+		t.Error("viewer.html keydown handler must match [data-navigate-key][role=\"button\"] selector (AC-NF-002.1)")
+	}
+
+	// Must call navigateToEntity with the key
+	if !strings.Contains(content, "navigateToEntity(k)") {
+		t.Error("viewer.html keydown handler must call navigateToEntity(k) (AC-NF-002.1)")
+	}
+
+	// Must call e.preventDefault() to stop Space from scrolling
+	if !strings.Contains(content, "e.preventDefault()") {
+		t.Error("viewer.html keydown handler must call e.preventDefault() to prevent Space scroll (AC-NF-002.1)")
+	}
+}
