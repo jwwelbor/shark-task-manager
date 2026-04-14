@@ -582,7 +582,6 @@
 
     /* Activity / Transitions table */
     .activity-table {
-      width: 100%;
       border-collapse: collapse;
     }
 
@@ -621,7 +620,18 @@
 
     .activity-arrow {
       color: var(--fg-dim);
-      padding: 0 4px;
+      padding: 0 2px;
+    }
+
+    .activity-table td.activity-badge-cell {
+      padding: 7px 3px;
+    }
+
+    .activity-duration {
+      color: var(--fg-dim);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
 
     .activity-note {
@@ -959,7 +969,6 @@
     }
 
     .history-table {
-      width: 100%;
       border-collapse: collapse;
     }
 
@@ -977,9 +986,25 @@
       font-size: 12px;
     }
 
+    .history-table td.history-badge-cell {
+      padding: 8px 3px;
+    }
+
+    .history-table td.history-arrow-cell {
+      padding: 8px 2px;
+      color: var(--fg-dim);
+    }
+
     .history-date {
       color: var(--fg-dim);
       font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .history-duration {
+      color: var(--fg-dim);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
 
@@ -1444,6 +1469,46 @@ function formatDate(isoString) {
   } catch {
     return isoString;
   }
+}
+
+/**
+ * Formats an ISO timestamp to a short human-readable date+time.
+ * e.g. "Apr 9 14:32" or "Apr 9, 2024 14:32" if year differs.
+ * @param {string} isoString
+ * @returns {string}
+ */
+function formatDateTime(isoString) {
+  if (!isoString) return '—';
+  try {
+    const d = new Date(isoString);
+    const now = new Date();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mon = months[d.getMonth()];
+    const day = d.getDate();
+    const hh  = String(d.getHours()).padStart(2, '0');
+    const mm  = String(d.getMinutes()).padStart(2, '0');
+    const time = `${hh}:${mm}`;
+    if (d.getFullYear() !== now.getFullYear()) {
+      return `${mon} ${day}, ${d.getFullYear()} ${time}`;
+    }
+    return `${mon} ${day} ${time}`;
+  } catch {
+    return isoString;
+  }
+}
+
+/**
+ * Formats a duration in milliseconds as hh:mm:ss.
+ * @param {number} ms
+ * @returns {string}
+ */
+function formatDuration(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
 /**
@@ -2130,14 +2195,15 @@ function renderActiveTransitions(epicKey) {
   const rows = filteredActivity.slice(0, 25);
 
   let html = '<table class="activity-table"><tbody>';
-  for (const rec of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const rec         = rows[i];
     const key         = rec.key        || '';
     const fromStatus  = rec.from_status || '';
     const toStatus    = rec.to_status   || '';
     const note        = rec.note        || '';
     const changedAt   = rec.changed_at  || '';
 
-    const dateStr     = escapeHtml(formatDate(changedAt));
+    const dateStr     = escapeHtml(formatDateTime(changedAt));
     const keyHtml     = `<span class="activity-key" data-navigate-key="${escapeHtml(key)}">${escapeHtml(key)}</span>`;
 
     const fromColor   = getStatusColor(fromStatus);
@@ -2150,27 +2216,39 @@ function renderActiveTransitions(epicKey) {
     const toLabel     = escapeHtml(toStatus.replace(/_/g, ' '));
     const toBadge     = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(toColor)};color:${getContrastColor(toColor)}">${toLabel}</span>`;
 
-    const arrowHtml   = fromBadge
-      ? `${fromBadge}<span class="activity-arrow">→</span>${toBadge}`
-      : toBadge;
+    // Duration: find the previous transition for this same entity key.
+    // If none exists in the activity log, fall back to the entity's created_at.
+    let duration = '—';
+    const tCurr = new Date(changedAt);
+    let prevActivityTs = '';
+    for (let j = i + 1; j < filteredActivity.length; j++) {
+      if (filteredActivity[j].key === key) {
+        prevActivityTs = filteredActivity[j].changed_at || '';
+        break;
+      }
+    }
+    const prevTs = prevActivityTs || (findEntityByKey(key)?.created_at || '');
+    if (prevTs) {
+      const tPrev = new Date(prevTs);
+      if (!isNaN(tCurr) && !isNaN(tPrev) && tCurr >= tPrev) {
+        duration = formatDuration(tCurr - tPrev);
+      }
+    }
+    const durationCell = duration === '—' ? '—' : `for ${duration}`;
 
-    const noteTd      = note
+    const noteTd = note
       ? `<td class="activity-note" title="${escapeHtml(note)}">${escapeHtml(note)}</td>`
-      : '<td></td>';
-
-    // Show Open button only if the record has linked_content_path or content_exists
-    const hasContent  = rec.linked_content_path || rec.content_exists;
-    const openBtn     = hasContent
-      ? `<td><button class="open-btn" data-navigate-key="${escapeHtml(key)}">Open</button></td>`
       : '<td></td>';
 
     html += `
       <tr>
         <td class="activity-date">${dateStr}</td>
         <td>${keyHtml}</td>
-        <td>${arrowHtml}</td>
+        <td class="activity-badge-cell">${fromBadge}</td>
+        <td class="activity-duration">${durationCell}</td>
+        <td class="activity-arrow">\u2192</td>
+        <td class="activity-badge-cell">${toBadge}</td>
         ${noteTd}
-        ${openBtn}
       </tr>`;
   }
   html += '</tbody></table>';
@@ -3084,7 +3162,7 @@ function renderEntityView() {
     <div class="toggle-bar">
       ${dashBtnHtml}
       <button class="toggle-btn${infoActive}"  id="ev-tab-info">Spec</button>
-      <button class="toggle-btn${transActive}" id="ev-tab-transitions">Transitions</button>
+      <button class="toggle-btn${transActive}" id="ev-tab-transitions">History</button>
       ${filesBtnHtml}
       ${editBtnHtml}
     </div>
@@ -3152,8 +3230,9 @@ function renderEntityView() {
         return tb.localeCompare(ta);
       });
       let rows = '';
-      for (const entry of sorted) {
-        const date     = escapeHtml(formatDate(entry.changed_at || entry.created_at || entry.timestamp || ''));
+      for (let i = 0; i < sorted.length; i++) {
+        const entry = sorted[i];
+        const date     = escapeHtml(formatDateTime(entry.changed_at || entry.created_at || entry.timestamp || ''));
         const from     = entry.from_status || entry.from || '';
         const to       = entry.to_status   || entry.to   || '';
         const note     = escapeHtml(entry.note || entry.reason || '');
@@ -3161,30 +3240,36 @@ function renderEntityView() {
         const fromBadge = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(fromC)};color:${getContrastColor(fromC)}">${escapeHtml(from.replace(/_/g,' '))}</span>`;
         const toC   = getStatusColor(to);
         const toBadge   = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(toC)};color:${getContrastColor(toC)}">${escapeHtml(to.replace(/_/g,' '))}</span>`;
+        // Duration: time the entity spent in from_status before this transition.
+        // sorted is newest-first, so sorted[i+1] is the prior transition.
+        // For the oldest entry, fall back to entity.created_at.
+        let duration = '—';
+        const tThis = new Date(entry.changed_at || entry.created_at || entry.timestamp || '');
+        const prevTs = i + 1 < sorted.length
+          ? (sorted[i + 1].changed_at || sorted[i + 1].created_at || sorted[i + 1].timestamp || '')
+          : (entity?.created_at || '');
+        if (prevTs) {
+          const tPrev = new Date(prevTs);
+          if (!isNaN(tThis) && !isNaN(tPrev) && tThis >= tPrev) {
+            duration = formatDuration(tThis - tPrev);
+          }
+        }
+        const durationCell = duration === '—' ? '—' : `for ${duration}`;
         rows += `<tr>
           <td class="history-date">${date}</td>
-          <td>${fromBadge}</td>
-          <td style="color:var(--fg-dim);padding:0 4px">\u2192</td>
-          <td>${toBadge}</td>
+          <td class="history-badge-cell">${fromBadge}</td>
+          <td class="history-duration">${durationCell}</td>
+          <td class="history-arrow-cell">\u2192</td>
+          <td class="history-badge-cell">${toBadge}</td>
           <td class="activity-note">${note}</td>
         </tr>`;
       }
       paneEl.innerHTML = `
         <div class="history-drawer">
-          <div class="history-drawer-toolbar">
-            <button class="open-btn" id="ev-history-open-btn">Open</button>
-          </div>
           <table class="history-table">
             <tbody>${rows}</tbody>
           </table>
         </div>`;
-      const openBtn = document.getElementById('ev-history-open-btn');
-      if (openBtn) {
-        openBtn.addEventListener('click', () => {
-          entityViewTab = 'info';
-          renderEntityView();
-        });
-      }
     });
   }
 }
@@ -3603,7 +3688,8 @@ function renderSidebar() {
         if (nodeEl.classList.contains('tree-node-doc-epic') || nodeEl.classList.contains('tree-node-doc-feature')) {
           appState = 'doc_view';
         } else {
-          entityViewTab = 'info';
+          const clickedEntity = findEntityByKey(key);
+          entityViewTab = (clickedEntity && clickedEntity.type === 'epic') ? 'dashboard' : 'info';
           appState = 'entity_view';
         }
         pushNavState();
