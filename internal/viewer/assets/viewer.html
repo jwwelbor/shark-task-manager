@@ -3807,7 +3807,7 @@ function renderSidebar() {
           appState = 'doc_view';
         } else {
           const clickedEntity = findEntityByKey(key);
-          entityViewTab = (clickedEntity && clickedEntity.type === 'epic') ? 'dashboard' : 'info';
+          entityViewTab = 'overview';
           appState = 'entity_view';
         }
         pushNavState();

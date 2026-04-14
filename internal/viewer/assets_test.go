@@ -1268,6 +1268,20 @@ func TestViewerHTMLInlineEditToggleInSpecPane(t *testing.T) {
 	}
 }
 
+// TestViewerHTMLSidebarClickNoEpicDashboardBranch verifies that the
+// sidebarContent.onclick handler does not contain the old E27-F08 branching
+// logic that set entityViewTab to 'dashboard' for epics and 'info' for others.
+// The sidebar click must unconditionally set entityViewTab = 'overview'.
+// Regression gate for T-E27-F09-004 bug fix.
+func TestViewerHTMLSidebarClickNoEpicDashboardBranch(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The old clickedEntity branching (epic->dashboard, other->info) must not exist
+	if strings.Contains(content, "clickedEntity.type === 'epic') ? 'dashboard'") {
+		t.Error("viewer.html still has clickedEntity epic→dashboard branch in sidebarContent.onclick — must be replaced with unconditional 'overview'")
+	}
+}
+
 // TestViewerHTMLF09RegressionGate verifies that all E27-F08 markers survive the
 // F09 changes. Regression gate for Scenario 6 of spec §1.3.
 func TestViewerHTMLF09RegressionGate(t *testing.T) {
