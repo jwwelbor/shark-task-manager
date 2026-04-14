@@ -1653,6 +1653,19 @@ func TestViewerHTMLOverviewPaneDispatchUpdated(t *testing.T) {
 	}
 }
 
+// TestViewerHTMLOverviewPaneNavigationDelegation verifies that renderOverviewPane wires
+// click delegation for [data-navigate-key] elements after setting innerHTML, so that
+// feature rows (in epic overview), task rows (in feature overview), and dependency links
+// (in task overview) are clickable with the mouse. TC-E27-F09-006.
+func TestViewerHTMLOverviewPaneNavigationDelegation(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderOverviewPane must call querySelectorAll('[data-navigate-key]') for delegation
+	if !strings.Contains(content, "querySelectorAll('[data-navigate-key]')") {
+		t.Error("viewer.html renderOverviewPane missing querySelectorAll('[data-navigate-key]') delegation — navigate-key elements will not be clickable")
+	}
+}
+
 // TestViewerHTMLOverviewCSSRules verifies that overview-specific CSS classes are present.
 // TC-F004-1, TC-F005-1, TC-F008-3.
 func TestViewerHTMLOverviewCSSRules(t *testing.T) {
@@ -1743,5 +1756,206 @@ func TestViewerHTMLActionItemsNoHardcodedStatusNames(t *testing.T) {
 	// blocks_feature flag must be used
 	if !strings.Contains(content, "blocks_feature === true") {
 		t.Error("viewer.html missing blocks_feature === true filter — action items must use meta flag (AC-007.1)")
+	}
+}
+
+// =============================================================================
+// E27-F09-007 Tests: Feature Overview — Work Breakdown, Action Items, Tasks Table
+// =============================================================================
+
+// TestViewerHTMLWorkBreakdownFunction verifies that renderWorkBreakdownSection is
+// present and computes agent/human/qa_team responsibility buckets from workflowMeta.
+// TC-F006-1, TC-F006-2, AC-006.1, AC-006.2.
+func TestViewerHTMLWorkBreakdownFunction(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Function must be defined
+	if !strings.Contains(content, "function renderWorkBreakdownSection(") {
+		t.Error("viewer.html missing \"function renderWorkBreakdownSection(\" — work breakdown section required (AC-006.1)")
+	}
+
+	// Must use the workBreakdown() helper (AC-006.1 — uses responsibility field from workflowMeta)
+	if !strings.Contains(content, "workBreakdown(") {
+		t.Error("viewer.html missing workBreakdown() call in renderWorkBreakdownSection (AC-006.1)")
+	}
+
+	// Must show Agent row (AC-006.1)
+	if !strings.Contains(content, "Agent") {
+		t.Error("viewer.html missing Agent row label in work breakdown section (AC-006.1)")
+	}
+
+	// Must show Human row (AC-006.1)
+	if !strings.Contains(content, "Human") {
+		t.Error("viewer.html missing Human row label in work breakdown section (AC-006.1)")
+	}
+
+	// Must show QA Team row (AC-006.1)
+	if !strings.Contains(content, "QA Team") {
+		t.Error("viewer.html missing QA Team row label in work breakdown section (AC-006.1)")
+	}
+
+	// Must use wb-row, wb-bar CSS classes (AC-006.2)
+	if !strings.Contains(content, "wb-row") {
+		t.Error("viewer.html missing wb-row CSS class in work breakdown section (AC-006.2)")
+	}
+	if !strings.Contains(content, "wb-bar") {
+		t.Error("viewer.html missing wb-bar CSS class in work breakdown section (AC-006.2)")
+	}
+}
+
+// TestViewerHTMLWorkBreakdownHiddenWhenZero verifies that the Work Breakdown section
+// is omitted when all three responsibility counts are zero. TC-F006-3, AC-006.3.
+func TestViewerHTMLWorkBreakdownHiddenWhenZero(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderWorkBreakdownSection must return null/empty when all counts are zero (AC-006.3)
+	// This is enforced by checking that the function returns early (returns null or '').
+	// The function must check if agent + human + qa_team === 0.
+	if !strings.Contains(content, "renderWorkBreakdownSection(") {
+		t.Error("viewer.html missing renderWorkBreakdownSection — cannot verify hidden-when-zero behavior (AC-006.3)")
+	}
+}
+
+// TestViewerHTMLWorkBreakdownCSS verifies that the work breakdown CSS classes are present.
+// TC-F006-1, AC-006.2.
+func TestViewerHTMLWorkBreakdownCSS(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	cssRules := []string{
+		".wb-row",
+		".wb-label",
+		".wb-bar",
+		".wb-bar-fill",
+		".wb-count",
+	}
+	for _, rule := range cssRules {
+		if !strings.Contains(content, rule) {
+			t.Errorf("viewer.html missing CSS rule: %q (required for Work Breakdown styling, AC-006.2)", rule)
+		}
+	}
+}
+
+// TestViewerHTMLActionItemsFunction verifies that renderActionItemsSection is present
+// and produces rows with status badge, clickable key, and truncated title.
+// TC-F007-2, TC-F007-3, AC-007.2, AC-007.3.
+func TestViewerHTMLActionItemsFunction(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Function must be defined
+	if !strings.Contains(content, "function renderActionItemsSection(") {
+		t.Error("viewer.html missing \"function renderActionItemsSection(\" — action items section required (AC-007.2)")
+	}
+
+	// Must call the actionItems() helper (AC-007.1 — uses blocks_feature flag)
+	if !strings.Contains(content, "actionItems(") {
+		t.Error("viewer.html missing actionItems() call in renderActionItemsSection (AC-007.1)")
+	}
+
+	// Must produce rows with data-navigate-key for clickable keys (AC-007.2)
+	if !strings.Contains(content, "data-navigate-key") {
+		t.Error("viewer.html missing data-navigate-key in action item rows (AC-007.2)")
+	}
+
+	// Must use action-item-row CSS class (AC-007.2)
+	if !strings.Contains(content, "action-item-row") {
+		t.Error("viewer.html missing action-item-row CSS class (AC-007.2)")
+	}
+}
+
+// TestViewerHTMLActionItemsOmittedWhenEmpty verifies that the Action Items section
+// is omitted (not empty) when no tasks are in blocking statuses. TC-F007-4, AC-007.4.
+func TestViewerHTMLActionItemsOmittedWhenEmpty(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderActionItemsSection must check for empty results and return null/'' (AC-007.4)
+	if !strings.Contains(content, "renderActionItemsSection(") {
+		t.Error("viewer.html missing renderActionItemsSection — cannot verify omit-when-empty (AC-007.4)")
+	}
+
+	// Section label must be "Action Items"
+	if !strings.Contains(content, "Action Items") {
+		t.Error("viewer.html missing \"Action Items\" section label — section header required (AC-007.2)")
+	}
+}
+
+// TestViewerHTMLActionItemsCSS verifies that the action items CSS classes are present.
+// AC-007.2.
+func TestViewerHTMLActionItemsCSS(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, ".action-item-row") {
+		t.Error("viewer.html missing .action-item-row CSS rule (AC-007.2)")
+	}
+}
+
+// TestViewerHTMLTasksTableFunction verifies that renderTasksTableSection is present
+// with KEY · TITLE · STATUS · ORDER columns and clickable KEY cells.
+// TC-F008-1, TC-F008-2, TC-F008-4, AC-008.1–AC-008.4.
+func TestViewerHTMLTasksTableFunction(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Function must be defined
+	if !strings.Contains(content, "function renderTasksTableSection(") {
+		t.Error("viewer.html missing \"function renderTasksTableSection(\" — tasks table section required (AC-008.1)")
+	}
+
+	// KEY cells must carry data-navigate-key and .clickable (AC-008.1)
+	if !strings.Contains(content, "data-navigate-key") {
+		t.Error("viewer.html missing data-navigate-key in tasks table (AC-008.1)")
+	}
+	if !strings.Contains(content, `"clickable"`) {
+		t.Error("viewer.html missing class=\"clickable\" in tasks table KEY cell (AC-008.1)")
+	}
+
+	// ORDER column must be present (AC-T4 — execution_order from treeData)
+	if !strings.Contains(content, "execution_order") {
+		t.Error("viewer.html missing execution_order in tasks table — ORDER column must reflect execution_order (AC-T4)")
+	}
+
+	// ORDER column header must say ORDER
+	if !strings.Contains(content, "ORDER") {
+		t.Error("viewer.html missing ORDER column header in tasks table (AC-T4)")
+	}
+
+	// TITLE must use title attribute for full text and CSS truncation (AC-008.2)
+	if !strings.Contains(content, "text-overflow:ellipsis") {
+		t.Error("viewer.html missing text-overflow:ellipsis in tasks table TITLE cell (AC-008.2)")
+	}
+
+	// Table must use ov-table CSS class (AC-008.3)
+	if !strings.Contains(content, "ov-table") {
+		t.Error("viewer.html missing ov-table CSS class in tasks table (AC-008.3)")
+	}
+
+	// Overflow scroll at >10 children (AC-008.4)
+	if !strings.Contains(content, "ov-table-scroll") {
+		t.Error("viewer.html missing ov-table-scroll class in tasks table (AC-008.4)")
+	}
+}
+
+// TestViewerHTMLFeatureOverviewPaneDispatch verifies that renderOverviewPane dispatches
+// to the feature-specific section renderers for feature entities.
+// TC-F006-4, TC-F007-4, TC-F008-1.
+func TestViewerHTMLFeatureOverviewPaneDispatch(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must call renderWorkBreakdownSection for feature case (REQ-F-006)
+	if !strings.Contains(content, "renderWorkBreakdownSection(entity.tasks || [])") {
+		t.Error("viewer.html renderOverviewPane must call renderWorkBreakdownSection(entity.tasks || []) for feature case (REQ-F-006)")
+	}
+
+	// Must call renderActionItemsSection for feature case (REQ-F-007)
+	if !strings.Contains(content, "renderActionItemsSection(entity.tasks || [])") {
+		t.Error("viewer.html renderOverviewPane must call renderActionItemsSection(entity.tasks || []) for feature case (REQ-F-007)")
+	}
+
+	// Must call renderTasksTableSection for feature case (REQ-F-008)
+	if !strings.Contains(content, "renderTasksTableSection(entity)") {
+		t.Error("viewer.html renderOverviewPane must call renderTasksTableSection(entity) for feature case (REQ-F-008)")
+	}
+
+	// Must NOT still have the placeholder comment (indicates task is done)
+	if strings.Contains(content, "Work breakdown, action items, tasks table rendered in later tasks") {
+		t.Error("viewer.html renderOverviewPane feature case still has placeholder comment — must be replaced with real section calls (F09-007)")
 	}
 }

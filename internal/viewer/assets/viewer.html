@@ -3650,6 +3650,115 @@ function renderFeaturesTableSection(epic) {
   return sectionShell('Features', tableHtml);
 }
 
+// --- Feature Overview section renderers (REQ-F-006, REQ-F-007, REQ-F-008) ---
+
+/**
+ * Renders the Work Breakdown section for feature Overview.
+ * REQ-F-006: three labelled rows — Agent / Human / QA Team — each with a mini bar.
+ * AC-006.1: counts derived from responsibility field of each task's status in workflowMeta.
+ * AC-006.2: bar width = count / max(1, total_for_all_three_rows) * 100%.
+ * AC-006.3: hidden when all three counts are zero.
+ * AC-006.4: only rendered for feature Overview.
+ * @param {Array} tasks - array of task objects from treeData (feature.tasks)
+ * @returns {string} HTML string or null when all counts are zero
+ */
+function renderWorkBreakdownSection(tasks) {
+  const bd = workBreakdown(tasks);
+  const maxCount = Math.max(1, bd.agent + bd.human + bd.qa_team);
+  // AC-006.3: return null (omit) when all three counts are zero
+  if (bd.agent === 0 && bd.human === 0 && bd.qa_team === 0) return null;
+
+  const rows = [
+    { label: 'Agent',   count: bd.agent },
+    { label: 'Human',   count: bd.human },
+    { label: 'QA Team', count: bd.qa_team },
+  ].map(r => {
+    const pct = (r.count / maxCount * 100).toFixed(2);
+    return `<div class="wb-row">
+      <span class="wb-label">${escapeHtml(r.label)}</span>
+      <div class="wb-bar"><div class="wb-bar-fill" style="width:${pct}%"></div></div>
+      <span class="wb-count">${r.count}</span>
+    </div>`;
+  }).join('');
+
+  return sectionShell('Work Breakdown', rows);
+}
+
+/**
+ * Renders the Action Items section for feature Overview.
+ * REQ-F-007: list of tasks in statuses whose blocks_feature === true.
+ * AC-007.1: filter uses blocks_feature flag — never hardcoded status names.
+ * AC-007.2: each row shows a status badge, clickable key (data-navigate-key), and truncated title.
+ * AC-007.3: rows ordered by status phase, then execution_order, then key.
+ * AC-007.4: section omitted when no tasks match blocks_feature.
+ * @param {Array} tasks - array of task objects
+ * @returns {string} HTML string or null when no blocking tasks
+ */
+function renderActionItemsSection(tasks) {
+  const items = actionItems(tasks);
+  // AC-007.4: omit section entirely when no blocking tasks
+  if (items.length === 0) return null;
+
+  const rows = items.map(t => {
+    const key = escapeHtml(t.key || '');
+    const title = escapeHtml(t.title || t.key || '');
+    const badge = ovStatusBadge(t.status || 'unknown');
+    return `<div class="action-item-row">
+      ${badge}
+      <span class="clickable" role="button" tabindex="0" data-navigate-key="${key}"
+        style="font-family:var(--font-mono,monospace);font-size:12px">${key}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+        title="${title}">${title}</span>
+    </div>`;
+  }).join('');
+
+  return sectionShell('Action Items', rows);
+}
+
+/**
+ * Renders the Tasks table for feature Overview.
+ * REQ-F-008 (feature): KEY · TITLE · STATUS BADGE · ORDER columns.
+ * AC-008.1: KEY cells carry data-navigate-key and .clickable class.
+ * AC-008.2: TITLE cells truncated via CSS; full title in title attribute.
+ * AC-008.3: uses ov-table CSS; rows have bottom-border dividers; hover bg-3.
+ * AC-008.4: body scrolls inside max-height: 420px when >10 rows; header sticky.
+ * AC-T4: ORDER column reflects execution_order from treeData.
+ * @param {object} feature - feature entity object from treeData
+ * @returns {string} HTML string
+ */
+function renderTasksTableSection(feature) {
+  const tasks = feature.tasks || [];
+  if (tasks.length === 0) {
+    return sectionShell('Tasks', '<span style="color:var(--fg-dim);font-size:12px">No tasks</span>');
+  }
+
+  const rows = tasks.map(t => {
+    const key = escapeHtml(t.key || '');
+    const title = escapeHtml(t.title || t.key || '');
+    const badge = ovStatusBadge(t.status || 'unknown');
+    const order = t.execution_order != null ? t.execution_order : '';
+    return `<tr>
+      <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
+      <td>${badge}</td>
+      <td style="text-align:right;color:var(--fg-dim);font-size:12px">${escapeHtml(String(order))}</td>
+    </tr>`;
+  }).join('');
+
+  const scrollClass = tasks.length > 10 ? 'ov-table-scroll' : '';
+  const tableHtml = `
+    <div class="${scrollClass}">
+      <table class="ov-table">
+        <thead><tr>
+          <th>KEY</th><th>TITLE</th><th>STATUS</th><th style="text-align:right">ORDER</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  return sectionShell('Tasks', tableHtml);
+}
+
 /**
  * Dispatches to entity-type-specific overview renderers.
  * Overview is the default tab for epic/feature/task (AC-001.1).
@@ -3676,7 +3785,9 @@ function renderOverviewPane(entity, paneEl) {
       break;
     case 'feature':
       sections.push(renderTaskRollupSection(entity.tasks || []));
-      // Work breakdown, action items, tasks table rendered in later tasks (F09-007/008)
+      sections.push(renderWorkBreakdownSection(entity.tasks || []));
+      sections.push(renderActionItemsSection(entity.tasks || []));
+      sections.push(renderTasksTableSection(entity));
       sections.push(notesPlaceholder(entity.key));
       sections.push(relatedDocsPlaceholder(entity.key));
       break;
@@ -3691,6 +3802,14 @@ function renderOverviewPane(entity, paneEl) {
   }
 
   paneEl.innerHTML = `<div class="overview-pane overview-${escapeHtml(entity.type)}">${sections.filter(Boolean).join('')}</div>`;
+
+  // Wire click delegation for [data-navigate-key] elements (feature rows, task rows, dep links)
+  paneEl.querySelectorAll('[data-navigate-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.getAttribute('data-navigate-key');
+      if (k) navigateToEntity(k);
+    });
+  });
 
   // Fire async notes + docs fetches into their placeholder divs (AC-010.7, AC-011.4)
   loadNotesInto(paneEl.querySelector(`[data-notes-for="${entity.key}"]`), entity.key);
