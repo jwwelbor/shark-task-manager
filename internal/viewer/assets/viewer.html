@@ -764,6 +764,31 @@
       font-size: 13px;
     }
 
+    .entity-view-key-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Copy-key button: unobtrusive — no border/background in rest state */
+    .copy-key-btn {
+      font-size: 11px;
+      padding: 1px 4px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--fg-dim);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      transition: background var(--transition), border-color var(--transition), color var(--transition);
+      flex-shrink: 0;
+    }
+
+    .copy-key-btn:hover {
+      background: var(--bg-3);
+      border-color: var(--border);
+      color: var(--fg);
+    }
+
     .toggle-bar {
       display: flex;
       gap: 4px;
@@ -3011,10 +3036,10 @@ function renderPropertiesPanel(entity) {
   const rows = [];
 
   // Shared base fields
-  pushRow(rows, 'Key',    monoCell(entity.key));
+  // Note: Key row removed — key is shown as the blue link above the title (T-E27-F09-011)
+  // Note: Parent row removed — parent is shown in the breadcrumb (T-E27-F09-011)
   pushRow(rows, 'Status', statusBadgeCell(entity.status));
   pushRow(rows, 'Type',   entity.type ? escapeHtml(entity.type) : null);
-  if (entity.parent) pushRow(rows, 'Parent', monoCell(entity.parent));
 
   // Type-specific fields
   switch (entity.type) {
@@ -3914,11 +3939,14 @@ function renderEntityView() {
   // Edit button is now inside the Spec pane (renderMarkdownPane), NOT in the toggle bar (AC-002.1)
   const html = `
     <button class="content-back-link" id="ev-back-btn">← Back</button>
+    ${entity ? renderBreadcrumb(entity) : ''}
     <div class="entity-view-header">
       <div class="entity-view-title">${title}</div>
-      <div class="entity-view-key">${keyLabel}</div>
+      <div class="entity-view-key-row">
+        <div class="entity-view-key">${keyLabel}</div>
+        ${entity ? `<button class="copy-btn copy-key-btn" data-copy-value="${escapeHtml(entity.key || keyLabel)}" title="Copy key">⎘</button>` : ''}
+      </div>
     </div>
-    ${entity ? renderBreadcrumb(entity) : ''}
     ${entity ? renderPropertiesPanel(entity) : ''}
     <div class="toggle-bar">
       ${overviewBtnHtml}

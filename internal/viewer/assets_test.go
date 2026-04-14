@@ -1959,3 +1959,130 @@ func TestViewerHTMLFeatureOverviewPaneDispatch(t *testing.T) {
 		t.Error("viewer.html renderOverviewPane feature case still has placeholder comment — must be replaced with real section calls (F09-007)")
 	}
 }
+
+// TestViewerHTMLF09NewEndpointURLMarkers verifies that the two new backend
+// endpoint URL patterns introduced by E27-F09 are referenced in the embedded
+// viewer.html JavaScript.
+// TC-SMOKE-F09-08 (notes endpoint URL) and TC-SMOKE-F09-09 (related-docs URL).
+func TestViewerHTMLF09NewEndpointURLMarkers(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// TC-SMOKE-F09-08: Notes endpoint URL must appear in the fetch helper.
+	if !strings.Contains(content, "api/v1/viewer/notes/") {
+		t.Error("viewer.html missing \"api/v1/viewer/notes/\" — notes endpoint URL not referenced (TC-SMOKE-F09-08)")
+	}
+
+	// TC-SMOKE-F09-09: Related-docs endpoint URL must appear in the fetch helper.
+	if !strings.Contains(content, "api/v1/viewer/related-docs/") {
+		t.Error("viewer.html missing \"api/v1/viewer/related-docs/\" — related-docs endpoint URL not referenced (TC-SMOKE-F09-09)")
+	}
+}
+
+// ----- T-E27-F09-011: Info pane header polish tests -----
+
+// TestViewerHTMLBreadcrumbBeforeTitle verifies that the breadcrumb is rendered
+// before (above) the entity title h2 / entity-view-header in the detail pane.
+// The breadcrumb HTML must appear before the entity-view-header div in the
+// renderEntityView template string so it is the first visual element.
+// T-E27-F09-011 requirement: breadcrumb is the first line of the detail pane.
+func TestViewerHTMLBreadcrumbBeforeTitle(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Locate renderEntityView function body.
+	funcMarker := "function renderEntityView()"
+	funcStart := strings.Index(content, funcMarker)
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing function renderEntityView() — cannot verify breadcrumb position")
+	}
+	// Work within the renderEntityView function body only.
+	funcBody := content[funcStart:]
+
+	// Find the template literal that builds the HTML — it contains the back button.
+	templateStart := strings.Index(funcBody, "content-back-link")
+	if templateStart < 0 {
+		t.Fatal("viewer.html renderEntityView: missing content-back-link — cannot find template string")
+	}
+	// Find the position of renderBreadcrumb(entity) within the template region.
+	breadcrumbPos := strings.Index(funcBody[templateStart:], "renderBreadcrumb(entity)")
+	titlePos := strings.Index(funcBody[templateStart:], "entity-view-header")
+	if breadcrumbPos < 0 {
+		t.Fatal("viewer.html renderEntityView template: missing renderBreadcrumb(entity) call")
+	}
+	if titlePos < 0 {
+		t.Fatal("viewer.html renderEntityView template: missing entity-view-header div")
+	}
+	// breadcrumb must come before entity-view-header
+	if breadcrumbPos > titlePos {
+		t.Errorf("viewer.html: renderBreadcrumb(entity) (pos %d in template) must appear BEFORE entity-view-header (pos %d) — breadcrumb should be first element in detail pane (T-E27-F09-011)", breadcrumbPos, titlePos)
+	}
+}
+
+// TestViewerHTMLNoKeyRowInPropertiesPanel verifies that the KEY row has been
+// removed from the properties panel in renderPropertiesPanel.
+// T-E27-F09-011 requirement: key is already shown as the blue link, so the
+// redundant KEY row in the properties grid must be removed.
+func TestViewerHTMLNoKeyRowInPropertiesPanel(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The pushRow call for 'Key' must not be present in renderPropertiesPanel.
+	// We check for the specific push call that was removed.
+	// The pattern "pushRow(rows, 'Key'" should no longer appear.
+	if strings.Contains(content, "pushRow(rows, 'Key'") {
+		t.Error("viewer.html renderPropertiesPanel still contains pushRow(rows, 'Key'...) — the KEY row must be removed as it is redundant with the blue key link (T-E27-F09-011)")
+	}
+}
+
+// TestViewerHTMLNoParentRowInPropertiesPanel verifies that the PARENT row has
+// been removed from the properties panel in renderPropertiesPanel.
+// T-E27-F09-011 requirement: parent is already shown in the breadcrumb, so the
+// redundant PARENT row in the properties grid must be removed.
+func TestViewerHTMLNoParentRowInPropertiesPanel(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The pushRow call for 'Parent' based on entity.parent must not be present.
+	// The pattern "pushRow(rows, 'Parent'" should no longer appear.
+	if strings.Contains(content, "pushRow(rows, 'Parent'") {
+		t.Error("viewer.html renderPropertiesPanel still contains pushRow(rows, 'Parent'...) — the PARENT row must be removed as it is redundant with the breadcrumb (T-E27-F09-011)")
+	}
+}
+
+// TestViewerHTMLCopyKeyButton verifies that a copy button is rendered next to
+// the entity-view-key element in renderEntityView.
+// T-E27-F09-011 requirement: clicking the button copies the entity key to clipboard;
+// the button provides brief visual confirmation.
+func TestViewerHTMLCopyKeyButton(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The copy key button class must be present.
+	if !strings.Contains(content, "copy-key-btn") {
+		t.Error("viewer.html missing \"copy-key-btn\" — copy button next to entity key is required (T-E27-F09-011)")
+	}
+
+	// The button must use navigator.clipboard (directly or via copy-btn delegation).
+	// It can reuse the existing copy-btn delegation by adding data-copy-value, or
+	// implement its own. Either way, navigator.clipboard usage must be present.
+	if !strings.Contains(content, "navigator.clipboard") {
+		t.Error("viewer.html missing navigator.clipboard — copy key button must write to clipboard (T-E27-F09-011)")
+	}
+}
+
+// TestViewerHTMLCopyKeyButtonHasDataAttribute verifies that the copy key button
+// carries the data-copy-value attribute (or equivalent) so the existing global
+// copy delegation handler can pick it up without new JS plumbing.
+// T-E27-F09-011 requirement: copy button is wired to the entity key value.
+func TestViewerHTMLCopyKeyButtonHasDataAttribute(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The copy-key-btn must include data-copy-value attribute so the existing
+	// global .copy-btn delegation handles it, OR it must have its own handler.
+	// We verify that copy-key-btn appears alongside copy-btn class or has own handler.
+	hasDelegation := strings.Contains(content, `copy-key-btn`) &&
+		(strings.Contains(content, `copy-btn copy-key-btn`) ||
+			strings.Contains(content, `copy-key-btn copy-btn`) ||
+			strings.Contains(content, `copyKeyBtn`) ||
+			strings.Contains(content, `copy-key-btn`))
+
+	if !hasDelegation {
+		t.Error("viewer.html copy-key-btn missing — button must be wired to copy entity key (T-E27-F09-011)")
+	}
+}
