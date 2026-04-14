@@ -1,218 +1,71 @@
 ---
-feature_key: E07-F39-remove-legacy-relationship-tables-and-dual-path-qu
+feature_key: E07-F39
 epic_key: E07
 title: Remove legacy relationship tables and dual-path query code
-description: 
 ---
 
-# Remove legacy relationship tables and dual-path query code
+# Remove Legacy Relationship Tables and Dual-Path Query Code
 
-**Feature Key**: E07-F39-remove-legacy-relationship-tables-and-dual-path-qu
+## Problem
 
----
+Three legacy relationship tables (`task_relationships`, `feature_relationships`,
+`epic_relationships`) still have active read/write paths in the codebase despite
+data having been migrated to the canonical `entity_relationships` table in E21-F11.
+This means writes can go to stale tables, reads may miss data, and the same
+relationship logic is maintained in multiple places.
 
-## Epic
+Compounding this, the viewer's `Hierarchy()` endpoint was built with a bespoke
+bulk-load adapter (`taskRelAdapter`) that bypasses `EntityRelationshipService`
+entirely. The stated reason was avoiding N+1 queries across the full hierarchy —
+but this concern was premature: the hierarchy endpoint already makes many queries,
+one-per-task for relationships is not meaningfully more expensive, and the bypass
+produced real bugs (task-only visibility, drift to legacy table).
 
-- **Epic PRD**: [Epic](../../epic.md)
-- **Epic Architecture**: [Architecture](../../architecture.md) _(if available)_
+## Intended Architecture
 
----
+Entity detail loading in the viewer should follow the same pattern as `shark get {id}`:
+query entity details on demand as the user opens them. The viewer tree renders
+top-level nodes on load; detail (including relationships) is fetched when a node
+is expanded or selected, using the same service calls the CLI uses.
 
-## Goal
+The only legitimate case for a dedicated aggregate query is the **dashboard** — project-
+wide counts, progress rollups, blocked task totals — where a wide scan is genuinely
+needed. That is a bounded, explicit use case and does not justify a bespoke bulk adapter
+for the full relationship graph.
 
-### Problem
-[Describe the user problem or business need in 3-5 sentences. Be specific about who experiences this problem and why it matters.]
+## Scope
 
-### Solution
-[Explain how this feature solves the problem. Focus on the "what" not the "how."]
+**Task 001 — Remove legacy table references**
+- Delete or replace `internal/repository/task/relationship.go`,
+  `internal/repository/feature/relationship.go`,
+  `internal/repository/epic/relationship.go` with calls to the entityrel repo
+- Remove dual-path fallbacks in `internal/repository/task/dependency.go`
+  and `internal/config/template/helpers.go`
+- Remove legacy models (`task_relationship.go`, `feature_relationship.go`,
+  `epic_relationship.go`) once callers are gone
+- Add DROP TABLE migration for the three legacy tables
 
-### Impact
-[Define expected outcomes with specific, measurable metrics.]
+**Task 002 — Replace viewer adapter layer**
+- Delete `taskRelAdapter` and `ViewerTaskRelationshipRepository` interface
+- Wire `EntityRelationshipService` into `ViewerService` for per-entity on-demand calls
+- Remove `ViewerTaskRelationship` struct; use `models.EntityRelationship` directly
+- Update `ViewerTask` relationship fields to carry entity type + key so cross-entity
+  links (task→bug, task→feature) are visible in the hierarchy
 
-**Examples**:
-- Reduce user onboarding time by 40%
-- Increase feature adoption to 60% of active users within 3 months
+## Design Decisions
 
----
+**Do not pre-load the full relationship graph on hierarchy load.** Load relationships
+per entity when that entity is requested, matching `shark get {id}` behaviour.
 
-## User Personas
-
-### Persona 1: [Persona Name/Role]
-
-**Profile**:
-- **Role/Title**: [e.g., "Marketing Manager at mid-size B2B SaaS company"]
-- **Experience Level**: [e.g., "3-5 years in role, moderate technical proficiency"]
-- **Key Characteristics**:
-  - [Characteristic 1]
-  - [Characteristic 2]
-
-**Goals Related to This Feature**:
-1. [Specific goal 1]
-2. [Specific goal 2]
-
-**Pain Points This Feature Addresses**:
-- [Pain point 1]
-- [Pain point 2]
-
-**Success Looks Like**:
-[2-3 sentences describing success from this persona's perspective]
-
----
-
-## User Stories
-
-### Must-Have Stories
-
-**Story 1**: As a [user persona], I want to [perform an action] so that I can [achieve a benefit].
-
-**Acceptance Criteria**:
-- [ ] [Specific testable criterion 1]
-- [ ] [Specific testable criterion 2]
-- [ ] [Specific testable criterion 3]
-
----
-
-### Should-Have Stories
-
-[Follow same format for important but not critical stories]
-
----
-
-### Could-Have Stories
-
-[Follow same format for nice-to-have stories]
-
----
-
-### Edge Case & Error Stories
-
-**Error Story 1**: As a [user persona], when [error condition], I want to [see/receive] so that I can [recover/understand].
-
-**Acceptance Criteria**:
-- [ ] [How error is presented]
-- [ ] [How user can recover]
-
----
-
-## Requirements
-
-### Functional Requirements
-
-**Category: [e.g., Core Functionality]**
-
-1. **REQ-F-001**: [Requirement Title]
-   - **Description**: [Clear, specific, testable requirement statement]
-   - **User Story**: Links to Story [#]
-   - **Priority**: [Must-Have | Should-Have | Could-Have]
-   - **Acceptance Criteria**:
-     - [ ] [Specific criterion 1]
-     - [ ] [Specific criterion 2]
-
----
-
-### Non-Functional Requirements
-
-**Performance**
-
-1. **REQ-NF-001**: [Performance Requirement]
-   - **Description**: [Specific performance target]
-   - **Measurement**: [How it will be measured]
-   - **Target**: [Quantitative threshold, e.g., "Page load < 2 seconds on 3G"]
-   - **Justification**: [Why this matters]
-
-**Security**
-
-1. **REQ-NF-010**: [Security Requirement]
-   - **Description**: [Specific security control]
-   - **Implementation**: [High-level approach]
-   - **Compliance**: [Relevant standards: OWASP, SOC2, etc.]
-   - **Risk Mitigation**: [What threat this addresses]
-
-**Accessibility**
-
-1. **REQ-NF-020**: [Accessibility Requirement]
-   - **Description**: [Specific WCAG criterion]
-   - **Standard**: [WCAG 2.1 Level AA, etc.]
-   - **Testing**: [How compliance will be verified]
-
----
+**Dashboard aggregates are the exception.** If the dashboard needs project-wide
+relationship counts or dependency chain stats, those warrant a dedicated query — but
+scoped to the dashboard handler, not the general hierarchy service.
 
 ## Acceptance Criteria
 
-### Feature-Level Acceptance
-
-**Given/When/Then Format**:
-
-**Scenario 1: [Primary Use Case]**
-- **Given** [initial context/state]
-- **When** [user action is performed]
-- **Then** [expected outcome]
-- **And** [additional outcome]
-
-**Scenario 2: [Error Handling]**
-- **Given** [error precondition]
-- **When** [action that triggers error]
-- **Then** [error is handled gracefully]
-- **And** [user can recover]
-
----
-
-## Out of Scope
-
-### Explicitly Excluded
-
-1. **[Feature/Capability]**
-   - **Why**: [Reasoning - complexity, dependencies, prioritization]
-   - **Future**: [Will this be addressed later? If so, when/why?]
-   - **Workaround**: [How users can accomplish this currently, if applicable]
-
----
-
-### Alternative Approaches Rejected
-
-**Alternative 1: [Approach Name]**
-- **Description**: [Brief overview]
-- **Why Rejected**: [Reasoning]
-
----
-
-## Success Metrics
-
-### Primary Metrics
-
-1. **[Metric Name]**
-   - **What**: [What data point is tracked]
-   - **Target**: [Specific goal]
-   - **Timeline**: [When to achieve]
-   - **Measurement**: [How to measure]
-
----
-
-### Secondary Metrics
-
-- **[Metric]**: [Brief description and target]
-
----
-
-## Dependencies & Integrations
-
-### Dependencies
-
-- **[System/Feature/Service]**: [Description of dependency]
-
-### Integration Requirements
-
-- **[External System]**: [What data/functionality is exchanged]
-
----
-
-## Compliance & Security Considerations
-
-[If applicable, note specific requirements]:
-- **Regulatory**: [GDPR, HIPAA, SOC2, etc.]
-- **Data Protection**: [Encryption, access controls]
-- **Audit**: [Logging, audit trail requirements]
-
----
-
-*Last Updated*: 2026-04-14
+- No production code references `task_relationships`, `feature_relationships`, or
+  `epic_relationships` (db.go DROP migration excepted)
+- `taskRelAdapter`, `ViewerTaskRelationshipRepository`, and `ViewerTaskRelationship`
+  are deleted
+- `shark link add <task> <bug>` round-trips correctly and appears in viewer detail
+- `make fmt && make lint && make test` passes clean
