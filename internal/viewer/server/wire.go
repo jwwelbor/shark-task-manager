@@ -10,6 +10,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/changecard"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entitydoc"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
+	repnote "github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -18,13 +19,15 @@ import (
 
 // Compile-time interface satisfaction checks for adapters.
 var (
-	_ services.WorkSessionRepository            = (*workSessionAdapter)(nil)
-	_ services.TaskHistoryRepository            = (*taskHistoryAdapter)(nil)
-	_ services.ViewerEntityDocRepository        = (*entityDocAdapter)(nil)
-	_ services.ViewerIdeaRepository             = (*ideaAdapter)(nil)
-	_ services.ViewerBugListRepository          = (*bugListAdapter)(nil)
-	_ services.ViewerChangeCardListRepository   = (*changeCardListAdapter)(nil)
-	_ services.ViewerTaskRelationshipRepository = (*taskRelAdapter)(nil)
+	_ services.WorkSessionRepository             = (*workSessionAdapter)(nil)
+	_ services.TaskHistoryRepository             = (*taskHistoryAdapter)(nil)
+	_ services.ViewerEntityDocRepository         = (*entityDocAdapter)(nil)
+	_ services.ViewerIdeaRepository              = (*ideaAdapter)(nil)
+	_ services.ViewerBugListRepository           = (*bugListAdapter)(nil)
+	_ services.ViewerChangeCardListRepository    = (*changeCardListAdapter)(nil)
+	_ services.ViewerTaskRelationshipRepository  = (*taskRelAdapter)(nil)
+	_ services.ViewerEntityNoteRepository        = (*repnote.EntityNoteRepository)(nil)
+	_ services.ViewerEntityDocByEntityRepository = (*entitydoc.EntityDocumentRepository)(nil)
 )
 
 // ideaAdapter adapts *idea.IdeaRepository to services.ViewerIdeaRepository.
@@ -344,6 +347,8 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	viewerService.WithBugListRepo(&bugListAdapter{repo: bugRepoAdapter})
 	viewerService.WithChangeCardListRepo(&changeCardListAdapter{repo: changeCardRepoAdapter})
 	viewerService.WithTaskRelRepo(&taskRelAdapter{db: db})
+	viewerService.WithNoteRepo(repnote.NewEntityNoteRepository(db))
+	viewerService.WithDocByEntityRepo(entitydoc.NewEntityDocumentRepository(db))
 
 	// Step 6: Construct EditService for the file-write endpoint.
 	editService := services.NewEditService(projectRoot)

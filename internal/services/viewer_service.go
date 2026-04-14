@@ -106,6 +106,18 @@ type ViewerEntityDocRepository interface {
 	ListAll(ctx context.Context) ([]*BulkEntityDoc, error)
 }
 
+// ViewerEntityNoteRepository is the minimal note repository interface used by ViewerService.Notes.
+// It is optional — ViewerService degrades gracefully if nil (Notes returns empty slice).
+type ViewerEntityNoteRepository interface {
+	GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
+}
+
+// ViewerEntityDocByEntityRepository is the minimal interface for loading documents for a single entity.
+// It is optional — ViewerService degrades gracefully if nil (RelatedDocs returns empty slice).
+type ViewerEntityDocByEntityRepository interface {
+	ListForEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error)
+}
+
 // ViewerIdeaRepository is the minimal idea repository interface used by ViewerService.
 // It is optional — ViewerService degrades gracefully if nil (ideas section omitted from Summary).
 type ViewerIdeaRepository interface {
@@ -217,6 +229,40 @@ type HistoryResponse struct {
 	EntityType models.EntityType       `json:"entity_type"`
 	EntityKey  string                  `json:"entity_key"`
 	Records    []*models.EntityHistory `json:"records"`
+}
+
+// NoteDTO is a single note item returned by ViewerService.Notes.
+// Only the six fields documented in REQ-F-020 AC-020.3 are exposed;
+// metadata and updated_at are intentionally omitted.
+type NoteDTO struct {
+	ID        int64  `json:"id"`
+	NoteType  string `json:"note_type"`
+	Content   string `json:"content"`
+	CreatedBy string `json:"created_by,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+// NotesResponse is the response type for ViewerService.Notes.
+// Notes is always a non-nil slice (may be empty) to satisfy AC-020.1.
+type NotesResponse struct {
+	EntityType models.EntityType `json:"entity_type"`
+	EntityKey  string            `json:"entity_key"`
+	Notes      []NoteDTO         `json:"notes"`
+}
+
+// RelatedDocDTO is a single related document returned by ViewerService.RelatedDocs.
+type RelatedDocDTO struct {
+	ID       int64  `json:"id"`
+	Title    string `json:"title"`
+	FilePath string `json:"file_path"`
+}
+
+// RelatedDocsResponse is the response type for ViewerService.RelatedDocs.
+// Docs is always a non-nil slice (may be empty) to satisfy AC-021.1.
+type RelatedDocsResponse struct {
+	EntityType models.EntityType `json:"entity_type"`
+	EntityKey  string            `json:"entity_key"`
+	Docs       []RelatedDocDTO   `json:"docs"`
 }
 
 // FileResponse is the response type for ViewerService.File.
@@ -356,11 +402,13 @@ type ViewerService struct {
 	bugRepo            ViewerBugRepository
 	changeCardRepo     ViewerChangeCardRepository
 	historyRepo        ViewerEntityHistoryRepository
-	entityDocRepo      ViewerEntityDocRepository        // optional; used by Hierarchy for linked docs
-	ideaRepo           ViewerIdeaRepository             // optional; used by Summary and Hierarchy
-	bugListRepo        ViewerBugListRepository          // optional; used by Hierarchy for bug flat list
-	changeCardListRepo ViewerChangeCardListRepository   // optional; used by Hierarchy for change card flat list
-	taskRelRepo        ViewerTaskRelationshipRepository // optional; used by Hierarchy for dependency fields
+	entityDocRepo      ViewerEntityDocRepository         // optional; used by Hierarchy for linked docs
+	noteRepo           ViewerEntityNoteRepository        // optional; used by Notes endpoint
+	docByEntityRepo    ViewerEntityDocByEntityRepository // optional; used by RelatedDocs endpoint
+	ideaRepo           ViewerIdeaRepository              // optional; used by Summary and Hierarchy
+	bugListRepo        ViewerBugListRepository           // optional; used by Hierarchy for bug flat list
+	changeCardListRepo ViewerChangeCardListRepository    // optional; used by Hierarchy for change card flat list
+	taskRelRepo        ViewerTaskRelationshipRepository  // optional; used by Hierarchy for dependency fields
 	workflowSvc        *workflow.Service
 	statusCalc         *status.CalculationService // optional; reserved for future use
 	projectRoot        string
@@ -406,6 +454,16 @@ func NewViewerService(
 // Call after NewViewerService; safe to skip (docs section will be empty).
 func (s *ViewerService) WithEntityDocRepo(r ViewerEntityDocRepository) {
 	s.entityDocRepo = r
+}
+
+// WithNoteRepo wires the optional note repository; safe to skip (Notes returns empty slice when nil).
+func (s *ViewerService) WithNoteRepo(r ViewerEntityNoteRepository) {
+	s.noteRepo = r
+}
+
+// WithDocByEntityRepo wires the optional per-entity document repository; safe to skip (RelatedDocs returns empty slice when nil).
+func (s *ViewerService) WithDocByEntityRepo(r ViewerEntityDocByEntityRepository) {
+	s.docByEntityRepo = r
 }
 
 // WithIdeaRepo wires the optional idea repository used by Summary and Hierarchy.
@@ -943,6 +1001,100 @@ func (s *ViewerService) History(ctx context.Context, key string) (*HistoryRespon
 		EntityKey:  key,
 		Records:    records,
 	}, nil
+}
+
+// Notes returns the notes for the entity identified by key.
+// The entity type is detected from the key format.
+// Returns a NotesResponse with an empty (non-nil) Notes slice when noteRepo is nil
+// or the entity has no notes — satisfying AC-020.1 and AC-T2.
+func (s *ViewerService) Notes(ctx context.Context, key string) (*NotesResponse, error) {
+	entityType, err := detectEntityType(key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer notes: %w", err)
+	}
+
+	normalizedKey := strings.ToUpper(strings.TrimSpace(key))
+	out := &NotesResponse{
+		EntityType: entityType,
+		EntityKey:  normalizedKey,
+		Notes:      []NoteDTO{},
+	}
+
+	if s.noteRepo == nil {
+		return out, nil
+	}
+
+	entityID, err := s.resolveEntityID(ctx, entityType, key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer notes: %w", err)
+	}
+
+	raw, err := s.noteRepo.GetByEntity(ctx, entityType, entityID)
+	if err != nil {
+		return nil, fmt.Errorf("viewer notes: failed to load notes for %s %s: %w", entityType, key, err)
+	}
+
+	// Repo returns ASC; reverse for DESC order (AC-020.2 / AC-T1).
+	out.Notes = make([]NoteDTO, 0, len(raw))
+	for i := len(raw) - 1; i >= 0; i-- {
+		n := raw[i]
+		createdBy := ""
+		if n.CreatedBy != nil {
+			createdBy = *n.CreatedBy
+		}
+		out.Notes = append(out.Notes, NoteDTO{
+			ID:        n.ID,
+			NoteType:  string(n.NoteType),
+			Content:   n.Content,
+			CreatedBy: createdBy,
+			CreatedAt: n.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	return out, nil
+}
+
+// RelatedDocs returns the related documents for the entity identified by key.
+// The entity type is detected from the key format.
+// Returns a RelatedDocsResponse with an empty (non-nil) Docs slice when
+// docByEntityRepo is nil or the entity has no docs — satisfying AC-021.1 and AC-T3.
+func (s *ViewerService) RelatedDocs(ctx context.Context, key string) (*RelatedDocsResponse, error) {
+	entityType, err := detectEntityType(key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer related-docs: %w", err)
+	}
+
+	normalizedKey := strings.ToUpper(strings.TrimSpace(key))
+	out := &RelatedDocsResponse{
+		EntityType: entityType,
+		EntityKey:  normalizedKey,
+		Docs:       []RelatedDocDTO{},
+	}
+
+	if s.docByEntityRepo == nil {
+		return out, nil
+	}
+
+	entityID, err := s.resolveEntityID(ctx, entityType, key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer related-docs: %w", err)
+	}
+
+	raw, err := s.docByEntityRepo.ListForEntity(ctx, entityType, entityID)
+	if err != nil {
+		return nil, fmt.Errorf("viewer related-docs: failed to load docs for %s %s: %w", entityType, key, err)
+	}
+
+	out.Docs = make([]RelatedDocDTO, 0, len(raw))
+	for _, d := range raw {
+		out.Docs = append(out.Docs, RelatedDocDTO{
+			ID:       d.ID,
+			Title:    d.Title,
+			FilePath: d.FilePath,
+		})
+	}
+
+	return out, nil
 }
 
 // detectEntityType infers the entity type from the key format using the keys package
