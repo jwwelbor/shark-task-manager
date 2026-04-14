@@ -1997,10 +1997,10 @@ func TestViewerHTMLBreadcrumbBeforeTitle(t *testing.T) {
 	// Work within the renderEntityView function body only.
 	funcBody := content[funcStart:]
 
-	// Find the template literal that builds the HTML — it contains the back button.
-	templateStart := strings.Index(funcBody, "content-back-link")
+	// Find the template literal that builds the HTML — anchored on the const html assignment.
+	templateStart := strings.Index(funcBody, "const html = `")
 	if templateStart < 0 {
-		t.Fatal("viewer.html renderEntityView: missing content-back-link — cannot find template string")
+		t.Fatal("viewer.html renderEntityView: missing 'const html = `' — cannot find template string")
 	}
 	// Find the position of renderBreadcrumb(entity) within the template region.
 	breadcrumbPos := strings.Index(funcBody[templateStart:], "renderBreadcrumb(entity)")

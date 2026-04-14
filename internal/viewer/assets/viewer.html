@@ -3990,7 +3990,6 @@ function renderEntityView() {
 
   // Edit button is now inside the Spec pane (renderMarkdownPane), NOT in the toggle bar (AC-002.1)
   const html = `
-    <button class="content-back-link" id="ev-back-btn">← Back</button>
     ${entity ? renderBreadcrumb(entity) : ''}
     <div class="entity-view-header">
       <div class="entity-view-title">${title}</div>
@@ -4011,8 +4010,6 @@ function renderEntityView() {
   `;
 
   content.innerHTML = html;
-
-  document.getElementById('ev-back-btn').addEventListener('click', () => history.back());
 
   // Wire Overview tab button (epic/feature/task only)
   const overviewTabBtn = document.getElementById('ev-tab-overview');
