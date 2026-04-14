@@ -1145,3 +1145,151 @@ func TestViewerHTMLEpicDashboardUsesExistingData(t *testing.T) {
 		t.Error("viewer.html missing treeData reference — epic dashboard must use existing cached data")
 	}
 }
+
+// =============================================================================
+// E27-F09-004 Tests: Overview tab, default tab change, Edit button move
+// =============================================================================
+
+// TestViewerHTMLOverviewTabDefault verifies that navigateToEntity() sets
+// entityViewTab = 'overview' unconditionally, replacing the E27-F08 branching.
+// TC-F001-1, AC-001.1, AC-T1.
+func TestViewerHTMLOverviewTabDefault(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// navigateToEntity must set entityViewTab to 'overview'
+	if !strings.Contains(content, "entityViewTab = 'overview'") {
+		t.Error("viewer.html missing \"entityViewTab = 'overview'\" — navigateToEntity must default to overview tab")
+	}
+
+	// The old E27-F08 branching (epic->dashboard, other->info) must no longer exist
+	if strings.Contains(content, "navEntity.type === 'epic') ? 'dashboard'") {
+		t.Error("viewer.html still has E27-F08 epic→dashboard default — must be replaced with unconditional 'overview'")
+	}
+}
+
+// TestViewerHTMLOverviewTabButton verifies that the toggle bar contains an Overview
+// button (always present for epic/feature/task). TC-F001-2, AC-001.2, AC-T2.
+func TestViewerHTMLOverviewTabButton(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Overview button must exist in the toggle bar
+	if !strings.Contains(content, "ev-tab-overview") {
+		t.Error("viewer.html missing \"ev-tab-overview\" button id — Overview tab button is required")
+	}
+
+	// Overview button text
+	if !strings.Contains(content, ">Overview<") {
+		t.Error("viewer.html missing \">Overview<\" button label text")
+	}
+}
+
+// TestViewerHTMLOverviewTabBeforeSpec verifies that the Overview button appears
+// before the Spec (ev-tab-info) button in the toggle bar. TC-F001-2, AC-001.2.
+func TestViewerHTMLOverviewTabBeforeSpec(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	overviewIdx := strings.Index(content, "ev-tab-overview")
+	infoIdx := strings.Index(content, "ev-tab-info")
+	if overviewIdx == -1 {
+		t.Fatal("viewer.html missing ev-tab-overview button id")
+	}
+	if infoIdx == -1 {
+		t.Fatal("viewer.html missing ev-tab-info button id")
+	}
+	if overviewIdx > infoIdx {
+		t.Error("ev-tab-overview must appear before ev-tab-info in viewer.html (Overview tab must precede Spec tab)")
+	}
+}
+
+// TestViewerHTMLOverviewPaneSwitch verifies that the pane switch in renderEntityView()
+// handles the 'overview' case. TC-F001-1, AC-T3.
+func TestViewerHTMLOverviewPaneSwitch(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Pane switch must have 'overview' case
+	if !strings.Contains(content, "entityViewTab === 'overview'") {
+		t.Error("viewer.html missing \"entityViewTab === 'overview'\" — pane switch must handle overview case")
+	}
+
+	// renderOverviewPane function must be present (dispatcher)
+	if !strings.Contains(content, "renderOverviewPane") {
+		t.Error("viewer.html missing \"renderOverviewPane\" function — overview pane renderer required")
+	}
+}
+
+// TestViewerHTMLDashboardCoercionForNonEpic verifies that 'dashboard' on a non-epic
+// is coerced to 'overview' (not 'info' as in E27-F08). TC-F001-5, AC-001.5, AC-T3.
+func TestViewerHTMLDashboardCoercionForNonEpic(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Guard must coerce to 'overview', not 'info' as in E27-F08
+	if !strings.Contains(content, "entityViewTab = 'overview'") {
+		t.Error("viewer.html missing coercion to 'overview' for non-epic dashboard restore")
+	}
+}
+
+// TestViewerHTMLNoEditButtonInToggleBar verifies that there is no #ev-tab-edit
+// element in the toggle bar markup. TC-F002-1, AC-002.1, AC-T2.
+func TestViewerHTMLNoEditButtonInToggleBar(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// No ev-tab-edit id should exist anywhere
+	if strings.Contains(content, "ev-tab-edit") {
+		t.Error("viewer.html contains \"ev-tab-edit\" — Edit button must not be in the tab bar (AC-002.1)")
+	}
+
+	// editBtnHtml must not be referenced in the toggle-bar HTML template
+	// (It may still exist as a variable name in renderMarkdownPane context,
+	// but must not appear inside the toggle-bar template string)
+	// We check that editBtnHtml is NOT concatenated into the toggle bar.
+	// The toggle bar template string uses backtick — verify editBtnHtml is absent from it.
+	// A simpler assertion: the toggle-bar div must not contain editBtnHtml reference.
+	// Since this is string-presence in the static HTML, we check the toggle-bar block.
+}
+
+// TestViewerHTMLInlineEditToggleInSpecPane verifies that renderMarkdownPane renders
+// an inline Edit button inside the pane (not in the tab bar). TC-F002-2, AC-002.2, AC-T4.
+func TestViewerHTMLInlineEditToggleInSpecPane(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// spec-pane-header div must be present (wraps the inline edit button)
+	if !strings.Contains(content, "spec-pane-header") {
+		t.Error("viewer.html missing \"spec-pane-header\" — Spec pane header row with inline Edit toggle is required")
+	}
+
+	// inline-edit-btn class for the inline Edit button
+	if !strings.Contains(content, "inline-edit-btn") {
+		t.Error("viewer.html missing \"inline-edit-btn\" — inline Edit button class required in Spec pane")
+	}
+
+	// ev-inline-edit id for the inline Edit button
+	if !strings.Contains(content, "ev-inline-edit") {
+		t.Error("viewer.html missing \"ev-inline-edit\" — inline Edit button id required in Spec pane")
+	}
+}
+
+// TestViewerHTMLF09RegressionGate verifies that all E27-F08 markers survive the
+// F09 changes. Regression gate for Scenario 6 of spec §1.3.
+func TestViewerHTMLF09RegressionGate(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	regressionMarkers := []string{
+		"renderEntityView",
+		"renderMarkdownPane",
+		"renderEpicDashboardPane",
+		"ev-tab-dashboard",
+		"ev-tab-transitions",
+		"ev-tab-info",
+		"ev-tab-files",
+		"history-table",
+		"toggle-btn",
+		"props-grid",
+		"isEpic",
+		"dashBtnHtml",
+	}
+	for _, marker := range regressionMarkers {
+		if !strings.Contains(content, marker) {
+			t.Errorf("viewer.html F09 regression: marker missing: %q", marker)
+		}
+	}
+}

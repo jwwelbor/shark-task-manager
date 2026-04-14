@@ -792,6 +792,36 @@
       color: var(--accent);
     }
 
+    /* Spec pane inline edit header (E27-F09) */
+    .spec-pane-header {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      min-height: 28px;
+      margin-bottom: 8px;
+    }
+
+    .inline-edit-btn {
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-2);
+      color: var(--fg-muted);
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    .inline-edit-btn:hover {
+      background: var(--bg-3);
+      color: var(--fg);
+    }
+
+    /* Overview pane (E27-F09) */
+    .overview-pane {
+      padding: 4px 0;
+    }
+
     /* Properties panel */
     .props-grid {
       display: grid;
@@ -1810,7 +1840,7 @@ async function loadProjectData() {
 
   // Transition to dashboard
   appState = 'dashboard';
-  history.replaceState({ appState, selectedKey: null, entityViewTab: 'info' }, '');
+  history.replaceState({ appState, selectedKey: null, entityViewTab: 'overview' }, '');
   render();
 }
 
@@ -1894,7 +1924,7 @@ function restoreNavState(state) {
   if (!state) return;
   appState      = state.appState      || 'dashboard';
   selectedKey   = state.selectedKey   || null;
-  entityViewTab = state.entityViewTab || 'info';
+  entityViewTab = state.entityViewTab || 'overview';
   render();
 }
 
@@ -1981,9 +2011,8 @@ function navigateToEntity(key) {
   }
 
   selectedKey = key;
-  // Default to Dashboard tab for epics; Info (Spec) for all other entity types
-  const navEntity = findEntityByKey(key);
-  entityViewTab = (navEntity && navEntity.type === 'epic') ? 'dashboard' : 'info';
+  // Default to Overview tab for all entity types (E27-F09; replaces E27-F08 epic→dashboard branching)
+  entityViewTab = 'overview';
   appState = 'entity_view';
   pushNavState();
   render();
@@ -2654,9 +2683,10 @@ function renderEpicDashboardPane(epicKey, paneEl) {
 
 /**
  * entityViewTab controls which pane is shown in entity view.
- * Values: 'info' | 'transitions' | 'files' | 'dashboard'
+ * Values: 'overview' | 'info' | 'transitions' | 'files' | 'dashboard'
+ * Default is 'overview' (set by navigateToEntity).
  */
-let entityViewTab = 'info';
+let entityViewTab = 'overview';
 
 // ============================================================
 // Edit mode state variables (T-E27-F07-004)
@@ -2944,18 +2974,41 @@ async function renderMarkdownPane(key, paneEl) {
   // Reset edit mode state whenever we load a new pane.
   editMode = false;
 
-  // Show spinner while fetching
-  paneEl.innerHTML = `<div class="loading-indicator" style="padding:40px 0"><div class="loading-spinner"></div><div class="loading-text">Loading content\u2026</div></div>`;
+  // Render spec-pane-header with inline Edit toggle (AC-002.2, AC-T4).
+  // The entity is resolved from the current selectedKey; canEdit depends on file_path.
+  const specEntity = findEntityByKey(key || selectedKey);
+  const canEdit = !!(specEntity && (specEntity.file_path || specEntity.linked_content_path));
+  const editToggleHtml = canEdit
+    ? `<button class="inline-edit-btn" id="ev-inline-edit">\u270e Edit</button>`
+    : '';
+  paneEl.innerHTML = `
+    <div class="spec-pane-header">${editToggleHtml}</div>
+    <div id="spec-body"><div class="loading-indicator" style="padding:40px 0"><div class="loading-spinner"></div><div class="loading-text">Loading content\u2026</div></div></div>
+  `;
+
+  // Wire the inline Edit button now that it's in the DOM (AC-002.3)
+  const inlineEditBtn = paneEl.querySelector('#ev-inline-edit');
+  if (inlineEditBtn) {
+    inlineEditBtn.addEventListener('click', () => {
+      if (editMode) {
+        // Toggle back to view mode
+        cancelEdit();
+      } else {
+        enterEditMode(paneEl.querySelector('#spec-body') || paneEl);
+      }
+    });
+  }
 
   const response = await apiGetFile(key);
+  const specBody = paneEl.querySelector('#spec-body') || paneEl;
 
   if (!response) {
-    paneEl.innerHTML = `<div class="content-placeholder">Failed to load content for this entity.</div>`;
+    specBody.innerHTML = `<div class="content-placeholder">Failed to load content for this entity.</div>`;
     return;
   }
 
   if (!response.exists) {
-    paneEl.innerHTML = `<div class="content-placeholder">No content available for this entity.</div>`;
+    specBody.innerHTML = `<div class="content-placeholder">No content available for this entity.</div>`;
     return;
   }
 
@@ -2964,9 +3017,9 @@ async function renderMarkdownPane(key, paneEl) {
   // Store edit state for this pane.
   editOriginalContent = rawContent;
   editFilePath = response.path || '';
-  editPaneEl = paneEl;
+  editPaneEl = specBody;
 
-  renderMarkdownFromString(rawContent, paneEl);
+  renderMarkdownFromString(rawContent, specBody);
 }
 
 /**
@@ -3001,10 +3054,12 @@ function renderMarkdownFromString(rawContent, paneEl) {
   paneEl.innerHTML = '';
   paneEl.appendChild(contentWrapper);
 
-  // Enable the Edit button in the toggle bar once content is ready.
-  if (editFilePath) {
-    const editBtn = document.getElementById('ev-edit-btn');
-    if (editBtn) editBtn.disabled = false;
+  // Update the inline Edit button label back to '✎ Edit' (view mode restored).
+  // The button lives in the parent spec-pane-header, not in the toggle bar (AC-002.1).
+  const inlineEditBtn = document.getElementById('ev-inline-edit');
+  if (inlineEditBtn) {
+    inlineEditBtn.textContent = '\u270e Edit';
+    inlineEditBtn.disabled = false;
   }
 }
 
@@ -3022,9 +3077,13 @@ function enterEditMode(paneEl) {
   editMode = true;
   editPaneEl = paneEl;
 
-  // Disable the toggle-bar edit button while editing.
-  const editBtn = document.getElementById('ev-edit-btn');
-  if (editBtn) editBtn.disabled = true;
+  // Update the inline Edit button to show 'View' while in edit mode (AC-002.3).
+  // The button is in the spec-pane-header above the spec-body, not in the toggle bar.
+  const inlineEditBtn = document.getElementById('ev-inline-edit');
+  if (inlineEditBtn) {
+    inlineEditBtn.textContent = 'View';
+    inlineEditBtn.disabled = false;
+  }
 
   paneEl.innerHTML = `
     <div class="edit-toolbar" id="edit-action-toolbar">
@@ -3114,6 +3173,55 @@ function cancelEdit() {
   }
 }
 
+// ============================================================
+// === OVERVIEW PANE (E27-F09) ===
+// ============================================================
+
+/**
+ * Dispatches to entity-type-specific overview renderers.
+ * Overview is the default tab for epic/feature/task (AC-001.1).
+ * Bug/change-card/idea entities are coerced to 'info' before reaching here.
+ *
+ * @param {object} entity - the entity object from treeData
+ * @param {HTMLElement} paneEl - the content pane element to populate
+ */
+function renderOverviewPane(entity, paneEl) {
+  if (!paneEl) return;
+  if (!entity) {
+    paneEl.innerHTML = `<div class="content-placeholder">Entity not found.</div>`;
+    return;
+  }
+
+  let html = '';
+  switch (entity.type) {
+    case 'epic':
+      html = `<div class="overview-pane overview-epic">
+        <div class="content-placeholder" style="padding:20px 0;color:var(--fg-dim)">
+          Epic overview — rollups, feature table, and notes will render here (E27-F09 tasks 5–8).
+        </div>
+      </div>`;
+      break;
+    case 'feature':
+      html = `<div class="overview-pane overview-feature">
+        <div class="content-placeholder" style="padding:20px 0;color:var(--fg-dim)">
+          Feature overview — task rollup, work breakdown, action items, and notes will render here (E27-F09 tasks 5–8).
+        </div>
+      </div>`;
+      break;
+    case 'task':
+      html = `<div class="overview-pane overview-task">
+        <div class="content-placeholder" style="padding:20px 0;color:var(--fg-dim)">
+          Task overview — dependency block, notes, and related docs will render here (E27-F09 tasks 5–8).
+        </div>
+      </div>`;
+      break;
+    default:
+      html = `<div class="content-placeholder">Overview not available for this entity type.</div>`;
+  }
+
+  paneEl.innerHTML = html;
+}
+
 /**
  * Renders the Entity View (State 3).
  * Shows entity properties panel, Info/Transitions toggle, and content pane.
@@ -3123,9 +3231,14 @@ function renderEntityView() {
 
   const entity = findEntityByKey(selectedKey);
   const isEpic = entity?.type === 'epic';
+  const isSimpleEntity = entity && (entity.type === 'bug' || entity.type === 'change_card' || entity.type === 'idea');
 
-  // Guard: if history state restored dashboard tab for a non-epic, coerce to info
+  // Guard: if history state restored 'dashboard' for a non-epic, coerce to 'overview' (AC-001.5)
   if (entityViewTab === 'dashboard' && !isEpic) {
+    entityViewTab = 'overview';
+  }
+  // Guard: bug/change-card/idea do not support 'overview' pane — coerce to 'info'
+  if (entityViewTab === 'overview' && isSimpleEntity) {
     entityViewTab = 'info';
   }
 
@@ -3133,25 +3246,27 @@ function renderEntityView() {
   const title = entity ? escapeHtml(entity.title || entity.key || selectedKey) : escapeHtml(selectedKey || '');
   const keyLabel = escapeHtml(selectedKey || '');
 
-  const dashActive  = entityViewTab === 'dashboard'   ? ' active' : '';
-  const infoActive  = entityViewTab === 'info'        ? ' active' : '';
-  const transActive = entityViewTab === 'transitions' ? ' active' : '';
-  const filesActive = entityViewTab === 'files'       ? ' active' : '';
+  const overviewActive = entityViewTab === 'overview'    ? ' active' : '';
+  const dashActive     = entityViewTab === 'dashboard'   ? ' active' : '';
+  const infoActive     = entityViewTab === 'info'        ? ' active' : '';
+  const transActive    = entityViewTab === 'transitions' ? ' active' : '';
+  const filesActive    = entityViewTab === 'files'       ? ' active' : '';
 
-  // Dashboard button is only rendered for epics
-  const dashBtnHtml = isEpic
-    ? `<button class="toggle-btn${dashActive}" id="ev-tab-dashboard">Dashboard</button>`
+  // Overview button: shown for epic/feature/task, not for bug/change-card/idea (AC-001.2, AC-001.3)
+  const overviewBtnHtml = !isSimpleEntity
+    ? `<button class="toggle-btn${overviewActive}" id="ev-tab-overview">Overview</button>`
     : '';
 
-  const hasFilePath = entity && (entity.file_path || entity.linked_content_path);
-  const editBtnHtml = (entityViewTab === 'info' && hasFilePath)
-    ? `<button class="toggle-btn ev-edit-btn" id="ev-edit-btn" disabled title="Edit file" style="margin-left:auto">✎ Edit</button>`
+  // Dashboard button is only rendered for epics (AC-001.2, AC-001.3)
+  const dashBtnHtml = isEpic
+    ? `<button class="toggle-btn${dashActive}" id="ev-tab-dashboard">Dashboard</button>`
     : '';
 
   const entityDir = entity ? (entity.file_path || entity.linked_content_path || '') : '';
   const filesDirPath = entityDir ? parentDir(entityDir) : '';
   const filesBtnHtml = filesDirPath ? `<button class="toggle-btn${filesActive}" id="ev-tab-files">Files</button>` : '';
 
+  // Edit button is now inside the Spec pane (renderMarkdownPane), NOT in the toggle bar (AC-002.1)
   const html = `
     <button class="content-back-link" id="ev-back-btn">← Back</button>
     <div class="entity-view-header">
@@ -3160,11 +3275,11 @@ function renderEntityView() {
     </div>
     ${entity ? renderPropertiesPanel(entity) : ''}
     <div class="toggle-bar">
-      ${dashBtnHtml}
+      ${overviewBtnHtml}
       <button class="toggle-btn${infoActive}"  id="ev-tab-info">Spec</button>
       <button class="toggle-btn${transActive}" id="ev-tab-transitions">History</button>
+      ${dashBtnHtml}
       ${filesBtnHtml}
-      ${editBtnHtml}
     </div>
     <div id="ev-content-pane"></div>
   `;
@@ -3172,6 +3287,14 @@ function renderEntityView() {
   content.innerHTML = html;
 
   document.getElementById('ev-back-btn').addEventListener('click', () => history.back());
+
+  // Wire Overview tab button (epic/feature/task only)
+  const overviewTabBtn = document.getElementById('ev-tab-overview');
+  if (overviewTabBtn) {
+    overviewTabBtn.addEventListener('click', () => {
+      if (entityViewTab !== 'overview') { entityViewTab = 'overview'; pushNavState(); renderEntityView(); }
+    });
+  }
 
   // Wire Dashboard tab button (epics only)
   const dashTabBtn = document.getElementById('ev-tab-dashboard');
@@ -3195,20 +3318,15 @@ function renderEntityView() {
     });
   }
 
-  // Wire edit button (enabled after content loads in renderMarkdownFromString)
-  const editToggleBtn = document.getElementById('ev-edit-btn');
-  if (editToggleBtn) {
-    editToggleBtn.addEventListener('click', () => {
-      enterEditMode(document.getElementById('ev-content-pane'));
-    });
-  }
-
   const paneEl = document.getElementById('ev-content-pane');
 
-  if (entityViewTab === 'dashboard' && isEpic) {
+  if (entityViewTab === 'overview') {
+    // Overview pane — dispatcher for epic/feature/task (AC-T3)
+    renderOverviewPane(entity, paneEl);
+  } else if (entityViewTab === 'dashboard' && isEpic) {
     renderEpicDashboardPane(entity.key, paneEl);
   } else if (entityViewTab === 'info') {
-    // Async: fetch and render markdown content
+    // Async: fetch and render markdown content (Edit toggle now rendered inside pane — AC-002.2)
     renderMarkdownPane(selectedKey, paneEl);
   } else if (entityViewTab === 'files') {
     renderFolderFilesPane(filesDirPath, paneEl);
@@ -3723,7 +3841,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (appState === 'entity_view' || appState === 'doc_view') {
       selectedKey = null;
       appState = 'dashboard';
-      history.replaceState({ appState, selectedKey: null, entityViewTab: 'info' }, '');
+      history.replaceState({ appState, selectedKey: null, entityViewTab: 'overview' }, '');
       render();
     }
   });
