@@ -1471,3 +1471,277 @@ func TestViewerHTMLKeydownNavigationHandler(t *testing.T) {
 		t.Error("viewer.html keydown handler must call e.preventDefault() to prevent Space scroll (AC-NF-002.1)")
 	}
 }
+
+// =============================================================================
+// E27-F09-006 Tests: Epic Overview — Feature Rollup, Task Rollup, Features Table
+// =============================================================================
+
+// TestViewerHTMLOverviewSharedHelpers verifies that all shared computation helpers
+// required by the epic/feature Overview pane are present.
+// TC-F004-3, TC-F005-3 — derived from treeData, no new network call.
+func TestViewerHTMLOverviewSharedHelpers(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	helpers := []string{
+		"function countByStatus(",
+		"function collectEpicTasks(",
+		"function statusMeta(",
+		"function weightedProgress(",
+		"function sortedStatuses(",
+		"function sectionShell(",
+	}
+	for _, h := range helpers {
+		if !strings.Contains(content, h) {
+			t.Errorf("viewer.html missing shared overview helper: %q (TC-F004-3, TC-F005-3)", h)
+		}
+	}
+}
+
+// TestViewerHTMLFeatureRollupSection verifies that renderFeatureRollupSection is
+// present and uses getStatusColor for pill colors. TC-F004-1, TC-F004-2, AC-004.1–AC-004.4.
+func TestViewerHTMLFeatureRollupSection(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Function must exist
+	if !strings.Contains(content, "function renderFeatureRollupSection(") {
+		t.Error("viewer.html missing \"function renderFeatureRollupSection(\" — epic overview feature rollup required (AC-004.1)")
+	}
+
+	// Must use getStatusColor for pill background (AC-004.2)
+	if !strings.Contains(content, "getStatusColor(s)") {
+		t.Error("viewer.html missing getStatusColor(s) call in feature rollup section (AC-004.2)")
+	}
+
+	// Must use countByStatus (AC-004.3)
+	if !strings.Contains(content, "countByStatus(") {
+		t.Error("viewer.html missing countByStatus() call — pill counts must come from treeData (AC-004.3)")
+	}
+
+	// Must use rollup-pill CSS class
+	if !strings.Contains(content, "rollup-pill") {
+		t.Error("viewer.html missing rollup-pill CSS class reference in feature rollup section (AC-004.1)")
+	}
+
+	// Must use rollup-row CSS class
+	if !strings.Contains(content, "rollup-row") {
+		t.Error("viewer.html missing rollup-row CSS class reference in feature rollup section (AC-004.1)")
+	}
+
+	// Zero-count filter: occupied statuses filter must be present (AC-004.4)
+	if !strings.Contains(content, "counts[s] > 0") {
+		t.Error("viewer.html missing zero-count filter in feature rollup (AC-004.4 — zero-count statuses must be omitted)")
+	}
+
+	// Phase ordering for pills (AC-004.5)
+	if !strings.Contains(content, "sortedStatuses(") {
+		t.Error("viewer.html missing sortedStatuses() call in feature rollup section (AC-004.5 — phase ordering required)")
+	}
+}
+
+// TestViewerHTMLTaskRollupSection verifies that renderTaskRollupSection is present
+// with a segmented progress bar and weighted-progress label.
+// TC-F005-1, TC-F005-2, TC-F005-3, AC-005.1–AC-005.4.
+func TestViewerHTMLTaskRollupSection(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Function must exist
+	if !strings.Contains(content, "function renderTaskRollupSection(") {
+		t.Error("viewer.html missing \"function renderTaskRollupSection(\" — task rollup section required (AC-005.1)")
+	}
+
+	// No tasks placeholder (AC-005.2)
+	if !strings.Contains(content, "No tasks") {
+		t.Error("viewer.html missing \"No tasks\" placeholder in task rollup section (AC-005.2)")
+	}
+
+	// Weighted progress label (AC-005.3)
+	if !strings.Contains(content, "weightedProgress(") {
+		t.Error("viewer.html missing weightedProgress() call in task rollup section (AC-005.3)")
+	}
+
+	// Segmented progress bar CSS classes
+	if !strings.Contains(content, "seg-bar") {
+		t.Error("viewer.html missing seg-bar CSS class in task rollup section (AC-005.1)")
+	}
+	if !strings.Contains(content, "seg-bar-segment") {
+		t.Error("viewer.html missing seg-bar-segment CSS class in task rollup section (AC-005.1)")
+	}
+	if !strings.Contains(content, "seg-bar-label") {
+		t.Error("viewer.html missing seg-bar-label CSS class for NN% label (AC-005.3)")
+	}
+
+	// Pills use same color as segments (AC-005.1)
+	if !strings.Contains(content, "rollup-pill") {
+		t.Error("viewer.html missing rollup-pill in task rollup section (AC-005.1 — pills and segments must share color)")
+	}
+
+	// Uses collectEpicTasks for epic-level task aggregation (AC-005.4)
+	if !strings.Contains(content, "collectEpicTasks(") {
+		t.Error("viewer.html missing collectEpicTasks() call — epic task rollup must aggregate across features (AC-005.4)")
+	}
+}
+
+// TestViewerHTMLFeaturesTableSection verifies that renderFeaturesTableSection is
+// present with the required columns and clickable KEY cells.
+// TC-F008-1, TC-F008-2, TC-F008-3, TC-F008-4, TC-F008-5, AC-008.1–AC-008.5.
+func TestViewerHTMLFeaturesTableSection(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Function must exist
+	if !strings.Contains(content, "function renderFeaturesTableSection(") {
+		t.Error("viewer.html missing \"function renderFeaturesTableSection(\" — features table required (AC-008.1)")
+	}
+
+	// KEY cells must carry data-navigate-key and .clickable class (AC-008.1)
+	if !strings.Contains(content, "data-navigate-key=") {
+		t.Error("viewer.html missing data-navigate-key attribute in features table (AC-008.1)")
+	}
+	if !strings.Contains(content, `class="clickable"`) {
+		t.Error("viewer.html missing class=\"clickable\" in features table KEY cell (AC-008.1)")
+	}
+
+	// TITLE cells must use title attribute for full text (AC-008.2)
+	if !strings.Contains(content, "text-overflow:ellipsis") {
+		t.Error("viewer.html missing text-overflow:ellipsis in features table TITLE cell (AC-008.2)")
+	}
+
+	// Table uses ov-table CSS class (AC-008.3)
+	if !strings.Contains(content, "ov-table") {
+		t.Error("viewer.html missing ov-table CSS class in features table (AC-008.3)")
+	}
+
+	// Table body scroll at >10 rows (AC-008.4)
+	if !strings.Contains(content, "ov-table-scroll") {
+		t.Error("viewer.html missing ov-table-scroll class (AC-008.4 — table must scroll when >10 rows)")
+	}
+
+	// Sticky header (AC-008.4) — CSS rule for table header sticky positioning
+	if !strings.Contains(content, "position: sticky") {
+		t.Error("viewer.html missing position: sticky in ov-table thead (AC-008.4)")
+	}
+
+	// Progress bar width from progress_pct (AC-008.5)
+	if !strings.Contains(content, "progress_pct") {
+		t.Error("viewer.html missing progress_pct reference in features table (AC-008.5 — bar width must match properties panel)")
+	}
+}
+
+// TestViewerHTMLOverviewPaneDispatchUpdated verifies that renderOverviewPane
+// dispatches to the real section renderers (not placeholder text).
+// TC-F004-1, TC-F005-1, TC-F008-1 — replaces placeholder stubs.
+func TestViewerHTMLOverviewPaneDispatchUpdated(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must call renderFeatureRollupSection for epic case (REQ-F-004)
+	if !strings.Contains(content, "renderFeatureRollupSection(entity)") {
+		t.Error("viewer.html renderOverviewPane must call renderFeatureRollupSection(entity) for epic case (REQ-F-004)")
+	}
+
+	// Must call renderTaskRollupSection for epic case (REQ-F-005)
+	if !strings.Contains(content, "renderTaskRollupSection(collectEpicTasks(entity))") {
+		t.Error("viewer.html renderOverviewPane must call renderTaskRollupSection(collectEpicTasks(entity)) for epic case (REQ-F-005)")
+	}
+
+	// Must call renderFeaturesTableSection for epic case (REQ-F-008)
+	if !strings.Contains(content, "renderFeaturesTableSection(entity)") {
+		t.Error("viewer.html renderOverviewPane must call renderFeaturesTableSection(entity) for epic case (REQ-F-008)")
+	}
+
+	// Must NOT still contain placeholder stub text
+	if strings.Contains(content, "Epic overview — rollups, feature table, and notes will render here") {
+		t.Error("viewer.html renderOverviewPane still contains epic overview placeholder stub — must be replaced with real renderers")
+	}
+}
+
+// TestViewerHTMLOverviewCSSRules verifies that overview-specific CSS classes are present.
+// TC-F004-1, TC-F005-1, TC-F008-3.
+func TestViewerHTMLOverviewCSSRules(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	cssRules := []string{
+		".ov-section",
+		".ov-section-header",
+		".rollup-row",
+		".rollup-pill",
+		".seg-bar",
+		".seg-bar-segment",
+		".seg-bar-row",
+		".seg-bar-label",
+		".ov-table",
+		".ov-table-scroll",
+	}
+	for _, rule := range cssRules {
+		if !strings.Contains(content, rule) {
+			t.Errorf("viewer.html missing CSS rule: %q (required for Overview pane styling)", rule)
+		}
+	}
+}
+
+// TestViewerHTMLNotesPlaceholderAndCache verifies that the notes caching and
+// placeholder functions are present. TC-F010-1, AC-010.1, AC-010.7.
+func TestViewerHTMLNotesPlaceholderAndCache(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "notesCache") {
+		t.Error("viewer.html missing notesCache Map — session cache required for notes (AC-010.1)")
+	}
+	if !strings.Contains(content, "function fetchNotes(") {
+		t.Error("viewer.html missing function fetchNotes() — notes fetch helper required (AC-010.1)")
+	}
+	if !strings.Contains(content, "function notesPlaceholder(") {
+		t.Error("viewer.html missing function notesPlaceholder() — skeleton placeholder required (AC-010.7)")
+	}
+	if !strings.Contains(content, "function loadNotesInto(") {
+		t.Error("viewer.html missing function loadNotesInto() — async notes loader required (AC-010.7)")
+	}
+	if !strings.Contains(content, "data-notes-for=") {
+		t.Error("viewer.html missing data-notes-for attribute — placeholder targeting required (AC-010.7)")
+	}
+}
+
+// TestViewerHTMLRelatedDocsPlaceholderAndCache verifies that the related-docs caching
+// and placeholder functions are present. AC-011.4.
+func TestViewerHTMLRelatedDocsPlaceholderAndCache(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "relatedDocsCache") {
+		t.Error("viewer.html missing relatedDocsCache Map — session cache required for docs (AC-011.4)")
+	}
+	if !strings.Contains(content, "function fetchRelatedDocs(") {
+		t.Error("viewer.html missing function fetchRelatedDocs() — docs fetch helper required (AC-011.4)")
+	}
+	if !strings.Contains(content, "function relatedDocsPlaceholder(") {
+		t.Error("viewer.html missing function relatedDocsPlaceholder() — docs placeholder required (AC-011.4)")
+	}
+	if !strings.Contains(content, "function loadRelatedDocsInto(") {
+		t.Error("viewer.html missing function loadRelatedDocsInto() — async docs loader required (AC-011.4)")
+	}
+	if !strings.Contains(content, "data-docs-for=") {
+		t.Error("viewer.html missing data-docs-for attribute — docs placeholder targeting required (AC-011.4)")
+	}
+}
+
+// TestViewerHTMLActionItemsNoHardcodedStatusNames verifies that there are no
+// hardcoded status name literals in the actionItems filter logic.
+// TC-F007-1, AC-007.1.
+func TestViewerHTMLActionItemsNoHardcodedStatusNames(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The actionItems function itself must not use hardcoded status literals
+	forbiddenLiterals := []string{
+		"=== 'ready_for_approval'",
+		"=== 'ready_for_review'",
+		"=== 'ready_for_code_review'",
+		"=== 'approved'",
+	}
+	for _, lit := range forbiddenLiterals {
+		if strings.Contains(content, lit) {
+			t.Errorf("viewer.html contains hardcoded status literal %q in overview logic — must use blocks_feature flag only (AC-007.1)", lit)
+		}
+	}
+
+	// blocks_feature flag must be used
+	if !strings.Contains(content, "blocks_feature === true") {
+		t.Error("viewer.html missing blocks_feature === true filter — action items must use meta flag (AC-007.1)")
+	}
+}

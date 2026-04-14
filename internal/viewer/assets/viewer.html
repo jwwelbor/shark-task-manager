@@ -832,6 +832,57 @@
       padding: 4px 0;
     }
 
+    /* Overview sections (REQ-F-004, REQ-F-005, REQ-F-008) */
+    .ov-section { margin: 18px 0; }
+    .ov-section-header { display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-dim); margin: 0 0 10px; }
+    .ov-section-header::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    /* Rollup pills (REQ-F-004, REQ-F-005) */
+    .rollup-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .rollup-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 12px; padding: 2px 8px; font-size: 11px; }
+
+    /* Segmented progress bar (REQ-F-005) */
+    .seg-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg-3); }
+    .seg-bar-segment { height: 100%; }
+    .seg-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .seg-bar-label { font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+
+    /* Work breakdown (REQ-F-006) */
+    .wb-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
+    .wb-label { width: 80px; color: var(--fg-dim); }
+    .wb-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
+    .wb-bar-fill { height: 100%; background: var(--accent, #4a9eff); }
+    .wb-count { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Action items (REQ-F-007) */
+    .action-item-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 0 4px 4px 0; margin-bottom: 4px; }
+
+    /* Child entity tables (REQ-F-008) */
+    .ov-table { width: 100%; border-collapse: collapse; }
+    .ov-table thead th { position: sticky; top: 0; background: var(--bg-2); text-align: left; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-dim); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .ov-table tbody td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .ov-table tbody tr:hover { background: var(--bg-3); }
+    .ov-table .clickable { cursor: pointer; color: var(--accent); font-family: var(--font-mono, monospace); }
+    .ov-table-scroll { max-height: 420px; overflow-y: auto; }
+
+    /* Dependencies (REQ-F-009) */
+    .dep-group { margin-bottom: 12px; padding-left: 8px; }
+    .dep-group-accent { border-left: 2px solid #c0392b; }
+    .dep-label { font-size: 11px; font-weight: 600; color: var(--fg-dim); margin-bottom: 4px; }
+    .dep-empty { font-size: 12px; color: var(--fg-dim); font-style: italic; }
+
+    /* Notes (REQ-F-010) */
+    .note-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 12px; }
+    .note-ts { font-family: var(--font-mono, monospace); color: var(--fg-dim); white-space: nowrap; }
+    .note-type-pill { font-size: 10px; padding: 1px 6px; border-radius: 8px; color: #fff; }
+    .note-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notes-show-more { margin-top: 6px; font-size: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 2px 0; }
+
+    /* Related docs (REQ-F-011) */
+    .reldoc-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+    .reldoc-path { flex: 1; font-family: var(--font-mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .reldoc-open { font-size: 11px; padding: 2px 8px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-2); cursor: pointer; }
+
     /* Properties panel */
     .props-grid {
       display: grid;
@@ -3229,6 +3280,376 @@ function cancelEdit() {
 // === OVERVIEW PANE (E27-F09) ===
 // ============================================================
 
+// --- Session caches for notes and related-docs (REQ-NF-003, AC-010.1, AC-011.4) ---
+const notesCache      = new Map(); // key → Promise<NotesResponse>
+const relatedDocsCache = new Map(); // key → Promise<RelatedDocsResponse>
+
+async function fetchNotes(key) {
+  if (!notesCache.has(key)) {
+    notesCache.set(key,
+      fetch(`/api/v1/viewer/notes/${encodeURIComponent(key)}`)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+    );
+  }
+  return notesCache.get(key);
+}
+
+async function fetchRelatedDocs(key) {
+  if (!relatedDocsCache.has(key)) {
+    relatedDocsCache.set(key,
+      fetch(`/api/v1/viewer/related-docs/${encodeURIComponent(key)}`)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+    );
+  }
+  return relatedDocsCache.get(key);
+}
+
+// --- Shared computation helpers (spec §2.3.6) ---
+
+/**
+ * Counts items by their .status field. Returns {status: count} map.
+ * AC-004.3, AC-005.3 — derived from treeData, no network call.
+ */
+function countByStatus(items) {
+  const out = {};
+  for (const it of items) {
+    const s = it.status || 'unknown';
+    out[s] = (out[s] || 0) + 1;
+  }
+  return out;
+}
+
+/**
+ * Collects all tasks from an epic's feature list.
+ * Used for epic-level task rollup (REQ-F-005).
+ */
+function collectEpicTasks(epic) {
+  const tasks = [];
+  for (const f of (epic.features || [])) {
+    for (const t of (f.tasks || [])) tasks.push(t);
+  }
+  return tasks;
+}
+
+/**
+ * Looks up status metadata from the cached workflowMeta.
+ * Returns {} if metadata is unavailable (safe degradation).
+ */
+function statusMeta(status) {
+  const levelMeta = (workflowMeta && workflowMeta.levels && workflowMeta.levels.task) || {};
+  return (levelMeta.statuses || []).find(s => s.name === status) || {};
+}
+
+/**
+ * Computes weighted progress percentage from a status→count map.
+ * AC-005.3: label = Σ(progress_weight × count) / total_tasks.
+ */
+function weightedProgress(countsByStatus, total) {
+  if (!total) return 0;
+  let acc = 0;
+  for (const [s, n] of Object.entries(countsByStatus)) {
+    const w = statusMeta(s).progress_weight || 0;
+    acc += w * n;
+  }
+  return Math.round(acc / total);
+}
+
+/**
+ * Counts tasks by responsibility (agent/human/qa_team) from workflowMeta.
+ * AC-006.1 — uses responsibility field, not hardcoded status names.
+ */
+function workBreakdown(tasks) {
+  const buckets = { agent: 0, human: 0, qa_team: 0 };
+  for (const t of tasks) {
+    const r = statusMeta(t.status).responsibility || 'none';
+    if (buckets[r] != null) buckets[r]++;
+  }
+  return buckets;
+}
+
+/**
+ * Returns tasks whose status has blocks_feature === true.
+ * AC-007.1 — filter uses blocks_feature flag, NOT hardcoded status names.
+ */
+function actionItems(tasks) {
+  return tasks
+    .filter(t => statusMeta(t.status).blocks_feature === true)
+    .sort((a, b) => {
+      const pa = statusMeta(a.status).phase || '';
+      const pb = statusMeta(b.status).phase || '';
+      if (pa !== pb) return pa.localeCompare(pb);
+      const oa = a.execution_order || 0;
+      const ob = b.execution_order || 0;
+      if (oa !== ob) return oa - ob;
+      return (a.key || '').localeCompare(b.key || '');
+    });
+}
+
+/**
+ * Returns a sorted list of statuses ordered by workflow phase then alphabetically.
+ * AC-004.5 — uses workflowMeta phase ordering with alphabetical fallback.
+ */
+function sortedStatuses(statusKeys) {
+  const phaseOrder = ['planning', 'development', 'review', 'qa', 'approval', 'done', 'any'];
+  return [...statusKeys].sort((a, b) => {
+    const pa = statusMeta(a).phase || '';
+    const pb = statusMeta(b).phase || '';
+    const ia = phaseOrder.indexOf(pa);
+    const ib = phaseOrder.indexOf(pb);
+    const pia = ia === -1 ? 999 : ia;
+    const pib = ib === -1 ? 999 : ib;
+    if (pia !== pib) return pia - pib;
+    return a.localeCompare(b);
+  });
+}
+
+/**
+ * Wraps content in an .ov-section block with a labelled header.
+ * Section header pattern from feature.md.
+ */
+function sectionShell(label, bodyHtml) {
+  return `<div class="ov-section">
+    <div class="ov-section-header">${escapeHtml(label)}</div>
+    ${bodyHtml}
+  </div>`;
+}
+
+/**
+ * Renders a status badge suitable for overview sections.
+ */
+function ovStatusBadge(status) {
+  const c = getStatusColor(status);
+  return `<span class="status-badge status-badge-sm" style="background:${escapeHtml(c)};color:${getContrastColor(c)}">${escapeHtml(status.replace(/_/g,' '))}</span>`;
+}
+
+// --- Notes placeholder and async loader (REQ-F-010) ---
+
+/**
+ * Returns placeholder HTML for the notes section. loadNotesInto() fills it.
+ */
+function notesPlaceholder(key) {
+  return `<div class="ov-section" data-notes-for="${escapeHtml(key)}">
+    <div class="ov-section-header">Notes</div>
+    <div class="skeleton" style="height:20px;border-radius:4px;margin:4px 0"></div>
+  </div>`;
+}
+
+/**
+ * Asynchronously fetches notes for key and renders them into el.
+ * AC-010.1: caches per session; AC-010.7: skeleton shown until loaded.
+ */
+async function loadNotesInto(el, key) {
+  if (!el) return;
+  try {
+    const resp = await fetchNotes(key);
+    const notes = resp?.notes || [];
+    if (notes.length === 0) {
+      // AC-010.6: omit section when no notes
+      el.style.display = 'none';
+      return;
+    }
+    const maxDefault = 5;
+    const renderRows = (list) => list.map(n => {
+      const noteTypeColors = {
+        decision: '#8e44ad', blocker: '#c0392b', comment: 'var(--fg-dim)',
+        solution: '#27ae60', implementation: '#2980b9', question: '#17a2b8',
+        rejection: '#e83e8c', reference: 'var(--fg-dim)', future: 'var(--fg-dim)',
+        requirement: 'var(--fg-dim)', testing: 'var(--fg-dim)'
+      };
+      const tc = noteTypeColors[n.note_type] || 'var(--fg-dim)';
+      const ts = n.created_at ? formatDate(n.created_at) : '';
+      return `<div class="note-row">
+        <span class="note-ts">${escapeHtml(ts)}</span>
+        <span class="note-type-pill" style="background:${tc};color:#fff">${escapeHtml(n.note_type || '')}</span>
+        <span class="note-text" title="${escapeHtml(n.content || '')}">${escapeHtml(n.content || '')}</span>
+      </div>`;
+    }).join('');
+
+    const shown = notes.slice(0, maxDefault);
+    const remaining = notes.slice(maxDefault);
+    let bodyHtml = renderRows(shown);
+    if (remaining.length > 0) {
+      bodyHtml += `<button class="notes-show-more" data-notes-key="${escapeHtml(key)}" data-notes-remaining='${JSON.stringify(remaining)}'>Show ${remaining.length} more</button>`;
+    }
+    el.innerHTML = `<div class="ov-section-header">Notes</div>${bodyHtml}`;
+
+    // Wire "Show N more" button (AC-010.5)
+    const btn = el.querySelector('.notes-show-more');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        const rest = JSON.parse(btn.dataset.notesRemaining || '[]');
+        btn.insertAdjacentHTML('beforebegin', renderRows(rest));
+        btn.replaceWith((() => { const b = document.createElement('button'); b.className='notes-show-more'; b.textContent='Show less'; b.addEventListener('click',()=>{ loadNotesInto(el, key); }); return b; })());
+      });
+    }
+  } catch (_) {
+    // AC-010.6: on error, omit (no broken message for notes)
+    el.style.display = 'none';
+  }
+}
+
+// --- Related docs placeholder and async loader (REQ-F-011) ---
+
+/**
+ * Returns placeholder HTML for the related-docs section.
+ */
+function relatedDocsPlaceholder(key) {
+  return `<div class="ov-section" data-docs-for="${escapeHtml(key)}">
+    <div class="ov-section-header">Related Docs</div>
+    <div class="skeleton" style="height:20px;border-radius:4px;margin:4px 0"></div>
+  </div>`;
+}
+
+/**
+ * Asynchronously fetches related docs for key and renders them into el.
+ * AC-011.3: omit section if empty; AC-011.5: show dim error on failure.
+ */
+async function loadRelatedDocsInto(el, key) {
+  if (!el) return;
+  try {
+    const resp = await fetchRelatedDocs(key);
+    const docs = resp?.docs || [];
+    if (docs.length === 0) {
+      // AC-011.3: omit section when empty
+      el.style.display = 'none';
+      return;
+    }
+    const rows = docs.map(d => `<div class="reldoc-row">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0"><rect x="1" y="0.5" width="8" height="11" rx="1" stroke="var(--fg-dim)" stroke-width="1" fill="none"/><line x1="3" y1="3.5" x2="7" y2="3.5" stroke="var(--fg-dim)"/><line x1="3" y1="5.5" x2="7" y2="5.5" stroke="var(--fg-dim)"/><line x1="3" y1="7.5" x2="5" y2="7.5" stroke="var(--fg-dim)"/></svg>
+      <span class="reldoc-path" title="${escapeHtml(d.file_path || '')}">${escapeHtml(d.file_path || '')}</span>
+      <button class="reldoc-open" data-doc-path="${escapeHtml(d.file_path || '')}">open</button>
+    </div>`).join('');
+    el.innerHTML = `<div class="ov-section-header">Related Docs</div>${rows}`;
+
+    // Wire open buttons
+    el.querySelectorAll('.reldoc-open').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = btn.dataset.docPath;
+        if (p && typeof openDocumentByPath === 'function') openDocumentByPath(p);
+      });
+    });
+  } catch (_) {
+    // AC-011.5: show dim error message on failure
+    el.innerHTML = `<div class="ov-section-header">Related Docs</div><span style="color:var(--fg-dim);font-size:12px">Failed to load docs</span>`;
+  }
+}
+
+// --- Epic Overview section renderers (REQ-F-004, REQ-F-005, REQ-F-008) ---
+
+/**
+ * Renders the Feature Status Rollup section for epic Overview.
+ * REQ-F-004: horizontal row of colored pills, one per distinct feature status.
+ * AC-004.1: renders only on epic Overview.
+ * AC-004.4: zero-count statuses are omitted.
+ * AC-004.5: pill order follows workflow phase ordering.
+ */
+function renderFeatureRollupSection(epic) {
+  const features = epic.features || [];
+  const counts = countByStatus(features);
+  const occupied = Object.keys(counts).filter(s => counts[s] > 0);
+  if (occupied.length === 0) {
+    return sectionShell('Feature Status', '<span style="color:var(--fg-dim);font-size:12px">No features</span>');
+  }
+  const ordered = sortedStatuses(occupied);
+  const pills = ordered.map(s => {
+    const c = getStatusColor(s);
+    const n = counts[s];
+    return `<span class="rollup-pill" style="background:${escapeHtml(c)};color:${getContrastColor(c)}" title="${escapeHtml(s)}">
+      ● ${escapeHtml(s.replace(/_/g,' '))} ${n}
+    </span>`;
+  }).join('');
+  return sectionShell('Feature Status', `<div class="rollup-row">${pills}</div>`);
+}
+
+/**
+ * Renders the Task Status Rollup section with segmented progress bar.
+ * REQ-F-005: row of colored pills + 100%-wide 8px bar + weighted-progress percentage.
+ * AC-005.2: empty entity shows dim "No tasks" placeholder.
+ * AC-005.3: label uses weightedProgress helper.
+ */
+function renderTaskRollupSection(tasks) {
+  const counts = countByStatus(tasks);
+  const total = tasks.length;
+
+  if (total === 0) {
+    return sectionShell('Task Status', '<span style="color:var(--fg-dim);font-size:12px">No tasks</span>');
+  }
+
+  const occupied = Object.keys(counts).filter(s => counts[s] > 0);
+  const ordered = sortedStatuses(occupied);
+  const pct = weightedProgress(counts, total);
+
+  // Rollup pills
+  const pills = ordered.map(s => {
+    const c = getStatusColor(s);
+    const n = counts[s];
+    return `<span class="rollup-pill" style="background:${escapeHtml(c)};color:${getContrastColor(c)}" title="${escapeHtml(s)}">
+      ● ${escapeHtml(s.replace(/_/g,' '))} ${n}
+    </span>`;
+  }).join('');
+
+  // Segmented progress bar
+  const segments = ordered.map(s => {
+    const c = getStatusColor(s);
+    const w = ((counts[s] / total) * 100).toFixed(2);
+    return `<div class="seg-bar-segment" style="width:${w}%;background:${escapeHtml(c)}" title="${escapeHtml(s)}: ${counts[s]}"></div>`;
+  }).join('');
+
+  const bodyHtml = `
+    <div class="rollup-row">${pills}</div>
+    <div class="seg-bar-row">
+      <div class="seg-bar" style="flex:1">${segments}</div>
+      <span class="seg-bar-label">${pct}%</span>
+    </div>`;
+
+  return sectionShell('Task Status', bodyHtml);
+}
+
+/**
+ * Renders the Features table for epic Overview.
+ * REQ-F-008: KEY · TITLE · STATUS BADGE · PROGRESS BAR columns.
+ * AC-008.1: KEY cells carry data-navigate-key and .clickable class.
+ * AC-008.2: TITLE cells truncated via CSS; full title in title attribute.
+ * AC-008.4: body scrolls inside max-height: 420px when >10 rows; header sticky.
+ */
+function renderFeaturesTableSection(epic) {
+  const features = epic.features || [];
+  if (features.length === 0) {
+    return sectionShell('Features', '<span style="color:var(--fg-dim);font-size:12px">No features</span>');
+  }
+
+  const rows = features.map(f => {
+    const key = escapeHtml(f.key || '');
+    const title = escapeHtml(f.title || f.key || '');
+    const pct = typeof f.progress_pct === 'number' ? f.progress_pct : 0;
+    const badge = ovStatusBadge(f.status || 'unknown');
+    const barColor = 'var(--accent)';
+    return `<tr>
+      <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
+      <td>${badge}</td>
+      <td style="min-width:80px">
+        <div style="height:6px;border-radius:3px;background:var(--bg-3);overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const scrollClass = features.length > 10 ? ' ov-table-scroll' : '';
+  const tableHtml = `
+    <div class="${scrollClass.trim() || ''}">
+      <table class="ov-table">
+        <thead><tr>
+          <th>KEY</th><th>TITLE</th><th>STATUS</th><th>PROGRESS</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  return sectionShell('Features', tableHtml);
+}
+
 /**
  * Dispatches to entity-type-specific overview renderers.
  * Overview is the default tab for epic/feature/task (AC-001.1).
@@ -3244,34 +3665,36 @@ function renderOverviewPane(entity, paneEl) {
     return;
   }
 
-  let html = '';
+  const sections = [];
   switch (entity.type) {
     case 'epic':
-      html = `<div class="overview-pane overview-epic">
-        <div class="content-placeholder" style="padding:20px 0;color:var(--fg-dim)">
-          Epic overview — rollups, feature table, and notes will render here (E27-F09 tasks 5–8).
-        </div>
-      </div>`;
+      sections.push(renderFeatureRollupSection(entity));
+      sections.push(renderTaskRollupSection(collectEpicTasks(entity)));
+      sections.push(renderFeaturesTableSection(entity));
+      sections.push(notesPlaceholder(entity.key));
+      sections.push(relatedDocsPlaceholder(entity.key));
       break;
     case 'feature':
-      html = `<div class="overview-pane overview-feature">
-        <div class="content-placeholder" style="padding:20px 0;color:var(--fg-dim)">
-          Feature overview — task rollup, work breakdown, action items, and notes will render here (E27-F09 tasks 5–8).
-        </div>
-      </div>`;
+      sections.push(renderTaskRollupSection(entity.tasks || []));
+      // Work breakdown, action items, tasks table rendered in later tasks (F09-007/008)
+      sections.push(notesPlaceholder(entity.key));
+      sections.push(relatedDocsPlaceholder(entity.key));
       break;
     case 'task':
-      html = `<div class="overview-pane overview-task">
-        <div class="content-placeholder" style="padding:20px 0;color:var(--fg-dim)">
-          Task overview — dependency block, notes, and related docs will render here (E27-F09 tasks 5–8).
-        </div>
-      </div>`;
+      // Dependency block rendered in later task (F09-009)
+      sections.push(notesPlaceholder(entity.key));
+      sections.push(relatedDocsPlaceholder(entity.key));
       break;
     default:
-      html = `<div class="content-placeholder">Overview not available for this entity type.</div>`;
+      paneEl.innerHTML = `<div class="content-placeholder">Overview not available for this entity type.</div>`;
+      return;
   }
 
-  paneEl.innerHTML = html;
+  paneEl.innerHTML = `<div class="overview-pane overview-${escapeHtml(entity.type)}">${sections.filter(Boolean).join('')}</div>`;
+
+  // Fire async notes + docs fetches into their placeholder divs (AC-010.7, AC-011.4)
+  loadNotesInto(paneEl.querySelector(`[data-notes-for="${entity.key}"]`), entity.key);
+  loadRelatedDocsInto(paneEl.querySelector(`[data-docs-for="${entity.key}"]`), entity.key);
 }
 
 /**
