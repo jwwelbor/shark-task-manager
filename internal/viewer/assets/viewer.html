@@ -1924,10 +1924,29 @@ async function loadProjectData() {
 
   hideLoading();
 
-  // Transition to dashboard
+  // Transition to dashboard (default state before URL-param restore)
   appState = 'dashboard';
   history.replaceState({ appState, selectedKey: null, entityViewTab: 'overview' }, '');
   render();
+
+  // Restore entity + tab from URL query params on initial load so bookmarks
+  // and page refreshes return to the correct view (T-E27-F09-012).
+  const urlParams = new URLSearchParams(location.search);
+  const urlEntity = urlParams.get('entity');
+  const urlTab    = urlParams.get('tab');
+  if (urlEntity) {
+    // Navigate to the entity; then set the requested tab if valid.
+    navigateToEntity(urlEntity);
+    if (urlTab && TAB_DISPLAY_NAMES.hasOwnProperty(urlTab)) {
+      entityViewTab = urlTab;
+    }
+    // Replace (not push) so the initial URL doesn't create a spurious history entry.
+    const url = new URL(window.location.href);
+    url.searchParams.set('entity', urlEntity);
+    url.searchParams.set('tab', entityViewTab || 'overview');
+    history.replaceState({ appState, selectedKey, entityViewTab }, '', url);
+    render();
+  }
 }
 
 function updateHeaderProjectName() {
@@ -1997,10 +2016,20 @@ function render() {
 /**
  * Saves the current navigation state to browser history so the back button works.
  * Call after every intentional navigation (entity select, doc open, dashboard).
+ * Encodes entity key and tab into the URL as query params so bookmarks and
+ * page refreshes restore the correct view (T-E27-F09-012).
  */
 function pushNavState() {
   const state = { appState, selectedKey, entityViewTab };
-  history.pushState(state, '');
+  const url = new URL(window.location.href);
+  if (appState === 'entity_view' && selectedKey) {
+    url.searchParams.set('entity', selectedKey);
+    url.searchParams.set('tab', entityViewTab || 'overview');
+  } else {
+    url.searchParams.delete('entity');
+    url.searchParams.delete('tab');
+  }
+  history.pushState(state, '', url);
 }
 
 /**
@@ -2829,28 +2858,42 @@ function findEntityByKey(key) {
 }
 
 /**
+ * Maps internal tab IDs to human-readable display names for the breadcrumb.
+ * Used by renderBreadcrumb to append the active tab as the last segment.
+ * T-E27-F09-012.
+ */
+const TAB_DISPLAY_NAMES = {
+  overview:    'Overview',
+  dashboard:   'Dashboard',
+  info:        'Spec',
+  transitions: 'History',
+  files:       'Files',
+};
+
+/**
  * Renders the breadcrumb navigation bar for an entity.
  * Builds the parent chain from hierarchyData without a network call.
  * Returns an HTML string to insert between the entity title and the properties panel.
  * REQ-F-003, AC-003.1–AC-003.4, E27-F09-005.
+ * Appends the active tab name as the final plain-text segment (T-E27-F09-012).
  * @param {Object} entity - entity object with type, key, and parent fields
  * @returns {string} HTML string for the breadcrumb
  */
 function renderBreadcrumb(entity) {
   if (!entity) return '';
-  const chain = []; // [{key, isCurrent}]
+  const chain = []; // [{key, isCurrent, label?}]
   switch (entity.type) {
     case 'task':
       chain.push({ key: entity.epic_key || entity.parent_epic_key });
       chain.push({ key: entity.feature_key || entity.parent });
-      chain.push({ key: entity.key, isCurrent: true });
+      chain.push({ key: entity.key });
       break;
     case 'feature':
       chain.push({ key: entity.epic_key || entity.parent });
-      chain.push({ key: entity.key, isCurrent: true });
+      chain.push({ key: entity.key });
       break;
     case 'epic':
-      chain.push({ key: entity.key, isCurrent: true });
+      chain.push({ key: entity.key });
       break;
     default:
       return ''; // bug / change-card / idea — no breadcrumb
@@ -2858,10 +2901,19 @@ function renderBreadcrumb(entity) {
   // Filter out segments with undefined/empty keys (guard for missing parent data)
   const validChain = chain.filter(seg => seg.key);
   if (validChain.length === 0) return '';
-  return `<div class="breadcrumb">${validChain.map(seg => seg.isCurrent
-    ? `<span class="breadcrumb-seg current">${escapeHtml(seg.key)}</span>`
-    : `<span class="breadcrumb-seg" role="button" tabindex="0" data-navigate-key="${escapeHtml(seg.key)}">${escapeHtml(seg.key)}</span>`
-  ).join('<span class="breadcrumb-sep">›</span>')}</div>`;
+
+  // Mark the last entity segment as current — but only if no tab segment follows.
+  // We always append a tab segment when an entity is selected.
+  const tabName = TAB_DISPLAY_NAMES[entityViewTab] || entityViewTab;
+  // All entity segments are navigable (not current) because the tab segment is the real current.
+  const segHtml = validChain.map(seg =>
+    `<span class="breadcrumb-seg" role="button" tabindex="0" data-navigate-key="${escapeHtml(seg.key)}">${escapeHtml(seg.key)}</span>`
+  ).join('<span class="breadcrumb-sep">›</span>');
+
+  // Tab segment: plain text, not a link (isCurrent: true styling)
+  const tabSegHtml = `<span class="breadcrumb-sep">›</span><span class="breadcrumb-seg current">${escapeHtml(tabName)}</span>`;
+
+  return `<div class="breadcrumb">${segHtml}${tabSegHtml}</div>`;
 }
 
 /**

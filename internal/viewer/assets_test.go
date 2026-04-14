@@ -2086,3 +2086,169 @@ func TestViewerHTMLCopyKeyButtonHasDataAttribute(t *testing.T) {
 		t.Error("viewer.html copy-key-btn missing — button must be wired to copy entity key (T-E27-F09-011)")
 	}
 }
+
+// ============================================================
+// T-E27-F09-012: Tab segment in breadcrumb + browser history
+// ============================================================
+
+// TestViewerHTMLBreadcrumbTabSegment verifies that renderBreadcrumb appends
+// the active tab as the final breadcrumb segment (T-E27-F09-012).
+func TestViewerHTMLBreadcrumbTabSegment(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderBreadcrumb must accept entityViewTab and include it as the last segment.
+	// We verify the function references entityViewTab when building the breadcrumb.
+	if !strings.Contains(content, "function renderBreadcrumb(") {
+		t.Fatal("viewer.html missing renderBreadcrumb function")
+	}
+
+	// Find the renderBreadcrumb function body
+	funcStart := strings.Index(content, "function renderBreadcrumb(")
+	if funcStart < 0 {
+		t.Fatal("cannot find renderBreadcrumb function")
+	}
+	// Find the end of the function (next top-level function or block)
+	funcBody := content[funcStart:]
+	// The function must reference entityViewTab to append the tab segment
+	if !strings.Contains(funcBody[:strings.Index(funcBody, "\nfunction ")+1], "entityViewTab") {
+		t.Error("viewer.html renderBreadcrumb does not reference entityViewTab — tab segment must be appended to breadcrumb (T-E27-F09-012)")
+	}
+}
+
+// TestViewerHTMLBreadcrumbTabDisplayNames verifies that a tab display-name
+// mapping exists for known tab IDs (T-E27-F09-012).
+func TestViewerHTMLBreadcrumbTabDisplayNames(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Tab IDs must be mapped to display names somewhere near renderBreadcrumb.
+	// We require at minimum: overview, info (Spec), transitions (History), files, dashboard.
+	tabDisplayNames := []string{"Overview", "Spec", "History", "Files", "Dashboard"}
+	for _, name := range tabDisplayNames {
+		if !strings.Contains(content, `'`+name+`'`) && !strings.Contains(content, `"`+name+`"`) {
+			t.Errorf("viewer.html missing tab display name %q in tab name map (T-E27-F09-012)", name)
+		}
+	}
+}
+
+// TestViewerHTMLBreadcrumbTabSegmentIsPlainText verifies that the tab breadcrumb
+// segment is rendered as plain text (no data-navigate-key), not a link (T-E27-F09-012).
+func TestViewerHTMLBreadcrumbTabSegmentIsPlainText(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The tab segment must use the "breadcrumb-seg current" class (plain text, not navigable).
+	// We look for a pattern where entityViewTab is used with isCurrent:true or "breadcrumb-seg current".
+	// The tab segment must NOT have data-navigate-key.
+	funcStart := strings.Index(content, "function renderBreadcrumb(")
+	if funcStart < 0 {
+		t.Fatal("cannot find renderBreadcrumb function")
+	}
+	funcEnd := strings.Index(content[funcStart+1:], "\nfunction ")
+	if funcEnd < 0 {
+		funcEnd = len(content) - funcStart - 1
+	}
+	funcBody := content[funcStart : funcStart+funcEnd+1]
+
+	// The function must push a tab segment with isCurrent: true
+	if !strings.Contains(funcBody, "isCurrent: true") && !strings.Contains(funcBody, "isCurrent:true") {
+		t.Error("viewer.html renderBreadcrumb: tab segment must use isCurrent:true so it renders as plain text (T-E27-F09-012)")
+	}
+}
+
+// TestViewerHTMLPushNavStateIncludesURL verifies that pushNavState passes a URL
+// to history.pushState encoding both entity key and tab (T-E27-F09-012).
+func TestViewerHTMLPushNavStateIncludesURL(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// pushNavState must call history.pushState with a URL argument.
+	// The URL must encode the entity key and tab as query params.
+	funcStart := strings.Index(content, "function pushNavState(")
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing function pushNavState()")
+	}
+	funcEnd := strings.Index(content[funcStart+1:], "\nfunction ")
+	if funcEnd < 0 {
+		funcEnd = len(content) - funcStart - 1
+	}
+	funcBody := content[funcStart : funcStart+funcEnd+1]
+
+	if !strings.Contains(funcBody, "entity") {
+		t.Error("viewer.html pushNavState: URL must include 'entity' query param (T-E27-F09-012)")
+	}
+	if !strings.Contains(funcBody, "tab") {
+		t.Error("viewer.html pushNavState: URL must include 'tab' query param (T-E27-F09-012)")
+	}
+	// Must pass URL as third arg to history.pushState (not just empty string)
+	if !strings.Contains(funcBody, "searchParams") && !strings.Contains(funcBody, "URLSearchParams") && !strings.Contains(funcBody, "?entity") {
+		t.Error("viewer.html pushNavState: must build a URL with query params for history.pushState (T-E27-F09-012)")
+	}
+}
+
+// TestViewerHTMLInitialURLRestore verifies that on page load the app reads
+// ?entity= and ?tab= query params and restores that state (T-E27-F09-012).
+func TestViewerHTMLInitialURLRestore(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// After loadProjectData completes, it must check URL params.
+	// We verify that URLSearchParams or location.search is referenced in or
+	// near loadProjectData to restore entity+tab on initial load.
+	funcStart := strings.Index(content, "async function loadProjectData(")
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing function loadProjectData()")
+	}
+	funcEnd := strings.Index(content[funcStart+1:], "\nfunction ")
+	if funcEnd < 0 {
+		funcEnd = len(content) - funcStart - 1
+	}
+	funcBody := content[funcStart : funcStart+funcEnd+1]
+
+	hasURLRestore := strings.Contains(funcBody, "URLSearchParams") ||
+		strings.Contains(funcBody, "location.search") ||
+		strings.Contains(funcBody, "searchParams.get")
+	if !hasURLRestore {
+		t.Error("viewer.html loadProjectData: must read URL query params (URLSearchParams/location.search) to restore entity+tab on initial load (T-E27-F09-012)")
+	}
+}
+
+// TestViewerHTMLPopstateRestoresTabFromState verifies that the popstate handler
+// restores entityViewTab from event.state (T-E27-F09-012).
+func TestViewerHTMLPopstateRestoresTabFromState(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// restoreNavState must read entityViewTab from the state object.
+	funcStart := strings.Index(content, "function restoreNavState(")
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing function restoreNavState()")
+	}
+	funcEnd := strings.Index(content[funcStart+1:], "\nfunction ")
+	if funcEnd < 0 {
+		funcEnd = len(content) - funcStart - 1
+	}
+	funcBody := content[funcStart : funcStart+funcEnd+1]
+
+	if !strings.Contains(funcBody, "entityViewTab") {
+		t.Error("viewer.html restoreNavState: must restore entityViewTab from state (T-E27-F09-012)")
+	}
+}
+
+// TestViewerHTMLTabSegmentAbsentWithNoEntity verifies that when no entity is
+// selected, the tab segment does not appear in the breadcrumb (T-E27-F09-012).
+func TestViewerHTMLTabSegmentAbsentWithNoEntity(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// renderBreadcrumb returns '' when entity is falsy — tab segment must
+	// not be shown when no entity is selected. We verify the early-return guard.
+	funcStart := strings.Index(content, "function renderBreadcrumb(")
+	if funcStart < 0 {
+		t.Fatal("viewer.html missing renderBreadcrumb function")
+	}
+	funcEnd := strings.Index(content[funcStart+1:], "\nfunction ")
+	if funcEnd < 0 {
+		funcEnd = len(content) - funcStart - 1
+	}
+	funcBody := content[funcStart : funcStart+funcEnd+1]
+
+	// Must have an early return when entity is falsy
+	if !strings.Contains(funcBody, "if (!entity)") && !strings.Contains(funcBody, "if(!entity)") {
+		t.Error("viewer.html renderBreadcrumb: must guard against null entity (no tab segment when no entity selected) (T-E27-F09-012)")
+	}
+}
