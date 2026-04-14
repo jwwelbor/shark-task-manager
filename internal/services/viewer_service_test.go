@@ -2016,3 +2016,319 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+// ----- TC-F009: Dependency fields on ViewerTask (T-E27-F09-001) -----
+
+// mockViewerTaskRelRepo is a mock for the ViewerTaskRelationshipRepository interface.
+type mockViewerTaskRelRepo struct {
+	ListAllFunc func(ctx context.Context) ([]*ViewerTaskRelationship, error)
+}
+
+func (m *mockViewerTaskRelRepo) ListAll(ctx context.Context) ([]*ViewerTaskRelationship, error) {
+	if m.ListAllFunc != nil {
+		return m.ListAllFunc(ctx)
+	}
+	return nil, nil
+}
+
+// TestViewerTask_DependsOnFieldExists verifies that ViewerTask exposes a DependsOn []string
+// field (AC-T2: struct gains DependsOn, BlockedBy, Blocks string-slice fields).
+func TestViewerTask_DependsOnFieldExists(t *testing.T) {
+	// Construct a ViewerTask directly and verify the dependency fields are present.
+	vt := &ViewerTask{
+		Task:        &models.Task{},
+		StatusColor: "#aaa",
+		StatusPhase: "done",
+		DependsOn:   []string{"E01-F01-001"},
+		BlockedBy:   []string{"E01-F01-002"},
+		Blocks:      []string{"E01-F01-003"},
+	}
+	if len(vt.DependsOn) != 1 || vt.DependsOn[0] != "E01-F01-001" {
+		t.Errorf("DependsOn field not accessible: got %v", vt.DependsOn)
+	}
+	if len(vt.BlockedBy) != 1 || vt.BlockedBy[0] != "E01-F01-002" {
+		t.Errorf("BlockedBy field not accessible: got %v", vt.BlockedBy)
+	}
+	if len(vt.Blocks) != 1 || vt.Blocks[0] != "E01-F01-003" {
+		t.Errorf("Blocks field not accessible: got %v", vt.Blocks)
+	}
+}
+
+// TestViewerService_Hierarchy_ParsesDependsOn verifies that the DependsOn JSON string
+// stored in models.Task is parsed into a []string on the hierarchy response task
+// (AC-T1: depends_on is serialized in the task projection).
+func TestViewerService_Hierarchy_ParsesDependsOn(t *testing.T) {
+	dependsOnJSON := `["E01-F01-001","E01-F01-002"]`
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}, EpicID: 10, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+				return []*models.Task{
+					{
+						BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"},
+						FeatureID:  20,
+						Status:     "todo",
+						DependsOn:  &dependsOnJSON,
+					},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	resp, err := svc.Hierarchy(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Epics) == 0 || len(resp.Epics[0].Features) == 0 || len(resp.Epics[0].Features[0].Tasks) == 0 {
+		t.Fatal("expected hierarchy to contain at least one task")
+	}
+	task := resp.Epics[0].Features[0].Tasks[0]
+	if len(task.DependsOn) != 2 {
+		t.Errorf("expected DependsOn to have 2 entries, got %d: %v", len(task.DependsOn), task.DependsOn)
+	}
+	if task.DependsOn[0] != "E01-F01-001" || task.DependsOn[1] != "E01-F01-002" {
+		t.Errorf("unexpected DependsOn values: %v", task.DependsOn)
+	}
+}
+
+// TestViewerService_Hierarchy_DependsOnNilToEmpty verifies that a task with no DependsOn
+// field gets an empty (not nil) slice.
+func TestViewerService_Hierarchy_DependsOnNilToEmpty(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}, EpicID: 10, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+				return []*models.Task{
+					{
+						BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"},
+						FeatureID:  20,
+						Status:     "todo",
+						DependsOn:  nil, // No dependencies.
+					},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	resp, err := svc.Hierarchy(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	task := resp.Epics[0].Features[0].Tasks[0]
+	if task.DependsOn == nil {
+		t.Error("DependsOn should be empty slice, not nil")
+	}
+	if task.BlockedBy == nil {
+		t.Error("BlockedBy should be empty slice, not nil")
+	}
+	if task.Blocks == nil {
+		t.Error("Blocks should be empty slice, not nil")
+	}
+}
+
+// TestViewerService_Hierarchy_PopulatesBlockedByAndBlocks verifies that when
+// a ViewerTaskRelationshipRepository is wired in, the BlockedBy and Blocks fields
+// are populated from task_relationships (AC-T2: Blocks / BlockedBy fields present and populated).
+func TestViewerService_Hierarchy_PopulatesBlockedByAndBlocks(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}, EpicID: 10, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+				return []*models.Task{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"}, FeatureID: 20, Status: "todo"},
+					{BaseEntity: models.BaseEntity{ID: 2, Key: "E01-F01-002"}, FeatureID: 20, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	// Wire the relationship repository:
+	// Task 2 (E01-F01-002) depends_on Task 1 (E01-F01-001):
+	//   → E01-F01-001 is blocked_by nothing; E01-F01-001 blocks E01-F01-002
+	//   → E01-F01-002 depends_on E01-F01-001; E01-F01-002 is not blocking anything
+	svc.WithTaskRelRepo(&mockViewerTaskRelRepo{
+		ListAllFunc: func(ctx context.Context) ([]*ViewerTaskRelationship, error) {
+			return []*ViewerTaskRelationship{
+				{FromTaskID: 2, ToTaskID: 1, RelType: "depends_on", FromKey: "E01-F01-002", ToKey: "E01-F01-001"},
+			}, nil
+		},
+	})
+
+	resp, err := svc.Hierarchy(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tasks := resp.Epics[0].Features[0].Tasks
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+
+	// Find each task by key.
+	var task1, task2 *ViewerTask
+	for _, t2 := range tasks {
+		switch t2.Key {
+		case "E01-F01-001":
+			task1 = t2
+		case "E01-F01-002":
+			task2 = t2
+		}
+	}
+	if task1 == nil || task2 == nil {
+		t.Fatal("could not find both tasks in hierarchy response")
+	}
+
+	// Task 1 (E01-F01-001) is the prerequisite: it should show up in Blocks of E01-F01-002's dependency chain.
+	// From the relationship "E01-F01-002 depends_on E01-F01-001":
+	// E01-F01-001 has no DependsOn, no BlockedBy, but it blocks E01-F01-002.
+	if len(task1.Blocks) != 1 || task1.Blocks[0] != "E01-F01-002" {
+		t.Errorf("task1.Blocks expected [E01-F01-002], got %v", task1.Blocks)
+	}
+	if len(task1.BlockedBy) != 0 {
+		t.Errorf("task1.BlockedBy expected empty, got %v", task1.BlockedBy)
+	}
+
+	// Task 2 (E01-F01-002) depends_on task 1: it has DependsOn=[E01-F01-001], no Blocks.
+	if len(task2.BlockedBy) != 1 || task2.BlockedBy[0] != "E01-F01-001" {
+		t.Errorf("task2.BlockedBy expected [E01-F01-001], got %v", task2.BlockedBy)
+	}
+}
+
+// TestViewerService_Hierarchy_NoNewEndpointForDependencies verifies AC-T3: the dependency
+// data is embedded in the hierarchy payload and no new per-entity GET is introduced.
+// This test ensures the Hierarchy() method returns dependency data without calling
+// a per-task lookup (the mock task repo has no GetByKey path invoked).
+func TestViewerService_Hierarchy_NoNewEndpointForDependencies(t *testing.T) {
+	getByKeyCallCount := 0
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}, EpicID: 10, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+				return []*models.Task{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"}, FeatureID: 20, Status: "todo"},
+				}, nil
+			},
+			GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+				getByKeyCallCount++
+				return nil, fmt.Errorf("should not be called during Hierarchy")
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+
+	_, err := svc.Hierarchy(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if getByKeyCallCount > 0 {
+		t.Errorf("Hierarchy() issued %d per-entity GetByKey calls; expected 0 (AC-T3)", getByKeyCallCount)
+	}
+}
+
+// TestViewerService_Hierarchy_GracefulWhenRelRepoNil verifies that Hierarchy()
+// works correctly when taskRelRepo is nil (BlockedBy/Blocks return empty slices).
+func TestViewerService_Hierarchy_GracefulWhenRelRepoNil(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{
+			ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
+				return []*models.Epic{
+					{BaseEntity: models.BaseEntity{ID: 10, Key: "E01"}, Status: models.EpicStatusActive},
+				}, nil
+			},
+		},
+		&mockViewerFeatureRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Feature, error) {
+				return []*models.Feature{
+					{BaseEntity: models.BaseEntity{ID: 20, Key: "E01-F01"}, EpicID: 10, Status: "in_progress"},
+				}, nil
+			},
+		},
+		&mockViewerTaskRepo{
+			ListFunc: func(ctx context.Context) ([]*models.Task, error) {
+				return []*models.Task{
+					{BaseEntity: models.BaseEntity{ID: 1, Key: "E01-F01-001"}, FeatureID: 20, Status: "todo"},
+				}, nil
+			},
+		},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	// taskRelRepo is NOT wired (nil).
+
+	resp, err := svc.Hierarchy(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	task := resp.Epics[0].Features[0].Tasks[0]
+	// Should degrade gracefully with empty slices.
+	if task.BlockedBy == nil {
+		t.Error("BlockedBy should be [] not nil when relRepo is nil")
+	}
+	if task.Blocks == nil {
+		t.Error("Blocks should be [] not nil when relRepo is nil")
+	}
+}
