@@ -3534,6 +3534,57 @@ async function loadRelatedDocsInto(el, key) {
   }
 }
 
+// --- Task Overview section renderers (REQ-F-009) ---
+
+/**
+ * Renders a single dependency row entry.
+ * Resolved entities get a clickable span with data-navigate-key, tabindex, and role.
+ * Unresolved keys get plain mono text with a dim "(unresolved)" suffix.
+ * AC-T3: unresolved keys render as plain mono text with no click handler.
+ * AC-T4: resolved clickable entries have tabindex="0" and role="button".
+ * @param {{key: string, entity: Object|null}} item
+ * @returns {string} HTML string
+ */
+function renderDepRow(item) {
+  const k = escapeHtml(item.key);
+  if (item.entity) {
+    return `<div style="margin:3px 0;font-size:13px">` +
+      `<span role="button" tabindex="0" data-navigate-key="${k}" ` +
+      `style="font-family:var(--font-mono,monospace);color:var(--accent);cursor:pointer;font-size:12px">${k}</span>` +
+      `</div>`;
+  }
+  return `<div style="margin:3px 0;font-size:13px">` +
+    `<span style="font-family:var(--font-mono,monospace);font-size:12px">${k}</span>` +
+    `<span style="font-size:11px;color:var(--fg-dim)"> (unresolved)</span>` +
+    `</div>`;
+}
+
+/**
+ * Renders the Dependencies section for the Task Overview pane.
+ * Shows three groups: Depends On, Blocked By, Blocks.
+ * Blocked By carries a red left-border accent even when empty (AC-T2).
+ * Uses findEntityByKey to resolve keys — no network call (AC-T1).
+ * REQ-F-009, AC-009.1–AC-009.5.
+ * @param {Object} task - task entity object from treeData
+ * @returns {string} HTML string for the section
+ */
+function renderDependencyBlockSection(task) {
+  const resolve = keys => (Array.isArray(keys) ? keys : []).map(k => ({ key: k, entity: findEntityByKey(k) }));
+  const groups = [
+    { label: 'Depends On', items: resolve(task.depends_on_keys) },
+    { label: 'Blocked By', items: resolve(task.blocked_by_keys), accent: true },
+    { label: 'Blocks',     items: resolve(task.blocks_keys) },
+  ];
+  const groupHtml = g => `
+    <div class="dep-group${g.accent ? ' dep-group-accent' : ''}">
+      <div class="dep-label">${escapeHtml(g.label)}</div>
+      ${g.items.length
+        ? g.items.map(renderDepRow).join('')
+        : `<div class="dep-empty">(none)</div>`}
+    </div>`;
+  return sectionShell('Dependencies', groups.map(groupHtml).join(''));
+}
+
 // --- Epic Overview section renderers (REQ-F-004, REQ-F-005, REQ-F-008) ---
 
 /**
@@ -3792,7 +3843,7 @@ function renderOverviewPane(entity, paneEl) {
       sections.push(relatedDocsPlaceholder(entity.key));
       break;
     case 'task':
-      // Dependency block rendered in later task (F09-009)
+      sections.push(renderDependencyBlockSection(entity));
       sections.push(notesPlaceholder(entity.key));
       sections.push(relatedDocsPlaceholder(entity.key));
       break;
