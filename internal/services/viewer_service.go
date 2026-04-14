@@ -3,7 +3,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -301,9 +300,9 @@ type ViewerTask struct {
 	*models.Task
 	StatusColor string   `json:"status_color"`
 	StatusPhase string   `json:"status_phase"`
-	DependsOn   []string `json:"depends_on_keys"` // Parsed from models.Task.DependsOn (JSON string)
-	BlockedBy   []string `json:"blocked_by_keys"` // From task_relationships (to_task is this task, type depends_on)
-	Blocks      []string `json:"blocks_keys"`     // From task_relationships (from_task is this task, type depends_on or blocks)
+	DependsOn   []string `json:"depends_on_keys"` // From task_relationships (tasks this task depends on; same as BlockedBy)
+	BlockedBy   []string `json:"blocked_by_keys"` // From task_relationships (tasks blocking this task; same as DependsOn)
+	Blocks      []string `json:"blocks_keys"`     // From task_relationships (tasks this task blocks)
 }
 
 // ViewerTaskRelationship is a lightweight record from the task_relationships table,
@@ -484,9 +483,9 @@ func (s *ViewerService) WithChangeCardListRepo(r ViewerChangeCardListRepository)
 	s.changeCardListRepo = r
 }
 
-// WithTaskRelRepo wires the optional task-relationship repository used by Hierarchy to
-// populate the DependsOn, BlockedBy, and Blocks fields on each ViewerTask. Call after
-// NewViewerService; safe to skip — BlockedBy and Blocks will be empty slices when nil.
+// WithTaskRelRepo wires the optional task-relationship repository used by Hierarchy and
+// FeatureTasks to populate the DependsOn, BlockedBy, and Blocks fields on each ViewerTask.
+// Call after NewViewerService; safe to skip — all three fields will be empty slices when nil.
 func (s *ViewerService) WithTaskRelRepo(r ViewerTaskRelationshipRepository) {
 	s.taskRelRepo = r
 }
@@ -835,7 +834,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 					Task:        t,
 					StatusColor: colorOrGray(meta.Color),
 					StatusPhase: phaseOrUnknown(meta.Phase),
-					DependsOn:   parseDependsOnJSON(t.DependsOn),
+					DependsOn:   emptyStringSlice(blockedByKeys[t.ID]),
 					BlockedBy:   emptyStringSlice(blockedByKeys[t.ID]),
 					Blocks:      emptyStringSlice(blocksKeys[t.ID]),
 				}
@@ -1475,6 +1474,27 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 		filtered = filtered[offset:end]
 	}
 
+	// Bulk-load task relationships for dependency fields (optional — skipped when taskRelRepo is nil).
+	// blockedByKeys[taskID] = slice of keys that block this task (i.e. this task depends_on them).
+	// blocksKeys[taskID]    = slice of keys this task blocks (i.e. they depend_on this task).
+	ftBlockedByKeys := make(map[int64][]string)
+	ftBlocksKeys := make(map[int64][]string)
+	if s.taskRelRepo != nil {
+		allRels, err := s.taskRelRepo.ListAll(ctx)
+		if err == nil {
+			for _, rel := range allRels {
+				switch rel.RelType {
+				case "depends_on":
+					ftBlockedByKeys[rel.FromTaskID] = append(ftBlockedByKeys[rel.FromTaskID], rel.ToKey)
+					ftBlocksKeys[rel.ToTaskID] = append(ftBlocksKeys[rel.ToTaskID], rel.FromKey)
+				case "blocks":
+					ftBlocksKeys[rel.FromTaskID] = append(ftBlocksKeys[rel.FromTaskID], rel.ToKey)
+					ftBlockedByKeys[rel.ToTaskID] = append(ftBlockedByKeys[rel.ToTaskID], rel.FromKey)
+				}
+			}
+		}
+	}
+
 	taskSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
 	viewerTasks := make([]*ViewerTask, 0, len(filtered))
 	for _, t := range filtered {
@@ -1483,9 +1503,9 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 			Task:        t,
 			StatusColor: colorOrGray(meta.Color),
 			StatusPhase: phaseOrUnknown(meta.Phase),
-			DependsOn:   parseDependsOnJSON(t.DependsOn),
-			BlockedBy:   []string{},
-			Blocks:      []string{},
+			DependsOn:   emptyStringSlice(ftBlockedByKeys[t.ID]),
+			BlockedBy:   emptyStringSlice(ftBlockedByKeys[t.ID]),
+			Blocks:      emptyStringSlice(ftBlocksKeys[t.ID]),
 		})
 	}
 
@@ -1683,20 +1703,6 @@ func (s *ViewerService) FolderFiles(ctx context.Context, relPath string) (*Folde
 	}
 
 	return result, nil
-}
-
-// parseDependsOnJSON parses the JSON-encoded depends_on string stored in models.Task.DependsOn
-// into a []string slice of task keys. Returns an empty (non-nil) slice on nil input, empty
-// string, "null", or JSON parse error so callers always receive a valid slice.
-func parseDependsOnJSON(s *string) []string {
-	if s == nil || *s == "" || *s == "null" || *s == "[]" {
-		return []string{}
-	}
-	var keys []string
-	if err := json.Unmarshal([]byte(*s), &keys); err != nil {
-		return []string{}
-	}
-	return keys
 }
 
 // emptyStringSlice returns s when non-nil, otherwise returns a new empty (non-nil) slice.
