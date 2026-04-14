@@ -70,9 +70,10 @@ func (a *changeCardListAdapter) GetByKey(ctx context.Context, key string) (*mode
 }
 
 // taskRelAdapter adapts *repository.DB to services.ViewerTaskRelationshipRepository.
-// It runs a single bulk SQL query to fetch all task relationships with resolved keys,
-// avoiding N+1 queries in the Hierarchy endpoint. No new per-entity GET endpoint is
-// introduced — this data is embedded in the hierarchy payload only (AC-T3).
+// It runs a single bulk SQL query to fetch all task-to-task relationships with resolved
+// keys from the canonical entity_relationships table, avoiding N+1 queries in the
+// Hierarchy endpoint. No new per-entity GET endpoint is introduced — this data is
+// embedded in the hierarchy payload only (AC-T3).
 type taskRelAdapter struct {
 	db *repository.DB
 }
@@ -80,15 +81,17 @@ type taskRelAdapter struct {
 func (a *taskRelAdapter) ListAll(ctx context.Context) ([]*services.ViewerTaskRelationship, error) {
 	const query = `
 		SELECT
-			tr.from_task_id,
-			tr.to_task_id,
-			tr.relationship_type,
+			er.from_entity_id,
+			er.to_entity_id,
+			er.relationship_type,
 			ft.key AS from_key,
 			tt.key AS to_key
-		FROM task_relationships tr
-		INNER JOIN tasks ft ON ft.id = tr.from_task_id
-		INNER JOIN tasks tt ON tt.id = tr.to_task_id
-		ORDER BY tr.id ASC
+		FROM entity_relationships er
+		INNER JOIN tasks ft ON ft.id = er.from_entity_id
+		INNER JOIN tasks tt ON tt.id = er.to_entity_id
+		WHERE er.from_entity_type = 'task'
+		  AND er.to_entity_type   = 'task'
+		ORDER BY er.id ASC
 		LIMIT 10000
 	`
 	rows, err := a.db.QueryContext(ctx, query)

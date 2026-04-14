@@ -300,13 +300,13 @@ type ViewerTask struct {
 	*models.Task
 	StatusColor string   `json:"status_color"`
 	StatusPhase string   `json:"status_phase"`
-	DependsOn   []string `json:"depends_on_keys"` // From task_relationships (tasks this task depends on; same as BlockedBy)
-	BlockedBy   []string `json:"blocked_by_keys"` // From task_relationships (tasks blocking this task; same as DependsOn)
-	Blocks      []string `json:"blocks_keys"`     // From task_relationships (tasks this task blocks)
+	DependsOn   []string `json:"depends_on_keys"` // From entity_relationships (tasks this task depends on; same as BlockedBy)
+	BlockedBy   []string `json:"blocked_by_keys"` // From entity_relationships (tasks blocking this task; same as DependsOn)
+	Blocks      []string `json:"blocks_keys"`     // From entity_relationships (tasks this task blocks)
 }
 
-// ViewerTaskRelationship is a lightweight record from the task_relationships table,
-// with resolved task keys (not IDs) for client-side consumption.
+// ViewerTaskRelationship is a lightweight record from the entity_relationships table
+// (task-to-task entries only), with resolved task keys (not IDs) for client-side consumption.
 type ViewerTaskRelationship struct {
 	FromTaskID int64
 	ToTaskID   int64
