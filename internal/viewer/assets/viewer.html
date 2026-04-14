@@ -4038,7 +4038,7 @@ function renderEntityView() {
   const overviewTabBtn = document.getElementById('ev-tab-overview');
   if (overviewTabBtn) {
     overviewTabBtn.addEventListener('click', () => {
-      if (entityViewTab !== 'overview') { entityViewTab = 'overview'; replaceNavState(); renderEntityView(); }
+      if (entityViewTab !== 'overview') { entityViewTab = 'overview'; pushNavState(); renderEntityView(); }
     });
   }
 
@@ -4046,21 +4046,21 @@ function renderEntityView() {
   const dashTabBtn = document.getElementById('ev-tab-dashboard');
   if (dashTabBtn) {
     dashTabBtn.addEventListener('click', () => {
-      if (entityViewTab !== 'dashboard') { entityViewTab = 'dashboard'; replaceNavState(); renderEntityView(); }
+      if (entityViewTab !== 'dashboard') { entityViewTab = 'dashboard'; pushNavState(); renderEntityView(); }
     });
   }
 
   // Wire toggle buttons
   document.getElementById('ev-tab-info').addEventListener('click', () => {
-    if (entityViewTab !== 'info') { entityViewTab = 'info'; replaceNavState(); renderEntityView(); }
+    if (entityViewTab !== 'info') { entityViewTab = 'info'; pushNavState(); renderEntityView(); }
   });
   document.getElementById('ev-tab-transitions').addEventListener('click', () => {
-    if (entityViewTab !== 'transitions') { entityViewTab = 'transitions'; replaceNavState(); renderEntityView(); }
+    if (entityViewTab !== 'transitions') { entityViewTab = 'transitions'; pushNavState(); renderEntityView(); }
   });
   const filesTabBtn = document.getElementById('ev-tab-files');
   if (filesTabBtn) {
     filesTabBtn.addEventListener('click', () => {
-      if (entityViewTab !== 'files') { entityViewTab = 'files'; replaceNavState(); renderEntityView(); }
+      if (entityViewTab !== 'files') { entityViewTab = 'files'; pushNavState(); renderEntityView(); }
     });
   }
 

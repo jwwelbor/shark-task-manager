@@ -89,6 +89,7 @@ func (a *taskRelAdapter) ListAll(ctx context.Context) ([]*services.ViewerTaskRel
 		INNER JOIN tasks ft ON ft.id = tr.from_task_id
 		INNER JOIN tasks tt ON tt.id = tr.to_task_id
 		ORDER BY tr.id ASC
+		LIMIT 10000
 	`
 	rows, err := a.db.QueryContext(ctx, query)
 	if err != nil {
