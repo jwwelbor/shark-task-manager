@@ -307,6 +307,20 @@
       font-style: italic;
     }
 
+    /* Cancelled/inactive entities: dimmed text to de-emphasize without relying on color */
+    .entity-cancelled .tree-node-key,
+    .entity-cancelled .tree-node-title {
+      opacity: 0.4;
+      text-decoration: line-through;
+    }
+    .entity-cancelled:not(.selected) {
+      opacity: 0.55;
+    }
+    tr.entity-cancelled td {
+      opacity: 0.4;
+      text-decoration: line-through;
+    }
+
     /* Compensate selected border for indented nodes */
     .tree-node.selected.tree-node-epic    { padding-left: 13px; }
     .tree-node.selected.tree-node-feature { padding-left: 37px; }
@@ -1560,6 +1574,14 @@ function isTerminalStatus(status) {
   return TERMINAL_STATUSES.has(status);
 }
 
+const CANCELLED_STATUSES = new Set([
+  'cancelled', 'closed', 'wont_fix', 'rejected',
+]);
+
+function isCancelledStatus(status) {
+  return CANCELLED_STATUSES.has((status || '').toLowerCase());
+}
+
 /** Prefix for synthetic folder keys used when a clicked directory has no associated entity. */
 const FOLDER_KEY_PREFIX = 'folder:';
 
@@ -1570,9 +1592,16 @@ const FOLDER_KEY_PREFIX = 'folder:';
  * @returns {string}
  */
 function formatDate(isoString) {
-  if (!isoString) return '—';
+  if (!isoString) return '';
+  // sql.NullTime serializes as {Time: "...", Valid: bool}
+  if (typeof isoString === 'object' && isoString !== null) {
+    if (!isoString.Valid) return '';
+    isoString = isoString.Time;
+  }
+  if (!isoString) return '';
   try {
     const d = new Date(isoString);
+    if (isNaN(d.getTime()) || d.getFullYear() < 2) return '';
     const now = new Date();
     const months = ['Jan','Feb','Mar','Apr','May','Jun',
                     'Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1587,7 +1616,7 @@ function formatDate(isoString) {
     }
     return `${mon} ${day} ${time}`;
   } catch {
-    return isoString;
+    return '';
   }
 }
 
@@ -1598,9 +1627,16 @@ function formatDate(isoString) {
  * @returns {string}
  */
 function formatDateTime(isoString) {
-  if (!isoString) return '—';
+  if (!isoString) return '';
+  // sql.NullTime serializes as {Time: "...", Valid: bool}
+  if (typeof isoString === 'object' && isoString !== null) {
+    if (!isoString.Valid) return '';
+    isoString = isoString.Time;
+  }
+  if (!isoString) return '';
   try {
     const d = new Date(isoString);
+    if (isNaN(d.getTime()) || d.getFullYear() < 2) return '';
     const now = new Date();
     const months = ['Jan','Feb','Mar','Apr','May','Jun',
                     'Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -2904,17 +2940,30 @@ const TAB_DISPLAY_NAMES = {
  */
 function renderBreadcrumb(entity) {
   if (!entity) return '';
-  const chain = []; // [{key, isCurrent, label?}]
+  const chain = []; // [{key}]
   switch (entity.type) {
-    case 'task':
-      chain.push({ key: entity.epic_key || entity.parent_epic_key });
-      chain.push({ key: entity.feature_key || entity.parent });
+    case 'task': {
+      // entity.parent = feature key (set by findEntityByKey)
+      // Derive epic key by looking up the parent feature in treeData
+      const featureKey = entity.parent;
+      let epicKey = null;
+      if (featureKey && Array.isArray(treeData)) {
+        for (const epic of treeData) {
+          const features = Array.isArray(epic.features) ? epic.features : [];
+          if (features.some(f => f.key === featureKey)) { epicKey = epic.key; break; }
+        }
+      }
+      if (epicKey) chain.push({ key: epicKey });
+      if (featureKey) chain.push({ key: featureKey });
       chain.push({ key: entity.key });
       break;
-    case 'feature':
-      chain.push({ key: entity.epic_key || entity.parent });
+    }
+    case 'feature': {
+      // entity.parent = epic key (set by findEntityByKey)
+      if (entity.parent) chain.push({ key: entity.parent });
       chain.push({ key: entity.key });
       break;
+    }
     case 'epic':
       chain.push({ key: entity.key });
       break;
@@ -3634,6 +3683,19 @@ async function loadRelatedDocsInto(el, key) {
   }
 }
 
+/**
+ * Opens a document by its file path in the doc_view, exactly as if the user
+ * clicked the doc node in the sidebar tree.
+ * @param {string} path - relative file path (e.g. "docs/plan/E07/design.md")
+ */
+function openDocumentByPath(path) {
+  if (!path) return;
+  selectedKey = path;
+  appState = 'doc_view';
+  pushNavState();
+  render();
+}
+
 // --- Task Overview section renderers (REQ-F-009) ---
 
 /**
@@ -3699,7 +3761,7 @@ function renderFeatureRollupSection(epic) {
   const counts = countByStatus(features);
   const occupied = Object.keys(counts).filter(s => counts[s] > 0);
   if (occupied.length === 0) {
-    return sectionShell('Feature Status', '<span style="color:var(--fg-dim);font-size:12px">No features</span>');
+    return sectionShell('Features in Status', '<span style="color:var(--fg-dim);font-size:12px">No features</span>');
   }
   const ordered = sortedStatuses(occupied);
   const pills = ordered.map(s => {
@@ -3709,7 +3771,7 @@ function renderFeatureRollupSection(epic) {
       ● ${escapeHtml(s.replace(/_/g,' '))} ${n}
     </span>`;
   }).join('');
-  return sectionShell('Feature Status', `<div class="rollup-row">${pills}</div>`);
+  return sectionShell('Features in Status', `<div class="rollup-row">${pills}</div>`);
 }
 
 /**
@@ -3723,7 +3785,7 @@ function renderTaskRollupSection(tasks) {
   const total = tasks.length;
 
   if (total === 0) {
-    return sectionShell('Task Status', '<span style="color:var(--fg-dim);font-size:12px">No tasks</span>');
+    return sectionShell('Tasks in Status', '<span style="color:var(--fg-dim);font-size:12px">No tasks</span>');
   }
 
   const occupied = Object.keys(counts).filter(s => counts[s] > 0);
@@ -3753,7 +3815,7 @@ function renderTaskRollupSection(tasks) {
       <span class="seg-bar-label">${pct}%</span>
     </div>`;
 
-  return sectionShell('Task Status', bodyHtml);
+  return sectionShell('Tasks in Status', bodyHtml);
 }
 
 /**
@@ -3775,7 +3837,8 @@ function renderFeaturesTableSection(epic) {
     const pct = typeof f.progress_pct === 'number' ? f.progress_pct : 0;
     const badge = ovStatusBadge(f.status || 'unknown');
     const barColor = 'var(--accent)';
-    return `<tr>
+    const rowClass = isCancelledStatus(f.status) ? ' class="entity-cancelled"' : '';
+    return `<tr${rowClass}>
       <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
       <td>${badge}</td>
@@ -3888,7 +3951,8 @@ function renderTasksTableSection(feature) {
     const title = escapeHtml(t.title || t.key || '');
     const badge = ovStatusBadge(t.status || 'unknown');
     const order = t.execution_order != null ? t.execution_order : '';
-    return `<tr>
+    const rowClass = isCancelledStatus(t.status) ? ' class="entity-cancelled"' : '';
+    return `<tr${rowClass}>
       <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
       <td>${badge}</td>
@@ -3928,23 +3992,23 @@ function renderOverviewPane(entity, paneEl) {
   const sections = [];
   switch (entity.type) {
     case 'epic':
+      sections.push(notesPlaceholder(entity.key));
       sections.push(renderFeatureRollupSection(entity));
       sections.push(renderTaskRollupSection(collectEpicTasks(entity)));
       sections.push(renderFeaturesTableSection(entity));
-      sections.push(notesPlaceholder(entity.key));
       sections.push(relatedDocsPlaceholder(entity.key));
       break;
     case 'feature':
+      sections.push(notesPlaceholder(entity.key));
       sections.push(renderTaskRollupSection(entity.tasks || []));
       sections.push(renderWorkBreakdownSection(entity.tasks || []));
       sections.push(renderActionItemsSection(entity.tasks || []));
       sections.push(renderTasksTableSection(entity));
-      sections.push(notesPlaceholder(entity.key));
       sections.push(relatedDocsPlaceholder(entity.key));
       break;
     case 'task':
-      sections.push(renderDependencyBlockSection(entity));
       sections.push(notesPlaceholder(entity.key));
+      sections.push(renderDependencyBlockSection(entity));
       sections.push(relatedDocsPlaceholder(entity.key));
       break;
     default:
@@ -4033,6 +4097,14 @@ function renderEntityView() {
   `;
 
   content.innerHTML = html;
+
+  // Wire breadcrumb segment clicks → navigateToEntity
+  content.querySelectorAll('.breadcrumb-seg[data-navigate-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.getAttribute('data-navigate-key');
+      if (k) navigateToEntity(k);
+    });
+  });
 
   // Wire Overview tab button (epic/feature/task only)
   const overviewTabBtn = document.getElementById('ev-tab-overview');
@@ -4285,13 +4357,14 @@ function buildArrowHtml(expandable, expanded, key) {
 function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bold }) {
   const isSelected = key === selectedKey;
   const selectedClass = isSelected ? ' selected' : '';
+  const cancelledClass = isCancelledStatus(status) ? ' entity-cancelled' : '';
   const arrowHtml = buildArrowHtml(expandable, expanded, key);
   const dotHtml = buildStatusDotHtml(status);
   const keyLabel = bold
     ? `<strong class="tree-node-key">${escapeHtml(key)}</strong>`
     : `<span class="tree-node-key">${escapeHtml(key)}</span>`;
   const titleHtml = `<span class="tree-node-title">${escapeHtml(title || '')}</span>`;
-  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
+  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${cancelledClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
 }
 
 /**
@@ -4425,7 +4498,8 @@ function buildFlatSectionHtml(title, items) {
     const key = item.key || String(item.id || '');
     const isSelected = key === selectedKey;
     const selectedClass = isSelected ? ' selected' : '';
-    html += `<div class="tree-node tree-node-flat${selectedClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
+    const cancelledClass = isCancelledStatus(item.status) ? ' entity-cancelled' : '';
+    html += `<div class="tree-node tree-node-flat${selectedClass}${cancelledClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
   }
   return html;
 }
