@@ -709,6 +709,7 @@ func parseViewerRelationships(jsonStr string) []ViewerRelatedEntity {
 		EntityKey        string `json:"entity_key"`
 	}
 	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
+		fmt.Fprintf(os.Stderr, "viewer: failed to parse relationships JSON: %v\n", err)
 		return []ViewerRelatedEntity{}
 	}
 	result := make([]ViewerRelatedEntity, 0, len(raw))

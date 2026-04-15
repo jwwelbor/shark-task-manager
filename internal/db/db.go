@@ -868,16 +868,20 @@ func migrateViewerTaskRelationshipsView(db *sql.DB) error {
 		    'entity_key',        CASE
 		                           WHEN er.from_entity_type = 'task' AND er.from_entity_id = t.id THEN
 		                             COALESCE(
-		                               (SELECT key FROM tasks    WHERE id = er.to_entity_id   AND er.to_entity_type   = 'task'),
-		                               (SELECT key FROM features WHERE id = er.to_entity_id   AND er.to_entity_type   = 'feature'),
-		                               (SELECT key FROM epics    WHERE id = er.to_entity_id   AND er.to_entity_type   = 'epic'),
+		                               (SELECT key FROM tasks        WHERE id = er.to_entity_id   AND er.to_entity_type   = 'task'),
+		                               (SELECT key FROM features     WHERE id = er.to_entity_id   AND er.to_entity_type   = 'feature'),
+		                               (SELECT key FROM epics        WHERE id = er.to_entity_id   AND er.to_entity_type   = 'epic'),
+		                               (SELECT key FROM bugs         WHERE id = er.to_entity_id   AND er.to_entity_type   = 'bug'),
+		                               (SELECT key FROM change_cards WHERE id = er.to_entity_id   AND er.to_entity_type   = 'change_card'),
 		                               ''
 		                             )
 		                           ELSE
 		                             COALESCE(
-		                               (SELECT key FROM tasks    WHERE id = er.from_entity_id AND er.from_entity_type = 'task'),
-		                               (SELECT key FROM features WHERE id = er.from_entity_id AND er.from_entity_type = 'feature'),
-		                               (SELECT key FROM epics    WHERE id = er.from_entity_id AND er.from_entity_type = 'epic'),
+		                               (SELECT key FROM tasks        WHERE id = er.from_entity_id AND er.from_entity_type = 'task'),
+		                               (SELECT key FROM features     WHERE id = er.from_entity_id AND er.from_entity_type = 'feature'),
+		                               (SELECT key FROM epics        WHERE id = er.from_entity_id AND er.from_entity_type = 'epic'),
+		                               (SELECT key FROM bugs         WHERE id = er.from_entity_id AND er.from_entity_type = 'bug'),
+		                               (SELECT key FROM change_cards WHERE id = er.from_entity_id AND er.from_entity_type = 'change_card'),
 		                               ''
 		                             )
 		                         END
