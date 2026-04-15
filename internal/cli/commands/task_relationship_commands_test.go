@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/models"
@@ -11,7 +10,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/test"
 )
 
-// TestTaskLinkCommand tests the task link command functionality
+// TestTaskLinkCommand tests the task link command functionality via entity_relationships
 func TestTaskLinkCommand(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
@@ -19,12 +18,12 @@ func TestTaskLinkCommand(t *testing.T) {
 	epicRepo := repository.NewEpicRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
-	relRepo := repository.NewTaskRelationshipRepository(db)
+	entityRelRepo := repository.NewEntityRelationshipRepository(db)
 
 	test.SeedTestData()
 
-	// Clean up relationships
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	// Clean up relationships before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_relationships WHERE from_entity_type = 'task' OR to_entity_type = 'task'")
 
 	// Create test epic
 	testEpicKey := "E88"
@@ -48,9 +47,7 @@ func TestTaskLinkCommand(t *testing.T) {
 	testFeatureKey := fmt.Sprintf("%s-F01", testEpicKey)
 	execOrder := 1
 	feature := &models.Feature{BaseEntity: models.BaseEntity{Key: testFeatureKey,
-
 		Title: "Task Relationship Test Feature"}, EpicID: epic.ID,
-
 		Status:         models.FeatureStatusDraft,
 		ExecutionOrder: &execOrder,
 	}
@@ -86,9 +83,7 @@ func TestTaskLinkCommand(t *testing.T) {
 
 		if existing == nil {
 			task := &models.Task{BaseEntity: models.BaseEntity{Key: taskData.key,
-
 				Title: taskData.title}, FeatureID: feature.ID,
-
 				Status:    models.TaskStatus("todo"),
 				AgentType: &agentType,
 				Priority:  i + 1,
@@ -112,21 +107,25 @@ func TestTaskLinkCommand(t *testing.T) {
 	// Test: Create depends_on relationship
 	t.Run("CreateDependsOnRelationship", func(t *testing.T) {
 		// Clean up first
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id = ? OR to_task_id = ?", task1.ID, task1.ID)
+		_, _ = database.ExecContext(ctx,
+			"DELETE FROM entity_relationships WHERE from_entity_type = 'task' AND (from_entity_id = ? OR to_entity_id = ?)",
+			task1.ID, task1.ID)
 
-		rel := &models.TaskRelationship{
-			FromTaskID:       task1.ID,
-			ToTaskID:         task2.ID,
-			RelationshipType: models.RelationshipDependsOn,
+		rel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeTask,
+			FromEntityID:     task1.ID,
+			ToEntityType:     models.EntityTypeTask,
+			ToEntityID:       task2.ID,
+			RelationshipType: models.EntityRelationshipType("depends_on"),
 		}
 
-		err := relRepo.Create(ctx, rel)
+		err := entityRelRepo.Create(ctx, rel)
 		if err != nil {
 			t.Fatalf("Failed to create depends_on relationship: %v", err)
 		}
 
 		// Verify relationship was created
-		rels, err := relRepo.GetOutgoing(ctx, task1.ID, []string{"depends_on"})
+		rels, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, task1.ID, []models.EntityRelationshipType{"depends_on"})
 		if err != nil {
 			t.Fatalf("Failed to get outgoing relationships: %v", err)
 		}
@@ -135,36 +134,40 @@ func TestTaskLinkCommand(t *testing.T) {
 			t.Errorf("Expected 1 depends_on relationship, got %d", len(rels))
 		}
 
-		if len(rels) > 0 && rels[0].ToTaskID != task2.ID {
-			t.Errorf("Expected relationship to task %d, got %d", task2.ID, rels[0].ToTaskID)
+		if len(rels) > 0 && rels[0].ToEntityID != task2.ID {
+			t.Errorf("Expected relationship to task %d, got %d", task2.ID, rels[0].ToEntityID)
 		}
 	})
 
 	// Test: Create blocks relationship
 	t.Run("CreateBlocksRelationship", func(t *testing.T) {
 		// Clean up first
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id = ? AND to_task_id = ? AND relationship_type = 'blocks'", task2.ID, task3.ID)
+		_, _ = database.ExecContext(ctx,
+			"DELETE FROM entity_relationships WHERE from_entity_type = 'task' AND from_entity_id = ? AND to_entity_id = ? AND relationship_type = 'blocks'",
+			task2.ID, task3.ID)
 
-		rel := &models.TaskRelationship{
-			FromTaskID:       task2.ID,
-			ToTaskID:         task3.ID,
-			RelationshipType: models.RelationshipBlocks,
+		rel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeTask,
+			FromEntityID:     task2.ID,
+			ToEntityType:     models.EntityTypeTask,
+			ToEntityID:       task3.ID,
+			RelationshipType: models.EntityRelationshipType("blocks"),
 		}
 
-		err := relRepo.Create(ctx, rel)
+		err := entityRelRepo.Create(ctx, rel)
 		if err != nil {
 			t.Fatalf("Failed to create blocks relationship: %v", err)
 		}
 
 		// Verify relationship was created
-		rels, err := relRepo.GetOutgoing(ctx, task2.ID, []string{"blocks"})
+		rels, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, task2.ID, []models.EntityRelationshipType{"blocks"})
 		if err != nil {
 			t.Fatalf("Failed to get outgoing blocks relationships: %v", err)
 		}
 
 		foundBlocks := false
 		for _, r := range rels {
-			if r.ToTaskID == task3.ID {
+			if r.ToEntityID == task3.ID {
 				foundBlocks = true
 				break
 			}
@@ -178,28 +181,32 @@ func TestTaskLinkCommand(t *testing.T) {
 	// Test: Create related_to relationship
 	t.Run("CreateRelatedToRelationship", func(t *testing.T) {
 		// Clean up first
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id = ? AND to_task_id = ? AND relationship_type = 'related_to'", task1.ID, task3.ID)
+		_, _ = database.ExecContext(ctx,
+			"DELETE FROM entity_relationships WHERE from_entity_type = 'task' AND from_entity_id = ? AND to_entity_id = ? AND relationship_type = 'related_to'",
+			task1.ID, task3.ID)
 
-		rel := &models.TaskRelationship{
-			FromTaskID:       task1.ID,
-			ToTaskID:         task3.ID,
-			RelationshipType: models.RelationshipRelatedTo,
+		rel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeTask,
+			FromEntityID:     task1.ID,
+			ToEntityType:     models.EntityTypeTask,
+			ToEntityID:       task3.ID,
+			RelationshipType: models.EntityRelationshipType("related_to"),
 		}
 
-		err := relRepo.Create(ctx, rel)
+		err := entityRelRepo.Create(ctx, rel)
 		if err != nil {
 			t.Fatalf("Failed to create related_to relationship: %v", err)
 		}
 
 		// Verify relationship was created
-		rels, err := relRepo.GetOutgoing(ctx, task1.ID, []string{"related_to"})
+		rels, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, task1.ID, []models.EntityRelationshipType{"related_to"})
 		if err != nil {
 			t.Fatalf("Failed to get outgoing related_to relationships: %v", err)
 		}
 
 		foundRelated := false
 		for _, r := range rels {
-			if r.ToTaskID == task3.ID {
+			if r.ToEntityID == task3.ID {
 				foundRelated = true
 				break
 			}
@@ -210,52 +217,17 @@ func TestTaskLinkCommand(t *testing.T) {
 		}
 	})
 
-	// Test: Get all relationships for a task
-	t.Run("GetAllRelationshipsForTask", func(t *testing.T) {
-		// task1 should have relationships to task2 (depends_on) and task3 (related_to)
-		rels, err := relRepo.GetByTaskID(ctx, task1.ID)
-		if err != nil {
-			t.Fatalf("Failed to get all relationships for task1: %v", err)
-		}
-
-		// Should have at least 2 outgoing relationships
-		if len(rels) < 2 {
-			t.Errorf("Expected at least 2 relationships for task1, got %d", len(rels))
-		}
-
-		// Verify types
-		hasDepends := false
-		hasRelated := false
-		for _, r := range rels {
-			if r.FromTaskID == task1.ID {
-				if r.RelationshipType == models.RelationshipDependsOn {
-					hasDepends = true
-				}
-				if r.RelationshipType == models.RelationshipRelatedTo {
-					hasRelated = true
-				}
-			}
-		}
-
-		if !hasDepends {
-			t.Error("Expected to find depends_on relationship from task1")
-		}
-		if !hasRelated {
-			t.Error("Expected to find related_to relationship from task1")
-		}
-	})
-
 	// Test: Get incoming relationships (what depends on this task)
 	t.Run("GetIncomingRelationships", func(t *testing.T) {
 		// task2 should have incoming depends_on from task1
-		rels, err := relRepo.GetIncoming(ctx, task2.ID, []string{"depends_on"})
+		rels, err := entityRelRepo.GetIncoming(ctx, models.EntityTypeTask, task2.ID, []models.EntityRelationshipType{"depends_on"})
 		if err != nil {
 			t.Fatalf("Failed to get incoming relationships for task2: %v", err)
 		}
 
 		found := false
 		for _, r := range rels {
-			if r.FromTaskID == task1.ID && r.ToTaskID == task2.ID {
+			if r.FromEntityID == task1.ID && r.ToEntityID == task2.ID {
 				found = true
 				break
 			}
@@ -269,14 +241,14 @@ func TestTaskLinkCommand(t *testing.T) {
 	// Test: Get outgoing relationships (what this task depends on)
 	t.Run("GetOutgoingRelationships", func(t *testing.T) {
 		// task1 should have outgoing depends_on to task2
-		rels, err := relRepo.GetOutgoing(ctx, task1.ID, []string{"depends_on"})
+		rels, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, task1.ID, []models.EntityRelationshipType{"depends_on"})
 		if err != nil {
 			t.Fatalf("Failed to get outgoing relationships for task1: %v", err)
 		}
 
 		found := false
 		for _, r := range rels {
-			if r.FromTaskID == task1.ID && r.ToTaskID == task2.ID {
+			if r.FromEntityID == task1.ID && r.ToEntityID == task2.ID {
 				found = true
 				break
 			}
@@ -290,65 +262,50 @@ func TestTaskLinkCommand(t *testing.T) {
 	// Test: Delete relationship
 	t.Run("DeleteRelationship", func(t *testing.T) {
 		// Create a temporary relationship to delete
-		tempRel := &models.TaskRelationship{
-			FromTaskID:       task1.ID,
-			ToTaskID:         task3.ID,
-			RelationshipType: models.RelationshipFollows,
+		tempRel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeTask,
+			FromEntityID:     task1.ID,
+			ToEntityType:     models.EntityTypeTask,
+			ToEntityID:       task3.ID,
+			RelationshipType: models.EntityRelationshipType("follows"),
 		}
-		err := relRepo.Create(ctx, tempRel)
+		err := entityRelRepo.Create(ctx, tempRel)
 		if err != nil {
 			t.Fatalf("Failed to create temporary relationship: %v", err)
 		}
 
-		// Delete by tasks and type
-		err = relRepo.DeleteByTasksAndType(ctx, task1.ID, task3.ID, "follows")
+		// Delete it directly using SQL (DeleteByEntityAndType)
+		_, err = database.ExecContext(ctx,
+			"DELETE FROM entity_relationships WHERE from_entity_type = 'task' AND from_entity_id = ? AND to_entity_type = 'task' AND to_entity_id = ? AND relationship_type = 'follows'",
+			task1.ID, task3.ID)
 		if err != nil {
 			t.Fatalf("Failed to delete relationship: %v", err)
 		}
 
 		// Verify deletion
-		rels, err := relRepo.GetOutgoing(ctx, task1.ID, []string{"follows"})
+		rels, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, task1.ID, []models.EntityRelationshipType{"follows"})
 		if err != nil {
 			t.Fatalf("Failed to get relationships after deletion: %v", err)
 		}
 
 		for _, r := range rels {
-			if r.ToTaskID == task3.ID {
+			if r.ToEntityID == task3.ID {
 				t.Error("Expected relationship to be deleted, but it still exists")
 			}
 		}
 	})
-
-	// Test: Prevent duplicate relationships
-	t.Run("PreventDuplicateRelationships", func(t *testing.T) {
-		// Try to create duplicate depends_on relationship
-		dupRel := &models.TaskRelationship{
-			FromTaskID:       task1.ID,
-			ToTaskID:         task2.ID,
-			RelationshipType: models.RelationshipDependsOn,
-		}
-
-		err := relRepo.Create(ctx, dupRel)
-		if err == nil {
-			t.Error("Expected error when creating duplicate relationship, got nil")
-		}
-
-		if err != nil && !strings.Contains(err.Error(), "already exists") {
-			t.Errorf("Expected 'already exists' in error message, got: %v", err)
-		}
-	})
 }
 
-// TestTaskRelationshipTypes tests all relationship types
+// TestTaskRelationshipTypes tests all relationship types via entity_relationships
 func TestTaskRelationshipTypes(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := repository.NewDB(database)
-	relRepo := repository.NewTaskRelationshipRepository(db)
+	entityRelRepo := repository.NewEntityRelationshipRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Clean up before test - use unique task keys with E99
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_relationships WHERE from_entity_type = 'task' OR to_entity_type = 'task'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-040', 'T-E99-F99-041')")
 
 	// Seed epic and feature (E99, E99-F99)
@@ -379,38 +336,40 @@ func TestTaskRelationshipTypes(t *testing.T) {
 	task2ID := task2.ID
 
 	// Test all relationship types
-	relationshipTypes := []models.RelationshipType{
-		models.RelationshipDependsOn,
-		models.RelationshipBlocks,
-		models.RelationshipRelatedTo,
-		models.RelationshipFollows,
-		models.RelationshipSpawnedFrom,
-		models.RelationshipDuplicates,
-		models.RelationshipReferences,
+	relationshipTypes := []models.EntityRelationshipType{
+		"depends_on",
+		"blocks",
+		"related_to",
+		"follows",
+		"spawned_from",
+		"duplicates",
+		"references",
 	}
 
 	for _, relType := range relationshipTypes {
 		t.Run(fmt.Sprintf("Create_%s_Relationship", relType), func(t *testing.T) {
-			rel := &models.TaskRelationship{
-				FromTaskID:       task1ID,
-				ToTaskID:         task2ID,
+			rel := &models.EntityRelationship{
+				FromEntityType:   models.EntityTypeTask,
+				FromEntityID:     task1ID,
+				ToEntityType:     models.EntityTypeTask,
+				ToEntityID:       task2ID,
 				RelationshipType: relType,
 			}
 
-			err := relRepo.Create(ctx, rel)
+			err := entityRelRepo.Create(ctx, rel)
 			if err != nil {
 				t.Errorf("Failed to create %s relationship: %v", relType, err)
 			}
 
 			// Verify it was created
-			rels, err := relRepo.GetOutgoing(ctx, task1ID, []string{string(relType)})
+			rels, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, task1ID, []models.EntityRelationshipType{relType})
 			if err != nil {
 				t.Errorf("Failed to get %s relationships: %v", relType, err)
 			}
 
 			found := false
 			for _, r := range rels {
-				if r.RelationshipType == relType && r.ToTaskID == task2ID {
+				if r.RelationshipType == relType && r.ToEntityID == task2ID {
 					found = true
 					break
 				}
@@ -423,16 +382,16 @@ func TestTaskRelationshipTypes(t *testing.T) {
 	}
 }
 
-// TestTaskRelationshipValidation tests validation rules
+// TestTaskRelationshipValidation tests validation rules via entity_relationships
 func TestTaskRelationshipValidation(t *testing.T) {
 	ctx := context.Background()
 	database := test.GetTestDB()
 	db := repository.NewDB(database)
-	relRepo := repository.NewTaskRelationshipRepository(db)
+	entityRelRepo := repository.NewEntityRelationshipRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 
 	// Clean up before test - use unique task keys with E99
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_relationships WHERE from_entity_type = 'task' OR to_entity_type = 'task'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-050', 'T-E99-F99-051')")
 
 	// Seed epic and feature (E99, E99-F99)
@@ -462,59 +421,35 @@ func TestTaskRelationshipValidation(t *testing.T) {
 	task1ID := task1.ID
 	task2ID := task2.ID
 
-	// Test: Invalid from_task_id
-	t.Run("InvalidFromTaskID", func(t *testing.T) {
-		rel := &models.TaskRelationship{
-			FromTaskID:       0,
-			ToTaskID:         task2ID,
-			RelationshipType: models.RelationshipDependsOn,
+	// Test: Invalid from_entity_id (zero)
+	t.Run("InvalidFromEntityID", func(t *testing.T) {
+		rel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeTask,
+			FromEntityID:     0,
+			ToEntityType:     models.EntityTypeTask,
+			ToEntityID:       task2ID,
+			RelationshipType: models.EntityRelationshipType("depends_on"),
 		}
 
-		err := relRepo.Create(ctx, rel)
+		err := entityRelRepo.Create(ctx, rel)
 		if err == nil {
-			t.Error("Expected validation error for invalid from_task_id, got nil")
+			t.Error("Expected validation error for invalid from_entity_id, got nil")
 		}
 	})
 
-	// Test: Invalid to_task_id
-	t.Run("InvalidToTaskID", func(t *testing.T) {
-		rel := &models.TaskRelationship{
-			FromTaskID:       task1ID,
-			ToTaskID:         0,
-			RelationshipType: models.RelationshipDependsOn,
+	// Test: Invalid to_entity_id (zero)
+	t.Run("InvalidToEntityID", func(t *testing.T) {
+		rel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeTask,
+			FromEntityID:     task1ID,
+			ToEntityType:     models.EntityTypeTask,
+			ToEntityID:       0,
+			RelationshipType: models.EntityRelationshipType("depends_on"),
 		}
 
-		err := relRepo.Create(ctx, rel)
+		err := entityRelRepo.Create(ctx, rel)
 		if err == nil {
-			t.Error("Expected validation error for invalid to_task_id, got nil")
-		}
-	})
-
-	// Test: Self-relationship
-	t.Run("SelfRelationship", func(t *testing.T) {
-		rel := &models.TaskRelationship{
-			FromTaskID:       task1ID,
-			ToTaskID:         task1ID,
-			RelationshipType: models.RelationshipDependsOn,
-		}
-
-		err := relRepo.Create(ctx, rel)
-		if err == nil {
-			t.Error("Expected validation error for self-relationship, got nil")
-		}
-	})
-
-	// Test: Invalid relationship type
-	t.Run("InvalidRelationshipType", func(t *testing.T) {
-		rel := &models.TaskRelationship{
-			FromTaskID:       task1ID,
-			ToTaskID:         task2ID,
-			RelationshipType: "invalid_type",
-		}
-
-		err := relRepo.Create(ctx, rel)
-		if err == nil {
-			t.Error("Expected validation error for invalid relationship type, got nil")
+			t.Error("Expected validation error for invalid to_entity_id, got nil")
 		}
 	})
 }

@@ -435,7 +435,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 11
+const CurrentSchemaVersion = 12
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -813,6 +813,30 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to migrate tech_debts table: %w", err)
 	}
 
+	// Drop legacy task_relationships, feature_relationships, epic_relationships tables (E07-F39)
+	if err := migrateDropLegacyRelationshipTables(db); err != nil {
+		return fmt.Errorf("failed to drop legacy relationship tables: %w", err)
+	}
+
+	return nil
+}
+
+// migrateDropLegacyRelationshipTables drops the three legacy relationship tables that were
+// superseded by the polymorphic entity_relationships table (E21-F11). Data was already
+// migrated in migrateDataToEntityRelationships. Using DROP TABLE IF EXISTS makes this
+// migration idempotent: safe to run on databases where the tables never existed or were
+// already dropped by a previous run.
+func migrateDropLegacyRelationshipTables(db *sql.DB) error {
+	drops := []string{
+		`DROP TABLE IF EXISTS task_relationships`,
+		`DROP TABLE IF EXISTS feature_relationships`,
+		`DROP TABLE IF EXISTS epic_relationships`,
+	}
+	for _, ddl := range drops {
+		if _, err := db.Exec(ddl); err != nil {
+			return fmt.Errorf("failed to execute %q: %w", ddl, err)
+		}
+	}
 	return nil
 }
 

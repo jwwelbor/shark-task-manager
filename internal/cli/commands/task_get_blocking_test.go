@@ -17,7 +17,7 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	db := repository.NewDB(database)
 
 	// Clean up before test - use unique task keys with E99
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_relationships WHERE from_entity_type = 'task' OR to_entity_type = 'task'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-020', 'T-E99-F99-021', 'T-E99-F99-022')")
 
 	// Seed epic and feature (E99, E99-F99)
@@ -25,7 +25,7 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 
 	// Create repositories
 	taskRepo := repository.NewTaskRepository(db)
-	relationshipRepo := repository.NewTaskRelationshipRepository(db)
+	entityRelRepo := repository.NewEntityRelationshipRepository(db)
 
 	// Create test tasks
 	// Task A: This is the task we'll query (T-E99-F99-021)
@@ -63,32 +63,36 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 		t.Fatalf("Failed to create task C: %v", err)
 	}
 
-	// Create blocking relationships
+	// Create blocking relationships via entity_relationships
 	// Task B blocks Task A
-	relBA := &models.TaskRelationship{
-		FromTaskID:       taskB.ID,
-		ToTaskID:         taskA.ID,
-		RelationshipType: models.RelationshipBlocks,
+	relBA := &models.EntityRelationship{
+		FromEntityType:   models.EntityTypeTask,
+		FromEntityID:     taskB.ID,
+		ToEntityType:     models.EntityTypeTask,
+		ToEntityID:       taskA.ID,
+		RelationshipType: models.EntityRelationshipType("blocks"),
 	}
-	err = relationshipRepo.Create(ctx, relBA)
+	err = entityRelRepo.Create(ctx, relBA)
 	if err != nil {
 		t.Fatalf("Failed to create B->A blocking relationship: %v", err)
 	}
 
 	// Task A blocks Task C
-	relAC := &models.TaskRelationship{
-		FromTaskID:       taskA.ID,
-		ToTaskID:         taskC.ID,
-		RelationshipType: models.RelationshipBlocks,
+	relAC := &models.EntityRelationship{
+		FromEntityType:   models.EntityTypeTask,
+		FromEntityID:     taskA.ID,
+		ToEntityType:     models.EntityTypeTask,
+		ToEntityID:       taskC.ID,
+		RelationshipType: models.EntityRelationshipType("blocks"),
 	}
-	err = relationshipRepo.Create(ctx, relAC)
+	err = entityRelRepo.Create(ctx, relAC)
 	if err != nil {
 		t.Fatalf("Failed to create A->C blocking relationship: %v", err)
 	}
 
 	// Defer cleanup
 	defer func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id IN (?, ?, ?)", taskA.ID, taskB.ID, taskC.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM entity_relationships WHERE (from_entity_type = 'task' AND from_entity_id IN (?, ?, ?)) OR (to_entity_type = 'task' AND to_entity_id IN (?, ?, ?))", taskA.ID, taskB.ID, taskC.ID, taskA.ID, taskB.ID, taskC.ID)
 		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id IN (?, ?, ?)", taskA.ID, taskB.ID, taskC.ID)
 	}()
 
@@ -96,13 +100,13 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	// We need to call the repository methods that task get would use
 
 	// Get blocked-by relationships (incoming blocks - tasks that block taskA)
-	blockedBy, err := relationshipRepo.GetIncoming(ctx, taskA.ID, []string{"blocks"})
+	blockedBy, err := entityRelRepo.GetIncoming(ctx, models.EntityTypeTask, taskA.ID, []models.EntityRelationshipType{"blocks"})
 	if err != nil {
 		t.Fatalf("Failed to get blocked-by relationships: %v", err)
 	}
 
 	// Get blocks relationships (outgoing blocks - tasks that taskA blocks)
-	blocks, err := relationshipRepo.GetOutgoing(ctx, taskA.ID, []string{"blocks"})
+	blocks, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, taskA.ID, []models.EntityRelationshipType{"blocks"})
 	if err != nil {
 		t.Fatalf("Failed to get blocks relationships: %v", err)
 	}
@@ -111,12 +115,12 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	if len(blockedBy) != 1 {
 		t.Errorf("Expected 1 blocked-by relationship, got %d", len(blockedBy))
 	} else {
-		if blockedBy[0].FromTaskID != taskB.ID {
-			t.Errorf("Expected blocked-by from task B (ID=%d), got ID=%d", taskB.ID, blockedBy[0].FromTaskID)
+		if blockedBy[0].FromEntityID != taskB.ID {
+			t.Errorf("Expected blocked-by from task B (ID=%d), got ID=%d", taskB.ID, blockedBy[0].FromEntityID)
 		}
 
 		// Verify we can get the task key for the blocker
-		blockerTask, err := taskRepo.GetByID(ctx, blockedBy[0].FromTaskID)
+		blockerTask, err := taskRepo.GetByID(ctx, blockedBy[0].FromEntityID)
 		if err != nil {
 			t.Fatalf("Failed to get blocker task: %v", err)
 		}
@@ -128,12 +132,12 @@ func TestTaskGetShowsBlockingRelationships(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Errorf("Expected 1 blocks relationship, got %d", len(blocks))
 	} else {
-		if blocks[0].ToTaskID != taskC.ID {
-			t.Errorf("Expected blocks to task C (ID=%d), got ID=%d", taskC.ID, blocks[0].ToTaskID)
+		if blocks[0].ToEntityID != taskC.ID {
+			t.Errorf("Expected blocks to task C (ID=%d), got ID=%d", taskC.ID, blocks[0].ToEntityID)
 		}
 
 		// Verify we can get the task key for the blocked task
-		blockedTask, err := taskRepo.GetByID(ctx, blocks[0].ToTaskID)
+		blockedTask, err := taskRepo.GetByID(ctx, blocks[0].ToEntityID)
 		if err != nil {
 			t.Fatalf("Failed to get blocked task: %v", err)
 		}
@@ -184,7 +188,7 @@ func TestTaskGetNoBlockingRelationships(t *testing.T) {
 	db := repository.NewDB(database)
 
 	// Clean up before test - use unique task key with E99
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_relationships WHERE from_entity_type = 'task' OR to_entity_type = 'task'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key = 'T-E99-F99-030'")
 
 	// Seed epic and feature (E99, E99-F99)
@@ -192,7 +196,7 @@ func TestTaskGetNoBlockingRelationships(t *testing.T) {
 
 	// Create repositories
 	taskRepo := repository.NewTaskRepository(db)
-	relationshipRepo := repository.NewTaskRelationshipRepository(db)
+	entityRelRepo := repository.NewEntityRelationshipRepository(db)
 
 	// Create a single task with no relationships
 	task := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-030",
@@ -208,12 +212,12 @@ func TestTaskGetNoBlockingRelationships(t *testing.T) {
 	defer func() { _, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", task.ID) }()
 
 	// Get blocking relationships (should be empty)
-	blockedBy, err := relationshipRepo.GetIncoming(ctx, task.ID, []string{"blocks"})
+	blockedBy, err := entityRelRepo.GetIncoming(ctx, models.EntityTypeTask, task.ID, []models.EntityRelationshipType{"blocks"})
 	if err != nil {
 		t.Fatalf("Failed to get blocked-by relationships: %v", err)
 	}
 
-	blocks, err := relationshipRepo.GetOutgoing(ctx, task.ID, []string{"blocks"})
+	blocks, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, task.ID, []models.EntityRelationshipType{"blocks"})
 	if err != nil {
 		t.Fatalf("Failed to get blocks relationships: %v", err)
 	}
