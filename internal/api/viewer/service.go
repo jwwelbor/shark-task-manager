@@ -22,6 +22,8 @@ type ViewerServicer interface {
 	FeatureTasks(ctx context.Context, featureKey string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error)
 	RecentActivity(ctx context.Context, opts services.RecentActivityOptions) (*services.RecentActivityResponse, error)
 	WorkflowMeta(ctx context.Context) (*services.WorkflowMetaResponse, error)
+	Notes(ctx context.Context, key string) (*services.NotesResponse, error)
+	RelatedDocs(ctx context.Context, key string) (*services.RelatedDocsResponse, error)
 }
 
 // Compile-time check: *services.ViewerService must satisfy ViewerServicer.

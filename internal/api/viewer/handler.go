@@ -59,6 +59,9 @@ func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	mux.Handle("GET "+prefix+"/workflow-meta", wrap(http.HandlerFunc(h.WorkflowMeta)))
 	mux.Handle("GET "+prefix+"/folder-files/{path...}", wrap(http.HandlerFunc(h.FolderFiles)))
 
+	mux.Handle("GET "+prefix+"/notes/{key}", wrap(http.HandlerFunc(h.Notes)))
+	mux.Handle("GET "+prefix+"/related-docs/{key}", wrap(http.HandlerFunc(h.RelatedDocs)))
+
 	// Allow OPTIONS preflight for all viewer routes by catching the prefix.
 	mux.Handle("OPTIONS "+prefix+"/", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// WithLocalCORS handles OPTIONS by returning 204 before reaching here.
@@ -318,6 +321,52 @@ func (h *ViewerHandler) FolderFiles(w http.ResponseWriter, r *http.Request) {
 		}
 		slog.Error("viewer folder files failed", "path", rawPath, "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to list folder")
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// Notes returns the notes for any supported entity.
+// GET /api/v1/viewer/notes/{key}
+func (h *ViewerHandler) Notes(w http.ResponseWriter, r *http.Request) {
+	rawKey := r.PathValue("key")
+	key, err := validateAndNormalizeAnyKey(rawKey)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid entity key: "+rawKey)
+		return
+	}
+
+	result, err := h.svc.Notes(r.Context(), key)
+	if err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "entity not found: "+key)
+			return
+		}
+		slog.Error("viewer notes failed", "entity", key, "endpoint", "notes", "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to load notes")
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// RelatedDocs returns the related documents for any supported entity.
+// GET /api/v1/viewer/related-docs/{key}
+func (h *ViewerHandler) RelatedDocs(w http.ResponseWriter, r *http.Request) {
+	rawKey := r.PathValue("key")
+	key, err := validateAndNormalizeAnyKey(rawKey)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid entity key: "+rawKey)
+		return
+	}
+
+	result, err := h.svc.RelatedDocs(r.Context(), key)
+	if err != nil {
+		if isNotFound(err) {
+			respondError(w, http.StatusNotFound, "entity not found: "+key)
+			return
+		}
+		slog.Error("viewer related-docs failed", "entity", key, "endpoint", "related_docs", "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to load related docs")
 		return
 	}
 	respondJSON(w, http.StatusOK, result)

@@ -307,6 +307,20 @@
       font-style: italic;
     }
 
+    /* Cancelled/inactive entities: dimmed text to de-emphasize without relying on color */
+    .entity-cancelled .tree-node-key,
+    .entity-cancelled .tree-node-title {
+      opacity: 0.4;
+      text-decoration: line-through;
+    }
+    .entity-cancelled:not(.selected) {
+      opacity: 0.55;
+    }
+    tr.entity-cancelled td {
+      opacity: 0.4;
+      text-decoration: line-through;
+    }
+
     /* Compensate selected border for indented nodes */
     .tree-node.selected.tree-node-epic    { padding-left: 13px; }
     .tree-node.selected.tree-node-feature { padding-left: 37px; }
@@ -582,7 +596,6 @@
 
     /* Activity / Transitions table */
     .activity-table {
-      width: 100%;
       border-collapse: collapse;
     }
 
@@ -621,7 +634,18 @@
 
     .activity-arrow {
       color: var(--fg-dim);
-      padding: 0 4px;
+      padding: 0 2px;
+    }
+
+    .activity-table td.activity-badge-cell {
+      padding: 7px 3px;
+    }
+
+    .activity-duration {
+      color: var(--fg-dim);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
 
     .activity-note {
@@ -754,6 +778,31 @@
       font-size: 13px;
     }
 
+    .entity-view-key-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Copy-key button: unobtrusive — no border/background in rest state */
+    .copy-key-btn {
+      font-size: 11px;
+      padding: 1px 4px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--fg-dim);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      transition: background var(--transition), border-color var(--transition), color var(--transition);
+      flex-shrink: 0;
+    }
+
+    .copy-key-btn:hover {
+      background: var(--bg-3);
+      border-color: var(--border);
+      color: var(--fg);
+    }
+
     .toggle-bar {
       display: flex;
       gap: 4px;
@@ -781,6 +830,97 @@
       border-color: var(--accent);
       color: var(--accent);
     }
+
+    /* Spec pane inline edit header (E27-F09) */
+    .spec-pane-header {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      min-height: 28px;
+      margin-bottom: 8px;
+    }
+
+    .inline-edit-btn {
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-2);
+      color: var(--fg-muted);
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    .inline-edit-btn:hover {
+      background: var(--bg-3);
+      color: var(--fg);
+    }
+
+    /* Breadcrumb (REQ-F-003, E27-F09-005) */
+    .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-dim); margin: 2px 0 10px; }
+    .breadcrumb-seg { padding: 2px 4px; border-radius: 3px; cursor: pointer; font-family: var(--font-mono, monospace); }
+    .breadcrumb-seg:hover { background: var(--bg-3); color: var(--fg); }
+    .breadcrumb-seg.current { color: var(--fg); cursor: default; }
+    .breadcrumb-sep { color: var(--fg-dim); user-select: none; }
+
+    /* Properties-panel status accent (REQ-F-012) */
+    .props-grid[data-status-accent] { padding-left: calc(var(--pad, 10px) + 3px); }
+
+    /* Overview pane (E27-F09) */
+    .overview-pane {
+      padding: 4px 0;
+    }
+
+    /* Overview sections (REQ-F-004, REQ-F-005, REQ-F-008) */
+    .ov-section { margin: 18px 0; }
+    .ov-section-header { display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-dim); margin: 0 0 10px; }
+    .ov-section-header::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    /* Rollup pills (REQ-F-004, REQ-F-005) */
+    .rollup-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .rollup-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 12px; padding: 2px 8px; font-size: 11px; }
+
+    /* Segmented progress bar (REQ-F-005) */
+    .seg-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg-3); }
+    .seg-bar-segment { height: 100%; }
+    .seg-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .seg-bar-label { font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+
+    /* Work breakdown (REQ-F-006) */
+    .wb-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
+    .wb-label { width: 80px; color: var(--fg-dim); }
+    .wb-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
+    .wb-bar-fill { height: 100%; background: var(--accent, #4a9eff); }
+    .wb-count { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Action items (REQ-F-007) */
+    .action-item-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 0 4px 4px 0; margin-bottom: 4px; }
+
+    /* Child entity tables (REQ-F-008) */
+    .ov-table { width: 100%; border-collapse: collapse; }
+    .ov-table thead th { position: sticky; top: 0; background: var(--bg-2); text-align: left; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-dim); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .ov-table tbody td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .ov-table tbody tr:hover { background: var(--bg-3); }
+    .ov-table .clickable { cursor: pointer; color: var(--accent); font-family: var(--font-mono, monospace); }
+    .ov-table-scroll { max-height: 420px; overflow-y: auto; }
+
+    /* Dependencies (REQ-F-009) */
+    .dep-group { margin-bottom: 12px; padding-left: 8px; }
+    .dep-group-accent { border-left: 2px solid #c0392b; }
+    .dep-label { font-size: 11px; font-weight: 600; color: var(--fg-dim); margin-bottom: 4px; }
+    .dep-empty { font-size: 12px; color: var(--fg-dim); font-style: italic; }
+
+    /* Notes (REQ-F-010) */
+    .note-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 12px; }
+    .note-ts { font-family: var(--font-mono, monospace); color: var(--fg-dim); white-space: nowrap; }
+    .note-type-pill { font-size: 10px; padding: 1px 6px; border-radius: 8px; color: #fff; }
+    .note-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notes-show-more { margin-top: 6px; font-size: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 2px 0; }
+
+    /* Related docs (REQ-F-011) */
+    .reldoc-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+    .reldoc-path { flex: 1; font-family: var(--font-mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .reldoc-open { font-size: 11px; padding: 2px 8px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-2); cursor: pointer; }
 
     /* Properties panel */
     .props-grid {
@@ -959,7 +1099,6 @@
     }
 
     .history-table {
-      width: 100%;
       border-collapse: collapse;
     }
 
@@ -977,9 +1116,25 @@
       font-size: 12px;
     }
 
+    .history-table td.history-badge-cell {
+      padding: 8px 3px;
+    }
+
+    .history-table td.history-arrow-cell {
+      padding: 8px 2px;
+      color: var(--fg-dim);
+    }
+
     .history-date {
       color: var(--fg-dim);
       font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .history-duration {
+      color: var(--fg-dim);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
 
@@ -1194,6 +1349,25 @@
       margin-right: 4px;
     }
 
+    /* Orchestrator action collapsible disclosure */
+    .orch-action {
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 10px;
+      background: var(--bg-2);
+    }
+    .orch-action > summary {
+      cursor: pointer;
+      color: var(--fg-dim);
+      font-size: 12px;
+      user-select: none;
+      padding: 2px 0;
+    }
+    .orch-action[open] > summary { color: var(--fg); }
+    .orch-action .props-grid   { margin-top: 8px; }
+    .orch-instruction          { font-family: var(--font-mono,monospace); font-size: 12px; background: var(--bg-3); padding: 8px; border-radius: var(--radius); }
+
   </style>
 </head>
 <body>
@@ -1400,6 +1574,14 @@ function isTerminalStatus(status) {
   return TERMINAL_STATUSES.has(status);
 }
 
+const CANCELLED_STATUSES = new Set([
+  'cancelled', 'closed', 'wont_fix', 'rejected',
+]);
+
+function isCancelledStatus(status) {
+  return CANCELLED_STATUSES.has((status || '').toLowerCase());
+}
+
 /** Prefix for synthetic folder keys used when a clicked directory has no associated entity. */
 const FOLDER_KEY_PREFIX = 'folder:';
 
@@ -1410,21 +1592,80 @@ const FOLDER_KEY_PREFIX = 'folder:';
  * @returns {string}
  */
 function formatDate(isoString) {
-  if (!isoString) return '—';
+  if (!isoString) return '';
+  // sql.NullTime serializes as {Time: "...", Valid: bool}
+  if (typeof isoString === 'object' && isoString !== null) {
+    if (!isoString.Valid) return '';
+    isoString = isoString.Time;
+  }
+  if (!isoString) return '';
   try {
     const d = new Date(isoString);
+    if (isNaN(d.getTime()) || d.getFullYear() < 2) return '';
     const now = new Date();
     const months = ['Jan','Feb','Mar','Apr','May','Jun',
                     'Jul','Aug','Sep','Oct','Nov','Dec'];
     const mon = months[d.getMonth()];
     const day = d.getDate();
+    const hh  = String(d.getHours()).padStart(2, '0');
+    const mm  = String(d.getMinutes()).padStart(2, '0');
+    const ss  = String(d.getSeconds()).padStart(2, '0');
+    const time = `${hh}:${mm}:${ss}`;
     if (d.getFullYear() !== now.getFullYear()) {
-      return `${mon} ${day}, ${d.getFullYear()}`;
+      return `${mon} ${day}, ${d.getFullYear()} ${time}`;
     }
-    return `${mon} ${day}`;
+    return `${mon} ${day} ${time}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Formats an ISO timestamp to a short human-readable date+time.
+ * e.g. "Apr 9 14:32" or "Apr 9, 2024 14:32" if year differs.
+ * @param {string} isoString
+ * @returns {string}
+ */
+function formatDateTime(isoString) {
+  if (!isoString) return '';
+  // sql.NullTime serializes as {Time: "...", Valid: bool}
+  if (typeof isoString === 'object' && isoString !== null) {
+    if (!isoString.Valid) return '';
+    isoString = isoString.Time;
+  }
+  if (!isoString) return '';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime()) || d.getFullYear() < 2) return '';
+    const now = new Date();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun',
+                    'Jul','Aug','Sep','Oct','Nov','Dec'];
+    const mon = months[d.getMonth()];
+    const day = d.getDate();
+    const hh  = String(d.getHours()).padStart(2, '0');
+    const mm  = String(d.getMinutes()).padStart(2, '0');
+    const ss  = String(d.getSeconds()).padStart(2, '0');
+    const time = `${hh}:${mm}:${ss}`;
+    if (d.getFullYear() !== now.getFullYear()) {
+      return `${mon} ${day}, ${d.getFullYear()} ${time}`;
+    }
+    return `${mon} ${day} ${time}`;
   } catch {
     return isoString;
   }
+}
+
+/**
+ * Formats a duration in milliseconds as hh:mm:ss.
+ * @param {number} ms
+ * @returns {string}
+ */
+function formatDuration(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
 /**
@@ -1724,10 +1965,29 @@ async function loadProjectData() {
 
   hideLoading();
 
-  // Transition to dashboard
+  // Transition to dashboard (default state before URL-param restore)
   appState = 'dashboard';
-  history.replaceState({ appState, selectedKey: null, entityViewTab: 'info' }, '');
+  history.replaceState({ appState, selectedKey: null, entityViewTab: 'overview' }, '');
   render();
+
+  // Restore entity + tab from URL query params on initial load so bookmarks
+  // and page refreshes return to the correct view (T-E27-F09-012).
+  const urlParams = new URLSearchParams(location.search);
+  const urlEntity = urlParams.get('entity');
+  const urlTab    = urlParams.get('tab');
+  if (urlEntity) {
+    // Navigate to the entity; then set the requested tab if valid.
+    navigateToEntity(urlEntity);
+    if (urlTab && TAB_DISPLAY_NAMES.hasOwnProperty(urlTab)) {
+      entityViewTab = urlTab;
+    }
+    // Replace (not push) so the initial URL doesn't create a spurious history entry.
+    const url = new URL(window.location.href);
+    url.searchParams.set('entity', urlEntity);
+    url.searchParams.set('tab', entityViewTab || 'overview');
+    history.replaceState({ appState, selectedKey, entityViewTab }, '', url);
+    render();
+  }
 }
 
 function updateHeaderProjectName() {
@@ -1797,10 +2057,38 @@ function render() {
 /**
  * Saves the current navigation state to browser history so the back button works.
  * Call after every intentional navigation (entity select, doc open, dashboard).
+ * Encodes entity key and tab into the URL as query params so bookmarks and
+ * page refreshes restore the correct view (T-E27-F09-012).
  */
 function pushNavState() {
   const state = { appState, selectedKey, entityViewTab };
-  history.pushState(state, '');
+  const url = new URL(window.location.href);
+  if (appState === 'entity_view' && selectedKey) {
+    url.searchParams.set('entity', selectedKey);
+    url.searchParams.set('tab', entityViewTab || 'overview');
+  } else {
+    url.searchParams.delete('entity');
+    url.searchParams.delete('tab');
+  }
+  history.pushState(state, '', url);
+}
+
+/**
+ * Updates the current history entry in-place (no new back-button entry).
+ * Use for tab switches within an entity view — the URL stays bookmarkable
+ * but the back button is not polluted with per-tab clicks.
+ */
+function replaceNavState() {
+  const state = { appState, selectedKey, entityViewTab };
+  const url = new URL(window.location.href);
+  if (appState === 'entity_view' && selectedKey) {
+    url.searchParams.set('entity', selectedKey);
+    url.searchParams.set('tab', entityViewTab || 'overview');
+  } else {
+    url.searchParams.delete('entity');
+    url.searchParams.delete('tab');
+  }
+  history.replaceState(state, '', url);
 }
 
 /**
@@ -1810,7 +2098,7 @@ function restoreNavState(state) {
   if (!state) return;
   appState      = state.appState      || 'dashboard';
   selectedKey   = state.selectedKey   || null;
-  entityViewTab = state.entityViewTab || 'info';
+  entityViewTab = state.entityViewTab || 'overview';
   render();
 }
 
@@ -1897,7 +2185,8 @@ function navigateToEntity(key) {
   }
 
   selectedKey = key;
-  entityViewTab = 'info';  // reset to Info tab on every navigation
+  // Default to Overview tab for all entity types (E27-F09; replaces E27-F08 epic→dashboard branching)
+  entityViewTab = 'overview';
   appState = 'entity_view';
   pushNavState();
   render();
@@ -1907,10 +2196,75 @@ function navigateToEntity(key) {
 /**
  * Renders the Status Breakdown section.
  * Grid of cards — one per entity type that has items.
- * Data source: summaryData.{epics,features,tasks,bugs}.status_counts
+ * Data source: summaryData.{epics,features,tasks,bugs}.status_counts (project-wide),
+ * or treeData filtered to epicKey (epic-scoped).
+ * @param {string} [epicKey] - Optional. When provided, filters to that epic's entities.
  * @returns {string} HTML string
  */
-function renderStatusBreakdown() {
+function renderStatusBreakdown(epicKey) {
+  // Epic-scoped path: derive counts from treeData filtered by epicKey
+  if (epicKey) {
+    const epic = (treeData || []).find(e => e.key === epicKey);
+    if (!epic) return `<div class="content-placeholder">Epic not found</div>`;
+
+    const featureCounts = {};
+    const taskCounts    = {};
+    const epicCounts    = {};
+    epicCounts[epic.status || 'unknown'] = (epicCounts[epic.status || 'unknown'] || 0) + 1;
+
+    for (const f of (epic.features || [])) {
+      const s = f.status || 'unknown';
+      featureCounts[s] = (featureCounts[s] || 0) + 1;
+      for (const t of (f.tasks || [])) {
+        const ts = t.status || 'unknown';
+        taskCounts[ts] = (taskCounts[ts] || 0) + 1;
+      }
+    }
+
+    const toByStatus = obj => Object.entries(obj).map(([status, count]) => ({
+      status, count, color: getStatusColor(status),
+    }));
+
+    const epicTypes = [
+      ['EPICS',    toByStatus(epicCounts)],
+      ['FEATURES', toByStatus(featureCounts)],
+      ['TASKS',    toByStatus(taskCounts)],
+    ];
+
+    let cards = '';
+    for (const [label, byStatus] of epicTypes) {
+      if (!Array.isArray(byStatus) || byStatus.length === 0) continue;
+      const total = byStatus.reduce((sum, s) => sum + (s.count || 0), 0);
+      if (total === 0) continue;
+
+      const active = byStatus
+        .filter(s => !isTerminalStatus(s.status || ''))
+        .reduce((sum, s) => sum + (s.count || 0), 0);
+      const activeHtml = (active < total)
+        ? `<span class="breakdown-card-active">${active} active</span>`
+        : '';
+
+      let badges = '';
+      for (const s of byStatus) {
+        if (!s.count) continue;
+        const color = normalizeToHex(s.color || getStatusColor(s.status));
+        const lbl = escapeHtml((s.status || '').replace(/_/g, ' ')) + ' ' + s.count;
+        badges += `<span class="status-badge status-badge-sm" style="background:${escapeHtml(color)};color:${getContrastColor(color)}">${lbl}</span>`;
+      }
+
+      cards += `
+        <div class="breakdown-card">
+          <div class="breakdown-card-label">${escapeHtml(label)}</div>
+          <div class="breakdown-card-total">${total}${activeHtml}</div>
+          <div class="breakdown-badges">${badges}</div>
+        </div>`;
+    }
+
+    if (!cards) return `<div class="content-placeholder">No entity data available</div>`;
+    return `<div class="breakdown-grid">${cards}</div>`;
+  }
+
+  // Project-wide path (unchanged)
   if (!summaryData) {
     return `<div class="content-placeholder">Failed to load status data</div>`;
   }
@@ -1967,15 +2321,20 @@ function renderStatusBreakdown() {
 /**
  * Renders the Feature Progress section.
  * List of features with horizontal progress bars derived from treeData task counts.
+ * @param {string} [epicKey] - Optional. When provided, filters to that epic's features only.
  * @returns {string} HTML string
  */
-function renderFeatureProgress() {
-  if (!treeData || treeData.length === 0) {
+function renderFeatureProgress(epicKey) {
+  const epics = epicKey
+    ? (treeData || []).filter(e => e.key === epicKey)
+    : (treeData || []);
+
+  if (epics.length === 0) {
     return `<div class="content-placeholder">No features found</div>`;
   }
 
   let rows = '';
-  for (const epic of treeData) {
+  for (const epic of epics) {
     const features = Array.isArray(epic.features) ? epic.features : [];
     for (const feature of features) {
       const featureKey = feature.key || '';
@@ -2008,25 +2367,46 @@ function renderFeatureProgress() {
  * Renders the Active Transitions section.
  * Shows the last 25 transitions from recentActivity, newest first.
  * Each row: date, key (clickable), from-badge → to-badge, note, optional Open button.
+ * @param {string} [epicKey] - Optional. When provided, filters to transitions for entities in that epic.
  * @returns {string} HTML string
  */
-function renderActiveTransitions() {
+function renderActiveTransitions(epicKey) {
   if (!recentActivity || recentActivity.length === 0) {
     return `<div class="content-placeholder">No recent transitions</div>`;
   }
 
+  let filteredActivity = recentActivity;
+  if (epicKey) {
+    // Build membership set from treeData: epic key + its features + its tasks
+    const epic = (treeData || []).find(e => e.key === epicKey);
+    const keys = new Set();
+    if (epic) {
+      keys.add(epic.key);
+      for (const f of (epic.features || [])) {
+        keys.add(f.key);
+        for (const t of (f.tasks || [])) keys.add(t.key);
+      }
+    }
+    filteredActivity = recentActivity.filter(r => keys.has(r.key));
+  }
+
+  if (filteredActivity.length === 0) {
+    return `<div class="content-placeholder">No recent transitions</div>`;
+  }
+
   // recentActivity is already sorted newest-first by the API; take up to 25
-  const rows = recentActivity.slice(0, 25);
+  const rows = filteredActivity.slice(0, 25);
 
   let html = '<table class="activity-table"><tbody>';
-  for (const rec of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const rec         = rows[i];
     const key         = rec.key        || '';
     const fromStatus  = rec.from_status || '';
     const toStatus    = rec.to_status   || '';
     const note        = rec.note        || '';
     const changedAt   = rec.changed_at  || '';
 
-    const dateStr     = escapeHtml(formatDate(changedAt));
+    const dateStr     = escapeHtml(formatDateTime(changedAt));
     const keyHtml     = `<span class="activity-key" data-navigate-key="${escapeHtml(key)}">${escapeHtml(key)}</span>`;
 
     const fromColor   = getStatusColor(fromStatus);
@@ -2039,27 +2419,39 @@ function renderActiveTransitions() {
     const toLabel     = escapeHtml(toStatus.replace(/_/g, ' '));
     const toBadge     = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(toColor)};color:${getContrastColor(toColor)}">${toLabel}</span>`;
 
-    const arrowHtml   = fromBadge
-      ? `${fromBadge}<span class="activity-arrow">→</span>${toBadge}`
-      : toBadge;
+    // Duration: find the previous transition for this same entity key.
+    // If none exists in the activity log, fall back to the entity's created_at.
+    let duration = '—';
+    const tCurr = new Date(changedAt);
+    let prevActivityTs = '';
+    for (let j = i + 1; j < filteredActivity.length; j++) {
+      if (filteredActivity[j].key === key) {
+        prevActivityTs = filteredActivity[j].changed_at || '';
+        break;
+      }
+    }
+    const prevTs = prevActivityTs || (findEntityByKey(key)?.created_at || '');
+    if (prevTs) {
+      const tPrev = new Date(prevTs);
+      if (!isNaN(tCurr) && !isNaN(tPrev) && tCurr >= tPrev) {
+        duration = formatDuration(tCurr - tPrev);
+      }
+    }
+    const durationCell = duration === '—' ? '—' : `for ${duration}`;
 
-    const noteTd      = note
+    const noteTd = note
       ? `<td class="activity-note" title="${escapeHtml(note)}">${escapeHtml(note)}</td>`
-      : '<td></td>';
-
-    // Show Open button only if the record has linked_content_path or content_exists
-    const hasContent  = rec.linked_content_path || rec.content_exists;
-    const openBtn     = hasContent
-      ? `<td><button class="open-btn" data-navigate-key="${escapeHtml(key)}">Open</button></td>`
       : '<td></td>';
 
     html += `
       <tr>
         <td class="activity-date">${dateStr}</td>
         <td>${keyHtml}</td>
-        <td>${arrowHtml}</td>
+        <td class="activity-badge-cell">${fromBadge}</td>
+        <td class="activity-duration">${durationCell}</td>
+        <td class="activity-arrow">\u2192</td>
+        <td class="activity-badge-cell">${toBadge}</td>
         ${noteTd}
-        ${openBtn}
       </tr>`;
   }
   html += '</tbody></table>';
@@ -2070,14 +2462,18 @@ function renderActiveTransitions() {
  * Renders the Stale Entities section.
  * Client-side filter: entities not in a terminal status whose updated_at is > 7 days ago.
  * Sorted by staleness descending (oldest first = most days since update at top).
+ * @param {string} [epicKey] - Optional. When provided, filters to entities in that epic only.
  * @returns {string} HTML string
  */
-function renderStaleEntities() {
+function renderStaleEntities(epicKey) {
   /** @type {Array<{key:string, status:string, title:string, updated_at:string, days:number}>} */
   const stale = [];
 
   // Walk treeData: epics → features. Guard with ?. on updated_at per spec.
-  for (const epic of (treeData || [])) {
+  const epics = epicKey
+    ? (treeData || []).filter(e => e.key === epicKey)
+    : (treeData || []);
+  for (const epic of epics) {
     if (epic?.updated_at && !isTerminalStatus(epic.status || '')) {
       const days = daysSince(epic.updated_at);
       if (days > 7) {
@@ -2197,9 +2593,98 @@ function buildDonutChart(byStatus, size = 100) {
  * Renders the Entity Charts section.
  * One donut chart per entity type (epics, features, tasks, bugs, ideas, change cards)
  * plus an overall "All Entities" chart showing type distribution.
+ * @param {string} [epicKey] - Optional. When provided, builds charts from treeData for that epic.
  * @returns {string} HTML string, or '' if no data
  */
-function renderEntityCharts() {
+function renderEntityCharts(epicKey) {
+  // Epic-scoped path: derive counts from treeData
+  if (epicKey) {
+    const epic = (treeData || []).find(e => e.key === epicKey);
+    if (!epic) return '';
+
+    const featureCounts = {};
+    const taskCounts    = {};
+    const epicCounts    = {};
+    epicCounts[epic.status || 'unknown'] = (epicCounts[epic.status || 'unknown'] || 0) + 1;
+
+    for (const f of (epic.features || [])) {
+      const s = f.status || 'unknown';
+      featureCounts[s] = (featureCounts[s] || 0) + 1;
+      for (const t of (f.tasks || [])) {
+        const ts = t.status || 'unknown';
+        taskCounts[ts] = (taskCounts[ts] || 0) + 1;
+      }
+    }
+
+    const toByStatus = obj => Object.entries(obj).map(([status, count]) => ({
+      status, count, color: getStatusColor(status),
+    }));
+
+    const epicTypeConfigs = [
+      { label: 'Epics',    byStatus: toByStatus(epicCounts),    overallColor: '#4d4dbb' },
+      { label: 'Features', byStatus: toByStatus(featureCounts), overallColor: '#22a362' },
+      { label: 'Tasks',    byStatus: toByStatus(taskCounts),    overallColor: '#e7b30e' },
+    ];
+
+    // Build "Active Entities" slice for epic scope
+    const overallByStatus = [];
+    for (const tc of epicTypeConfigs) {
+      const active = tc.byStatus
+        .filter(s => !isTerminalStatus(s.status || ''))
+        .reduce((sum, s) => sum + (s.count || 0), 0);
+      if (active > 0) {
+        overallByStatus.push({ status: tc.label, count: active, color: tc.overallColor });
+      }
+    }
+
+    let cells = '';
+
+    if (overallByStatus.length > 0) {
+      const chartSvg = buildDonutChart(overallByStatus, 100);
+      if (chartSvg) {
+        let legend = '';
+        for (const s of overallByStatus) {
+          const hex = normalizeToHex(s.color);
+          legend += `<div class="chart-legend-item">
+            <span class="chart-legend-dot" style="background:${escapeHtml(hex)}"></span>
+            <span>${escapeHtml(s.status)}</span>
+            <span class="chart-legend-count">${s.count}</span>
+          </div>`;
+        }
+        cells += `<div class="chart-cell">
+          <div class="chart-title">Active Entities</div>
+          ${chartSvg}
+          <div class="chart-legend">${legend}</div>
+        </div>`;
+      }
+    }
+
+    for (const tc of epicTypeConfigs) {
+      if (!tc.byStatus || tc.byStatus.length === 0) continue;
+      const chartSvg = buildDonutChart(tc.byStatus, 100);
+      if (!chartSvg) continue;
+      let legend = '';
+      for (const s of tc.byStatus) {
+        if (!s.count) continue;
+        const hex = normalizeToHex(s.color || getStatusColor(s.status || ''));
+        legend += `<div class="chart-legend-item">
+          <span class="chart-legend-dot" style="background:${escapeHtml(hex)}"></span>
+          <span>${escapeHtml((s.status || '').replace(/_/g, ' '))}</span>
+          <span class="chart-legend-count">${s.count}</span>
+        </div>`;
+      }
+      cells += `<div class="chart-cell">
+        <div class="chart-title">${escapeHtml(tc.label)}</div>
+        ${chartSvg}
+        <div class="chart-legend">${legend}</div>
+      </div>`;
+    }
+
+    if (!cells) return '';
+    return `<div class="charts-grid">${cells}</div>`;
+  }
+
+  // Project-wide path (unchanged)
   if (!summaryData) return '';
 
   const typeConfigs = [
@@ -2325,15 +2810,57 @@ function renderDashboard() {
   });
 }
 
+/**
+ * Renders the epic-scoped dashboard inside an entity-view pane.
+ * Mirrors renderDashboard() but passes epicKey to each section for client-side filtering.
+ * No new fetch() calls — uses existing treeData and recentActivity.
+ * @param {string} epicKey
+ * @param {HTMLElement} paneEl
+ */
+function renderEpicDashboardPane(epicKey, paneEl) {
+  const chartsHtml = renderEntityCharts(epicKey);
+  paneEl.innerHTML = `
+    ${chartsHtml ? `<div class="dashboard-section">
+      <div class="dashboard-section-title">Entity Charts</div>
+      ${chartsHtml}
+    </div>` : ''}
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Status Overview</div>
+      ${renderStatusBreakdown(epicKey)}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Feature Progress</div>
+      ${renderFeatureProgress(epicKey)}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Recent Activity</div>
+      ${renderActiveTransitions(epicKey)}
+    </div>
+    <div class="dashboard-section">
+      <div class="dashboard-section-title">Stale Entities</div>
+      ${renderStaleEntities(epicKey)}
+    </div>
+  `;
+
+  // Reuse existing delegation for [data-navigate-key]
+  paneEl.querySelectorAll('[data-navigate-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.getAttribute('data-navigate-key');
+      if (k) navigateToEntity(k);
+    });
+  });
+}
+
 // ============================================================
 // === ENTITY VIEW ===
 // ============================================================
 
 /**
  * entityViewTab controls which pane is shown in entity view.
- * Values: 'info' | 'transitions'
+ * Values: 'overview' | 'info' | 'transitions' | 'files' | 'dashboard'
+ * Default is 'overview' (set by navigateToEntity).
  */
-let entityViewTab = 'info';
+let entityViewTab = 'overview';
 
 // ============================================================
 // Edit mode state variables (T-E27-F07-004)
@@ -2390,9 +2917,235 @@ function findEntityByKey(key) {
 }
 
 /**
+ * Maps internal tab IDs to human-readable display names for the breadcrumb.
+ * Used by renderBreadcrumb to append the active tab as the last segment.
+ * T-E27-F09-012.
+ */
+const TAB_DISPLAY_NAMES = {
+  overview:    'Overview',
+  dashboard:   'Dashboard',
+  info:        'Spec',
+  transitions: 'History',
+  files:       'Files',
+};
+
+/**
+ * Renders the breadcrumb navigation bar for an entity.
+ * Builds the parent chain from hierarchyData without a network call.
+ * Returns an HTML string to insert between the entity title and the properties panel.
+ * REQ-F-003, AC-003.1–AC-003.4, E27-F09-005.
+ * Appends the active tab name as the final plain-text segment (T-E27-F09-012).
+ * @param {Object} entity - entity object with type, key, and parent fields
+ * @returns {string} HTML string for the breadcrumb
+ */
+function renderBreadcrumb(entity) {
+  if (!entity) return '';
+  const chain = []; // [{key}]
+  switch (entity.type) {
+    case 'task': {
+      // entity.parent = feature key (set by findEntityByKey)
+      // Derive epic key by looking up the parent feature in treeData
+      const featureKey = entity.parent;
+      let epicKey = null;
+      if (featureKey && Array.isArray(treeData)) {
+        for (const epic of treeData) {
+          const features = Array.isArray(epic.features) ? epic.features : [];
+          if (features.some(f => f.key === featureKey)) { epicKey = epic.key; break; }
+        }
+      }
+      if (epicKey) chain.push({ key: epicKey });
+      if (featureKey) chain.push({ key: featureKey });
+      chain.push({ key: entity.key });
+      break;
+    }
+    case 'feature': {
+      // entity.parent = epic key (set by findEntityByKey)
+      if (entity.parent) chain.push({ key: entity.parent });
+      chain.push({ key: entity.key });
+      break;
+    }
+    case 'epic':
+      chain.push({ key: entity.key });
+      break;
+    default:
+      return ''; // bug / change-card / idea — no breadcrumb
+  }
+  // Filter out segments with undefined/empty keys (guard for missing parent data)
+  const validChain = chain.filter(seg => seg.key);
+  if (validChain.length === 0) return '';
+
+  // Mark the last entity segment as current — but only if no tab segment follows.
+  // We always append a tab segment when an entity is selected.
+  const tabName = TAB_DISPLAY_NAMES[entityViewTab] || entityViewTab;
+  // All entity segments are navigable (not current) because the tab segment is the real current.
+  const segHtml = validChain.map(seg =>
+    `<span class="breadcrumb-seg" role="button" tabindex="0" data-navigate-key="${escapeHtml(seg.key)}">${escapeHtml(seg.key)}</span>`
+  ).join('<span class="breadcrumb-sep">›</span>');
+
+  // Tab segment: plain text, not a link (isCurrent: true styling)
+  const tabSegHtml = `<span class="breadcrumb-sep">›</span><span class="breadcrumb-seg current">${escapeHtml(tabName)}</span>`;
+
+  return `<div class="breadcrumb">${segHtml}${tabSegHtml}</div>`;
+}
+
+/**
  * Renders the entity metadata properties panel.
  * 2-column CSS grid: label | value.
  * Omits fields that are null/undefined.
+ * @param {Object} entity - entity object from treeData / flat list
+ * @returns {string} HTML string
+ */
+/**
+ * Pushes a label+value row into the rows array.
+ * Omits the row if valueHtml is null, undefined, or empty string (AC-003.7).
+ * @param {string[]} rows
+ * @param {string} label
+ * @param {string|null|undefined} valueHtml
+ */
+function pushRow(rows, label, valueHtml) {
+  if (valueHtml === null || valueHtml === undefined || valueHtml === '') return;
+  rows.push(`<div class="props-label">${escapeHtml(label)}</div><div class="props-value">${valueHtml}</div>`);
+}
+
+/**
+ * Returns a monospace-styled HTML span for a value, or null if falsy.
+ * @param {string|null|undefined} v
+ * @returns {string|null}
+ */
+function monoCell(v) {
+  return v ? `<span class="mono">${escapeHtml(v)}</span>` : null;
+}
+
+/**
+ * Returns a status badge HTML string, or null if status is falsy.
+ * @param {string|null|undefined} s
+ * @returns {string|null}
+ */
+function statusBadgeCell(s) {
+  if (!s) return null;
+  const c = getStatusColor(s);
+  return `<span class="status-badge" style="background:${escapeHtml(c)};color:${getContrastColor(c)}">${escapeHtml(s.replace(/_/g,' '))}</span>`;
+}
+
+/**
+ * Appends epic-specific fields to the rows array. (AC-003.1)
+ * @param {string[]} rows
+ * @param {Object} e - epic entity
+ */
+function appendEpicFields(rows, e) {
+  if (e.priority != null)       pushRow(rows, 'Priority',       String(e.priority));
+  if (e.business_value != null) pushRow(rows, 'Business Value', String(e.business_value));
+  if (e.progress_pct != null)   pushRow(rows, 'Progress',       e.progress_pct + '%');
+  if (e.phase)                  pushRow(rows, 'Phase',          escapeHtml(e.phase));
+  if (e.approval_backlog_count) pushRow(rows, 'Approval Backlog', String(e.approval_backlog_count));
+  if (e.feature_status_rollup && typeof e.feature_status_rollup === 'object') {
+    const chips = Object.entries(e.feature_status_rollup).map(([s, n]) => {
+      const c = getStatusColor(s);
+      return `<span class="status-badge status-badge-sm" style="background:${escapeHtml(c)};color:${getContrastColor(c)}">${escapeHtml(s.replace(/_/g,' '))} ${n}</span>`;
+    }).join(' ');
+    pushRow(rows, 'Feature Rollup', chips || null);
+  }
+}
+
+/**
+ * Appends feature-specific fields to the rows array. (AC-003.2)
+ * @param {string[]} rows
+ * @param {Object} e - feature entity
+ */
+function appendFeatureFields(rows, e) {
+  if (e.progress_pct != null)   pushRow(rows, 'Progress',           e.progress_pct + '%');
+  if (e.execution_order != null) pushRow(rows, 'Execution Order',   String(e.execution_order));
+  if (e.phase)                  pushRow(rows, 'Phase',              escapeHtml(e.phase));
+  if (e.phase_description)      pushRow(rows, 'Phase Description',  escapeHtml(e.phase_description));
+  if (e.display_mode)           pushRow(rows, 'Display Mode',       escapeHtml(e.display_mode));
+  if (e.workflow_position && typeof e.workflow_position === 'object') {
+    const wp = e.workflow_position;
+    if (wp.current_index != null && wp.statuses && wp.statuses.length) {
+      pushRow(rows, 'Workflow Position', `${escapeHtml(String(wp.current_index + 1))}/${escapeHtml(String(wp.statuses.length))}`);
+    }
+  }
+}
+
+/**
+ * Appends task-specific fields to the rows array. (AC-003.3)
+ * @param {string[]} rows
+ * @param {Object} e - task entity
+ */
+function appendTaskFields(rows, e) {
+  const agentVal = e.agent_type || e.agent;
+  if (agentVal)                     pushRow(rows, 'Agent',              escapeHtml(agentVal));
+  if (e.priority != null)           pushRow(rows, 'Priority',           String(e.priority));
+  if (e.execution_order != null)    pushRow(rows, 'Execution Order',    String(e.execution_order));
+  if (e.completed_at)               pushRow(rows, 'Completed',          escapeHtml(formatDate(e.completed_at)));
+  if (e.rejection_count != null)    pushRow(rows, 'Rejection Count',    String(e.rejection_count));
+  if (e.verification_status)        pushRow(rows, 'Verification',       escapeHtml(e.verification_status));
+  if (e.tests_passed != null)       pushRow(rows, 'Tests Passed',       String(e.tests_passed));
+  if (Array.isArray(e.dependencies) && e.dependencies.length) {
+    const depHtml = e.dependencies.map(d => `<span class="mono">${escapeHtml(d)}</span>`).join(', ');
+    pushRow(rows, 'Dependencies', depHtml);
+  } else if (e.dependencies && typeof e.dependencies === 'string' && e.dependencies) {
+    pushRow(rows, 'Dependencies', `<span class="mono">${escapeHtml(e.dependencies)}</span>`);
+  }
+  if (Array.isArray(e.blocked_by) && e.blocked_by.length) {
+    pushRow(rows, 'Blocked By', e.blocked_by.map(d => `<span class="mono">${escapeHtml(d)}</span>`).join(', '));
+  }
+  if (Array.isArray(e.blocks) && e.blocks.length) {
+    pushRow(rows, 'Blocks', e.blocks.map(d => `<span class="mono">${escapeHtml(d)}</span>`).join(', '));
+  }
+}
+
+/**
+ * Appends bug-specific fields to the rows array. (AC-003.4)
+ * @param {string[]} rows
+ * @param {Object} e - bug entity
+ */
+function appendBugFields(rows, e) {
+  if (e.severity)            pushRow(rows, 'Severity',  escapeHtml(e.severity));
+  if (e.priority != null)    pushRow(rows, 'Priority',  String(e.priority));
+  if (e.assignee)            pushRow(rows, 'Assignee',  escapeHtml(e.assignee));
+  if (e.linked_entity_key)   pushRow(rows, 'Linked To', monoCell(e.linked_entity_key));
+}
+
+/**
+ * Appends change-card-specific fields to the rows array. (AC-003.5)
+ * @param {string[]} rows
+ * @param {Object} e - change_card entity
+ */
+function appendChangeCardFields(rows, e) {
+  if (e.priority != null)    pushRow(rows, 'Priority',  String(e.priority));
+  if (e.assignee)            pushRow(rows, 'Assignee',  escapeHtml(e.assignee));
+  if (e.linked_entity_key)   pushRow(rows, 'Linked To', monoCell(e.linked_entity_key));
+}
+
+/**
+ * Renders the orchestrator action collapsible <details> block (AC-003.6).
+ * The block defaults to closed (no open attribute).
+ * Returns '' if oa is absent or not an object.
+ * @param {Object|null|undefined} oa - orchestrator_action object
+ * @returns {string} HTML string
+ */
+function renderOrchestratorDetails(oa) {
+  if (!oa || typeof oa !== 'object') return '';
+  const innerRows = [];
+  if (oa.action)     innerRows.push(`<div class="props-label">${escapeHtml('Action')}</div><div class="props-value">${escapeHtml(oa.action)}</div>`);
+  if (oa.agent_type) innerRows.push(`<div class="props-label">${escapeHtml('Agent')}</div><div class="props-value">${escapeHtml(oa.agent_type)}</div>`);
+  if (oa.model)      innerRows.push(`<div class="props-label">${escapeHtml('Model')}</div><div class="props-value">${escapeHtml(oa.model)}</div>`);
+  if (Array.isArray(oa.skills) && oa.skills.length)
+    innerRows.push(`<div class="props-label">${escapeHtml('Skills')}</div><div class="props-value">${oa.skills.map(escapeHtml).join(', ')}</div>`);
+  const instr = oa.instruction
+    ? `<pre class="orch-instruction" style="white-space:pre-wrap;margin:8px 0 0">${escapeHtml(oa.instruction)}</pre>`
+    : '';
+  return `
+    <details class="orch-action">
+      <summary>Orchestrator Action</summary>
+      <div class="props-grid" style="margin-top:8px">${innerRows.join('')}</div>
+      ${instr}
+    </details>`;
+}
+
+/**
+ * Renders the properties panel for an entity using a dispatch-by-type pattern.
+ * Omits fields that are null/undefined/empty (AC-003.7).
  * @param {Object} entity - entity object from treeData / flat list
  * @returns {string} HTML string
  */
@@ -2404,32 +3157,44 @@ function renderPropertiesPanel(entity) {
     return `<button class="copy-btn" data-copy-value="${escapeHtml(value)}" title="Copy to clipboard">⎘</button>`;
   }
 
-  // Field definitions: [label, renderFn]
-  const fields = [
-    ['Key',          () => `<span class="mono">${escapeHtml(entity.key || '')}</span>`],
-    ['Status',       () => { if (!entity.status) return null; const sc = getStatusColor(entity.status); return `<span class="status-badge" style="background:${escapeHtml(sc)};color:${getContrastColor(sc)}">${escapeHtml(entity.status.replace(/_/g,' '))}</span>`; }],
-    ['Type',         () => entity.type ? escapeHtml(entity.type) : null],
-    ['Parent',       () => entity.parent ? `<span class="mono">${escapeHtml(entity.parent)}</span>` : null],
-    ['Agent',        () => entity.agent ? escapeHtml(entity.agent) : null],
-    ['Created',      () => entity.created_at ? escapeHtml(formatDate(entity.created_at)) : null],
-    ['Updated',      () => entity.updated_at ? escapeHtml(formatDate(entity.updated_at)) : null],
-    ['File Path',    () => entity.file_path
-      ? `<span style="word-break:break-all">${escapeHtml(entity.file_path)}</span>${copyBtn(entity.file_path)}`
-      : null],
-    ['Content Path', () => entity.linked_content_path
-      ? `<span style="word-break:break-all">${escapeHtml(entity.linked_content_path)}</span>${copyBtn(entity.linked_content_path)}`
-      : null],
-  ];
+  const rows = [];
 
-  let rows = '';
-  for (const [label, renderFn] of fields) {
-    const val = renderFn();
-    if (val === null || val === undefined || val === '') continue;
-    rows += `<div class="props-label">${escapeHtml(label)}</div><div class="props-value">${val}</div>`;
+  // Shared base fields
+  // Note: Key row removed — key is shown as the blue link above the title (T-E27-F09-011)
+  // Note: Parent row removed — parent is shown in the breadcrumb (T-E27-F09-011)
+  pushRow(rows, 'Status', statusBadgeCell(entity.status));
+  pushRow(rows, 'Type',   entity.type ? escapeHtml(entity.type) : null);
+
+  // Type-specific fields
+  switch (entity.type) {
+    case 'epic':        appendEpicFields(rows, entity);        break;
+    case 'feature':     appendFeatureFields(rows, entity);     break;
+    case 'task':        appendTaskFields(rows, entity);        break;
+    case 'bug':         appendBugFields(rows, entity);         break;
+    case 'change_card': appendChangeCardFields(rows, entity);  break;
   }
 
-  if (!rows) return '';
-  return `<div class="props-grid">${rows}</div>`;
+  // Shared trailing timestamps and paths
+  if (entity.created_at) pushRow(rows, 'Created', escapeHtml(formatDate(entity.created_at)));
+  if (entity.updated_at) pushRow(rows, 'Updated', escapeHtml(formatDate(entity.updated_at)));
+  if (entity.file_path)  pushRow(rows, 'File Path',
+    `<span style="word-break:break-all">${escapeHtml(entity.file_path)}</span>${copyBtn(entity.file_path)}`);
+  if (entity.linked_content_path) pushRow(rows, 'Content Path',
+    `<span style="word-break:break-all">${escapeHtml(entity.linked_content_path)}</span>${copyBtn(entity.linked_content_path)}`);
+
+  // Trailing orchestrator-action disclosure (collapsible, outside the grid)
+  const orchHtml = renderOrchestratorDetails(entity.orchestrator_action);
+
+  // Status left-border accent (REQ-F-012, AC-012.1–AC-012.3)
+  const statusColor = entity.status ? getStatusColor(entity.status) : '';
+  const accentStyle = statusColor
+    ? ` style="border-left:3px solid ${escapeHtml(statusColor)}" data-status-accent="${escapeHtml(entity.status)}"`
+    : '';
+
+  const grid = rows.length
+    ? `<div class="props-grid"${accentStyle}>${rows.join('')}</div>`
+    : '';
+  return grid + orchHtml;
 }
 
 /**
@@ -2461,18 +3226,41 @@ async function renderMarkdownPane(key, paneEl) {
   // Reset edit mode state whenever we load a new pane.
   editMode = false;
 
-  // Show spinner while fetching
-  paneEl.innerHTML = `<div class="loading-indicator" style="padding:40px 0"><div class="loading-spinner"></div><div class="loading-text">Loading content\u2026</div></div>`;
+  // Render spec-pane-header with inline Edit toggle (AC-002.2, AC-T4).
+  // The entity is resolved from the current selectedKey; canEdit depends on file_path.
+  const specEntity = findEntityByKey(key || selectedKey);
+  const canEdit = !!(specEntity && (specEntity.file_path || specEntity.linked_content_path));
+  const editToggleHtml = canEdit
+    ? `<button class="inline-edit-btn" id="ev-inline-edit">\u270e Edit</button>`
+    : '';
+  paneEl.innerHTML = `
+    <div class="spec-pane-header">${editToggleHtml}</div>
+    <div id="spec-body"><div class="loading-indicator" style="padding:40px 0"><div class="loading-spinner"></div><div class="loading-text">Loading content\u2026</div></div></div>
+  `;
+
+  // Wire the inline Edit button now that it's in the DOM (AC-002.3)
+  const inlineEditBtn = paneEl.querySelector('#ev-inline-edit');
+  if (inlineEditBtn) {
+    inlineEditBtn.addEventListener('click', () => {
+      if (editMode) {
+        // Toggle back to view mode
+        cancelEdit();
+      } else {
+        enterEditMode(paneEl.querySelector('#spec-body') || paneEl);
+      }
+    });
+  }
 
   const response = await apiGetFile(key);
+  const specBody = paneEl.querySelector('#spec-body') || paneEl;
 
   if (!response) {
-    paneEl.innerHTML = `<div class="content-placeholder">Failed to load content for this entity.</div>`;
+    specBody.innerHTML = `<div class="content-placeholder">Failed to load content for this entity.</div>`;
     return;
   }
 
   if (!response.exists) {
-    paneEl.innerHTML = `<div class="content-placeholder">No content available for this entity.</div>`;
+    specBody.innerHTML = `<div class="content-placeholder">No content available for this entity.</div>`;
     return;
   }
 
@@ -2481,9 +3269,9 @@ async function renderMarkdownPane(key, paneEl) {
   // Store edit state for this pane.
   editOriginalContent = rawContent;
   editFilePath = response.path || '';
-  editPaneEl = paneEl;
+  editPaneEl = specBody;
 
-  renderMarkdownFromString(rawContent, paneEl);
+  renderMarkdownFromString(rawContent, specBody);
 }
 
 /**
@@ -2518,10 +3306,12 @@ function renderMarkdownFromString(rawContent, paneEl) {
   paneEl.innerHTML = '';
   paneEl.appendChild(contentWrapper);
 
-  // Enable the Edit button in the toggle bar once content is ready.
-  if (editFilePath) {
-    const editBtn = document.getElementById('ev-edit-btn');
-    if (editBtn) editBtn.disabled = false;
+  // Update the inline Edit button label back to '✎ Edit' (view mode restored).
+  // The button lives in the parent spec-pane-header, not in the toggle bar (AC-002.1).
+  const inlineEditBtn = document.getElementById('ev-inline-edit');
+  if (inlineEditBtn) {
+    inlineEditBtn.textContent = '\u270e Edit';
+    inlineEditBtn.disabled = false;
   }
 }
 
@@ -2539,9 +3329,13 @@ function enterEditMode(paneEl) {
   editMode = true;
   editPaneEl = paneEl;
 
-  // Disable the toggle-bar edit button while editing.
-  const editBtn = document.getElementById('ev-edit-btn');
-  if (editBtn) editBtn.disabled = true;
+  // Update the inline Edit button to show 'View' while in edit mode (AC-002.3).
+  // The button is in the spec-pane-header above the spec-body, not in the toggle bar.
+  const inlineEditBtn = document.getElementById('ev-inline-edit');
+  if (inlineEditBtn) {
+    inlineEditBtn.textContent = 'View';
+    inlineEditBtn.disabled = false;
+  }
 
   paneEl.innerHTML = `
     <div class="edit-toolbar" id="edit-action-toolbar">
@@ -2631,6 +3425,612 @@ function cancelEdit() {
   }
 }
 
+// ============================================================
+// === OVERVIEW PANE (E27-F09) ===
+// ============================================================
+
+// --- Session caches for notes and related-docs (REQ-NF-003, AC-010.1, AC-011.4) ---
+const notesCache      = new Map(); // key → Promise<NotesResponse>
+const relatedDocsCache = new Map(); // key → Promise<RelatedDocsResponse>
+
+async function fetchNotes(key) {
+  if (!notesCache.has(key)) {
+    notesCache.set(key,
+      fetch(`/api/v1/viewer/notes/${encodeURIComponent(key)}`)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+    );
+  }
+  return notesCache.get(key);
+}
+
+async function fetchRelatedDocs(key) {
+  if (!relatedDocsCache.has(key)) {
+    relatedDocsCache.set(key,
+      fetch(`/api/v1/viewer/related-docs/${encodeURIComponent(key)}`)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+    );
+  }
+  return relatedDocsCache.get(key);
+}
+
+// --- Shared computation helpers (spec §2.3.6) ---
+
+/**
+ * Counts items by their .status field. Returns {status: count} map.
+ * AC-004.3, AC-005.3 — derived from treeData, no network call.
+ */
+function countByStatus(items) {
+  const out = {};
+  for (const it of items) {
+    const s = it.status || 'unknown';
+    out[s] = (out[s] || 0) + 1;
+  }
+  return out;
+}
+
+/**
+ * Collects all tasks from an epic's feature list.
+ * Used for epic-level task rollup (REQ-F-005).
+ */
+function collectEpicTasks(epic) {
+  const tasks = [];
+  for (const f of (epic.features || [])) {
+    for (const t of (f.tasks || [])) tasks.push(t);
+  }
+  return tasks;
+}
+
+/**
+ * Looks up status metadata from the cached workflowMeta.
+ * Returns {} if metadata is unavailable (safe degradation).
+ */
+function statusMeta(status) {
+  const levelMeta = (workflowMeta && workflowMeta.levels && workflowMeta.levels.task) || {};
+  return (levelMeta.statuses || []).find(s => s.name === status) || {};
+}
+
+/**
+ * Computes weighted progress percentage from a status→count map.
+ * AC-005.3: label = Σ(progress_weight × count) / total_tasks.
+ */
+function weightedProgress(countsByStatus, total) {
+  if (!total) return 0;
+  let acc = 0;
+  for (const [s, n] of Object.entries(countsByStatus)) {
+    const w = statusMeta(s).progress_weight || 0;
+    acc += w * n;
+  }
+  return Math.round(acc / total);
+}
+
+/**
+ * Counts tasks by responsibility (agent/human/qa_team) from workflowMeta.
+ * AC-006.1 — uses responsibility field, not hardcoded status names.
+ */
+function workBreakdown(tasks) {
+  const buckets = { agent: 0, human: 0, qa_team: 0 };
+  for (const t of tasks) {
+    const r = statusMeta(t.status).responsibility || 'none';
+    if (buckets[r] != null) buckets[r]++;
+  }
+  return buckets;
+}
+
+/**
+ * Returns tasks whose status has blocks_feature === true.
+ * AC-007.1 — filter uses blocks_feature flag, NOT hardcoded status names.
+ */
+function actionItems(tasks) {
+  return tasks
+    .filter(t => statusMeta(t.status).blocks_feature === true)
+    .sort((a, b) => {
+      const pa = statusMeta(a.status).phase || '';
+      const pb = statusMeta(b.status).phase || '';
+      if (pa !== pb) return pa.localeCompare(pb);
+      const oa = a.execution_order || 0;
+      const ob = b.execution_order || 0;
+      if (oa !== ob) return oa - ob;
+      return (a.key || '').localeCompare(b.key || '');
+    });
+}
+
+/**
+ * Returns a sorted list of statuses ordered by workflow phase then alphabetically.
+ * AC-004.5 — uses workflowMeta phase ordering with alphabetical fallback.
+ */
+function sortedStatuses(statusKeys) {
+  const phaseOrder = ['planning', 'development', 'review', 'qa', 'approval', 'done', 'any'];
+  return [...statusKeys].sort((a, b) => {
+    const pa = statusMeta(a).phase || '';
+    const pb = statusMeta(b).phase || '';
+    const ia = phaseOrder.indexOf(pa);
+    const ib = phaseOrder.indexOf(pb);
+    const pia = ia === -1 ? 999 : ia;
+    const pib = ib === -1 ? 999 : ib;
+    if (pia !== pib) return pia - pib;
+    return a.localeCompare(b);
+  });
+}
+
+/**
+ * Wraps content in an .ov-section block with a labelled header.
+ * Section header pattern from feature.md.
+ */
+function sectionShell(label, bodyHtml) {
+  return `<div class="ov-section">
+    <div class="ov-section-header">${escapeHtml(label)}</div>
+    ${bodyHtml}
+  </div>`;
+}
+
+/**
+ * Renders a status badge suitable for overview sections.
+ */
+function ovStatusBadge(status) {
+  const c = getStatusColor(status);
+  return `<span class="status-badge status-badge-sm" style="background:${escapeHtml(c)};color:${getContrastColor(c)}">${escapeHtml(status.replace(/_/g,' '))}</span>`;
+}
+
+// --- Notes placeholder and async loader (REQ-F-010) ---
+
+/**
+ * Returns placeholder HTML for the notes section. loadNotesInto() fills it.
+ */
+function notesPlaceholder(key) {
+  return `<div class="ov-section" data-notes-for="${escapeHtml(key)}">
+    <div class="ov-section-header">Notes</div>
+    <div class="skeleton" style="height:20px;border-radius:4px;margin:4px 0"></div>
+  </div>`;
+}
+
+/**
+ * Asynchronously fetches notes for key and renders them into el.
+ * AC-010.1: caches per session; AC-010.7: skeleton shown until loaded.
+ */
+async function loadNotesInto(el, key) {
+  if (!el) return;
+  try {
+    const resp = await fetchNotes(key);
+    const notes = resp?.notes || [];
+    if (notes.length === 0) {
+      // AC-010.6: omit section when no notes
+      el.style.display = 'none';
+      return;
+    }
+    const maxDefault = 5;
+    const renderRows = (list) => list.map(n => {
+      const noteTypeColors = {
+        decision: '#8e44ad', blocker: '#c0392b', comment: 'var(--fg-dim)',
+        solution: '#27ae60', implementation: '#2980b9', question: '#17a2b8',
+        rejection: '#e83e8c', reference: 'var(--fg-dim)', future: 'var(--fg-dim)',
+        requirement: 'var(--fg-dim)', testing: 'var(--fg-dim)'
+      };
+      const tc = noteTypeColors[n.note_type] || 'var(--fg-dim)';
+      const ts = n.created_at ? formatDate(n.created_at) : '';
+      return `<div class="note-row">
+        <span class="note-ts">${escapeHtml(ts)}</span>
+        <span class="note-type-pill" style="background:${tc};color:#fff">${escapeHtml(n.note_type || '')}</span>
+        <span class="note-text" title="${escapeHtml(n.content || '')}">${escapeHtml(n.content || '')}</span>
+      </div>`;
+    }).join('');
+
+    const shown = notes.slice(0, maxDefault);
+    const remaining = notes.slice(maxDefault);
+    let bodyHtml = renderRows(shown);
+    if (remaining.length > 0) {
+      bodyHtml += `<button class="notes-show-more" data-notes-key="${escapeHtml(key)}" data-notes-remaining='${JSON.stringify(remaining)}'>Show ${remaining.length} more</button>`;
+    }
+    el.innerHTML = `<div class="ov-section-header">Notes</div>${bodyHtml}`;
+
+    // Wire "Show N more" button (AC-010.5)
+    const btn = el.querySelector('.notes-show-more');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        const rest = JSON.parse(btn.dataset.notesRemaining || '[]');
+        btn.insertAdjacentHTML('beforebegin', renderRows(rest));
+        btn.replaceWith((() => { const b = document.createElement('button'); b.className='notes-show-more'; b.textContent='Show less'; b.addEventListener('click',()=>{ loadNotesInto(el, key); }); return b; })());
+      });
+    }
+  } catch (_) {
+    // AC-010.6: on error, omit (no broken message for notes)
+    el.style.display = 'none';
+  }
+}
+
+// --- Related docs placeholder and async loader (REQ-F-011) ---
+
+/**
+ * Returns placeholder HTML for the related-docs section.
+ */
+function relatedDocsPlaceholder(key) {
+  return `<div class="ov-section" data-docs-for="${escapeHtml(key)}">
+    <div class="ov-section-header">Related Docs</div>
+    <div class="skeleton" style="height:20px;border-radius:4px;margin:4px 0"></div>
+  </div>`;
+}
+
+/**
+ * Asynchronously fetches related docs for key and renders them into el.
+ * AC-011.3: omit section if empty; AC-011.5: show dim error on failure.
+ */
+async function loadRelatedDocsInto(el, key) {
+  if (!el) return;
+  try {
+    const resp = await fetchRelatedDocs(key);
+    const docs = resp?.docs || [];
+    if (docs.length === 0) {
+      // AC-011.3: omit section when empty
+      el.style.display = 'none';
+      return;
+    }
+    const rows = docs.map(d => `<div class="reldoc-row">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="flex-shrink:0"><rect x="1" y="0.5" width="8" height="11" rx="1" stroke="var(--fg-dim)" stroke-width="1" fill="none"/><line x1="3" y1="3.5" x2="7" y2="3.5" stroke="var(--fg-dim)"/><line x1="3" y1="5.5" x2="7" y2="5.5" stroke="var(--fg-dim)"/><line x1="3" y1="7.5" x2="5" y2="7.5" stroke="var(--fg-dim)"/></svg>
+      <span class="reldoc-path" title="${escapeHtml(d.file_path || '')}">${escapeHtml(d.file_path || '')}</span>
+      <button class="reldoc-open" data-doc-path="${escapeHtml(d.file_path || '')}">open</button>
+    </div>`).join('');
+    el.innerHTML = `<div class="ov-section-header">Related Docs</div>${rows}`;
+
+    // Wire open buttons
+    el.querySelectorAll('.reldoc-open').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = btn.dataset.docPath;
+        if (p && typeof openDocumentByPath === 'function') openDocumentByPath(p);
+      });
+    });
+  } catch (_) {
+    // AC-011.5: show dim error message on failure
+    el.innerHTML = `<div class="ov-section-header">Related Docs</div><span style="color:var(--fg-dim);font-size:12px">Failed to load docs</span>`;
+  }
+}
+
+/**
+ * Opens a document by its file path in the doc_view, exactly as if the user
+ * clicked the doc node in the sidebar tree.
+ * @param {string} path - relative file path (e.g. "docs/plan/E07/design.md")
+ */
+function openDocumentByPath(path) {
+  if (!path) return;
+  selectedKey = path;
+  appState = 'doc_view';
+  pushNavState();
+  render();
+}
+
+// --- Task Overview section renderers (REQ-F-009) ---
+
+/**
+ * Renders a single dependency row entry.
+ * Resolved entities get a clickable span with data-navigate-key, tabindex, and role.
+ * Unresolved keys get plain mono text with a dim "(unresolved)" suffix.
+ * AC-T3: unresolved keys render as plain mono text with no click handler.
+ * AC-T4: resolved clickable entries have tabindex="0" and role="button".
+ * @param {{key: string, entity: Object|null}} item
+ * @returns {string} HTML string
+ */
+function renderDepRow(item) {
+  const k = escapeHtml(item.key);
+  if (item.entity) {
+    return `<div style="margin:3px 0;font-size:13px">` +
+      `<span role="button" tabindex="0" data-navigate-key="${k}" ` +
+      `style="font-family:var(--font-mono,monospace);color:var(--accent);cursor:pointer;font-size:12px">${k}</span>` +
+      `</div>`;
+  }
+  return `<div style="margin:3px 0;font-size:13px">` +
+    `<span style="font-family:var(--font-mono,monospace);font-size:12px">${k}</span>` +
+    `<span style="font-size:11px;color:var(--fg-dim)"> (unresolved)</span>` +
+    `</div>`;
+}
+
+/**
+ * Renders the Dependencies section for the Task Overview pane.
+ * Shows three groups: Depends On, Blocked By, Blocks.
+ * Blocked By carries a red left-border accent even when empty (AC-T2).
+ * Uses findEntityByKey to resolve keys — no network call (AC-T1).
+ * REQ-F-009, AC-009.1–AC-009.5.
+ * @param {Object} task - task entity object from treeData
+ * @returns {string} HTML string for the section
+ */
+function renderDependencyBlockSection(task) {
+  const resolve = keys => (Array.isArray(keys) ? keys : []).map(k => ({ key: k, entity: findEntityByKey(k) }));
+  const groups = [
+    { label: 'Depends On', items: resolve(task.depends_on_keys) },
+    { label: 'Blocked By', items: resolve(task.blocked_by_keys), accent: true },
+    { label: 'Blocks',     items: resolve(task.blocks_keys) },
+  ];
+  const groupHtml = g => `
+    <div class="dep-group${g.accent ? ' dep-group-accent' : ''}">
+      <div class="dep-label">${escapeHtml(g.label)}</div>
+      ${g.items.length
+        ? g.items.map(renderDepRow).join('')
+        : `<div class="dep-empty">(none)</div>`}
+    </div>`;
+  return sectionShell('Dependencies', groups.map(groupHtml).join(''));
+}
+
+// --- Epic Overview section renderers (REQ-F-004, REQ-F-005, REQ-F-008) ---
+
+/**
+ * Renders the Feature Status Rollup section for epic Overview.
+ * REQ-F-004: horizontal row of colored pills, one per distinct feature status.
+ * AC-004.1: renders only on epic Overview.
+ * AC-004.4: zero-count statuses are omitted.
+ * AC-004.5: pill order follows workflow phase ordering.
+ */
+function renderFeatureRollupSection(epic) {
+  const features = epic.features || [];
+  const counts = countByStatus(features);
+  const occupied = Object.keys(counts).filter(s => counts[s] > 0);
+  if (occupied.length === 0) {
+    return sectionShell('Features in Status', '<span style="color:var(--fg-dim);font-size:12px">No features</span>');
+  }
+  const ordered = sortedStatuses(occupied);
+  const pills = ordered.map(s => {
+    const c = getStatusColor(s);
+    const n = counts[s];
+    return `<span class="rollup-pill" style="background:${escapeHtml(c)};color:${getContrastColor(c)}" title="${escapeHtml(s)}">
+      ● ${escapeHtml(s.replace(/_/g,' '))} ${n}
+    </span>`;
+  }).join('');
+  return sectionShell('Features in Status', `<div class="rollup-row">${pills}</div>`);
+}
+
+/**
+ * Renders the Task Status Rollup section with segmented progress bar.
+ * REQ-F-005: row of colored pills + 100%-wide 8px bar + weighted-progress percentage.
+ * AC-005.2: empty entity shows dim "No tasks" placeholder.
+ * AC-005.3: label uses weightedProgress helper.
+ */
+function renderTaskRollupSection(tasks) {
+  const counts = countByStatus(tasks);
+  const total = tasks.length;
+
+  if (total === 0) {
+    return sectionShell('Tasks in Status', '<span style="color:var(--fg-dim);font-size:12px">No tasks</span>');
+  }
+
+  const occupied = Object.keys(counts).filter(s => counts[s] > 0);
+  const ordered = sortedStatuses(occupied);
+  const pct = weightedProgress(counts, total);
+
+  // Rollup pills
+  const pills = ordered.map(s => {
+    const c = getStatusColor(s);
+    const n = counts[s];
+    return `<span class="rollup-pill" style="background:${escapeHtml(c)};color:${getContrastColor(c)}" title="${escapeHtml(s)}">
+      ● ${escapeHtml(s.replace(/_/g,' '))} ${n}
+    </span>`;
+  }).join('');
+
+  // Segmented progress bar
+  const segments = ordered.map(s => {
+    const c = getStatusColor(s);
+    const w = ((counts[s] / total) * 100).toFixed(2);
+    return `<div class="seg-bar-segment" style="width:${w}%;background:${escapeHtml(c)}" title="${escapeHtml(s)}: ${counts[s]}"></div>`;
+  }).join('');
+
+  const bodyHtml = `
+    <div class="rollup-row">${pills}</div>
+    <div class="seg-bar-row">
+      <div class="seg-bar" style="flex:1">${segments}</div>
+      <span class="seg-bar-label">${pct}%</span>
+    </div>`;
+
+  return sectionShell('Tasks in Status', bodyHtml);
+}
+
+/**
+ * Renders the Features table for epic Overview.
+ * REQ-F-008: KEY · TITLE · STATUS BADGE · PROGRESS BAR columns.
+ * AC-008.1: KEY cells carry data-navigate-key and .clickable class.
+ * AC-008.2: TITLE cells truncated via CSS; full title in title attribute.
+ * AC-008.4: body scrolls inside max-height: 420px when >10 rows; header sticky.
+ */
+function renderFeaturesTableSection(epic) {
+  const features = epic.features || [];
+  if (features.length === 0) {
+    return sectionShell('Features', '<span style="color:var(--fg-dim);font-size:12px">No features</span>');
+  }
+
+  const rows = features.map(f => {
+    const key = escapeHtml(f.key || '');
+    const title = escapeHtml(f.title || f.key || '');
+    const pct = typeof f.progress_pct === 'number' ? f.progress_pct : 0;
+    const badge = ovStatusBadge(f.status || 'unknown');
+    const barColor = 'var(--accent)';
+    const rowClass = isCancelledStatus(f.status) ? ' class="entity-cancelled"' : '';
+    return `<tr${rowClass}>
+      <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
+      <td>${badge}</td>
+      <td style="min-width:80px">
+        <div style="height:6px;border-radius:3px;background:var(--bg-3);overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const scrollClass = features.length > 10 ? ' ov-table-scroll' : '';
+  const tableHtml = `
+    <div class="${scrollClass.trim() || ''}">
+      <table class="ov-table">
+        <thead><tr>
+          <th>KEY</th><th>TITLE</th><th>STATUS</th><th>PROGRESS</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  return sectionShell('Features', tableHtml);
+}
+
+// --- Feature Overview section renderers (REQ-F-006, REQ-F-007, REQ-F-008) ---
+
+/**
+ * Renders the Work Breakdown section for feature Overview.
+ * REQ-F-006: three labelled rows — Agent / Human / QA Team — each with a mini bar.
+ * AC-006.1: counts derived from responsibility field of each task's status in workflowMeta.
+ * AC-006.2: bar width = count / max(1, total_for_all_three_rows) * 100%.
+ * AC-006.3: hidden when all three counts are zero.
+ * AC-006.4: only rendered for feature Overview.
+ * @param {Array} tasks - array of task objects from treeData (feature.tasks)
+ * @returns {string} HTML string or null when all counts are zero
+ */
+function renderWorkBreakdownSection(tasks) {
+  const bd = workBreakdown(tasks);
+  const maxCount = Math.max(1, bd.agent + bd.human + bd.qa_team);
+  // AC-006.3: return null (omit) when all three counts are zero
+  if (bd.agent === 0 && bd.human === 0 && bd.qa_team === 0) return null;
+
+  const rows = [
+    { label: 'Agent',   count: bd.agent },
+    { label: 'Human',   count: bd.human },
+    { label: 'QA Team', count: bd.qa_team },
+  ].map(r => {
+    const pct = (r.count / maxCount * 100).toFixed(2);
+    return `<div class="wb-row">
+      <span class="wb-label">${escapeHtml(r.label)}</span>
+      <div class="wb-bar"><div class="wb-bar-fill" style="width:${pct}%"></div></div>
+      <span class="wb-count">${r.count}</span>
+    </div>`;
+  }).join('');
+
+  return sectionShell('Work Breakdown', rows);
+}
+
+/**
+ * Renders the Action Items section for feature Overview.
+ * REQ-F-007: list of tasks in statuses whose blocks_feature === true.
+ * AC-007.1: filter uses blocks_feature flag — never hardcoded status names.
+ * AC-007.2: each row shows a status badge, clickable key (data-navigate-key), and truncated title.
+ * AC-007.3: rows ordered by status phase, then execution_order, then key.
+ * AC-007.4: section omitted when no tasks match blocks_feature.
+ * @param {Array} tasks - array of task objects
+ * @returns {string} HTML string or null when no blocking tasks
+ */
+function renderActionItemsSection(tasks) {
+  const items = actionItems(tasks);
+  // AC-007.4: omit section entirely when no blocking tasks
+  if (items.length === 0) return null;
+
+  const rows = items.map(t => {
+    const key = escapeHtml(t.key || '');
+    const title = escapeHtml(t.title || t.key || '');
+    const badge = ovStatusBadge(t.status || 'unknown');
+    return `<div class="action-item-row">
+      ${badge}
+      <span class="clickable" role="button" tabindex="0" data-navigate-key="${key}"
+        style="font-family:var(--font-mono,monospace);font-size:12px">${key}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+        title="${title}">${title}</span>
+    </div>`;
+  }).join('');
+
+  return sectionShell('Action Items', rows);
+}
+
+/**
+ * Renders the Tasks table for feature Overview.
+ * REQ-F-008 (feature): KEY · TITLE · STATUS BADGE · ORDER columns.
+ * AC-008.1: KEY cells carry data-navigate-key and .clickable class.
+ * AC-008.2: TITLE cells truncated via CSS; full title in title attribute.
+ * AC-008.3: uses ov-table CSS; rows have bottom-border dividers; hover bg-3.
+ * AC-008.4: body scrolls inside max-height: 420px when >10 rows; header sticky.
+ * AC-T4: ORDER column reflects execution_order from treeData.
+ * @param {object} feature - feature entity object from treeData
+ * @returns {string} HTML string
+ */
+function renderTasksTableSection(feature) {
+  const tasks = feature.tasks || [];
+  if (tasks.length === 0) {
+    return sectionShell('Tasks', '<span style="color:var(--fg-dim);font-size:12px">No tasks</span>');
+  }
+
+  const rows = tasks.map(t => {
+    const key = escapeHtml(t.key || '');
+    const title = escapeHtml(t.title || t.key || '');
+    const badge = ovStatusBadge(t.status || 'unknown');
+    const order = t.execution_order != null ? t.execution_order : '';
+    const rowClass = isCancelledStatus(t.status) ? ' class="entity-cancelled"' : '';
+    return `<tr${rowClass}>
+      <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
+      <td>${badge}</td>
+      <td style="text-align:right;color:var(--fg-dim);font-size:12px">${escapeHtml(String(order))}</td>
+    </tr>`;
+  }).join('');
+
+  const scrollClass = tasks.length > 10 ? 'ov-table-scroll' : '';
+  const tableHtml = `
+    <div class="${scrollClass}">
+      <table class="ov-table">
+        <thead><tr>
+          <th>KEY</th><th>TITLE</th><th>STATUS</th><th style="text-align:right">ORDER</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  return sectionShell('Tasks', tableHtml);
+}
+
+/**
+ * Dispatches to entity-type-specific overview renderers.
+ * Overview is the default tab for epic/feature/task (AC-001.1).
+ * Bug/change-card/idea entities are coerced to 'info' before reaching here.
+ *
+ * @param {object} entity - the entity object from treeData
+ * @param {HTMLElement} paneEl - the content pane element to populate
+ */
+function renderOverviewPane(entity, paneEl) {
+  if (!paneEl) return;
+  if (!entity) {
+    paneEl.innerHTML = `<div class="content-placeholder">Entity not found.</div>`;
+    return;
+  }
+
+  const sections = [];
+  switch (entity.type) {
+    case 'epic':
+      sections.push(notesPlaceholder(entity.key));
+      sections.push(renderFeatureRollupSection(entity));
+      sections.push(renderTaskRollupSection(collectEpicTasks(entity)));
+      sections.push(renderFeaturesTableSection(entity));
+      sections.push(relatedDocsPlaceholder(entity.key));
+      break;
+    case 'feature':
+      sections.push(notesPlaceholder(entity.key));
+      sections.push(renderTaskRollupSection(entity.tasks || []));
+      sections.push(renderWorkBreakdownSection(entity.tasks || []));
+      sections.push(renderActionItemsSection(entity.tasks || []));
+      sections.push(renderTasksTableSection(entity));
+      sections.push(relatedDocsPlaceholder(entity.key));
+      break;
+    case 'task':
+      sections.push(notesPlaceholder(entity.key));
+      sections.push(renderDependencyBlockSection(entity));
+      sections.push(relatedDocsPlaceholder(entity.key));
+      break;
+    default:
+      paneEl.innerHTML = `<div class="content-placeholder">Overview not available for this entity type.</div>`;
+      return;
+  }
+
+  paneEl.innerHTML = `<div class="overview-pane overview-${escapeHtml(entity.type)}">${sections.filter(Boolean).join('')}</div>`;
+
+  // Wire click delegation for [data-navigate-key] elements (feature rows, task rows, dep links)
+  paneEl.querySelectorAll('[data-navigate-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.getAttribute('data-navigate-key');
+      if (k) navigateToEntity(k);
+    });
+  });
+
+  // Fire async notes + docs fetches into their placeholder divs (AC-010.7, AC-011.4)
+  loadNotesInto(paneEl.querySelector(`[data-notes-for="${entity.key}"]`), entity.key);
+  loadRelatedDocsInto(paneEl.querySelector(`[data-docs-for="${entity.key}"]`), entity.key);
+}
+
 /**
  * Renders the Entity View (State 3).
  * Shows entity properties panel, Info/Transitions toggle, and content pane.
@@ -2639,43 +4039,88 @@ function renderEntityView() {
   const content = document.getElementById('content');
 
   const entity = findEntityByKey(selectedKey);
+  const isEpic = entity?.type === 'epic';
+  const isSimpleEntity = entity && (entity.type === 'bug' || entity.type === 'change_card' || entity.type === 'idea');
+
+  // Guard: if history state restored 'dashboard' for a non-epic, coerce to 'overview' (AC-001.5)
+  if (entityViewTab === 'dashboard' && !isEpic) {
+    entityViewTab = 'overview';
+  }
+  // Guard: bug/change-card/idea do not support 'overview' pane — coerce to 'info'
+  if (entityViewTab === 'overview' && isSimpleEntity) {
+    entityViewTab = 'info';
+  }
 
   // Build header and toggle bar
   const title = entity ? escapeHtml(entity.title || entity.key || selectedKey) : escapeHtml(selectedKey || '');
   const keyLabel = escapeHtml(selectedKey || '');
 
-  const infoActive  = entityViewTab === 'info'        ? ' active' : '';
-  const transActive = entityViewTab === 'transitions' ? ' active' : '';
-  const filesActive = entityViewTab === 'files'       ? ' active' : '';
+  const overviewActive = entityViewTab === 'overview'    ? ' active' : '';
+  const dashActive     = entityViewTab === 'dashboard'   ? ' active' : '';
+  const infoActive     = entityViewTab === 'info'        ? ' active' : '';
+  const transActive    = entityViewTab === 'transitions' ? ' active' : '';
+  const filesActive    = entityViewTab === 'files'       ? ' active' : '';
 
-  const hasFilePath = entity && (entity.file_path || entity.linked_content_path);
-  const editBtnHtml = (entityViewTab === 'info' && hasFilePath)
-    ? `<button class="toggle-btn ev-edit-btn" id="ev-edit-btn" disabled title="Edit file" style="margin-left:auto">✎ Edit</button>`
+  // Overview button: shown for epic/feature/task, not for bug/change-card/idea (AC-001.2, AC-001.3)
+  const overviewBtnHtml = !isSimpleEntity
+    ? `<button class="toggle-btn${overviewActive}" id="ev-tab-overview">Overview</button>`
+    : '';
+
+  // Dashboard button is only rendered for epics (AC-001.2, AC-001.3)
+  const dashBtnHtml = isEpic
+    ? `<button class="toggle-btn${dashActive}" id="ev-tab-dashboard">Dashboard</button>`
     : '';
 
   const entityDir = entity ? (entity.file_path || entity.linked_content_path || '') : '';
   const filesDirPath = entityDir ? parentDir(entityDir) : '';
   const filesBtnHtml = filesDirPath ? `<button class="toggle-btn${filesActive}" id="ev-tab-files">Files</button>` : '';
 
+  // Edit button is now inside the Spec pane (renderMarkdownPane), NOT in the toggle bar (AC-002.1)
   const html = `
-    <button class="content-back-link" id="ev-back-btn">← Back</button>
+    ${entity ? renderBreadcrumb(entity) : ''}
     <div class="entity-view-header">
       <div class="entity-view-title">${title}</div>
-      <div class="entity-view-key">${keyLabel}</div>
+      <div class="entity-view-key-row">
+        <div class="entity-view-key">${keyLabel}</div>
+        ${entity ? `<button class="copy-btn copy-key-btn" data-copy-value="${escapeHtml(entity.key || keyLabel)}" title="Copy key">⎘</button>` : ''}
+      </div>
     </div>
     ${entity ? renderPropertiesPanel(entity) : ''}
     <div class="toggle-bar">
-      <button class="toggle-btn${infoActive}"  id="ev-tab-info">Info</button>
-      <button class="toggle-btn${transActive}" id="ev-tab-transitions">Transitions</button>
+      ${overviewBtnHtml}
+      <button class="toggle-btn${infoActive}"  id="ev-tab-info">Spec</button>
+      <button class="toggle-btn${transActive}" id="ev-tab-transitions">History</button>
+      ${dashBtnHtml}
       ${filesBtnHtml}
-      ${editBtnHtml}
     </div>
     <div id="ev-content-pane"></div>
   `;
 
   content.innerHTML = html;
 
-  document.getElementById('ev-back-btn').addEventListener('click', () => history.back());
+  // Wire breadcrumb segment clicks → navigateToEntity
+  content.querySelectorAll('.breadcrumb-seg[data-navigate-key]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.getAttribute('data-navigate-key');
+      if (k) navigateToEntity(k);
+    });
+  });
+
+  // Wire Overview tab button (epic/feature/task only)
+  const overviewTabBtn = document.getElementById('ev-tab-overview');
+  if (overviewTabBtn) {
+    overviewTabBtn.addEventListener('click', () => {
+      if (entityViewTab !== 'overview') { entityViewTab = 'overview'; pushNavState(); renderEntityView(); }
+    });
+  }
+
+  // Wire Dashboard tab button (epics only)
+  const dashTabBtn = document.getElementById('ev-tab-dashboard');
+  if (dashTabBtn) {
+    dashTabBtn.addEventListener('click', () => {
+      if (entityViewTab !== 'dashboard') { entityViewTab = 'dashboard'; pushNavState(); renderEntityView(); }
+    });
+  }
 
   // Wire toggle buttons
   document.getElementById('ev-tab-info').addEventListener('click', () => {
@@ -2691,18 +4136,15 @@ function renderEntityView() {
     });
   }
 
-  // Wire edit button (enabled after content loads in renderMarkdownFromString)
-  const editToggleBtn = document.getElementById('ev-edit-btn');
-  if (editToggleBtn) {
-    editToggleBtn.addEventListener('click', () => {
-      enterEditMode(document.getElementById('ev-content-pane'));
-    });
-  }
-
   const paneEl = document.getElementById('ev-content-pane');
 
-  if (entityViewTab === 'info') {
-    // Async: fetch and render markdown content
+  if (entityViewTab === 'overview') {
+    // Overview pane — dispatcher for epic/feature/task (AC-T3)
+    renderOverviewPane(entity, paneEl);
+  } else if (entityViewTab === 'dashboard' && isEpic) {
+    renderEpicDashboardPane(entity.key, paneEl);
+  } else if (entityViewTab === 'info') {
+    // Async: fetch and render markdown content (Edit toggle now rendered inside pane — AC-002.2)
     renderMarkdownPane(selectedKey, paneEl);
   } else if (entityViewTab === 'files') {
     renderFolderFilesPane(filesDirPath, paneEl);
@@ -2724,8 +4166,9 @@ function renderEntityView() {
         return tb.localeCompare(ta);
       });
       let rows = '';
-      for (const entry of sorted) {
-        const date     = escapeHtml(formatDate(entry.changed_at || entry.created_at || entry.timestamp || ''));
+      for (let i = 0; i < sorted.length; i++) {
+        const entry = sorted[i];
+        const date     = escapeHtml(formatDateTime(entry.changed_at || entry.created_at || entry.timestamp || ''));
         const from     = entry.from_status || entry.from || '';
         const to       = entry.to_status   || entry.to   || '';
         const note     = escapeHtml(entry.note || entry.reason || '');
@@ -2733,30 +4176,36 @@ function renderEntityView() {
         const fromBadge = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(fromC)};color:${getContrastColor(fromC)}">${escapeHtml(from.replace(/_/g,' '))}</span>`;
         const toC   = getStatusColor(to);
         const toBadge   = `<span class="status-badge status-badge-sm" style="background:${escapeHtml(toC)};color:${getContrastColor(toC)}">${escapeHtml(to.replace(/_/g,' '))}</span>`;
+        // Duration: time the entity spent in from_status before this transition.
+        // sorted is newest-first, so sorted[i+1] is the prior transition.
+        // For the oldest entry, fall back to entity.created_at.
+        let duration = '—';
+        const tThis = new Date(entry.changed_at || entry.created_at || entry.timestamp || '');
+        const prevTs = i + 1 < sorted.length
+          ? (sorted[i + 1].changed_at || sorted[i + 1].created_at || sorted[i + 1].timestamp || '')
+          : (entity?.created_at || '');
+        if (prevTs) {
+          const tPrev = new Date(prevTs);
+          if (!isNaN(tThis) && !isNaN(tPrev) && tThis >= tPrev) {
+            duration = formatDuration(tThis - tPrev);
+          }
+        }
+        const durationCell = duration === '—' ? '—' : `for ${duration}`;
         rows += `<tr>
           <td class="history-date">${date}</td>
-          <td>${fromBadge}</td>
-          <td style="color:var(--fg-dim);padding:0 4px">\u2192</td>
-          <td>${toBadge}</td>
+          <td class="history-badge-cell">${fromBadge}</td>
+          <td class="history-duration">${durationCell}</td>
+          <td class="history-arrow-cell">\u2192</td>
+          <td class="history-badge-cell">${toBadge}</td>
           <td class="activity-note">${note}</td>
         </tr>`;
       }
       paneEl.innerHTML = `
         <div class="history-drawer">
-          <div class="history-drawer-toolbar">
-            <button class="open-btn" id="ev-history-open-btn">Open</button>
-          </div>
           <table class="history-table">
             <tbody>${rows}</tbody>
           </table>
         </div>`;
-      const openBtn = document.getElementById('ev-history-open-btn');
-      if (openBtn) {
-        openBtn.addEventListener('click', () => {
-          entityViewTab = 'info';
-          renderEntityView();
-        });
-      }
     });
   }
 }
@@ -2908,13 +4357,14 @@ function buildArrowHtml(expandable, expanded, key) {
 function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bold }) {
   const isSelected = key === selectedKey;
   const selectedClass = isSelected ? ' selected' : '';
+  const cancelledClass = isCancelledStatus(status) ? ' entity-cancelled' : '';
   const arrowHtml = buildArrowHtml(expandable, expanded, key);
   const dotHtml = buildStatusDotHtml(status);
   const keyLabel = bold
     ? `<strong class="tree-node-key">${escapeHtml(key)}</strong>`
     : `<span class="tree-node-key">${escapeHtml(key)}</span>`;
   const titleHtml = `<span class="tree-node-title">${escapeHtml(title || '')}</span>`;
-  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
+  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${cancelledClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
 }
 
 /**
@@ -3048,7 +4498,8 @@ function buildFlatSectionHtml(title, items) {
     const key = item.key || String(item.id || '');
     const isSelected = key === selectedKey;
     const selectedClass = isSelected ? ' selected' : '';
-    html += `<div class="tree-node tree-node-flat${selectedClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
+    const cancelledClass = isCancelledStatus(item.status) ? ' entity-cancelled' : '';
+    html += `<div class="tree-node tree-node-flat${selectedClass}${cancelledClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
   }
   return html;
 }
@@ -3175,7 +4626,8 @@ function renderSidebar() {
         if (nodeEl.classList.contains('tree-node-doc-epic') || nodeEl.classList.contains('tree-node-doc-feature')) {
           appState = 'doc_view';
         } else {
-          entityViewTab = 'info';
+          const clickedEntity = findEntityByKey(key);
+          entityViewTab = 'overview';
           appState = 'entity_view';
         }
         pushNavState();
@@ -3209,7 +4661,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (appState === 'entity_view' || appState === 'doc_view') {
       selectedKey = null;
       appState = 'dashboard';
-      history.replaceState({ appState, selectedKey: null, entityViewTab: 'info' }, '');
+      history.replaceState({ appState, selectedKey: null, entityViewTab: 'overview' }, '');
       render();
     }
   });
@@ -3253,6 +4705,17 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (appState === 'entity_view' || appState === 'doc_view') {
         history.back();
       }
+    }
+  });
+
+  // Keyboard: Enter / Space → activate any [data-navigate-key][role="button"] element.
+  // Added once globally for breadcrumb segments, child-table KEY cells, and any other
+  // keyboard-focusable navigation targets. REQ-NF-002, AC-NF-002.1, E27-F09-005.
+  document.addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-navigate-key][role="button"]')) {
+      e.preventDefault();
+      const k = e.target.getAttribute('data-navigate-key');
+      if (k) navigateToEntity(k);
     }
   });
 });

@@ -10,6 +10,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/changecard"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entitydoc"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
+	repnote "github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/jwwelbor/shark-task-manager/internal/taskcreation"
 	"github.com/jwwelbor/shark-task-manager/internal/templates"
@@ -18,12 +19,15 @@ import (
 
 // Compile-time interface satisfaction checks for adapters.
 var (
-	_ services.WorkSessionRepository          = (*workSessionAdapter)(nil)
-	_ services.TaskHistoryRepository          = (*taskHistoryAdapter)(nil)
-	_ services.ViewerEntityDocRepository      = (*entityDocAdapter)(nil)
-	_ services.ViewerIdeaRepository           = (*ideaAdapter)(nil)
-	_ services.ViewerBugListRepository        = (*bugListAdapter)(nil)
-	_ services.ViewerChangeCardListRepository = (*changeCardListAdapter)(nil)
+	_ services.WorkSessionRepository             = (*workSessionAdapter)(nil)
+	_ services.TaskHistoryRepository             = (*taskHistoryAdapter)(nil)
+	_ services.ViewerEntityDocRepository         = (*entityDocAdapter)(nil)
+	_ services.ViewerIdeaRepository              = (*ideaAdapter)(nil)
+	_ services.ViewerBugListRepository           = (*bugListAdapter)(nil)
+	_ services.ViewerChangeCardListRepository    = (*changeCardListAdapter)(nil)
+	_ services.ViewerTaskRelationshipRepository  = (*taskRelAdapter)(nil)
+	_ services.ViewerEntityNoteRepository        = (*repnote.EntityNoteRepository)(nil)
+	_ services.ViewerEntityDocByEntityRepository = (*entitydoc.EntityDocumentRepository)(nil)
 )
 
 // ideaAdapter adapts *idea.IdeaRepository to services.ViewerIdeaRepository.
@@ -63,6 +67,51 @@ func (a *changeCardListAdapter) ListAll(ctx context.Context) ([]*models.ChangeCa
 
 func (a *changeCardListAdapter) GetByKey(ctx context.Context, key string) (*models.ChangeCard, error) {
 	return a.repo.GetByKey(ctx, key)
+}
+
+// taskRelAdapter adapts *repository.DB to services.ViewerTaskRelationshipRepository.
+// It runs a single bulk SQL query to fetch all task-to-task relationships with resolved
+// keys from the canonical entity_relationships table, avoiding N+1 queries in the
+// Hierarchy endpoint. No new per-entity GET endpoint is introduced — this data is
+// embedded in the hierarchy payload only (AC-T3).
+type taskRelAdapter struct {
+	db *repository.DB
+}
+
+func (a *taskRelAdapter) ListAll(ctx context.Context) ([]*services.ViewerTaskRelationship, error) {
+	const query = `
+		SELECT
+			er.from_entity_id,
+			er.to_entity_id,
+			er.relationship_type,
+			ft.key AS from_key,
+			tt.key AS to_key
+		FROM entity_relationships er
+		INNER JOIN tasks ft ON ft.id = er.from_entity_id
+		INNER JOIN tasks tt ON tt.id = er.to_entity_id
+		WHERE er.from_entity_type = 'task'
+		  AND er.to_entity_type   = 'task'
+		ORDER BY er.id ASC
+		LIMIT 10000
+	`
+	rows, err := a.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("taskRelAdapter: failed to list all relationships: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*services.ViewerTaskRelationship
+	for rows.Next() {
+		r := &services.ViewerTaskRelationship{}
+		if err := rows.Scan(&r.FromTaskID, &r.ToTaskID, &r.RelType, &r.FromKey, &r.ToKey); err != nil {
+			return nil, fmt.Errorf("taskRelAdapter: failed to scan relationship: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("taskRelAdapter: error iterating relationships: %w", err)
+	}
+	return out, nil
 }
 
 // entityDocAdapter adapts *entitydoc.EntityDocumentRepository to the
@@ -301,6 +350,9 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	viewerService.WithIdeaRepo(&ideaAdapter{repo: idea.NewIdeaRepository(db)})
 	viewerService.WithBugListRepo(&bugListAdapter{repo: bugRepoAdapter})
 	viewerService.WithChangeCardListRepo(&changeCardListAdapter{repo: changeCardRepoAdapter})
+	viewerService.WithTaskRelRepo(&taskRelAdapter{db: db})
+	viewerService.WithNoteRepo(repnote.NewEntityNoteRepository(db))
+	viewerService.WithDocByEntityRepo(entitydoc.NewEntityDocumentRepository(db))
 
 	// Step 6: Construct EditService for the file-write endpoint.
 	editService := services.NewEditService(projectRoot)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ type MockViewerServicer struct {
 	FeatureTasksFunc   func(ctx context.Context, featureKey string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error)
 	RecentActivityFunc func(ctx context.Context, opts services.RecentActivityOptions) (*services.RecentActivityResponse, error)
 	WorkflowMetaFunc   func(ctx context.Context) (*services.WorkflowMetaResponse, error)
+	NotesFunc          func(ctx context.Context, key string) (*services.NotesResponse, error)
+	RelatedDocsFunc    func(ctx context.Context, key string) (*services.RelatedDocsResponse, error)
 }
 
 func (m *MockViewerServicer) Summary(ctx context.Context) (*services.SummaryResponse, error) {
@@ -92,6 +95,20 @@ func (m *MockViewerServicer) WorkflowMeta(ctx context.Context) (*services.Workfl
 		return m.WorkflowMetaFunc(ctx)
 	}
 	return nil, errors.New("WorkflowMetaFunc not set in mock")
+}
+
+func (m *MockViewerServicer) Notes(ctx context.Context, key string) (*services.NotesResponse, error) {
+	if m.NotesFunc != nil {
+		return m.NotesFunc(ctx, key)
+	}
+	return nil, errors.New("NotesFunc not set in mock")
+}
+
+func (m *MockViewerServicer) RelatedDocs(ctx context.Context, key string) (*services.RelatedDocsResponse, error) {
+	if m.RelatedDocsFunc != nil {
+		return m.RelatedDocsFunc(ctx, key)
+	}
+	return nil, errors.New("RelatedDocsFunc not set in mock")
 }
 
 // ----- helpers -----
@@ -1118,4 +1135,327 @@ func TestCORSMiddleware(t *testing.T) {
 			t.Errorf("TC-H-074: expected no ACAO header when no Origin, got %q", acao)
 		}
 	})
+}
+
+// ----- Notes handler tests (TC-F020-*) -----
+
+// TC-F020-3: Only the five specified NoteDTO fields are serialised (AC-020.3).
+// Verifies that metadata and updated_at are not present in the JSON output.
+func TestViewerHandler_Notes_DTOFieldsOnly(t *testing.T) {
+	mock := &MockViewerServicer{
+		NotesFunc: func(ctx context.Context, key string) (*services.NotesResponse, error) {
+			return &services.NotesResponse{
+				EntityType: "epic",
+				EntityKey:  "E27",
+				Notes: []services.NoteDTO{
+					{
+						ID:        42,
+						NoteType:  "decision",
+						Content:   "Use DESC ordering",
+						CreatedBy: "agent",
+						CreatedAt: "2026-01-15T10:00:00Z",
+					},
+				},
+			}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/notes/E27", mux)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+
+	// Required fields must be present.
+	requiredFields := []string{`"id"`, `"note_type"`, `"content"`, `"created_by"`, `"created_at"`}
+	for _, field := range requiredFields {
+		if !strings.Contains(body, field) {
+			t.Errorf("NoteDTO JSON missing required field %s; body: %s", field, body)
+		}
+	}
+
+	// Forbidden fields must be absent (AC-020.3).
+	forbiddenFields := []string{`"metadata"`, `"updated_at"`}
+	for _, field := range forbiddenFields {
+		if strings.Contains(body, field) {
+			t.Errorf("NoteDTO JSON contains forbidden field %s (AC-020.3); body: %s", field, body)
+		}
+	}
+}
+
+// TC-F020-1: Response JSON shape matches contract (empty notes = [])
+func TestViewerHandler_Notes_ResponseShape(t *testing.T) {
+	mock := &MockViewerServicer{
+		NotesFunc: func(ctx context.Context, key string) (*services.NotesResponse, error) {
+			return &services.NotesResponse{
+				EntityType: "feature",
+				EntityKey:  "E27-F09",
+				Notes:      []services.NoteDTO{},
+			}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/notes/E27-F09", mux)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp services.NotesResponse
+	assertJSON(t, rec, &resp)
+	if resp.Notes == nil {
+		t.Error("notes should be [] not null")
+	}
+	if len(resp.Notes) != 0 {
+		t.Errorf("expected empty notes, got %d", len(resp.Notes))
+	}
+	if resp.EntityKey != "E27-F09" {
+		t.Errorf("expected entity_key=E27-F09, got %q", resp.EntityKey)
+	}
+}
+
+// TC-F020-1 (with notes): response includes note data
+func TestViewerHandler_Notes_WithNotes(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	mock := &MockViewerServicer{
+		NotesFunc: func(ctx context.Context, key string) (*services.NotesResponse, error) {
+			return &services.NotesResponse{
+				EntityType: "feature",
+				EntityKey:  key,
+				Notes: []services.NoteDTO{
+					{ID: 1, NoteType: "comment", Content: "hello", CreatedAt: now.Format(time.RFC3339)},
+					{ID: 2, NoteType: "decision", Content: "world", CreatedAt: now.Format(time.RFC3339)},
+				},
+			}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/notes/E27-F09", mux)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var resp services.NotesResponse
+	assertJSON(t, rec, &resp)
+	if len(resp.Notes) != 2 {
+		t.Errorf("expected 2 notes, got %d", len(resp.Notes))
+	}
+}
+
+// TC-F020-5: 404 returned for unknown entity
+func TestViewerHandler_Notes_NotFound(t *testing.T) {
+	mock := &MockViewerServicer{
+		NotesFunc: func(ctx context.Context, key string) (*services.NotesResponse, error) {
+			return nil, fmt.Errorf("entity not found: %s", key)
+		},
+	}
+	mux := newTestMux(mock)
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/notes/E27-F09", mux)
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+// TC-F020-6: 400 returned for malformed key
+func TestViewerHandler_Notes_BadKey(t *testing.T) {
+	mock := &MockViewerServicer{}
+	mux := newTestMux(mock)
+
+	// Path traversal attempt
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/notes/..%2F..%2Fetc%2Fpasswd", mux)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for path traversal, got %d", rec.Code)
+	}
+}
+
+// TC-F020-4: Handler accepts key shapes (short task, long task, feature, epic, lower/upper)
+func TestViewerHandler_Notes_KeyShapes(t *testing.T) {
+	cases := []struct {
+		path string
+		want int
+	}{
+		{"/api/v1/viewer/notes/E27-F09-002", http.StatusOK},
+		{"/api/v1/viewer/notes/T-E27-F09-002", http.StatusOK},
+		{"/api/v1/viewer/notes/E27-F09", http.StatusOK},
+		{"/api/v1/viewer/notes/E27", http.StatusOK},
+		{"/api/v1/viewer/notes/e27-f09", http.StatusOK},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			mock := &MockViewerServicer{
+				NotesFunc: func(ctx context.Context, key string) (*services.NotesResponse, error) {
+					return &services.NotesResponse{Notes: []services.NoteDTO{}}, nil
+				},
+			}
+			mux := newTestMux(mock)
+			rec := makeRequest(http.MethodGet, tc.path, mux)
+			if rec.Code != tc.want {
+				t.Errorf("path=%q: expected %d, got %d; body: %s", tc.path, tc.want, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TC-F020-7: CORS behaviour identical to existing endpoints (localhost allowed)
+func TestViewerHandler_Notes_CORSBehavior(t *testing.T) {
+	mock := &MockViewerServicer{
+		NotesFunc: func(ctx context.Context, key string) (*services.NotesResponse, error) {
+			return &services.NotesResponse{Notes: []services.NoteDTO{}}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	// Localhost origin should be echoed.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/viewer/notes/E27-F09", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
+		t.Errorf("expected ACAO=http://localhost:5173, got %q", got)
+	}
+
+	// Non-local origin should not receive CORS header.
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/viewer/notes/E27-F09", nil)
+	req2.Header.Set("Origin", "https://evil.example.com")
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+	if got := rec2.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected no ACAO for evil origin, got %q", got)
+	}
+}
+
+// ----- RelatedDocs handler tests (TC-F021-*) -----
+
+// TC-F021-1: Empty list returns {"docs":[]} not null
+func TestViewerHandler_RelatedDocs_EmptyResponse(t *testing.T) {
+	mock := &MockViewerServicer{
+		RelatedDocsFunc: func(ctx context.Context, key string) (*services.RelatedDocsResponse, error) {
+			return &services.RelatedDocsResponse{
+				EntityType: "feature",
+				EntityKey:  "E27-F09",
+				Docs:       []services.RelatedDocDTO{},
+			}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/related-docs/E27-F09", mux)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp services.RelatedDocsResponse
+	assertJSON(t, rec, &resp)
+	if resp.Docs == nil {
+		t.Error("docs should be [] not null")
+	}
+	if len(resp.Docs) != 0 {
+		t.Errorf("expected empty docs, got %d", len(resp.Docs))
+	}
+}
+
+// TC-F021-2/3: Documents with paths returned as stored
+func TestViewerHandler_RelatedDocs_WithDocs(t *testing.T) {
+	mock := &MockViewerServicer{
+		RelatedDocsFunc: func(ctx context.Context, key string) (*services.RelatedDocsResponse, error) {
+			return &services.RelatedDocsResponse{
+				EntityType: "feature",
+				EntityKey:  key,
+				Docs: []services.RelatedDocDTO{
+					{ID: 10, Title: "Spec", FilePath: "docs/plan/E27-F09/spec.md"},
+					{ID: 5, Title: "Design", FilePath: "docs/plan/E27-F09/design.md"},
+				},
+			}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/related-docs/E27-F09", mux)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var resp services.RelatedDocsResponse
+	assertJSON(t, rec, &resp)
+	if len(resp.Docs) != 2 {
+		t.Fatalf("expected 2 docs, got %d", len(resp.Docs))
+	}
+	if resp.Docs[0].ID != 10 {
+		t.Errorf("expected first doc id=10, got %d", resp.Docs[0].ID)
+	}
+	if resp.Docs[0].FilePath != "docs/plan/E27-F09/spec.md" {
+		t.Errorf("expected path stored verbatim, got %q", resp.Docs[0].FilePath)
+	}
+}
+
+// TC-F021-4: Key normalisation matches REQ-F-020 (table-driven)
+func TestViewerHandler_RelatedDocs_KeyShapes(t *testing.T) {
+	cases := []string{
+		"/api/v1/viewer/related-docs/E27-F09-002",
+		"/api/v1/viewer/related-docs/T-E27-F09-002",
+		"/api/v1/viewer/related-docs/E27-F09",
+		"/api/v1/viewer/related-docs/E27",
+		"/api/v1/viewer/related-docs/e27-f09",
+	}
+
+	for _, path := range cases {
+		t.Run(path, func(t *testing.T) {
+			mock := &MockViewerServicer{
+				RelatedDocsFunc: func(ctx context.Context, key string) (*services.RelatedDocsResponse, error) {
+					return &services.RelatedDocsResponse{Docs: []services.RelatedDocDTO{}}, nil
+				},
+			}
+			mux := newTestMux(mock)
+			rec := makeRequest(http.MethodGet, path, mux)
+			if rec.Code != http.StatusOK {
+				t.Errorf("path=%q: expected 200, got %d; body: %s", path, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TC-F021-4 (CORS): Related-docs endpoint CORS matches notes endpoint
+func TestViewerHandler_RelatedDocs_CORSBehavior(t *testing.T) {
+	mock := &MockViewerServicer{
+		RelatedDocsFunc: func(ctx context.Context, key string) (*services.RelatedDocsResponse, error) {
+			return &services.RelatedDocsResponse{Docs: []services.RelatedDocDTO{}}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/viewer/related-docs/E27-F09", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
+		t.Errorf("expected ACAO=http://localhost:3000, got %q", got)
+	}
+}
+
+// RelatedDocs: 404 for unknown entity
+func TestViewerHandler_RelatedDocs_NotFound(t *testing.T) {
+	mock := &MockViewerServicer{
+		RelatedDocsFunc: func(ctx context.Context, key string) (*services.RelatedDocsResponse, error) {
+			return nil, fmt.Errorf("entity not found: %s", key)
+		},
+	}
+	mux := newTestMux(mock)
+
+	rec := makeRequest(http.MethodGet, "/api/v1/viewer/related-docs/E27-F09", mux)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rec.Code)
+	}
 }

@@ -105,6 +105,18 @@ type ViewerEntityDocRepository interface {
 	ListAll(ctx context.Context) ([]*BulkEntityDoc, error)
 }
 
+// ViewerEntityNoteRepository is the minimal note repository interface used by ViewerService.Notes.
+// It is optional — ViewerService degrades gracefully if nil (Notes returns empty slice).
+type ViewerEntityNoteRepository interface {
+	GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityNote, error)
+}
+
+// ViewerEntityDocByEntityRepository is the minimal interface for loading documents for a single entity.
+// It is optional — ViewerService degrades gracefully if nil (RelatedDocs returns empty slice).
+type ViewerEntityDocByEntityRepository interface {
+	ListForEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.Document, error)
+}
+
 // ViewerIdeaRepository is the minimal idea repository interface used by ViewerService.
 // It is optional — ViewerService degrades gracefully if nil (ideas section omitted from Summary).
 type ViewerIdeaRepository interface {
@@ -218,6 +230,40 @@ type HistoryResponse struct {
 	Records    []*models.EntityHistory `json:"records"`
 }
 
+// NoteDTO is a single note item returned by ViewerService.Notes.
+// Only the six fields documented in REQ-F-020 AC-020.3 are exposed;
+// metadata and updated_at are intentionally omitted.
+type NoteDTO struct {
+	ID        int64  `json:"id"`
+	NoteType  string `json:"note_type"`
+	Content   string `json:"content"`
+	CreatedBy string `json:"created_by,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+// NotesResponse is the response type for ViewerService.Notes.
+// Notes is always a non-nil slice (may be empty) to satisfy AC-020.1.
+type NotesResponse struct {
+	EntityType models.EntityType `json:"entity_type"`
+	EntityKey  string            `json:"entity_key"`
+	Notes      []NoteDTO         `json:"notes"`
+}
+
+// RelatedDocDTO is a single related document returned by ViewerService.RelatedDocs.
+type RelatedDocDTO struct {
+	ID       int64  `json:"id"`
+	Title    string `json:"title"`
+	FilePath string `json:"file_path"`
+}
+
+// RelatedDocsResponse is the response type for ViewerService.RelatedDocs.
+// Docs is always a non-nil slice (may be empty) to satisfy AC-021.1.
+type RelatedDocsResponse struct {
+	EntityType models.EntityType `json:"entity_type"`
+	EntityKey  string            `json:"entity_key"`
+	Docs       []RelatedDocDTO   `json:"docs"`
+}
+
 // FileResponse is the response type for ViewerService.File.
 type FileResponse struct {
 	Exists  bool   `json:"exists"`
@@ -248,11 +294,32 @@ type FeatureTaskOptions struct {
 	Offset  int
 }
 
-// ViewerTask decorates models.Task with workflow-derived display metadata.
+// ViewerTask decorates models.Task with workflow-derived display metadata and
+// pre-parsed dependency fields for the client-side dependency block (REQ-F-009).
 type ViewerTask struct {
 	*models.Task
-	StatusColor string `json:"status_color"`
-	StatusPhase string `json:"status_phase"`
+	StatusColor string   `json:"status_color"`
+	StatusPhase string   `json:"status_phase"`
+	DependsOn   []string `json:"depends_on_keys"` // From entity_relationships (tasks this task depends on; same as BlockedBy)
+	BlockedBy   []string `json:"blocked_by_keys"` // From entity_relationships (tasks blocking this task; same as DependsOn)
+	Blocks      []string `json:"blocks_keys"`     // From entity_relationships (tasks this task blocks)
+}
+
+// ViewerTaskRelationship is a lightweight record from the entity_relationships table
+// (task-to-task entries only), with resolved task keys (not IDs) for client-side consumption.
+type ViewerTaskRelationship struct {
+	FromTaskID int64
+	ToTaskID   int64
+	RelType    string // e.g. "depends_on", "blocks"
+	FromKey    string // key of the from-task
+	ToKey      string // key of the to-task
+}
+
+// ViewerTaskRelationshipRepository is the minimal interface for bulk-loading all task
+// relationships with their resolved task keys. It is optional — ViewerService degrades
+// gracefully if nil (BlockedBy and Blocks will be empty slices on every ViewerTask).
+type ViewerTaskRelationshipRepository interface {
+	ListAll(ctx context.Context) ([]*ViewerTaskRelationship, error)
 }
 
 // FeatureTasksResponse is the response type for ViewerService.FeatureTasks.
@@ -334,10 +401,13 @@ type ViewerService struct {
 	bugRepo            ViewerBugRepository
 	changeCardRepo     ViewerChangeCardRepository
 	historyRepo        ViewerEntityHistoryRepository
-	entityDocRepo      ViewerEntityDocRepository      // optional; used by Hierarchy for linked docs
-	ideaRepo           ViewerIdeaRepository           // optional; used by Summary and Hierarchy
-	bugListRepo        ViewerBugListRepository        // optional; used by Hierarchy for bug flat list
-	changeCardListRepo ViewerChangeCardListRepository // optional; used by Hierarchy for change card flat list
+	entityDocRepo      ViewerEntityDocRepository         // optional; used by Hierarchy for linked docs
+	noteRepo           ViewerEntityNoteRepository        // optional; used by Notes endpoint
+	docByEntityRepo    ViewerEntityDocByEntityRepository // optional; used by RelatedDocs endpoint
+	ideaRepo           ViewerIdeaRepository              // optional; used by Summary and Hierarchy
+	bugListRepo        ViewerBugListRepository           // optional; used by Hierarchy for bug flat list
+	changeCardListRepo ViewerChangeCardListRepository    // optional; used by Hierarchy for change card flat list
+	taskRelRepo        ViewerTaskRelationshipRepository  // optional; used by Hierarchy for dependency fields
 	workflowSvc        *workflow.Service
 	statusCalc         *status.CalculationService // optional; reserved for future use
 	projectRoot        string
@@ -385,6 +455,16 @@ func (s *ViewerService) WithEntityDocRepo(r ViewerEntityDocRepository) {
 	s.entityDocRepo = r
 }
 
+// WithNoteRepo wires the optional note repository; safe to skip (Notes returns empty slice when nil).
+func (s *ViewerService) WithNoteRepo(r ViewerEntityNoteRepository) {
+	s.noteRepo = r
+}
+
+// WithDocByEntityRepo wires the optional per-entity document repository; safe to skip (RelatedDocs returns empty slice when nil).
+func (s *ViewerService) WithDocByEntityRepo(r ViewerEntityDocByEntityRepository) {
+	s.docByEntityRepo = r
+}
+
 // WithIdeaRepo wires the optional idea repository used by Summary and Hierarchy.
 // Call after NewViewerService; safe to skip (ideas fields omitted when nil).
 func (s *ViewerService) WithIdeaRepo(r ViewerIdeaRepository) {
@@ -401,6 +481,13 @@ func (s *ViewerService) WithBugListRepo(r ViewerBugListRepository) {
 // Call after NewViewerService; safe to skip (change_cards section omitted when nil).
 func (s *ViewerService) WithChangeCardListRepo(r ViewerChangeCardListRepository) {
 	s.changeCardListRepo = r
+}
+
+// WithTaskRelRepo wires the optional task-relationship repository used by Hierarchy and
+// FeatureTasks to populate the DependsOn, BlockedBy, and Blocks fields on each ViewerTask.
+// Call after NewViewerService; safe to skip — all three fields will be empty slices when nil.
+func (s *ViewerService) WithTaskRelRepo(r ViewerTaskRelationshipRepository) {
+	s.taskRelRepo = r
 }
 
 // Summary returns entity-type counts with per-status color/phase metadata
@@ -669,6 +756,29 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 		}
 	}
 
+	// Bulk-load task relationships for dependency fields (optional — skipped when taskRelRepo is nil).
+	// blockedByKeys[taskID] = slice of keys that block this task (i.e. this task depends_on them).
+	// blocksKeys[taskID]    = slice of keys this task blocks (i.e. they depend_on this task).
+	blockedByKeys := make(map[int64][]string)
+	blocksKeys := make(map[int64][]string)
+	if s.taskRelRepo != nil {
+		allRels, err := s.taskRelRepo.ListAll(ctx)
+		if err == nil {
+			for _, rel := range allRels {
+				switch rel.RelType {
+				case "depends_on":
+					// from_task depends on to_task: from is blocked_by to, to blocks from.
+					blockedByKeys[rel.FromTaskID] = append(blockedByKeys[rel.FromTaskID], rel.ToKey)
+					blocksKeys[rel.ToTaskID] = append(blocksKeys[rel.ToTaskID], rel.FromKey)
+				case "blocks":
+					// from_task blocks to_task: to is blocked_by from, from blocks to.
+					blocksKeys[rel.FromTaskID] = append(blocksKeys[rel.FromTaskID], rel.ToKey)
+					blockedByKeys[rel.ToTaskID] = append(blockedByKeys[rel.ToTaskID], rel.FromKey)
+				}
+			}
+		}
+	}
+
 	result := &HierarchyResponse{
 		ProjectName: projectNameFromRoot(s.projectRoot),
 		Epics:       make([]*HierarchyEpic, 0, len(epics)),
@@ -716,15 +826,19 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 				}
 			}
 
-			// Build ViewerTask slice with status color/phase metadata.
+			// Build ViewerTask slice with status color/phase metadata and dependency fields.
 			viewerTasks := make([]*ViewerTask, 0, len(rawTasks))
 			for _, t := range rawTasks {
 				meta := taskSvc.GetStatusMetadata(string(t.Status))
-				viewerTasks = append(viewerTasks, &ViewerTask{
+				vt := &ViewerTask{
 					Task:        t,
 					StatusColor: colorOrGray(meta.Color),
 					StatusPhase: phaseOrUnknown(meta.Phase),
-				})
+					DependsOn:   emptyStringSlice(blockedByKeys[t.ID]),
+					BlockedBy:   emptyStringSlice(blockedByKeys[t.ID]),
+					Blocks:      emptyStringSlice(blocksKeys[t.ID]),
+				}
+				viewerTasks = append(viewerTasks, vt)
 			}
 
 			fDocs := docsByFeature[f.ID]
@@ -886,6 +1000,100 @@ func (s *ViewerService) History(ctx context.Context, key string) (*HistoryRespon
 		EntityKey:  key,
 		Records:    records,
 	}, nil
+}
+
+// Notes returns the notes for the entity identified by key.
+// The entity type is detected from the key format.
+// Returns a NotesResponse with an empty (non-nil) Notes slice when noteRepo is nil
+// or the entity has no notes — satisfying AC-020.1 and AC-T2.
+func (s *ViewerService) Notes(ctx context.Context, key string) (*NotesResponse, error) {
+	entityType, err := detectEntityType(key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer notes: %w", err)
+	}
+
+	normalizedKey := strings.ToUpper(strings.TrimSpace(key))
+	out := &NotesResponse{
+		EntityType: entityType,
+		EntityKey:  normalizedKey,
+		Notes:      []NoteDTO{},
+	}
+
+	if s.noteRepo == nil {
+		return out, nil
+	}
+
+	entityID, err := s.resolveEntityID(ctx, entityType, key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer notes: %w", err)
+	}
+
+	raw, err := s.noteRepo.GetByEntity(ctx, entityType, entityID)
+	if err != nil {
+		return nil, fmt.Errorf("viewer notes: failed to load notes for %s %s: %w", entityType, key, err)
+	}
+
+	// Repo returns ASC; reverse for DESC order (AC-020.2 / AC-T1).
+	out.Notes = make([]NoteDTO, 0, len(raw))
+	for i := len(raw) - 1; i >= 0; i-- {
+		n := raw[i]
+		createdBy := ""
+		if n.CreatedBy != nil {
+			createdBy = *n.CreatedBy
+		}
+		out.Notes = append(out.Notes, NoteDTO{
+			ID:        n.ID,
+			NoteType:  string(n.NoteType),
+			Content:   n.Content,
+			CreatedBy: createdBy,
+			CreatedAt: n.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	return out, nil
+}
+
+// RelatedDocs returns the related documents for the entity identified by key.
+// The entity type is detected from the key format.
+// Returns a RelatedDocsResponse with an empty (non-nil) Docs slice when
+// docByEntityRepo is nil or the entity has no docs — satisfying AC-021.1 and AC-T3.
+func (s *ViewerService) RelatedDocs(ctx context.Context, key string) (*RelatedDocsResponse, error) {
+	entityType, err := detectEntityType(key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer related-docs: %w", err)
+	}
+
+	normalizedKey := strings.ToUpper(strings.TrimSpace(key))
+	out := &RelatedDocsResponse{
+		EntityType: entityType,
+		EntityKey:  normalizedKey,
+		Docs:       []RelatedDocDTO{},
+	}
+
+	if s.docByEntityRepo == nil {
+		return out, nil
+	}
+
+	entityID, err := s.resolveEntityID(ctx, entityType, key)
+	if err != nil {
+		return nil, fmt.Errorf("viewer related-docs: %w", err)
+	}
+
+	raw, err := s.docByEntityRepo.ListForEntity(ctx, entityType, entityID)
+	if err != nil {
+		return nil, fmt.Errorf("viewer related-docs: failed to load docs for %s %s: %w", entityType, key, err)
+	}
+
+	out.Docs = make([]RelatedDocDTO, 0, len(raw))
+	for _, d := range raw {
+		out.Docs = append(out.Docs, RelatedDocDTO{
+			ID:       d.ID,
+			Title:    d.Title,
+			FilePath: d.FilePath,
+		})
+	}
+
+	return out, nil
 }
 
 // detectEntityType infers the entity type from the key format using the keys package
@@ -1266,6 +1474,27 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 		filtered = filtered[offset:end]
 	}
 
+	// Bulk-load task relationships for dependency fields (optional — skipped when taskRelRepo is nil).
+	// blockedByKeys[taskID] = slice of keys that block this task (i.e. this task depends_on them).
+	// blocksKeys[taskID]    = slice of keys this task blocks (i.e. they depend_on this task).
+	ftBlockedByKeys := make(map[int64][]string)
+	ftBlocksKeys := make(map[int64][]string)
+	if s.taskRelRepo != nil {
+		allRels, err := s.taskRelRepo.ListAll(ctx)
+		if err == nil {
+			for _, rel := range allRels {
+				switch rel.RelType {
+				case "depends_on":
+					ftBlockedByKeys[rel.FromTaskID] = append(ftBlockedByKeys[rel.FromTaskID], rel.ToKey)
+					ftBlocksKeys[rel.ToTaskID] = append(ftBlocksKeys[rel.ToTaskID], rel.FromKey)
+				case "blocks":
+					ftBlocksKeys[rel.FromTaskID] = append(ftBlocksKeys[rel.FromTaskID], rel.ToKey)
+					ftBlockedByKeys[rel.ToTaskID] = append(ftBlockedByKeys[rel.ToTaskID], rel.FromKey)
+				}
+			}
+		}
+	}
+
 	taskSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
 	viewerTasks := make([]*ViewerTask, 0, len(filtered))
 	for _, t := range filtered {
@@ -1274,6 +1503,9 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 			Task:        t,
 			StatusColor: colorOrGray(meta.Color),
 			StatusPhase: phaseOrUnknown(meta.Phase),
+			DependsOn:   emptyStringSlice(ftBlockedByKeys[t.ID]),
+			BlockedBy:   emptyStringSlice(ftBlockedByKeys[t.ID]),
+			Blocks:      emptyStringSlice(ftBlocksKeys[t.ID]),
 		})
 	}
 
@@ -1471,4 +1703,13 @@ func (s *ViewerService) FolderFiles(ctx context.Context, relPath string) (*Folde
 	}
 
 	return result, nil
+}
+
+// emptyStringSlice returns s when non-nil, otherwise returns a new empty (non-nil) slice.
+// This ensures JSON serialisation produces [] rather than null for optional slice fields.
+func emptyStringSlice(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
