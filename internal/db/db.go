@@ -435,7 +435,7 @@ func ApplySchemaAndMigrations(db *sql.DB) error {
 
 // CurrentSchemaVersion is incremented whenever schema or migrations change.
 // Bump this when adding new tables, columns, indexes, or migrations.
-const CurrentSchemaVersion = 12
+const CurrentSchemaVersion = 13
 
 // ApplySchemaIfNeeded checks the schema version and only applies schema/migrations
 // if the database is not at the current version. This avoids ~2s of DDL overhead
@@ -818,6 +818,11 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to drop legacy relationship tables: %w", err)
 	}
 
+	// Create viewer_task_relationships view for N+1-free task relationship loading (E07-F39)
+	if err := migrateViewerTaskRelationshipsView(db); err != nil {
+		return fmt.Errorf("failed to create viewer_task_relationships view: %w", err)
+	}
+
 	return nil
 }
 
@@ -836,6 +841,55 @@ func migrateDropLegacyRelationshipTables(db *sql.DB) error {
 		if _, err := db.Exec(ddl); err != nil {
 			return fmt.Errorf("failed to execute %q: %w", ddl, err)
 		}
+	}
+	return nil
+}
+
+// migrateViewerTaskRelationshipsView creates the viewer_task_relationships view
+// that pre-resolves entity relationship data for each task in a single SQL query,
+// eliminating the N+1 per-task DB round-trips in the viewer Hierarchy and FeatureTasks
+// endpoints. The view embeds relationship JSON using correlated subqueries inside
+// json_group_array — one query returns all tasks with relationship data already resolved.
+func migrateViewerTaskRelationshipsView(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE VIEW IF NOT EXISTS viewer_task_relationships AS
+		SELECT
+		  t.id AS task_id,
+		  (SELECT COALESCE(json_group_array(json_object(
+		    'direction',         CASE
+		                           WHEN er.from_entity_type = 'task' AND er.from_entity_id = t.id
+		                           THEN 'outgoing' ELSE 'incoming'
+		                         END,
+		    'relationship_type', er.relationship_type,
+		    'entity_type',       CASE
+		                           WHEN er.from_entity_type = 'task' AND er.from_entity_id = t.id
+		                           THEN er.to_entity_type ELSE er.from_entity_type
+		                         END,
+		    'entity_key',        CASE
+		                           WHEN er.from_entity_type = 'task' AND er.from_entity_id = t.id THEN
+		                             COALESCE(
+		                               (SELECT key FROM tasks    WHERE id = er.to_entity_id   AND er.to_entity_type   = 'task'),
+		                               (SELECT key FROM features WHERE id = er.to_entity_id   AND er.to_entity_type   = 'feature'),
+		                               (SELECT key FROM epics    WHERE id = er.to_entity_id   AND er.to_entity_type   = 'epic'),
+		                               ''
+		                             )
+		                           ELSE
+		                             COALESCE(
+		                               (SELECT key FROM tasks    WHERE id = er.from_entity_id AND er.from_entity_type = 'task'),
+		                               (SELECT key FROM features WHERE id = er.from_entity_id AND er.from_entity_type = 'feature'),
+		                               (SELECT key FROM epics    WHERE id = er.from_entity_id AND er.from_entity_type = 'epic'),
+		                               ''
+		                             )
+		                         END
+		  )), '[]')
+		  FROM entity_relationships er
+		  WHERE (er.from_entity_type = 'task' AND er.from_entity_id = t.id)
+		     OR (er.to_entity_type   = 'task' AND er.to_entity_id   = t.id)
+		  ) AS relationships_json
+		FROM tasks t
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create viewer_task_relationships view: %w", err)
 	}
 	return nil
 }

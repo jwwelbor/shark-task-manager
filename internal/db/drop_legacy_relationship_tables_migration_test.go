@@ -123,8 +123,8 @@ func TestMigrateDropLegacyRelationshipTables_Idempotent(t *testing.T) {
 }
 
 // TestMigrateDropLegacyRelationshipTables_SchemaVersionBumped validates AC-8 (TC-8.1):
-// CurrentSchemaVersion must be 12 after this feature is merged.
+// CurrentSchemaVersion must be 13 after the viewer_task_relationships view migration is added.
 func TestMigrateDropLegacyRelationshipTables_SchemaVersionBumped(t *testing.T) {
-	assert.Equal(t, 12, CurrentSchemaVersion,
-		"CurrentSchemaVersion must be 12 after E07-F39 migration is added")
+	assert.Equal(t, 13, CurrentSchemaVersion,
+		"CurrentSchemaVersion must be 13 after viewer_task_relationships view migration is added")
 }

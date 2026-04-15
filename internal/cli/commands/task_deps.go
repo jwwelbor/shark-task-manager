@@ -29,30 +29,21 @@ type TaskRepositoryInterfaceWithID interface {
 // RelationshipRepositoryInterface defines the interface for relationship repository operations.
 // This is now implemented by entityRelRepoAdapter which wraps EntityRelationshipService.
 type RelationshipRepositoryInterface interface {
-	GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
-	GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error)
+	GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.EntityRelationship, error)
+	GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.EntityRelationship, error)
 }
 
-// entityRelRepoAdapter adapts EntityRelationshipService to RelationshipRepositoryInterface
-// for use by the tree-building code, which expects TaskRelationship results.
+// entityRelRepoAdapter adapts EntityRelationshipService to RelationshipRepositoryInterface.
 type entityRelRepoAdapter struct {
 	svc *services.EntityRelationshipService
 }
 
-func (a *entityRelRepoAdapter) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-	rels, err := a.svc.GetOutgoing(ctx, models.EntityTypeTask, taskID, toEntityRelTypes(relTypes))
-	if err != nil {
-		return nil, err
-	}
-	return entityRelsToTaskRels(rels), nil
+func (a *entityRelRepoAdapter) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.EntityRelationship, error) {
+	return a.svc.GetOutgoing(ctx, models.EntityTypeTask, taskID, toEntityRelTypes(relTypes))
 }
 
-func (a *entityRelRepoAdapter) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-	rels, err := a.svc.GetIncoming(ctx, models.EntityTypeTask, taskID, toEntityRelTypes(relTypes))
-	if err != nil {
-		return nil, err
-	}
-	return entityRelsToTaskRels(rels), nil
+func (a *entityRelRepoAdapter) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.EntityRelationship, error) {
+	return a.svc.GetIncoming(ctx, models.EntityTypeTask, taskID, toEntityRelTypes(relTypes))
 }
 
 // toEntityRelTypes converts a string slice to EntityRelationshipType slice.
@@ -60,23 +51,6 @@ func toEntityRelTypes(relTypes []string) []models.EntityRelationshipType {
 	result := make([]models.EntityRelationshipType, len(relTypes))
 	for i, rt := range relTypes {
 		result[i] = models.EntityRelationshipType(rt)
-	}
-	return result
-}
-
-// entityRelsToTaskRels converts EntityRelationship slice to TaskRelationship slice
-// for task-to-task relationships only.
-func entityRelsToTaskRels(rels []*models.EntityRelationship) []*models.TaskRelationship {
-	result := make([]*models.TaskRelationship, 0, len(rels))
-	for _, rel := range rels {
-		if rel.FromEntityType == models.EntityTypeTask && rel.ToEntityType == models.EntityTypeTask {
-			result = append(result, &models.TaskRelationship{
-				ID:               rel.ID,
-				FromTaskID:       rel.FromEntityID,
-				ToTaskID:         rel.ToEntityID,
-				RelationshipType: models.RelationshipType(rel.RelationshipType),
-			})
-		}
 	}
 	return result
 }
@@ -431,7 +405,7 @@ func buildDependencyTree(
 
 	// Build subtrees for each dependency
 	for _, rel := range deps {
-		depTask, err := taskRepo.GetByID(ctx, rel.ToTaskID)
+		depTask, err := taskRepo.GetByID(ctx, rel.ToEntityID)
 		if err != nil {
 			continue // Skip if task not found
 		}
@@ -495,7 +469,7 @@ func buildDependentsTree(
 
 	// Build subtrees for each dependent
 	for _, rel := range dependents {
-		depTask, err := taskRepo.GetByID(ctx, rel.FromTaskID)
+		depTask, err := taskRepo.GetByID(ctx, rel.FromEntityID)
 		if err != nil {
 			continue // Skip if task not found
 		}

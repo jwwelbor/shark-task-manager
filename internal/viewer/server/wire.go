@@ -9,6 +9,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository/bug"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/changecard"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entitydoc"
+	"github.com/jwwelbor/shark-task-manager/internal/repository/entityrel"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/idea"
 	repnote "github.com/jwwelbor/shark-task-manager/internal/repository/note"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
@@ -288,9 +289,11 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 		panic(fmt.Sprintf("failed to create ResumeService: %v", err))
 	}
 
-	// Step 5: Construct ViewerService for the read-only dashboard API.
-	entityRelRepo := repository.NewEntityRelationshipRepository(db)
+	// Step 5: Construct EntityRelationshipService for use by ViewerService.
+	entityRelRepo := entityrel.NewEntityRelationshipRepository(db)
 	entityRelSvc := services.NewEntityRelationshipService(entityRelRepo, taskRepo)
+
+	// Step 5b: Construct ViewerService for the read-only dashboard API.
 	viewerService := services.NewViewerService(
 		epicRepo,
 		featureRepo,

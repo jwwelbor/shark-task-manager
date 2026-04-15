@@ -54,9 +54,11 @@ func (m *mockViewerFeatureRepo) GetByKey(ctx context.Context, key string) (*mode
 }
 
 type mockViewerTaskRepo struct {
-	ListFunc          func(ctx context.Context) ([]*models.Task, error)
-	ListByFeatureFunc func(ctx context.Context, featureID int64) ([]*models.Task, error)
-	GetByKeyFunc      func(ctx context.Context, key string) (*models.Task, error)
+	ListFunc                                 func(ctx context.Context) ([]*models.Task, error)
+	ListByFeatureFunc                        func(ctx context.Context, featureID int64) ([]*models.Task, error)
+	GetByKeyFunc                             func(ctx context.Context, key string) (*models.Task, error)
+	ListWithViewerRelationshipsFunc          func(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error)
+	ListByFeatureWithViewerRelationshipsFunc func(ctx context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error)
 }
 
 func (m *mockViewerTaskRepo) List(ctx context.Context) ([]*models.Task, error) {
@@ -78,6 +80,44 @@ func (m *mockViewerTaskRepo) GetByKey(ctx context.Context, key string) (*models.
 		return m.GetByKeyFunc(ctx, key)
 	}
 	return nil, nil
+}
+
+func (m *mockViewerTaskRepo) ListWithViewerRelationships(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+	if m.ListWithViewerRelationshipsFunc != nil {
+		return m.ListWithViewerRelationshipsFunc(ctx)
+	}
+	// Default: wrap results from ListFunc if available
+	if m.ListFunc != nil {
+		tasks, err := m.ListFunc(ctx)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]*models.ViewerTaskWithRelationships, len(tasks))
+		for i, t := range tasks {
+			result[i] = &models.ViewerTaskWithRelationships{Task: t, RelationshipsJSON: "[]"}
+		}
+		return result, nil
+	}
+	return []*models.ViewerTaskWithRelationships{}, nil
+}
+
+func (m *mockViewerTaskRepo) ListByFeatureWithViewerRelationships(ctx context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error) {
+	if m.ListByFeatureWithViewerRelationshipsFunc != nil {
+		return m.ListByFeatureWithViewerRelationshipsFunc(ctx, featureID)
+	}
+	// Default: wrap results from ListByFeatureFunc if available
+	if m.ListByFeatureFunc != nil {
+		tasks, err := m.ListByFeatureFunc(ctx, featureID)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]*models.ViewerTaskWithRelationships, len(tasks))
+		for i, t := range tasks {
+			result[i] = &models.ViewerTaskWithRelationships{Task: t, RelationshipsJSON: "[]"}
+		}
+		return result, nil
+	}
+	return []*models.ViewerTaskWithRelationships{}, nil
 }
 
 type mockViewerBugRepo struct {
@@ -288,10 +328,11 @@ func TestNewViewerService_PanicsOnNilWorkflow(t *testing.T) {
 	)
 }
 
-func TestNewViewerService_PanicsOnNilEntityRelSvc(t *testing.T) {
+func TestNewViewerService_NilEntityRelSvcIsAccepted(t *testing.T) {
+	// entityRelSvc is now optional; nil must not panic.
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for nil entityRelSvc")
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic for nil entityRelSvc: %v", r)
 		}
 	}()
 	_ = NewViewerService(&mockViewerEpicRepo{},
@@ -303,15 +344,16 @@ func TestNewViewerService_PanicsOnNilEntityRelSvc(t *testing.T) {
 		testWorkflowSvc(t),
 		nil,
 		t.TempDir(),
-		nil, // entityRelSvc — must panic
-		NewEntityRegistry(),
+		nil, // entityRelSvc — optional, must not panic
+		nil,
 	)
 }
 
-func TestNewViewerService_PanicsOnNilEntityRegistry(t *testing.T) {
+func TestNewViewerService_NilEntityRegistryIsAccepted(t *testing.T) {
+	// entityRegistry is now optional; nil must not panic.
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for nil entityRegistry")
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic for nil entityRegistry: %v", r)
 		}
 	}()
 	_ = NewViewerService(&mockViewerEpicRepo{},
@@ -323,8 +365,8 @@ func TestNewViewerService_PanicsOnNilEntityRegistry(t *testing.T) {
 		testWorkflowSvc(t),
 		nil,
 		t.TempDir(),
-		buildNoopEntityRelSvc(),
-		nil, // entityRegistry — must panic
+		nil,
+		nil, // entityRegistry — optional, must not panic
 	)
 }
 
@@ -2121,32 +2163,6 @@ func containsStr(s, substr string) bool {
 
 // ----- TC-F039: ViewerTask.Relationships via EntityRelationshipService -----
 
-// controlledEntityRelRepo is an EntityRelationshipRepository that returns a
-// configurable set of relationships from GetByEntity.
-type controlledEntityRelRepo struct {
-	GetByEntityFunc func(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityRelationship, error)
-}
-
-func (r *controlledEntityRelRepo) Create(_ context.Context, _ *models.EntityRelationship) error {
-	return nil
-}
-func (r *controlledEntityRelRepo) Delete(_ context.Context, _ int64) error { return nil }
-func (r *controlledEntityRelRepo) DeleteByEntitiesAndType(_ context.Context, _ models.EntityType, _ int64, _ models.EntityType, _ int64, _ models.EntityRelationshipType) error {
-	return nil
-}
-func (r *controlledEntityRelRepo) GetByEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityRelationship, error) {
-	if r.GetByEntityFunc != nil {
-		return r.GetByEntityFunc(ctx, entityType, entityID)
-	}
-	return []*models.EntityRelationship{}, nil
-}
-func (r *controlledEntityRelRepo) GetOutgoing(_ context.Context, _ models.EntityType, _ int64, _ []models.EntityRelationshipType) ([]*models.EntityRelationship, error) {
-	return []*models.EntityRelationship{}, nil
-}
-func (r *controlledEntityRelRepo) GetIncoming(_ context.Context, _ models.EntityType, _ int64, _ []models.EntityRelationshipType) ([]*models.EntityRelationship, error) {
-	return []*models.EntityRelationship{}, nil
-}
-
 // TestViewerTask_RelationshipsFieldExists verifies that ViewerTask exposes a
 // Relationships []ViewerRelatedEntity field (compile-time AC).
 func TestViewerTask_RelationshipsFieldExists(t *testing.T) {
@@ -2155,10 +2171,16 @@ func TestViewerTask_RelationshipsFieldExists(t *testing.T) {
 }
 
 // TestViewerService_Hierarchy_RelationshipsEmptyWhenNone verifies that a task
-// with no relationships in the store gets an empty (non-nil) Relationships slice.
+// with no relationships returns an empty (non-nil) Relationships slice.
 func TestViewerService_Hierarchy_RelationshipsEmptyWhenNone(t *testing.T) {
-	entityRelSvc := NewEntityRelationshipService(&noopEntityRelRepo{}, nil)
-	svc := buildViewerServiceWithRelSvc(t, entityRelSvc)
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
 
 	resp, err := svc.Hierarchy(context.Background())
 	if err != nil {
@@ -2178,49 +2200,14 @@ func TestViewerService_Hierarchy_RelationshipsEmptyWhenNone(t *testing.T) {
 	}
 }
 
-// TestViewerService_Hierarchy_RelationshipsPopulated verifies that when the
-// EntityRelationshipService returns a relationship for a task, it is surfaced on
-// the ViewerTask.Relationships slice with correct Direction and RelationshipType.
+// TestViewerService_Hierarchy_RelationshipsPopulated verifies that when the task
+// repository returns relationship JSON, it is surfaced on ViewerTask.Relationships.
 func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 	const taskID = int64(7)
-	const relatedTaskID = int64(99)
 	const relatedTaskKey = "E01-F01-002"
 
-	// When asked for relationships of taskID, return one outgoing depends_on edge.
-	relRepo := &controlledEntityRelRepo{
-		GetByEntityFunc: func(_ context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityRelationship, error) {
-			if entityType == models.EntityTypeTask && entityID == taskID {
-				return []*models.EntityRelationship{
-					{
-						ID:               1,
-						FromEntityType:   models.EntityTypeTask,
-						FromEntityID:     taskID,
-						ToEntityType:     models.EntityTypeTask,
-						ToEntityID:       relatedTaskID,
-						RelationshipType: models.EntityRelDependsOn,
-					},
-				}, nil
-			}
-			return []*models.EntityRelationship{}, nil
-		},
-	}
-
-	// The EntityRegistry needs a task repository that can resolve relatedTaskID.
-	relatedTask := &models.Task{BaseEntity: models.BaseEntity{ID: relatedTaskID, Key: relatedTaskKey}}
-	noopRepo := NewNoopEntityRepository()
-	_ = noopRepo // compile guard
-
-	registry := NewEntityRegistry()
-	registry.Register(models.EntityTypeTask, &stubbedEntityRepo{
-		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
-			if id == relatedTaskID {
-				return relatedTask, nil
-			}
-			return nil, fmt.Errorf("not found")
-		},
-	})
-
-	entityRelSvc := NewEntityRelationshipService(relRepo, nil)
+	// The view-based approach: task repo returns pre-resolved relationship JSON.
+	relsJSON := `[{"direction":"outgoing","relationship_type":"depends_on","entity_type":"task","entity_key":"E01-F01-002"}]`
 
 	epicRepo := &mockViewerEpicRepo{
 		ListFunc: func(ctx context.Context, _ *models.EpicStatus) ([]*models.Epic, error) {
@@ -2237,9 +2224,12 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 		},
 	}
 	taskRepo := &mockViewerTaskRepo{
-		ListFunc: func(ctx context.Context) ([]*models.Task, error) {
-			return []*models.Task{
-				{BaseEntity: models.BaseEntity{ID: taskID, Key: "E01-F01-001"}, FeatureID: 10, Status: "todo"},
+		ListWithViewerRelationshipsFunc: func(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+			return []*models.ViewerTaskWithRelationships{
+				{
+					Task:              &models.Task{BaseEntity: models.BaseEntity{ID: taskID, Key: "E01-F01-001"}, FeatureID: 10, Status: "todo"},
+					RelationshipsJSON: relsJSON,
+				},
 			}, nil
 		},
 	}
@@ -2254,8 +2244,8 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 		testWorkflowSvc(t),
 		nil,
 		t.TempDir(),
-		entityRelSvc,
-		registry,
+		nil,
+		nil,
 	)
 
 	resp, err := svc.Hierarchy(context.Background())
@@ -2287,42 +2277,13 @@ func TestViewerService_Hierarchy_RelationshipsPopulated(t *testing.T) {
 }
 
 // TestViewerService_FeatureTasks_RelationshipsPopulated verifies that FeatureTasks
-// also surfaces Relationships from the EntityRelationshipService.
+// surfaces Relationships from the pre-resolved view JSON.
 func TestViewerService_FeatureTasks_RelationshipsPopulated(t *testing.T) {
 	const taskID = int64(5)
-	const relatedTaskID = int64(6)
 	const relatedTaskKey = "E01-F01-002"
 
-	relRepo := &controlledEntityRelRepo{
-		GetByEntityFunc: func(_ context.Context, entityType models.EntityType, entityID int64) ([]*models.EntityRelationship, error) {
-			if entityType == models.EntityTypeTask && entityID == taskID {
-				return []*models.EntityRelationship{
-					{
-						ID:               2,
-						FromEntityType:   models.EntityTypeTask,
-						FromEntityID:     relatedTaskID, // incoming: this task is the target
-						ToEntityType:     models.EntityTypeTask,
-						ToEntityID:       taskID,
-						RelationshipType: models.EntityRelBlocks,
-					},
-				}, nil
-			}
-			return []*models.EntityRelationship{}, nil
-		},
-	}
-
-	relatedTask := &models.Task{BaseEntity: models.BaseEntity{ID: relatedTaskID, Key: relatedTaskKey}}
-	registry := NewEntityRegistry()
-	registry.Register(models.EntityTypeTask, &stubbedEntityRepo{
-		getByIDFunc: func(_ context.Context, id int64) (models.Entity, error) {
-			if id == relatedTaskID {
-				return relatedTask, nil
-			}
-			return nil, fmt.Errorf("not found")
-		},
-	})
-
-	entityRelSvc := NewEntityRelationshipService(relRepo, nil)
+	// The view-based approach: task repo returns pre-resolved relationship JSON.
+	relsJSON := `[{"direction":"incoming","relationship_type":"blocks","entity_type":"task","entity_key":"E01-F01-002"}]`
 
 	svc := NewViewerService(
 		&mockViewerEpicRepo{},
@@ -2332,9 +2293,12 @@ func TestViewerService_FeatureTasks_RelationshipsPopulated(t *testing.T) {
 			},
 		},
 		&mockViewerTaskRepo{
-			ListByFeatureFunc: func(_ context.Context, featureID int64) ([]*models.Task, error) {
-				return []*models.Task{
-					{BaseEntity: models.BaseEntity{ID: taskID, Key: "E01-F01-001"}, FeatureID: 20, Status: "todo"},
+			ListByFeatureWithViewerRelationshipsFunc: func(_ context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error) {
+				return []*models.ViewerTaskWithRelationships{
+					{
+						Task:              &models.Task{BaseEntity: models.BaseEntity{ID: taskID, Key: "E01-F01-001"}, FeatureID: 20, Status: "todo"},
+						RelationshipsJSON: relsJSON,
+					},
 				}, nil
 			},
 		},
@@ -2344,8 +2308,8 @@ func TestViewerService_FeatureTasks_RelationshipsPopulated(t *testing.T) {
 		testWorkflowSvc(t),
 		nil,
 		t.TempDir(),
-		entityRelSvc,
-		registry,
+		nil,
+		nil,
 	)
 
 	resp, err := svc.FeatureTasks(context.Background(), "E01-F01", FeatureTaskOptions{})
@@ -2371,48 +2335,6 @@ func TestViewerService_FeatureTasks_RelationshipsPopulated(t *testing.T) {
 	if rel.EntityKey != relatedTaskKey {
 		t.Errorf("expected entity_key=%q, got %q", relatedTaskKey, rel.EntityKey)
 	}
-}
-
-// buildViewerServiceWithRelSvc is a test helper that creates a ViewerService
-// with mostly empty mocks but a custom EntityRelationshipService.
-func buildViewerServiceWithRelSvc(t *testing.T, entityRelSvc *EntityRelationshipService) *ViewerService {
-	t.Helper()
-	return NewViewerService(
-		&mockViewerEpicRepo{},
-		&mockViewerFeatureRepo{},
-		&mockViewerTaskRepo{},
-		&mockViewerBugRepo{},
-		&mockViewerChangeCardRepo{},
-		&mockViewerHistoryRepo{},
-		testWorkflowSvc(t),
-		nil,
-		t.TempDir(),
-		entityRelSvc,
-		NewEntityRegistry(),
-	)
-}
-
-// stubbedEntityRepo implements EntityRepository with configurable GetByID behaviour.
-type stubbedEntityRepo struct {
-	getByIDFunc func(ctx context.Context, id int64) (models.Entity, error)
-}
-
-func (r *stubbedEntityRepo) GetByKey(_ context.Context, _ string) (models.Entity, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-func (r *stubbedEntityRepo) GetByID(ctx context.Context, id int64) (models.Entity, error) {
-	if r.getByIDFunc != nil {
-		return r.getByIDFunc(ctx, id)
-	}
-	return nil, fmt.Errorf("GetByID not implemented in stub")
-}
-func (r *stubbedEntityRepo) UpdateStatus(_ context.Context, _ int64, _ string) error { return nil }
-func (r *stubbedEntityRepo) Update(_ context.Context, _ models.Entity) error         { return nil }
-func (r *stubbedEntityRepo) GetContextData(_ context.Context, _ int64) (*string, error) {
-	return nil, nil
-}
-func (r *stubbedEntityRepo) UpdateContextData(_ context.Context, _ int64, _ *string) error {
-	return nil
 }
 
 // ----- mock types for Notes / RelatedDocs -----
