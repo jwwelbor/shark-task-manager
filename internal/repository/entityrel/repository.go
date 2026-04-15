@@ -132,41 +132,25 @@ func (r *EntityRelationshipRepository) GetOutgoing(
 	entityID int64,
 	relTypes []models.EntityRelationshipType,
 ) ([]*models.EntityRelationship, error) {
-	if len(relTypes) == 0 {
-		rows, err := r.db.QueryContext(ctx,
-			`SELECT id, from_entity_type, from_entity_id,
-			        to_entity_type, to_entity_id, relationship_type, created_at
-			 FROM entity_relationships
-			 WHERE from_entity_type = ? AND from_entity_id = ?
-			 ORDER BY created_at ASC`,
-			entityType, entityID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query outgoing relationships: %w", err)
+	args := []interface{}{entityType, entityID}
+	filterClause := ""
+	if len(relTypes) > 0 {
+		placeholders := make([]string, len(relTypes))
+		for i, rt := range relTypes {
+			placeholders[i] = "?"
+			args = append(args, rt)
 		}
-		defer rows.Close()
-		return r.scanRelationships(rows)
+		filterClause = fmt.Sprintf("AND relationship_type IN (%s)", strings.Join(placeholders, ","))
 	}
-
-	placeholders := make([]string, len(relTypes))
-	args := make([]interface{}, 0, 2+len(relTypes))
-	args = append(args, entityType, entityID)
-	for i, rt := range relTypes {
-		placeholders[i] = "?"
-		args = append(args, rt)
-	}
-
 	query := fmt.Sprintf(`
 		SELECT id, from_entity_type, from_entity_id,
 		       to_entity_type, to_entity_id, relationship_type, created_at
 		FROM entity_relationships
-		WHERE from_entity_type = ? AND from_entity_id = ?
-		  AND relationship_type IN (%s)
-		ORDER BY created_at ASC
-	`, strings.Join(placeholders, ","))
-
+		WHERE from_entity_type = ? AND from_entity_id = ? %s
+		ORDER BY created_at ASC`, filterClause)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query outgoing relationships by type: %w", err)
+		return nil, fmt.Errorf("failed to query outgoing relationships: %w", err)
 	}
 	defer rows.Close()
 	return r.scanRelationships(rows)
@@ -179,41 +163,25 @@ func (r *EntityRelationshipRepository) GetIncoming(
 	entityID int64,
 	relTypes []models.EntityRelationshipType,
 ) ([]*models.EntityRelationship, error) {
-	if len(relTypes) == 0 {
-		rows, err := r.db.QueryContext(ctx,
-			`SELECT id, from_entity_type, from_entity_id,
-			        to_entity_type, to_entity_id, relationship_type, created_at
-			 FROM entity_relationships
-			 WHERE to_entity_type = ? AND to_entity_id = ?
-			 ORDER BY created_at ASC`,
-			entityType, entityID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query incoming relationships: %w", err)
+	args := []interface{}{entityType, entityID}
+	filterClause := ""
+	if len(relTypes) > 0 {
+		placeholders := make([]string, len(relTypes))
+		for i, rt := range relTypes {
+			placeholders[i] = "?"
+			args = append(args, rt)
 		}
-		defer rows.Close()
-		return r.scanRelationships(rows)
+		filterClause = fmt.Sprintf("AND relationship_type IN (%s)", strings.Join(placeholders, ","))
 	}
-
-	placeholders := make([]string, len(relTypes))
-	args := make([]interface{}, 0, 2+len(relTypes))
-	args = append(args, entityType, entityID)
-	for i, rt := range relTypes {
-		placeholders[i] = "?"
-		args = append(args, rt)
-	}
-
 	query := fmt.Sprintf(`
 		SELECT id, from_entity_type, from_entity_id,
 		       to_entity_type, to_entity_id, relationship_type, created_at
 		FROM entity_relationships
-		WHERE to_entity_type = ? AND to_entity_id = ?
-		  AND relationship_type IN (%s)
-		ORDER BY created_at ASC
-	`, strings.Join(placeholders, ","))
-
+		WHERE to_entity_type = ? AND to_entity_id = ? %s
+		ORDER BY created_at ASC`, filterClause)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query incoming relationships by type: %w", err)
+		return nil, fmt.Errorf("failed to query incoming relationships: %w", err)
 	}
 	defer rows.Close()
 	return r.scanRelationships(rows)

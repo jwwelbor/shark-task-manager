@@ -203,7 +203,7 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	workflowSvc := workflow.NewService(projectRoot)
 
 	// Step 2: Construct repositories (data access layer)
-	taskRepo := repository.NewTaskRepositoryWithWorkflow(db, workflowSvc.GetWorkflow())
+	taskRepo := repository.NewTaskRepository(db)
 	featureRepo := repository.NewFeatureRepository(db)
 	epicRepo := repository.NewEpicRepository(db)
 	noteRepo := repository.NewEntityNoteRepository(db)
@@ -317,7 +317,6 @@ func WireServices(db *repository.DB, projectRoot string) *ServiceContainer {
 	// Step 6: Construct EditService for the file-write endpoint.
 	editService := services.NewEditService(projectRoot)
 
-	_ = historyRepo // available for future wiring
 	return &ServiceContainer{
 		TaskService:       taskService,
 		FeatureService:    featureService,

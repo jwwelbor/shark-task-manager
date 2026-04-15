@@ -341,13 +341,13 @@ func getStatusIcon(status string) string {
 // getRelationshipLabel returns a human-readable label for relationship type
 func getRelationshipLabel(relType, direction string) string {
 	labels := map[string]string{
-		"depends_on":   "Dependencies",
-		"blocks":       "Blocks",
-		"related_to":   "Related Tasks",
-		"follows":      "Follows",
-		"spawned_from": "Spawned From",
-		"duplicates":   "Duplicates",
-		"references":   "References",
+		models.RelDependsOn:   "Dependencies",
+		models.RelBlocks:      "Blocks",
+		models.RelRelatedTo:   "Related Tasks",
+		models.RelFollows:     "Follows",
+		models.RelSpawnedFrom: "Spawned From",
+		models.RelDuplicates:  "Duplicates",
+		models.RelReferences:  "References",
 	}
 
 	label, ok := labels[relType]
@@ -597,11 +597,17 @@ func outputDepsTreeJSON(
 		"task_key": task.Key, "task_title": task.Title, "task_status": string(task.Status),
 	}
 	if showUpstream {
-		upstreamTree, _ := buildDependencyTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
+		upstreamTree, err := buildDependencyTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
+		if err != nil {
+			return fmt.Errorf("failed to build upstream tree: %w", err)
+		}
 		jsonOutput["upstream"] = upstreamTree
 	}
 	if showDownstream {
-		downstreamTree, _ := buildDependentsTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
+		downstreamTree, err := buildDependentsTree(ctx, taskRepo, relRepo, task, make(map[int64]bool), 0, maxDepth)
+		if err != nil {
+			return fmt.Errorf("failed to build downstream tree: %w", err)
+		}
 		jsonOutput["downstream"] = downstreamTree
 	}
 	return cli.OutputJSON(jsonOutput)
