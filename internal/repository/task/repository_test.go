@@ -477,6 +477,9 @@ func TestTaskRepository_UpdateStatusForced_StoresRejectionReason(t *testing.T) {
 	// Seed test data
 	_, featureID := test.SeedTestData()
 
+	// Clean up any leftover tasks from previous runs before creating
+	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key LIKE 'T-E99-F99-%'")
+
 	// Create task in ready_for_review status with unique key
 	timestamp := time.Now().UnixNano() % 1000
 	taskKey := fmt.Sprintf("T-E99-F99-%03d", timestamp)
