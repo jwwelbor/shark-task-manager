@@ -133,6 +133,18 @@ var NewEntityRelationshipRepository = entityrel.NewEntityRelationshipRepository
 // NewEntityRelTaskKeyAdapter creates a new EntityRelTaskKeyAdapter.
 var NewEntityRelTaskKeyAdapter = entityrel.NewEntityRelTaskKeyAdapter
 
+// EntityRelFeatureKeyAdapter is an alias for entityrel.EntityRelFeatureKeyAdapter.
+type EntityRelFeatureKeyAdapter = entityrel.EntityRelFeatureKeyAdapter
+
+// NewEntityRelFeatureKeyAdapter creates a new EntityRelFeatureKeyAdapter.
+var NewEntityRelFeatureKeyAdapter = entityrel.NewEntityRelFeatureKeyAdapter
+
+// EntityRelEpicKeyAdapter is an alias for entityrel.EntityRelEpicKeyAdapter.
+type EntityRelEpicKeyAdapter = entityrel.EntityRelEpicKeyAdapter
+
+// NewEntityRelEpicKeyAdapter creates a new EntityRelEpicKeyAdapter.
+var NewEntityRelEpicKeyAdapter = entityrel.NewEntityRelEpicKeyAdapter
+
 // --- Search ---
 
 // SearchRepository is an alias for search.SearchRepository.
@@ -180,14 +192,8 @@ type EpicDisplayDataRaw = epicpkg.EpicDisplayDataRaw
 // FeatureProgressData is an alias for epicpkg.FeatureProgressData.
 type FeatureProgressData = epicpkg.FeatureProgressData
 
-// EpicRelationshipRepository is an alias for epicpkg.EpicRelationshipRepository.
-type EpicRelationshipRepository = epicpkg.EpicRelationshipRepository
-
 // NewEpicRepository creates a new EpicRepository.
 var NewEpicRepository = epicpkg.NewEpicRepository
-
-// NewEpicRelationshipRepository creates a new EpicRelationshipRepository.
-var NewEpicRelationshipRepository = epicpkg.NewEpicRelationshipRepository
 
 // --- Feature ---
 
@@ -197,14 +203,8 @@ type FeatureRepository = featurepkg.FeatureRepository
 // FeatureDisplayDataRaw is an alias for featurepkg.FeatureDisplayDataRaw.
 type FeatureDisplayDataRaw = featurepkg.FeatureDisplayDataRaw
 
-// FeatureRelationshipRepository is an alias for featurepkg.FeatureRelationshipRepository.
-type FeatureRelationshipRepository = featurepkg.FeatureRelationshipRepository
-
 // NewFeatureRepository creates a new FeatureRepository.
 var NewFeatureRepository = featurepkg.NewFeatureRepository
-
-// NewFeatureRelationshipRepository creates a new FeatureRelationshipRepository.
-var NewFeatureRelationshipRepository = featurepkg.NewFeatureRelationshipRepository
 
 // --- Task ---
 
@@ -216,9 +216,6 @@ type TaskRepository = taskpkg.TaskRepository
 
 // TaskDisplayDataRaw is an alias for taskpkg.TaskDisplayDataRaw.
 type TaskDisplayDataRaw = taskpkg.TaskDisplayDataRaw
-
-// TaskRelationshipRepository is an alias for taskpkg.TaskRelationshipRepository.
-type TaskRelationshipRepository = taskpkg.TaskRelationshipRepository
 
 // HistoryFilters is an alias for taskpkg.HistoryFilters.
 // Deprecated: Use EntityHistoryFilters from entityhistory package instead.
@@ -244,9 +241,6 @@ var NewTaskRepositoryWithNoteCreator = taskpkg.NewTaskRepositoryWithNoteCreator
 // NewTaskRepositoryWithWorkflow creates a TaskRepository (workflow param ignored).
 // Deprecated: Use NewTaskRepository instead.
 var NewTaskRepositoryWithWorkflow = taskpkg.NewTaskRepositoryWithWorkflow
-
-// NewTaskRelationshipRepository creates a new TaskRelationshipRepository.
-var NewTaskRelationshipRepository = taskpkg.NewTaskRelationshipRepository
 
 // NewTaskHistoryRepository creates a new TaskHistoryRepository.
 // Deprecated: Use NewEntityHistoryRepository from entityhistory package instead.

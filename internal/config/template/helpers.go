@@ -313,7 +313,7 @@ func formatDocPathsAsCSV(docs []*models.Document) string {
 // FeaturePlaceholdersWithRelated extends FeaturePlaceholders with relationship data.
 // It adds two new placeholders:
 // - related_docs: comma-separated file paths of documents linked to the feature
-// - related_features: comma-separated keys of related features from feature_relationships table
+// - related_features: comma-separated keys of related features from entity_relationships table
 //
 // Accepts context and repository dependencies for database queries.
 // Gracefully degrades on errors: returns empty strings for missing relationships
@@ -422,7 +422,7 @@ type TaskRelationshipRepository interface {
 // TaskPlaceholdersWithRelated extends TaskPlaceholders with relationship data.
 // It adds two new placeholders:
 // - related_docs: comma-separated file paths of documents linked to the task
-// - related_tasks: comma-separated keys from task_relationships table
+// - related_tasks: comma-separated keys from entity_relationships table
 //
 // Accepts context and repository dependencies for database queries.
 // Gracefully degrades on errors: returns empty strings for missing relationships
@@ -465,7 +465,7 @@ func TaskPlaceholdersWithRelated(
 		placeholders["related_docs"] = formatDocPathsAsCSV(docs)
 	}
 
-	// Add related_tasks from task_relationships table (REFACTORED)
+	// Add related_tasks from entity_relationships table via TaskRelationshipRepository adapter
 	relatedKeys, err := taskRelRepo.ListRelatedTaskKeys(ctx, task.ID)
 	if err != nil {
 		slog.Warn("Failed to fetch related tasks", "task", task.Key, "error", err)
@@ -500,7 +500,7 @@ func TaskPlaceholdersWithRelated(
 // EpicPlaceholdersWithRelated extends EpicPlaceholders with relationship data.
 // It adds two new placeholders:
 // - related_docs: comma-separated file paths of documents linked to the epic
-// - related_epics: comma-separated keys of related epics from epic_relationships table
+// - related_epics: comma-separated keys of related epics from entity_relationships table
 //
 // Accepts context and repository dependencies for database queries.
 // Gracefully degrades on errors: returns empty strings for missing relationships

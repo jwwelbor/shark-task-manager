@@ -19,7 +19,7 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 	db := repository.NewDB(database)
 
 	// Clean up before test - use unique task keys with E99
-	_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships")
+	_, _ = database.ExecContext(ctx, "DELETE FROM entity_relationships WHERE from_entity_type = 'task' OR to_entity_type = 'task'")
 	_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE key IN ('T-E99-F99-010', 'T-E99-F99-011', 'T-E99-F99-012')")
 
 	// Seed epic and feature (E99, E99-F99)
@@ -27,7 +27,7 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 
 	// Create repositories
 	taskRepo := repository.NewTaskRepository(db)
-	relationshipRepo := repository.NewTaskRelationshipRepository(db)
+	entityRelRepo := repository.NewEntityRelationshipRepository(db)
 
 	// Create test tasks with valid keys
 	taskA := &models.Task{BaseEntity: models.BaseEntity{Key: "T-E99-F99-010",
@@ -60,32 +60,36 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 		t.Fatalf("Failed to create task C: %v", err)
 	}
 
-	// Create blocking relationships
+	// Create blocking relationships via entity_relationships
 	// Task B blocks Task A
-	relBA := &models.TaskRelationship{
-		FromTaskID:       taskB.ID,
-		ToTaskID:         taskA.ID,
-		RelationshipType: models.RelationshipBlocks,
+	relBA := &models.EntityRelationship{
+		FromEntityType:   models.EntityTypeTask,
+		FromEntityID:     taskB.ID,
+		ToEntityType:     models.EntityTypeTask,
+		ToEntityID:       taskA.ID,
+		RelationshipType: models.EntityRelationshipType("blocks"),
 	}
-	err = relationshipRepo.Create(ctx, relBA)
+	err = entityRelRepo.Create(ctx, relBA)
 	if err != nil {
 		t.Fatalf("Failed to create B->A blocking relationship: %v", err)
 	}
 
 	// Task A blocks Task C
-	relAC := &models.TaskRelationship{
-		FromTaskID:       taskA.ID,
-		ToTaskID:         taskC.ID,
-		RelationshipType: models.RelationshipBlocks,
+	relAC := &models.EntityRelationship{
+		FromEntityType:   models.EntityTypeTask,
+		FromEntityID:     taskA.ID,
+		ToEntityType:     models.EntityTypeTask,
+		ToEntityID:       taskC.ID,
+		RelationshipType: models.EntityRelationshipType("blocks"),
 	}
-	err = relationshipRepo.Create(ctx, relAC)
+	err = entityRelRepo.Create(ctx, relAC)
 	if err != nil {
 		t.Fatalf("Failed to create A->C blocking relationship: %v", err)
 	}
 
 	// Defer cleanup
 	defer func() {
-		_, _ = database.ExecContext(ctx, "DELETE FROM task_relationships WHERE from_task_id IN (?, ?, ?)", taskA.ID, taskB.ID, taskC.ID)
+		_, _ = database.ExecContext(ctx, "DELETE FROM entity_relationships WHERE (from_entity_type = 'task' AND from_entity_id IN (?, ?, ?)) OR (to_entity_type = 'task' AND to_entity_id IN (?, ?, ?))", taskA.ID, taskB.ID, taskC.ID, taskA.ID, taskB.ID, taskC.ID)
 		_, _ = database.ExecContext(ctx, "DELETE FROM tasks WHERE id IN (?, ?, ?)", taskA.ID, taskB.ID, taskC.ID)
 	}()
 
@@ -129,8 +133,8 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 
 	// Verify the implementation matches our expected behavior
 	t.Run("Verify blocking relationships are retrieved correctly", func(t *testing.T) {
-		// Get blocked-by relationships
-		blockedBy, err := relationshipRepo.GetIncoming(ctx, taskA.ID, []string{"blocks"})
+		// Get blocked-by relationships (incoming blocks — tasks that block taskA)
+		blockedBy, err := entityRelRepo.GetIncoming(ctx, models.EntityTypeTask, taskA.ID, []models.EntityRelationshipType{"blocks"})
 		if err != nil {
 			t.Fatalf("Failed to get blocked-by relationships: %v", err)
 		}
@@ -139,8 +143,8 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 			t.Errorf("Expected 1 blocked-by relationship, got %d", len(blockedBy))
 		}
 
-		// Get blocks relationships
-		blocks, err := relationshipRepo.GetOutgoing(ctx, taskA.ID, []string{"blocks"})
+		// Get blocks relationships (outgoing blocks — tasks that taskA blocks)
+		blocks, err := entityRelRepo.GetOutgoing(ctx, models.EntityTypeTask, taskA.ID, []models.EntityRelationshipType{"blocks"})
 		if err != nil {
 			t.Fatalf("Failed to get blocks relationships: %v", err)
 		}
@@ -152,7 +156,7 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 		// Verify we can construct the JSON output format
 		blockedByKeys := []string{}
 		for _, rel := range blockedBy {
-			blocker, err := taskRepo.GetByID(ctx, rel.FromTaskID)
+			blocker, err := taskRepo.GetByID(ctx, rel.FromEntityID)
 			if err == nil {
 				blockedByKeys = append(blockedByKeys, blocker.Key)
 			}
@@ -160,7 +164,7 @@ func TestTaskGetIntegrationWithBlockingRelationships(t *testing.T) {
 
 		blocksKeys := []string{}
 		for _, rel := range blocks {
-			blocked, err := taskRepo.GetByID(ctx, rel.ToTaskID)
+			blocked, err := taskRepo.GetByID(ctx, rel.ToEntityID)
 			if err == nil {
 				blocksKeys = append(blocksKeys, blocked.Key)
 			}

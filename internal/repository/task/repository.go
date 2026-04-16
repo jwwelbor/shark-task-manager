@@ -723,6 +723,112 @@ func (r *TaskRepository) List(ctx context.Context) (_ []*models.Task, retErr err
 	return tasks, nil
 }
 
+// ListWithViewerRelationships returns all tasks with their relationship data
+// pre-resolved via the viewer_task_relationships view. One DB round-trip replaces
+// the N+1 per-task calls that previously caused Hierarchy and FeatureTasks to hang.
+// The RelationshipsJSON field contains a JSON array from the view.
+func (r *TaskRepository) ListWithViewerRelationships(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error) {
+	query := `
+		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status,
+		       t.agent_type, t.priority, t.depends_on, t.assigned_agent, t.file_path,
+		       t.blocked_reason, t.execution_order, t.created_at, t.started_at,
+		       t.completed_at, t.blocked_at, t.updated_at, t.completed_by,
+		       t.completion_notes, t.files_changed, t.tests_passed,
+		       t.verification_status, t.time_spent_minutes, t.context_data,
+		       COALESCE(vtr.relationships_json, '[]') AS relationships_json
+		FROM tasks t
+		LEFT JOIN viewer_task_relationships vtr ON vtr.task_id = t.id
+		ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tasks with viewer relationships: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*models.ViewerTaskWithRelationships
+	for rows.Next() {
+		row := &models.ViewerTaskWithRelationships{Task: &models.Task{}}
+		var relsJSON string
+		err := rows.Scan(
+			&row.Task.ID, &row.Task.FeatureID, &row.Task.Key, &row.Task.Title,
+			&row.Task.Slug, &row.Task.Description, &row.Task.Status,
+			&row.Task.AgentType, &row.Task.Priority, &row.Task.DependsOn,
+			&row.Task.AssignedAgent, &row.Task.FilePath,
+			&row.Task.BlockedReason, &row.Task.ExecutionOrder,
+			&row.Task.CreatedAt, &row.Task.StartedAt,
+			&row.Task.CompletedAt, &row.Task.BlockedAt, &row.Task.UpdatedAt,
+			&row.Task.CompletedBy, &row.Task.CompletionNotes,
+			&row.Task.FilesChanged, &row.Task.TestsPassed,
+			&row.Task.VerificationStatus, &row.Task.TimeSpentMinutes,
+			&row.Task.ContextData,
+			&relsJSON,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan viewer task row: %w", err)
+		}
+		row.RelationshipsJSON = relsJSON
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating viewer task rows: %w", err)
+	}
+	return result, nil
+}
+
+// ListByFeatureWithViewerRelationships returns tasks for a specific feature with
+// relationship data pre-resolved via the viewer_task_relationships view.
+// One DB round-trip replaces per-task relationship calls in FeatureTasks.
+func (r *TaskRepository) ListByFeatureWithViewerRelationships(ctx context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error) {
+	query := `
+		SELECT t.id, t.feature_id, t.key, t.title, t.slug, t.description, t.status,
+		       t.agent_type, t.priority, t.depends_on, t.assigned_agent, t.file_path,
+		       t.blocked_reason, t.execution_order, t.created_at, t.started_at,
+		       t.completed_at, t.blocked_at, t.updated_at, t.completed_by,
+		       t.completion_notes, t.files_changed, t.tests_passed,
+		       t.verification_status, t.time_spent_minutes, t.context_data,
+		       COALESCE(vtr.relationships_json, '[]') AS relationships_json
+		FROM tasks t
+		LEFT JOIN viewer_task_relationships vtr ON vtr.task_id = t.id
+		WHERE t.feature_id = ?
+		ORDER BY t.execution_order NULLS LAST, t.priority ASC, t.created_at ASC, t.key ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, featureID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tasks by feature with viewer relationships: %w", err)
+	}
+	defer rows.Close()
+
+	var result []*models.ViewerTaskWithRelationships
+	for rows.Next() {
+		row := &models.ViewerTaskWithRelationships{Task: &models.Task{}}
+		var relsJSON string
+		err := rows.Scan(
+			&row.Task.ID, &row.Task.FeatureID, &row.Task.Key, &row.Task.Title,
+			&row.Task.Slug, &row.Task.Description, &row.Task.Status,
+			&row.Task.AgentType, &row.Task.Priority, &row.Task.DependsOn,
+			&row.Task.AssignedAgent, &row.Task.FilePath,
+			&row.Task.BlockedReason, &row.Task.ExecutionOrder,
+			&row.Task.CreatedAt, &row.Task.StartedAt,
+			&row.Task.CompletedAt, &row.Task.BlockedAt, &row.Task.UpdatedAt,
+			&row.Task.CompletedBy, &row.Task.CompletionNotes,
+			&row.Task.FilesChanged, &row.Task.TestsPassed,
+			&row.Task.VerificationStatus, &row.Task.TimeSpentMinutes,
+			&row.Task.ContextData,
+			&relsJSON,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan viewer task row by feature: %w", err)
+		}
+		row.RelationshipsJSON = relsJSON
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating viewer task rows by feature: %w", err)
+	}
+	return result, nil
+}
+
 // BeginTx starts a new database transaction for use by the service layer.
 // Services own transaction boundaries per Standard 8; repositories participate
 // in service-owned transactions by accepting *sql.Tx parameters.

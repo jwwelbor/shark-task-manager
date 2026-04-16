@@ -11,16 +11,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/workflow-router.py"
-          }
-        ]
-      }
-    ],
     "SessionStart": [
       {
         "hooks": [

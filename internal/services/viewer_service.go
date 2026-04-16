@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -66,6 +67,11 @@ type ViewerTaskRepository interface {
 	List(ctx context.Context) ([]*models.Task, error)
 	ListByFeature(ctx context.Context, featureID int64) ([]*models.Task, error)
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
+	// ListWithViewerRelationships returns all tasks with pre-resolved relationship JSON
+	// from the viewer_task_relationships view. One DB round-trip replaces N+1 per-task calls.
+	ListWithViewerRelationships(ctx context.Context) ([]*models.ViewerTaskWithRelationships, error)
+	// ListByFeatureWithViewerRelationships returns tasks for a feature with pre-resolved relationship JSON.
+	ListByFeatureWithViewerRelationships(ctx context.Context, featureID int64) ([]*models.ViewerTaskWithRelationships, error)
 }
 
 // ViewerBugRepository is the minimal bug repository interface used by ViewerService.
@@ -295,31 +301,22 @@ type FeatureTaskOptions struct {
 }
 
 // ViewerTask decorates models.Task with workflow-derived display metadata and
-// pre-parsed dependency fields for the client-side dependency block (REQ-F-009).
+// relationship data for the client-side dependency block (REQ-F-008).
 type ViewerTask struct {
 	*models.Task
-	StatusColor string   `json:"status_color"`
-	StatusPhase string   `json:"status_phase"`
-	DependsOn   []string `json:"depends_on_keys"` // From entity_relationships (tasks this task depends on; same as BlockedBy)
-	BlockedBy   []string `json:"blocked_by_keys"` // From entity_relationships (tasks blocking this task; same as DependsOn)
-	Blocks      []string `json:"blocks_keys"`     // From entity_relationships (tasks this task blocks)
+	StatusColor   string                `json:"status_color"`
+	StatusPhase   string                `json:"status_phase"`
+	Relationships []ViewerRelatedEntity `json:"relationships"` // From entity_relationships (all cross-entity links)
 }
 
-// ViewerTaskRelationship is a lightweight record from the entity_relationships table
-// (task-to-task entries only), with resolved task keys (not IDs) for client-side consumption.
-type ViewerTaskRelationship struct {
-	FromTaskID int64
-	ToTaskID   int64
-	RelType    string // e.g. "depends_on", "blocks"
-	FromKey    string // key of the from-task
-	ToKey      string // key of the to-task
-}
-
-// ViewerTaskRelationshipRepository is the minimal interface for bulk-loading all task
-// relationships with their resolved task keys. It is optional — ViewerService degrades
-// gracefully if nil (BlockedBy and Blocks will be empty slices on every ViewerTask).
-type ViewerTaskRelationshipRepository interface {
-	ListAll(ctx context.Context) ([]*ViewerTaskRelationship, error)
+// ViewerRelatedEntity represents a single relationship edge from a task's
+// perspective, including the other entity's type and key so cross-entity
+// links render correctly in the viewer UI.
+type ViewerRelatedEntity struct {
+	Direction        string                        `json:"direction"`         // "outgoing" | "incoming"
+	RelationshipType models.EntityRelationshipType `json:"relationship_type"` // e.g. "depends_on", "related_to"
+	EntityType       models.EntityType             `json:"entity_type"`       // e.g. "task", "bug", "feature"
+	EntityKey        string                        `json:"entity_key"`        // resolved key of the related entity
 }
 
 // FeatureTasksResponse is the response type for ViewerService.FeatureTasks.
@@ -407,14 +404,19 @@ type ViewerService struct {
 	ideaRepo           ViewerIdeaRepository              // optional; used by Summary and Hierarchy
 	bugListRepo        ViewerBugListRepository           // optional; used by Hierarchy for bug flat list
 	changeCardListRepo ViewerChangeCardListRepository    // optional; used by Hierarchy for change card flat list
-	taskRelRepo        ViewerTaskRelationshipRepository  // optional; used by Hierarchy for dependency fields
+	entityRelSvc       *EntityRelationshipService        // optional; retained for History/RelatedDocs lookups
+	entityRegistry     *EntityRegistry                   // optional; retained for History/RelatedDocs lookups
 	workflowSvc        *workflow.Service
 	statusCalc         *status.CalculationService // optional; reserved for future use
 	projectRoot        string
 }
 
 // NewViewerService constructs a ViewerService.
-// All repository and workflow arguments except statusCalc are required and must be non-nil.
+// All repository and workflow arguments except statusCalc, entityRelSvc, and entityRegistry
+// are required and must be non-nil. entityRelSvc and entityRegistry are optional; when
+// provided they are used for entity lookups in History and other endpoints. Relationship
+// data in Hierarchy/FeatureTasks is now loaded via the viewer_task_relationships SQL view
+// and no longer requires entityRelSvc or entityRegistry.
 // Panics if any required dependency is nil (matching existing service constructors).
 func NewViewerService(
 	epicRepo ViewerEpicRepository,
@@ -426,6 +428,8 @@ func NewViewerService(
 	workflowSvc *workflow.Service,
 	statusCalc *status.CalculationService,
 	projectRoot string,
+	entityRelSvc *EntityRelationshipService,
+	entityRegistry *EntityRegistry,
 ) *ViewerService {
 	requireNonNil(epicRepo, "ViewerService requires a non-nil EpicRepository")
 	requireNonNil(featureRepo, "ViewerService requires a non-nil FeatureRepository")
@@ -446,6 +450,8 @@ func NewViewerService(
 		workflowSvc:    workflowSvc,
 		statusCalc:     statusCalc,
 		projectRoot:    projectRoot,
+		entityRelSvc:   entityRelSvc,
+		entityRegistry: entityRegistry,
 	}
 }
 
@@ -481,13 +487,6 @@ func (s *ViewerService) WithBugListRepo(r ViewerBugListRepository) {
 // Call after NewViewerService; safe to skip (change_cards section omitted when nil).
 func (s *ViewerService) WithChangeCardListRepo(r ViewerChangeCardListRepository) {
 	s.changeCardListRepo = r
-}
-
-// WithTaskRelRepo wires the optional task-relationship repository used by Hierarchy and
-// FeatureTasks to populate the DependsOn, BlockedBy, and Blocks fields on each ViewerTask.
-// Call after NewViewerService; safe to skip — all three fields will be empty slices when nil.
-func (s *ViewerService) WithTaskRelRepo(r ViewerTaskRelationshipRepository) {
-	s.taskRelRepo = r
 }
 
 // Summary returns entity-type counts with per-status color/phase metadata
@@ -696,11 +695,40 @@ func getProgressWeight(svc *workflow.Service, statusName string) float64 {
 	return meta.ProgressWeight
 }
 
+// parseViewerRelationships parses the relationships_json string produced by the
+// viewer_task_relationships SQL view into a []ViewerRelatedEntity. Returns a
+// non-nil empty slice on parse error or when jsonStr is empty / "[]".
+func parseViewerRelationships(jsonStr string) []ViewerRelatedEntity {
+	if jsonStr == "" || jsonStr == "[]" {
+		return []ViewerRelatedEntity{}
+	}
+	var raw []struct {
+		Direction        string `json:"direction"`
+		RelationshipType string `json:"relationship_type"`
+		EntityType       string `json:"entity_type"`
+		EntityKey        string `json:"entity_key"`
+	}
+	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
+		fmt.Fprintf(os.Stderr, "viewer: failed to parse relationships JSON: %v\n", err)
+		return []ViewerRelatedEntity{}
+	}
+	result := make([]ViewerRelatedEntity, 0, len(raw))
+	for _, r := range raw {
+		result = append(result, ViewerRelatedEntity{
+			Direction:        r.Direction,
+			RelationshipType: models.EntityRelationshipType(r.RelationshipType),
+			EntityType:       models.EntityType(r.EntityType),
+			EntityKey:        r.EntityKey,
+		})
+	}
+	return result
+}
+
 // Hierarchy returns epics ordered by execution_order ASC, created_at ASC,
 // with features and task/blocked counts embedded.
 func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, error) {
-	// Bulk-load all three entity types in 3 queries, then assemble in memory.
-	// This replaces the prior N+1 pattern (1 + 23 epics + 168 features ≈ 192 queries).
+	// Bulk-load all three entity types. Tasks include pre-resolved relationship JSON
+	// from the viewer_task_relationships view — one query replaces N+1 per-task calls.
 
 	epics, err := s.epicRepo.List(ctx, nil)
 	if err != nil {
@@ -712,9 +740,9 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 		return nil, fmt.Errorf("viewer hierarchy: failed to list features: %w", err)
 	}
 
-	allTasks, err := s.taskRepo.List(ctx)
+	allTasksWithRels, err := s.taskRepo.ListWithViewerRelationships(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("viewer hierarchy: failed to list tasks: %w", err)
+		return nil, fmt.Errorf("viewer hierarchy: failed to list tasks with relationships: %w", err)
 	}
 
 	// Index features by epic ID.
@@ -724,8 +752,8 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 	}
 
 	// Index tasks by feature ID.
-	tasksByFeature := make(map[int64][]*models.Task, len(allTasks))
-	for _, t := range allTasks {
+	tasksByFeature := make(map[int64][]*models.ViewerTaskWithRelationships, len(allTasksWithRels))
+	for _, t := range allTasksWithRels {
 		tasksByFeature[t.FeatureID] = append(tasksByFeature[t.FeatureID], t)
 	}
 
@@ -751,29 +779,6 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 					docsByEpic[d.EntityID] = append(docsByEpic[d.EntityID], hd)
 				case "feature":
 					docsByFeature[d.EntityID] = append(docsByFeature[d.EntityID], hd)
-				}
-			}
-		}
-	}
-
-	// Bulk-load task relationships for dependency fields (optional — skipped when taskRelRepo is nil).
-	// blockedByKeys[taskID] = slice of keys that block this task (i.e. this task depends_on them).
-	// blocksKeys[taskID]    = slice of keys this task blocks (i.e. they depend_on this task).
-	blockedByKeys := make(map[int64][]string)
-	blocksKeys := make(map[int64][]string)
-	if s.taskRelRepo != nil {
-		allRels, err := s.taskRelRepo.ListAll(ctx)
-		if err == nil {
-			for _, rel := range allRels {
-				switch rel.RelType {
-				case "depends_on":
-					// from_task depends on to_task: from is blocked_by to, to blocks from.
-					blockedByKeys[rel.FromTaskID] = append(blockedByKeys[rel.FromTaskID], rel.ToKey)
-					blocksKeys[rel.ToTaskID] = append(blocksKeys[rel.ToTaskID], rel.FromKey)
-				case "blocks":
-					// from_task blocks to_task: to is blocked_by from, from blocks to.
-					blocksKeys[rel.FromTaskID] = append(blocksKeys[rel.FromTaskID], rel.ToKey)
-					blockedByKeys[rel.ToTaskID] = append(blockedByKeys[rel.ToTaskID], rel.FromKey)
 				}
 			}
 		}
@@ -826,17 +831,18 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 				}
 			}
 
-			// Build ViewerTask slice with status color/phase metadata and dependency fields.
+			// Build ViewerTask slice with status color/phase metadata and relationship data.
+			// Relationships are pre-resolved from the viewer_task_relationships SQL view —
+			// zero additional DB calls per task.
 			viewerTasks := make([]*ViewerTask, 0, len(rawTasks))
 			for _, t := range rawTasks {
 				meta := taskSvc.GetStatusMetadata(string(t.Status))
+				rels := parseViewerRelationships(t.RelationshipsJSON)
 				vt := &ViewerTask{
-					Task:        t,
-					StatusColor: colorOrGray(meta.Color),
-					StatusPhase: phaseOrUnknown(meta.Phase),
-					DependsOn:   emptyStringSlice(blockedByKeys[t.ID]),
-					BlockedBy:   emptyStringSlice(blockedByKeys[t.ID]),
-					Blocks:      emptyStringSlice(blocksKeys[t.ID]),
+					Task:          t.Task,
+					StatusColor:   colorOrGray(meta.Color),
+					StatusPhase:   phaseOrUnknown(meta.Phase),
+					Relationships: rels,
 				}
 				viewerTasks = append(viewerTasks, vt)
 			}
@@ -1411,37 +1417,37 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 		return nil, fmt.Errorf("viewer feature tasks: feature %q not found: %w", featureKey, err)
 	}
 
-	tasks, err := s.taskRepo.ListByFeature(ctx, f.ID)
+	tasksWithRels, err := s.taskRepo.ListByFeatureWithViewerRelationships(ctx, f.ID)
 	if err != nil {
 		return nil, fmt.Errorf("viewer feature tasks: failed to list tasks for feature %s: %w", featureKey, err)
 	}
 
 	// Sort: execution_order ASC (nil → MaxInt), priority DESC, created_at ASC.
-	sort.Slice(tasks, func(i, j int) bool {
+	sort.Slice(tasksWithRels, func(i, j int) bool {
 		oi := maxInt
-		if tasks[i].ExecutionOrder != nil {
-			oi = *tasks[i].ExecutionOrder
+		if tasksWithRels[i].ExecutionOrder != nil {
+			oi = *tasksWithRels[i].ExecutionOrder
 		}
 		oj := maxInt
-		if tasks[j].ExecutionOrder != nil {
-			oj = *tasks[j].ExecutionOrder
+		if tasksWithRels[j].ExecutionOrder != nil {
+			oj = *tasksWithRels[j].ExecutionOrder
 		}
 		if oi != oj {
 			return oi < oj
 		}
-		pi := tasks[i].Priority
-		pj := tasks[j].Priority
+		pi := tasksWithRels[i].Priority
+		pj := tasksWithRels[j].Priority
 		if pi != pj {
 			return pi > pj
 		}
-		return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
+		return tasksWithRels[i].CreatedAt.Before(tasksWithRels[j].CreatedAt)
 	})
 
-	total := len(tasks)
+	total := len(tasksWithRels)
 
 	// Apply filters.
-	filtered := make([]*models.Task, 0, len(tasks))
-	for _, t := range tasks {
+	filtered := make([]*models.ViewerTaskWithRelationships, 0, len(tasksWithRels))
+	for _, t := range tasksWithRels {
 		if opts.Status != "" && !strings.EqualFold(string(t.Status), opts.Status) {
 			continue
 		}
@@ -1474,38 +1480,18 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 		filtered = filtered[offset:end]
 	}
 
-	// Bulk-load task relationships for dependency fields (optional — skipped when taskRelRepo is nil).
-	// blockedByKeys[taskID] = slice of keys that block this task (i.e. this task depends_on them).
-	// blocksKeys[taskID]    = slice of keys this task blocks (i.e. they depend_on this task).
-	ftBlockedByKeys := make(map[int64][]string)
-	ftBlocksKeys := make(map[int64][]string)
-	if s.taskRelRepo != nil {
-		allRels, err := s.taskRelRepo.ListAll(ctx)
-		if err == nil {
-			for _, rel := range allRels {
-				switch rel.RelType {
-				case "depends_on":
-					ftBlockedByKeys[rel.FromTaskID] = append(ftBlockedByKeys[rel.FromTaskID], rel.ToKey)
-					ftBlocksKeys[rel.ToTaskID] = append(ftBlocksKeys[rel.ToTaskID], rel.FromKey)
-				case "blocks":
-					ftBlocksKeys[rel.FromTaskID] = append(ftBlocksKeys[rel.FromTaskID], rel.ToKey)
-					ftBlockedByKeys[rel.ToTaskID] = append(ftBlockedByKeys[rel.ToTaskID], rel.FromKey)
-				}
-			}
-		}
-	}
-
+	// Build ViewerTask slice; relationship data is pre-resolved from the
+	// viewer_task_relationships SQL view — zero additional DB calls per task.
 	taskSvc := s.workflowSvc.ForLevel(workflow.LevelTask)
 	viewerTasks := make([]*ViewerTask, 0, len(filtered))
 	for _, t := range filtered {
 		meta := taskSvc.GetStatusMetadata(string(t.Status))
+		rels := parseViewerRelationships(t.RelationshipsJSON)
 		viewerTasks = append(viewerTasks, &ViewerTask{
-			Task:        t,
-			StatusColor: colorOrGray(meta.Color),
-			StatusPhase: phaseOrUnknown(meta.Phase),
-			DependsOn:   emptyStringSlice(ftBlockedByKeys[t.ID]),
-			BlockedBy:   emptyStringSlice(ftBlockedByKeys[t.ID]),
-			Blocks:      emptyStringSlice(ftBlocksKeys[t.ID]),
+			Task:          t.Task,
+			StatusColor:   colorOrGray(meta.Color),
+			StatusPhase:   phaseOrUnknown(meta.Phase),
+			Relationships: rels,
 		})
 	}
 
@@ -1703,13 +1689,4 @@ func (s *ViewerService) FolderFiles(ctx context.Context, relPath string) (*Folde
 	}
 
 	return result, nil
-}
-
-// emptyStringSlice returns s when non-nil, otherwise returns a new empty (non-nil) slice.
-// This ensures JSON serialisation produces [] rather than null for optional slice fields.
-func emptyStringSlice(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
 }

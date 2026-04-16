@@ -528,3 +528,173 @@ func TestEntityRelationshipRepository_GetIncoming(t *testing.T) {
 		}
 	})
 }
+
+// TestEntityRelFeatureKeyAdapter_ListRelatedFeatureKeys validates IS-3 and AC-3:
+// The new EntityRelFeatureKeyAdapter queries entity_relationships for feature-to-feature
+// relationships and returns the related feature keys.
+func TestEntityRelFeatureKeyAdapter_ListRelatedFeatureKeys(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	relRepo := NewEntityRelationshipRepository(db)
+	adapter := NewEntityRelFeatureKeyAdapter(db)
+
+	cleanupEntityRelationships(ctx)
+	_, featureID := test.SeedTestData()
+
+	// Create a second feature to relate to
+	var featureID2 int64
+	err := database.QueryRowContext(ctx,
+		`INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E01-F02', 'Feature 2', 'todo', (SELECT epic_id FROM features WHERE id=?), '') RETURNING id`,
+		featureID,
+	).Scan(&featureID2)
+	if err != nil {
+		// Try without RETURNING (older sqlite)
+		_, insertErr := database.ExecContext(ctx,
+			`INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E01-F02-TEST', 'Feature 2 Test', 'todo', (SELECT epic_id FROM features WHERE id=?), '')`,
+			featureID,
+		)
+		if insertErr != nil {
+			t.Fatalf("Failed to create second feature: %v", insertErr)
+		}
+		getErr := database.QueryRowContext(ctx, `SELECT id FROM features WHERE key='E01-F02-TEST'`).Scan(&featureID2)
+		if getErr != nil {
+			t.Fatalf("Failed to get second feature ID: %v", getErr)
+		}
+	}
+	defer database.ExecContext(ctx, "DELETE FROM features WHERE id=?", featureID2)
+
+	t.Run("happy path — related feature appears in output", func(t *testing.T) {
+		cleanupEntityRelationships(ctx)
+
+		// Create feature-to-feature relationship in entity_relationships
+		rel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeFeature,
+			FromEntityID:     featureID,
+			ToEntityType:     models.EntityTypeFeature,
+			ToEntityID:       featureID2,
+			RelationshipType: models.RelRelatedTo,
+		}
+		if err := relRepo.Create(ctx, rel); err != nil {
+			t.Fatalf("Create relationship error = %v", err)
+		}
+
+		keys, err := adapter.ListRelatedFeatureKeys(ctx, featureID)
+		if err != nil {
+			t.Fatalf("ListRelatedFeatureKeys() error = %v", err)
+		}
+
+		if len(keys) != 1 {
+			t.Errorf("expected 1 related feature key, got %d: %v", len(keys), keys)
+		}
+	})
+
+	t.Run("empty result — no relationships", func(t *testing.T) {
+		cleanupEntityRelationships(ctx)
+
+		keys, err := adapter.ListRelatedFeatureKeys(ctx, featureID)
+		if err != nil {
+			t.Fatalf("ListRelatedFeatureKeys() error = %v", err)
+		}
+
+		if keys == nil {
+			t.Error("expected non-nil slice, got nil")
+		}
+		if len(keys) != 0 {
+			t.Errorf("expected 0 keys, got %d: %v", len(keys), keys)
+		}
+	})
+
+	t.Run("bidirectional — adapter finds both incoming and outgoing", func(t *testing.T) {
+		cleanupEntityRelationships(ctx)
+
+		// featureID2 → featureID (incoming to featureID)
+		rel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeFeature,
+			FromEntityID:     featureID2,
+			ToEntityType:     models.EntityTypeFeature,
+			ToEntityID:       featureID,
+			RelationshipType: models.RelRelatedTo,
+		}
+		if err := relRepo.Create(ctx, rel); err != nil {
+			t.Fatalf("Create relationship error = %v", err)
+		}
+
+		keys, err := adapter.ListRelatedFeatureKeys(ctx, featureID)
+		if err != nil {
+			t.Fatalf("ListRelatedFeatureKeys() error = %v", err)
+		}
+
+		if len(keys) != 1 {
+			t.Errorf("expected 1 related feature key (incoming), got %d: %v", len(keys), keys)
+		}
+	})
+}
+
+// TestEntityRelEpicKeyAdapter_ListRelatedEpicKeys validates IS-3 and AC-3:
+// The new EntityRelEpicKeyAdapter queries entity_relationships for epic-to-epic
+// relationships and returns the related epic keys.
+func TestEntityRelEpicKeyAdapter_ListRelatedEpicKeys(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	relRepo := NewEntityRelationshipRepository(db)
+	adapter := NewEntityRelEpicKeyAdapter(db)
+
+	cleanupEntityRelationships(ctx)
+	epicID, _ := test.SeedTestData()
+
+	// Create a second epic to relate to
+	var epicID2 int64
+	_, insertErr := database.ExecContext(ctx,
+		`INSERT INTO epics (key, title, status, priority, file_path) VALUES ('E02-TEST', 'Epic 2 Test', 'todo', 'medium', '') ON CONFLICT(key) DO NOTHING`,
+	)
+	if insertErr != nil {
+		t.Fatalf("Failed to create second epic: %v", insertErr)
+	}
+	getErr := database.QueryRowContext(ctx, `SELECT id FROM epics WHERE key='E02-TEST'`).Scan(&epicID2)
+	if getErr != nil {
+		t.Fatalf("Failed to get second epic ID: %v", getErr)
+	}
+	defer database.ExecContext(ctx, "DELETE FROM epics WHERE key='E02-TEST'")
+
+	t.Run("happy path — related epic appears in output", func(t *testing.T) {
+		cleanupEntityRelationships(ctx)
+
+		rel := &models.EntityRelationship{
+			FromEntityType:   models.EntityTypeEpic,
+			FromEntityID:     epicID,
+			ToEntityType:     models.EntityTypeEpic,
+			ToEntityID:       epicID2,
+			RelationshipType: models.RelRelatedTo,
+		}
+		if err := relRepo.Create(ctx, rel); err != nil {
+			t.Fatalf("Create relationship error = %v", err)
+		}
+
+		keys, err := adapter.ListRelatedEpicKeys(ctx, epicID)
+		if err != nil {
+			t.Fatalf("ListRelatedEpicKeys() error = %v", err)
+		}
+
+		if len(keys) != 1 {
+			t.Errorf("expected 1 related epic key, got %d: %v", len(keys), keys)
+		}
+	})
+
+	t.Run("empty result — no relationships", func(t *testing.T) {
+		cleanupEntityRelationships(ctx)
+
+		keys, err := adapter.ListRelatedEpicKeys(ctx, epicID)
+		if err != nil {
+			t.Fatalf("ListRelatedEpicKeys() error = %v", err)
+		}
+
+		if keys == nil {
+			t.Error("expected non-nil slice, got nil")
+		}
+		if len(keys) != 0 {
+			t.Errorf("expected 0 keys, got %d: %v", len(keys), keys)
+		}
+	})
+}

@@ -235,7 +235,7 @@ func (r *TaskRepository) reopenTaskInTx(ctx context.Context, tx *sql.Tx, taskID 
 }
 
 // getTaskDependentsInTx returns all tasks that depend on the given task within a transaction.
-// It checks both the legacy depends_on JSON field and the task_relationships table.
+// It checks both the legacy depends_on JSON field and the entity_relationships table.
 func (r *TaskRepository) getTaskDependentsInTx(ctx context.Context, tx *sql.Tx, taskKey string) ([]*models.Task, error) {
 	// Get the task's id and feature_id
 	var taskID, featureID int64
@@ -308,15 +308,17 @@ func (r *TaskRepository) getTaskDependentsInTx(ctx context.Context, tx *sql.Tx, 
 		}
 	}
 
-	// 2. Check task_relationships table for incoming depends_on relationships
+	// 2. Check entity_relationships table for incoming depends_on relationships
 	// (tasks where from_task depends_on to_task=completedTask)
 	relQuery := `
-		SELECT from_task_id FROM task_relationships
-		WHERE to_task_id = ? AND relationship_type = 'depends_on'
+		SELECT from_entity_id FROM entity_relationships
+		WHERE to_entity_type = 'task' AND to_entity_id = ?
+		  AND from_entity_type = 'task'
+		  AND relationship_type = 'depends_on'
 	`
 	relRows, err := tx.QueryContext(ctx, relQuery, taskID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query task_relationships: %w", err)
+		return nil, fmt.Errorf("failed to query entity_relationships for dependents: %w", err)
 	}
 	defer relRows.Close()
 
@@ -437,7 +439,7 @@ func isDependencyBlocked(task *models.Task) bool {
 
 // allDependenciesSatisfiedInTx checks whether every dependency of the task
 // is completed or archived. It checks both the legacy depends_on JSON field
-// and the task_relationships table.
+// and the entity_relationships table.
 func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *sql.Tx, task *models.Task) (bool, error) {
 	// 1. Check legacy depends_on JSON field
 	if task.DependsOn != nil && *task.DependsOn != "" && *task.DependsOn != "[]" {
@@ -464,15 +466,17 @@ func (r *TaskRepository) allDependenciesSatisfiedInTx(ctx context.Context, tx *s
 		}
 	}
 
-	// 2. Check task_relationships table for outgoing depends_on relationships
+	// 2. Check entity_relationships table for outgoing depends_on relationships
 	relQuery := `
-		SELECT t.status FROM task_relationships tr
-		JOIN tasks t ON t.id = tr.to_task_id
-		WHERE tr.from_task_id = ? AND tr.relationship_type = 'depends_on'
+		SELECT t.status FROM entity_relationships er
+		JOIN tasks t ON t.id = er.to_entity_id
+		WHERE er.from_entity_type = 'task' AND er.from_entity_id = ?
+		  AND er.to_entity_type = 'task'
+		  AND er.relationship_type = 'depends_on'
 	`
 	rows, err := tx.QueryContext(ctx, relQuery, task.ID)
 	if err != nil {
-		return false, fmt.Errorf("failed to query task_relationships for %s: %w", task.Key, err)
+		return false, fmt.Errorf("failed to query entity_relationships for %s: %w", task.Key, err)
 	}
 	defer rows.Close()
 

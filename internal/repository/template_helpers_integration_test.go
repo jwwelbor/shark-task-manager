@@ -53,8 +53,14 @@ func (r *testTaskRelationshipRepository) ListRelatedTaskKeys(ctx context.Context
 	query := `
 		SELECT DISTINCT t.key
 		FROM tasks t
-		JOIN task_relationships tr ON (t.id = tr.to_task_id OR t.id = tr.from_task_id)
-		WHERE (tr.from_task_id = ? OR tr.to_task_id = ?) AND t.id != ?
+		JOIN entity_relationships er ON (
+			(er.from_entity_type = 'task' AND er.from_entity_id = t.id)
+			OR (er.to_entity_type = 'task' AND er.to_entity_id = t.id)
+		)
+		WHERE (
+			(er.from_entity_type = 'task' AND er.from_entity_id = ?)
+			OR (er.to_entity_type = 'task' AND er.to_entity_id = ?)
+		) AND t.id != ?
 		ORDER BY t.key
 	`
 	rows, err := r.db.QueryContext(ctx, query, taskID, taskID, taskID)
@@ -194,9 +200,9 @@ func TestIntegrationTemplateTaskWithRelatedTasks(t *testing.T) {
 	relatedTask1ID := templateCreateTask(t, database, featureID, epicID, "TMPL-E02-F01-002", "Related Task 1")
 	relatedTask2ID := templateCreateTask(t, database, featureID, epicID, "TMPL-E02-F01-003", "Related Task 2")
 
-	// Create relationships from main task to related tasks
+	// Create relationships from main task to related tasks (using entity_relationships)
 	_, err := database.Exec(
-		`INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, ?)`,
+		`INSERT INTO entity_relationships (from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type) VALUES ('task', ?, 'task', ?, ?)`,
 		taskID, relatedTask1ID, "depends_on",
 	)
 	if err != nil {
@@ -204,7 +210,7 @@ func TestIntegrationTemplateTaskWithRelatedTasks(t *testing.T) {
 	}
 
 	_, err = database.Exec(
-		`INSERT INTO task_relationships (from_task_id, to_task_id, relationship_type) VALUES (?, ?, ?)`,
+		`INSERT INTO entity_relationships (from_entity_type, from_entity_id, to_entity_type, to_entity_id, relationship_type) VALUES ('task', ?, 'task', ?, ?)`,
 		taskID, relatedTask2ID, "blocks",
 	)
 	if err != nil {

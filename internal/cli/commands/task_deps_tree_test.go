@@ -41,22 +41,22 @@ func (m *MockTaskRepositoryForTree) AddTask(task *models.Task) {
 	m.tasks[task.Key] = task
 }
 
-// MockRelationshipRepositoryForTree is a mock for testing tree visualization
+// MockRelationshipRepositoryForTree is a mock for testing tree visualization.
+// It uses entity_relationships semantics (EntityRelationship with entity type/id fields).
 type MockRelationshipRepositoryForTree struct {
-	relationships []*models.TaskRelationship
+	relationships []*models.EntityRelationship
 }
 
 func NewMockRelationshipRepositoryForTree() *MockRelationshipRepositoryForTree {
 	return &MockRelationshipRepositoryForTree{
-		relationships: []*models.TaskRelationship{},
+		relationships: []*models.EntityRelationship{},
 	}
 }
 
-func (m *MockRelationshipRepositoryForTree) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-	var result []*models.TaskRelationship
+func (m *MockRelationshipRepositoryForTree) GetOutgoing(ctx context.Context, taskID int64, relTypes []string) ([]*models.EntityRelationship, error) {
+	var result []*models.EntityRelationship
 	for _, rel := range m.relationships {
-		if rel.FromTaskID == taskID {
-			// Filter by relationship types if specified
+		if rel.FromEntityType == models.EntityTypeTask && rel.FromEntityID == taskID {
 			if len(relTypes) > 0 {
 				for _, relType := range relTypes {
 					if string(rel.RelationshipType) == relType {
@@ -72,11 +72,10 @@ func (m *MockRelationshipRepositoryForTree) GetOutgoing(ctx context.Context, tas
 	return result, nil
 }
 
-func (m *MockRelationshipRepositoryForTree) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.TaskRelationship, error) {
-	var result []*models.TaskRelationship
+func (m *MockRelationshipRepositoryForTree) GetIncoming(ctx context.Context, taskID int64, relTypes []string) ([]*models.EntityRelationship, error) {
+	var result []*models.EntityRelationship
 	for _, rel := range m.relationships {
-		if rel.ToTaskID == taskID {
-			// Filter by relationship types if specified
+		if rel.ToEntityType == models.EntityTypeTask && rel.ToEntityID == taskID {
 			if len(relTypes) > 0 {
 				for _, relType := range relTypes {
 					if string(rel.RelationshipType) == relType {
@@ -92,8 +91,14 @@ func (m *MockRelationshipRepositoryForTree) GetIncoming(ctx context.Context, tas
 	return result, nil
 }
 
-func (m *MockRelationshipRepositoryForTree) AddRelationship(rel *models.TaskRelationship) {
-	m.relationships = append(m.relationships, rel)
+func (m *MockRelationshipRepositoryForTree) AddRelationship(fromID, toID int64, relType models.EntityRelationshipType) {
+	m.relationships = append(m.relationships, &models.EntityRelationship{
+		FromEntityType:   models.EntityTypeTask,
+		FromEntityID:     fromID,
+		ToEntityType:     models.EntityTypeTask,
+		ToEntityID:       toID,
+		RelationshipType: relType,
+	})
 }
 
 // TestBuildDependencyTreeSimple tests building a simple dependency tree
@@ -124,20 +129,10 @@ func TestBuildDependencyTreeSimple(t *testing.T) {
 	taskRepo.AddTask(task3)
 
 	// T2 depends on T1
-	relRepo.AddRelationship(&models.TaskRelationship{
-		ID:               1,
-		FromTaskID:       2,
-		ToTaskID:         1,
-		RelationshipType: models.RelationshipDependsOn,
-	})
+	relRepo.AddRelationship(2, 1, models.EntityRelationshipType(models.RelDependsOn))
 
 	// T3 depends on T2
-	relRepo.AddRelationship(&models.TaskRelationship{
-		ID:               2,
-		FromTaskID:       3,
-		ToTaskID:         2,
-		RelationshipType: models.RelationshipDependsOn,
-	})
+	relRepo.AddRelationship(3, 2, models.EntityRelationshipType(models.RelDependsOn))
 
 	// Build tree for T3
 	var taskRepoInterface TaskRepositoryInterfaceWithID = taskRepo
@@ -184,24 +179,9 @@ func TestBuildDependencyTreeMultipleDeps(t *testing.T) {
 	taskRepo.AddTask(task4)
 
 	// T4 depends on T1, T2, T3
-	relRepo.AddRelationship(&models.TaskRelationship{
-		ID:               1,
-		FromTaskID:       4,
-		ToTaskID:         1,
-		RelationshipType: models.RelationshipDependsOn,
-	})
-	relRepo.AddRelationship(&models.TaskRelationship{
-		ID:               2,
-		FromTaskID:       4,
-		ToTaskID:         2,
-		RelationshipType: models.RelationshipDependsOn,
-	})
-	relRepo.AddRelationship(&models.TaskRelationship{
-		ID:               3,
-		FromTaskID:       4,
-		ToTaskID:         3,
-		RelationshipType: models.RelationshipDependsOn,
-	})
+	relRepo.AddRelationship(4, 1, models.EntityRelationshipType(models.RelDependsOn))
+	relRepo.AddRelationship(4, 2, models.EntityRelationshipType(models.RelDependsOn))
+	relRepo.AddRelationship(4, 3, models.EntityRelationshipType(models.RelDependsOn))
 
 	// Build tree for T4
 	var taskRepoInterface TaskRepositoryInterfaceWithID = taskRepo
@@ -264,28 +244,13 @@ func TestBuildDependencyTreeCircular(t *testing.T) {
 	taskRepo.AddTask(task3)
 
 	// T1 depends on T2
-	relRepo.AddRelationship(&models.TaskRelationship{
-		ID:               1,
-		FromTaskID:       1,
-		ToTaskID:         2,
-		RelationshipType: models.RelationshipDependsOn,
-	})
+	relRepo.AddRelationship(1, 2, models.EntityRelationshipType(models.RelDependsOn))
 
 	// T2 depends on T3
-	relRepo.AddRelationship(&models.TaskRelationship{
-		ID:               2,
-		FromTaskID:       2,
-		ToTaskID:         3,
-		RelationshipType: models.RelationshipDependsOn,
-	})
+	relRepo.AddRelationship(2, 3, models.EntityRelationshipType(models.RelDependsOn))
 
 	// T3 depends on T1 (creates cycle)
-	relRepo.AddRelationship(&models.TaskRelationship{
-		ID:               3,
-		FromTaskID:       3,
-		ToTaskID:         1,
-		RelationshipType: models.RelationshipDependsOn,
-	})
+	relRepo.AddRelationship(3, 1, models.EntityRelationshipType(models.RelDependsOn))
 
 	// Build tree for T1 - should stop at circular reference
 	var taskRepoInterface TaskRepositoryInterfaceWithID = taskRepo

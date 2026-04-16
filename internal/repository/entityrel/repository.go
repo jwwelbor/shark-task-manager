@@ -132,41 +132,25 @@ func (r *EntityRelationshipRepository) GetOutgoing(
 	entityID int64,
 	relTypes []models.EntityRelationshipType,
 ) ([]*models.EntityRelationship, error) {
-	if len(relTypes) == 0 {
-		rows, err := r.db.QueryContext(ctx,
-			`SELECT id, from_entity_type, from_entity_id,
-			        to_entity_type, to_entity_id, relationship_type, created_at
-			 FROM entity_relationships
-			 WHERE from_entity_type = ? AND from_entity_id = ?
-			 ORDER BY created_at ASC`,
-			entityType, entityID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query outgoing relationships: %w", err)
+	args := []interface{}{entityType, entityID}
+	filterClause := ""
+	if len(relTypes) > 0 {
+		placeholders := make([]string, len(relTypes))
+		for i, rt := range relTypes {
+			placeholders[i] = "?"
+			args = append(args, rt)
 		}
-		defer rows.Close()
-		return r.scanRelationships(rows)
+		filterClause = fmt.Sprintf("AND relationship_type IN (%s)", strings.Join(placeholders, ","))
 	}
-
-	placeholders := make([]string, len(relTypes))
-	args := make([]interface{}, 0, 2+len(relTypes))
-	args = append(args, entityType, entityID)
-	for i, rt := range relTypes {
-		placeholders[i] = "?"
-		args = append(args, rt)
-	}
-
 	query := fmt.Sprintf(`
 		SELECT id, from_entity_type, from_entity_id,
 		       to_entity_type, to_entity_id, relationship_type, created_at
 		FROM entity_relationships
-		WHERE from_entity_type = ? AND from_entity_id = ?
-		  AND relationship_type IN (%s)
-		ORDER BY created_at ASC
-	`, strings.Join(placeholders, ","))
-
+		WHERE from_entity_type = ? AND from_entity_id = ? %s
+		ORDER BY created_at ASC`, filterClause)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query outgoing relationships by type: %w", err)
+		return nil, fmt.Errorf("failed to query outgoing relationships: %w", err)
 	}
 	defer rows.Close()
 	return r.scanRelationships(rows)
@@ -179,41 +163,25 @@ func (r *EntityRelationshipRepository) GetIncoming(
 	entityID int64,
 	relTypes []models.EntityRelationshipType,
 ) ([]*models.EntityRelationship, error) {
-	if len(relTypes) == 0 {
-		rows, err := r.db.QueryContext(ctx,
-			`SELECT id, from_entity_type, from_entity_id,
-			        to_entity_type, to_entity_id, relationship_type, created_at
-			 FROM entity_relationships
-			 WHERE to_entity_type = ? AND to_entity_id = ?
-			 ORDER BY created_at ASC`,
-			entityType, entityID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query incoming relationships: %w", err)
+	args := []interface{}{entityType, entityID}
+	filterClause := ""
+	if len(relTypes) > 0 {
+		placeholders := make([]string, len(relTypes))
+		for i, rt := range relTypes {
+			placeholders[i] = "?"
+			args = append(args, rt)
 		}
-		defer rows.Close()
-		return r.scanRelationships(rows)
+		filterClause = fmt.Sprintf("AND relationship_type IN (%s)", strings.Join(placeholders, ","))
 	}
-
-	placeholders := make([]string, len(relTypes))
-	args := make([]interface{}, 0, 2+len(relTypes))
-	args = append(args, entityType, entityID)
-	for i, rt := range relTypes {
-		placeholders[i] = "?"
-		args = append(args, rt)
-	}
-
 	query := fmt.Sprintf(`
 		SELECT id, from_entity_type, from_entity_id,
 		       to_entity_type, to_entity_id, relationship_type, created_at
 		FROM entity_relationships
-		WHERE to_entity_type = ? AND to_entity_id = ?
-		  AND relationship_type IN (%s)
-		ORDER BY created_at ASC
-	`, strings.Join(placeholders, ","))
-
+		WHERE to_entity_type = ? AND to_entity_id = ? %s
+		ORDER BY created_at ASC`, filterClause)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query incoming relationships by type: %w", err)
+		return nil, fmt.Errorf("failed to query incoming relationships: %w", err)
 	}
 	defer rows.Close()
 	return r.scanRelationships(rows)
@@ -285,6 +253,116 @@ func (a *EntityRelTaskKeyAdapter) ListRelatedTaskKeys(ctx context.Context, taskI
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating task keys: %w", err)
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	return keys, nil
+}
+
+// EntityRelFeatureKeyAdapter implements config.FeatureRelationshipRepository using
+// entity_relationships instead of the legacy feature_relationships table.
+// It satisfies the ListRelatedFeatureKeys interface used by template_helpers.go.
+type EntityRelFeatureKeyAdapter struct {
+	db *dbconn.DB
+}
+
+// NewEntityRelFeatureKeyAdapter creates a new adapter that queries entity_relationships
+// for feature-to-feature relationships.
+func NewEntityRelFeatureKeyAdapter(db *dbconn.DB) *EntityRelFeatureKeyAdapter {
+	return &EntityRelFeatureKeyAdapter{db: db}
+}
+
+// ListRelatedFeatures returns all feature keys related to a given feature (bidirectional)
+// by querying the entity_relationships table for feature-to-feature relationships.
+// This satisfies config.FeatureRelationshipRepository interface (ListRelatedFeatures).
+func (a *EntityRelFeatureKeyAdapter) ListRelatedFeatures(ctx context.Context, featureID int64) ([]string, error) {
+	return a.ListRelatedFeatureKeys(ctx, featureID)
+}
+
+// ListRelatedFeatureKeys returns all feature keys related to a given feature (bidirectional)
+// by querying the entity_relationships table for feature-to-feature relationships.
+func (a *EntityRelFeatureKeyAdapter) ListRelatedFeatureKeys(ctx context.Context, featureID int64) ([]string, error) {
+	query := `
+		SELECT DISTINCT f.key
+		FROM entity_relationships er
+		JOIN features f ON (
+			(er.from_entity_type = 'feature' AND er.from_entity_id = ? AND er.to_entity_type = 'feature' AND er.to_entity_id = f.id AND f.id != ?) OR
+			(er.to_entity_type = 'feature' AND er.to_entity_id = ? AND er.from_entity_type = 'feature' AND er.from_entity_id = f.id AND f.id != ?)
+		)
+		ORDER BY f.key ASC
+	`
+	rows, err := a.db.QueryContext(ctx, query, featureID, featureID, featureID, featureID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list related feature keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("failed to scan feature key: %w", err)
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating feature keys: %w", err)
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	return keys, nil
+}
+
+// EntityRelEpicKeyAdapter implements config.EpicRelationshipRepository using
+// entity_relationships instead of the legacy epic_relationships table.
+// It satisfies the ListRelatedEpicKeys interface used by template_helpers.go.
+type EntityRelEpicKeyAdapter struct {
+	db *dbconn.DB
+}
+
+// NewEntityRelEpicKeyAdapter creates a new adapter that queries entity_relationships
+// for epic-to-epic relationships.
+func NewEntityRelEpicKeyAdapter(db *dbconn.DB) *EntityRelEpicKeyAdapter {
+	return &EntityRelEpicKeyAdapter{db: db}
+}
+
+// ListRelatedEpics returns all epic keys related to a given epic (bidirectional)
+// by querying the entity_relationships table for epic-to-epic relationships.
+// This satisfies config.EpicRelationshipRepository interface (ListRelatedEpics).
+func (a *EntityRelEpicKeyAdapter) ListRelatedEpics(ctx context.Context, epicID int64) ([]string, error) {
+	return a.ListRelatedEpicKeys(ctx, epicID)
+}
+
+// ListRelatedEpicKeys returns all epic keys related to a given epic (bidirectional)
+// by querying the entity_relationships table for epic-to-epic relationships.
+func (a *EntityRelEpicKeyAdapter) ListRelatedEpicKeys(ctx context.Context, epicID int64) ([]string, error) {
+	query := `
+		SELECT DISTINCT e.key
+		FROM entity_relationships er
+		JOIN epics e ON (
+			(er.from_entity_type = 'epic' AND er.from_entity_id = ? AND er.to_entity_type = 'epic' AND er.to_entity_id = e.id AND e.id != ?) OR
+			(er.to_entity_type = 'epic' AND er.to_entity_id = ? AND er.from_entity_type = 'epic' AND er.from_entity_id = e.id AND e.id != ?)
+		)
+		ORDER BY e.key ASC
+	`
+	rows, err := a.db.QueryContext(ctx, query, epicID, epicID, epicID, epicID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list related epic keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("failed to scan epic key: %w", err)
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating epic keys: %w", err)
 	}
 	if keys == nil {
 		keys = []string{}
