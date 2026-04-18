@@ -47,6 +47,18 @@ func (i *Initializer) createConfig(opts InitOptions) (bool, error) {
 			SkipMigrations: false,
 		},
 		WorkflowConfig: "shark-templates/.sharkworkflow-short.json",
+		Observability: &ObservabilityConfigDefault{
+			Enabled:        false,
+			TracingEnabled: false,
+			MetricsEnabled: false,
+			LogLevel:       "info",
+			LogFormat:      "json",
+			LogFile:        "",
+			Exporter:       "stdout",
+			OTLPEndpoint:   "",
+			OTLPProtocol:   "grpc",
+			ServiceName:    "shark-task-manager",
+		},
 	}
 
 	// Marshal to JSON without HTML escaping for readability

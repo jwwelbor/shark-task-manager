@@ -125,6 +125,31 @@ func TestCreateConfig(t *testing.T) {
 			if cfg.Database.SkipMigrations {
 				t.Errorf("Database.SkipMigrations = true, want false")
 			}
+			if cfg.Observability == nil {
+				t.Fatal("Observability section missing")
+			}
+			if cfg.Observability.Enabled {
+				t.Errorf("Observability.Enabled = true, want false (scaffolded disabled)")
+			}
+			if cfg.Observability.TracingEnabled {
+				t.Errorf("Observability.TracingEnabled = true, want false")
+			}
+			if cfg.Observability.MetricsEnabled {
+				t.Errorf("Observability.MetricsEnabled = true, want false")
+			}
+			if cfg.Observability.LogLevel != "info" {
+				t.Errorf("Observability.LogLevel = %q, want %q", cfg.Observability.LogLevel, "info")
+			}
+			if cfg.Observability.LogFormat != "json" {
+				t.Errorf("Observability.LogFormat = %q, want %q", cfg.Observability.LogFormat, "json")
+			}
+			if cfg.Observability.ServiceName != "shark-task-manager" {
+				t.Errorf("Observability.ServiceName = %q, want %q", cfg.Observability.ServiceName, "shark-task-manager")
+			}
+			// Test Plan case 9: log_file field is present and empty in scaffold.
+			if cfg.Observability.LogFile != "" {
+				t.Errorf("Observability.LogFile = %q, want %q (empty string)", cfg.Observability.LogFile, "")
+			}
 		})
 	}
 }
@@ -213,6 +238,7 @@ func TestCreateConfigShape(t *testing.T) {
 		"require_rejection_reason",
 		"database",
 		"workflow_config",
+		"observability",
 	}
 	for _, field := range requiredFields {
 		if _, exists := actual[field]; !exists {
@@ -226,5 +252,18 @@ func TestCreateConfigShape(t *testing.T) {
 	}
 	if _, exists := actual["patterns"]; exists {
 		t.Error("Config should not contain patterns field")
+	}
+
+	// Test Plan case 10: "log_file" key present in the observability object.
+	obsRaw, ok := actual["observability"]
+	if !ok {
+		t.Fatal("Config missing observability field")
+	}
+	obsMap, ok := obsRaw.(map[string]interface{})
+	if !ok {
+		t.Fatalf("observability field is not a JSON object, got %T", obsRaw)
+	}
+	if _, exists := obsMap["log_file"]; !exists {
+		t.Error("observability object missing required key: log_file")
 	}
 }
