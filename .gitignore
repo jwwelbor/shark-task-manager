@@ -55,3 +55,6 @@ bin/server
 bin/shark
 /server
 /shark
+code_review/
+task_reviews/
+qa_reports/
