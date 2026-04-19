@@ -58,11 +58,52 @@ func runRun(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	entityKey := args[0]
 
+	// ── Observability: generate run_id and emit run.start / run.end (T-E07-F41-002) ──
+	//
+	// Load observability config. Non-fatal: if config is unavailable the emitters
+	// are no-ops (obs.Enabled defaults to false).
+	var obs config.ObservabilityConfig
+	if cfg, cfgErr := cli.GetConfig(); cfgErr == nil {
+		obs = cfg.GetObservability()
+	}
+
+	runID := generateRunID()
+
 	// Step 1: Detect entity type from key format.
 	entityType, normalizedKey, err := ParseGetArgs(args)
 	if err != nil {
 		return fmt.Errorf("invalid entity key %q: %w", entityKey, err)
 	}
+
+	// Emit run.start now that we know entity_type.
+	emitRunStart(obs, runStartParams{
+		Args:         args,
+		EntityKey:    normalizedKey,
+		EntityType:   entityType,
+		DryRun:       runDryRun,
+		Worktree:     runWorktree,
+		WorktreePath: runWorkDir,
+		RunID:        runID,
+	})
+
+	// run.end is deferred so it fires on every return path (AC-T3).
+	// We use a pointer to a *RunResult so the defer closure captures the
+	// final value written by the controller. durationStart captures wall time.
+	var runResult *runner.RunResult
+	runStart := time.Now()
+	defer func() {
+		durationMS := time.Since(runStart).Milliseconds()
+		r := runResult
+		if r == nil {
+			// Error return before controller ran; emit a minimal failed event.
+			r = &runner.RunResult{
+				EntityKey: normalizedKey,
+				Outcome:   "failed",
+				Error:     "run did not complete",
+			}
+		}
+		emitRunEnd(ctx, obs, runID, r, durationMS)
+	}()
 
 	// Step 2: Build entity-type adapters.
 	transitioner, err := buildTransitioner(ctx, entityType)
@@ -122,12 +163,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 		DryRun:     runDryRun,
 		Verbose:    runVerbose,
 		WorkingDir: workingDir,
+		RunID:      runID,
 	}
 
 	result, err := controller.Run(ctx, normalizedKey, opts)
 	if err != nil {
 		return fmt.Errorf("run failed for %s: %w", normalizedKey, err)
 	}
+	runResult = result // captured for deferred run.end emitter
 
 	// Step 7: Format output.
 	if cli.GlobalConfig.JSON {

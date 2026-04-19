@@ -24,6 +24,12 @@ type RunOptions struct {
 
 	// WorkingDir is an optional working directory override for agent processes.
 	WorkingDir string
+
+	// RunID is a correlation identifier generated once at the top of runRun.
+	// It is threaded through all stage events so a single run can be grepped
+	// from shark.log. Set by the caller (run.go); the controller stores it for
+	// downstream use by per-stage slog events (T-E07-F41-003).
+	RunID string
 }
 
 // RunResult captures the outcome of a run loop execution.
