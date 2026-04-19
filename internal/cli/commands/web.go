@@ -132,17 +132,28 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// --- 3. Build server options and ready channel ---------------------------
+	// --- 3. Resolve project root ---------------------------------------------
+
+	// The viewer serves files from disk (Files tab) relative to the project
+	// root. Without this, the server would fall back to the process CWD and
+	// fail to locate docs/ when `shark web` is launched from a subdirectory.
+	projectRoot, err := cli.FindProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to find project root: %w", err)
+	}
+
+	// --- 4. Build server options and ready channel ---------------------------
 
 	readyCh := make(chan struct{})
 
 	opts := viewerserver.Options{
-		Addr:  fmt.Sprintf("127.0.0.1:%d", port),
-		DB:    db,
-		Ready: readyCh,
+		Addr:        fmt.Sprintf("127.0.0.1:%d", port),
+		DB:          db,
+		ProjectRoot: projectRoot,
+		Ready:       readyCh,
 	}
 
-	// --- 4. Start server in a goroutine, wait for ready ---------------------
+	// --- 5. Start server in a goroutine, wait for ready ---------------------
 
 	// Create a cancellable context so we can shut down on OS signal.
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -166,13 +177,13 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		// Server is ready.
 	}
 
-	// --- 5. Print URL and hint -----------------------------------------------
+	// --- 6. Print URL and hint -----------------------------------------------
 
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	fmt.Printf("Shark viewer running at %s\n", url)
 	fmt.Println("Press Ctrl+C to stop")
 
-	// --- 6. Optionally open browser ------------------------------------------
+	// --- 7. Optionally open browser ------------------------------------------
 
 	if !webNoOpen {
 		if err := openBrowser(url); err != nil {
@@ -180,7 +191,7 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// --- 7. Block until context is cancelled (Ctrl-C / SIGTERM) -------------
+	// --- 8. Block until context is cancelled (Ctrl-C / SIGTERM) -------------
 
 	select {
 	case err := <-srvErr:
