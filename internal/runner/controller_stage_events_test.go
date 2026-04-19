@@ -750,9 +750,9 @@ func TestController_NoEventsWhenObservabilityDisabled(t *testing.T) {
 // the dispatcher's BuildCommand returns a command string larger than the
 // dispatch command cap, run.stage.dispatch emits:
 //   - `command` attribute whose byte-length is exactly dispatchCommandMaxBytes
-//     (1024 — the tail of the original string, because the back of the
-//     string carries the most operator-useful content: flags and the
-//     beginning of the instruction argv token).
+//     (1024 — the prefix of the original string, because the front of the
+//     string carries the most operator-useful content: the binary name and
+//     key flags).
 //   - `truncated` attribute present and equal to true.
 //
 // This exercises the 1024-byte hard cap on the successful-dispatch `command`
@@ -762,11 +762,11 @@ func TestController_StageDispatch_CommandTruncatedToBudget(t *testing.T) {
 	buf := captureSlog(t)
 
 	// Build a 20 KB command string. We prefix it with a marker that MUST
-	// NOT appear in the logged command (truncation keeps the tail), and
-	// suffix it with a marker that MUST appear (it survives tail preservation).
+	// appear in the logged command (truncation keeps the prefix), and
+	// suffix it with a marker that MUST NOT appear (it is dropped).
 	const (
-		prefixMarker = "PREFIX-THAT-MUST-BE-DROPPED"
-		suffixMarker = "SUFFIX-THAT-MUST-BE-KEPT"
+		prefixMarker = "PREFIX-THAT-MUST-BE-KEPT"
+		suffixMarker = "SUFFIX-THAT-MUST-BE-DROPPED"
 		padSize      = 20 * 1024
 	)
 	bigCmd := prefixMarker + strings.Repeat("x", padSize) + suffixMarker
@@ -833,14 +833,14 @@ func TestController_StageDispatch_CommandTruncatedToBudget(t *testing.T) {
 		t.Errorf("stage.dispatch: len(command) = %d, want %d", len(gotCmd), wantLen)
 	}
 
-	// Tail preservation: suffix marker MUST be present.
-	if !strings.Contains(gotCmd, suffixMarker) {
-		t.Errorf("stage.dispatch: command should preserve tail suffix %q, not found in logged command", suffixMarker)
+	// Prefix preservation: prefix marker MUST be present.
+	if !strings.Contains(gotCmd, prefixMarker) {
+		t.Errorf("stage.dispatch: command should preserve head prefix %q, not found in logged command", prefixMarker)
 	}
-	// Head-dropped: prefix marker MUST be absent (bigCmd > budget and
-	// truncateTail keeps the last `limit` bytes).
-	if strings.Contains(gotCmd, prefixMarker) {
-		t.Errorf("stage.dispatch: command should drop head prefix %q when truncated", prefixMarker)
+	// Tail-dropped: suffix marker MUST be absent (bigCmd > budget and
+	// limitPrefix keeps the first `limit` bytes).
+	if strings.Contains(gotCmd, suffixMarker) {
+		t.Errorf("stage.dispatch: command should drop tail suffix %q when truncated", suffixMarker)
 	}
 
 	// Truncated attribute MUST be present and true when truncation occurs.

@@ -20,6 +20,7 @@ package runner
 import (
 	"context"
 	"log/slog"
+	"unicode/utf8"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 )
@@ -75,10 +76,9 @@ type stageDispatchParams struct {
 // It applies a HARD byte-budget truncation to the command string using the
 // package-level constant dispatchCommandMaxBytes (1024 bytes) — NOT
 // obs.GetLogTruncateBytes(), which is reserved for the error-path stderr
-// and stdout_tail budgets. The tail of the command is preserved
-// (truncateTail) because the most operator-useful information — the flags
-// and the beginning of the instruction argv token — sits near the end of
-// the string after the shell-quoted binary name and flag headers. The
+// and stdout_tail budgets. The prefix of the command is preserved
+// (limitPrefix) because the most operator-useful information — the binary
+// name and key flags — sits at the beginning of the string. The
 // `truncated` attribute is emitted (= true) ONLY when truncation actually
 // occurred; when no truncation happens, the attribute is omitted entirely.
 // No-ops when obs.Enabled is false.
@@ -86,7 +86,7 @@ func emitStageDispatch(ctx context.Context, obs config.ObservabilityConfig, p st
 	if !obs.Enabled {
 		return
 	}
-	command, truncated := truncateTail(p.Command, dispatchCommandMaxBytes)
+	command, truncated := limitPrefix(p.Command, dispatchCommandMaxBytes)
 
 	attrs := []any{
 		"entity_key", p.EntityKey,
@@ -201,8 +201,8 @@ func emitStageError(ctx context.Context, obs config.ObservabilityConfig, p stage
 		return
 	}
 	limit := obs.GetLogTruncateBytes()
-	stderr, tErr := truncateHead(p.Stderr, limit)
-	stdoutTail, tOut := truncateTail(p.Stdout, limit)
+	stderr, tErr := limitPrefix(p.Stderr, limit)
+	stdoutTail, tOut := limitSuffix(p.Stdout, limit)
 
 	attrs := []any{
 		"entity_key", p.EntityKey,
@@ -253,22 +253,34 @@ func emitTranscriptWarning(ctx context.Context, obs config.ObservabilityConfig, 
 	)
 }
 
-// truncateHead returns up to the first `limit` bytes of s and a flag that is
+// limitPrefix returns up to the first `limit` bytes of s and a flag that is
 // true when truncation occurred. When limit <= 0 or s is shorter than limit,
-// s is returned unchanged and the flag is false.
-func truncateHead(s string, limit int) (string, bool) {
+// s is returned unchanged and the flag is false. The result is guaranteed to
+// be valid UTF-8: if the byte-cut lands inside a multi-byte rune, the partial
+// rune at the end is dropped.
+func limitPrefix(s string, limit int) (string, bool) {
 	if limit <= 0 || len(s) <= limit {
 		return s, false
 	}
-	return s[:limit], true
+	i := limit
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return s[:i], true
 }
 
-// truncateTail returns up to the last `limit` bytes of s and a flag that is
+// limitSuffix returns up to the last `limit` bytes of s and a flag that is
 // true when truncation occurred. When limit <= 0 or s is shorter than limit,
-// s is returned unchanged and the flag is false.
-func truncateTail(s string, limit int) (string, bool) {
+// s is returned unchanged and the flag is false. The result is guaranteed to
+// be valid UTF-8: if the byte-cut lands inside a multi-byte rune, the partial
+// rune at the beginning is dropped.
+func limitSuffix(s string, limit int) (string, bool) {
 	if limit <= 0 || len(s) <= limit {
 		return s, false
 	}
-	return s[len(s)-limit:], true
+	i := len(s) - limit
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return s[i:], true
 }
