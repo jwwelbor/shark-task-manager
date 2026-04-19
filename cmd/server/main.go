@@ -35,7 +35,14 @@ func main() {
 			}
 		}()
 	}
-	observability.InitLogger(cfg)
+	logCloser := observability.InitLoggerWithRoot(cfg, ".")
+	if logCloser != nil {
+		defer func() {
+			if closeErr := logCloser.Close(); closeErr != nil {
+				slog.Error("Log file close error", "error", closeErr)
+			}
+		}()
+	}
 
 	// Build a context that is cancelled on SIGINT/SIGTERM so StartServer can
 	// initiate graceful shutdown.

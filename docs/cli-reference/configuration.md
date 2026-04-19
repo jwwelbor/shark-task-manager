@@ -529,9 +529,20 @@ shark config get-status-action blocked --json
 3. **AI agents**: Set `json_output: true`, `color_enabled: false`, `interactive_mode: false`
 4. **Multi-environment**: Use `--config` flag to switch between dev/staging/prod configs
 
+## Observability
+
+The optional `observability` key in `.sharkconfig.json` configures OpenTelemetry tracing, metrics, and structured logging (including optional file-based log output via `log_file` / `SHARK_LOG_FILE`). The subsystem is disabled by default with zero overhead when the `observability` key is absent.
+
+For the complete field reference, environment variable overrides, and example configurations, see:
+
+- [Observability Developer Guide](../guides/observability.md) — usage examples, troubleshooting, and file-destination setup
+- [Observability Configuration Reference](../guides/observability-config-reference.md) — every field, every environment variable, and complete example configurations
+
 ## Related Documentation
 
 - [Workflow Configuration](workflow-configuration.md) - Workflow system reference
 - [Global Flags](global-flags.md) - CLI-level configuration flags
 - [Setup Commands](setup-commands.md) - `shark init` and related setup
 - [Turso Quickstart](../TURSO_QUICKSTART.md) - Cloud database setup
+- [Observability Developer Guide](../guides/observability.md) - OTel tracing, metrics, and structured logging
+- [Observability Configuration Reference](../guides/observability-config-reference.md) - Complete `observability.*` field reference

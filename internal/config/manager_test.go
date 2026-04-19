@@ -637,6 +637,94 @@ func TestManager_GetActionService(t *testing.T) {
 	}
 }
 
+// TestLoadConfig_ObservabilityLogFile tests that manager.Load() populates LogFile
+// from the observability.log_file key in .sharkconfig.json.
+// This is a regression test for BUG-001: log_file was not extracted from the raw
+// JSON map in the observability block, so ObservabilityConfig.LogFile was always "".
+func TestLoadConfig_ObservabilityLogFile(t *testing.T) {
+	tests := []struct {
+		name        string
+		configData  map[string]interface{}
+		wantLogFile string
+	}{
+		{
+			name: "log_file populated from JSON",
+			configData: map[string]interface{}{
+				"observability": map[string]interface{}{
+					"enabled":  true,
+					"log_file": "./shark.log",
+				},
+			},
+			wantLogFile: "./shark.log",
+		},
+		{
+			name: "absolute log_file path",
+			configData: map[string]interface{}{
+				"observability": map[string]interface{}{
+					"enabled":  true,
+					"log_file": "/var/log/shark.log",
+				},
+			},
+			wantLogFile: "/var/log/shark.log",
+		},
+		{
+			name: "empty log_file remains empty",
+			configData: map[string]interface{}{
+				"observability": map[string]interface{}{
+					"enabled":  true,
+					"log_file": "",
+				},
+			},
+			wantLogFile: "",
+		},
+		{
+			name: "log_file absent defaults to empty",
+			configData: map[string]interface{}{
+				"observability": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			wantLogFile: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, ".sharkconfig.json")
+
+			data, err := json.MarshalIndent(tt.configData, "", "  ")
+			if err != nil {
+				t.Fatalf("Failed to marshal config: %v", err)
+			}
+
+			if err := os.WriteFile(configPath, data, 0644); err != nil {
+				t.Fatalf("Failed to write config: %v", err)
+			}
+
+			// Act
+			manager := NewManager(configPath)
+			cfg, err := manager.Load()
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Load() failed: %v", err)
+			}
+
+			if cfg == nil {
+				t.Fatal("Load() returned nil config")
+			}
+
+			obs := cfg.GetObservability()
+
+			if obs.LogFile != tt.wantLogFile {
+				t.Errorf("manager.Load() LogFile = %q, want %q — log_file is not parsed from config JSON", obs.LogFile, tt.wantLogFile)
+			}
+		})
+	}
+}
+
 // TestManager_GetActionService_Caching returns same instance on multiple calls
 func TestManager_GetActionService_Caching(t *testing.T) {
 	// Arrange

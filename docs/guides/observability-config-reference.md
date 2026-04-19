@@ -14,6 +14,7 @@ Complete reference for the `observability` section of `.sharkconfig.json`.
     "metrics_enabled": false,
     "log_level": "info",
     "log_format": "json",
+    "log_file": "",
     "exporter": "stdout",
     "otlp_endpoint": "",
     "otlp_protocol": "grpc",
@@ -132,6 +133,40 @@ Accepted values (case-insensitive):
 | `text` | Human-readable `key=value` pairs. |
 
 Any unrecognized value falls back to `json`.
+
+---
+
+### `log_file`
+
+| Property | Value |
+|----------|-------|
+| Type | `string` |
+| Default | `""` (empty — log to stderr) |
+| JSON key | `log_file` |
+| Env override | `SHARK_LOG_FILE` |
+
+Optional file destination for structured log records. When empty (the default), logs are written to stderr. When non-empty and `enabled` is `true`, structured log records are written to this file in addition to the normal initialization path.
+
+**Path resolution:**
+
+- **Absolute paths** (e.g., `/var/log/shark.log`) are used as-is.
+- **Relative paths** (e.g., `./logs/shark.log` or `logs/shark.log`) are resolved against the **project root** (the directory containing `.sharkconfig.json`), not the current working directory. This keeps log file locations consistent regardless of where `shark` is invoked from.
+
+**File behavior:**
+
+- The file is opened in **append mode** (`O_APPEND | O_CREATE | O_WRONLY`) with permissions `0644`. Existing content is preserved across runs.
+- If the **parent directory does not exist**, it is created with permissions `0755` before the file is opened.
+- If the file cannot be opened (for example, a directory path, a permission denied error, or a path containing `\x00`), the logger **falls back to stderr** and the CLI continues running. The fallback is a safety measure — diagnostic observability must never prevent shark from functioning. The fallback condition is visible in the returned logger configuration.
+
+**Lifecycle:**
+
+- When `log_file` is set and observability is enabled, the opened file handle is owned by the observability container and closed during CLI shutdown via `ShutdownObservability`. Closing is idempotent — subsequent `Close()` calls return `os.ErrClosed` without side effects.
+- When observability is **disabled** (`enabled: false`), the field is ignored and no file handle is opened — even if `log_file` is set. This preserves the zero-overhead contract for users who have not opted in.
+
+**Security:**
+
+- Because logs may contain sensitive contextual data, place log files in directories with appropriate access controls (for example, outside world-readable paths).
+- The absolute path of a successfully opened log file is surfaced by `InitLoggerWithRoot`; avoid logging that path to stdout or including it in `--json` command output.
 
 ---
 
@@ -278,6 +313,7 @@ All environment variables are applied at runtime after reading `.sharkconfig.jso
 | `SHARK_OTEL_ENABLED` | `enabled` | `true`, `false`, `1`, `0` (any value accepted by `strconv.ParseBool`) |
 | `SHARK_LOG_LEVEL` | `log_level` | `debug`, `info`, `warn`, `warning`, `error` |
 | `SHARK_LOG_FORMAT` | `log_format` | `json`, `text` |
+| `SHARK_LOG_FILE` | `log_file` | Absolute or project-root-relative file path; empty string is ignored |
 | `OTEL_SERVICE_NAME` | `service_name` | Any string |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `otlp_endpoint` | `host:port` string |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `otlp_protocol` | `grpc` |
@@ -377,6 +413,9 @@ Temporarily sample all traces to capture every span. Restore `sample_rate` after
 ### Forensic `/run` debugging — transcripts plus larger error snippets
 
 Enable transcript capture and raise the error-path truncation cap so stderr and stdout tails are more complete in `shark.log`. Use while diagnosing a flaky agent dispatch, then revert.
+### File logging — persistent log history
+
+Write structured log records to a file at a project-root-relative path. The parent directory is created automatically, and logs accumulate across runs.
 
 ```json
 {
@@ -385,7 +424,8 @@ Enable transcript capture and raise the error-path truncation cap so stderr and 
     "log_level": "info",
     "log_format": "json",
     "capture_agent_transcripts": true,
-    "log_truncate_bytes": 16384
+    "log_truncate_bytes": 16384,
+    "log_file": "./logs/shark.log"
   }
 }
 ```
@@ -394,6 +434,13 @@ With this configuration:
 - Every agent dispatch produces a file at `.shark/runs/{run_id}/{stage_n}-{status}-{provider}.log` containing the full command, exit code, duration, stdout, and stderr.
 - `run.stage.error` events in `shark.log` include up to 16 KB each of `stderr` (head) and `stdout_tail` (tail) before truncation markers appear.
 - Successful `run.stage.dispatch` events remain bounded by the independent 1024-byte `command` cap (REQ-F-010).
+
+Override the destination per-run without editing the config:
+```bash
+SHARK_LOG_FILE=/var/log/shark/today.log shark task list
+```
+
+If the configured file cannot be opened, shark automatically falls back to stderr and continues running — the CLI is never blocked by log-file failures.
 
 ---
 

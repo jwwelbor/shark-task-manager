@@ -2,7 +2,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jwwelbor/shark-task-manager/internal/config"
@@ -243,6 +246,129 @@ func TestInitObservability_FailureIsNonFatal(t *testing.T) {
 	// Create span and metric to verify they don't panic
 	_, span := tracer.Start(context.Background(), "test")
 	span.End()
+}
+
+// TestShutdownObservability_ClosesLogFile verifies that when log_file is
+// configured, the file descriptor opened by InitLoggerWithRoot is closed
+// as part of ShutdownObservability. This is test plan case 8 from
+// E07-F40 and covers AC-T3.
+//
+// Strategy: configure an absolute log file path, call InitObservability,
+// emit a log record to force writes, then call ShutdownObservability.
+// After shutdown, writing to the same file descriptor (captured via a
+// helper that inspects the container) must fail with os.ErrClosed.
+func TestShutdownObservability_ClosesLogFile(t *testing.T) {
+	ResetObservability()
+	defer ResetObservability()
+
+	// Use temp directory so test does not litter the project root.
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "shark.log")
+
+	cfg := config.ObservabilityConfig{
+		Enabled:   true,
+		LogLevel:  "info",
+		LogFormat: "json",
+		LogFile:   logPath,
+	}
+
+	if err := InitObservability(cfg); err != nil {
+		t.Fatalf("InitObservability should not error, got: %v", err)
+	}
+
+	// The container must now hold a non-nil logFile closer.
+	c := loadObsContainer()
+	if c.logFile == nil {
+		t.Fatal("expected obsContainer.logFile to be non-nil after InitObservability with log_file set")
+	}
+
+	// Keep a reference to the closer so we can assert it's closed after shutdown.
+	closerBefore := c.logFile
+
+	if err := ShutdownObservability(); err != nil {
+		t.Fatalf("ShutdownObservability should not error, got: %v", err)
+	}
+
+	// After shutdown, calling Close() again on the same descriptor must return
+	// os.ErrClosed (file was already closed by ShutdownObservability).
+	closeErr := closerBefore.Close()
+	if closeErr == nil {
+		t.Fatal("expected closerBefore.Close() to return os.ErrClosed after shutdown, got nil")
+	}
+	if !errors.Is(closeErr, os.ErrClosed) {
+		t.Errorf("expected os.ErrClosed after shutdown, got: %v", closeErr)
+	}
+
+	// Container's logFile must also be cleared so subsequent shutdown calls don't
+	// double-close the descriptor.
+	if c.logFile != nil {
+		t.Errorf("expected obsContainer.logFile to be nil after ShutdownObservability, got non-nil")
+	}
+}
+
+// TestShutdownObservability_LogFileCloseIsIdempotent verifies that calling
+// ShutdownObservability multiple times when a log file was opened does not
+// return an error on subsequent calls (os.ErrClosed suppressed or logFile
+// nilled out on first close).
+func TestShutdownObservability_LogFileCloseIsIdempotent(t *testing.T) {
+	ResetObservability()
+	defer ResetObservability()
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "idempotent.log")
+
+	cfg := config.ObservabilityConfig{
+		Enabled: true,
+		LogFile: logPath,
+	}
+
+	if err := InitObservability(cfg); err != nil {
+		t.Fatalf("InitObservability should not error, got: %v", err)
+	}
+
+	if err := ShutdownObservability(); err != nil {
+		t.Fatalf("first ShutdownObservability should not error, got: %v", err)
+	}
+	if err := ShutdownObservability(); err != nil {
+		t.Fatalf("second ShutdownObservability should not error, got: %v", err)
+	}
+}
+
+// TestResetObservability_ClosesLogFile verifies that ResetObservability
+// closes any open log file descriptor (AC-T4). Tests must be able to reset
+// state without leaking file descriptors between cases.
+func TestResetObservability_ClosesLogFile(t *testing.T) {
+	ResetObservability()
+	defer ResetObservability()
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "reset.log")
+
+	cfg := config.ObservabilityConfig{
+		Enabled: true,
+		LogFile: logPath,
+	}
+
+	if err := InitObservability(cfg); err != nil {
+		t.Fatalf("InitObservability should not error, got: %v", err)
+	}
+
+	c := loadObsContainer()
+	if c.logFile == nil {
+		t.Fatal("expected obsContainer.logFile to be non-nil after InitObservability with log_file set")
+	}
+	closerBefore := c.logFile
+
+	ResetObservability()
+
+	// After reset, the previous closer must report already closed.
+	closeErr := closerBefore.Close()
+	if closeErr == nil {
+		t.Fatal("expected closerBefore.Close() to return os.ErrClosed after reset, got nil")
+	}
+	if !errors.Is(closeErr, os.ErrClosed) {
+		t.Errorf("expected os.ErrClosed after reset, got: %v", closeErr)
+	}
 }
 
 func TestResetObservability_ReinstallsNoopProviders(t *testing.T) {
