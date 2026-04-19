@@ -2,6 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +27,11 @@ type obsContainer struct {
 	initErr      error
 	cmdMetrics   observability.CommandMetrics
 	cmdStartTime time.Time
+	// logFile holds the io.Closer returned by observability.InitLoggerWithRoot
+	// when cfg.LogFile is set and the file was opened successfully. It is closed
+	// by ShutdownObservability and ResetObservability, then set back to nil to
+	// make repeat shutdown calls safe (no double-close).
+	logFile io.Closer
 }
 
 // globalObsContainer is accessed only through loadObsContainer / storeObsContainer.
@@ -64,8 +72,17 @@ func InitObservability(cfg config.ObservabilityConfig) error {
 		// Resolve env overrides once so both logger and provider see the same config
 		observability.ApplyEnvOverrides(&cfg)
 
-		// Always initialize logger first (even on failure, we need a logger)
-		observability.InitLogger(cfg)
+		// Resolve project root for relative log_file paths. Non-fatal: on error
+		// (e.g., no .sharkconfig.json found), fall back to an empty string which
+		// causes the logger to resolve relative paths against CWD.
+		projectRoot, err := FindProjectRoot()
+		if err != nil {
+			projectRoot = ""
+		}
+
+		// Always initialize logger first (even on failure, we need a logger).
+		// Capture the io.Closer so ShutdownObservability can close the log file.
+		c.logFile = observability.InitLoggerWithRoot(cfg, projectRoot)
 
 		shutdown, err := observability.InitProvider(cfg)
 		if err != nil {
@@ -86,6 +103,21 @@ func InitObservability(cfg config.ObservabilityConfig) error {
 // Called from root.go PersistentPostRunE before CloseDB().
 func ShutdownObservability() error {
 	c := loadObsContainer()
+
+	// Close the log file descriptor (if any) so we don't leak it. We do this
+	// regardless of whether c.shutdown is set -- the logger is initialized
+	// independently of the OTel provider. Clear the field after closing so
+	// repeat calls don't attempt a double-close.
+	if c.logFile != nil {
+		if err := c.logFile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			// Suppress already-closed errors (idempotent shutdown). Other errors
+			// are swallowed here because shutdown must not abort; higher layers
+			// can surface issues via log output.
+			_ = err
+		}
+		c.logFile = nil
+	}
+
 	if c.shutdown == nil {
 		return nil
 	}
@@ -101,6 +133,14 @@ func ResetObservability() {
 	c := loadObsContainer()
 	if c.shutdown != nil {
 		_ = c.shutdown(context.Background())
+	}
+	// Close any log file opened by InitLoggerWithRoot so tests don't leak
+	// file descriptors between cases. Suppress os.ErrClosed to stay idempotent.
+	if c.logFile != nil {
+		if err := c.logFile.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			_ = err
+		}
+		c.logFile = nil
 	}
 	// Swap to a fresh container
 	storeObsContainer(new(obsContainer))

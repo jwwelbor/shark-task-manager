@@ -124,6 +124,9 @@ func ApplyEnvOverrides(cfg *config.ObservabilityConfig) {
 	if v := os.Getenv("SHARK_LOG_FORMAT"); v != "" {
 		cfg.LogFormat = v
 	}
+	if v := os.Getenv("SHARK_LOG_FILE"); v != "" {
+		cfg.LogFile = v
+	}
 }
 
 func buildResource(cfg config.ObservabilityConfig) (*resource.Resource, error) {

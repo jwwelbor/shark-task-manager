@@ -210,10 +210,34 @@ func TestApplyEnvOverrides(t *testing.T) {
 			expected: config.ObservabilityConfig{LogFormat: "text"},
 		},
 		{
+			name:     "SHARK_LOG_FILE overrides log file",
+			envVars:  map[string]string{"SHARK_LOG_FILE": "/tmp/foo.log"},
+			initial:  config.ObservabilityConfig{LogFile: "original.log"},
+			expected: config.ObservabilityConfig{LogFile: "/tmp/foo.log"},
+		},
+		{
+			name:     "SHARK_LOG_FILE sets log file when initial is empty",
+			envVars:  map[string]string{"SHARK_LOG_FILE": "/var/log/shark.log"},
+			initial:  config.ObservabilityConfig{LogFile: ""},
+			expected: config.ObservabilityConfig{LogFile: "/var/log/shark.log"},
+		},
+		{
+			name:     "empty SHARK_LOG_FILE does not override",
+			envVars:  map[string]string{"SHARK_LOG_FILE": ""},
+			initial:  config.ObservabilityConfig{LogFile: "keep.log"},
+			expected: config.ObservabilityConfig{LogFile: "keep.log"},
+		},
+		{
 			name:     "unset env does not override",
 			envVars:  map[string]string{},
 			initial:  config.ObservabilityConfig{LogLevel: "warn", ServiceName: "test"},
 			expected: config.ObservabilityConfig{LogLevel: "warn", ServiceName: "test"},
+		},
+		{
+			name:     "unset SHARK_LOG_FILE preserves cfg.LogFile",
+			envVars:  map[string]string{},
+			initial:  config.ObservabilityConfig{LogFile: "from-config.log"},
+			expected: config.ObservabilityConfig{LogFile: "from-config.log"},
 		},
 		{
 			name:     "invalid SHARK_OTEL_ENABLED does not change value",
@@ -229,7 +253,7 @@ func TestApplyEnvOverrides(t *testing.T) {
 			envKeys := []string{
 				"SHARK_OTEL_ENABLED", "OTEL_EXPORTER_OTLP_ENDPOINT",
 				"OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_SERVICE_NAME",
-				"SHARK_LOG_LEVEL", "SHARK_LOG_FORMAT",
+				"SHARK_LOG_LEVEL", "SHARK_LOG_FORMAT", "SHARK_LOG_FILE",
 			}
 			for _, k := range envKeys {
 				t.Setenv(k, "")
