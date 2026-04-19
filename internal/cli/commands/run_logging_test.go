@@ -369,3 +369,166 @@ func TestRunOptions_HasRunIDField(t *testing.T) {
 		t.Errorf("RunOptions.RunID = %q, want %q", opts.RunID, "test-run-id")
 	}
 }
+
+// ─── AC-T1 gap-fill: combined run.start + run.end end-to-end flow ─────────────
+//
+// Existing tests in this file exercise emitRunStart and emitRunEnd in
+// isolation. T-E07-F41-005 AC-T1 additionally requires proof that BOTH
+// events are emitted in order, share the same run_id, and carry the
+// operator-visible fields required by REQ-F-001 / REQ-F-002, when an
+// observability-enabled run completes successfully.
+//
+// Integration seam: runRun in run.go calls emitRunStart before invoking
+// RunController.Run and calls emitRunEnd via a deferred closure after
+// the controller returns. Since the controller has its own dedicated
+// observability coverage (controller_stage_events_test.go), this test
+// simulates the seam by calling the two emitters around a constructed
+// RunResult that stands in for a successful controller return — exactly
+// what runRun does.
+
+// TestRunLogging_RunStartAndRunEnd_BothEmittedInHappyPathFlow is the
+// AC-T1 combined-flow assertion.
+//
+// The test:
+//  1. Generates a single run_id via generateRunID (the same source runRun uses).
+//  2. Emits run.start with realistic parameters.
+//  3. Simulates a successful controller return by constructing a *runner.RunResult
+//     with outcome="completed" and error="".
+//  4. Emits run.end with INFO level and a plausible duration_ms.
+//  5. Asserts BOTH events are present in the captured slog stream, in order,
+//     with identical run_id values, and with the attribute sets required by
+//     REQ-F-001 (run.start fields) and REQ-F-002 (run.end fields on success).
+//
+// If a future change drops either emitter or breaks the run_id correlation,
+// this test fails and blocks the regression.
+func TestRunLogging_RunStartAndRunEnd_BothEmittedInHappyPathFlow(t *testing.T) {
+	obs := config.ObservabilityConfig{Enabled: true}
+
+	// Single run_id spans the whole flow — this is the load-bearing property.
+	runID := generateRunID()
+	if runID == "" {
+		t.Fatal("generateRunID() returned empty string")
+	}
+
+	startParams := runStartParams{
+		Args:         []string{"E07-F01-001"},
+		EntityKey:    "E07-F01-001",
+		EntityType:   "task",
+		DryRun:       false,
+		Worktree:     true,
+		WorktreePath: "/tmp/shark-worktree/E07-F01-001",
+		RunID:        runID,
+	}
+
+	// Stand-in for a successful RunController.Run return (see runRun in run.go
+	// where the result struct is populated from ctrl.Run and passed straight
+	// through to emitRunEnd via the deferred closure).
+	endResult := &runner.RunResult{
+		EntityKey:       "E07-F01-001",
+		Outcome:         "completed",
+		FinalStatus:     "completed",
+		StagesCompleted: 1,
+		Error:           "",
+	}
+	const durationMS int64 = 123
+
+	lines := captureLog(func() {
+		emitRunStart(obs, startParams)
+		emitRunEnd(context.Background(), obs, runID, endResult, durationMS)
+	})
+
+	events := parseLogLines(t, lines)
+
+	// (1) Exactly one run.start and one run.end must be present.
+	startEv := findEvent(events, "run.start")
+	endEv := findEvent(events, "run.end")
+	if startEv == nil {
+		t.Fatalf("expected run.start in combined flow, got events: %v", events)
+	}
+	if endEv == nil {
+		t.Fatalf("expected run.end in combined flow, got events: %v", events)
+	}
+
+	// (2) Order: run.start must precede run.end in the captured stream.
+	//     We re-walk the raw slice so we assert on positional order, not just
+	//     presence, because REQ-F-001/REQ-F-002 treat them as a book-ending
+	//     pair around the controller invocation.
+	startIdx, endIdx := -1, -1
+	for i, e := range events {
+		switch e["msg"] {
+		case "run.start":
+			if startIdx == -1 {
+				startIdx = i
+			}
+		case "run.end":
+			if endIdx == -1 {
+				endIdx = i
+			}
+		}
+	}
+	if startIdx < 0 || endIdx < 0 || startIdx >= endIdx {
+		t.Errorf("expected run.start (idx=%d) to precede run.end (idx=%d)", startIdx, endIdx)
+	}
+
+	// (3) run_id correlation: both events must carry the same run_id string.
+	startRunID, _ := startEv["run_id"].(string)
+	endRunID, _ := endEv["run_id"].(string)
+	if startRunID != runID {
+		t.Errorf("run.start run_id = %q, want %q", startRunID, runID)
+	}
+	if endRunID != runID {
+		t.Errorf("run.end run_id = %q, want %q", endRunID, runID)
+	}
+	if startRunID != endRunID {
+		t.Errorf("run.start run_id (%q) must equal run.end run_id (%q) for correlation", startRunID, endRunID)
+	}
+
+	// (4) run.start REQ-F-001 attribute set.
+	wantStart := map[string]interface{}{
+		"command":       "run",
+		"entity_key":    "E07-F01-001",
+		"entity_type":   "task",
+		"dry_run":       false,
+		"worktree":      true,
+		"worktree_path": "/tmp/shark-worktree/E07-F01-001",
+	}
+	for k, want := range wantStart {
+		if got, ok := startEv[k]; !ok {
+			t.Errorf("run.start missing attribute %q", k)
+		} else if got != want {
+			t.Errorf("run.start[%q] = %v, want %v", k, got, want)
+		}
+	}
+	// args must round-trip as the same string slice.
+	argsAny, ok := startEv["args"]
+	if !ok {
+		t.Error("run.start missing attribute \"args\"")
+	} else {
+		argsSlice, ok := argsAny.([]interface{})
+		if !ok || len(argsSlice) != 1 || argsSlice[0] != "E07-F01-001" {
+			t.Errorf("run.start[\"args\"] = %v, want [\"E07-F01-001\"]", argsAny)
+		}
+	}
+
+	// (5) run.end REQ-F-002 attribute set (INFO level on success, error absent).
+	if lvl, _ := endEv["level"].(string); lvl != "INFO" {
+		t.Errorf("run.end level = %q, want INFO on success", lvl)
+	}
+	if _, hasErr := endEv["error"]; hasErr {
+		t.Errorf("run.end must NOT include \"error\" attribute on success, got: %v", endEv["error"])
+	}
+	wantEnd := map[string]interface{}{
+		"entity_key":       "E07-F01-001",
+		"outcome":          "completed",
+		"final_status":     "completed",
+		"stages_completed": float64(1), // JSON decodes int → float64
+		"duration_ms":      float64(durationMS),
+	}
+	for k, want := range wantEnd {
+		if got, ok := endEv[k]; !ok {
+			t.Errorf("run.end missing attribute %q", k)
+		} else if got != want {
+			t.Errorf("run.end[%q] = %v (%T), want %v (%T)", k, got, got, want, want)
+		}
+	}
+}

@@ -18,7 +18,9 @@ Complete reference for the `observability` section of `.sharkconfig.json`.
     "otlp_endpoint": "",
     "otlp_protocol": "grpc",
     "service_name": "shark-task-manager",
-    "sample_rate": 0
+    "sample_rate": 0,
+    "capture_agent_transcripts": false,
+    "log_truncate_bytes": 4096
   }
 }
 ```
@@ -219,6 +221,54 @@ This field has no effect when `tracing_enabled` is `false`.
 
 ---
 
+### `capture_agent_transcripts`
+
+| Property | Value |
+|----------|-------|
+| Type | `bool` |
+| Default | `false` |
+| JSON key | `capture_agent_transcripts` |
+
+Controls whether full agent stdout/stderr is written to per-dispatch transcript files under `.shark/runs/{run_id}/`. Opt-in forensic capture for `/run` invocations.
+
+When `false` (default):
+- No transcript files are written.
+- No `transcript_path` attribute appears on `run.stage.complete` or `run.stage.error` events.
+
+When `true`:
+- Every agent dispatch writes a file at `.shark/runs/{run_id}/{stage_n}-{status}-{provider}.log`.
+- The parent directory is created with mode `0755`; each file with mode `0644`.
+- `run.stage.complete` and `run.stage.error` events carry a `transcript_path` attribute relative to the project root.
+- Write failures are non-fatal: a single `run.transcript.warning` event is emitted per run and subsequent stages skip transcript writes for the remainder of that run.
+
+`.shark/runs/` is git-ignored by default (see the shipped `.gitignore`). Transcript files may contain sensitive project content; treat the directory as local-only forensic data and rotate manually.
+
+See [Agent Transcript Capture](./observability.md#agent-transcript-capture-capture_agent_transcripts) in the developer guide for the narrative behavior and file format.
+
+---
+
+### `log_truncate_bytes`
+
+| Property | Value |
+|----------|-------|
+| Type | `int` |
+| Default | `4096` |
+| JSON key | `log_truncate_bytes` |
+
+Maximum number of bytes to include from agent `stderr` and `stdout_tail` on `run.stage.error` events. Applies only to the error path for `/run` dispatch failures. When the configured value is zero or negative, the default of `4096` is used.
+
+Scope and limits:
+
+- **Applies to**: `stderr` (head-truncated) and `stdout_tail` (tail-truncated) attributes on `run.stage.error` events (REQ-F-011).
+- **Does not apply to**: the `command` attribute on the successful-dispatch `run.stage.dispatch` event. Successful dispatch uses a separate, spec-baked 1024-byte cap (`dispatchCommandMaxBytes`) under REQ-F-010 that is intentionally not configurable.
+- When truncation actually occurs on an error event, a `truncated: true` attribute is added; otherwise it is omitted.
+
+Use higher values to retain more diagnostic context at the cost of larger `shark.log` entries. Use lower values (for example `1024`) in log-volume-sensitive environments.
+
+See [Error-Event Truncation](./observability.md#error-event-truncation-log_truncate_bytes) in the developer guide for behavior details.
+
+---
+
 ## Environment Variable Reference
 
 All environment variables are applied at runtime after reading `.sharkconfig.json`. They take precedence over file-based configuration.
@@ -323,6 +373,27 @@ Temporarily sample all traces to capture every span. Restore `sample_rate` after
   }
 }
 ```
+
+### Forensic `/run` debugging — transcripts plus larger error snippets
+
+Enable transcript capture and raise the error-path truncation cap so stderr and stdout tails are more complete in `shark.log`. Use while diagnosing a flaky agent dispatch, then revert.
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "log_level": "info",
+    "log_format": "json",
+    "capture_agent_transcripts": true,
+    "log_truncate_bytes": 16384
+  }
+}
+```
+
+With this configuration:
+- Every agent dispatch produces a file at `.shark/runs/{run_id}/{stage_n}-{status}-{provider}.log` containing the full command, exit code, duration, stdout, and stderr.
+- `run.stage.error` events in `shark.log` include up to 16 KB each of `stderr` (head) and `stdout_tail` (tail) before truncation markers appear.
+- Successful `run.stage.dispatch` events remain bounded by the independent 1024-byte `command` cap (REQ-F-010).
 
 ---
 

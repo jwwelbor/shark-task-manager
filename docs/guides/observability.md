@@ -61,7 +61,9 @@ Observability is configured via the `observability` key in `.sharkconfig.json`. 
     "otlp_endpoint": "",
     "otlp_protocol": "grpc",
     "service_name": "shark-task-manager",
-    "sample_rate": 0
+    "sample_rate": 0,
+    "capture_agent_transcripts": false,
+    "log_truncate_bytes": 4096
   }
 }
 ```
@@ -80,6 +82,81 @@ Observability is configured via the `observability` key in `.sharkconfig.json`. 
 | `otlp_protocol` | string | `"grpc"` | OTLP transport protocol. Currently only `"grpc"` is supported. |
 | `service_name` | string | `"shark-task-manager"` | Service name embedded in all telemetry. |
 | `sample_rate` | float64 | `0` | Trace sampling ratio between 0.0 and 1.0 exclusive. `0` (or any value outside that range) means sample all traces (`AlwaysSample`). |
+| `capture_agent_transcripts` | bool | `false` | Opt-in forensic capture of full agent stdout/stderr under `.shark/runs/{run_id}/`. See [Agent Transcript Capture](#agent-transcript-capture-capture_agent_transcripts). |
+| `log_truncate_bytes` | int | `4096` | Cap on `stderr` and `stdout_tail` bytes emitted on `run.stage.error` events. See [Error-Event Truncation](#error-event-truncation-log_truncate_bytes). |
+
+---
+
+## `/run` Command Observability
+
+When `enabled: true`, the `shark /run` command emits structured slog events (`run.start`, `run.stage.start`, `run.stage.dispatch`, `run.stage.complete`, `run.stage.transition`, `run.stage.error`, `run.end`) so that every invocation produces a grep-friendly record of what ran, what it returned, and how long it took. Two `observability` keys control the forensic depth of those events without changing the default event set: `capture_agent_transcripts` and `log_truncate_bytes`.
+
+### Agent Transcript Capture (`capture_agent_transcripts`)
+
+**Default**: `false` (disabled). No transcript files are written and no `transcript_path` attribute appears on any event.
+
+**When to enable**: Turn this on while diagnosing a flaky agent, when the truncated stderr/stdout tail in `shark.log` is not enough, or when you need an after-the-fact audit trail of exactly what a `claude` or `codex` subprocess produced.
+
+**Directory layout and file format** (REQ-F-012):
+
+When enabled, every agent dispatch in a `/run` invocation writes one file at:
+
+```
+.shark/runs/{run_id}/{stage_n}-{status}-{provider}.log
+```
+
+- `{run_id}` is the per-invocation identifier that also appears as `run_id` on every slog event from that run (Story 5). Each run gets its own subdirectory.
+- `{stage_n}` is the 1-based stage counter within the run (so the first dispatch is `1-…`, the second is `2-…`, etc.).
+- `{status}` is the current status that drove the dispatch (for example `in_development`).
+- `{provider}` is the agent provider key (for example `anthropic` or `codex`).
+
+File contents are written verbatim in the following format (no trailing newline after `<stderr>`):
+
+```
+COMMAND: <cmd>
+EXIT: <code>
+DURATION: <ms>ms
+---STDOUT---
+<stdout>
+---STDERR---
+<stderr>
+```
+
+**Permissions**: the run directory is created with mode `0755`; each transcript file with mode `0644`.
+
+**Event correlation**: on success, `run.stage.complete` (and, on dispatch failures, `run.stage.error`) carries a `transcript_path` attribute whose value is the project-relative path of the file. Cross-reference the `run_id` attribute on the slog event with the directory name to locate the forensic record for a given stage.
+
+**Non-fatal write failures**: if the transcript directory or file cannot be created (permissions, read-only filesystem, disk full), the `/run` invocation is **not** aborted. The runner emits a single `run.transcript.warning` event the first time a write fails in the run, then sets a run-scoped latch that suppresses all further transcript write attempts for the remainder of that run. Subsequent `run.stage.complete` and `run.stage.error` events for that run therefore omit `transcript_path`. Each new `/run` invocation starts fresh with the latch cleared.
+
+**Storage and privacy**: `.shark/runs/` is git-ignored by default (see the project's shipped `.gitignore`). Transcripts may contain source code, internal file paths, and the full instruction argv passed to the agent — treat the directory as local-only forensic data. There is no automatic rotation; operators should prune old run directories manually or via external tooling.
+
+### Error-Event Truncation (`log_truncate_bytes`)
+
+**Default**: `4096` bytes. A value of `0` (or negative) is treated as the default.
+
+**Scope — error events only**: this setting caps only the `stderr` and `stdout_tail` attributes emitted on `run.stage.error` events (REQ-F-011). `stderr` is head-truncated (the first N bytes are retained so the first error message is visible); `stdout_tail` is tail-truncated (the last N bytes are retained so the output immediately preceding the exit is visible). When truncation actually occurs on an event, a `truncated: true` attribute is added; when the captured bytes already fit, the attribute is omitted.
+
+**Does not apply to the successful-dispatch `command` field**: `run.stage.dispatch` events are emitted on every dispatch, including successful ones, and carry a `command` attribute containing the full shell-equivalent invocation. That attribute is capped by a separate, spec-baked 1024-byte limit (`dispatchCommandMaxBytes`) under REQ-F-010 — **not** by `log_truncate_bytes`. The 1024-byte cap is intentional and not configurable: the successful-dispatch event is on a hot path and must stay within a ~1 KB envelope regardless of agent-instruction size. Raising or lowering `log_truncate_bytes` has no effect on that field.
+
+**Tuning**: raise `log_truncate_bytes` (for example to `16384`) when the default truncation is cutting off the root-cause portion of an agent's stderr. Lower it (for example to `1024`) in log-volume-sensitive deployments. If you need the full, untruncated output, enable `capture_agent_transcripts` instead — the on-disk transcript is never truncated.
+
+### Example — Forensic `/run` debugging
+
+Enable transcript capture and raise the error-path cap while diagnosing:
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "log_level": "info",
+    "log_format": "json",
+    "capture_agent_transcripts": true,
+    "log_truncate_bytes": 16384
+  }
+}
+```
+
+See [Observability Configuration Reference — `capture_agent_transcripts`](./observability-config-reference.md#capture_agent_transcripts) and [`log_truncate_bytes`](./observability-config-reference.md#log_truncate_bytes) for the full field reference and additional example configurations.
 
 ---
 

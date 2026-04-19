@@ -51,6 +51,9 @@ shark-tasks.*
 
 docs/workflow/activity.jsonl
 
+# Run command transcript files (E07-F41)
+.shark/runs/
+
 bin/server
 bin/shark
 /server

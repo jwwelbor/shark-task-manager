@@ -352,6 +352,13 @@ func (m *MockDispatcher) WithDelay(d time.Duration) *MockDispatcher {
 // Name implements runner.AgentDispatcher.
 func (m *MockDispatcher) Name() string { return m.name }
 
+// BuildCommand implements runner.AgentDispatcher. It returns a deterministic
+// command string derived from the dispatcher's name so stage.dispatch events
+// carry a stable, inspectable value in tests without spawning a real subprocess.
+func (m *MockDispatcher) BuildCommand(input runner.DispatchInput) (string, error) {
+	return fmt.Sprintf("mock-%s <instruction>", m.name), nil
+}
+
 // Dispatch implements runner.AgentDispatcher. It stores the input for inspection,
 // optionally sleeps, and returns the canned result or error.
 func (m *MockDispatcher) Dispatch(ctx context.Context, input runner.DispatchInput) (*runner.DispatchResult, error) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 )
 
 // ClaudeDispatcher implements AgentDispatcher by invoking the claude CLI tool
@@ -36,6 +35,22 @@ func (d *ClaudeDispatcher) Name() string {
 	return "claude"
 }
 
+// BuildCommand returns the exact shell-equivalent claude CLI command string
+// that Dispatch would execute for the given input. This is used to populate
+// the command attribute on the run.stage.dispatch slog event before the
+// subprocess is spawned. The returned string matches the Command field set
+// by a successful Dispatch (they share joinCommand so they cannot drift).
+//
+// Each argument is POSIX-safely shell-quoted so pasting the logged command
+// into a shell reproduces exactly the argv that exec.Command passes to the
+// OS, including arguments containing spaces, quotes, or shell metacharacters.
+//
+// Returns errShellQuoteNUL if any argument contains a NUL byte — such input
+// cannot be executed by os/exec and has no POSIX shell representation.
+func (d *ClaudeDispatcher) BuildCommand(input DispatchInput) (string, error) {
+	return joinCommand("claude", buildClaudeArgs(input))
+}
+
 // Dispatch validates the claude binary is on PATH, builds the command with all
 // required flags, executes it, and returns the result.
 //
@@ -53,6 +68,16 @@ func (d *ClaudeDispatcher) Dispatch(ctx context.Context, input DispatchInput) (*
 
 	args := buildClaudeArgs(input)
 
+	// joinCommand shell-quotes each arg so the logged command string is a
+	// faithful shell-equivalent of the argv passed to exec.Command. Sharing
+	// the helper with BuildCommand guarantees the two construction sites
+	// cannot drift. Built BEFORE spawning the subprocess so NUL-byte input
+	// is surfaced as a plain error rather than an opaque exec failure.
+	cmdStr, err := joinCommand("claude", args)
+	if err != nil {
+		return nil, err
+	}
+
 	factory := d.cmdFactory
 	if factory == nil {
 		factory = exec.CommandContext
@@ -64,7 +89,6 @@ func (d *ClaudeDispatcher) Dispatch(ctx context.Context, input DispatchInput) (*
 		cmd.Dir = input.WorkingDir
 	}
 
-	cmdStr := "claude " + strings.Join(args, " ")
 	return execAndCapture(cmd, cmdStr)
 }
 

@@ -159,11 +159,18 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create run controller: %w", err)
 	}
 
+	projectRoot, err := cli.FindProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to locate project root: %w", err)
+	}
+
 	opts := runner.RunOptions{
-		DryRun:     runDryRun,
-		Verbose:    runVerbose,
-		WorkingDir: workingDir,
-		RunID:      runID,
+		DryRun:        runDryRun,
+		Verbose:       runVerbose,
+		WorkingDir:    workingDir,
+		RunID:         runID,
+		ProjectRoot:   projectRoot,
+		Observability: obs,
 	}
 
 	result, err := controller.Run(ctx, normalizedKey, opts)
@@ -183,6 +190,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Status:     %s\n", result.FinalStatus)
 	fmt.Printf("  Stages:     %d completed\n", result.StagesCompleted)
 	fmt.Printf("  Duration:   %s\n", result.TotalDuration)
+	if result.Error != "" {
+		fmt.Printf("  Error:      %s\n", result.Error)
+	}
 
 	if len(result.Stages) > 0 {
 		fmt.Println("\nStage details:")
