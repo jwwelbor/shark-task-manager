@@ -57,6 +57,7 @@ Observability is configured via the `observability` key in `.sharkconfig.json`. 
     "metrics_enabled": false,
     "log_level": "info",
     "log_format": "json",
+    "log_file": "",
     "exporter": "stdout",
     "otlp_endpoint": "",
     "otlp_protocol": "grpc",
@@ -75,6 +76,7 @@ Observability is configured via the `observability` key in `.sharkconfig.json`. 
 | `metrics_enabled` | bool | `false` | Enable metric recording and export. Requires `enabled: true`. |
 | `log_level` | string | `"info"` | Minimum log level. Accepted values: `debug`, `info`, `warn`/`warning`, `error`. Unrecognized values fall back to `info`. |
 | `log_format` | string | `"json"` | Log output format. `"json"` (default) or `"text"`. |
+| `log_file` | string | `""` | Optional file destination for structured logs. Empty string logs to stderr. Relative paths are resolved against the project root. Missing parent directories are created (0755); the file is opened append-mode (0644). On open failure, logs fall back to stderr automatically. The file handle is closed during CLI shutdown. Ignored when `enabled: false`. |
 | `exporter` | string | `"stdout"` | Export destination. `"stdout"` writes to stderr; `"otlp"` sends to an OTLP/gRPC endpoint. |
 | `otlp_endpoint` | string | `"localhost:4317"` | OTLP receiver address (host:port). Used only when `exporter` is `"otlp"`. |
 | `otlp_protocol` | string | `"grpc"` | OTLP transport protocol. Currently only `"grpc"` is supported. |
@@ -95,6 +97,7 @@ Environment variables take precedence over values in `.sharkconfig.json`. They a
 | `OTEL_SERVICE_NAME` | `service_name` | `OTEL_SERVICE_NAME=my-shark` |
 | `SHARK_LOG_LEVEL` | `log_level` | `SHARK_LOG_LEVEL=debug` |
 | `SHARK_LOG_FORMAT` | `log_format` | `SHARK_LOG_FORMAT=text` |
+| `SHARK_LOG_FILE` | `log_file` | `SHARK_LOG_FILE=/var/log/shark.log` |
 
 `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_PROTOCOL` follow the standard OpenTelemetry environment variable specification, making it straightforward to integrate Shark into existing OTel pipelines.
 
@@ -198,6 +201,52 @@ SHARK_OTEL_ENABLED=true SHARK_LOG_LEVEL=info shark task list
 ```
 
 This is useful in CI environments where config files should not be modified.
+
+### Write structured logs to a file
+
+To persist structured log output across runs, configure a `log_file` destination. Shark writes newline-delimited JSON records in append mode, so multiple invocations accumulate in the same file.
+
+```json
+{
+  "observability": {
+    "enabled": true,
+    "log_level": "info",
+    "log_format": "json",
+    "log_file": "./logs/shark.log"
+  }
+}
+```
+
+Run any command and the structured log records are written to the file:
+
+```bash
+shark task list
+cat logs/shark.log
+```
+
+Example output (one JSON object per line):
+
+```json
+{"time":"2026-04-18T15:04:05.123456789Z","level":"INFO","msg":"command started","service.name":"shark-task-manager","command":"task list"}
+{"time":"2026-04-18T15:04:05.234567890Z","level":"INFO","msg":"command completed","service.name":"shark-task-manager","command":"task list","duration_ms":111}
+```
+
+Key behaviors:
+
+- **Relative paths** (`./logs/shark.log`) are resolved against the project root (the directory containing `.sharkconfig.json`), not the process working directory.
+- **Missing parent directories** are created automatically with permissions `0755`.
+- **Append mode** (`O_APPEND | O_CREATE | O_WRONLY`, perms `0644`) means existing log content is preserved across runs.
+- **Fallback to stderr** — if the file cannot be opened (directory path, permission denied, NUL byte in path, etc.), shark logs to stderr instead and continues running. The CLI is never blocked by log-file failures.
+- **Lifecycle** — the file handle is owned by the observability container and closed during CLI shutdown. `Close()` is idempotent.
+- **Disabled short-circuit** — when `enabled: false`, `log_file` is ignored entirely and no file handle is opened, preserving the zero-overhead contract.
+
+Override the destination per-run without editing the config:
+
+```bash
+SHARK_LOG_FILE=/var/log/shark/$(date +%F).log shark status
+```
+
+An empty `SHARK_LOG_FILE` is treated as "not set" and does not override the config value — use a different env var setting or edit `.sharkconfig.json` to explicitly disable the file destination.
 
 ---
 

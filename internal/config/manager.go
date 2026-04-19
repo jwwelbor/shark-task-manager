@@ -101,6 +101,9 @@ func (m *Manager) Load() (*Config, error) {
 		if logFormat, ok := obsRaw["log_format"].(string); ok {
 			obs.LogFormat = logFormat
 		}
+		if logFile, ok := obsRaw["log_file"].(string); ok {
+			obs.LogFile = logFile
+		}
 		if exporter, ok := obsRaw["exporter"].(string); ok {
 			obs.Exporter = exporter
 		}

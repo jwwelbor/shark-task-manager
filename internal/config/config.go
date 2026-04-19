@@ -136,6 +136,7 @@ type ObservabilityConfig struct {
 	MetricsEnabled bool    `json:"metrics_enabled"`
 	LogLevel       string  `json:"log_level"`
 	LogFormat      string  `json:"log_format"`
+	LogFile        string  `json:"log_file,omitempty"`
 	Exporter       string  `json:"exporter"`
 	OTLPEndpoint   string  `json:"otlp_endpoint"`
 	OTLPProtocol   string  `json:"otlp_protocol"`

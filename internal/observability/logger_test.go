@@ -203,6 +203,201 @@ func TestInitLogger_DefaultServiceName(t *testing.T) {
 	assert.Contains(t, output, "shark-task-manager")
 }
 
+// --- File destination tests (Test Plan cases 1-6) ---
+
+// TestInitLogger_FileDestination_WritesToFile verifies that when LogFile is set,
+// slog output is written to the file in the configured format (JSON by default).
+func TestInitLogger_FileDestination_WritesToFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/shark.log"
+
+	cfg := config.ObservabilityConfig{
+		Enabled:     true,
+		LogFormat:   "json",
+		LogLevel:    "info",
+		ServiceName: "file-dest-test",
+		LogFile:     logPath,
+	}
+
+	closer := InitLoggerWithRoot(cfg, tmpDir)
+	if closer != nil {
+		defer closer.Close()
+	}
+
+	slog.Info("file-test-message")
+
+	// Flush by closing
+	if closer != nil {
+		closer.Close()
+	}
+
+	data, err := os.ReadFile(logPath)
+	require.NoError(t, err, "log file should exist after logger initialization")
+	assert.Contains(t, string(data), "file-test-message", "log file should contain emitted record")
+}
+
+// TestInitLogger_FileDestination_Appends verifies that calling InitLoggerWithRoot
+// twice with the same path appends records rather than truncating.
+func TestInitLogger_FileDestination_Appends(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/append.log"
+
+	cfg := config.ObservabilityConfig{
+		Enabled:   true,
+		LogFormat: "json",
+		LogLevel:  "info",
+		LogFile:   logPath,
+	}
+
+	// First call
+	closer1 := InitLoggerWithRoot(cfg, tmpDir)
+	slog.Info("first-record")
+	if closer1 != nil {
+		closer1.Close()
+	}
+
+	// Second call to same path
+	closer2 := InitLoggerWithRoot(cfg, tmpDir)
+	slog.Info("second-record")
+	if closer2 != nil {
+		closer2.Close()
+	}
+
+	data, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "first-record", "first record should be present after append")
+	assert.Contains(t, content, "second-record", "second record should be present after append")
+}
+
+// TestInitLogger_FileDestination_CreatesParentDir verifies that missing parent
+// directories are created with mode 0755.
+func TestInitLogger_FileDestination_CreatesParentDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	nestedPath := tmpDir + "/nested/deep/shark.log"
+
+	cfg := config.ObservabilityConfig{
+		Enabled:   true,
+		LogFormat: "json",
+		LogLevel:  "info",
+		LogFile:   nestedPath,
+	}
+
+	closer := InitLoggerWithRoot(cfg, tmpDir)
+	if closer != nil {
+		defer closer.Close()
+	}
+
+	// The parent directory must have been created
+	info, err := os.Stat(tmpDir + "/nested/deep")
+	require.NoError(t, err, "parent directory should be created")
+	assert.True(t, info.IsDir(), "created path should be a directory")
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "directory should have 0755 permissions")
+}
+
+// TestInitLogger_FileDestination_BadPath_FallsBackToStderr verifies that when the
+// log file cannot be opened, the logger falls back to stderr with exactly one raw
+// warning line and subsequent records land on stderr.
+func TestInitLogger_FileDestination_BadPath_FallsBackToStderr(t *testing.T) {
+	// Use a path whose parent is a file (not a directory) to force open failure.
+	tmpDir := t.TempDir()
+	blockingFile := tmpDir + "/blocker"
+	require.NoError(t, os.WriteFile(blockingFile, []byte("x"), 0644))
+	badPath := blockingFile + "/shark.log" // parent exists as a file
+
+	cfg := config.ObservabilityConfig{
+		Enabled:   true,
+		LogFormat: "json",
+		LogLevel:  "info",
+		LogFile:   badPath,
+	}
+
+	// Capture stderr
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+
+	closer := InitLoggerWithRoot(cfg, tmpDir)
+	if closer != nil {
+		defer closer.Close()
+	}
+	slog.Info("fallback-marker")
+
+	w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	os.Stderr = origStderr
+
+	output := buf.String()
+	// Must contain a raw warning (not via slog — no JSON wrapper required)
+	assert.Contains(t, output, "warn", "stderr should contain a fallback warning")
+	// The slog record goes to stderr (fallback)
+	assert.Contains(t, output, "fallback-marker", "fallback slog record should appear on stderr")
+	// Bad path file must NOT have been created
+	assert.NoFileExists(t, badPath, "bad path must not result in partial file creation")
+}
+
+// TestInitLogger_FileDestination_RelativePath_ResolvedToRoot verifies that a
+// relative LogFile path is resolved against projectRoot, not the process CWD.
+func TestInitLogger_FileDestination_RelativePath_ResolvedToRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Change working dir to somewhere unrelated to confirm resolution uses tmpDir
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(origDir) }()
+	require.NoError(t, os.Chdir(os.TempDir()))
+
+	cfg := config.ObservabilityConfig{
+		Enabled:   true,
+		LogFormat: "json",
+		LogLevel:  "info",
+		LogFile:   "relative.log",
+	}
+
+	closer := InitLoggerWithRoot(cfg, tmpDir)
+	if closer != nil {
+		defer closer.Close()
+	}
+
+	slog.Info("relative-path-record")
+	if closer != nil {
+		closer.Close()
+	}
+
+	// File should exist under tmpDir, not CWD
+	expectedPath := tmpDir + "/relative.log"
+	_, err = os.Stat(expectedPath)
+	assert.NoError(t, err, "log file should be created at projectRoot/relative.log")
+
+	// Should NOT exist under the changed CWD
+	cwdPath := os.TempDir() + "/relative.log"
+	if cwdPath != expectedPath { // guard against tmpDir == os.TempDir() edge case
+		_, cwdErr := os.Stat(cwdPath)
+		assert.True(t, os.IsNotExist(cwdErr), "log file must not be created in CWD")
+	}
+}
+
+// TestInitLogger_FileDestination_Disabled_NoFileOpened verifies that when
+// observability is disabled, setting LogFile does not create any file.
+func TestInitLogger_FileDestination_Disabled_NoFileOpened(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/disabled.log"
+
+	cfg := config.ObservabilityConfig{
+		Enabled: false,
+		LogFile: logPath,
+	}
+
+	closer := InitLoggerWithRoot(cfg, tmpDir)
+	if closer != nil {
+		closer.Close()
+	}
+
+	_, err := os.Stat(logPath)
+	assert.True(t, os.IsNotExist(err), "no log file should be created when observability is disabled")
+}
+
 func TestParseLogLevel(t *testing.T) {
 	tests := []struct {
 		input    string

@@ -6,6 +6,16 @@
     "auth_token_file": "$SHARK_AUTH_TOKEN_FILE",
     "skip_migrations": true
   },
+  "observability": {                                                                                                         
+    "enabled": true,                                                                                                         
+    "log_level": "debug",                                                                                    
+    "log_format": "text",                                                                                               
+    "tracing_enabled": true,                                                                                                
+    "metrics_enabled": false,                                                                                                
+    "exporter": "otlp",
+    "otlp_endpoint": "...",                                                                                                  
+    "service_name": "shark"
+  },
   "interactive_mode": false,
   "json_output": false,
   "last_sync_time": "2026-01-16T23:22:45-06:00",

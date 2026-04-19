@@ -140,6 +140,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Status:     %s\n", result.FinalStatus)
 	fmt.Printf("  Stages:     %d completed\n", result.StagesCompleted)
 	fmt.Printf("  Duration:   %s\n", result.TotalDuration)
+	if result.Error != "" {
+		fmt.Printf("  Error:      %s\n", result.Error)
+	}
 
 	if len(result.Stages) > 0 {
 		fmt.Println("\nStage details:")
