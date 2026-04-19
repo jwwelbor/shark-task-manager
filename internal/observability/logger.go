@@ -62,12 +62,17 @@ func InitLoggerWithRoot(cfg config.ObservabilityConfig, projectRoot string) io.C
 }
 
 // InitLogger configures the global slog default logger based on cfg.
-// All output is directed to os.Stderr exclusively.
 // When cfg.Enabled is false, installs a discard handler (level above LevelError,
 // so no output is produced). Must be called once during startup before any slog.* calls.
 //
 // This function preserves the original signature for backward compatibility and
 // delegates to InitLoggerWithRoot with projectRoot == "".
+//
+// Deprecated for use with file logging: InitLogger discards the io.Closer
+// returned by InitLoggerWithRoot. When cfg.LogFile is set, the opened file
+// handle cannot be closed by the caller, which will leak a file descriptor
+// per invocation. Callers that configure cfg.LogFile MUST use
+// InitLoggerWithRoot and close the returned io.Closer on shutdown.
 func InitLogger(cfg config.ObservabilityConfig) {
 	InitLoggerWithRoot(cfg, "")
 }
