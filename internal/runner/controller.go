@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,6 +25,23 @@ type RunOptions struct {
 
 	// WorkingDir is an optional working directory override for agent processes.
 	WorkingDir string
+
+	// RunID is a correlation identifier generated once at the top of runRun.
+	// It is threaded through all stage events so a single run can be grepped
+	// from shark.log.
+	RunID string
+
+	// Observability carries the observability configuration for this run. The
+	// controller uses it to decide whether to emit per-stage slog events and
+	// how aggressively to truncate large payloads (stderr/stdout) in error
+	// events. When Enabled is false, no run.stage.* events are emitted.
+	Observability config.ObservabilityConfig
+
+	// ProjectRoot is the absolute path to the project root. It is used as the
+	// base directory for transcript file capture ({project_root}/.shark/runs/...)
+	// when observability.capture_agent_transcripts == true. When empty, the
+	// controller skips transcript writing even if transcripts are enabled.
+	ProjectRoot string
 }
 
 // RunResult captures the outcome of a run loop execution.
@@ -206,17 +224,35 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 	}
 
 	// Main loop.
+	iteration := 0
+	// transcriptDisabled is a RUN-SCOPED latch: once any transcript write fails,
+	// we emit run.transcript.warning exactly once (see handleSpawnAgent) and set
+	// this flag to true to suppress all further write attempts for the remainder
+	// of the run — at most one warning per run, without caching prior errors.
+	transcriptDisabled := false
 	for {
 		// Check context cancellation at the top of each iteration.
 		select {
 		case <-ctx.Done():
-			result.FinalStatus = currentStatus
-			result.Outcome = "failed"
-			result.Error = ctx.Err().Error()
-			result.TotalDuration = time.Since(startTime)
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "context",
+				Error:     ctx.Err().Error(),
+				RunID:     opts.RunID,
+			})
 			return result, nil
 		default:
 		}
+
+		// Emit run.stage.start for this iteration.
+		iteration++
+		emitStageStart(ctx, opts.Observability, stageStartParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Iteration: iteration,
+			RunID:     opts.RunID,
+		})
 
 		stageStart := time.Now()
 
@@ -225,10 +261,13 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		if c.placeholders != nil {
 			vars, err = c.placeholders.GeneratePlaceholders(ctx, key)
 			if err != nil {
-				result.FinalStatus = currentStatus
-				result.Outcome = "failed"
-				result.Error = fmt.Sprintf("failed to generate placeholders for %s: %v", key, err)
-				result.TotalDuration = time.Since(startTime)
+				recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+					EntityKey: key,
+					Status:    currentStatus,
+					Phase:     "placeholders",
+					Error:     fmt.Sprintf("failed to generate placeholders for %s: %v", key, err),
+					RunID:     opts.RunID,
+				})
 				return result, nil
 			}
 		}
@@ -236,10 +275,13 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 		// Step 4: Get populated orchestrator action for current status.
 		action, err := c.actionSvc.GetStatusActionPopulated(ctx, currentStatus, vars)
 		if err != nil {
-			result.FinalStatus = currentStatus
-			result.Outcome = "failed"
-			result.Error = fmt.Sprintf("failed to get action for status %s: %v", currentStatus, err)
-			result.TotalDuration = time.Since(startTime)
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "action_lookup",
+				Error:     fmt.Sprintf("failed to get action for status %s: %v", currentStatus, err),
+				RunID:     opts.RunID,
+			})
 			return result, nil
 		}
 
@@ -276,13 +318,16 @@ func (c *RunController) Run(ctx context.Context, key string, opts RunOptions) (*
 			outcome = c.handleAdvanceStatus(ctx, key, currentStatus, action, opts, result, stageStart, startTime)
 
 		case config.ActionSpawnAgent:
-			outcome = c.handleSpawnAgent(ctx, key, currentStatus, action, opts, result, stageStart, startTime)
+			outcome = c.handleSpawnAgent(ctx, key, currentStatus, action, opts, result, stageStart, startTime, iteration, &transcriptDisabled)
 
 		default:
-			result.FinalStatus = currentStatus
-			result.Outcome = "failed"
-			result.Error = fmt.Sprintf("unknown action type %q for status %s", action.Action, currentStatus)
-			result.TotalDuration = time.Since(startTime)
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "unknown_action",
+				Error:     fmt.Sprintf("unknown action type %q for status %s", action.Action, currentStatus),
+				RunID:     opts.RunID,
+			})
 			return result, nil
 		}
 
@@ -303,10 +348,13 @@ func (c *RunController) handleAdvanceStatus(
 	if opts.DryRun {
 		nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
 		if err != nil {
-			result.FinalStatus = currentStatus
-			result.Outcome = "failed"
-			result.Error = err.Error()
-			result.TotalDuration = time.Since(startTime)
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "advance_status",
+				Error:     err.Error(),
+				RunID:     opts.RunID,
+			})
 			return stageOutcome{done: true}
 		}
 		result.Stages = append(result.Stages, StageLog{
@@ -328,10 +376,13 @@ func (c *RunController) handleAdvanceStatus(
 
 	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
 	if err != nil {
-		result.FinalStatus = currentStatus
-		result.Outcome = "failed"
-		result.Error = err.Error()
-		result.TotalDuration = time.Since(startTime)
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "advance_status",
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
 		return stageOutcome{done: true}
 	}
 
@@ -345,12 +396,23 @@ func (c *RunController) handleAdvanceStatus(
 	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus
 	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
 	if err != nil {
-		result.FinalStatus = currentStatus
-		result.Outcome = "failed"
-		result.Error = fmt.Sprintf("transition to %s failed: %v", targetStatus, err)
-		result.TotalDuration = time.Since(startTime)
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "transition",
+			Error:     fmt.Sprintf("transition to %s failed: %v", targetStatus, err),
+			RunID:     opts.RunID,
+		})
 		return stageOutcome{done: true}
 	}
+
+	// Emit run.stage.transition after a successful transition.
+	emitStageTransition(ctx, opts.Observability, stageTransitionParams{
+		EntityKey:  key,
+		FromStatus: currentStatus,
+		ToStatus:   transResult.ToStatus,
+		RunID:      opts.RunID,
+	})
 
 	result.Stages = append(result.Stages, StageLog{
 		Status:    currentStatus,
@@ -372,17 +434,29 @@ func (c *RunController) handleAdvanceStatus(
 
 // handleSpawnAgent handles the spawn_agent action type: dispatches an agent,
 // gates status advancement on exit code 0.
+//
+// stageN is the 1-based iteration counter from the run loop; it becomes the
+// numeric prefix on transcript filenames (e.g. "1-in_development-anthropic.log").
+//
+// transcriptDisabled is a pointer to a run-scoped latch owned by Run(). Once a
+// transcript write fails, the caller emits run.transcript.warning exactly once
+// and sets *transcriptDisabled = true to suppress all further attempts for the
+// rest of the run.
 func (c *RunController) handleSpawnAgent(
 	ctx context.Context, key, currentStatus string,
 	action *config.PopulatedAction, opts RunOptions,
 	result *RunResult, stageStart, startTime time.Time,
+	stageN int, transcriptDisabled *bool,
 ) stageOutcome {
 	dispatcher, err := c.selectDispatcher(action.Provider)
 	if err != nil {
-		result.FinalStatus = currentStatus
-		result.Outcome = "failed"
-		result.Error = err.Error()
-		result.TotalDuration = time.Since(startTime)
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "dispatcher_selection",
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
 		return stageOutcome{done: true}
 	}
 
@@ -405,8 +479,24 @@ func (c *RunController) handleSpawnAgent(
 		})
 		result.StagesCompleted++
 
+		// Dry-run still consults the transitioner to decide whether to loop
+		// onto the next status. A GetNextStatus failure after the dispatch
+		// simulation is an operator-visible failure in exactly the same way
+		// it is on the real path (see the post-dispatch handler below), so
+		// emit run.stage.error with phase="post_dispatch" and surface it as
+		// Outcome="failed" — do NOT silently report Outcome="completed".
 		nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
-		if err != nil || len(nextInfo.AvailableTransitions) == 0 || nextInfo.IsTerminal {
+		if err != nil {
+			recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+				EntityKey: key,
+				Status:    currentStatus,
+				Phase:     "post_dispatch",
+				Error:     err.Error(),
+				RunID:     opts.RunID,
+			})
+			return stageOutcome{done: true}
+		}
+		if len(nextInfo.AvailableTransitions) == 0 || nextInfo.IsTerminal {
 			result.FinalStatus = currentStatus
 			result.Outcome = "completed"
 			result.TotalDuration = time.Since(startTime)
@@ -415,12 +505,80 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{nextStatus: nextInfo.AvailableTransitions[0].TargetStatus}
 	}
 
+	// Emit run.stage.dispatch just before invoking the agent. The command string
+	// is pre-built from the dispatcher's BuildCommand(input) so the event carries
+	// the EXACT CLI invocation (e.g. "claude -p ...") that will be executed. The
+	// command is truncated inside emitStageDispatch.
+	//
+	// BuildCommand can fail when an argument cannot be represented as a POSIX
+	// shell word (currently: NUL-byte in any argv element — see
+	// errShellQuoteNUL in shell_quote.go). os/exec would reject such argv
+	// with EINVAL anyway, so we surface the condition as a run.stage.error
+	// with phase="shell_quote" and skip Dispatch entirely.
+	dispatchCmd, buildErr := dispatcher.BuildCommand(input)
+	if buildErr != nil {
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "shell_quote",
+			Error:     buildErr.Error(),
+			RunID:     opts.RunID,
+		})
+		return stageOutcome{done: true}
+	}
+	emitStageDispatch(ctx, opts.Observability, stageDispatchParams{
+		EntityKey: key,
+		Status:    currentStatus,
+		AgentType: action.AgentType,
+		Provider:  action.Provider,
+		Command:   dispatchCmd,
+		RunID:     opts.RunID,
+	})
+
 	dispatchResult, err := dispatcher.Dispatch(ctx, input)
 	if err != nil {
-		result.FinalStatus = currentStatus
-		result.Outcome = "failed"
-		result.Error = err.Error()
-		result.TotalDuration = time.Since(startTime)
+		// Prefer *AgentFailedError fields; fall back to the DispatchResult the
+		// dispatcher returned alongside the error (real dispatchers return both;
+		// tests sometimes return result only). Phase is always "dispatch" for
+		// dispatch-path failures.
+		//
+		// A transcript is written on the error path so operators have a captured
+		// record of the failing invocation's stdout/stderr. The transcript path
+		// (when successfully written) rides on the same run.stage.error event
+		// via TranscriptPath.
+		errMsg := err.Error()
+		var agentErr *AgentFailedError
+		switch {
+		case errors.As(err, &agentErr):
+			c.recordDispatchFailure(
+				ctx, opts, result, startTime,
+				transcriptDisabled, stageN,
+				currentStatus, action.Provider, errMsg,
+				agentErr.Command, agentErr.ExitCode,
+				0, // *AgentFailedError has no Duration — use 0
+				agentErr.Stdout, agentErr.Stderr,
+			)
+		case dispatchResult != nil:
+			c.recordDispatchFailure(
+				ctx, opts, result, startTime,
+				transcriptDisabled, stageN,
+				currentStatus, action.Provider, errMsg,
+				dispatchResult.Command, dispatchResult.ExitCode,
+				dispatchResult.Duration.Milliseconds(),
+				dispatchResult.Stdout, dispatchResult.Stderr,
+			)
+		default:
+			// No DispatchResult available — fall back to the pre-built command.
+			// A transcript is still attempted (it will record exit=0/duration=0/
+			// empty stdout/stderr, which is operator-visible evidence that the
+			// dispatcher returned an error with no captured output).
+			c.recordDispatchFailure(
+				ctx, opts, result, startTime,
+				transcriptDisabled, stageN,
+				currentStatus, action.Provider, errMsg,
+				dispatchCmd, 0, 0, "", "",
+			)
+		}
 		return stageOutcome{done: true}
 	}
 
@@ -439,11 +597,21 @@ func (c *RunController) handleSpawnAgent(
 
 	// Gate advancement on exit code 0.
 	if dispatchResult.ExitCode != 0 {
+		// Mock-style path where Dispatch returns (result, nil) with a non-zero
+		// ExitCode. The transcript captures the failing stdout/stderr so
+		// operators can debug offline.
+		errMsg := fmt.Sprintf("agent exited with code %d", dispatchResult.ExitCode)
+		c.recordDispatchFailure(
+			ctx, opts, result, startTime,
+			transcriptDisabled, stageN,
+			currentStatus, action.Provider, errMsg,
+			dispatchResult.Command, dispatchResult.ExitCode,
+			dispatchResult.Duration.Milliseconds(),
+			dispatchResult.Stdout, dispatchResult.Stderr,
+		)
+		// The failing stage is already appended to result.Stages above; adjust
+		// StagesCompleted so it reflects only SUCCESSFUL stages.
 		result.StagesCompleted = len(result.Stages) - 1
-		result.FinalStatus = currentStatus
-		result.Outcome = "failed"
-		result.Error = fmt.Sprintf("agent exited with code %d", dispatchResult.ExitCode)
-		result.TotalDuration = time.Since(startTime)
 		return stageOutcome{done: true}
 	}
 
@@ -451,29 +619,115 @@ func (c *RunController) handleSpawnAgent(
 
 	nextInfo, err := c.transitioner.GetNextStatus(ctx, key)
 	if err != nil {
-		result.FinalStatus = currentStatus
-		result.Outcome = "failed"
-		result.Error = err.Error()
-		result.TotalDuration = time.Since(startTime)
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "post_dispatch",
+			Error:     err.Error(),
+			RunID:     opts.RunID,
+		})
 		return stageOutcome{done: true}
 	}
 
 	if len(nextInfo.AvailableTransitions) == 0 {
-		result.FinalStatus = currentStatus
+		// No transitions available. If the post-dispatch CurrentStatus differs
+		// from the pre-dispatch status, the agent itself advanced the status
+		// (or a transition happened through a side channel) — treat that as an
+		// implicit transition so observers still see complete + transition
+		// events with the actual landing status. Otherwise report the stage
+		// completed with an empty next_status.
+		nextStatus := ""
+		if nextInfo.CurrentStatus != "" && nextInfo.CurrentStatus != currentStatus {
+			nextStatus = nextInfo.CurrentStatus
+		}
+
+		// Write the per-dispatch transcript when capture is enabled. relPath
+		// is "" when capture is disabled, the run-scoped latch has tripped, or
+		// the write failed — matching the contract that the `transcript_path`
+		// attribute is emitted ONLY on success.
+		relPath := c.maybeWriteTranscript(
+			ctx, opts, transcriptDisabled,
+			stageN, currentStatus, action.Provider,
+			dispatchResult.Command, dispatchResult.ExitCode,
+			dispatchResult.Duration.Milliseconds(),
+			dispatchResult.Stdout, dispatchResult.Stderr,
+		)
+		emitStageComplete(ctx, opts.Observability, stageCompleteParams{
+			EntityKey:      key,
+			Status:         currentStatus,
+			AgentType:      action.AgentType,
+			Provider:       action.Provider,
+			ExitCode:       dispatchResult.ExitCode,
+			DurationMS:     dispatchResult.Duration.Milliseconds(),
+			NextStatus:     nextStatus,
+			RunID:          opts.RunID,
+			TranscriptPath: relPath,
+		})
+
+		if nextStatus != "" {
+			emitStageTransition(ctx, opts.Observability, stageTransitionParams{
+				EntityKey:  key,
+				FromStatus: currentStatus,
+				ToStatus:   nextStatus,
+				RunID:      opts.RunID,
+			})
+			result.FinalStatus = nextStatus
+		} else {
+			result.FinalStatus = currentStatus
+		}
 		result.Outcome = "completed"
 		result.TotalDuration = time.Since(startTime)
 		return stageOutcome{done: true}
 	}
 
 	targetStatus := nextInfo.AvailableTransitions[0].TargetStatus
+
+	// Write the per-dispatch transcript when capture is enabled. Stdout is
+	// DELIBERATELY excluded from the run.stage.complete event because
+	// transcripts are captured on this separate channel; the complete event
+	// is on a hot path. relPath is "" when capture is disabled, the run-scoped
+	// latch has tripped, or the write failed — matching the contract that
+	// the `transcript_path` attribute is emitted ONLY on success.
+	relPath := c.maybeWriteTranscript(
+		ctx, opts, transcriptDisabled,
+		stageN, currentStatus, action.Provider,
+		dispatchResult.Command, dispatchResult.ExitCode,
+		dispatchResult.Duration.Milliseconds(),
+		dispatchResult.Stdout, dispatchResult.Stderr,
+	)
+
+	// Emit run.stage.complete now that we know the next status.
+	emitStageComplete(ctx, opts.Observability, stageCompleteParams{
+		EntityKey:      key,
+		Status:         currentStatus,
+		AgentType:      action.AgentType,
+		Provider:       action.Provider,
+		ExitCode:       dispatchResult.ExitCode,
+		DurationMS:     dispatchResult.Duration.Milliseconds(),
+		NextStatus:     targetStatus,
+		RunID:          opts.RunID,
+		TranscriptPath: relPath,
+	})
+
 	transResult, err := c.transitioner.TransitionStatus(ctx, key, targetStatus, services.TransitionOptions{})
 	if err != nil {
-		result.FinalStatus = currentStatus
-		result.Outcome = "failed"
-		result.Error = fmt.Sprintf("transition to %s failed: %v", targetStatus, err)
-		result.TotalDuration = time.Since(startTime)
+		recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+			EntityKey: key,
+			Status:    currentStatus,
+			Phase:     "transition",
+			Error:     fmt.Sprintf("transition to %s failed: %v", targetStatus, err),
+			RunID:     opts.RunID,
+		})
 		return stageOutcome{done: true}
 	}
+
+	// Emit run.stage.transition after a successful transition.
+	emitStageTransition(ctx, opts.Observability, stageTransitionParams{
+		EntityKey:  key,
+		FromStatus: currentStatus,
+		ToStatus:   transResult.ToStatus,
+		RunID:      opts.RunID,
+	})
 
 	if c.workflowSvc.IsTerminalStatus(transResult.ToStatus) {
 		result.FinalStatus = transResult.ToStatus
@@ -482,6 +736,105 @@ func (c *RunController) handleSpawnAgent(
 		return stageOutcome{done: true}
 	}
 	return stageOutcome{nextStatus: transResult.ToStatus}
+}
+
+// recordStageFailure marks the run as failed and emits one run.stage.error
+// event. Callers are responsible for the return statement (stageOutcome{done:
+// true} from handlers, (result, nil) from the main Run loop); this helper
+// only mutates result and emits the event.
+//
+// params must be fully populated by the caller (EntityKey, Status, Phase,
+// Error, RunID at minimum; ExitCode/Stderr/Stdout/Command/TranscriptPath for
+// dispatch-path failures).
+func recordStageFailure(
+	ctx context.Context, opts RunOptions,
+	result *RunResult, startTime time.Time,
+	params stageErrorParams,
+) {
+	result.FinalStatus = params.Status
+	result.Outcome = "failed"
+	result.Error = params.Error
+	result.TotalDuration = time.Since(startTime)
+	emitStageError(ctx, opts.Observability, params)
+}
+
+// recordDispatchFailure writes a transcript for a failed dispatch and records
+// the stage failure. Phase is always "dispatch". The transcript path rides on
+// the same run.stage.error event when the write succeeds.
+//
+// Callers provide the command/exit/duration/stdout/stderr from whichever
+// source carries them (AgentFailedError fields, DispatchResult fields, or the
+// pre-built dispatchCmd with zero-valued outputs when neither is available).
+func (c *RunController) recordDispatchFailure(
+	ctx context.Context, opts RunOptions,
+	result *RunResult, startTime time.Time,
+	transcriptDisabled *bool, stageN int,
+	currentStatus, provider, errMsg, command string,
+	exitCode int, durationMS int64,
+	stdout, stderr string,
+) {
+	relPath := c.maybeWriteTranscript(
+		ctx, opts, transcriptDisabled,
+		stageN, currentStatus, provider,
+		command, exitCode, durationMS, stdout, stderr,
+	)
+	recordStageFailure(ctx, opts, result, startTime, stageErrorParams{
+		EntityKey:      result.EntityKey,
+		Status:         currentStatus,
+		Phase:          "dispatch",
+		Error:          errMsg,
+		ExitCode:       exitCode,
+		Stderr:         stderr,
+		Stdout:         stdout,
+		Command:        command,
+		RunID:          opts.RunID,
+		TranscriptPath: relPath,
+	})
+}
+
+// maybeWriteTranscript writes a per-dispatch transcript file if and only if
+// observability is configured to capture transcripts, a project root was
+// supplied, and the run-scoped disable latch has not tripped. It returns the
+// project-relative transcript path on success (empty string in every other
+// case). On write failure it emits exactly one run.transcript.warning per run
+// and sets *transcriptDisabled = true to suppress all further attempts in
+// this run.
+//
+// Parameters mirror writeTranscript: command/exitCode/durationMS/stdout/stderr
+// are the raw dispatch outputs; stageN/status/provider determine the filename.
+// The caller is expected to pass the LATEST command (preferring
+// dispatchResult.Command, then agentErr.Command, then dispatchCmd) so that
+// the transcript's COMMAND line exactly matches what was actually executed.
+func (c *RunController) maybeWriteTranscript(
+	ctx context.Context, opts RunOptions, transcriptDisabled *bool,
+	stageN int, status, provider, command string,
+	exitCode int, durationMS int64, stdout, stderr string,
+) string {
+	if !opts.Observability.CaptureAgentTranscripts {
+		return ""
+	}
+	if opts.ProjectRoot == "" {
+		return ""
+	}
+	if transcriptDisabled == nil || *transcriptDisabled {
+		return ""
+	}
+
+	rel, err := writeTranscript(
+		opts.ProjectRoot, opts.RunID, stageN,
+		status, provider, command,
+		exitCode, durationMS, stdout, stderr,
+	)
+	if err != nil {
+		// Warning carries the intended project-relative path so operators can
+		// still locate the missing transcript in their mental model even when
+		// the file itself could not be created.
+		emitTranscriptWarning(ctx, opts.Observability, opts.RunID,
+			relTranscriptPath(opts.RunID, stageN, status, provider), err)
+		*transcriptDisabled = true
+		return ""
+	}
+	return rel
 }
 
 // selectDispatcher returns the AgentDispatcher for the given provider name.

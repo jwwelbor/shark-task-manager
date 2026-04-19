@@ -40,6 +40,20 @@ type AgentDispatcher interface {
 
 	// Name returns a human-readable identifier for this dispatcher (e.g. "claude").
 	Name() string
+
+	// BuildCommand returns the exact CLI command string that Dispatch would
+	// execute for the given input, without actually running the subprocess.
+	// This is used by the run controller to populate the command attribute
+	// on the run.stage.dispatch slog event BEFORE the subprocess is spawned.
+	// The returned string must match the Command field that a successful
+	// Dispatch would set on DispatchResult.
+	//
+	// Returns an error if the input cannot be represented as a POSIX
+	// shell-equivalent command string (e.g. an argument contains a NUL
+	// byte). In that case the controller must emit run.stage.error with
+	// phase="shell_quote" and skip Dispatch — os/exec would reject the
+	// argv with EINVAL anyway, so the dispatch cannot proceed.
+	BuildCommand(input DispatchInput) (string, error)
 }
 
 // DispatchInput contains all information needed to invoke an agent for a single

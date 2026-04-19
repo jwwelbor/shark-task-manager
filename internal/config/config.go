@@ -142,6 +142,24 @@ type ObservabilityConfig struct {
 	OTLPProtocol   string  `json:"otlp_protocol"`
 	ServiceName    string  `json:"service_name"`
 	SampleRate     float64 `json:"sample_rate,omitempty"`
+
+	// CaptureAgentTranscripts controls whether full agent stdout/stderr is written
+	// to per-dispatch transcript files under .shark/runs/{run_id}/. Default: false.
+	CaptureAgentTranscripts bool `json:"capture_agent_transcripts,omitempty"`
+
+	// LogTruncateBytes is the maximum number of bytes to include from agent stderr
+	// and stdout tail in error log events. Zero is treated as 4096 by GetLogTruncateBytes.
+	LogTruncateBytes int `json:"log_truncate_bytes,omitempty"`
+}
+
+// GetLogTruncateBytes returns the configured truncation limit for agent output
+// in error log events. When the configured value is zero (unset), it returns
+// the default of 4096 bytes.
+func (o ObservabilityConfig) GetLogTruncateBytes() int {
+	if o.LogTruncateBytes <= 0 {
+		return 4096
+	}
+	return o.LogTruncateBytes
 }
 
 // WebConfig holds configuration for the shark web dashboard server.

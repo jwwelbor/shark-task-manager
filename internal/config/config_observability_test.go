@@ -159,3 +159,93 @@ func TestObservabilityConfig_ExistingFieldsPreserved(t *testing.T) {
 	require.NotNil(t, cfg.Observability)
 	assert.True(t, cfg.Observability.Enabled)
 }
+
+// --- REQ-F-020: capture_agent_transcripts and log_truncate_bytes ---
+
+// AC-T1 + AC-T2: parse config with both new fields present.
+func TestObservabilityConfig_NewFields_ParseCorrectly(t *testing.T) {
+	configJSON := `{
+		"observability": {
+			"enabled": true,
+			"capture_agent_transcripts": true,
+			"log_truncate_bytes": 8192
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Observability)
+	assert.True(t, cfg.Observability.CaptureAgentTranscripts)
+	assert.Equal(t, 8192, cfg.Observability.LogTruncateBytes)
+}
+
+// AC-T1 + AC-T2: parse config with both new fields absent; verify defaults.
+func TestObservabilityConfig_NewFields_AbsentDefaultCorrectly(t *testing.T) {
+	configJSON := `{
+		"observability": {
+			"enabled": true
+		}
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.Observability)
+	// capture_agent_transcripts defaults to false when absent
+	assert.False(t, cfg.Observability.CaptureAgentTranscripts)
+	// LogTruncateBytes zero value; effective default is 4096 via getter
+	assert.Equal(t, 0, cfg.Observability.LogTruncateBytes)
+	assert.Equal(t, 4096, cfg.Observability.GetLogTruncateBytes())
+}
+
+// AC-T3: config without observability section is still valid.
+func TestObservabilityConfig_NewFields_OmittedSection_ValidConfig(t *testing.T) {
+	configJSON := `{
+		"color_enabled": true
+	}`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".sharkconfig.json")
+	err := os.WriteFile(configPath, []byte(configJSON), 0644)
+	require.NoError(t, err)
+
+	mgr := NewManager(configPath)
+	cfg, err := mgr.Load()
+	require.NoError(t, err)
+
+	// Nil observability pointer — both new fields have sensible defaults via GetObservability.
+	assert.Nil(t, cfg.Observability)
+	obs := cfg.GetObservability()
+	assert.False(t, obs.CaptureAgentTranscripts)
+	assert.Equal(t, 4096, obs.GetLogTruncateBytes())
+}
+
+// AC-T4: GetObservability on nil Config pointer returns sensible defaults.
+func TestObservabilityConfig_NilConfig_ReturnsDefaults(t *testing.T) {
+	var cfg *Config
+	obs := cfg.GetObservability()
+	assert.False(t, obs.CaptureAgentTranscripts)
+	assert.Equal(t, 4096, obs.GetLogTruncateBytes())
+}
+
+// AC-T2: GetLogTruncateBytes returns 4096 when value is zero.
+func TestObservabilityConfig_GetLogTruncateBytes_ZeroReturnsDefault(t *testing.T) {
+	obs := ObservabilityConfig{LogTruncateBytes: 0}
+	assert.Equal(t, 4096, obs.GetLogTruncateBytes())
+}
+
+// AC-T2: GetLogTruncateBytes returns configured value when non-zero.
+func TestObservabilityConfig_GetLogTruncateBytes_NonZeroReturnsValue(t *testing.T) {
+	obs := ObservabilityConfig{LogTruncateBytes: 1024}
+	assert.Equal(t, 1024, obs.GetLogTruncateBytes())
+}

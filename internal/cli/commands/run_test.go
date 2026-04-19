@@ -160,6 +160,30 @@ func TestGetActionService_SameInstanceOnRepeatCalls(t *testing.T) {
 	}
 }
 
+// TestFindProjectRoot_ResolvesTempDirWithConfig verifies that cli.FindProjectRoot
+// — the function runRun calls to populate RunOptions.ProjectRoot — correctly
+// resolves to a directory containing .sharkconfig.json. An empty ProjectRoot
+// would cause maybeWriteTranscript to short-circuit silently.
+func TestFindProjectRoot_ResolvesTempDirWithConfig(t *testing.T) {
+	cleanup := setupActionServiceTestDir(t)
+	defer cleanup()
+
+	root, err := cli.FindProjectRoot()
+	if err != nil {
+		t.Fatalf("FindProjectRoot() returned error: %v", err)
+	}
+	if root == "" {
+		t.Fatal("FindProjectRoot() returned empty string; RunOptions.ProjectRoot would be empty")
+	}
+
+	// The resolved root must contain .sharkconfig.json (the marker the test
+	// helper wrote). If FindProjectRoot ever stops honoring that marker the
+	// transcript directory path would land in an unexpected location.
+	if _, err := os.Stat(filepath.Join(root, ".sharkconfig.json")); err != nil {
+		t.Errorf("FindProjectRoot() resolved to %s which does not contain .sharkconfig.json: %v", root, err)
+	}
+}
+
 // TestGetActionService_ReturnsErrorAfterReset verifies that after ResetServices()
 // a new call to GetActionService re-initializes from the config (sync.Once resets).
 func TestGetActionService_ResetAndReinit(t *testing.T) {

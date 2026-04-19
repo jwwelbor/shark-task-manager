@@ -119,6 +119,12 @@ func (m *Manager) Load() (*Config, error) {
 		if sampleRate, ok := obsRaw["sample_rate"].(float64); ok {
 			obs.SampleRate = sampleRate
 		}
+		if captureTranscripts, ok := obsRaw["capture_agent_transcripts"].(bool); ok {
+			obs.CaptureAgentTranscripts = captureTranscripts
+		}
+		if logTruncateBytes, ok := obsRaw["log_truncate_bytes"].(float64); ok {
+			obs.LogTruncateBytes = int(logTruncateBytes)
+		}
 		config.Observability = &obs
 	}
 

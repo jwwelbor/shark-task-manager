@@ -104,8 +104,9 @@ func (m *MockActionService) Reload(ctx context.Context) error {
 
 // MockDispatcher implements AgentDispatcher for testing.
 type MockDispatcher struct {
-	DispatchFunc func(ctx context.Context, input DispatchInput) (*DispatchResult, error)
-	NameFunc     func() string
+	DispatchFunc     func(ctx context.Context, input DispatchInput) (*DispatchResult, error)
+	NameFunc         func() string
+	BuildCommandFunc func(input DispatchInput) (string, error)
 }
 
 func (m *MockDispatcher) Dispatch(ctx context.Context, input DispatchInput) (*DispatchResult, error) {
@@ -120,6 +121,13 @@ func (m *MockDispatcher) Name() string {
 		return m.NameFunc()
 	}
 	return "mock"
+}
+
+func (m *MockDispatcher) BuildCommand(input DispatchInput) (string, error) {
+	if m.BuildCommandFunc != nil {
+		return m.BuildCommandFunc(input)
+	}
+	return "mock-cmd", nil
 }
 
 // ---------------------------------------------------------------------------

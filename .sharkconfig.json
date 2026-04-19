@@ -6,14 +6,15 @@
     "auth_token_file": "$SHARK_AUTH_TOKEN_FILE",
     "skip_migrations": true
   },
-  "observability": {                                                                                                         
-    "enabled": true,                                                                                                         
-    "log_level": "debug",                                                                                    
-    "log_format": "text",                                                                                               
-    "tracing_enabled": true,                                                                                                
-    "metrics_enabled": false,                                                                                                
+  "observability": {
+    "enabled": true,
+    "log_level": "debug",
+    "log_format": "text",
+    "log_file": "./shark.log",
+    "tracing_enabled": true,
+    "metrics_enabled": false,
     "exporter": "otlp",
-    "otlp_endpoint": "...",                                                                                                  
+    "otlp_endpoint": "",
     "service_name": "shark"
   },
   "interactive_mode": false,
