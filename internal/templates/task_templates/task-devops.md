@@ -5,7 +5,6 @@ title: {{.Title}}
 epic: {{.Epic}}
 feature: {{.Feature}}
 agent: devops
-status: todo
 priority: {{.Priority}}
 {{- if .DependsOn}}
 depends_on: [{{join (quote .DependsOn) ", "}}]
