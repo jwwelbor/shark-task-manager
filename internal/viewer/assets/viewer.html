@@ -1079,6 +1079,22 @@
       margin: 18px 0;
     }
 
+    .frontmatter-block {
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      margin-bottom: 16px;
+    }
+    .frontmatter-block td {
+      padding: 3px 10px 3px 0;
+      vertical-align: top;
+      border: none;
+    }
+    .frontmatter-block td:first-child {
+      width: 140px;
+    }
+
     .content-placeholder {
       background: var(--bg-2);
       border: 1px solid var(--border);
@@ -3280,18 +3296,81 @@ async function renderMarkdownPane(key, paneEl) {
  * @param {string} rawContent - raw markdown string to render
  * @param {HTMLElement} paneEl - container element to update
  */
+function parseFrontmatter(rawContent) {
+  // Task files have a leading newline before ---; strip leading whitespace first.
+  const trimmed = rawContent.replace(/^\s*/, '');
+  if (!trimmed.startsWith('---')) return { frontmatter: null, body: rawContent };
+  const end = trimmed.indexOf('\n---', 3);
+  if (end === -1) return { frontmatter: null, body: rawContent };
+  const yamlBlock = trimmed.slice(4, end);
+  const body = trimmed.slice(end + 4).replace(/^\n/, '');
+
+  const entries = [];
+  let currentKey = null;
+  let listItems = [];
+  let scalarVal = '';
+
+  function flush() {
+    if (!currentKey) return;
+    entries.push([currentKey, listItems.length > 0 ? listItems : scalarVal]);
+    currentKey = null; listItems = []; scalarVal = '';
+  }
+
+  for (const line of yamlBlock.split('\n')) {
+    const stripped = line.trim();
+    if (stripped === '') continue;
+    if (stripped.startsWith('- ')) {
+      if (currentKey) listItems.push(stripped.slice(2));
+    } else {
+      flush();
+      const colon = stripped.indexOf(':');
+      if (colon === -1) continue;
+      currentKey = stripped.slice(0, colon).trim();
+      scalarVal = stripped.slice(colon + 1).trim();
+    }
+  }
+  flush();
+
+  return { frontmatter: entries.length ? entries : null, body };
+}
+
+function renderFrontmatterTable(entries) {
+  const rows = entries.map(([k, v]) => {
+    let displayVal;
+    if (Array.isArray(v)) {
+      displayVal = v.length === 0
+        ? '<em style="opacity:0.4">—</em>'
+        : `<ul style="margin:0;padding-left:14px">${v.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`;
+    } else {
+      displayVal = v === '' ? '<em style="opacity:0.4">—</em>' : escapeHtml(v);
+    }
+    return `<tr><td style="white-space:nowrap;font-weight:500;color:var(--fg-dim);vertical-align:top;padding-right:12px">${escapeHtml(k)}</td><td>${displayVal}</td></tr>`;
+  }).join('');
+  return `<details class="frontmatter-block" open>
+    <summary style="cursor:pointer;font-size:11px;color:var(--fg-dim);margin-bottom:6px;user-select:none">Frontmatter</summary>
+    <table style="font-size:11px;margin-bottom:16px;width:100%;border-collapse:collapse">
+      <tbody>${rows}</tbody>
+    </table>
+  </details>`;
+}
+
 function renderMarkdownFromString(rawContent, paneEl) {
   if (!paneEl) return;
+
+  const { frontmatter, body } = parseFrontmatter(rawContent);
 
   // Build main content area.
   const contentWrapper = document.createElement('div');
   contentWrapper.className = 'edit-content-wrapper';
 
   if (typeof marked !== 'undefined') {
-    const rendered = marked.parse(rawContent);
     const mdDiv = document.createElement('div');
     mdDiv.className = 'markdown-body';
-    mdDiv.innerHTML = rendered;
+    if (frontmatter) {
+      mdDiv.innerHTML = renderFrontmatterTable(frontmatter) + marked.parse(body);
+    } else {
+      mdDiv.innerHTML = marked.parse(rawContent);
+    }
     contentWrapper.appendChild(mdDiv);
   } else {
     // Fallback: CDN blocked — show raw content as <pre> with warning banner

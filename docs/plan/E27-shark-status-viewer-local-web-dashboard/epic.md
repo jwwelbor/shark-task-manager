@@ -6,12 +6,6 @@ description: A self-contained, dark-themed web dashboard that reads project stat
 
 # E27 — Shark Status Viewer — Local Web Dashboard
 
-**Epic Key**: E27  
-**Status**: ready_for_research  
-**Priority**: Medium
-
----
-
 ## Goal
 
 ### Problem
