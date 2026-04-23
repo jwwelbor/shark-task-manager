@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -467,11 +468,39 @@ func TestFileGate_CachePath_XDGOverride_Permissions(t *testing.T) {
 // ---- AC-8: ConstantTimeCompare is used (import assertion) ---------------
 
 func TestPackage_UsesConstantTimeCompare(t *testing.T) {
-	// This test documents the design invariant that crypto/subtle is imported
-	// and used for hash comparison. The compilation of this package itself
-	// verifies the import (removing it would break the build).
+	// AC-T8 (task spec): This test verifies via go list -json that crypto/subtle
+	// is imported by the production package (not just test code), documenting the
+	// design invariant that ConstantTimeCompare is on the authorize path.
 	//
+	// Spec reference: spec.md REQ-F-006, REQ-NF-002; test-plan.md AC-8.
+
+	// Static import assertion via go list -json: verify crypto/subtle is in
+	// the production imports (not just in test imports).
+	cmd := exec.Command("go", "list", "-json", ".")
+	cmd.Dir = packageDir()
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list -json failed: %v\noutput: %s", err, out)
+	}
+	var result struct {
+		Imports []string `json:"Imports"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("json.Unmarshal: %v\noutput: %s", err, out)
+	}
+	subtleFound := false
+	for _, imp := range result.Imports {
+		if imp == "crypto/subtle" {
+			subtleFound = true
+			break
+		}
+	}
+	if !subtleFound {
+		t.Errorf("crypto/subtle not found in production imports; ConstantTimeCompare may not be used on the comparison path. Imports: %v", result.Imports)
+	}
+
 	// Functional test: correct and incorrect passwords exercise the comparison path.
+	// The compilation of the package verifies the import is actually used.
 	hash := sha256hexHelper("testpass")
 	cfg := &config.MaintainerConfig{PasswordHash: hash}
 	gate := newTestGate(t, cfg, 60*time.Second, nil)
@@ -649,11 +678,37 @@ func serializeSpanData(spans tracetest.SpanStubs) string {
 
 // ---- AC-14: No shark-domain imports ------------------------------------
 
+// goListImports runs "go list -json ." in dir and returns the Imports slice.
+// It fails the test if the command exits non-zero or the JSON cannot be parsed.
+func goListImports(t *testing.T, dir string) []string {
+	t.Helper()
+	cmd := exec.Command("go", "list", "-json", ".")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list -json failed in %s: %v\noutput: %s", dir, err, out)
+	}
+	var result struct {
+		Imports     []string `json:"Imports"`
+		TestImports []string `json:"TestImports"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("json.Unmarshal go list output: %v\noutput: %s", err, out)
+	}
+	all := append(result.Imports, result.TestImports...)
+	return all
+}
+
+// packageDir returns the directory of the current test's package.
+// Since tests run with the package directory as cwd, this returns ".".
+// We use this to ensure the go list command targets the right package.
+func packageDir() string {
+	return "."
+}
+
 func TestPackage_HasNoSharkDomainImports(t *testing.T) {
-	// This test documents the design invariant that internal/auth/maintainer
-	// does NOT import any shark domain packages. The constraint is enforced
-	// at compile time: if a forbidden import were added, the package would
-	// fail to build or create a cycle.
+	// AC-T5 (task spec): This test uses go list -json at test time to assert
+	// that forbidden shark-domain import prefixes are absent from the package.
 	//
 	// Forbidden import prefixes (spec.md REQ-F-001, test-plan.md AC-14):
 	//   - github.com/jwwelbor/shark-task-manager/internal/models
@@ -667,10 +722,27 @@ func TestPackage_HasNoSharkDomainImports(t *testing.T) {
 	//   - Standard library
 	//   - go.opentelemetry.io/otel (observability)
 
-	// Positive assertion: the config import is allowed and required.
+	// Compile-time assertion: the config import is allowed and required.
 	var _ *config.MaintainerConfig = nil
 
-	// If this package compiled, the constraint holds. No runtime check needed.
+	// Runtime assertion via go list -json: parse actual imports and check
+	// for forbidden prefixes. This guards against future additions.
+	forbidden := []string{
+		"github.com/jwwelbor/shark-task-manager/internal/models",
+		"github.com/jwwelbor/shark-task-manager/internal/repository",
+		"github.com/jwwelbor/shark-task-manager/internal/services",
+		"github.com/jwwelbor/shark-task-manager/internal/workflow",
+		"github.com/jwwelbor/shark-task-manager/internal/cli",
+	}
+
+	imports := goListImports(t, packageDir())
+	for _, imp := range imports {
+		for _, prefix := range forbidden {
+			if strings.HasPrefix(imp, prefix) {
+				t.Errorf("forbidden import found: %q (matches forbidden prefix %q)", imp, prefix)
+			}
+		}
+	}
 }
 
 // ---- Section 2.1: Concurrent RecordSuccess — Race Safety ----------------
@@ -746,6 +818,35 @@ func TestCachePath_XDGOverrides_HomeCache(t *testing.T) {
 	}
 	if !strings.HasPrefix(path, xdgRoot) {
 		t.Errorf("session path %q does not start with XDG_CACHE_HOME %q", path, xdgRoot)
+	}
+}
+
+// TestCachePath_XDGEmptyString_FallsBackToUserCacheDir verifies the AC-7 edge case:
+// when XDG_CACHE_HOME is set to an empty string it is treated as unset and the
+// fallback os.UserCacheDir() path is used instead.
+//
+// Spec reference: spec.md REQ-F-004; test-plan.md AC-7 edge cases.
+func TestCachePath_XDGEmptyString_FallsBackToUserCacheDir(t *testing.T) {
+	// Set XDG_CACHE_HOME to empty string — must behave as if unset.
+	t.Setenv("XDG_CACHE_HOME", "")
+
+	projectRoot := t.TempDir()
+
+	path, err := sessionPath(projectRoot)
+	if err != nil {
+		// On CI or sandboxed environments os.UserCacheDir may fail; skip in that case.
+		t.Skipf("sessionPath returned error (UserCacheDir unavailable?): %v", err)
+	}
+
+	// The path must NOT start with an empty string prefix (which would trivially match
+	// anything). It must start with the actual UserCacheDir value.
+	userCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		t.Skipf("os.UserCacheDir not available: %v", err)
+	}
+
+	if !strings.HasPrefix(path, userCacheDir) {
+		t.Errorf("with XDG_CACHE_HOME='', session path %q should start with UserCacheDir %q", path, userCacheDir)
 	}
 }
 
