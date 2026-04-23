@@ -128,6 +128,18 @@ func (m *Manager) Load() (*Config, error) {
 		config.Observability = &obs
 	}
 
+	// Parse maintainer config if present
+	if maintainerRaw, ok := rawData["maintainer"].(map[string]interface{}); ok {
+		mc := &MaintainerConfig{}
+		if hash, ok := maintainerRaw["password_hash"].(string); ok {
+			mc.PasswordHash = hash
+		}
+		if window, ok := maintainerRaw["cache_window_seconds"].(float64); ok {
+			mc.CacheWindowSeconds = int(window)
+		}
+		config.Maintainer = mc
+	}
+
 	m.config = config
 	return config, nil
 }
