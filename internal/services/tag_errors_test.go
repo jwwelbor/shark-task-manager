@@ -169,6 +169,105 @@ func TestTagErrors_ErrorsAs(t *testing.T) {
 			t.Errorf("Count = %d, want %d", target.Count, 7)
 		}
 	})
+
+	t.Run("UnregisteredTagError works with errors.As", func(t *testing.T) {
+		err := error(&UnregisteredTagError{Name: "does-not-exist"})
+		var target *UnregisteredTagError
+		if !errorsAs(err, &target) {
+			t.Error("errors.As should find *UnregisteredTagError")
+		}
+		if target.Name != "does-not-exist" {
+			t.Errorf("Name = %q, want %q", target.Name, "does-not-exist")
+		}
+	})
+
+	t.Run("TagRequiredError works with errors.As", func(t *testing.T) {
+		err := error(&TagRequiredError{EntityType: "task"})
+		var target *TagRequiredError
+		if !errorsAs(err, &target) {
+			t.Error("errors.As should find *TagRequiredError")
+		}
+		if target.EntityType != "task" {
+			t.Errorf("EntityType = %q, want %q", target.EntityType, "task")
+		}
+	})
+}
+
+// TestUnregisteredTagError_Message covers AC-28 (spec.md §1.3, §2.4).
+//
+// Reference: spec.md Section 2.4 ADR-F04-3. UnregisteredTagError is
+// returned by TagService.AttachMany when a name passes structural
+// validation but is not present in the vocabulary. It is distinct from
+// NotFoundError so the CLI can render the SC-2 error shape.
+//
+// Error() format: "tag is not registered: <Name>"
+func TestUnregisteredTagError_Message(t *testing.T) {
+	t.Run("AC-28: Error() is literal 'tag is not registered: <Name>'", func(t *testing.T) {
+		e := &UnregisteredTagError{Name: "voice"}
+		got := e.Error()
+		want := "tag is not registered: voice"
+		if got != want {
+			t.Errorf("UnregisteredTagError.Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("AC-28: name is carried verbatim (normalized form)", func(t *testing.T) {
+		e := &UnregisteredTagError{Name: "does-not-exist"}
+		got := e.Error()
+		want := "tag is not registered: does-not-exist"
+		if got != want {
+			t.Errorf("UnregisteredTagError.Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("AC-T1: UnregisteredTagError implements error interface", func(t *testing.T) {
+		var _ error = &UnregisteredTagError{}
+	})
+
+	t.Run("AC-T1: exported Name field", func(t *testing.T) {
+		e := &UnregisteredTagError{Name: "auth"}
+		if e.Name != "auth" {
+			t.Errorf("Name = %q, want %q", e.Name, "auth")
+		}
+	})
+}
+
+// TestTagRequiredError_Message covers AC-28b (spec.md §1.3, §2.4).
+//
+// Reference: spec.md Section 2.4 and REQ-F-003. TagRequiredError is
+// returned by TagService.EnforceRequired when the entity type is listed
+// in Config.TagRequiredFor and the names slice is empty.
+//
+// Error() format: "at least one tag is required for <EntityType>"
+func TestTagRequiredError_Message(t *testing.T) {
+	t.Run("AC-28b: Error() is literal 'at least one tag is required for <EntityType>'", func(t *testing.T) {
+		e := &TagRequiredError{EntityType: "task"}
+		got := e.Error()
+		want := "at least one tag is required for task"
+		if got != want {
+			t.Errorf("TagRequiredError.Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("AC-28b: entity type preserved verbatim", func(t *testing.T) {
+		e := &TagRequiredError{EntityType: "feature"}
+		got := e.Error()
+		want := "at least one tag is required for feature"
+		if got != want {
+			t.Errorf("TagRequiredError.Error() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("AC-T1: TagRequiredError implements error interface", func(t *testing.T) {
+		var _ error = &TagRequiredError{}
+	})
+
+	t.Run("AC-T1: exported EntityType field", func(t *testing.T) {
+		e := &TagRequiredError{EntityType: "epic"}
+		if e.EntityType != "epic" {
+			t.Errorf("EntityType = %q, want %q", e.EntityType, "epic")
+		}
+	})
 }
 
 // errorsAs is a local wrapper so the test file stays free of "errors" import

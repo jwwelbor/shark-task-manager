@@ -65,3 +65,39 @@ func (e *TagInUseError) Error() string {
 		e.Name, e.Count,
 	)
 }
+
+// UnregisteredTagError is returned by TagService.AttachMany when a name
+// passes structural validation but is not present in the vocabulary
+// (REQ-F-004, AC-2, AC-28). It is distinct from NotFoundError (which is
+// used by vocabulary-management paths in F03) so CLI command layers can
+// produce the SC-2 error shape without overloading NotFoundError's
+// meaning (see ADR-F04-3).
+//
+// CLI exit code: 3 (maps to "unregistered_tag" per REQ-F-016).
+// Error() format: "tag is not registered: <Name>"
+type UnregisteredTagError struct {
+	// Name is the normalized (lowercased + trimmed) tag name that was
+	// not found in the vocabulary on the attach path.
+	Name string
+}
+
+func (e *UnregisteredTagError) Error() string {
+	return fmt.Sprintf("tag is not registered: %s", e.Name)
+}
+
+// TagRequiredError is returned by TagService.EnforceRequired when the
+// given entity type is listed in Config.TagRequiredFor but the provided
+// name slice is empty (REQ-F-003, AC-9, AC-28b).
+//
+// CLI exit code: 3 (maps to "tag_required" per REQ-F-016).
+// Error() format: "at least one tag is required for <EntityType>"
+type TagRequiredError struct {
+	// EntityType is the string form of the entity type
+	// (e.g. "task", "feature", "epic", "bug", "change", "idea")
+	// matching models.EntityType.String() output.
+	EntityType string
+}
+
+func (e *TagRequiredError) Error() string {
+	return fmt.Sprintf("at least one tag is required for %s", e.EntityType)
+}
