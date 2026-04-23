@@ -122,9 +122,10 @@ func TestMigrateDropLegacyRelationshipTables_Idempotent(t *testing.T) {
 	assert.False(t, legacyTableExists(t, db, "epic_relationships"))
 }
 
-// TestMigrateDropLegacyRelationshipTables_SchemaVersionBumped validates AC-8 (TC-8.1):
-// CurrentSchemaVersion must be 13 after the viewer_task_relationships view migration is added.
+// TestMigrateDropLegacyRelationshipTables_SchemaVersionBumped validates that
+// CurrentSchemaVersion is at least 13 (the version at which the viewer_task_relationships
+// view migration was added). Updated to 14 when E28-F01 added the tags/entity_tags migration.
 func TestMigrateDropLegacyRelationshipTables_SchemaVersionBumped(t *testing.T) {
-	assert.Equal(t, 13, CurrentSchemaVersion,
-		"CurrentSchemaVersion must be 13 after viewer_task_relationships view migration is added")
+	assert.GreaterOrEqual(t, CurrentSchemaVersion, 13,
+		"CurrentSchemaVersion must be >= 13 after viewer_task_relationships view migration is added")
 }
