@@ -1016,3 +1016,106 @@ func TestGetTemplateDirectoryFromConfig(t *testing.T) {
 		}
 	})
 }
+
+// TestConfig_Maintainer_RoundTrip tests that Config with a populated Maintainer field
+// survives a JSON marshal/unmarshal round-trip with all fields preserved
+// (test-plan.md §2.5, AC-T3, AC-T4, AC-T5).
+func TestConfig_Maintainer_RoundTrip(t *testing.T) {
+	t.Run("config with maintainer preserves all fields", func(t *testing.T) {
+		// Arrange
+		workflowConfig := "shark-templates/.sharkworkflow.json"
+		original := Config{
+			WorkflowConfig: &workflowConfig,
+			Maintainer: &MaintainerConfig{
+				PasswordHash:       "abc123deadbeef",
+				CacheWindowSeconds: 120,
+			},
+		}
+
+		// Act: Marshal to JSON
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		// Assert: maintainer key is present
+		jsonStr := string(data)
+		if !containsString(jsonStr, `"maintainer"`) {
+			t.Errorf("marshaled JSON missing 'maintainer' key: %s", jsonStr)
+		}
+		if !containsString(jsonStr, `"password_hash"`) {
+			t.Errorf("marshaled JSON missing 'password_hash' key: %s", jsonStr)
+		}
+		if !containsString(jsonStr, `"cache_window_seconds"`) {
+			t.Errorf("marshaled JSON missing 'cache_window_seconds' key: %s", jsonStr)
+		}
+		if !containsString(jsonStr, `"workflow_config"`) {
+			t.Errorf("marshaled JSON missing 'workflow_config' key: %s", jsonStr)
+		}
+
+		// Act: Unmarshal back
+		var got Config
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+
+		// Assert: Maintainer fields preserved
+		if got.Maintainer == nil {
+			t.Fatal("Maintainer is nil after round-trip")
+		}
+		if got.Maintainer.PasswordHash != original.Maintainer.PasswordHash {
+			t.Errorf("PasswordHash = %q, want %q", got.Maintainer.PasswordHash, original.Maintainer.PasswordHash)
+		}
+		if got.Maintainer.CacheWindowSeconds != original.Maintainer.CacheWindowSeconds {
+			t.Errorf("CacheWindowSeconds = %d, want %d", got.Maintainer.CacheWindowSeconds, original.Maintainer.CacheWindowSeconds)
+		}
+
+		// Assert: other top-level key preserved
+		if got.WorkflowConfig == nil || *got.WorkflowConfig != workflowConfig {
+			t.Errorf("WorkflowConfig = %v, want %q", got.WorkflowConfig, workflowConfig)
+		}
+	})
+
+	t.Run("config without maintainer omits maintainer key (omitempty)", func(t *testing.T) {
+		// Arrange: Config with no Maintainer field
+		original := Config{}
+
+		// Act: Marshal to JSON
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		// Assert: no "maintainer" key in JSON output
+		jsonStr := string(data)
+		if containsString(jsonStr, `"maintainer"`) {
+			t.Errorf("marshaled JSON unexpectedly contains 'maintainer' key: %s", jsonStr)
+		}
+	})
+
+	t.Run("maintainer with zero CacheWindowSeconds omits that field (omitempty)", func(t *testing.T) {
+		// Arrange
+		original := Config{
+			Maintainer: &MaintainerConfig{
+				PasswordHash:       "abc",
+				CacheWindowSeconds: 0, // zero value, should be omitted
+			},
+		}
+
+		// Act
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		// Assert: cache_window_seconds omitted when zero
+		jsonStr := string(data)
+		if containsString(jsonStr, `"cache_window_seconds"`) {
+			t.Errorf("marshaled JSON unexpectedly contains 'cache_window_seconds' for zero value: %s", jsonStr)
+		}
+		// password_hash should still be present
+		if !containsString(jsonStr, `"password_hash"`) {
+			t.Errorf("marshaled JSON missing 'password_hash': %s", jsonStr)
+		}
+	})
+}

@@ -31,6 +31,12 @@ type Config struct {
 	Web                    *WebConfig             `json:"web,omitempty"`                      // Web dashboard server configuration
 	RawData                map[string]interface{} `json:"-"`                                  // Store raw config data to preserve unknown fields
 
+	// Maintainer holds the optional maintainer authorization gate configuration.
+	// A nil or absent Maintainer is equivalent to "no password configured."
+	// See internal/auth/maintainer for the gate implementation.
+	// Spec reference: spec.md REQ-F-007, §2.3.
+	Maintainer *MaintainerConfig `json:"maintainer,omitempty"`
+
 	// statusMetadata holds status metadata for work breakdown calculations
 	// Internal field for testing and programmatic access
 	statusMetadata map[string]*StatusMetadata `json:"-"`
