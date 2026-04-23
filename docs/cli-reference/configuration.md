@@ -115,6 +115,33 @@ shark web --port 8888   # uses 8888 regardless of web.port in config
 | `default_agent` | string/null | `null` | Default agent type for task creation and filtering |
 | `default_epic` | string/null | `null` | Default epic for task/feature creation |
 
+### Maintainer Authorization
+
+The optional `maintainer` object configures the maintainer authorization gate used
+by destructive admin operations (e.g., `shark admin purge` in a future epic).
+
+```json
+{
+  "maintainer": {
+    "password_hash": "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3",
+    "cache_window_seconds": 300
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `password_hash` | string | `""` | SHA-256 hex digest of the maintainer password. Set via `shark admin maintainer set-password`. |
+| `cache_window_seconds` | int | `60` | Duration in seconds for which a successful authorization is cached (sudo-style). Zero or negative uses the default of 60 seconds. |
+
+**Notes:**
+
+- The plaintext password is **never stored**. Only the SHA-256 hex digest is written.
+- An absent or nil `maintainer` object means "no password configured." Any call to `gate.Authorize` will return `*UnauthorizedError` directing the user to run `shark admin maintainer set-password`.
+- Use `shark admin maintainer set-password` to set or rotate the password.
+
+---
+
 ### Environment Variables
 
 Shark supports environment variable substitution in config values:
