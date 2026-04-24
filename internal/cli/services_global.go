@@ -266,6 +266,10 @@ func GetTaskService() *services.TaskService {
 	svc.SetFeatureRepo(d.featureRepo)
 	svc.SetFeatureService(GetFeatureService())
 
+	// E28-F04 T-006: wire the shared *TagService so TaskService can enforce
+	// `tag_required_for` on create and honour --tag on create/update.
+	svc.SetTagService(GetTagService())
+
 	// Wire entity history recording for polymorphic entity_history table.
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
 	svc.SetEntityHistoryRepo(entityHistoryRepo)
@@ -343,6 +347,10 @@ func GetTaskServiceWithDocs() *services.TaskService {
 	svc.SetFeatureService(GetFeatureService())
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
 	svc.SetEnrichRepo(enrichRepo)
+
+	// E28-F05 T-010: wire TagService so GetTaskWithTags renders the Tags row
+	// in rich-display (REQ-F-014 / AC-28c). Must match the wiring in GetTaskService().
+	svc.SetTagService(GetTagService())
 
 	// Wire entity history recording for polymorphic entity_history table.
 	entityHistoryRepo := repository.NewEntityHistoryRepository(d.db)
@@ -441,6 +449,11 @@ func GetChangeCardService() *services.ChangeCardService {
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
+
+	// E28-F04 T-009: wire the shared *TagService so ChangeCardService can
+	// enforce `tag_required_for` on create and honour --tag on create/update.
+	svc.SetTagService(GetTagService())
+
 	// No longer need: svc.SetEntityHistoryRepo(...) -- EntityService handles history
 	return svc
 }
@@ -471,7 +484,10 @@ func GetBugService() *services.BugService {
 	entitySvc := GetEntityService()
 	entityRepo := GetEntityRegistry().MustGetRepository(models.EntityTypeBug)
 
-	svc := services.NewBugService(bugRepo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, projectRoot)
+	// E28-F04 T-005: pass the shared *TagService so BugService can enforce
+	// `tag_required_for` on create and honour --tag on create/update.
+	tagSvc := GetTagService()
+	svc := services.NewBugService(bugRepo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, projectRoot, tagSvc)
 	docRepo := repository.NewDocumentRepository(db)
 	entityDocRepo := repository.NewEntityDocumentRepository(db)
 	svc.SetWritableDocRepo(docRepo, entityDocRepo)
