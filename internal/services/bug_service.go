@@ -13,6 +13,9 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/repository"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/jwwelbor/shark-task-manager/internal/workflow"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // BugRepository defines the repository interface for bug operations.
@@ -44,6 +47,27 @@ type LinkValidatorTaskRepo interface {
 	GetByKey(ctx context.Context, key string) (*models.Task, error)
 }
 
+// TagAttacher is the narrow interface that entity services depend on for
+// tag-related operations. Satisfied by *TagService in production and by
+// test mocks.
+//
+// The fourth method, ListTagsForEntity, is used by GetXxxWithTags wrappers
+// (REQ-F-014, spec §2.5.3) so a single interface covers both the
+// Create/Update attach path and the Get-with-tags query path.
+type TagAttacher interface {
+	EnforceRequired(ctx context.Context, entityType models.EntityType, names []string) error
+	AttachMany(ctx context.Context, entityType models.EntityType, entityID int64, names []string) error
+	DetachOne(ctx context.Context, entityType models.EntityType, entityID int64, name string) error
+
+	// ListTagsForEntity returns the sorted normalized tag names attached to
+	// (entityType, entityID). Returns an empty non-nil slice when no tags
+	// are attached. Used by GetXxxWithTags (spec §2.5.3, REQ-F-014).
+	ListTagsForEntity(ctx context.Context, entityType models.EntityType, entityID int64) ([]string, error)
+}
+
+// Compile-time check: *TagService must satisfy TagAttacher (AC-T2).
+var _ TagAttacher = (*TagService)(nil)
+
 // (BugWritableDocumentRepository removed -- replaced by EntityDocumentRepository + EntityDocumentLinkRepository)
 
 // BugService provides business logic for bug operations.
@@ -57,14 +81,13 @@ type BugService struct {
 	taskRepo    LinkValidatorTaskRepo
 	projectRoot string
 	docSvc      *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	// tagSvc is optional — nil disables tag integration.
+	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+	tagSvc TagQuerier
 }
 
-// NewBugService creates a new BugService with injected dependencies.
-// entitySvc and entityRepo are required for status transition delegation.
-//
-// Panics:
-//   - If repo is nil (required dependency)
-//   - If entitySvc is nil (required dependency)
+// NewBugService creates a BugService. tagSvc is optional (pass nil to
+// disable tag integration). Panics if repo or entitySvc is nil.
 func NewBugService(
 	repo BugRepository,
 	entitySvc *EntityService,
@@ -73,6 +96,7 @@ func NewBugService(
 	featureRepo LinkValidatorFeatureRepo,
 	taskRepo LinkValidatorTaskRepo,
 	projectRoot string,
+	tagSvc TagQuerier,
 ) *BugService {
 	requireNonNil(repo, "BugService requires a non-nil BugRepository")
 	requireNonNil(entitySvc, "BugService requires a non-nil EntityService")
@@ -85,6 +109,7 @@ func NewBugService(
 		featureRepo: featureRepo,
 		taskRepo:    taskRepo,
 		projectRoot: projectRoot,
+		tagSvc:      tagSvc,
 	}
 }
 
@@ -106,6 +131,11 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 		if err := s.validateLinkedEntity(ctx, input.LinkedEntityType, input.LinkedEntityKey); err != nil {
 			return nil, fmt.Errorf("linked entity validation failed: %w", err)
 		}
+	}
+
+	// Enforce tag_required_for before key allocation or persistence.
+	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeBug, input.Tags); err != nil {
+		return nil, err
 	}
 
 	// Generate key
@@ -146,6 +176,13 @@ func (s *BugService) CreateBug(ctx context.Context, input CreateBugInput) (*mode
 
 	if err := s.repo.Create(ctx, bug); err != nil {
 		return nil, fmt.Errorf("failed to create bug: %w", err)
+	}
+
+	// Attach tags after insert so bug.ID is valid. Not wrapped in a
+	// transaction — on failure the row is persisted with zero tags and
+	// the user retries via `shark bug update --tag=...`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeBug, bug.ID, input.Tags); err != nil {
+		return nil, err
 	}
 
 	// Generate and write markdown file (best-effort)
@@ -210,6 +247,30 @@ func (s *BugService) GetBug(ctx context.Context, key string) (*models.Bug, error
 	return bug, nil
 }
 
+// GetBugWithTags returns the bug and the sorted list of tag names attached to
+// it. When tagSvc is nil the tags slice is nil (graceful degradation —
+// consistent with F04 REQ-F-018). When ListTagsForEntity fails the method
+// returns (nil, nil, wrappedErr) per AC-T3.
+func (s *BugService) GetBugWithTags(ctx context.Context, key string) (*models.Bug, []string, error) {
+	ctx, span := otel.Tracer("shark/services/bug").Start(ctx, "BugService.GetBugWithTags",
+		trace.WithAttributes(attribute.String("bug.key", key)),
+	)
+	defer span.End()
+
+	bug, err := s.GetBug(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.tagSvc == nil {
+		return bug, nil, nil
+	}
+	names, err := s.tagSvc.ListTagsForEntity(ctx, models.EntityTypeBug, bug.ID)
+	if err != nil {
+		return nil, nil, recordSpanError(span, fmt.Errorf("load tags for bug %s: %w", key, err))
+	}
+	return bug, names, nil
+}
+
 // UpdateBug applies partial updates to a bug.
 func (s *BugService) UpdateBug(ctx context.Context, key string, updates BugUpdates) (*models.Bug, error) {
 	bug, err := s.repo.GetByKey(ctx, key)
@@ -271,6 +332,11 @@ func (s *BugService) UpdateBug(ctx context.Context, key string, updates BugUpdat
 		return nil, fmt.Errorf("failed to update bug %s: %w", key, err)
 	}
 
+	// `--tag` on update is additive only; detach goes through `shark bug tag rm`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeBug, bug.ID, updates.Tags); err != nil {
+		return nil, err
+	}
+
 	return bug, nil
 }
 
@@ -290,6 +356,25 @@ func (s *BugService) DeleteBug(ctx context.Context, key string) error {
 
 // ListBugs retrieves bugs with optional filters.
 func (s *BugService) ListBugs(ctx context.Context, filters BugFilters) ([]*models.Bug, error) {
+	// Block 1: pre-filter by tag IDs (E28-F05 §2.5.2).
+	var taggedIDSet map[int64]struct{}
+	if len(filters.Tags) > 0 {
+		if s.tagSvc == nil {
+			return nil, &TagFilterUnavailableError{}
+		}
+		ids, err := s.tagSvc.EntityIDsByTags(ctx, models.EntityTypeBug, filters.Tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) == 0 {
+			return []*models.Bug{}, nil // REQ-F-017 short-circuit
+		}
+		taggedIDSet = make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			taggedIDSet[id] = struct{}{}
+		}
+	}
+
 	repoFilters := &repository.BugListFilters{
 		Status:          filters.Status,
 		Severity:        filters.Severity,
@@ -301,6 +386,9 @@ func (s *BugService) ListBugs(ctx context.Context, filters BugFilters) ([]*model
 	if err != nil {
 		return nil, fmt.Errorf("failed to list bugs: %w", err)
 	}
+
+	// Block 2: post-filter in-memory (E28-F05 §2.5.2).
+	bugs = filterByTagIDs(bugs, taggedIDSet, func(b *models.Bug) int64 { return b.ID })
 
 	return bugs, nil
 }

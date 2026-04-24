@@ -87,6 +87,10 @@ type FeatureService struct {
 	entityHistoryRepo EntityHistoryRecorder // optional: records to entity_history table
 	tracer            trace.Tracer          // optional; defaults to otel.Tracer("shark/services/feature") if nil
 
+	// tagSvc is optional — nil disables tag integration.
+	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+	tagSvc TagQuerier
+
 	// Cascade reopen dependencies (all optional; cascade fires only when all are non-nil).
 	cascadeDB          txBeginner
 	cascadeEpicRepo    CascadeEpicRepo
@@ -154,6 +158,13 @@ func (s *FeatureService) SetEnrichRepo(enrichRepo config.TemplateEnrichmentRepos
 // The *repository.EntityHistoryRepository satisfies EntityHistoryRecorder directly.
 func (s *FeatureService) SetEntityHistoryRepo(repo EntityHistoryRecorder) {
 	s.entityHistoryRepo = repo
+}
+
+// SetTagService wires the optional TagQuerier dependency. When nil, tag
+// hooks in CreateFeature, UpdateFeature, and ListFeatures are skipped silently.
+// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+func (s *FeatureService) SetTagService(tagSvc TagQuerier) {
+	s.tagSvc = tagSvc
 }
 
 // SetCascadeDeps wires the optional cascade reopen dependencies for FeatureService.
@@ -355,6 +366,30 @@ func (s *FeatureService) GetFeature(ctx context.Context, key string) (*models.Fe
 	return feature, nil
 }
 
+// GetFeatureWithTags returns the feature and the sorted list of tag names
+// attached to it. When tagSvc is nil the tags slice is nil (graceful
+// degradation — consistent with F04 REQ-F-018). When ListTagsForEntity fails
+// the method returns (nil, nil, wrappedErr) per AC-T3.
+func (s *FeatureService) GetFeatureWithTags(ctx context.Context, key string) (*models.Feature, []string, error) {
+	ctx, span := s.getTracer().Start(ctx, "FeatureService.GetFeatureWithTags",
+		trace.WithAttributes(attribute.String("feature.key", key)),
+	)
+	defer span.End()
+
+	feature, err := s.GetFeature(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.tagSvc == nil {
+		return feature, nil, nil
+	}
+	names, err := s.tagSvc.ListTagsForEntity(ctx, models.EntityTypeFeature, feature.ID)
+	if err != nil {
+		return nil, nil, recordSpanError(span, fmt.Errorf("load tags for feature %s: %w", key, err))
+	}
+	return feature, names, nil
+}
+
 // GetFeatureByID retrieves a feature by its database ID.
 // This is used when iterating over features that were returned with IDs but no keys,
 // such as after RecalculateAndSetProgress to get the updated feature record.
@@ -377,6 +412,25 @@ func (s *FeatureService) ListFeatures(ctx context.Context, filters FeatureFilter
 	ctx, span := s.getTracer().Start(ctx, "FeatureService.ListFeatures")
 	defer span.End()
 
+	// Block 1: pre-filter by tag IDs (E28-F05 §2.5.2).
+	var taggedIDSet map[int64]struct{}
+	if len(filters.Tags) > 0 {
+		if s.tagSvc == nil {
+			return nil, recordSpanError(span, &TagFilterUnavailableError{})
+		}
+		ids, err := s.tagSvc.EntityIDsByTags(ctx, models.EntityTypeFeature, filters.Tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, recordSpanError(span, err)
+		}
+		if len(ids) == 0 {
+			return []*models.Feature{}, nil // REQ-F-017 short-circuit
+		}
+		taggedIDSet = make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			taggedIDSet[id] = struct{}{}
+		}
+	}
+
 	features, err := s.repo.List(ctx)
 	if err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to list features: %w", err))
@@ -393,27 +447,68 @@ func (s *FeatureService) ListFeatures(ctx context.Context, filters FeatureFilter
 		features = filtered
 	}
 
+	// Block 2: post-filter in-memory (E28-F05 §2.5.2).
+	features = filterByTagIDs(features, taggedIDSet, func(f *models.Feature) int64 { return f.ID })
+
 	return features, nil
 }
 
-// ListFeaturesByEpicKey retrieves features for a specific epic, with optional status filtering.
+// ListFeaturesByEpicKey retrieves features for a specific epic using filters.EpicKey,
+// with optional status filtering via filters.Status and tag filtering via filters.Tags.
 // Unlike ListFeatures, this supports epic-scoped queries by resolving the epic key via epicLookupRepo.
 // Returns an error if epicLookupRepo is nil or the epic does not exist.
-func (s *FeatureService) ListFeaturesByEpicKey(ctx context.Context, epicKey string, statusFilter string) ([]*models.Feature, error) {
+//
+// Tag filtering (E28-F05): when filters.Tags is non-empty, Block 1 pre-filters the entity ID
+// set via tagSvc.EntityIDsByTags, and Block 2 post-filters the base-list result in-memory.
+// This preserves the indexed ListByEpic / ListByEpicAndStatus repository path.
+func (s *FeatureService) ListFeaturesByEpicKey(ctx context.Context, filters FeatureFilters) ([]*models.Feature, error) {
+	ctx, span := s.getTracer().Start(ctx, "FeatureService.ListFeaturesByEpicKey")
+	defer span.End()
+
 	if s.epicLookupRepo == nil {
-		return nil, fmt.Errorf("epic lookup repository not available")
+		return nil, recordSpanError(span, fmt.Errorf("epic lookup repository not available"))
 	}
-	epic, err := s.epicLookupRepo.GetByKey(ctx, epicKey)
+	epic, err := s.epicLookupRepo.GetByKey(ctx, filters.EpicKey)
 	if err != nil {
-		return nil, fmt.Errorf("epic %s does not exist: %w", epicKey, err)
+		return nil, recordSpanError(span, fmt.Errorf("epic %s does not exist: %w", filters.EpicKey, err))
 	}
 	if epic == nil {
-		return nil, fmt.Errorf("epic %s not found", epicKey)
+		return nil, recordSpanError(span, fmt.Errorf("epic %s not found", filters.EpicKey))
 	}
-	if statusFilter != "" {
-		return s.repo.ListByEpicAndStatus(ctx, epic.ID, models.FeatureStatus(statusFilter))
+
+	// Block 1: pre-filter by tag IDs (E28-F05 §2.5.2).
+	var taggedIDSet map[int64]struct{}
+	if len(filters.Tags) > 0 {
+		if s.tagSvc == nil {
+			return nil, recordSpanError(span, &TagFilterUnavailableError{})
+		}
+		ids, err := s.tagSvc.EntityIDsByTags(ctx, models.EntityTypeFeature, filters.Tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, recordSpanError(span, err)
+		}
+		if len(ids) == 0 {
+			return []*models.Feature{}, nil // REQ-F-017 short-circuit
+		}
+		taggedIDSet = make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			taggedIDSet[id] = struct{}{}
+		}
 	}
-	return s.repo.ListByEpic(ctx, epic.ID)
+
+	var features []*models.Feature
+	if filters.Status != "" {
+		features, err = s.repo.ListByEpicAndStatus(ctx, epic.ID, models.FeatureStatus(filters.Status))
+	} else {
+		features, err = s.repo.ListByEpic(ctx, epic.ID)
+	}
+	if err != nil {
+		return nil, recordSpanError(span, fmt.Errorf("failed to list features for epic %s: %w", filters.EpicKey, err))
+	}
+
+	// Block 2: post-filter in-memory (E28-F05 §2.5.2).
+	features = filterByTagIDs(features, taggedIDSet, func(f *models.Feature) int64 { return f.ID })
+
+	return features, nil
 }
 
 // GetTaskCount returns the number of tasks for a feature.
@@ -762,6 +857,10 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 		return nil, fmt.Errorf("epic key cannot be empty")
 	}
 
+	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeFeature, input.Tags); err != nil {
+		return nil, err
+	}
+
 	epicKey := strings.ToUpper(strings.TrimSpace(input.EpicKey))
 
 	// Validate epic exists (requires epicLookupRepo)
@@ -830,6 +929,10 @@ func (s *FeatureService) CreateFeature(ctx context.Context, input CreateFeatureI
 
 	if err := s.repo.Create(ctx, feature); err != nil {
 		return nil, fmt.Errorf("failed to create feature %s: %w", featureKey, err)
+	}
+
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeFeature, feature.ID, input.Tags); err != nil {
+		return nil, err
 	}
 
 	s.maybeReopenParentEpic(ctx, epic, feature.Key)
@@ -905,6 +1008,11 @@ func (s *FeatureService) UpdateFeature(ctx context.Context, key string, updates 
 
 	if err := s.repo.Update(ctx, feature); err != nil {
 		return nil, fmt.Errorf("failed to update feature %s: %w", key, err)
+	}
+
+	// `--tag` on update is additive only; detach goes through `shark feature tag rm`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeFeature, feature.ID, updates.Tags); err != nil {
+		return nil, err
 	}
 
 	return feature, nil

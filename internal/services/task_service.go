@@ -155,6 +155,9 @@ type TaskService struct {
 	featureService    *FeatureService // optional: triggers progress recalc on status change
 	enrichRepo        config.TemplateEnrichmentRepository
 	docSvc            *EntityDocumentService // shared document operations; built by SetWritableDocRepo
+	// tagSvc is optional — nil disables tag integration.
+	// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+	tagSvc TagQuerier
 
 	// Cascade reopen dependencies (all optional; cascade fires only when all are non-nil).
 	cascadeDB          txBeginner
@@ -293,6 +296,10 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		return nil, recordSpanError(span, fmt.Errorf("failed to create task: priority must be between 1 and 10"))
 	}
 
+	if err := enforceTagsRequired(ctx, s.tagSvc, models.EntityTypeTask, input.Tags); err != nil {
+		return nil, recordSpanError(span, err)
+	}
+
 	// Set default priority if not provided
 	priority := input.Priority
 	if priority == 0 {
@@ -324,6 +331,11 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		if err != nil {
 			return nil, recordSpanError(span, fmt.Errorf("failed to create task: %w", err))
 		}
+
+		if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTask, result.Task.ID, input.Tags); err != nil {
+			return nil, recordSpanError(span, err)
+		}
+
 		s.maybeReopenParentFeature(ctx, input.FeatureKey, result.Task.Key)
 		return result.Task, nil
 	}
@@ -386,6 +398,10 @@ func (s *TaskService) CreateTask(ctx context.Context, input CreateTaskInput) (*m
 		return nil, recordSpanError(span, fmt.Errorf("failed to create task: %w", err))
 	}
 
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTask, task.ID, input.Tags); err != nil {
+		return nil, recordSpanError(span, err)
+	}
+
 	s.maybeReopenParentFeature(ctx, input.FeatureKey, task.Key)
 	return task, nil
 }
@@ -414,6 +430,30 @@ func (s *TaskService) GetTask(ctx context.Context, key string) (*models.Task, er
 		return nil, recordSpanError(span, fmt.Errorf("failed to get task %s: %w", key, err))
 	}
 	return task, nil
+}
+
+// GetTaskWithTags returns the task and the sorted list of tag names attached to
+// it. When tagSvc is nil the tags slice is nil (graceful degradation —
+// consistent with F04 REQ-F-018). When ListTagsForEntity fails the method
+// returns (nil, nil, wrappedErr) per AC-T3.
+func (s *TaskService) GetTaskWithTags(ctx context.Context, key string) (*models.Task, []string, error) {
+	ctx, span := s.getTracer().Start(ctx, "TaskService.GetTaskWithTags",
+		trace.WithAttributes(attribute.String("task.key", key)),
+	)
+	defer span.End()
+
+	task, err := s.GetTask(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.tagSvc == nil {
+		return task, nil, nil
+	}
+	names, err := s.tagSvc.ListTagsForEntity(ctx, models.EntityTypeTask, task.ID)
+	if err != nil {
+		return nil, nil, recordSpanError(span, fmt.Errorf("load tags for task %s: %w", key, err))
+	}
+	return task, names, nil
 }
 
 // UpdateTask updates task fields (title, description, priority, etc).
@@ -471,6 +511,11 @@ func (s *TaskService) UpdateTask(ctx context.Context, key string, updates TaskUp
 	// Save updated task
 	if err := s.repo.Update(ctx, task); err != nil {
 		return nil, recordSpanError(span, fmt.Errorf("failed to update task %s: %w", key, err))
+	}
+
+	// `--tag` on update is additive only; detach goes through `shark task tag rm`.
+	if err := attachTagsIfAny(ctx, s.tagSvc, models.EntityTypeTask, task.ID, updates.Tags); err != nil {
+		return nil, recordSpanError(span, err)
 	}
 
 	return task, nil
@@ -536,10 +581,33 @@ func (s *TaskService) ListTasks(ctx context.Context, filters TaskFilters) ([]*mo
 	)
 	defer span.End()
 
+	// Block 1: pre-filter by tag IDs (E28-F05 §2.5.2).
+	var taggedIDSet map[int64]struct{}
+	if len(filters.Tags) > 0 {
+		if s.tagSvc == nil {
+			return nil, recordSpanError(span, &TagFilterUnavailableError{})
+		}
+		ids, err := s.tagSvc.EntityIDsByTags(ctx, models.EntityTypeTask, filters.Tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, recordSpanError(span, err)
+		}
+		if len(ids) == 0 {
+			return []*models.Task{}, nil // REQ-F-017 short-circuit
+		}
+		taggedIDSet = make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			taggedIDSet[id] = struct{}{}
+		}
+	}
+
 	tasks, err := s.getOrInitQueryService().ListTasks(ctx, filters)
 	if err != nil {
 		return nil, recordSpanError(span, err)
 	}
+
+	// Block 2: post-filter in-memory (E28-F05 §2.5.2).
+	tasks = filterByTagIDs(tasks, taggedIDSet, func(t *models.Task) int64 { return t.ID })
+
 	span.SetAttributes(attribute.Int("task.result_count", len(tasks)))
 	return tasks, nil
 }
@@ -1045,6 +1113,13 @@ func (s *TaskService) SetEpicRepo(repo AnalyticsEpicRepository) {
 // after initial construction via NewTaskService.
 func (s *TaskService) SetFeatureRepo(repo AnalyticsFeatureRepository) {
 	s.featureRepo = repo
+}
+
+// SetTagService wires the optional TagQuerier dependency. When nil, tag
+// hooks in CreateTask, UpdateTask, and ListTasks are skipped silently.
+// TagQuerier extends TagAttacher with EntityIDsByTags for list filtering (F05).
+func (s *TaskService) SetTagService(tagSvc TagQuerier) {
+	s.tagSvc = tagSvc
 }
 
 // SetFeatureService sets the feature service for write-through progress recalculation.
