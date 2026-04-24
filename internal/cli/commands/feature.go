@@ -7,9 +7,26 @@ import (
 	"time"
 
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/utils"
 	"github.com/spf13/cobra"
 )
+
+// resolveFeatureID is the EntityKeyResolver used by the `shark feature tag`
+// subcommand factory. It looks up a feature by key through the existing
+// FeatureService accessor (cli.GetFeatureService) and returns the numeric
+// ID.
+//
+// Split out as a package-level function (not a closure in init()) so the
+// E28-F04 entity_tag_cmd.go factory can reference it directly.
+func resolveFeatureID(ctx context.Context, key string) (int64, error) {
+	svc := cli.GetFeatureService()
+	feature, err := svc.GetFeature(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return feature.ID, nil
+}
 
 // featureCmd represents the feature command group.
 var featureCmd = &cobra.Command{
@@ -135,6 +152,11 @@ func init() {
 	featureCmd.AddCommand(featureDeleteCmd)
 	featureCmd.AddCommand(featureUpdateCmd)
 
+	// E28-F04 T-007: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time.
+	featureCmd.AddCommand(makeEntityTagCmd(models.EntityTypeFeature, resolveFeatureID, nil))
+
 	// List flags
 	featureListCmd.Flags().StringP("epic", "e", "", "Filter by epic key")
 	featureListCmd.Flags().String("status", "", "Filter by status")
@@ -157,6 +179,10 @@ func init() {
 	featureCreateCmd.Flags().String("path", "", "Alias for --file")
 	_ = featureCreateCmd.Flags().MarkHidden("filename")
 	_ = featureCreateCmd.Flags().MarkHidden("path")
+	// E28-F04 REQ-F-012: repeatable --tag flag. Tag must be registered in
+	// the vocabulary (see `shark tags list` / `shark tags add`).
+	featureCreateCmd.Flags().StringSlice("tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// Complete flags
 	featureCompleteCmd.Flags().Bool("force", false, "Force completion of all tasks")
@@ -176,6 +202,10 @@ func init() {
 	featureUpdateCmd.Flags().String("path", "", "Alias for --file")
 	_ = featureUpdateCmd.Flags().MarkHidden("filename")
 	_ = featureUpdateCmd.Flags().MarkHidden("path")
+	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE (no
+	// detach). Use `shark feature tag rm` to detach a single tag.
+	featureUpdateCmd.Flags().StringSlice("tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark feature tag rm' to detach.")
 }
 
 // runFeatureList lists features with optional epic and status filtering.
@@ -275,8 +305,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	featureSvc := cli.GetFeatureService()
 	feature, err := featureSvc.CreateFeature(ctx, input)
 	if err != nil {
-		handleServiceError(err, "feature", input.EpicKey)
-		return nil
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "feature", input.EpicKey)
 	}
 
 	featureFilePath := resolveFeatureFilePath(feature, input.EpicKey, projectRoot)

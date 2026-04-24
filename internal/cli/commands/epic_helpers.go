@@ -600,6 +600,10 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		actualFilePath = absPath
 	}
 
+	// E28-F04 REQ-F-012: read --tag via the flag accessor so repeated test
+	// invocations see a fresh value each time.
+	tags, _ := cmd.Flags().GetStringSlice("tag")
+
 	// Build CreateEpicInput and delegate key generation, collision checks, and DB creation to service
 	input := services.CreateEpicInput{
 		Title:         epicTitle,
@@ -609,6 +613,7 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		BusinessValue: businessValuePtr,
 		CustomKey:     epicCreateKey,
 		Force:         force,
+		Tags:          tags,
 	}
 	if customFilePath != nil {
 		input.FilePath = customFilePath
@@ -617,8 +622,7 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 	epicSvc := cli.GetEpicService()
 	epic, err := epicSvc.CreateEpic(ctx, input)
 	if err != nil {
-		cli.Error(fmt.Sprintf("Error: Failed to create epic: %v", err))
-		os.Exit(1)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "epic", epicTitle)
 	}
 
 	nextKey := epic.Key
@@ -919,10 +923,18 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 		changed = true
 	}
 
-	if changed && (updates.Title != nil || updates.Description != nil || updates.Status != nil || updates.Priority != nil || updates.BusinessValue != nil) {
+	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE only.
+	// Guard with `Changed` so only explicit --tag usage sets Tags (nil
+	// otherwise). The service-layer hook skips when len(Tags)==0.
+	if cmd.Flags().Changed("tag") {
+		tags, _ := cmd.Flags().GetStringSlice("tag")
+		updates.Tags = tags
+		changed = true
+	}
+
+	if changed && (updates.Title != nil || updates.Description != nil || updates.Status != nil || updates.Priority != nil || updates.BusinessValue != nil || len(updates.Tags) > 0) {
 		if _, err := epicSvc.UpdateEpic(ctx, epicKey, updates); err != nil {
-			cli.Error(fmt.Sprintf("Error: Failed to update epic: %v", err))
-			os.Exit(1)
+			return handleEntityServiceError(cmd, resolveTagService(nil), err, "epic", epicKey)
 		}
 	}
 

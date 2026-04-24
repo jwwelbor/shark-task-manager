@@ -216,7 +216,7 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetTaskService()
 	task, err := svc.CreateTask(cmd.Context(), parseCreateTaskInput(cmd, args))
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", "")
 	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(task)
@@ -254,7 +254,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetTaskService()
 	task, err := svc.UpdateTask(cmd.Context(), taskKey, parseTaskUpdates(cmd))
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "task", taskKey)
 	}
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(task)
@@ -287,6 +287,21 @@ func runTaskSetStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// resolveTaskID is the EntityKeyResolver used by the `shark task tag`
+// subcommand factory. It looks up a task by key through the existing
+// TaskService accessor (cli.GetTaskService) and returns the numeric ID.
+//
+// Split out as a package-level function so the E28-F04 entity_tag_cmd.go
+// factory can reference it directly.
+func resolveTaskID(ctx context.Context, key string) (int64, error) {
+	svc := cli.GetTaskService()
+	task, err := svc.GetTask(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return task.ID, nil
+}
+
 func init() {
 	taskCmd.Hidden = true // Hidden from top-level help; accessible via 'shark task'
 	cli.RootCmd.AddCommand(taskCmd)
@@ -303,4 +318,9 @@ func init() {
 	registerUpdateFlags(taskUpdateCmd)
 	taskSetStatusCmd.Flags().Bool("force", false, "Force status change bypassing workflow validation")
 	taskSetStatusCmd.Flags().String("notes", "", "Notes to record with status transition")
+
+	// E28-F04 T-006: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time.
+	taskCmd.AddCommand(makeEntityTagCmd(models.EntityTypeTask, resolveTaskID, nil))
 }

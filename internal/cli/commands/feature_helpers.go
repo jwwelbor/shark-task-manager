@@ -818,6 +818,11 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 	}
 
 	desc := featureCreateDescription
+
+	// E28-F04 REQ-F-012: read --tag via the flag accessor so repeated test
+	// invocations see a fresh value each time.
+	tags, _ := cmd.Flags().GetStringSlice("tag")
+
 	input := services.CreateFeatureInput{
 		EpicKey:        featureCreateEpic,
 		Title:          featureTitle,
@@ -826,6 +831,7 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		ExecutionOrder: execOrder,
 		FilePath:       filePath,
 		Force:          featureCreateForce,
+		Tags:           tags,
 	}
 	return input, featureTitle, projectRoot, nil
 }
@@ -1012,9 +1018,18 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 		changed = true
 	}
 
+	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE only.
+	// Guard with `Changed` so only explicit --tag usage sets Tags (nil
+	// otherwise). The service-layer hook skips when len(Tags)==0.
+	if cmd.Flags().Changed("tag") {
+		tags, _ := cmd.Flags().GetStringSlice("tag")
+		updates.Tags = tags
+		changed = true
+	}
+
 	if changed {
 		if _, err := featureSvc.UpdateFeature(ctx, featureKey, updates); err != nil {
-			return err
+			return handleEntityServiceError(cmd, resolveTagService(nil), err, "feature", featureKey)
 		}
 	}
 

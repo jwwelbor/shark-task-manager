@@ -184,7 +184,29 @@ var (
 	ideaHard           bool
 	ideaConvertEpic    string
 	ideaConvertFeature string
+
+	// E28-F04 REQ-F-012: repeatable `--tag` flags for create and update.
+	// Cobra's StringSliceVar does not reset flag-backing variables between
+	// command executions (test code must zero them out to avoid cross-test
+	// bleed).
+	ideaCreateTags []string
+	ideaUpdateTags []string
 )
+
+// resolveIdeaID is the EntityKeyResolver used by the `shark idea tag`
+// subcommand factory. It uses the existing idea service accessor to find
+// an idea by key and return its numeric ID.
+//
+// Split out as a package-level function (not a closure in init()) so the
+// E28-F04 entity_tag_cmd.go factory can reference it.
+func resolveIdeaID(ctx context.Context, key string) (int64, error) {
+	svc := cli.GetIdeaService()
+	idea, err := svc.GetIdea(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	return idea.ID, nil
+}
 
 func init() {
 	// Register idea command and subcommands
@@ -200,6 +222,12 @@ func init() {
 	ideaConvertCmd.AddCommand(ideaConvertEpicCmd)
 	ideaConvertCmd.AddCommand(ideaConvertFeatureCmd)
 	ideaConvertCmd.AddCommand(ideaConvertTaskCmd)
+
+	// E28-F04 T-010: register the shared `tag add|rm` subcommand. Svc
+	// override is nil in production so it falls through to
+	// cli.GetTagService() at call time. AC-26 is satisfied by
+	// models.EntityTypeIdea being valid per F01.
+	ideaCmd.AddCommand(makeEntityTagCmd(models.EntityTypeIdea, resolveIdeaID, nil))
 
 	// Convert command flags
 	ideaConvertFeatureCmd.Flags().StringVar(&ideaConvertEpic, "epic", "", "Target epic key (required)")
@@ -222,6 +250,13 @@ func init() {
 	ideaCreateCmd.Flags().StringSliceVar(&ideaRelatedDocs, "related-docs", []string{}, "Related document paths")
 	ideaCreateCmd.Flags().StringSliceVar(&ideaDependencies, "depends-on", []string{}, "Dependent idea keys")
 	ideaCreateCmd.Flags().StringVar(&ideaStatus, "status", "new", "Initial status (new, on_hold, converted, archived)")
+	// E28-F04 REQ-F-012: repeatable --tag flag. StringSliceVar collects
+	// repeated occurrences into a []string; Cobra's comma-separator
+	// behaviour means `--tag=foo,bar` becomes ["foo","bar"] — ADR-F04-5
+	// accepts this because invalid-name chars (a comma is invalid under
+	// the regex) surface as a clear exit-3 validation error.
+	ideaCreateCmd.Flags().StringSliceVar(&ideaCreateTags, "tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 
 	// Update command flags
 	ideaUpdateCmd.Flags().StringVar(&ideaStatus, "status", "", "Update status")
@@ -232,6 +267,10 @@ func init() {
 	ideaUpdateCmd.Flags().StringSliceVar(&ideaDependencies, "depends-on", []string{}, "Update dependencies")
 	ideaUpdateCmd.Flags().IntVar(&ideaOrder, "order", 0, "Update order")
 	ideaUpdateCmd.Flags().StringVar(&ideaDescription, "title", "", "Update title")
+	// E28-F04 REQ-F-012: `--tag` on update is additive (REQ-F-010). Empty
+	// means no change; no way to detach here — use `shark idea tag rm`.
+	ideaUpdateCmd.Flags().StringSliceVar(&ideaUpdateTags, "tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark idea tag rm' to detach.")
 
 	// Delete command flags
 	ideaDeleteCmd.Flags().BoolVar(&ideaForce, "force", false, "Skip confirmation prompt")
@@ -282,7 +321,7 @@ func runIdeaCreate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetIdeaService()
 	idea, err := svc.CreateIdea(cmd.Context(), input)
 	if err != nil {
-		return fmt.Errorf("failed to create idea: %w", err)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "idea", input.Title)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -303,7 +342,7 @@ func runIdeaUpdate(cmd *cobra.Command, args []string) error {
 	svc := cli.GetIdeaService()
 	idea, err := svc.UpdateIdea(cmd.Context(), ideaKey, input)
 	if err != nil {
-		return fmt.Errorf("failed to update idea: %w", err)
+		return handleEntityServiceError(cmd, resolveTagService(nil), err, "idea", ideaKey)
 	}
 
 	if cli.GlobalConfig.JSON {
@@ -700,6 +739,7 @@ func parseCreateIdeaInput(title string) (services.CreateIdeaInput, error) {
 	input := services.CreateIdeaInput{
 		Title:  title,
 		Status: ideaStatus,
+		Tags:   ideaCreateTags,
 	}
 
 	if ideaDescription != "" {
@@ -735,7 +775,12 @@ func parseCreateIdeaInput(title string) (services.CreateIdeaInput, error) {
 
 // parseUpdateIdeaInput builds an UpdateIdeaInput from changed flags.
 func parseUpdateIdeaInput(cmd *cobra.Command) (services.UpdateIdeaInput, error) {
-	input := services.UpdateIdeaInput{}
+	input := services.UpdateIdeaInput{
+		// E28-F04 REQ-F-010: --tag is additive. When the flag is absent,
+		// ideaUpdateTags is nil (StringSliceVar default) and the service
+		// treats len(Tags) == 0 as a no-op.
+		Tags: ideaUpdateTags,
+	}
 
 	if cmd.Flags().Changed("title") {
 		title, _ := cmd.Flags().GetString("title")
