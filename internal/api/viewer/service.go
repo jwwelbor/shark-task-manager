@@ -14,7 +14,8 @@ import (
 // The concrete *services.ViewerService satisfies this interface.
 type ViewerServicer interface {
 	Summary(ctx context.Context) (*services.SummaryResponse, error)
-	Hierarchy(ctx context.Context) (*services.HierarchyResponse, error)
+	// Hierarchy signature changed in F06: opts carries the optional tag filter (ADR-F06-5).
+	Hierarchy(ctx context.Context, opts services.HierarchyOptions) (*services.HierarchyResponse, error)
 	History(ctx context.Context, key string) (*services.HistoryResponse, error)
 	File(ctx context.Context, key string) (*services.FileResponse, error)
 	FileByPath(ctx context.Context, filePath string) (*services.FileResponse, error)
@@ -24,6 +25,7 @@ type ViewerServicer interface {
 	WorkflowMeta(ctx context.Context) (*services.WorkflowMetaResponse, error)
 	Notes(ctx context.Context, key string) (*services.NotesResponse, error)
 	RelatedDocs(ctx context.Context, key string) (*services.RelatedDocsResponse, error)
+	Tags(ctx context.Context) (*services.TagsResponse, error)
 }
 
 // Compile-time check: *services.ViewerService must satisfy ViewerServicer.

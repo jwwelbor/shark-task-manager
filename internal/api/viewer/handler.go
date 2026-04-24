@@ -31,7 +31,7 @@ func NewViewerHandler(svc ViewerServicer) *ViewerHandler {
 	return &ViewerHandler{svc: svc}
 }
 
-// RegisterRoutes mounts all 7 viewer routes on the given mux under prefix.
+// RegisterRoutes mounts all viewer routes on the given mux under prefix.
 // All routes are wrapped with the localhost-only CORS middleware.
 //
 // Routes registered (with prefix = "/api/v1/viewer"):
@@ -44,6 +44,9 @@ func NewViewerHandler(svc ViewerServicer) *ViewerHandler {
 //	GET /api/v1/viewer/recent-activity
 //	GET /api/v1/viewer/workflow-meta
 //	GET /api/v1/viewer/folder-files/{path...}
+//	GET /api/v1/viewer/notes/{key}
+//	GET /api/v1/viewer/related-docs/{key}
+//	GET /api/v1/viewer/tags
 func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 	// Normalize prefix: trim trailing slash.
 	prefix = strings.TrimRight(prefix, "/")
@@ -61,6 +64,9 @@ func (h *ViewerHandler) RegisterRoutes(mux *http.ServeMux, prefix string) {
 
 	mux.Handle("GET "+prefix+"/notes/{key}", wrap(http.HandlerFunc(h.Notes)))
 	mux.Handle("GET "+prefix+"/related-docs/{key}", wrap(http.HandlerFunc(h.RelatedDocs)))
+
+	// Tag vocabulary endpoint (REQ-F-001, REQ-F-002): GET only — no mutations.
+	mux.Handle("GET "+prefix+"/tags", wrap(http.HandlerFunc(h.Tags)))
 
 	// Allow OPTIONS preflight for all viewer routes by catching the prefix.
 	mux.Handle("OPTIONS "+prefix+"/", wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -84,9 +90,16 @@ func (h *ViewerHandler) Summary(w http.ResponseWriter, r *http.Request) {
 
 // Hierarchy returns the full epic → feature tree.
 // GET /api/v1/viewer/hierarchy
+// Accepts optional repeatable ?tag=<name> query params for tag-based filtering (REQ-F-011).
 func (h *ViewerHandler) Hierarchy(w http.ResponseWriter, r *http.Request) {
-	result, err := h.svc.Hierarchy(r.Context())
+	opts := services.HierarchyOptions{Tags: parseTagsQuery(r)}
+	result, err := h.svc.Hierarchy(r.Context(), opts)
 	if err != nil {
+		var unregErr *services.UnregisteredTagError
+		if errors.As(err, &unregErr) {
+			respondUnregisteredTagError(w, unregErr)
+			return
+		}
 		slog.Error("viewer hierarchy failed", "endpoint", "hierarchy", "error", err)
 		respondError(w, http.StatusInternalServerError, "failed to load hierarchy")
 		return
@@ -219,10 +232,16 @@ func (h *ViewerHandler) FeatureTasks(w http.ResponseWriter, r *http.Request) {
 		Blocked: blocked,
 		Limit:   limit,
 		Offset:  offset,
+		Tags:    parseTagsQuery(r), // REQ-F-009: repeatable ?tag= params
 	}
 
 	result, err := h.svc.FeatureTasks(r.Context(), key, opts)
 	if err != nil {
+		var unregErr *services.UnregisteredTagError
+		if errors.As(err, &unregErr) {
+			respondUnregisteredTagError(w, unregErr)
+			return
+		}
 		if isNotFound(err) {
 			respondError(w, http.StatusNotFound, "feature not found: "+key)
 			return
@@ -449,4 +468,54 @@ func respondError(w http.ResponseWriter, statusCode int, message string) {
 		Message: message,
 	}
 	respondJSON(w, statusCode, resp)
+}
+
+// Tags returns the full tag vocabulary for the viewer filter UI.
+// GET /api/v1/viewer/tags
+// (REQ-F-001, REQ-F-002)
+func (h *ViewerHandler) Tags(w http.ResponseWriter, r *http.Request) {
+	result, err := h.svc.Tags(r.Context())
+	if err != nil {
+		slog.Error("viewer tags failed", "endpoint", "tags", "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to load tags")
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
+
+// parseTagsQuery extracts, trims, and de-empties the repeated ?tag= values.
+// Case normalization is intentionally deferred to the service layer (REQ-NF-005).
+func parseTagsQuery(r *http.Request) []string {
+	raw := r.URL.Query()["tag"]
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// tagErrorResponse is the JSON shape returned on 400 for unregistered tag names.
+// Defined locally to keep api.ErrorResponse free of tag-specific fields (spec §2.3.6).
+type tagErrorResponse struct {
+	Error            string   `json:"error"`
+	Message          string   `json:"message"`
+	UnregisteredTags []string `json:"unregistered_tags,omitempty"`
+}
+
+// respondUnregisteredTagError writes a 400 response with the unregistered_tags array.
+// (REQ-F-011, REQ-F-012, spec §2.3.6)
+func respondUnregisteredTagError(w http.ResponseWriter, err *services.UnregisteredTagError) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	resp := tagErrorResponse{
+		Error:            "Bad Request",
+		Message:          err.Error(),
+		UnregisteredTags: []string{err.Name},
+	}
+	if encErr := json.NewEncoder(w).Encode(resp); encErr != nil {
+		slog.Error("failed to encode unregistered tag error response", "error", encErr)
+	}
 }

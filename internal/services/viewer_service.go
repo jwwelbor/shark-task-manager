@@ -187,6 +187,7 @@ type FlatEntity struct {
 	Status      string   `json:"status"`
 	StatusColor string   `json:"status_color"`
 	Tags        []string `json:"tags"` // NEW (REQ-F-003); always non-nil (ADR-F06-2)
+	dbID        int64    // unexported; used for tag decoration and filter. Not serialized.
 }
 
 // ----- Request / Response types -----
@@ -808,7 +809,17 @@ func parseViewerRelationships(jsonStr string) []ViewerRelatedEntity {
 
 // Hierarchy returns epics ordered by execution_order ASC, created_at ASC,
 // with features and task/blocked counts embedded.
-func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, error) {
+//
+// opts.Tags: when non-empty and tagSvc is wired, the response is pruned so that
+// only entities with the AND-intersection of all provided tags survive
+// (ADR-F06-4, REQ-F-010).  When tagSvc is nil, opts.Tags is silently ignored
+// and every entity DTO carries Tags: []string{} (REQ-F-015, ADR-F06-2).
+//
+// Tag decoration (REQ-F-004): at most 6 calls to tagSvc.AttachedTagNamesByIDs,
+// one per entity type present (epic, feature, task, bug, change, idea).
+func (s *ViewerService) Hierarchy(ctx context.Context, opts HierarchyOptions) (*HierarchyResponse, error) {
+	// ── Step 1: Build the unfiltered tree and flat lists ──
+
 	// Bulk-load all three entity types. Tasks include pre-resolved relationship JSON
 	// from the viewer_task_relationships view — one query replaces N+1 per-task calls.
 
@@ -866,6 +877,18 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 		}
 	}
 
+	// ── Step 2: If tag filter requested, compute ID sets per entity type ──
+	// Returns *UnregisteredTagError when a tag name is not in the vocabulary;
+	// propagates unchanged to the caller (AC-T4, REQ-F-011).
+	var idSets map[models.EntityType]map[int64]struct{}
+	if len(opts.Tags) > 0 && s.tagSvc != nil {
+		idSets, err = s.computeHierarchyTagIDSets(ctx, opts.Tags)
+		if err != nil {
+			return nil, err // propagate *UnregisteredTagError or repo error unchanged
+		}
+	}
+
+	// ── Build result structure ──
 	result := &HierarchyResponse{
 		ProjectName: projectNameFromRoot(s.projectRoot),
 		Epics:       make([]*HierarchyEpic, 0, len(epics)),
@@ -879,6 +902,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 			StatusColor: colorOrGray(epicMeta.Color),
 			StatusPhase: phaseOrUnknown(epicMeta.Phase),
 			Docs:        docsByEpic[epic.ID],
+			Tags:        []string{}, // ADR-F06-2: always non-nil
 		}
 		if he.Docs == nil {
 			he.Docs = []*HierarchyDoc{}
@@ -925,6 +949,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 					StatusColor:   colorOrGray(meta.Color),
 					StatusPhase:   phaseOrUnknown(meta.Phase),
 					Relationships: rels,
+					Tags:          []string{}, // ADR-F06-2: always non-nil
 				}
 				viewerTasks = append(viewerTasks, vt)
 			}
@@ -943,6 +968,7 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 				StatusPhase:  phaseOrUnknown(fMeta.Phase),
 				Tasks:        viewerTasks,
 				Docs:         fDocs,
+				Tags:         []string{}, // ADR-F06-2: always non-nil
 			})
 		}
 
@@ -964,6 +990,8 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 					Title:       b.Title,
 					Status:      string(b.Status),
 					StatusColor: colorOrGray(meta.Color),
+					Tags:        []string{}, // ADR-F06-2: always non-nil
+					dbID:        b.ID,       // tracked for tag decoration / filter
 				})
 			}
 		}
@@ -980,6 +1008,8 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 					Title:       cc.Title,
 					Status:      string(cc.Status),
 					StatusColor: colorOrGray(meta.Color),
+					Tags:        []string{}, // ADR-F06-2: always non-nil
+					dbID:        cc.ID,      // tracked for tag decoration / filter
 				})
 			}
 		}
@@ -999,12 +1029,272 @@ func (s *ViewerService) Hierarchy(ctx context.Context) (*HierarchyResponse, erro
 					Title:       idea.Title,
 					Status:      string(idea.Status),
 					StatusColor: color,
+					Tags:        []string{}, // ADR-F06-2: always non-nil
+					dbID:        idea.ID,    // tracked for tag decoration / filter
 				})
 			}
 		}
 	}
 
+	// ── Step 3: Collect entity IDs per type for batch decoration ──
+	// ── Step 4: Fetch tag names per type (REQ-F-004: ≤ 6 calls) ──
+	if s.tagSvc != nil {
+		tagsByEntity := s.fetchTagsForHierarchy(ctx, result)
+		// ── Step 5: Walk tree; assign Tags fields (ADR-F06-2) ──
+		applyTagsToHierarchy(result, tagsByEntity)
+	}
+
+	// ── Step 6: If filter requested, prune (ADR-F06-4) ──
+	if idSets != nil {
+		pruneHierarchy(result, idSets)
+	}
+
 	return result, nil
+}
+
+// computeHierarchyTagIDSets calls EntityIDsByTags for each entity type in the hierarchy
+// using the AND operator. Returns *UnregisteredTagError unchanged on invalid tag names.
+// (REQ-F-010, AC-T4, TC-AC07-3)
+func (s *ViewerService) computeHierarchyTagIDSets(ctx context.Context, tags []string) (map[models.EntityType]map[int64]struct{}, error) {
+	entityTypes := []models.EntityType{
+		models.EntityTypeEpic,
+		models.EntityTypeFeature,
+		models.EntityTypeTask,
+		models.EntityTypeBug,
+		models.EntityTypeChange,
+		models.EntityTypeIdea,
+	}
+	result := make(map[models.EntityType]map[int64]struct{}, len(entityTypes))
+	for _, et := range entityTypes {
+		ids, err := s.tagSvc.EntityIDsByTags(ctx, et, tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, err // propagate *UnregisteredTagError unchanged
+		}
+		set := make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			set[id] = struct{}{}
+		}
+		result[et] = set
+	}
+	return result, nil
+}
+
+// fetchTagsForHierarchy collects entity IDs from the result tree (using the unexported
+// dbID field on FlatEntity) and issues at most 6 batched AttachedTagNamesByIDs calls —
+// one per entity type present in the response. Non-present types are skipped.
+// Returns a nested map[EntityType]map[ID][]string for O(1) per-entity lookup.
+// (REQ-F-004, AC-16, ADR-F06-1)
+func (s *ViewerService) fetchTagsForHierarchy(ctx context.Context, resp *HierarchyResponse) map[models.EntityType]map[int64][]string {
+	result := make(map[models.EntityType]map[int64][]string)
+
+	fetch := func(et models.EntityType, ids []int64) {
+		if len(ids) == 0 {
+			return
+		}
+		m, err := s.tagSvc.AttachedTagNamesByIDs(ctx, et, ids)
+		if err != nil {
+			return // best-effort: decoration errors don't fail the endpoint
+		}
+		result[et] = m
+	}
+
+	// Hierarchical entities — IDs come from embedded model pointers.
+	epicIDs := make([]int64, 0, len(resp.Epics))
+	var featureIDs, taskIDs []int64
+	for _, e := range resp.Epics {
+		epicIDs = append(epicIDs, e.Epic.ID)
+		for _, f := range e.Features {
+			featureIDs = append(featureIDs, f.Feature.ID)
+			for _, t := range f.Tasks {
+				taskIDs = append(taskIDs, t.Task.ID)
+			}
+		}
+	}
+	fetch(models.EntityTypeEpic, epicIDs)
+	fetch(models.EntityTypeFeature, featureIDs)
+	fetch(models.EntityTypeTask, taskIDs)
+
+	// Flat entities — IDs come from the unexported dbID field set during construction.
+	bugIDs := make([]int64, 0, len(resp.Bugs))
+	for _, b := range resp.Bugs {
+		if b.dbID != 0 {
+			bugIDs = append(bugIDs, b.dbID)
+		}
+	}
+	fetch(models.EntityTypeBug, bugIDs)
+
+	ccIDs := make([]int64, 0, len(resp.ChangeCards))
+	for _, cc := range resp.ChangeCards {
+		if cc.dbID != 0 {
+			ccIDs = append(ccIDs, cc.dbID)
+		}
+	}
+	fetch(models.EntityTypeChange, ccIDs)
+
+	ideaIDs := make([]int64, 0, len(resp.Ideas))
+	for _, idea := range resp.Ideas {
+		if idea.dbID != 0 {
+			ideaIDs = append(ideaIDs, idea.dbID)
+		}
+	}
+	fetch(models.EntityTypeIdea, ideaIDs)
+
+	return result
+}
+
+// applyTagsToHierarchy walks the result tree and assigns Tags to every DTO
+// from the tagsByEntity lookup map. Always assigns []string{} when no tags
+// are present (never nil) — ADR-F06-2.
+func applyTagsToHierarchy(resp *HierarchyResponse, tagsByEntity map[models.EntityType]map[int64][]string) {
+	epicMap := tagsByEntity[models.EntityTypeEpic]
+	featureMap := tagsByEntity[models.EntityTypeFeature]
+	taskMap := tagsByEntity[models.EntityTypeTask]
+
+	for _, e := range resp.Epics {
+		if tags, ok := epicMap[e.Epic.ID]; ok {
+			e.Tags = tags
+		}
+		if e.Tags == nil {
+			e.Tags = []string{}
+		}
+		for _, f := range e.Features {
+			if tags, ok := featureMap[f.Feature.ID]; ok {
+				f.Tags = tags
+			}
+			if f.Tags == nil {
+				f.Tags = []string{}
+			}
+			for _, t := range f.Tasks {
+				if tags, ok := taskMap[t.Task.ID]; ok {
+					t.Tags = tags
+				}
+				if t.Tags == nil {
+					t.Tags = []string{}
+				}
+			}
+		}
+	}
+
+	// Flat entities: use unexported dbID for lookup.
+	bugMap := tagsByEntity[models.EntityTypeBug]
+	for _, b := range resp.Bugs {
+		if b.dbID != 0 {
+			if tags, ok := bugMap[b.dbID]; ok {
+				b.Tags = tags
+			}
+		}
+		if b.Tags == nil {
+			b.Tags = []string{}
+		}
+	}
+	ccMap := tagsByEntity[models.EntityTypeChange]
+	for _, cc := range resp.ChangeCards {
+		if cc.dbID != 0 {
+			if tags, ok := ccMap[cc.dbID]; ok {
+				cc.Tags = tags
+			}
+		}
+		if cc.Tags == nil {
+			cc.Tags = []string{}
+		}
+	}
+	ideaMap := tagsByEntity[models.EntityTypeIdea]
+	for _, idea := range resp.Ideas {
+		if idea.dbID != 0 {
+			if tags, ok := ideaMap[idea.dbID]; ok {
+				idea.Tags = tags
+			}
+		}
+		if idea.Tags == nil {
+			idea.Tags = []string{}
+		}
+	}
+}
+
+// pruneHierarchy removes from resp all entities that are not in idSets.
+// Epics are pruned if they have no directly matching tag AND no surviving features.
+// Features are pruned if they have no directly matching tag AND no surviving tasks.
+// Flat entities are independently filtered using their unexported dbID.
+// (ADR-F06-4, REQ-F-010, TC-AC06-1 through TC-AC06-5)
+func pruneHierarchy(resp *HierarchyResponse, idSets map[models.EntityType]map[int64]struct{}) {
+	epicMatchIDs := idSets[models.EntityTypeEpic]
+	featureMatchIDs := idSets[models.EntityTypeFeature]
+	taskMatchIDs := idSets[models.EntityTypeTask]
+
+	prunedEpics := make([]*HierarchyEpic, 0, len(resp.Epics))
+	for _, e := range resp.Epics {
+		// Prune features (and their tasks) first.
+		prunedFeatures := make([]*HierarchyFeature, 0, len(e.Features))
+		for _, f := range e.Features {
+			// Prune tasks within feature.
+			prunedTasks := make([]*ViewerTask, 0, len(f.Tasks))
+			for _, t := range f.Tasks {
+				if _, ok := taskMatchIDs[t.Task.ID]; ok {
+					prunedTasks = append(prunedTasks, t)
+				}
+			}
+			// Feature survives if directly tagged OR has surviving tasks.
+			_, featureDirectly := featureMatchIDs[f.Feature.ID]
+			if featureDirectly || len(prunedTasks) > 0 {
+				f.Tasks = prunedTasks
+				f.TaskCount = len(prunedTasks)
+				prunedFeatures = append(prunedFeatures, f)
+			}
+		}
+		// Epic survives if directly tagged OR has surviving features.
+		_, epicDirectly := epicMatchIDs[e.Epic.ID]
+		if epicDirectly || len(prunedFeatures) > 0 {
+			e.Features = prunedFeatures
+			prunedEpics = append(prunedEpics, e)
+		}
+	}
+	resp.Epics = prunedEpics
+
+	// Prune flat entities independently using dbID.
+	bugMatchIDs := idSets[models.EntityTypeBug]
+	if resp.Bugs != nil {
+		prunedBugs := make([]*FlatEntity, 0, len(resp.Bugs))
+		for _, b := range resp.Bugs {
+			if b.dbID != 0 {
+				if _, ok := bugMatchIDs[b.dbID]; ok {
+					prunedBugs = append(prunedBugs, b)
+				}
+			} else {
+				prunedBugs = append(prunedBugs, b) // no ID — pass through (shouldn't happen)
+			}
+		}
+		resp.Bugs = prunedBugs
+	}
+
+	ccMatchIDs := idSets[models.EntityTypeChange]
+	if resp.ChangeCards != nil {
+		prunedCC := make([]*FlatEntity, 0, len(resp.ChangeCards))
+		for _, cc := range resp.ChangeCards {
+			if cc.dbID != 0 {
+				if _, ok := ccMatchIDs[cc.dbID]; ok {
+					prunedCC = append(prunedCC, cc)
+				}
+			} else {
+				prunedCC = append(prunedCC, cc)
+			}
+		}
+		resp.ChangeCards = prunedCC
+	}
+
+	ideaMatchIDs := idSets[models.EntityTypeIdea]
+	if resp.Ideas != nil {
+		prunedIdeas := make([]*FlatEntity, 0, len(resp.Ideas))
+		for _, idea := range resp.Ideas {
+			if idea.dbID != 0 {
+				if _, ok := ideaMatchIDs[idea.dbID]; ok {
+					prunedIdeas = append(prunedIdeas, idea)
+				}
+			} else {
+				prunedIdeas = append(prunedIdeas, idea)
+			}
+		}
+		resp.Ideas = prunedIdeas
+	}
 }
 
 // colorOrGray returns the color if non-empty, otherwise "gray".
@@ -1482,8 +1772,16 @@ func (s *ViewerService) resolveFilePath(ctx context.Context, entityType models.E
 	}
 }
 
-// FeatureTasks returns tasks for a feature with status/agent/blocked filtering
+// FeatureTasks returns tasks for a feature with status/agent/blocked/tag filtering
 // and limit/offset pagination.
+//
+// Tag filter (REQ-F-008): when opts.Tags is non-empty and tagSvc is wired, the task
+// list is intersected with the tag-matched ID set BEFORE the other filters and
+// pagination. Total reflects the post-tag-filter count.
+//
+// Tag decoration (REQ-F-005): one AttachedTagNamesByIDs call after pagination covers
+// only the IDs in the returned page.  When tagSvc is nil, opts.Tags is silently
+// ignored and every ViewerTask carries Tags: []string{} (REQ-F-015, ADR-F06-2).
 func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opts FeatureTaskOptions) (*FeatureTasksResponse, error) {
 	// Clamp limit: 0 or negative → 200; >500 → 500.
 	limit := opts.Limit
@@ -1525,9 +1823,29 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 		return tasksWithRels[i].CreatedAt.Before(tasksWithRels[j].CreatedAt)
 	})
 
+	// ── Tag filter (REQ-F-008): applied BEFORE other filters and pagination ──
+	// When tagSvc is nil, opts.Tags is silently ignored (REQ-F-015).
+	if len(opts.Tags) > 0 && s.tagSvc != nil {
+		taggedIDs, err := s.tagSvc.EntityIDsByTags(ctx, models.EntityTypeTask, opts.Tags, TagQueryOpAnd)
+		if err != nil {
+			return nil, err // propagate *UnregisteredTagError unchanged
+		}
+		idSet := make(map[int64]struct{}, len(taggedIDs))
+		for _, id := range taggedIDs {
+			idSet[id] = struct{}{}
+		}
+		tagFiltered := make([]*models.ViewerTaskWithRelationships, 0, len(tasksWithRels))
+		for _, t := range tasksWithRels {
+			if _, ok := idSet[t.Task.ID]; ok {
+				tagFiltered = append(tagFiltered, t)
+			}
+		}
+		tasksWithRels = tagFiltered
+	}
+
 	total := len(tasksWithRels)
 
-	// Apply filters.
+	// Apply status/agent/blocked filters.
 	filtered := make([]*models.ViewerTaskWithRelationships, 0, len(tasksWithRels))
 	for _, t := range tasksWithRels {
 		if opts.Status != "" && !strings.EqualFold(string(t.Status), opts.Status) {
@@ -1574,7 +1892,28 @@ func (s *ViewerService) FeatureTasks(ctx context.Context, featureKey string, opt
 			StatusColor:   colorOrGray(meta.Color),
 			StatusPhase:   phaseOrUnknown(meta.Phase),
 			Relationships: rels,
+			Tags:          []string{}, // ADR-F06-2: always non-nil; will be decorated below
 		})
+	}
+
+	// ── Post-pagination decoration (REQ-F-005): one call for the page IDs only ──
+	if s.tagSvc != nil && len(viewerTasks) > 0 {
+		pageIDs := make([]int64, 0, len(viewerTasks))
+		for _, t := range viewerTasks {
+			pageIDs = append(pageIDs, t.Task.ID)
+		}
+		tagMap, err := s.tagSvc.AttachedTagNamesByIDs(ctx, models.EntityTypeTask, pageIDs)
+		if err == nil {
+			for _, t := range viewerTasks {
+				if tags, ok := tagMap[t.Task.ID]; ok {
+					t.Tags = tags
+				}
+				if t.Tags == nil {
+					t.Tags = []string{}
+				}
+			}
+		}
+		// On decoration error, Tags fields remain []string{} (best-effort)
 	}
 
 	return &FeatureTasksResponse{

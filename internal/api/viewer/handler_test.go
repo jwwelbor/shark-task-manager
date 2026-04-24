@@ -20,9 +20,14 @@ import (
 // MockViewerServicer is a test double for ViewerServicer.
 // Each method delegates to its Func field if non-nil; otherwise it returns a
 // descriptive error to prevent accidental nil-pointer panics in tests.
+//
+// F06 changes (T-E28-F06-002, ADR-F06-5):
+//   - HierarchyFunc signature changed from Hierarchy(ctx) to Hierarchy(ctx, opts HierarchyOptions)
+//   - TagsFunc added for the new Tags() method
 type MockViewerServicer struct {
-	SummaryFunc        func(ctx context.Context) (*services.SummaryResponse, error)
-	HierarchyFunc      func(ctx context.Context) (*services.HierarchyResponse, error)
+	SummaryFunc func(ctx context.Context) (*services.SummaryResponse, error)
+	// HierarchyFunc accepts opts; existing tests pass HierarchyOptions{} (zero value = no filter).
+	HierarchyFunc      func(ctx context.Context, opts services.HierarchyOptions) (*services.HierarchyResponse, error)
 	HistoryFunc        func(ctx context.Context, key string) (*services.HistoryResponse, error)
 	FileFunc           func(ctx context.Context, key string) (*services.FileResponse, error)
 	FileByPathFunc     func(ctx context.Context, filePath string) (*services.FileResponse, error)
@@ -32,6 +37,7 @@ type MockViewerServicer struct {
 	WorkflowMetaFunc   func(ctx context.Context) (*services.WorkflowMetaResponse, error)
 	NotesFunc          func(ctx context.Context, key string) (*services.NotesResponse, error)
 	RelatedDocsFunc    func(ctx context.Context, key string) (*services.RelatedDocsResponse, error)
+	TagsFunc           func(ctx context.Context) (*services.TagsResponse, error) // NEW F06
 }
 
 func (m *MockViewerServicer) Summary(ctx context.Context) (*services.SummaryResponse, error) {
@@ -41,9 +47,9 @@ func (m *MockViewerServicer) Summary(ctx context.Context) (*services.SummaryResp
 	return nil, errors.New("SummaryFunc not set in mock")
 }
 
-func (m *MockViewerServicer) Hierarchy(ctx context.Context) (*services.HierarchyResponse, error) {
+func (m *MockViewerServicer) Hierarchy(ctx context.Context, opts services.HierarchyOptions) (*services.HierarchyResponse, error) {
 	if m.HierarchyFunc != nil {
-		return m.HierarchyFunc(ctx)
+		return m.HierarchyFunc(ctx, opts)
 	}
 	return nil, errors.New("HierarchyFunc not set in mock")
 }
@@ -109,6 +115,13 @@ func (m *MockViewerServicer) RelatedDocs(ctx context.Context, key string) (*serv
 		return m.RelatedDocsFunc(ctx, key)
 	}
 	return nil, errors.New("RelatedDocsFunc not set in mock")
+}
+
+func (m *MockViewerServicer) Tags(ctx context.Context) (*services.TagsResponse, error) {
+	if m.TagsFunc != nil {
+		return m.TagsFunc(ctx)
+	}
+	return nil, errors.New("TagsFunc not set in mock")
 }
 
 // ----- helpers -----
@@ -247,7 +260,7 @@ func TestHandler_Hierarchy(t *testing.T) {
 		feat2.Key = "E01-F02"
 
 		mock := &MockViewerServicer{
-			HierarchyFunc: func(_ context.Context) (*services.HierarchyResponse, error) {
+			HierarchyFunc: func(_ context.Context, _ services.HierarchyOptions) (*services.HierarchyResponse, error) {
 				return &services.HierarchyResponse{
 					Epics: []*services.HierarchyEpic{
 						{
@@ -296,7 +309,7 @@ func TestHandler_Hierarchy(t *testing.T) {
 	// TC-H-011: Empty project
 	t.Run("TC-H-011_empty_project", func(t *testing.T) {
 		mock := &MockViewerServicer{
-			HierarchyFunc: func(_ context.Context) (*services.HierarchyResponse, error) {
+			HierarchyFunc: func(_ context.Context, _ services.HierarchyOptions) (*services.HierarchyResponse, error) {
 				return &services.HierarchyResponse{Epics: []*services.HierarchyEpic{}}, nil
 			},
 		}
@@ -319,7 +332,7 @@ func TestHandler_Hierarchy(t *testing.T) {
 	// TC-H-012: Service error → 500
 	t.Run("TC-H-012_service_error_500", func(t *testing.T) {
 		mock := &MockViewerServicer{
-			HierarchyFunc: func(_ context.Context) (*services.HierarchyResponse, error) {
+			HierarchyFunc: func(_ context.Context, _ services.HierarchyOptions) (*services.HierarchyResponse, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
