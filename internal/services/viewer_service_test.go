@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -2733,5 +2734,352 @@ func TestViewerService_RelatedDocs_ErrorFromRepoIsPropagated(t *testing.T) {
 	}
 	if resp != nil {
 		t.Errorf("expected nil response on error, got %+v", resp)
+	}
+}
+
+// ----- mockTagReader -----
+
+// mockTagReader is a test double for the TagReader interface consumed by ViewerService.
+// It uses function fields following the project mock pattern. Call counters are provided
+// for AC-16 (query-count assertions) and TC-AC02-3 (delegation assertions).
+type mockTagReader struct {
+	ListTagsFunc              func(ctx context.Context) ([]*models.Tag, error)
+	EntityIDsByTagsFunc       func(ctx context.Context, entityType models.EntityType, names []string, op TagQueryOp) ([]int64, error)
+	AttachedTagNamesByIDsFunc func(ctx context.Context, entityType models.EntityType, entityIDs []int64) (map[int64][]string, error)
+
+	// Call counters for assertion
+	ListTagsCallCount              int
+	AttachedTagNamesByIDsCallCount int
+	EntityIDsByTagsCallCount       int
+}
+
+func (m *mockTagReader) ListTags(ctx context.Context) ([]*models.Tag, error) {
+	m.ListTagsCallCount++
+	if m.ListTagsFunc != nil {
+		return m.ListTagsFunc(ctx)
+	}
+	return []*models.Tag{}, nil
+}
+
+func (m *mockTagReader) EntityIDsByTags(ctx context.Context, entityType models.EntityType, names []string, op TagQueryOp) ([]int64, error) {
+	m.EntityIDsByTagsCallCount++
+	if m.EntityIDsByTagsFunc != nil {
+		return m.EntityIDsByTagsFunc(ctx, entityType, names, op)
+	}
+	return []int64{}, nil
+}
+
+func (m *mockTagReader) AttachedTagNamesByIDs(ctx context.Context, entityType models.EntityType, entityIDs []int64) (map[int64][]string, error) {
+	m.AttachedTagNamesByIDsCallCount++
+	if m.AttachedTagNamesByIDsFunc != nil {
+		return m.AttachedTagNamesByIDsFunc(ctx, entityType, entityIDs)
+	}
+	return map[int64][]string{}, nil
+}
+
+// ----- Tags() tests (TC-AC01-1, TC-AC01-3, TC-AC02-1, TC-AC02-3, TC-AC14-1, TC-AC14-5) -----
+
+// TC-AC01-1: Tags() with empty vocabulary returns non-nil empty slice.
+func TestViewerService_Tags_EmptyVocabulary(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return []*models.Tag{}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if resp.Tags == nil {
+		t.Error("TC-AC01-1: Tags field must be non-nil (got nil) — ADR-F06-2")
+	}
+	if len(resp.Tags) != 0 {
+		t.Errorf("TC-AC01-1: expected 0 tags, got %d", len(resp.Tags))
+	}
+}
+
+// TC-AC01-3: JSON null guard — nil slice marshals as null; []TagDTO{} marshals as [].
+func TestViewerService_Tags_NilSliceMarshalGuard(t *testing.T) {
+	// []TagDTO{} must marshal as []
+	resp := TagsResponse{Tags: []TagDTO{}}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+	if string(data) != `{"tags":[]}` {
+		t.Errorf("expected {\"tags\":[]}, got %s", string(data))
+	}
+
+	// nil slice marshals as null — our service MUST avoid this
+	respNil := TagsResponse{Tags: nil}
+	dataNil, err := json.Marshal(respNil)
+	if err != nil {
+		t.Fatalf("failed to marshal nil Tags: %v", err)
+	}
+	if string(dataNil) != `{"tags":null}` {
+		t.Errorf("expected {\"tags\":null} for nil slice, got %s — documents why we must assign []TagDTO{}", string(dataNil))
+	}
+}
+
+// TC-AC02-1: Tags() returns tags alphabetically sorted.
+func TestViewerService_Tags_AlphabeticalOrdering(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return []*models.Tag{
+				{Name: "voice"},
+				{Name: "auth"},
+			}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Tags) != 2 {
+		t.Fatalf("expected 2 tags, got %d", len(resp.Tags))
+	}
+	if resp.Tags[0].Name != "auth" || resp.Tags[1].Name != "voice" {
+		t.Errorf("TC-AC02-1: expected [auth, voice] (alphabetical), got [%s, %s]",
+			resp.Tags[0].Name, resp.Tags[1].Name)
+	}
+}
+
+// TC-AC02-3: Tags() delegates to tagSvc.ListTags exactly once; no other tag methods called.
+func TestViewerService_Tags_DelegatesToListTagsOnce(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return []*models.Tag{{Name: "auth"}}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	_, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tagReader.ListTagsCallCount != 1 {
+		t.Errorf("TC-AC02-3: expected ListTags called once, got %d", tagReader.ListTagsCallCount)
+	}
+	if tagReader.AttachedTagNamesByIDsCallCount != 0 {
+		t.Errorf("TC-AC02-3: Tags() must not call AttachedTagNamesByIDs, got %d calls",
+			tagReader.AttachedTagNamesByIDsCallCount)
+	}
+	if tagReader.EntityIDsByTagsCallCount != 0 {
+		t.Errorf("TC-AC02-3: Tags() must not call EntityIDsByTags, got %d calls",
+			tagReader.EntityIDsByTagsCallCount)
+	}
+}
+
+// TC-AC14-1: Tags() with nil tagSvc returns {tags: []}, no error (graceful degradation).
+func TestViewerService_Tags_NilTagSvc_GracefulDegradation(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	// Do NOT call WithTagService — tagSvc remains nil.
+
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("TC-AC14-1: expected no error with nil tagSvc, got %v", err)
+	}
+	if resp == nil {
+		t.Fatal("TC-AC14-1: expected non-nil response")
+	}
+	if resp.Tags == nil {
+		t.Error("TC-AC14-1: Tags must be non-nil even with nil tagSvc — ADR-F06-2")
+	}
+	if len(resp.Tags) != 0 {
+		t.Errorf("TC-AC14-1: expected empty tags, got %d tags", len(resp.Tags))
+	}
+}
+
+// TC-AC14-5 (partial): Tags() with nil tagSvc must not panic.
+func TestViewerService_Tags_NilTagSvc_NoPanic(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("TC-AC14-5: Tags() panicked with nil tagSvc: %v", r)
+		}
+	}()
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Errorf("TC-AC14-5: unexpected error: %v", err)
+	}
+	if resp == nil {
+		t.Error("TC-AC14-5: expected non-nil response")
+	}
+}
+
+// TestViewerService_WithTagService_ReturnsService verifies the setter follows
+// the method-chaining pattern (returns *ViewerService).
+func TestViewerService_WithTagService_ReturnsService(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{}
+	returned := svc.WithTagService(tagReader)
+	if returned != svc {
+		t.Error("WithTagService must return the receiver for method chaining")
+	}
+}
+
+// IS-1 (partial for T-E28-F06-001): Tags() correctly projects *models.Tag -> TagDTO{Name}.
+func TestViewerService_Tags_ProjectsTagToDTO(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return []*models.Tag{
+				{Name: "auth"},
+				{Name: "voice"},
+			}, nil
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Tags(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Tags) != 2 {
+		t.Fatalf("expected 2 DTOs, got %d", len(resp.Tags))
+	}
+	if resp.Tags[0].Name != "auth" {
+		t.Errorf("expected first tag name 'auth', got %q", resp.Tags[0].Name)
+	}
+	if resp.Tags[1].Name != "voice" {
+		t.Errorf("expected second tag name 'voice', got %q", resp.Tags[1].Name)
+	}
+}
+
+// TestViewerService_Tags_ListTagsError verifies error propagation from tagSvc.ListTags.
+func TestViewerService_Tags_ListTagsError(t *testing.T) {
+	svc := buildViewerService(t,
+		&mockViewerEpicRepo{},
+		&mockViewerFeatureRepo{},
+		&mockViewerTaskRepo{},
+		&mockViewerBugRepo{},
+		&mockViewerChangeCardRepo{},
+		&mockViewerHistoryRepo{},
+	)
+	tagErr := fmt.Errorf("db connection error")
+	tagReader := &mockTagReader{
+		ListTagsFunc: func(_ context.Context) ([]*models.Tag, error) {
+			return nil, tagErr
+		},
+	}
+	svc.WithTagService(tagReader)
+
+	resp, err := svc.Tags(context.Background())
+	if err == nil {
+		t.Fatal("expected error from ListTags to propagate, got nil")
+	}
+	if resp != nil {
+		t.Errorf("expected nil response on error, got %+v", resp)
+	}
+}
+
+// TestViewerService_HierarchyEpic_HasTagsField verifies that HierarchyEpic has the Tags field
+// and that it can be initialized as a non-nil empty slice (AC-T2 prerequisite).
+func TestViewerService_DTOs_HaveTagsField(t *testing.T) {
+	epic := &HierarchyEpic{
+		Tags: []string{},
+	}
+	if epic.Tags == nil {
+		t.Error("HierarchyEpic.Tags must be initializable as non-nil empty slice")
+	}
+
+	feature := &HierarchyFeature{
+		Tags: []string{},
+	}
+	if feature.Tags == nil {
+		t.Error("HierarchyFeature.Tags must be initializable as non-nil empty slice")
+	}
+
+	task := &ViewerTask{
+		Tags: []string{},
+	}
+	if task.Tags == nil {
+		t.Error("ViewerTask.Tags must be initializable as non-nil empty slice")
+	}
+
+	flat := &FlatEntity{
+		Tags: []string{},
+	}
+	if flat.Tags == nil {
+		t.Error("FlatEntity.Tags must be initializable as non-nil empty slice")
+	}
+}
+
+// TestViewerService_FeatureTaskOptions_HasTagsField verifies the Tags field on FeatureTaskOptions.
+func TestViewerService_FeatureTaskOptions_HasTagsField(t *testing.T) {
+	opts := FeatureTaskOptions{
+		Tags: []string{"voice"},
+	}
+	if len(opts.Tags) != 1 || opts.Tags[0] != "voice" {
+		t.Error("FeatureTaskOptions.Tags field not working as expected")
+	}
+}
+
+// TestViewerService_HierarchyOptions_HasTagsField verifies the HierarchyOptions DTO exists.
+func TestViewerService_HierarchyOptions_HasTagsField(t *testing.T) {
+	opts := HierarchyOptions{
+		Tags: []string{"auth", "voice"},
+	}
+	if len(opts.Tags) != 2 {
+		t.Error("HierarchyOptions.Tags field not working as expected")
 	}
 }

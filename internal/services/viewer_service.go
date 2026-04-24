@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
 	"github.com/jwwelbor/shark-task-manager/internal/models"
 	"github.com/jwwelbor/shark-task-manager/internal/repository/entityhistory"
@@ -146,13 +149,44 @@ type ViewerChangeCardListRepository interface {
 	GetByKey(ctx context.Context, key string) (*models.ChangeCard, error)
 }
 
+// TagReader is the narrow consumer contract that ViewerService needs from TagService.
+// *services.TagService satisfies it. Defined here so the viewer service can be tested
+// with an in-memory mock without importing the full tag package chain.
+// (REQ-F-015, ADR-F06-3)
+type TagReader interface {
+	ListTags(ctx context.Context) ([]*models.Tag, error)
+	EntityIDsByTags(ctx context.Context, entityType models.EntityType, names []string, op TagQueryOp) ([]int64, error)
+	AttachedTagNamesByIDs(ctx context.Context, entityType models.EntityType, entityIDs []int64) (map[int64][]string, error)
+}
+
+// TagDTO is the narrow projection of models.Tag that the viewer exposes.
+// Names are normalized lowercase-ASCII (enforced at F03 add-time).
+// (REQ-F-001)
+type TagDTO struct {
+	Name string `json:"name"`
+}
+
+// TagsResponse is the response type for ViewerService.Tags.
+// Tags is always a non-nil slice (may be empty) to satisfy AC-01 and ADR-F06-2.
+type TagsResponse struct {
+	Tags []TagDTO `json:"tags"`
+}
+
+// HierarchyOptions carries filter options for ViewerService.Hierarchy.
+// Nil/zero values mean "no filter" — identical to pre-F06 behavior.
+// (REQ-F-010, ADR-F06-5)
+type HierarchyOptions struct {
+	Tags []string // empty → no filter (AC-04 still applies)
+}
+
 // FlatEntity is a lightweight summary of a non-hierarchical entity (bug, change card, idea)
 // used in the hierarchy sidebar flat sections.
 type FlatEntity struct {
-	Key         string `json:"key"`
-	Title       string `json:"title"`
-	Status      string `json:"status"`
-	StatusColor string `json:"status_color"`
+	Key         string   `json:"key"`
+	Title       string   `json:"title"`
+	Status      string   `json:"status"`
+	StatusColor string   `json:"status_color"`
+	Tags        []string `json:"tags"` // NEW (REQ-F-003); always non-nil (ADR-F06-2)
 }
 
 // ----- Request / Response types -----
@@ -209,6 +243,7 @@ type HierarchyFeature struct {
 	StatusPhase  string          `json:"status_phase"`
 	Tasks        []*ViewerTask   `json:"tasks"`
 	Docs         []*HierarchyDoc `json:"docs"`
+	Tags         []string        `json:"tags"` // NEW (REQ-F-003); always non-nil (ADR-F06-2)
 }
 
 // HierarchyEpic is an epic with its child features and linked docs embedded.
@@ -218,6 +253,7 @@ type HierarchyEpic struct {
 	StatusColor string              `json:"status_color"`
 	StatusPhase string              `json:"status_phase"`
 	Docs        []*HierarchyDoc     `json:"docs"`
+	Tags        []string            `json:"tags"` // NEW (REQ-F-003); always non-nil (ADR-F06-2)
 }
 
 // HierarchyResponse is the response type for ViewerService.Hierarchy.
@@ -298,6 +334,7 @@ type FeatureTaskOptions struct {
 	Blocked *bool  // nil = no filter
 	Limit   int    // 0 = use default (200); >500 = clamped to 500
 	Offset  int
+	Tags    []string // NEW (REQ-F-008); empty → no tag filter
 }
 
 // ViewerTask decorates models.Task with workflow-derived display metadata and
@@ -307,6 +344,7 @@ type ViewerTask struct {
 	StatusColor   string                `json:"status_color"`
 	StatusPhase   string                `json:"status_phase"`
 	Relationships []ViewerRelatedEntity `json:"relationships"` // From entity_relationships (all cross-entity links)
+	Tags          []string              `json:"tags"`          // NEW (REQ-F-003); always non-nil (ADR-F06-2)
 }
 
 // ViewerRelatedEntity represents a single relationship edge from a task's
@@ -404,6 +442,7 @@ type ViewerService struct {
 	ideaRepo           ViewerIdeaRepository              // optional; used by Summary and Hierarchy
 	bugListRepo        ViewerBugListRepository           // optional; used by Hierarchy for bug flat list
 	changeCardListRepo ViewerChangeCardListRepository    // optional; used by Hierarchy for change card flat list
+	tagSvc             TagReader                         // optional; used by Tags, Hierarchy, FeatureTasks (REQ-F-015)
 	entityRelSvc       *EntityRelationshipService        // optional; retained for History/RelatedDocs lookups
 	entityRegistry     *EntityRegistry                   // optional; retained for History/RelatedDocs lookups
 	workflowSvc        *workflow.Service
@@ -487,6 +526,49 @@ func (s *ViewerService) WithBugListRepo(r ViewerBugListRepository) {
 // Call after NewViewerService; safe to skip (change_cards section omitted when nil).
 func (s *ViewerService) WithChangeCardListRepo(r ViewerChangeCardListRepository) {
 	s.changeCardListRepo = r
+}
+
+// WithTagService wires the optional tag reader used by Tags, Hierarchy, and FeatureTasks.
+// Call after NewViewerService; safe to skip — the service degrades gracefully:
+// Tags() returns {tags: []}, all entity DTOs carry tags: [], tag filters are silently ignored.
+// (REQ-F-015, ADR-F06-3)
+func (s *ViewerService) WithTagService(r TagReader) *ViewerService {
+	s.tagSvc = r
+	return s
+}
+
+// Tags returns the full tag vocabulary for the viewer filter UI.
+// The method delegates to TagReader.ListTags and reshapes each *models.Tag into a
+// narrow TagDTO. Results are sorted alphabetically by name ascending.
+//
+// When tagSvc is nil (not wired), Tags degrades gracefully and returns {tags: []}
+// with no error and no error-level log (REQ-F-015, AC-14, REQ-NF-011).
+//
+// OTel span: viewer_service.tags with tag.count attribute (REQ-NF-004).
+func (s *ViewerService) Tags(ctx context.Context) (*TagsResponse, error) {
+	ctx, span := otel.Tracer("shark/services/viewer").Start(ctx, "viewer_service.tags")
+	defer span.End()
+
+	if s.tagSvc == nil {
+		span.SetAttributes(attribute.Int("tag.count", 0))
+		return &TagsResponse{Tags: []TagDTO{}}, nil
+	}
+
+	tags, err := s.tagSvc.ListTags(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("viewer service: list tags: %w", err)
+	}
+
+	out := make([]TagDTO, len(tags))
+	for i, t := range tags {
+		out[i] = TagDTO{Name: t.Name}
+	}
+	// Sort alphabetically ascending (REQ-F-001, AC-02).
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	span.SetAttributes(attribute.Int("tag.count", len(out)))
+	return &TagsResponse{Tags: out}, nil
 }
 
 // Summary returns entity-type counts with per-status color/phase metadata
