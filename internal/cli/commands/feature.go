@@ -357,6 +357,13 @@ func runFeatureDelete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// featureUpdateImpl is the function called by runFeatureUpdate to perform the
+// update. It is a package-level variable so tests can override it without
+// touching the real database.
+var featureUpdateImpl = func(ctx context.Context, featureKey string, cmd *cobra.Command) error {
+	return performFeatureUpdate(ctx, featureKey, cmd)
+}
+
 // runFeatureUpdate updates a feature's properties.
 func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -364,8 +371,5 @@ func runFeatureUpdate(cmd *cobra.Command, args []string) error {
 
 	featureKey := args[0]
 
-	if err := performFeatureUpdate(ctx, featureKey, cmd); err != nil {
-		handleServiceError(err, "feature", featureKey)
-	}
-	return nil
+	return featureUpdateImpl(ctx, featureKey, cmd)
 }

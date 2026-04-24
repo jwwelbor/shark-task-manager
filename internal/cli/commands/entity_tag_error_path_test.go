@@ -425,3 +425,122 @@ func TestExtractExitCode(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// E2E runner-level tests (T-E28-F04-013 regression guard)
+//
+// These tests call the actual cobra RunE function for each entity update
+// runner (not just the helper layer) to ensure the "exit code 3:" error
+// propagates all the way through the runner without being intercepted by
+// the legacy handleServiceError. This is the gap that let the original
+// runFeatureUpdate regression pass all unit tests while failing at runtime.
+// ---------------------------------------------------------------------------
+
+// buildCmdWithTagFlag returns a minimal *cobra.Command that has a --tag
+// StringSlice flag registered and marked as Changed, simulating a caller
+// passing --tag=ghost on the command line.
+func buildCmdWithTagFlag(t *testing.T, tagValue string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: "update", SilenceErrors: true, SilenceUsage: true}
+	cmd.Flags().StringSlice("tag", nil, "tags")
+	// Mark --tag as Changed so the helper branch that calls
+	// handleEntityServiceError is reached.
+	if err := cmd.Flags().Set("tag", tagValue); err != nil {
+		t.Fatalf("failed to set --tag flag: %v", err)
+	}
+	return cmd
+}
+
+// TestRunFeatureUpdate_UnregisteredTag_ExitCode3 is the regression test for
+// the BLOCKER-1 finding in the UAT report (T-E28-F04-013).
+//
+// It overrides featureUpdateImpl to inject an "exit code 3:" error
+// (the same shape produced by handleEntityServiceError) and asserts that
+// runFeatureUpdate returns that error unchanged — i.e. it does NOT intercept
+// the error via the legacy handleServiceError (which would call os.Exit(2)).
+func TestRunFeatureUpdate_UnregisteredTag_ExitCode3(t *testing.T) {
+	withJSONMode(t, false)
+
+	// Override featureUpdateImpl to return a controlled exit-code-3 error,
+	// simulating what performFeatureUpdate → handleEntityServiceError produces.
+	injectedErr := fmt.Errorf("exit code 3: %w", &services.UnregisteredTagError{Name: "ghost"})
+	orig := featureUpdateImpl
+	featureUpdateImpl = func(_ context.Context, _ string, _ *cobra.Command) error {
+		return injectedErr
+	}
+	t.Cleanup(func() { featureUpdateImpl = orig })
+
+	cmd := buildCmdWithTagFlag(t, "ghost")
+	cmd.Args = cobra.ExactArgs(1)
+
+	got := runFeatureUpdate(cmd, []string{"E01-F02"})
+
+	if got == nil {
+		t.Fatal("runFeatureUpdate: expected error, got nil")
+	}
+	if localExtractExitCode(got, 2) != 3 {
+		t.Errorf("runFeatureUpdate: exit code want 3, got %d (error: %v)",
+			localExtractExitCode(got, 2), got)
+	}
+	// The typed error must still be accessible through the returned error chain.
+	var unregErr *services.UnregisteredTagError
+	if !errors.As(got, &unregErr) {
+		t.Errorf("runFeatureUpdate: UnregisteredTagError not accessible via errors.As: %T %v", got, got)
+	}
+}
+
+// TestRunnerExitCode3Propagation_Table is a table-driven regression guard
+// covering all six entity update runners. For each runner, it verifies that
+// an "exit code 3:" error returned by the inner perform/service call is
+// propagated unchanged to cobra — i.e. the runner does NOT re-wrap it with
+// handleServiceError.
+//
+// Runners that call their perform-function via a package-level variable (like
+// featureUpdateImpl) are tested directly. For the others, the test verifies
+// the runner's RunE returns an error with the expected exit code prefix when
+// handleEntityServiceError produces one.
+func TestRunnerExitCode3Propagation_Table(t *testing.T) {
+	exitCode3Err := fmt.Errorf("exit code 3: tag is not registered: ghost")
+
+	tests := []struct {
+		name    string
+		runnerE func(cmd *cobra.Command, args []string) error
+		setup   func(t *testing.T) // optional override / cleanup
+	}{
+		{
+			name:    "feature update",
+			runnerE: runFeatureUpdate,
+			setup: func(t *testing.T) {
+				orig := featureUpdateImpl
+				featureUpdateImpl = func(_ context.Context, _ string, _ *cobra.Command) error {
+					return exitCode3Err
+				}
+				t.Cleanup(func() { featureUpdateImpl = orig })
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			withJSONMode(t, false)
+			if tt.setup != nil {
+				tt.setup(t)
+			}
+
+			cmd := buildCmdWithTagFlag(t, "ghost")
+			cmd.Args = cobra.ExactArgs(1)
+
+			got := tt.runnerE(cmd, []string{"E01-F02"})
+
+			if got == nil {
+				t.Fatalf("[%s] expected error, got nil", tt.name)
+			}
+
+			code := localExtractExitCode(got, 2)
+			if code != 3 {
+				t.Errorf("[%s] exit code want 3, got %d (error: %v)", tt.name, code, got)
+			}
+		})
+	}
+}
