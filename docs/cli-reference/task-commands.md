@@ -37,6 +37,8 @@ Tasks flow through a configurable workflow. The basic profile uses 5 statuses, w
 | `shark task history` | Show status change history | History & Sessions |
 | `shark task sessions` | View work sessions | History & Sessions |
 | `shark task timeline` | Show chronological timeline | History & Sessions |
+| `shark task tag add` | Attach a registered tag to a task | Tags |
+| `shark task tag rm` | Detach a registered tag from a task | Tags |
 
 ---
 
@@ -144,6 +146,7 @@ shark task create --epic=<epic-key> --feature=<feature-key> --title="<title>" [f
 - `--file <string>` - Custom file path (relative to root, must include .md)
 - `--create` - Create file if it does not exist
 - `--force` - Force reassignment if file already claimed
+- `--tag <string>` - Tag to apply (repeatable). Tag must be registered; see `shark tags list`.
 - `--json` - Output in JSON format
 
 **Examples:**
@@ -163,7 +166,12 @@ shark task create E07 F01 "Add token refresh" \
 
 # Case insensitive
 shark task create e07 f01 "Task Title"
+
+# With tags (tags must already be registered via 'shark tags add')
+shark task create E07 F01 "Implement JWT validation" --tag=voice --tag=auth
 ```
+
+> If `.sharkconfig.json` sets `tag_required_for` to include `task`, `shark task create` exits with process code **3** (internal classification `tag_required`) unless at least one `--tag` is provided. See [Configuration → `tag_required_for`](configuration.md#tag_required_for).
 
 ---
 
@@ -313,6 +321,7 @@ shark task update <task-key> [flags]
 - `--filename <string>` - New file path (relative to project root)
 - `--reason <string>` - Reason for backward status transitions
 - `--reason-doc <string>` - Path to rejection reason document
+- `--tag <string>` - Tag to apply additively (repeatable). Empty = no change; use `shark task tag rm` to detach.
 - `--force` - Force reassignment or bypass workflow validation
 - `--json` - Output in JSON format
 
@@ -329,7 +338,16 @@ shark task update E07-F01-001 --order=1
 
 # Update multiple fields
 shark task update E07-F01-001 --priority=10 --order=1
+
+# Additive tagging (does not detach existing tags)
+shark task update E07-F01-001 --tag=voice
+shark task update E07-F01-001 --tag=voice --tag=auth
+
+# Idempotent: re-running the same --tag produces no new attachment
+shark task update E07-F01-001 --tag=voice --tag=voice
 ```
+
+> `--tag` on update is **additive only**. Use `shark task tag rm E07-F01-001 <name>` to detach a single tag.
 
 ---
 
@@ -803,6 +821,61 @@ shark task timeline E07-F01-001 --json
 
 ---
 
+## Tag Commands
+
+Retroactively attach or detach a registered tag on an existing task. See [Tags → Retroactive Tagging](tags.md#retroactive-tagging-shark-entity-tag-addrm) for the cross-entity overview.
+
+### `shark task tag add`
+
+Attach a registered tag to a task. Re-running with the same arguments is a no-op (idempotent).
+
+**Usage:**
+```bash
+shark task tag add <task-key> <name> [--json]
+```
+
+**Examples:**
+```bash
+shark task tag add E07-F01-001 voice
+shark task tag add E07-F01-001 voice --json   # idempotent
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag attached (or already attached) |
+| 1 | `not_found` | Task key not found |
+| 2 | `db_error` | Database error |
+| 3 | `unregistered_tag` | Tag name not in vocabulary |
+| 3 | `validation` | Name validation error |
+
+On an unregistered tag (process exit **3**, internal class `unregistered_tag`), stderr shows the service error line, an `Available tags:` header, the current vocabulary (two-space-indented), the `To add it: shark tags add <name>` remediation line, and a trailing `Error: exit code 3: ...` line emitted by Cobra. See [Tags → Unregistered Tag Errors](tags.md#unregistered-tag-errors) for worked output.
+
+### `shark task tag rm`
+
+Detach a registered tag from a task. Removing a tag that is not currently attached is a no-op (exit 0) as long as the tag name is in the vocabulary.
+
+**Usage:**
+```bash
+shark task tag rm <task-key> <name> [--json]
+```
+
+**Examples:**
+```bash
+shark task tag rm E07-F01-001 voice
+shark task tag rm E07-F01-001 voice   # idempotent no-op
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag detached (or was not attached) |
+| 1 | `not_found` | Task key not found, or tag name not in vocabulary |
+| 2 | `db_error` | Database error |
+| 3 | `validation` | Name validation error |
+
+---
+
 ## Common Workflows
 
 ### Pick Up Next Task (Agent Workflow)
@@ -937,5 +1010,5 @@ shark task get E07-F01-001 --json --field key
 - [JSON API Fields](json-api-fields.md) - Enhanced JSON response fields
 - [Key Formats](key-formats.md) - Case insensitive and slugged key formats
 - [Interactive Mode](interactive-mode.md) - Configure interactive prompts
-- [Workflow Configuration](workflow-config.md) - Status flows and phases
+- [Workflow Configuration](workflow-configuration.md) - Status flows and phases
 - [Workflow Profiles](../guides/workflow-profiles.md) - Basic vs advanced workflow profiles

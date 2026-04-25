@@ -35,11 +35,14 @@ The `.sharkconfig.json` file is automatically created by `shark init` and contai
   "status_flow_version": "1.0",
   "special_statuses": { },
   "bug_workflow": { },
-  "change_workflow": { }
+  "change_workflow": { },
+  "tag_required_for": []
 }
 ```
 
 The `bug_workflow` and `change_workflow` keys configure the workflows for the two standalone defect/change entity types. See [Bug Workflow Configuration](#bug-workflow-configuration) and [Change-Card Workflow Configuration](#change-card-workflow-configuration) below.
+
+The optional `tag_required_for` key gates entity creation on the presence of `--tag`; see [`tag_required_for`](#tag_required_for) below.
 
 ### Database Configuration
 
@@ -61,12 +64,32 @@ The `bug_workflow` and `change_workflow` keys configure the workflows for the tw
   "database": {
     "backend": "turso",
     "url": "libsql://shark-tasks-yourorg.turso.io",
-    "auth_token_file": "/home/user/.turso/shark-token"
+    "auth_token_file": "/home/user/.turso/shark-token",
+    "skip_migrations": true
   }
 }
 ```
 
 See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
+
+<a id="database-skip_migrations"></a>
+#### `database.skip_migrations`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `database.skip_migrations` | bool | `false` | When `true`, skips the per-command schema/DDL check (recommended for Turso to avoid ~2-second overhead on every shark invocation). Local SQLite users typically leave this `false`. |
+
+> **v14 schema bump (E28 tagging):** The E28 entity tagging epic moved the
+> schema from **version 13 → 14** (added `tags` and `entity_tags` tables). If
+> you are running with `skip_migrations: true`, the migration will not apply
+> automatically — you must temporarily set `skip_migrations` to `false`, run
+> any `shark` command once to apply the bump, then set it back to `true`.
+> Local SQLite users do not need to do anything; migrations always run on
+> local databases.
+>
+> See
+> [Initialization → Migrating an existing project to v14 (E28 tagging)](initialization.md#migrating-an-existing-project-to-v14-e28-tagging)
+> for the step-by-step procedure.
 
 ### UI Preferences
 
@@ -115,30 +138,293 @@ shark web --port 8888   # uses 8888 regardless of web.port in config
 | `default_agent` | string/null | `null` | Default agent type for task creation and filtering |
 | `default_epic` | string/null | `null` | Default epic for task/feature creation |
 
-### Maintainer Authorization
+<a id="maintainer"></a>
+### Maintainer
 
-The optional `maintainer` object configures the maintainer authorization gate used
-by destructive admin operations (e.g., `shark admin purge` in a future epic).
+The optional `maintainer` object configures the maintainer authorization gate
+(`internal/auth/maintainer`) that protects mutating tag-vocabulary commands
+(`shark tags add|rm|rename`) and any future destructive admin operations
+(e.g., `shark admin purge`). When the object is absent the gate refuses every
+guarded command with a setup hint.
+
+#### JSON shape
 
 ```json
 {
   "maintainer": {
-    "password_hash": "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3",
+    "password_hash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
     "cache_window_seconds": 300
   }
 }
 ```
 
+#### Fields
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `password_hash` | string | `""` | SHA-256 hex digest of the maintainer password. Set via `shark admin maintainer set-password`. |
-| `cache_window_seconds` | int | `60` | Duration in seconds for which a successful authorization is cached (sudo-style). Zero or negative uses the default of 60 seconds. |
+| `password_hash` | string | `""` | Lowercase-hex SHA-256 digest of the maintainer password (no salt). Written by `shark admin maintainer set-password`; never edit by hand. An empty string is treated the same as an absent `maintainer` object. |
+| `cache_window_seconds` | int | `60` | Lifetime, in seconds, of a successful sudo-style authorization. A value of `0` or any negative number falls back to the 60-second default (see `MaintainerConfig.CacheWindow()` in `internal/config/maintainer.go`). |
 
-**Notes:**
+> **Hash details (source: `internal/auth/maintainer/gate.go`):** Passwords are
+> hashed with `crypto/sha256` (no salt, no PBKDF/Argon stretching — see
+> ADR-F02-6) and compared with `crypto/subtle.ConstantTimeCompare` to defeat
+> timing oracles. Plaintext is **never** persisted; the
+> `shark admin maintainer set-password` command computes the digest in process
+> and writes only `password_hash` back to `.sharkconfig.json`, preserving every
+> other key in the file.
 
-- The plaintext password is **never stored**. Only the SHA-256 hex digest is written.
-- An absent or nil `maintainer` object means "no password configured." Any call to `gate.Authorize` will return `*UnauthorizedError` directing the user to run `shark admin maintainer set-password`.
-- Use `shark admin maintainer set-password` to set or rotate the password.
+#### Behavior matrix
+
+The gate's `Authorize(ctx, providedPass)` method (`internal/auth/maintainer/gate.go`)
+returns `nil` on success or `*UnauthorizedError` on every failure. The
+`Reason` field is a stable string safe for programmatic handling.
+
+| `maintainer` object state | Caller supplied `--pass` | `gate.Authorize` result |
+|---------------------------|--------------------------|--------------------------|
+| Absent (key not in `.sharkconfig.json`) | (any) | `*UnauthorizedError{Reason: "missing_config"}` — `Error()` includes the literal `shark admin maintainer set-password` setup hint. |
+| Present, `password_hash == ""` | (any) | Same as absent: `*UnauthorizedError{Reason: "missing_config"}`. |
+| Present with hash | matches | `nil` (authorized; cache entry is refreshed by `RecordSuccess`). |
+| Present with hash | does **not** match | `*UnauthorizedError{Reason: "wrong_password"}`. |
+| Present with hash | omitted, no live cache entry | `*UnauthorizedError{Reason: "expired_cache"}`. |
+| Present with hash | omitted, cache entry's `pass_hash` differs from current `password_hash` | `*UnauthorizedError{Reason: "hash_mismatch_after_rotation"}` — fires automatically the first time a guarded command runs after `set-password` rotates the password. |
+| Present with hash | omitted, cache entry within window and matching hash | `nil` (cache hit). |
+
+The CLI surfaces `*UnauthorizedError.Error()` on stderr and, for the
+`missing_config` reason only, an additional `UserHint()` line directing the
+user to `shark admin maintainer set-password`. The end-to-end CLI rendering
+(JSON envelope, exit-code mapping to `unauthorized` / exit 3) is documented
+once in [Tags → Authorization and Password Cache](tags.md#authorization-and-password-cache);
+do not duplicate it here.
+
+#### Cache file
+
+`Gate.RecordSuccess` writes a JSON session entry to
+`$XDG_CACHE_HOME/shark/<project-hash>/maintainer.session` (falling back to
+`os.UserCacheDir()` when `XDG_CACHE_HOME` is unset).
+`<project-hash>` is the SHA-256 of the absolute project root path so two
+checkouts of the same project on different paths never share a cache. The
+file is mode `0600` inside a `0700` directory and is written via the
+temp-file + `rename` pattern so concurrent readers never observe a partial
+file. A missing or malformed cache file is silently treated as a cache miss
+(per REQ-NF-003) — it is never reported as an authorization error.
+
+The cache entry shape is internal but stable for the lifetime of E28-F02:
+
+```json
+{
+  "last_success": "2026-04-25T11:42:13.987654321-05:00",
+  "pass_hash":    "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92"
+}
+```
+
+#### CLI commands
+
+Only one subcommand exists today; there is **no** `verify` and **no** `clear`
+command. The cache can be reset out-of-band by deleting the
+`maintainer.session` file under the project's cache directory.
+
+```bash
+# Pass the plaintext as a flag value
+shark admin maintainer set-password --password "hunter2"
+
+# Pipe-friendly (reads one newline-terminated line from stdin)
+printf '%s\n' "hunter2" | shark admin maintainer set-password --password-stdin
+
+# Re-running set-password rotates the password — every existing cache entry
+# is invalidated on the next gate check via the hash_mismatch_after_rotation
+# reason, so subsequent guarded commands must re-authorize with --pass.
+shark admin maintainer set-password --password "new-secret"
+```
+
+| Flag | Description |
+|------|-------------|
+| `--password <plaintext>` | Plaintext password supplied as a flag value. Highest priority. Not stored — only its SHA-256 digest is written to `.sharkconfig.json`. |
+| `--password-stdin` | Read one newline-terminated line from `os.Stdin`. Used when `--password` is absent. |
+
+When both sources are absent the command fails with
+`set-password: password cannot be empty` (an interactive prompt is not yet
+implemented). On success the command prints two lines — first
+`Maintainer password configured successfully.` (success message), then
+`Run 'shark admin maintainer set-password' again to rotate the password.`
+(informational follow-up) — without ever echoing the plaintext or the hash.
+
+**Cross-reference:** See [Tags → Authorization and Password Cache](tags.md#authorization-and-password-cache)
+for the user-facing semantics of `--pass` on `shark tags add|rm|rename`, the
+cache hit/miss flow across a session, and the JSON error envelope shape
+(`{"error":"unauthorized","message":"…"}`).
+
+---
+
+<a id="tag_required_for"></a>
+### `tag_required_for`
+
+The optional `tag_required_for` field is a JSON array of entity-type strings.
+Entity types listed here require **at least one `--tag` flag at creation
+time**. The check is enforced inside the entity service layer
+(`enforceTagsRequired` in `internal/services/helpers.go`, called from each of
+`task_service.go`, `feature_service.go`, `epic_service.go`,
+`bug_service.go`, `change_card_service.go`, and `idea_service.go`) before
+any key allocation, file write, or database insert — failures produce no
+side effects.
+
+#### JSON shape
+
+```json
+{
+  "tag_required_for": ["task"]
+}
+```
+
+The internal Go field is `Config.TagRequiredForTypes` (`internal/config/config.go`)
+but the JSON key on disk is always `tag_required_for`. The accessor
+`Config.TagRequiredFor()` returns a defensive copy.
+
+#### Type and defaults
+
+`[]string` — array of lowercase entity-type names. Absent, `null`, or empty
+(`[]`) disables enforcement for all types.
+
+#### Supported entity-type values
+
+Matching is case-sensitive against `models.EntityType.String()` output. The
+allowed values map directly to the six entity create commands:
+
+| Value     | Applies to command           | EntityType constant         |
+|-----------|------------------------------|-----------------------------|
+| `task`    | `shark task create`          | `models.EntityTypeTask`     |
+| `feature` | `shark feature create`       | `models.EntityTypeFeature`  |
+| `epic`    | `shark epic create`          | `models.EntityTypeEpic`     |
+| `bug`     | `shark bug create`           | `models.EntityTypeBug`      |
+| `change`  | `shark change create`        | `models.EntityTypeChange`   |
+| `idea`    | `shark idea create`          | `models.EntityTypeIdea`     |
+
+> **Important (ADR-F04-4):** Matching is case-sensitive. A misspelled or
+> mis-cased entry (e.g., `"Task"`, `"tasks"`, `"changes"`) silently disables
+> enforcement for that type — `EnforceRequired` will simply never find a
+> match. Use the exact lowercase strings above.
+
+#### Behavior
+
+- **Creation-time only.** `tag_required_for` only affects the
+  `shark <entity> create` commands. The `update` commands and the
+  retroactive `shark <entity> tag add|rm` subcommands are explicitly
+  **not** subject to this check (see `internal/services/tag_service.go`
+  → `EnforceRequired`, which is called only from the create paths).
+- **Ordering and duplicates** in the slice are not significant —
+  `EnforceRequired` does an exact-match scan.
+- **The only way to satisfy the requirement** is to pass one or more
+  `--tag <name>` flags on the failing `create` invocation. Retroactive
+  `shark <entity> tag add` cannot help on a creation call that has already
+  failed (no entity was created to attach to).
+- **Tag values must already be registered** in the vocabulary — supplying a
+  `--tag` value that is not in the vocabulary fails with
+  `*UnregisteredTagError` (a different error class, also exit 3) rather than
+  the `tag_required` error covered here. See [Tags → Applying Tags During
+  Create/Update](tags.md#applying-tags-during-createupdate).
+- **No interaction with the maintainer gate.** Tag attachment on `create` is
+  not maintainer-gated; only vocabulary mutation
+  (`shark tags add|rm|rename`) is. See [Maintainer](#maintainer) above.
+
+#### Exit code and error message
+
+When the check fails the service layer returns
+`*services.TagRequiredError{EntityType: "<entity>"}`
+(`internal/services/tag_errors.go`). The CLI maps this to:
+
+| Surface            | Value                                                               |
+|--------------------|----------------------------------------------------------------------|
+| Process exit code  | **3** (mapped by `tagsErrorCode` in `internal/cli/commands/tags.go`) |
+| Internal class code| `tag_required`                                                       |
+| Stderr message     | `at least one tag is required for <entity>`                          |
+
+The exit code aligns with the rest of the typed-tag error family
+(`unregistered_tag`, `tag_required`, `unauthorized`, `conflict`, `in_use`,
+`validation` are all exit 3; `not_found` and `db_error` are exit 1 and 2
+respectively).
+
+#### Worked example (UAT-6)
+
+With `.sharkconfig.json` containing:
+
+```json
+{
+  "tag_required_for": ["task"]
+}
+```
+
+Attempting to create a task without `--tag` fails:
+
+```bash
+$ shark task create E07 F01 "x"
+at least one tag is required for task
+Available tags:
+  audio, backend, voice
+Error: exit code 3: at least one tag is required for task
+$ echo $?
+3
+```
+
+(Note the `Available tags:` snippet emitted by
+`handleVocabularyErrorWithSnippet`. The remediation line `To add it: …` is
+**suppressed** for this error because no specific tag name was rejected — the
+user must pick from the listed vocabulary.)
+
+The same task creation with `--tag` succeeds:
+
+```bash
+$ shark task create E07 F01 "x" --tag=voice
+Created task T-E07-F01-001 ...
+```
+
+Other entity types are unaffected because only `task` is listed:
+
+```bash
+$ shark epic create "New Epic"            # succeeds (no --tag needed)
+$ shark bug create "Login crash"          # succeeds
+$ shark feature create E07 "New Feature"  # succeeds
+```
+
+#### Error JSON shape (`--json`)
+
+When `--json` is set, two JSON documents are emitted on a failed create —
+one on stderr (the inner classification envelope produced by
+`writeTagsError`) and one on stdout (the outer `COMMAND_ERROR` envelope
+produced by `cmd/shark/main.go` whenever a Cobra `RunE` returns a non-nil
+error):
+
+```json
+// stderr — stable machine-readable classification
+{"error":"tag_required","message":"at least one tag is required for task"}
+```
+
+```json
+// stdout — generic command-error envelope (every failing shark command)
+{"error":true,"code":"COMMAND_ERROR","message":"exit code 3: at least one tag is required for task"}
+```
+
+Integrators that need to distinguish `tag_required` from other typed-tag
+errors should match on the stderr envelope's `error` field (`tag_required`).
+Integrators that only need to detect "any failure" can rely on the stdout
+`COMMAND_ERROR` envelope, which is shared across every failing command.
+
+#### Enforcing tags on multiple entity types
+
+```json
+{
+  "tag_required_for": ["task", "bug"]
+}
+```
+
+This requires `--tag` on both `shark task create` and `shark bug create`;
+the other four families (`epic`, `feature`, `change`, `idea`) remain
+unaffected.
+
+**Cross-reference:** See [Tags → Applying Tags During Create/Update](tags.md#applying-tags-during-createupdate)
+for the `--tag` flag semantics on every create/update path,
+[Tags → Tag-Required Errors](tags.md#tag-required-errors) for the user-facing
+error rendering, and [Tags → Retroactive Tagging](tags.md#retroactive-tagging-shark-entity-tag-addrm)
+for the per-entity `tag add|rm` subcommands (which are not subject to this
+check).
 
 ---
 
