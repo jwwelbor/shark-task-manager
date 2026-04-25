@@ -6,7 +6,7 @@ Complete reference for the `shark tags` command group — the managed vocabulary
 
 The `shark tags` commands manage the closed tag vocabulary: a registry of lowercase-normalized names that can be applied to epics, features, tasks, bugs, change-cards, and ideas (all six entity families). All mutating operations (`add`, `rm`, `rename`) require maintainer authorization via the `--pass` flag or a live password cache.
 
-> **Process-level exit codes:** The `shark` CLI wrapper emits process exit code **1** for every typed error (see `cmd/shark/main.go`). The "exit code 3:" and "exit code 1:" strings that appear inside error messages on stderr are **internal classification labels** produced by `tagsErrorCode` (in `internal/cli/commands/tags.go`) for JSON error envelopes and log correlation — they are **not** the OS process exit status. Callers that need to distinguish error classes should parse the JSON envelope's `error` field (`unregistered_tag`, `tag_required`, `not_found`, `conflict`, `in_use`, `validation`, `unauthorized`, `db_error`) rather than rely on `$?`.
+> **Process-level exit codes:** The `shark` CLI wrapper extracts the embedded `exit code N:` prefix produced by `tagsErrorCode` (in `internal/cli/commands/tags.go`) and uses it as the OS process exit status (see `extractExitCode` in `cmd/shark/main.go`). The mapping is: **`not_found` → 1**, **`db_error` → 2**, and **`unregistered_tag` / `tag_required` / `unauthorized` / `conflict` / `in_use` / `validation` / `unavailable` → 3**. The same `exit code N:` string also appears inside the human-readable error line on stderr as a classification label. Callers that need to distinguish error classes should parse the JSON envelope's `error` field (`unregistered_tag`, `tag_required`, `not_found`, `conflict`, `in_use`, `validation`, `unauthorized`, `unavailable`, `db_error`) rather than rely on `$?` alone.
 
 **Authorization:** Mutating commands require a valid maintainer password. See [Maintainer Configuration](configuration.md#maintainer) for setup instructions, including how to set the password with `shark admin maintainer set-password`.
 
@@ -81,7 +81,7 @@ shark tags add <name> [--pass <value>] [--json]
 - `<name>` — The tag name to register. Automatically lowercased and trimmed. Must match `^[a-z0-9][a-z0-9-]{0,63}$`.
 
 **Flags:**
-- `--pass <value>` — Maintainer password. When omitted, the command uses the live password cache (populated by a previous successful mutating command within the cache window). If the cache is empty, the command exits 1 (internal class `unauthorized`) with guidance.
+- `--pass <value>` — Maintainer password. When omitted, the command uses the live password cache (populated by a previous successful mutating command within the cache window). If the cache is empty, the command exits **3** (internal class `unauthorized`) with guidance.
 - `--json` — Output in JSON format (global flag)
 
 **Examples:**
@@ -110,15 +110,15 @@ Added tag voice
 | Code | Internal class | Condition |
 |------|----------------|-----------|
 | 0 | — | Tag successfully registered |
-| 1 | `unauthorized`, `validation`, `conflict` | Incorrect password, missing password (no cache), name validation error, or tag already exists |
-| 1 | `db_error` | Database error (the `--json` envelope carries `"code":"db_error"` for this subclass) |
+| 2 | `db_error` | Database error |
+| 3 | `unauthorized`, `validation`, `conflict` | Incorrect password, missing password (no cache), name validation error, or tag already exists |
 
-> **Note:** Process exit code is always **1** for non-zero results from `shark tags add`. The JSON `error` field distinguishes subclasses (`unauthorized`, `validation`, `conflict`, `db_error`). The human-readable error line on stderr includes an internal `Error: exit code 3: ...` prefix for classification errors (3 = invalid state in the internal taxonomy) and `Error: exit code 2: ...` for database errors, but the process exit status is 1 in both cases.
+> **Note:** The process exit code matches the `exit code N:` prefix that `tagsErrorCode` embeds in the wrapped error and that `cmd/shark/main.go` then uses as the OS exit status. The JSON `error` field distinguishes subclasses (`unauthorized`, `validation`, `conflict`, `db_error`). See the [Process-level exit codes](#overview) note above for the full mapping.
 
 **Error handling:**
 - If `--pass` is omitted and no cache entry exists, stderr includes the text `shark admin maintainer set-password` as a hint. See [Maintainer Configuration](configuration.md#maintainer).
-- If the tag name already exists, a conflict error is returned (process exit 1, internal class `conflict`).
-- If the password is wrong, an authorization error is returned (process exit 1, internal class `unauthorized`).
+- If the tag name already exists, a conflict error is returned (process exit **3**, internal class `conflict`).
+- If the password is wrong, an authorization error is returned (process exit **3**, internal class `unauthorized`).
 
 **Example error output (conflict):**
 
@@ -127,7 +127,7 @@ $ shark tags add voice --pass secret
 tag already exists: voice
 Error: exit code 3: tag already exists: voice
 $ echo $?
-1
+3
 ```
 
 **Error JSON shape (stderr):**
@@ -159,7 +159,7 @@ shark tags rm <name> [--pass <value>] [--force] [--json]
 
 **Flags:**
 - `--pass <value>` — Maintainer password. Same cache behavior as `shark tags add`.
-- `--force` — Required when the tag is in use by one or more entities. Without this flag, the command exits 1 (internal class `in_use`) and shows the usage count. When specified, the tag and all its entity associations are removed atomically.
+- `--force` — Required when the tag is in use by one or more entities. Without this flag, the command exits **3** (internal class `in_use`) and shows the usage count. When specified, the tag and all its entity associations are removed atomically.
 - `--json` — Output in JSON format (global flag)
 
 **Examples:**
@@ -189,10 +189,10 @@ Removed tag deprecated
 |------|----------------|-----------|
 | 0 | — | Tag successfully removed |
 | 1 | `not_found` | Tag not found |
-| 1 | `in_use`, `unauthorized`, `validation` | Tag is in use (and `--force` was not provided), incorrect/missing password, or validation error |
-| 1 | `db_error` | Database error |
+| 2 | `db_error` | Database error |
+| 3 | `in_use`, `unauthorized`, `validation` | Tag is in use (and `--force` was not provided), incorrect/missing password, or validation error |
 
-> **Note:** Process exit code is **1** for all non-zero outcomes. The JSON envelope's `error` field identifies the subclass.
+> **Note:** The process exit code matches the `exit code N:` prefix produced by `tagsErrorCode`. The JSON envelope's `error` field identifies the subclass. See the [Process-level exit codes](#overview) note above for the full mapping.
 
 **In-use protection:**
 
@@ -262,14 +262,14 @@ Renamed voice to audio
 |------|----------------|-----------|
 | 0 | — | Tag successfully renamed |
 | 1 | `not_found` | Source tag (`<old>`) not found |
-| 1 | `conflict`, `validation`, `unauthorized` | Target name already exists (collision), names are identical after normalization, incorrect/missing password, or validation error |
-| 1 | `db_error` | Database error |
+| 2 | `db_error` | Database error |
+| 3 | `conflict`, `validation`, `unauthorized` | Target name already exists (collision), names are identical after normalization, incorrect/missing password, or validation error |
 
-> **Note:** Process exit code is **1** for all non-zero outcomes. The JSON envelope's `error` field identifies the subclass.
+> **Note:** The process exit code matches the `exit code N:` prefix produced by `tagsErrorCode`. The JSON envelope's `error` field identifies the subclass. See the [Process-level exit codes](#overview) note above for the full mapping.
 
 **Error handling:**
-- If `<new>` already exists in the vocabulary, the rename fails with a conflict error (process exit 1, internal class `conflict`). Use `shark tags rm` to remove the existing tag first if needed.
-- If `<old>` and `<new>` normalize to the same name, a validation error is returned (process exit 1, internal class `validation`).
+- If `<new>` already exists in the vocabulary, the rename fails with a conflict error (process exit **3**, internal class `conflict`). Use `shark tags rm` to remove the existing tag first if needed.
+- If `<old>` and `<new>` normalize to the same name, a validation error is returned (process exit **3**, internal class `validation`).
 - If `<old>` is not found, stderr includes the current vocabulary list and an `shark tags add` hint.
 
 **Error JSON shape (stderr):**
@@ -331,6 +331,7 @@ For the `--tag=<name>` flag path on `create`/`update`, only the outer envelope i
 | `conflict` | Tag name already exists (on add or rename) |
 | `in_use` | Tag is in use; `--force` required to remove |
 | `validation` | Name failed validation rules |
+| `unavailable` | Tag filter requested (`--tag <name>`) on a code path whose service was wired with a nil `tagSvc` (graceful-degradation fallback per REQ-F-011 / AC-T3 / AC-30). Returned by `*services.TagFilterUnavailableError`. |
 | `db_error` | Database error |
 
 ---
@@ -363,22 +364,23 @@ For setup instructions and cache window configuration, see [Maintainer Configura
 
 ## Exit Code Summary
 
-The `shark` CLI process emits exit code **0** on success and **1** for every typed error; callers that need to distinguish error classes should read the `error` field in the JSON envelope (or the internal `Error: exit code <N>:` prefix on the stderr human-readable line).
+The `shark` CLI process emits exit code **0** on success. For typed errors the process exit code matches the `exit code N:` prefix produced by `tagsErrorCode` and propagated by `extractExitCode` in `cmd/shark/main.go`. Callers that need to distinguish error subclasses should read the `error` field in the JSON envelope.
 
 | Process exit | Internal class | Meaning | Common cause |
 |------|----------------|---------|-------------|
 | 0 | — | Success | Operation completed |
 | 1 | `not_found` | Not found | Tag name does not exist in vocabulary |
-| 1 | `db_error` | Database error | SQLite or Turso error |
-| 1 | `unauthorized` / `validation` / `conflict` / `in_use` | Auth / validation / conflict / in-use | Wrong password, invalid name, name collision, tag in use without `--force` |
-| 1 | `unregistered_tag` | Attach path: tag not in vocabulary | `--tag=<name>` on create/update, or `shark <entity> tag add <key> <name>`, when `<name>` is not registered |
-| 1 | `tag_required` | Create-path: no `--tag` supplied when `tag_required_for` lists this entity type | See [Configuration → `tag_required_for`](configuration.md#tag_required_for) |
+| 2 | `db_error` | Database error | SQLite or Turso error |
+| 3 | `unauthorized` / `validation` / `conflict` / `in_use` | Auth / validation / conflict / in-use | Wrong password, invalid name, name collision, tag in use without `--force` |
+| 3 | `unregistered_tag` | Attach path: tag not in vocabulary | `--tag=<name>` on create/update, or `shark <entity> tag add <key> <name>`, when `<name>` is not registered |
+| 3 | `tag_required` | Create-path: no `--tag` supplied when `tag_required_for` lists this entity type | See [Configuration → `tag_required_for`](configuration.md#tag_required_for) |
+| 3 | `unavailable` | Tag filter unavailable | `--tag <name>` on `shark search` or `shark <entity> list` when the SearchService/ListService instance was constructed with a nil `tagSvc` |
 
 ---
 
 ## Applying Tags During Create/Update
 
-The six entity families — `task`, `feature`, `epic`, `bug`, `change`, `idea` — accept a repeatable `--tag <name>` flag on both their `create` and `update` subcommands. Tag names must already be registered in the vocabulary (`shark tags add <name>`); attempting to apply an unregistered name exits 1 (internal class `unregistered_tag`). See [Unregistered Tag Errors](#unregistered-tag-errors) below for the exact error shape — and note that as of the current build the SC-2 vocabulary snippet and "To add it:" remediation line render **only** on the `shark <entity> tag add|rm` subcommand path, not on the `--tag` path.
+The six entity families — `task`, `feature`, `epic`, `bug`, `change`, `idea` — accept a repeatable `--tag <name>` flag on both their `create` and `update` subcommands. Tag names must already be registered in the vocabulary (`shark tags add <name>`); attempting to apply an unregistered name exits **3** (internal class `unregistered_tag`). See [Unregistered Tag Errors](#unregistered-tag-errors) below for the exact error shape — and note that as of the current build the SC-2 vocabulary snippet and "To add it:" remediation line render **only** on the `shark <entity> tag add|rm` subcommand path, not on the `--tag` path.
 
 **Key semantics (`--tag` flag on create/update, and `tag add|rm` subcommands):**
 
@@ -528,7 +530,7 @@ See [Applying Tags During Create/Update → Key semantics](#applying-tags-during
 **Additional notes specific to the `tag add|rm` subcommand path:**
 
 - `tag add` / `tag rm` render the SC-2 vocabulary snippet + `To add it: shark tags add <name>` remediation line on stderr when the tag name is not in the vocabulary — this is the only CLI surface that renders the snippet today (see [Unregistered Tag Errors](#unregistered-tag-errors)).
-- Process exit code is always **0** on success or **1** on error; the internal classification is `unregistered_tag` for `tag add` on an unknown name and `not_found` for `tag rm` on an unknown name.
+- Process exit code is **0** on success. On error the code follows the standard mapping (`tag add` on an unknown tag name → **3** with internal class `unregistered_tag`; `tag rm` on an unknown tag name → **1** with internal class `not_found`; entity key not found on either subcommand → **1** with internal class `not_found`).
 
 ### `shark <entity> tag add`
 
@@ -566,9 +568,9 @@ Attached tag "voice" to bug B001
 |------|----------------|-----------|
 | 0 | — | Tag attached (or already attached — idempotent no-op) |
 | 1 | `not_found` | Entity key not found |
-| 1 | `unregistered_tag` | Tag name not in vocabulary |
-| 1 | `validation` | Name validation error |
-| 1 | `db_error` | Database error |
+| 2 | `db_error` | Database error |
+| 3 | `unregistered_tag` | Tag name not in vocabulary |
+| 3 | `validation` | Name validation error |
 
 ### `shark <entity> tag rm`
 
@@ -608,8 +610,8 @@ Detached tag "voice" from bug B001
 |------|----------------|-----------|
 | 0 | — | Tag detached (or was not attached — idempotent no-op) |
 | 1 | `not_found` | Entity key not found, or tag name not in vocabulary |
-| 1 | `validation` | Name validation error |
-| 1 | `db_error` | Database error |
+| 2 | `db_error` | Database error |
+| 3 | `validation` | Name validation error |
 
 ---
 
@@ -729,7 +731,7 @@ For `shark search`: one `EntityIDsByTags` call is issued **per entity type prese
 
 ## Required-Tag Enforcement
 
-Tags can be made mandatory at creation time for specific entity types via the `tag_required_for` field in `.sharkconfig.json`. When configured, the corresponding `create` commands exit with process code **1** (internal class `tag_required`) if no `--tag` is supplied.
+Tags can be made mandatory at creation time for specific entity types via the `tag_required_for` field in `.sharkconfig.json`. When configured, the corresponding `create` commands exit with process code **3** (internal class `tag_required`) if no `--tag` is supplied.
 
 See [Configuration → `tag_required_for`](configuration.md#tag_required_for) for the field schema, allowed values, and a worked example.
 
