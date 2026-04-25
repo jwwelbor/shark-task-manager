@@ -613,8 +613,288 @@ Detached tag "voice" from bug B001
 
 ---
 
+## Filtering by Tag (`--tag` on `list` and `search`)
+
+Every entity list command and the top-level `shark list` dispatcher accept a repeatable `--tag <name>` flag that restricts results to entities carrying **all** of the supplied tags (AND semantics). Tag names must be registered in the vocabulary; supplying an unregistered name exits **3** with the SC-2 vocabulary-snippet error (see [Unregistered Tag Errors](#unregistered-tag-errors)).
+
+### Flag binding (REQ-F-018)
+
+The verbatim help text for every `--tag` flag on list/search commands is:
+
+```
+Filter by tag (repeatable; AND — all tags must match).
+```
+
+### Commands that accept `--tag` on the list/search path
+
+| Command | Scope |
+|---------|-------|
+| `shark list [--tag=<name>]` | Top-level dispatcher; forwarded to the correct entity branch |
+| `shark list E## [--tag=<name>]` | Features in epic; forwarded to feature list |
+| `shark list E## F## [--tag=<name>]` | Tasks in feature; forwarded to task list |
+| `shark task list [--tag=<name>]` | Tasks |
+| `shark feature list [--tag=<name>]` | Features |
+| `shark epic list [--tag=<name>]` | Epics |
+| `shark bug list [--tag=<name>]` | Bugs |
+| `shark change list [--tag=<name>]` | Change-cards |
+| `shark idea list [--tag=<name>]` | Ideas |
+| `shark search <query> [--tag=<name>]` | Cross-entity full-text search (tasks, features, epics, bugs, change-cards) |
+
+### AND semantics
+
+When multiple `--tag` flags are supplied, the command returns only entities that have **all** of the supplied tags. Use **one `--tag=<name>` per tag**; do not comma-join names in a single flag value (e.g. `--tag=voice,auth` is parsed as two names by Cobra's `StringSliceVar`, but this behaviour is an implementation detail — prefer the explicit form):
+
+```bash
+# Correct: two distinct --tag flags
+shark task list --tag=voice --tag=auth
+
+# Also accepted by Cobra (comma-split), but explicit form is preferred:
+shark task list --tag=voice,auth
+```
+
+There is no `--tag-op=or` or negation in v1. OR semantics and `--without-tag` are out of scope.
+
+### Examples
+
+```bash
+# List all epics tagged 'voice' (AC-21)
+shark list --tag=voice
+
+# List features in epic E07 tagged 'voice' (AC-22)
+shark list E07 --tag=voice
+
+# List tasks in E07-F01 tagged 'voice' (AC-23)
+shark list E07 F01 --tag=voice
+
+# List tasks tagged with BOTH 'voice' AND 'auth' (AND semantics, AC-24)
+shark task list --tag=voice --tag=auth
+
+# List bugs tagged 'voice' (AC-25)
+shark bug list --tag=voice
+
+# List change-cards tagged 'voice' (AC-25b)
+shark change list --tag=voice
+
+# List ideas tagged 'voice' (AC-25c)
+shark idea list --tag=voice
+
+# List features in epic E07 tagged 'voice' (AC-25d)
+shark feature list E07 --tag=voice
+
+# List epics tagged 'voice' (AC-25e)
+shark epic list --tag=voice
+
+# Search for 'login' and restrict to results tagged 'voice' (AC-26)
+shark search "login" --tag=voice
+```
+
+### Unregistered tag on list/search path (AC-27)
+
+When a `--tag` value is not in the vocabulary, the service returns `*UnregisteredTagError` and the CLI renders the SC-2 vocabulary snippet (via the existing `handleEntityServiceError` helper from F04):
+
+```
+tag is not registered: does-not-exist
+Available tags:
+  audio, backend, voice
+To add it: shark tags add does-not-exist
+Error: exit code 3: tag is not registered: does-not-exist
+
+$ echo $?
+3
+```
+
+With `--json` the inner error envelope (stderr) carries:
+
+```json
+{"error":"unregistered_tag","message":"tag is not registered: does-not-exist"}
+```
+
+### Zero-match behaviour
+
+When the tag filter is satisfied but no entities of the requested type carry all of the tags, the command exits **0** and renders the same "no results" message as a filter-free list with no rows:
+
+```
+No tasks found
+```
+
+This is not an error; the exit code is 0.
+
+### Performance
+
+For list commands: one `EntityIDsByTags` SQL call is issued against the `entity_tags` table (using `EXISTS` sub-clauses, one per tag), followed by an in-memory intersection with the base-list results. No per-entity round-trips.
+
+For `shark search`: one `EntityIDsByTags` call is issued **per entity type present in the raw FTS result set** (at most 5: `epic`, `feature`, `task`, `bug`, `change`). Worst-case 5 additional SQL statements regardless of result-set size.
+
+---
+
 ## Required-Tag Enforcement
 
 Tags can be made mandatory at creation time for specific entity types via the `tag_required_for` field in `.sharkconfig.json`. When configured, the corresponding `create` commands exit with process code **1** (internal class `tag_required`) if no `--tag` is supplied.
 
 See [Configuration → `tag_required_for`](configuration.md#tag_required_for) for the field schema, allowed values, and a worked example.
+
+---
+
+## Web Viewer Tag Integration
+
+The shark web viewer (E27) surfaces the same vocabulary that the CLI manages. Tag display and filtering are **read-only** in the viewer — the UI never offers add/rename/remove controls (those remain CLI-only and maintainer-gated, see [Authorization and Password Cache](#authorization-and-password-cache)).
+
+### What the viewer renders
+
+- Each entity card (epic, feature, task, bug, change-card, idea) renders a horizontal row of `.tag-chip` elements one per attached tag (E28-F06 AC-11). Untagged entities render no chips and no `Tags:` label.
+- A tag-filter control populates itself on first page load via `GET /api/v1/viewer/tags` (E28-F06 AC-12). Selecting one or more chips in that control re-fetches the currently visible list with `?tag=<name>` query params appended.
+- Multiple selected tags use **AND semantics** (E28-F06 AC-07) — identical to the CLI's `--tag` flag on `list`/`search`.
+- The viewer never imports the maintainer gate (E28-F06 AC-15); no UI surface anywhere offers add/rename/remove (E28-F06 AC-13).
+
+### Viewer HTTP API summary
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /api/v1/viewer/tags` | Returns the current vocabulary as `{"tags":[{"name":"audio"},...]}` (alphabetical). Empty vocabulary returns `{"tags":[]}` (E28-F06 AC-01, AC-02). |
+| `POST /api/v1/viewer/tags` | Returns 404/405 — vocabulary mutation is not exposed via the viewer API (E28-F06 AC-03). |
+| `GET /api/v1/viewer/hierarchy[?tag=<name>...]` | Decorates every entity DTO with a `tags` array (always non-null; `[]` when none — E28-F06 AC-04, AC-05). With one or more `?tag=` params the entire tree is pruned to entities tagged with **all** supplied names (AND semantics, E28-F06 AC-06, AC-07). |
+| `GET /api/v1/viewer/features/<feature-key>/tasks[?tag=<name>...]` | Returns only the tasks of `<feature-key>` matching the tag filter; pagination `total` reflects the post-filter count (E28-F06 AC-09). |
+
+### Unregistered tag on the viewer API
+
+When any viewer endpoint receives a `?tag=<name>` value not in the vocabulary, it returns `400 Bad Request` with the JSON envelope (E28-F06 AC-08, AC-10):
+
+```json
+{
+  "error": "Bad Request",
+  "message": "unregistered tag: does-not-exist",
+  "unregistered_tags": ["does-not-exist"]
+}
+```
+
+For a feature-scoped task list with both an unregistered tag **and** a missing feature, the feature lookup runs first — so a missing feature returns `404`, not `400` (E28-F06 AC-10).
+
+### Graceful degradation
+
+If the viewer process boots without `TagReader` wired (e.g. tag service failed to initialize), `GET /api/v1/viewer/tags` returns `{"tags":[]}`, every entity DTO `tags` field is `[]`, and no `500` is emitted (E28-F06 AC-14).
+
+For the visual layout of the chip row and filter control, see the [Status Viewer UI Reference](../status-viewer-ui.md). For the architectural decisions that govern this integration (decoration in-memory, never-null arrays, hierarchy filter prunes the tree, viewer never imports `MaintainerGate`), see the [E28-F06 specification](../plan/E28-entity-tagging-with-managed-vocabulary/E28-F06-web-viewer-tag-integration/spec.md).
+
+---
+
+## Schema and Migration (v13 → v14)
+
+E28 introduces two new tables — `tags` (the vocabulary) and `entity_tags` (the polymorphic join) — plus six per-parent cascade-delete triggers and three supporting indexes. The schema version moves from **13 → 14**. There are no per-entity tag columns or per-entity tag join tables (epic SC-7).
+
+**Migration is automatic** for local SQLite databases and for Turso/cloud databases that have `skip_migrations: false`. For Turso/cloud users running with `skip_migrations: true` (the default for performance), a one-time toggle is required:
+
+1. Set `"skip_migrations": false` in `.sharkconfig.json`
+2. Run any `shark` command once (the migration applies and bumps the recorded schema version)
+3. Set `"skip_migrations": true` again
+
+See [Initialization → Migrating an existing project to v14 (E28 tagging)](initialization.md#migrating-an-existing-project-to-v14-e28-tagging) for the full procedure and [Configuration → `skip_migrations`](configuration.md#database-skip_migrations) for the field reference.
+
+The migration is purely additive — no existing rows or columns are altered, and the migration is idempotent on both backends.
+
+---
+
+## Coverage Matrix
+
+This matrix maps every E28 acceptance criterion (AC) and success criterion (SC) referenced by features F01–F06 to the section or page that documents it. Use this when reviewing whether the user-facing documentation closes the epic's SC-10 / UAT-9 documentation gate.
+
+### Epic Success Criteria (SC-1 .. SC-10)
+
+| ID | Criterion (summary) | Documented in |
+|---|---|---|
+| SC-1 | End-to-end: register a tag, apply across six entity types, retrieve via `shark list --tag=` | tags.md → [Filtering by Tag](#filtering-by-tag---tag-on-list-and-search) + [Applying Tags During Create/Update](#applying-tags-during-createupdate) |
+| SC-2 | Unregistered-tag error includes vocabulary list and `shark tags add` command string | tags.md → [Unregistered Tag Errors](#unregistered-tag-errors) |
+| SC-3 | Non-maintainer cannot run `shark tags add\|rm\|rename`; error explains how to obtain the password | tags.md → [Authorization and Password Cache](#authorization-and-password-cache); [configuration.md → maintainer](configuration.md#maintainer) |
+| SC-4 | Sudo-style password cache (60s window) | tags.md → [Authorization and Password Cache](#authorization-and-password-cache); [configuration.md → maintainer](configuration.md#maintainer) (`cache_window_seconds`) |
+| SC-5 | `shark tags rename` updates display name without per-entity migration | tags.md → [`shark tags rename`](#shark-tags-rename) |
+| SC-6 | `tag_required_for: ["task"]` blocks `shark task create` without `--tag`; other types still succeed | tags.md → [Required-Tag Enforcement](#required-tag-enforcement) → [configuration.md → tag_required_for](configuration.md#tag_required_for) |
+| SC-7 | Schema adds exactly two new tables (`tags`, `entity_tags`); no per-entity join tables | tags.md → [Schema and Migration (v13 → v14)](#schema-and-migration-v13--v14) |
+| SC-8 | Web viewer displays tags and supports filtering using the same vocabulary | tags.md → [Web Viewer Tag Integration](#web-viewer-tag-integration) → [status-viewer-ui.md](../status-viewer-ui.md) |
+| SC-9 | Maintainer gate is a reusable mechanism, not hard-coded inside tag commands | tags.md → [Authorization and Password Cache](#authorization-and-password-cache) (mechanism shared with future admin commands); spec: [E28-F02](../plan/E28-entity-tagging-with-managed-vocabulary/E28-F02-reusable-maintainer-authorization-gate/spec.md) |
+| SC-10 | Documentation for `.sharkconfig.json` fields, `shark tags`, and `--tag` on every existing reference page is updated in the same release | tags.md (this page) + [configuration.md](configuration.md) + [core-commands.md](core-commands.md) + [discovery-commands.md](discovery-commands.md) + per-entity command pages ([task](task-commands.md), [feature](feature-commands.md), [epic](epic-commands.md), [bug](bug-commands.md), [change](change-commands.md), [idea](idea-commands.md)) |
+
+### F01 — Schema and Migration
+
+F01 has no numbered ACs; the user-visible surface is the v13→v14 migration callout.
+
+| Surface | Documented in |
+|---|---|
+| Two new tables, indexes, six cascade triggers, schema version bump | tags.md → [Schema and Migration (v13 → v14)](#schema-and-migration-v13--v14) |
+| `idea` member added to `models.EntityType` | tags.md → [Applying Tags During Create/Update](#applying-tags-during-createupdate) (idea is a first-class taggable entity); [Filtering by Tag](#filtering-by-tag---tag-on-list-and-search) (`shark idea list --tag=`) |
+| One-time `skip_migrations: false` toggle for Turso/cloud users | tags.md → [Schema and Migration (v13 → v14)](#schema-and-migration-v13--v14) → [initialization.md → Migrating an existing project to v14](initialization.md#migrating-an-existing-project-to-v14-e28-tagging) |
+
+### F02 — Reusable Maintainer Authorization Gate
+
+F02's ACs are mostly internal (gate behavior, cache file mode, span attributes). The user-facing surface is the password setup command and the cache window.
+
+| ID | Criterion (summary) | Documented in |
+|---|---|---|
+| F02 AC-1..AC-3 | Authorize accepts correct password / rejects wrong / hints `shark admin maintainer set-password` when no password configured | tags.md → [Authorization and Password Cache](#authorization-and-password-cache); [configuration.md → maintainer](configuration.md#maintainer) |
+| F02 AC-4..AC-6 | Sudo-style cache (success populates, expires after window, invalidated when `password_hash` changes) | tags.md → [Authorization and Password Cache](#authorization-and-password-cache); [configuration.md → maintainer](configuration.md#maintainer) (`cache_window_seconds`) |
+| F02 AC-7..AC-10, AC-13..AC-14 | Cache file modes, constant-time compare, malformed-cache safety, OTel attributes, accessor wiring, package import boundaries | Internal — out of scope for user-facing CLI reference |
+| F02 AC-11..AC-12 | `shark admin maintainer set-password --password` writes hash and never echoes secrets | [configuration.md → maintainer](configuration.md#maintainer) |
+
+### F03 — Tag Vocabulary Service and CLI
+
+| ID | Criterion (summary) | Documented in |
+|---|---|---|
+| F03 AC-1 | `ListTags` returns sorted; no auth required | tags.md → [`shark tags list`](#shark-tags-list) |
+| F03 AC-2..AC-4 | `AddTag` normalizes/authorizes/creates/records; invalid name → `*ValidationError`; missing cache + no `--pass` → `*UnauthorizedError` | tags.md → [`shark tags add`](#shark-tags-add) + [Authorization and Password Cache](#authorization-and-password-cache) |
+| F03 AC-5..AC-7 | `RemoveTag` blocks when in use unless `--force`; `--force` deletes with associations; unused name deletes without `--force` | tags.md → [`shark tags rm`](#shark-tags-rm) (In-use protection) |
+| F03 AC-8..AC-10 | `RenameTag`: collision → `*ConflictError`; same-name → `*ValidationError`; success updates only `tags.name` (closes SC-5) | tags.md → [`shark tags rename`](#shark-tags-rename) |
+| F03 AC-11..AC-12, AC-19..AC-20, AC-22 | `RecordSuccess` non-fatal; accessor wiring; package import boundaries; OTel attributes | Internal — not user-facing |
+| F03 AC-13 | `shark tags list --json` on empty vocab prints `[]` exit 0 | tags.md → [`shark tags list`](#shark-tags-list) (empty vocabulary) |
+| F03 AC-14..AC-15 | `--pass wrong` → `incorrect maintainer password`; missing cache → `shark admin maintainer set-password` hint | tags.md → [`shark tags add`](#shark-tags-add) Error handling |
+| F03 AC-16 | `shark tags rm voice` with N uses surfaces count and `--force` text | tags.md → [`shark tags rm`](#shark-tags-rm) (In-use protection) |
+| F03 AC-17 | `shark tags rm nonexistent` exits with vocabulary listing and `shark tags add` example | tags.md → [`shark tags rm`](#shark-tags-rm) Not-found error |
+| F03 AC-18 | `shark tags rename voice audio` plain + JSON shapes | tags.md → [`shark tags rename`](#shark-tags-rename) |
+| F03 AC-21 | `tags.md` documents four subcommands, `--pass`, `--force`, JSON shapes; linked from README | This document (tags.md) + [README.md](README.md#vocabulary) |
+
+### F04 — Entity Tag Attachment and Enforcement
+
+| ID | Criterion (summary) | Documented in |
+|---|---|---|
+| F04 AC-1..AC-8 | Service-layer attach/detach behaviour: name resolution, normalization, dedup, idempotency, no-op on missing | tags.md → [Applying Tags During Create/Update](#applying-tags-during-createupdate) + [Retroactive Tagging](#retroactive-tagging-shark-entity-tag-addrm) |
+| F04 AC-9..AC-12 | `EnforceRequired` semantics across entity types and config shapes | tags.md → [Required-Tag Enforcement](#required-tag-enforcement) → [configuration.md → tag_required_for](configuration.md#tag_required_for) |
+| F04 AC-13..AC-14 | Constructor invariants; `AttachMany` is not maintainer-gated | tags.md → [Applying Tags During Create/Update](#applying-tags-during-createupdate) ("Tag attachments are NOT maintainer-gated") |
+| F04 AC-15..AC-18 | Per-entity-service create/update wiring (six entities) | tags.md → [Applying Tags During Create/Update](#applying-tags-during-createupdate) (covers all six entity families on create + update) |
+| F04 AC-19 | `shark task create … --tag=voice --tag=auth` attaches both | tags.md → [Applying Tags During Create/Update → Examples](#applying-tags-during-createupdate) |
+| F04 AC-20 | Idempotency on update: duplicate `--tag` values produce one row | tags.md → [Applying Tags During Create/Update → Idempotency](#applying-tags-during-createupdate) |
+| F04 AC-21 | `--tag=does-not-exist` exits with vocabulary list + `To add it: shark tags add does-not-exist` | tags.md → [Unregistered Tag Errors](#unregistered-tag-errors) |
+| F04 AC-22 | `tag_required_for: ["task"]` blocks task create without `--tag`; epic create unaffected | tags.md → [Tag-Required Errors](#tag-required-errors) + [Required-Tag Enforcement](#required-tag-enforcement) → [configuration.md → tag_required_for](configuration.md#tag_required_for) |
+| F04 AC-23 | `shark bug tag add B001 voice` attaches once; re-running is idempotent | tags.md → [Retroactive Tagging → `shark <entity> tag add`](#shark-entity-tag-add) |
+| F04 AC-24 | `shark bug tag rm B001 voice` detaches; re-running is idempotent | tags.md → [Retroactive Tagging → `shark <entity> tag rm`](#shark-entity-tag-rm) |
+| F04 AC-25 | `shark bug tag rm B001 does-not-exist` (vocab does not contain) exits 1 with vocabulary snippet + remediation | tags.md → [Retroactive Tagging → `shark <entity> tag rm`](#shark-entity-tag-rm) |
+| F04 AC-26 | `shark idea tag add` works identically to `shark task tag add` | tags.md → [Retroactive Tagging → `shark <entity> tag add`](#shark-entity-tag-add) (examples include `shark idea tag add`) |
+| F04 AC-27 | `tag_required_for` JSON round-trip preserves slice; missing field unmarshals to nil | [configuration.md → tag_required_for](configuration.md#tag_required_for) |
+| F04 AC-28 | Error message strings (`tag is not registered: <name>`, `at least one tag is required for <entityType>`) | tags.md → [Unregistered Tag Errors](#unregistered-tag-errors) + [Tag-Required Errors](#tag-required-errors) |
+
+### F05 — Tag-Based Querying in List and Search
+
+| ID | Criterion (summary) | Documented in |
+|---|---|---|
+| F05 AC-1..AC-8 | `EntityIDsByTags` + `FilterEntityIDs` semantics (sorted, AND intersection, nil/empty handling, normalization, dedup, repository invariants) | tags.md → [Filtering by Tag](#filtering-by-tag---tag-on-list-and-search) (AND semantics + Performance) |
+| F05 AC-9..AC-10 | `ListTagsForEntity` / `AttachedTagNamesByIDs` (used by viewer for batch decoration) | tags.md → [Web Viewer Tag Integration](#web-viewer-tag-integration) |
+| F05 AC-11..AC-16 | `<Entity>Service.ListXxx(...Tags: …)` filters across all seven list services | tags.md → [Filtering by Tag → Commands that accept --tag](#filtering-by-tag---tag-on-list-and-search) |
+| F05 AC-17..AC-19 | `SearchService.SearchAll(... TagFilters …)` semantics including unregistered-tag error | tags.md → [Filtering by Tag](#filtering-by-tag---tag-on-list-and-search); [discovery-commands.md](discovery-commands.md) |
+| F05 AC-20 | `GetXxxWithTags`: returns `[]` for none, nil for missing tagSvc | tags.md → [Filtering by Tag](#filtering-by-tag---tag-on-list-and-search) (rendering); [task-commands.md](task-commands.md) (`shark task get` `Tags:` row) |
+| F05 AC-21..AC-23 | `shark list [--tag=]`, `shark list E## [--tag=]`, `shark list E## F## [--tag=]` | tags.md → [Filtering by Tag → Examples](#filtering-by-tag---tag-on-list-and-search); also [core-commands.md](core-commands.md) |
+| F05 AC-24 | `shark task list --tag=voice --tag=auth` AND semantics | tags.md → [Filtering by Tag → AND semantics](#filtering-by-tag---tag-on-list-and-search) |
+| F05 AC-25 | Per-entity `list --tag=` for bug, change, idea, feature (in epic), epic | tags.md → [Filtering by Tag → Examples](#filtering-by-tag---tag-on-list-and-search) |
+| F05 AC-26 | `shark search "..." --tag=voice` | tags.md → [Filtering by Tag → Examples](#filtering-by-tag---tag-on-list-and-search); [discovery-commands.md](discovery-commands.md) |
+| F05 AC-27 | `shark list --tag=does-not-exist` exits 3 with vocabulary snippet + `To add it:` line | tags.md → [Filtering by Tag → Unregistered tag on list/search path](#unregistered-tag-on-listsearch-path-ac-27) |
+| F05 AC-28 | `shark task get` renders `Tags: a, b` (or `Tags: (none)`); `--json` carries `"tags": [...]` | tags.md → [Filtering by Tag](#filtering-by-tag---tag-on-list-and-search) (rendering note); [task-commands.md](task-commands.md) (`shark task get` output) |
+| F05 AC-29 | No regression: `shark list` with no `--tag` issues zero extra SQL | tags.md → [Filtering by Tag → Performance](#filtering-by-tag---tag-on-list-and-search) |
+| F05 AC-30 | Nil `tagSvc` permits tag-free lists; `Tags: non-empty` returns `*TagFilterUnavailableError` | Internal — graceful-degradation fallback |
+| F05 AC-31 | UAT-1 end-to-end across six entity types | Integration UAT — covered by SC-1 row above |
+
+### F06 — Web Viewer Tag Integration
+
+| ID | Criterion (summary) | Documented in |
+|---|---|---|
+| F06 AC-01..AC-03 | `GET/POST /api/v1/viewer/tags` semantics (sorted vocabulary, no mutation surface) | tags.md → [Web Viewer Tag Integration → HTTP API summary](#web-viewer-tag-integration) |
+| F06 AC-04..AC-07 | Hierarchy DTOs carry non-null `tags`; `?tag=` filter prunes with AND semantics | tags.md → [Web Viewer Tag Integration → HTTP API summary](#web-viewer-tag-integration) |
+| F06 AC-08..AC-10 | Unregistered tag returns 400 envelope; feature-not-found takes precedence over bad tag | tags.md → [Web Viewer Tag Integration → Unregistered tag on the viewer API](#unregistered-tag-on-the-viewer-api) |
+| F06 AC-11..AC-13 | UI renders `.tag-chip` row; tag filter populated from `/api/v1/viewer/tags`; no add/rename/remove controls | tags.md → [Web Viewer Tag Integration → What the viewer renders](#web-viewer-tag-integration); [status-viewer-ui.md](../status-viewer-ui.md) |
+| F06 AC-14 | TagReader-not-wired graceful degradation: `{"tags":[]}`, all DTO `tags` `[]`, no 500 | tags.md → [Web Viewer Tag Integration → Graceful degradation](#graceful-degradation) |
+| F06 AC-15..AC-16 | Viewer never imports `MaintainerGate`; hierarchy issues at most 6 extra SQL statements | tags.md → [Web Viewer Tag Integration](#web-viewer-tag-integration); architectural invariants enforced by code review |
+| F06 AC-17 | Quality gate (`make fmt && make lint && make test`) passes with F06 merged | Internal — quality gate, not user-facing reference |
