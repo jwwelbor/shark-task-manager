@@ -3280,10 +3280,11 @@ func migrateTechDebtTable(db *sql.DB) error {
 // CREATE INDEX IF NOT EXISTS, and CREATE TRIGGER IF NOT EXISTS, so the function
 // is idempotent and safe to run on databases that already contain these objects.
 //
-// DEVELOPER CALLOUT: This function adds a migration (schema version 13 → 14).
-// Before running the next shark command on an existing database, set
-// skip_migrations: false in .sharkconfig.json. After one successful run,
-// reset it to skip_migrations: true.
+// DEVELOPER NOTE: This function adds schema version 14. Bump CurrentSchemaVersion
+// to 14 (if not already done) so that ApplySchemaIfNeeded detects the version gap
+// and reruns ApplySchemaAndMigrations on existing databases. The skip_migrations
+// toggle in .sharkconfig.json is not required — bumping CurrentSchemaVersion is
+// sufficient. See .claude/rules/database-critical.md for the full migration guide.
 //
 // Part of Epic E28 — Entity Tagging with Managed Vocabulary (E28-F01).
 func migrateAddTagsAndEntityTags(db *sql.DB) error {

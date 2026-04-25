@@ -2,27 +2,35 @@
 
 ## ⚠️ MIGRATIONS AND skip_migrations FLAG
 
-The project uses Turso cloud database with `"skip_migrations": true` in `.sharkconfig.json` to avoid ~2s DDL overhead on every command. **When you add a new migration, you MUST call it out explicitly** so the developer can temporarily enable migrations.
+The project uses Turso cloud database with `"skip_migrations": true` in `.sharkconfig.json` to avoid ~2s DDL overhead on every command. **Bumping `CurrentSchemaVersion` is the only required step to make a new migration run on existing databases.**
+
+### How it works
+
+When `skip_migrations: true`, the entry point calls `ApplySchemaIfNeeded` (in `internal/db/db.go`). That function reads the stored `schema_version` and compares it to `CurrentSchemaVersion`:
+
+- If the stored version is **behind** `CurrentSchemaVersion`, it calls `ApplySchemaAndMigrations` — running all migrations including your new one.
+- If the stored version is **equal or ahead**, it returns early (no DDL executed).
+
+Bumping `CurrentSchemaVersion` (e.g., 13 → 14) is therefore **both necessary and sufficient** — the toggle is not a required per-migration step.
 
 ### When You Add a Migration (new table, column, view, index, constraint change):
 
-1. **Tell the developer:** _"This change adds a migration. Set `skip_migrations: false` in `.sharkconfig.json` before running the next shark command, then set it back to `true`."_
-2. **Also bump `CurrentSchemaVersion`** in `internal/db/db.go` — this ensures `ApplySchemaIfNeeded` re-runs on databases that already recorded the old version.
-3. **After the migration runs once**, the developer should set `skip_migrations` back to `true`.
+1. Add the migration function in `internal/db/db.go` and call it from `runMigrations()`.
+2. **Bump `CurrentSchemaVersion`** in `internal/db/db.go` (e.g., 13 → 14). This is the only step required — `ApplySchemaIfNeeded` will automatically detect the version gap and run your migration on the next shark command, regardless of `skip_migrations`.
+3. _(Optional belt-and-braces)_ If you suspect a previous migration shipped without bumping the version and you need to force a full reapply, set `skip_migrations: false` in `.sharkconfig.json` for one run, then reset it to `true`. This forces `ApplySchemaAndMigrations` unconditionally, bypassing the version check entirely.
 
-### Why This Matters
+### Why the toggle exists (but is not required per-migration)
 
-- `skip_migrations: true` causes `ApplySchemaIfNeeded` to check `CurrentSchemaVersion` and skip all DDL if the DB is up to date
-- If you add a migration without bumping the version, the migration **never runs** on existing databases
-- The `$SHARK_DB_BACKEND=turso` environment variable activates this path; local SQLite always runs migrations
+- `skip_migrations: false` bypasses `ApplySchemaIfNeeded` and calls `ApplySchemaAndMigrations` directly — useful as a manual fallback when the version bump was accidentally omitted in a prior release.
+- All migrations in this codebase use `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, and `CREATE TRIGGER IF NOT EXISTS`, making them safe to rerun.
+- The `$SHARK_DB_BACKEND=turso` environment variable activates this path; local SQLite always runs `ApplySchemaAndMigrations` unconditionally.
 
 ### Checklist When Adding Any Migration
 
 - [ ] Added migration function in `internal/db/db.go`
 - [ ] Called migration from `runMigrations()`
-- [ ] Bumped `CurrentSchemaVersion` constant (e.g., 2 → 3)
-- [ ] Told the developer to set `skip_migrations: false` in `.sharkconfig.json` and run one shark command
-- [ ] Developer resets `skip_migrations: true` after migration applies
+- [ ] Bumped `CurrentSchemaVersion` constant (e.g., 13 → 14) — **this is the key step**
+- [ ] (Optional) Set `skip_migrations: false` for one run if you need to force a reapply, then reset to `true`
 
 ---
 
