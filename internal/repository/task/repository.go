@@ -115,9 +115,9 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) (retErr 
 	query := `
 		INSERT INTO tasks (
 			feature_id, key, title, slug, description, status, agent_type, priority,
-			depends_on, assigned_agent, file_path, blocked_reason, execution_order
+			depends_on, assigned_agent, file_path, blocked_reason, execution_order, size
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
@@ -134,6 +134,7 @@ func (r *TaskRepository) Create(ctx context.Context, task *models.Task) (retErr 
 		task.FilePath,
 		task.BlockedReason,
 		task.ExecutionOrder,
+		task.Size,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create task: %w", err)
@@ -164,7 +165,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (_ *models.Task,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE id = ?
 	`
@@ -197,6 +198,7 @@ func (r *TaskRepository) GetByID(ctx context.Context, id int64) (_ *models.Task,
 		&task.VerificationStatus,
 		&task.TimeSpentMinutes,
 		&task.ContextData,
+		&task.Size,
 	)
 
 	if err == sql.ErrNoRows {
@@ -230,7 +232,7 @@ func (r *TaskRepository) GetByIDs(ctx context.Context, ids []int64) ([]*models.T
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE id IN (` + strings.Join(placeholders, ", ") + `)
 	`
@@ -272,7 +274,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (_ *models.Ta
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE key = ?
 	`
@@ -305,6 +307,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (_ *models.Ta
 		&task.VerificationStatus,
 		&task.TimeSpentMinutes,
 		&task.ContextData,
+		&task.Size,
 	)
 
 	if err == nil {
@@ -332,7 +335,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (_ *models.Ta
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE key = ? AND slug = ?
 	`
@@ -364,6 +367,7 @@ func (r *TaskRepository) GetByKey(ctx context.Context, key string) (_ *models.Ta
 		&task.VerificationStatus,
 		&task.TimeSpentMinutes,
 		&task.ContextData,
+		&task.Size,
 	)
 
 	if err == sql.ErrNoRows {
@@ -419,7 +423,7 @@ func (r *TaskRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE file_path = ?
 	`
@@ -452,6 +456,7 @@ func (r *TaskRepository) GetByFilePath(ctx context.Context, filePath string) (*m
 		&task.VerificationStatus,
 		&task.TimeSpentMinutes,
 		&task.ContextData,
+		&task.Size,
 	)
 
 	if err == sql.ErrNoRows {
@@ -506,7 +511,7 @@ func (r *TaskRepository) ListByFeature(ctx context.Context, featureID int64) (_ 
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE feature_id = ?
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
@@ -524,7 +529,7 @@ func (r *TaskRepository) ListByFeatureKey(ctx context.Context, featureKey string
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
 		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
-		       t.verification_status, t.time_spent_minutes, t.context_data
+		       t.verification_status, t.time_spent_minutes, t.context_data, t.size
 		FROM tasks t
 		INNER JOIN features f ON t.feature_id = f.id
 		WHERE f.key = ?
@@ -550,7 +555,7 @@ func (r *TaskRepository) ListByEpic(ctx context.Context, epicKey string) (_ []*m
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
 		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
-		       t.verification_status, t.time_spent_minutes, t.context_data
+		       t.verification_status, t.time_spent_minutes, t.context_data, t.size
 		FROM tasks t
 		INNER JOIN features f ON t.feature_id = f.id
 		INNER JOIN epics e ON f.epic_id = e.id
@@ -569,7 +574,7 @@ func (r *TaskRepository) ListBlockedTasksByEpic(ctx context.Context, epicKey str
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
 		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
-		       t.verification_status, t.time_spent_minutes, t.context_data
+		       t.verification_status, t.time_spent_minutes, t.context_data, t.size
 		FROM tasks t
 		INNER JOIN features f ON t.feature_id = f.id
 		INNER JOIN epics e ON f.epic_id = e.id
@@ -587,7 +592,7 @@ func (r *TaskRepository) FilterByStatus(ctx context.Context, status models.TaskS
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE status = ?
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
@@ -603,7 +608,7 @@ func (r *TaskRepository) FilterByAgentType(ctx context.Context, agentType string
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE agent_type = ?
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
@@ -627,7 +632,7 @@ func (r *TaskRepository) FilterCombined(ctx context.Context, status *models.Task
 		       t.depends_on, t.assigned_agent, t.file_path, t.blocked_reason, t.execution_order,
 		       t.created_at, t.started_at, t.completed_at, t.blocked_at, t.updated_at,
 		       t.completed_by, t.completion_notes, t.files_changed, t.tests_passed,
-		       t.verification_status, t.time_spent_minutes, t.context_data
+		       t.verification_status, t.time_spent_minutes, t.context_data, t.size
 		FROM tasks t
 	`
 
@@ -686,7 +691,7 @@ func (r *TaskRepository) ListByKeyPrefix(ctx context.Context, prefix string) ([]
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE key LIKE ?
 		ORDER BY key ASC
@@ -710,7 +715,7 @@ func (r *TaskRepository) List(ctx context.Context) (_ []*models.Task, retErr err
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
 	`
@@ -734,7 +739,7 @@ func (r *TaskRepository) ListWithViewerRelationships(ctx context.Context) ([]*mo
 		       t.blocked_reason, t.execution_order, t.created_at, t.started_at,
 		       t.completed_at, t.blocked_at, t.updated_at, t.completed_by,
 		       t.completion_notes, t.files_changed, t.tests_passed,
-		       t.verification_status, t.time_spent_minutes, t.context_data,
+		       t.verification_status, t.time_spent_minutes, t.context_data, t.size,
 		       COALESCE(vtr.relationships_json, '[]') AS relationships_json
 		FROM tasks t
 		LEFT JOIN viewer_task_relationships vtr ON vtr.task_id = t.id
@@ -761,7 +766,7 @@ func (r *TaskRepository) ListWithViewerRelationships(ctx context.Context) ([]*mo
 			&row.Task.CompletedBy, &row.Task.CompletionNotes,
 			&row.Task.FilesChanged, &row.Task.TestsPassed,
 			&row.Task.VerificationStatus, &row.Task.TimeSpentMinutes,
-			&row.Task.ContextData,
+			&row.Task.ContextData, &row.Task.Size,
 			&relsJSON,
 		)
 		if err != nil {
@@ -786,7 +791,7 @@ func (r *TaskRepository) ListByFeatureWithViewerRelationships(ctx context.Contex
 		       t.blocked_reason, t.execution_order, t.created_at, t.started_at,
 		       t.completed_at, t.blocked_at, t.updated_at, t.completed_by,
 		       t.completion_notes, t.files_changed, t.tests_passed,
-		       t.verification_status, t.time_spent_minutes, t.context_data,
+		       t.verification_status, t.time_spent_minutes, t.context_data, t.size,
 		       COALESCE(vtr.relationships_json, '[]') AS relationships_json
 		FROM tasks t
 		LEFT JOIN viewer_task_relationships vtr ON vtr.task_id = t.id
@@ -814,7 +819,7 @@ func (r *TaskRepository) ListByFeatureWithViewerRelationships(ctx context.Contex
 			&row.Task.CompletedBy, &row.Task.CompletionNotes,
 			&row.Task.FilesChanged, &row.Task.TestsPassed,
 			&row.Task.VerificationStatus, &row.Task.TimeSpentMinutes,
-			&row.Task.ContextData,
+			&row.Task.ContextData, &row.Task.Size,
 			&relsJSON,
 		)
 		if err != nil {
@@ -930,7 +935,7 @@ func (r *TaskRepository) updateWithTx(ctx context.Context, tx *sql.Tx, task *mod
 		query := `
 			UPDATE tasks
 			SET title = ?, description = ?, status = ?, agent_type = ?, priority = ?,
-			    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, context_data = ?
+			    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, context_data = ?, size = ?
 			WHERE id = ?
 		`
 
@@ -945,6 +950,7 @@ func (r *TaskRepository) updateWithTx(ctx context.Context, tx *sql.Tx, task *mod
 			task.FilePath,
 			task.BlockedReason,
 			task.ContextData,
+			task.Size,
 			task.ID,
 		)
 		if err != nil {
@@ -963,7 +969,7 @@ func (r *TaskRepository) updateWithTx(ctx context.Context, tx *sql.Tx, task *mod
 		query := `
 			UPDATE tasks
 			SET title = ?, description = ?, status = ?, agent_type = ?, priority = ?,
-			    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, execution_order = ?, context_data = ?
+			    depends_on = ?, assigned_agent = ?, file_path = ?, blocked_reason = ?, execution_order = ?, context_data = ?, size = ?
 			WHERE id = ?
 		`
 
@@ -979,6 +985,7 @@ func (r *TaskRepository) updateWithTx(ctx context.Context, tx *sql.Tx, task *mod
 			task.BlockedReason,
 			task.ExecutionOrder,
 			task.ContextData,
+			task.Size,
 			task.ID,
 		)
 		if err != nil {
@@ -1002,7 +1009,7 @@ func (r *TaskRepository) listByFeatureInTx(ctx context.Context, tx *sql.Tx, feat
 	query := `
 		SELECT id, feature_id, key, title, slug, description, status, agent_type, priority,
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
-		       created_at, updated_at, context_data
+		       created_at, updated_at, context_data, size
 		FROM tasks
 		WHERE feature_id = ?
 		ORDER BY execution_order ASC
@@ -1035,6 +1042,7 @@ func (r *TaskRepository) listByFeatureInTx(ctx context.Context, tx *sql.Tx, feat
 			&task.CreatedAt,
 			&task.UpdatedAt,
 			&task.ContextData,
+			&task.Size,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
@@ -1572,7 +1580,7 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE key IN (?` + strings.Repeat(", ?", len(keys)-1) + `)`
 
@@ -1619,6 +1627,7 @@ func (r *TaskRepository) GetByKeys(ctx context.Context, keys []string) (map[stri
 			&task.VerificationStatus,
 			&task.TimeSpentMinutes,
 			&task.ContextData,
+			&task.Size,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
@@ -1757,6 +1766,7 @@ func (r *TaskRepository) queryTasks(ctx context.Context, query string, args ...i
 			&task.VerificationStatus,
 			&task.TimeSpentMinutes,
 			&task.ContextData,
+			&task.Size,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
@@ -1872,7 +1882,7 @@ func (r *TaskRepository) FindByFileChanged(ctx context.Context, filePath string)
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE files_changed IS NOT NULL
 		  AND files_changed LIKE ?
@@ -1892,7 +1902,7 @@ func (r *TaskRepository) GetUnverifiedTasks(ctx context.Context) ([]*models.Task
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE verification_status != 'verified'
 		  AND status IN ('ready_for_review', 'completed')
@@ -1930,7 +1940,7 @@ func (r *TaskRepository) FilterByMetadataAgentType(ctx context.Context, agentTyp
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE status IN (%s)
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC
@@ -1967,7 +1977,7 @@ func (r *TaskRepository) FilterByMetadataPhase(ctx context.Context, phase string
 		       depends_on, assigned_agent, file_path, blocked_reason, execution_order,
 		       created_at, started_at, completed_at, blocked_at, updated_at,
 		       completed_by, completion_notes, files_changed, tests_passed,
-		       verification_status, time_spent_minutes, context_data
+		       verification_status, time_spent_minutes, context_data, size
 		FROM tasks
 		WHERE status IN (%s)
 		ORDER BY execution_order NULLS LAST, priority ASC, created_at ASC, key ASC

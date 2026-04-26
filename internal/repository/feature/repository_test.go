@@ -629,3 +629,76 @@ func TestFeatureRepository_UpdateStatusTx(t *testing.T) {
 		assert.Error(t, err, "expected error for non-existent feature ID")
 	})
 }
+
+// ptrIntFeature returns a pointer to n; helper for size round-trip tests.
+func ptrIntFeature(n int) *int { return &n }
+
+// TestFeatureRepository_SizeRoundTrip verifies that Size persists through Create,
+// GetByKey, and Update without information loss (TC-F010-B).
+func TestFeatureRepository_SizeRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	database := test.GetTestDB()
+	db := dbconn.NewDB(database)
+	repo := NewFeatureRepository(db)
+	epicRepo := epic.NewEpicRepository(db)
+
+	epicKey := "E97"
+	featureKey := "E97-F01"
+
+	// Clean up before test
+	_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE key = ?", featureKey)
+	_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE key = ?", epicKey)
+
+	// Create parent epic
+	testEpic := &models.Epic{
+		BaseEntity: models.BaseEntity{Key: epicKey, Title: "Size RT Epic"},
+		Status:     models.EpicStatusDraft,
+		Priority:   models.PriorityMedium,
+	}
+	require.NoError(t, epicRepo.Create(ctx, testEpic), "Failed to create parent epic")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM epics WHERE id = ?", testEpic.ID)
+	}()
+
+	// Step 1: Create with Size = ptr(5)
+	feat := &models.Feature{
+		BaseEntity: models.BaseEntity{
+			Key:   featureKey,
+			Title: "Size Round Trip Feature",
+			Size:  ptrIntFeature(5),
+		},
+		EpicID: testEpic.ID,
+		Status: models.FeatureStatusDraft,
+	}
+	require.NoError(t, repo.Create(ctx, feat), "Create() failed")
+	defer func() {
+		_, _ = database.ExecContext(ctx, "DELETE FROM features WHERE id = ?", feat.ID)
+	}()
+
+	// Read back and assert Size == 5
+	got, err := repo.GetByKey(ctx, featureKey)
+	require.NoError(t, err, "GetByKey() failed")
+	if got.Size == nil {
+		t.Fatal("expected Size to be non-nil after Create")
+	}
+	assert.Equal(t, 5, *got.Size, "expected Size=5 after Create")
+
+	// Step 2: Update Size = ptr(1)
+	got.Size = ptrIntFeature(1)
+	require.NoError(t, repo.Update(ctx, got), "Update() failed")
+
+	got2, err := repo.GetByKey(ctx, featureKey)
+	require.NoError(t, err, "GetByKey() after update failed")
+	if got2.Size == nil {
+		t.Fatal("expected Size to be non-nil after Update to 1")
+	}
+	assert.Equal(t, 1, *got2.Size, "expected Size=1 after update")
+
+	// Step 3: Update Size = nil
+	got2.Size = nil
+	require.NoError(t, repo.Update(ctx, got2), "Update() to nil failed")
+
+	got3, err := repo.GetByKey(ctx, featureKey)
+	require.NoError(t, err, "GetByKey() after nil update failed")
+	assert.Nil(t, got3.Size, "expected Size=nil after clearing")
+}
