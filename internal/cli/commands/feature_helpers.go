@@ -830,6 +830,16 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 	// invocations see a fresh value each time.
 	tags, _ := cmd.Flags().GetStringSlice("tag")
 
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	var sizePtr *int
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		n, sizeErr := models.ParseSize(sizeStr)
+		if sizeErr != nil {
+			return services.CreateFeatureInput{}, "", "", fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		sizePtr = &n
+	}
+
 	input := services.CreateFeatureInput{
 		EpicKey:        featureCreateEpic,
 		Title:          featureTitle,
@@ -839,6 +849,7 @@ func parseCreateFeatureInput(cmd *cobra.Command, args []string) (services.Create
 		FilePath:       filePath,
 		Force:          featureCreateForce,
 		Tags:           tags,
+		Size:           sizePtr,
 	}
 	return input, featureTitle, projectRoot, nil
 }
@@ -1031,6 +1042,18 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 	if cmd.Flags().Changed("tag") {
 		tags, _ := cmd.Flags().GetStringSlice("tag")
 		updates.Tags = tags
+		changed = true
+	}
+
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return sizeErr
+		}
+		updates.Size = sizePtr
+		updates.ClearSize = clearSize
 		changed = true
 	}
 

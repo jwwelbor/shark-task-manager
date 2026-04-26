@@ -853,7 +853,10 @@ func TestBuildChangeCardUpdates_NoFlags(t *testing.T) {
 	changeAssignedTo = ""
 
 	cmd := newTestChangeUpdateCmd()
-	updates := buildChangeCardUpdates(cmd)
+	updates, err := buildChangeCardUpdates(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error from buildChangeCardUpdates: %v", err)
+	}
 
 	if updates.Title != nil {
 		t.Errorf("expected nil Title, got %v", updates.Title)
@@ -886,7 +889,10 @@ func TestBuildChangeCardUpdates_TitleChanged(t *testing.T) {
 	// Simulate the user passing --title on the CLI
 	_ = cmd.Flags().Set("title", "New title")
 
-	updates := buildChangeCardUpdates(cmd)
+	updates, err := buildChangeCardUpdates(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error from buildChangeCardUpdates: %v", err)
+	}
 
 	if updates.Title == nil {
 		t.Fatal("expected non-nil Title")
@@ -920,7 +926,10 @@ func TestBuildChangeCardUpdates_MultipleFlags(t *testing.T) {
 	_ = cmd.Flags().Set("priority", "7")
 	_ = cmd.Flags().Set("requested-by", "bob")
 
-	updates := buildChangeCardUpdates(cmd)
+	updates, err := buildChangeCardUpdates(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error from buildChangeCardUpdates: %v", err)
+	}
 
 	if updates.Title == nil || *updates.Title != "Updated title" {
 		t.Errorf("Title: expected %q, got %v", "Updated title", updates.Title)
@@ -951,7 +960,10 @@ func TestBuildChangeCardUpdates_AssignedTo(t *testing.T) {
 	cmd := newTestChangeUpdateCmd()
 	_ = cmd.Flags().Set("assigned-to", "carol")
 
-	updates := buildChangeCardUpdates(cmd)
+	updates, err := buildChangeCardUpdates(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error from buildChangeCardUpdates: %v", err)
+	}
 
 	if updates.AssignedTo == nil || *updates.AssignedTo != "carol" {
 		t.Errorf("AssignedTo: expected %q, got %v", "carol", updates.AssignedTo)

@@ -213,6 +213,8 @@ func init() {
 	// the regex) surface as a clear exit-3 validation error.
 	bugCreateCmd.Flags().StringSliceVar(&bugCreateTags, "tag", nil,
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
+	bugCreateCmd.Flags().String("size", "", "Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// List flags
 	bugListCmd.Flags().StringVar(&bugStatus, "status", "", "Filter by status")
@@ -234,6 +236,9 @@ func init() {
 	// means no change; no way to detach here — use `shark bug tag rm`.
 	bugUpdateCmd.Flags().StringSliceVar(&bugUpdateTags, "tag", nil,
 		"Tag to apply additively (repeatable). Empty = no change; use 'shark bug tag rm' to detach.")
+	// E07-F42 REQ-F-005: optional size flag with clear-literal support.
+	bugUpdateCmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove on update)")
 
 	// Delete flags
 	bugDeleteCmd.Flags().BoolVar(&bugForce, "force", false, "Skip confirmation prompt")
@@ -256,11 +261,22 @@ func runBugCreate(cmd *cobra.Command, args []string) error {
 	// fresh value each time.
 	tags, _ := cmd.Flags().GetStringSlice("tag")
 
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	var sizePtr *int
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		n, sizeErr := models.ParseSize(sizeStr)
+		if sizeErr != nil {
+			return fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		sizePtr = &n
+	}
+
 	input := services.CreateBugInput{
 		Title:    args[0],
 		Severity: models.BugSeverity(severity),
 		Force:    force,
 		Tags:     tags,
+		Size:     sizePtr,
 	}
 
 	if filePath != "" {
@@ -429,8 +445,19 @@ func runBugUpdate(cmd *cobra.Command, args []string) error {
 		updates.Tags = tags
 	}
 
-	if updates.Title == nil && updates.Severity == nil && updates.FilePath == nil && updates.Tags == nil {
-		return fmt.Errorf("at least one update flag is required (--title, --severity, --file, or --tag)")
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return sizeErr
+		}
+		updates.Size = sizePtr
+		updates.ClearSize = clearSize
+	}
+
+	if updates.Title == nil && updates.Severity == nil && updates.FilePath == nil && updates.Tags == nil && updates.Size == nil && !updates.ClearSize {
+		return fmt.Errorf("at least one update flag is required (--title, --severity, --file, --tag, or --size)")
 	}
 
 	// Step 2: Call service

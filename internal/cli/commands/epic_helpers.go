@@ -611,6 +611,16 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 	// invocations see a fresh value each time.
 	tags, _ := cmd.Flags().GetStringSlice("tag")
 
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	var sizePtr *int
+	if sizeStr, _ := cmd.Flags().GetString("size"); sizeStr != "" {
+		n, sizeErr := models.ParseSize(sizeStr)
+		if sizeErr != nil {
+			return fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		sizePtr = &n
+	}
+
 	// Build CreateEpicInput and delegate key generation, collision checks, and DB creation to service
 	input := services.CreateEpicInput{
 		Title:         epicTitle,
@@ -621,6 +631,7 @@ func performEpicCreate(ctx context.Context, epicTitle string, cmd *cobra.Command
 		CustomKey:     epicCreateKey,
 		Force:         force,
 		Tags:          tags,
+		Size:          sizePtr,
 	}
 	if customFilePath != nil {
 		input.FilePath = customFilePath
@@ -939,7 +950,19 @@ func performEpicUpdate(ctx context.Context, epicKey string, cmd *cobra.Command) 
 		changed = true
 	}
 
-	if changed && (updates.Title != nil || updates.Description != nil || updates.Status != nil || updates.Priority != nil || updates.BusinessValue != nil || len(updates.Tags) > 0) {
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return sizeErr
+		}
+		updates.Size = sizePtr
+		updates.ClearSize = clearSize
+		changed = true
+	}
+
+	if changed && (updates.Title != nil || updates.Description != nil || updates.Status != nil || updates.Priority != nil || updates.BusinessValue != nil || len(updates.Tags) > 0 || updates.Size != nil || updates.ClearSize) {
 		if _, err := epicSvc.UpdateEpic(ctx, epicKey, updates); err != nil {
 			return handleEntityServiceError(cmd, resolveTagService(nil), err, "epic", epicKey)
 		}

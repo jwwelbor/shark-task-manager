@@ -211,6 +211,10 @@ var (
 	// bleed).
 	ideaCreateTags []string
 	ideaUpdateTags []string
+
+	// E07-F42 REQ-F-004: --size flag for idea create.
+	// StringVar (not IntVar) per Decision D4 — accepts both numeric and label forms.
+	ideaCreateSizeFlag string
 )
 
 // resolveIdeaID is the EntityKeyResolver used by the `shark idea tag`
@@ -279,6 +283,9 @@ func init() {
 	// the regex) surface as a clear exit-3 validation error.
 	ideaCreateCmd.Flags().StringSliceVar(&ideaCreateTags, "tag", nil,
 		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
+	// E07-F42 REQ-F-004: optional size flag (StringVar per Decision D4).
+	ideaCreateCmd.Flags().StringVar(&ideaCreateSizeFlag, "size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL")
 
 	// Update command flags
 	ideaUpdateCmd.Flags().StringVar(&ideaStatus, "status", "", "Update status")
@@ -293,6 +300,9 @@ func init() {
 	// means no change; no way to detach here — use `shark idea tag rm`.
 	ideaUpdateCmd.Flags().StringSliceVar(&ideaUpdateTags, "tag", nil,
 		"Tag to apply additively (repeatable). Empty = no change; use 'shark idea tag rm' to detach.")
+	// E07-F42 REQ-F-005: optional size flag with clear-literal support.
+	ideaUpdateCmd.Flags().String("size", "",
+		"Entity size: 1|2|3|5|8|13 or XS|S|M|L|XL|XXL (use 'clear' to remove on update)")
 
 	// Delete command flags
 	ideaDeleteCmd.Flags().BoolVar(&ideaForce, "force", false, "Skip confirmation prompt")
@@ -820,6 +830,14 @@ func parseCreateIdeaInput(title string) (services.CreateIdeaInput, error) {
 		depsStr := string(deps)
 		input.Dependencies = &depsStr
 	}
+	// E07-F42 REQ-F-004: parse --size before calling service; reject invalid values early.
+	if ideaCreateSizeFlag != "" {
+		n, sizeErr := models.ParseSize(ideaCreateSizeFlag)
+		if sizeErr != nil {
+			return input, fmt.Errorf("invalid --size value: %w", sizeErr)
+		}
+		input.Size = &n
+	}
 	return input, nil
 }
 
@@ -866,6 +884,16 @@ func parseUpdateIdeaInput(cmd *cobra.Command) (services.UpdateIdeaInput, error) 
 		}
 		depsStr := string(deps)
 		input.Dependencies = &depsStr
+	}
+	// E07-F42 REQ-F-005: three-way dispatch for --size on update.
+	//   empty → no-op; "clear" → ClearSize=true; valid → Size=ptr(n).
+	if cmd.Flags().Changed("size") {
+		sizePtr, clearSize, sizeErr := parseSizeUpdateFlag(cmd)
+		if sizeErr != nil {
+			return input, sizeErr
+		}
+		input.Size = sizePtr
+		input.ClearSize = clearSize
 	}
 	return input, nil
 }
