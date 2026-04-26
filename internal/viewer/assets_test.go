@@ -2620,3 +2620,120 @@ func TestViewerHTMLF10003CollapseAllGuard(t *testing.T) {
 		t.Error("viewer.html collapse-all handler must use getElementById to find the button (T-E27-F10-003 AC-003.5)")
 	}
 }
+
+// ─── T-E27-F10-004: Persist show-all checkbox state in localStorage ─────────
+
+// TestViewerHTMLF10004LocalStorageKeyPresent verifies that the storage key
+// 'shark.viewer.showAllItems' is referenced in viewer.html.
+// AC-004.1 and AC-004.2 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageKeyPresent(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The key must appear at least twice: once for getItem (read on load) and
+	// once for setItem (write on checkbox change).
+	const storageKey = "shark.viewer.showAllItems"
+	count := strings.Count(content, storageKey)
+	if count < 2 {
+		t.Errorf("viewer.html must reference localStorage key %q at least twice (read + write), found %d occurrence(s) (T-E27-F10-004 AC-004.1 AC-004.2)", storageKey, count)
+	}
+}
+
+// TestViewerHTMLF10004LocalStorageRead verifies that the initial value of
+// showCompleted is read from localStorage.getItem on page load.
+// AC-004.2 and AC-004.3 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageRead(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must contain localStorage.getItem('shark.viewer.showAllItems')
+	if !strings.Contains(content, "localStorage.getItem('shark.viewer.showAllItems')") &&
+		!strings.Contains(content, `localStorage.getItem("shark.viewer.showAllItems")`) {
+		t.Error("viewer.html must call localStorage.getItem('shark.viewer.showAllItems') to read persisted state on load (T-E27-F10-004 AC-004.2)")
+	}
+
+	// The read result must be compared to 'true' string (AC-004.5: any other value → false)
+	if !strings.Contains(content, `=== 'true'`) && !strings.Contains(content, `=== "true"`) {
+		t.Error("viewer.html must compare localStorage value to string 'true' so any other value (null, 'false', etc.) defaults to false (T-E27-F10-004 AC-004.3 AC-004.5)")
+	}
+}
+
+// TestViewerHTMLF10004LocalStorageWrite verifies that the checkbox change
+// handler calls localStorage.setItem with the new value.
+// AC-004.1 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageWrite(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Must contain localStorage.setItem('shark.viewer.showAllItems', ...)
+	if !strings.Contains(content, "localStorage.setItem('shark.viewer.showAllItems'") &&
+		!strings.Contains(content, `localStorage.setItem("shark.viewer.showAllItems"`) {
+		t.Error("viewer.html must call localStorage.setItem('shark.viewer.showAllItems', ...) in the checkbox change handler (T-E27-F10-004 AC-004.1)")
+	}
+}
+
+// TestViewerHTMLF10004LocalStorageReadTryCatch verifies that localStorage
+// read is wrapped in try/catch for privacy-mode resilience.
+// AC-004.6 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageReadTryCatch(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Find the localStorage.getItem call and verify it is inside a try block.
+	// Strategy: look for the IIFE pattern that wraps the read in try/catch.
+	// Pattern: try { return localStorage.getItem('shark.viewer.showAllItems') === 'true'; }
+	//          catch (e) { return false; }
+	readIdx := strings.Index(content, "localStorage.getItem('shark.viewer.showAllItems')")
+	if readIdx == -1 {
+		readIdx = strings.Index(content, `localStorage.getItem("shark.viewer.showAllItems")`)
+	}
+	if readIdx == -1 {
+		t.Fatal("viewer.html missing localStorage.getItem call — earlier AC-004.2 test should have caught this")
+	}
+
+	// Scan a window before the read call for a 'try' keyword
+	start := readIdx - 200
+	if start < 0 {
+		start = 0
+	}
+	window := content[start:readIdx]
+	if !strings.Contains(window, "try") {
+		t.Error("viewer.html localStorage.getItem call must be inside a try block for privacy-mode resilience (T-E27-F10-004 AC-004.6)")
+	}
+}
+
+// TestViewerHTMLF10004LocalStorageWriteTryCatch verifies that localStorage
+// write is wrapped in try/catch for privacy-mode resilience.
+// AC-004.6 (T-E27-F10-004).
+func TestViewerHTMLF10004LocalStorageWriteTryCatch(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// Find the localStorage.setItem call
+	writeIdx := strings.Index(content, "localStorage.setItem('shark.viewer.showAllItems'")
+	if writeIdx == -1 {
+		writeIdx = strings.Index(content, `localStorage.setItem("shark.viewer.showAllItems"`)
+	}
+	if writeIdx == -1 {
+		t.Fatal("viewer.html missing localStorage.setItem call — earlier AC-004.1 test should have caught this")
+	}
+
+	// Scan a window before the write call for a 'try' keyword
+	start := writeIdx - 100
+	if start < 0 {
+		start = 0
+	}
+	window := content[start:writeIdx]
+	if !strings.Contains(window, "try") {
+		t.Error("viewer.html localStorage.setItem call must be inside a try block for privacy-mode resilience (T-E27-F10-004 AC-004.6)")
+	}
+}
+
+// TestViewerHTMLF10004ShowCompletedInitialisedBeforeRender verifies that
+// the showCompleted variable is initialised (via the IIFE) before
+// renderSidebar() can first run, so the first paint reflects stored state.
+// AC-004.4 (T-E27-F10-004).
+func TestViewerHTMLF10004ShowCompletedInitialisedBeforeRender(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The IIFE pattern must appear: (function() { try { return localStorage.getItem ... } })()
+	// This ensures showCompleted is set at var-declaration time before any renderSidebar call.
+	if !strings.Contains(content, "(function()") && !strings.Contains(content, "(() =>") {
+		t.Error("viewer.html showCompleted initialisation must use an IIFE so the value is set before first renderSidebar() call (T-E27-F10-004 AC-004.4)")
+	}
+}

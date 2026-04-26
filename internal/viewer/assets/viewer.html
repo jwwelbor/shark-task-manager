@@ -2283,7 +2283,13 @@ let workflowMeta   = null;           // cached /workflow-meta response
 // showCompleted: when true, shows ALL items regardless of terminal status.
 // User-facing label: "Show all items". Variable name kept for diff minimization.
 // Previously only hid 'completed'; now hides all terminal statuses via isHiddenTerminalStatus.
-let showCompleted    = false;         // false = hide terminal-status entities
+// Persisted in localStorage as 'shark.viewer.showAllItems'.
+// IIFE runs at declaration time (before first renderSidebar) so the stored value takes effect
+// on the first paint. All localStorage access is wrapped in try/catch for privacy-mode resilience.
+let showCompleted = (function() {
+  try { return localStorage.getItem('shark.viewer.showAllItems') === 'true'; }
+  catch (e) { return false; }
+})();         // false = hide terminal-status entities when no stored value
 let showAllFiles     = false;         // sidebar filter: show untracked folder files
 let projectName      = '';            // project folder name for header
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
@@ -4922,6 +4928,7 @@ function renderSidebar() {
   if (showCompletedCb) {
     showCompletedCb.onchange = function() {
       showCompleted = this.checked;
+      try { localStorage.setItem('shark.viewer.showAllItems', String(this.checked)); } catch (e) {}
       renderSidebar();
     };
   }
