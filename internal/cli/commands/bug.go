@@ -17,6 +17,9 @@ import (
 type bugServicer interface {
 	CreateBug(ctx context.Context, input services.CreateBugInput) (*models.Bug, error)
 	GetBug(ctx context.Context, key string) (*models.Bug, error)
+	// GetBugWithTags returns the bug along with the sorted tag names attached to it.
+	// When TagService is nil or unavailable, tags will be nil (graceful degradation).
+	GetBugWithTags(ctx context.Context, key string) (*models.Bug, []string, error)
 	ListBugs(ctx context.Context, filters services.BugFilters) ([]*models.Bug, error)
 	UpdateBug(ctx context.Context, key string, updates services.BugUpdates) (*models.Bug, error)
 	DeleteBug(ctx context.Context, key string) error
@@ -216,6 +219,8 @@ func init() {
 	bugListCmd.Flags().StringVar(&bugSeverity, "severity", "", "Filter by severity")
 	bugListCmd.Flags().StringVar(&bugLink, "link", "", "Filter by linked entity key")
 	bugListCmd.Flags().Bool("all", false, "Show all bugs including terminal statuses (resolved, wont_fix, duplicate)")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	bugListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	// Update flags
 	bugUpdateCmd.Flags().StringVar(&bugTitle, "title", "", "New title")
@@ -293,9 +298,9 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	ctx := cmd.Context()
 
-	// Step 2: Call service
+	// Step 2: Call service — use GetBugWithTags for tag enrichment (REQ-F-014, REQ-F-015).
 	svc := getBugService()
-	bug, err := svc.GetBug(ctx, key)
+	bug, tags, err := svc.GetBugWithTags(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -327,14 +332,21 @@ func runBugGet(cmd *cobra.Command, args []string) error {
 		if contextData != nil {
 			result["context_data"] = contextData
 		}
+		// REQ-F-015: "tags" field always present, never null.
+		if tags == nil {
+			tags = []string{}
+		}
+		result["tags"] = tags
 		return cli.OutputJSON(result)
 	}
 
+	basicInfo := buildBugBasicInfo(bug)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "bug",
 		Key:                bug.Key,
 		Status:             string(bug.Status),
-		BasicInfo:          buildBugBasicInfo(bug),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   validTransitions,
 		OrchestratorAction: orchestratorAction,
 		Notes:              notes,
@@ -365,12 +377,16 @@ func runBugList(cmd *cobra.Command, args []string) error {
 	if linkStr != "" {
 		filters.LinkedEntityKey = &linkStr
 	}
+	// E28-F05 REQ-F-010: read the repeatable --tag flag; nil when absent (AC-T2).
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		filters.Tags = rawTags
+	}
 
 	// Step 2: Call service
 	svc := getBugService()
 	bugs, err := svc.ListBugs(cmd.Context(), filters)
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "bug", "")
 	}
 
 	// Step 3: Format output

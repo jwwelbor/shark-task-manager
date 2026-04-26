@@ -28,6 +28,7 @@ shark bug create <title> [flags]
 | `--link` | string | — | Link to existing entity (epic key, feature key, or task key) |
 | `--file` | string | — | Custom file path for the bug markdown file |
 | `--force` | bool | `false` | Overwrite existing file if it exists |
+| `--tag` | string | — | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 
 **Examples:**
 
@@ -43,6 +44,10 @@ shark bug create "JWT tokens not expiring" --severity=high --link=E07-F01-003
 
 # With custom file path
 shark bug create "Race condition in async handler" --file=docs/bugs/B001-race-condition.md
+
+# With one or more tags (tags must already be in the vocabulary)
+shark bug create "Login crashes" --severity=high --tag=auth
+shark bug create "Race in login flow" --tag=auth --tag=voice
 ```
 
 **Output (default):**
@@ -161,6 +166,7 @@ shark bug update <key> [flags]
 |------|------|-------------|
 | `--title` | string | New bug title |
 | `--severity` | string | New severity: `critical`, `high`, `medium`, `low` |
+| `--tag` | string | Tag to apply additively (repeatable). Empty = no change; use `shark bug tag rm` to detach. |
 | `--json` | bool | JSON output |
 
 **Examples:**
@@ -169,7 +175,13 @@ shark bug update <key> [flags]
 shark bug update B001 --severity=high
 shark bug update B001 --title="Login page crashes on mobile submit"
 shark bug update B001 --severity=critical --json
+
+# Additive tagging (does not detach existing tags)
+shark bug update B001 --tag=auth
+shark bug update B001 --tag=auth --tag=voice
 ```
+
+> `--tag` on update is **additive only**. Repeating a tag already attached is a no-op. Use `shark bug tag rm B001 <name>` to detach a single tag.
 
 ---
 
@@ -276,6 +288,79 @@ shark bug notes <key> [flags]
 shark bug notes B001
 shark bug notes B001 --json
 ```
+
+---
+
+## `shark bug tag add`
+
+Retroactively attach a registered tag to an existing bug. Re-running with the same arguments is a no-op (idempotent).
+
+```bash
+shark bug tag add <key> <name> [--json]
+```
+
+**Arguments:**
+- `key` — Bug key (e.g., `B001`)
+- `name` — Tag name (must already be registered in the vocabulary)
+
+**Examples:**
+
+```bash
+# Attach 'auth' to bug B001
+shark bug tag add B001 auth
+
+# Attach is idempotent (no duplicate row)
+shark bug tag add B001 auth   # exit 0, no-op
+
+# JSON output
+shark bug tag add B001 auth --json
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag attached (or already attached) |
+| 1 | `not_found` | Bug key not found |
+| 2 | `db_error` | Database error |
+| 3 | `unregistered_tag` | Tag name not in vocabulary |
+| 3 | `validation` | Name validation error |
+
+**Unregistered-tag error (process exit **3**, internal class `unregistered_tag`):** stderr shows the service error line, an `Available tags:` header, the current vocabulary (two-space-indented), the `To add it: shark tags add <name>` remediation line, and a trailing `Error: exit code 3: ...` line. See [Tags → Unregistered Tag Errors](tags.md#unregistered-tag-errors) for worked output.
+
+---
+
+## `shark bug tag rm`
+
+Retroactively detach a registered tag from a bug. Removing a tag that is not currently attached is a no-op (exit 0) **as long as the tag name is in the vocabulary**.
+
+```bash
+shark bug tag rm <key> <name> [--json]
+```
+
+**Arguments:**
+- `key` — Bug key (e.g., `B001`)
+- `name` — Tag name (must be in the vocabulary)
+
+**Examples:**
+
+```bash
+# Detach 'auth' from B001
+shark bug tag rm B001 auth
+
+# Re-running is idempotent
+shark bug tag rm B001 auth   # exit 0, no-op
+
+# Vocabulary-miss (tag name does not exist): process exit 1 with snippet
+shark bug tag rm B001 does-not-exist
+```
+
+**Exit codes:**
+| Process exit | Internal class | Condition |
+|------|----------------|-----------|
+| 0 | — | Tag detached (or was not attached) |
+| 1 | `not_found` | Bug key not found, or tag name not in vocabulary |
+| 2 | `db_error` | Database error |
+| 3 | `validation` | Name validation error |
 
 ---
 

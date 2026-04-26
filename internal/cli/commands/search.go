@@ -93,10 +93,16 @@ func runSearchQuery(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Step 2: Call service
-	results, err := cli.GetSearchService().SearchAll(cmd.Context(), query, entityTypeFlag)
+	// Step 2: Call service.
+	// E28-F05 REQ-F-011 / REQ-F-018: read the repeatable --tag flag.
+	// nil when no --tag flags were supplied (AC-T2).
+	var searchTags []string
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		searchTags = rawTags
+	}
+	results, err := cli.GetSearchService().SearchAll(cmd.Context(), query, entityTypeFlag, searchTags)
 	if err != nil {
-		return err
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "search", "")
 	}
 
 	// Step 3: Format output
@@ -198,4 +204,6 @@ func init() {
 
 	// Flags for full-text query mode
 	searchCmd.Flags().String("type", "", "Filter by entity type: epic, feature, task, bug, change, idea")
+	// E28-F05 REQ-F-011 / REQ-F-018: repeatable --tag flag with AND semantics.
+	searchCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 }

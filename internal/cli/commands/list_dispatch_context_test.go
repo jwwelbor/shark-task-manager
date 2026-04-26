@@ -35,7 +35,7 @@ func TestRunList_FeatureKeyDispatch_DoesNotPanicOnNilContext(t *testing.T) {
 		// "E15" + "F03" is a valid (epic, feature) pair that routes to runTaskList.
 		// We don't care whether the query finds rows; we only care that no panic
 		// occurs (i.e., the context is non-nil when it reaches the DB layer).
-		_ = runTaskListWithFlags(parentCmd, "E15", "F03", "", "", false)
+		_ = runTaskListWithFlags(parentCmd, "E15", "F03", "", "", false, nil)
 	}()
 
 	// Assert: no panic

@@ -48,6 +48,17 @@ func (m *MockChangeCardService) GetChangeCard(ctx context.Context, key string) (
 	return nil, fmt.Errorf("GetChangeCard not implemented in mock")
 }
 
+func (m *MockChangeCardService) GetChangeCardWithTags(ctx context.Context, key string) (*models.ChangeCard, []string, error) {
+	if m.GetChangeCardFunc != nil {
+		card, err := m.GetChangeCardFunc(ctx, key)
+		if err != nil {
+			return nil, nil, err
+		}
+		return card, []string{}, nil
+	}
+	return nil, nil, fmt.Errorf("GetChangeCardWithTags not implemented in mock")
+}
+
 func (m *MockChangeCardService) ListChangeCards(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error) {
 	if m.ListChangeCardsFunc != nil {
 		return m.ListChangeCardsFunc(ctx, filters)
@@ -958,5 +969,220 @@ func TestPrintChangeCardList_Empty(t *testing.T) {
 	err := printChangeCardList(nil)
 	if err != nil {
 		t.Errorf("expected nil error for empty list, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// E28-F04 T-009 — --tag flag parsing tests for `shark change create|update`.
+//
+// These exercise the CLI → service wire: the flag must arrive on the DTO so
+// the service (tested separately in change_card_service_tags_test.go) can
+// invoke EnforceRequired/AttachMany with the right names.
+//
+// The tests build fresh, ISOLATED cobra commands per case so they don't
+// mutate the package-level changeCreateCmd/changeUpdateCmd (which are wired
+// into cli.RootCmd and shared across the test binary). Flag parsing is
+// verified end-to-end through the cobra Execute() path so StringSliceVar's
+// repeat-flag behaviour is exercised by the same machinery users hit.
+// ---------------------------------------------------------------------------
+
+// mockChangeCardSvcForTags is a narrow stub for changeCardServicer used by
+// the E28-F04 --tag flag tests. It records the CreateChangeCard /
+// UpdateChangeCard inputs so tests can assert that the CLI threaded the
+// --tag slice through to the DTO.
+type mockChangeCardSvcForTags struct {
+	MockChangeCardService
+	lastCreate services.CreateChangeCardInput
+	lastUpdate services.ChangeCardUpdates
+}
+
+func (m *mockChangeCardSvcForTags) CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error) {
+	m.lastCreate = input
+	if m.CreateChangeCardFunc != nil {
+		return m.CreateChangeCardFunc(ctx, input)
+	}
+	return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: "CC-001", Title: input.Title}, Status: "proposed"}, nil
+}
+
+func (m *mockChangeCardSvcForTags) UpdateChangeCard(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error) {
+	m.lastUpdate = updates
+	if m.UpdateChangeCardFunc != nil {
+		return m.UpdateChangeCardFunc(ctx, key, updates)
+	}
+	return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Updated"}, Status: "proposed"}, nil
+}
+
+// withChangeCardSvcOverride installs a test override for the package-level
+// changeCardSvcOverride, restoring the previous value on test cleanup.
+func withChangeCardSvcOverride(t *testing.T, svc changeCardServicer) {
+	t.Helper()
+	orig := changeCardSvcOverride
+	changeCardSvcOverride = svc
+	t.Cleanup(func() { changeCardSvcOverride = orig })
+}
+
+// buildChangeCreateCmdForTagTest returns a fresh `shark change create`
+// command with a local tags slice bound to --tag. The command uses
+// runChangeCreate via a small shim that reads the flag through
+// cmd.Flags().GetStringSlice.
+func buildChangeCreateCmdForTagTest(t *testing.T) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{
+		Use:  "create <title>",
+		Args: cobraExactArgs(1),
+		RunE: runChangeCreate,
+	}
+	cmd.Flags().StringVar(&changeLinkKey, "link", "", "link")
+	cmd.Flags().StringVar(&changeDescription, "description", "", "description")
+	cmd.Flags().IntVar(&changePriority, "priority", 0, "priority")
+	cmd.Flags().StringVar(&changeRequestedBy, "requested-by", "", "requested-by")
+	var tags []string
+	cmd.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
+	return cmd
+}
+
+// buildChangeUpdateCmdForTagTest returns a fresh `shark change update`
+// command with a local tags slice bound to --tag.
+func buildChangeUpdateCmdForTagTest(t *testing.T) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{
+		Use:  "update <key>",
+		Args: cobraExactArgs(1),
+		RunE: runChangeUpdate,
+	}
+	cmd.Flags().StringVar(&changeTitle, "title", "", "title")
+	cmd.Flags().StringVar(&changeDescription, "description", "", "description")
+	cmd.Flags().IntVar(&changePriority, "priority", 0, "priority")
+	cmd.Flags().StringVar(&changeRequestedBy, "requested-by", "", "requested-by")
+	cmd.Flags().StringVar(&changeAssignedTo, "assigned-to", "", "assigned-to")
+	cmd.Flags().String("file", "", "file")
+	cmd.Flags().String("filename", "", "filename")
+	cmd.Flags().String("path", "", "path")
+	var tags []string
+	cmd.Flags().StringSliceVar(&tags, "tag", nil, "tag (repeatable)")
+	return cmd
+}
+
+// TestChangeCreate_TagFlag_PassesTagsToService covers the change row of the
+// CLI tag-flag wiring. Repeated --tag flags surface as an input.Tags slice
+// in order.
+func TestChangeCreate_TagFlag_PassesTagsToService(t *testing.T) {
+	// Reset globals
+	changeLinkKey = ""
+	changeDescription = ""
+	changePriority = 0
+	changeRequestedBy = ""
+
+	stub := &mockChangeCardSvcForTags{}
+	withChangeCardSvcOverride(t, stub)
+
+	restore := suppressOutput(t)
+	defer restore()
+
+	cmd := buildChangeCreateCmdForTagTest(t)
+	cmd.SetArgs([]string{"--tag=voice", "--tag=auth", "Tagged change"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(stub.lastCreate.Tags) != 2 {
+		t.Fatalf("expected 2 tags on input, got %d (%v)", len(stub.lastCreate.Tags), stub.lastCreate.Tags)
+	}
+	if stub.lastCreate.Tags[0] != "voice" || stub.lastCreate.Tags[1] != "auth" {
+		t.Errorf("tags = %v, want [voice, auth]", stub.lastCreate.Tags)
+	}
+}
+
+// TestChangeUpdate_TagFlag_PassesTagsToService covers the change row of the
+// update --tag wiring.
+func TestChangeUpdate_TagFlag_PassesTagsToService(t *testing.T) {
+	// Reset globals
+	changeTitle = ""
+	changeDescription = ""
+	changePriority = 0
+	changeRequestedBy = ""
+	changeAssignedTo = ""
+
+	stub := &mockChangeCardSvcForTags{}
+	withChangeCardSvcOverride(t, stub)
+
+	restore := suppressOutput(t)
+	defer restore()
+
+	cmd := buildChangeUpdateCmdForTagTest(t)
+	cmd.SetArgs([]string{"--tag=voice", "CC-001"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(stub.lastUpdate.Tags) != 1 || stub.lastUpdate.Tags[0] != "voice" {
+		t.Errorf("update Tags = %v, want [voice]", stub.lastUpdate.Tags)
+	}
+}
+
+// TestChangeUpdate_NoTagFlagIsNoTag verifies that when --tag is NOT passed,
+// updates.Tags is nil (honours the Changed-guard in buildChangeCardUpdates).
+func TestChangeUpdate_NoTagFlagIsNoTag(t *testing.T) {
+	// Reset globals
+	changeTitle = ""
+	changeDescription = ""
+	changePriority = 0
+	changeRequestedBy = ""
+	changeAssignedTo = ""
+
+	stub := &mockChangeCardSvcForTags{}
+	withChangeCardSvcOverride(t, stub)
+
+	restore := suppressOutput(t)
+	defer restore()
+
+	cmd := buildChangeUpdateCmdForTagTest(t)
+	// Pass only --title so the update is valid without a tag.
+	cmd.SetArgs([]string{"--title=Renamed", "CC-001"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stub.lastUpdate.Tags != nil {
+		t.Errorf("expected nil Tags when --tag omitted, got %v", stub.lastUpdate.Tags)
+	}
+}
+
+// TestResolveChangeCardID_ReturnsID covers the EntityKeyResolver used by
+// the `shark change tag` subcommand factory.
+func TestResolveChangeCardID_ReturnsID(t *testing.T) {
+	stub := &MockChangeCardService{
+		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			return &models.ChangeCard{BaseEntity: models.BaseEntity{ID: 77, Key: key}}, nil
+		},
+	}
+	withChangeCardSvcOverride(t, stub)
+
+	id, err := resolveChangeCardID(context.Background(), "CC-001")
+	if err != nil {
+		t.Fatalf("resolveChangeCardID() error = %v", err)
+	}
+	if id != 77 {
+		t.Errorf("resolveChangeCardID() = %d, want 77", id)
+	}
+}
+
+// TestResolveChangeCardID_PropagatesError ensures that a missing change-card
+// surfaces as an error (translates to exit code 1 in the factory).
+func TestResolveChangeCardID_PropagatesError(t *testing.T) {
+	stub := &MockChangeCardService{
+		GetChangeCardFunc: func(ctx context.Context, key string) (*models.ChangeCard, error) {
+			return nil, fmt.Errorf("change-card not found: %s", key)
+		},
+	}
+	withChangeCardSvcOverride(t, stub)
+
+	_, err := resolveChangeCardID(context.Background(), "CC-999")
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }

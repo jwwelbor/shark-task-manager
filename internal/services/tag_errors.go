@@ -85,6 +85,18 @@ func (e *UnregisteredTagError) Error() string {
 	return fmt.Sprintf("tag is not registered: %s", e.Name)
 }
 
+// TagFilterUnavailableError is returned by entity list methods when the
+// caller supplies a non-empty Tags filter but the service has no tagSvc
+// wired (tagSvc == nil). Per AC-30.
+//
+// CLI exit code: 3 (maps to "unavailable" error category).
+// Error() format: "tag filtering is not available (TagService not wired)"
+type TagFilterUnavailableError struct{}
+
+func (e *TagFilterUnavailableError) Error() string {
+	return "tag filtering is not available (TagService not wired)"
+}
+
 // TagRequiredError is returned by TagService.EnforceRequired when the
 // given entity type is listed in Config.TagRequiredFor but the provided
 // name slice is empty (REQ-F-003, AC-9, AC-28b).

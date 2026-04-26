@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -244,6 +245,19 @@ func (m *mockBugEntityRepo) UpdateContextData(ctx context.Context, id int64, dat
 }
 
 func newBugService(repo *mockBugRepo, epicRepo *bugLinkEpicRepo, featureRepo *bugLinkFeatureRepo, taskRepo *bugLinkTaskRepo) *BugService {
+	return newBugServiceWithTagSvc(repo, epicRepo, featureRepo, taskRepo, nil)
+}
+
+// newBugServiceWithTagSvc is the E28-F04 variant that also wires a
+// TagQuerier (typically *MockTagService). Callers that don't exercise
+// tag paths should use newBugService, which passes nil.
+func newBugServiceWithTagSvc(
+	repo *mockBugRepo,
+	epicRepo *bugLinkEpicRepo,
+	featureRepo *bugLinkFeatureRepo,
+	taskRepo *bugLinkTaskRepo,
+	tagSvc TagQuerier,
+) *BugService {
 	wfSvc := newBugWorkflowSvc()
 	entitySvc := NewEntityService(wfSvc)
 	entityRepo := &mockBugEntityRepo{bugRepo: repo}
@@ -256,7 +270,7 @@ func newBugService(repo *mockBugRepo, epicRepo *bugLinkEpicRepo, featureRepo *bu
 	if taskRepo == nil {
 		taskRepo = &bugLinkTaskRepo{}
 	}
-	return NewBugService(repo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, "")
+	return NewBugService(repo, entitySvc, entityRepo, epicRepo, featureRepo, taskRepo, "", tagSvc)
 }
 
 // --- CreateBug tests ---
@@ -1138,6 +1152,325 @@ func TestBugService_makeResolveActionFn_NonBugEntity(t *testing.T) {
 	if action != nil {
 		t.Error("expected nil action for non-Bug entity")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// E28-F04 T-005 — Tag integration tests (AC-15, AC-15b, AC-16, AC-17,
+// AC-17b, AC-18, AC-18b for the bug row).
+// ---------------------------------------------------------------------------
+
+// TestBugService_CreateBug_NoTagsAndNoRequirement covers AC-15 (bug row).
+// When no tags are supplied and no enforcement is configured, the service
+// MUST still invoke EnforceRequired exactly once (fast-path returning nil)
+// and MUST NOT invoke AttachMany. The bug is persisted.
+func TestBugService_CreateBug_NoTagsAndNoRequirement(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "B001", nil },
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			bug.ID = 1
+			return nil
+		},
+	}
+
+	tagSvc := NewMockTagService() // no enforcement; no tags
+	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
+
+	bug, err := svc.CreateBug(ctx, CreateBugInput{
+		Title:    "No tags here",
+		Severity: models.BugSeverityLow,
+		Tags:     nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateBug() error = %v", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+	if tagSvc.EnforceRequiredCalls != 1 {
+		t.Errorf("EnforceRequiredCalls = %d, want 1", tagSvc.EnforceRequiredCalls)
+	}
+	if tagSvc.AttachManyCalls != 0 {
+		t.Errorf("AttachManyCalls = %d, want 0 (no tags supplied)", tagSvc.AttachManyCalls)
+	}
+	if tagSvc.LastEnforceEntityType != models.EntityTypeBug {
+		t.Errorf("EnforceRequired entityType = %q, want %q",
+			tagSvc.LastEnforceEntityType, models.EntityTypeBug)
+	}
+}
+
+// TestBugService_CreateBug_NilTagSvcIsSkippedCleanly covers AC-15b.
+// Confirms the graceful-degradation property of REQ-F-018: a nil tagSvc
+// must not panic or produce errors; tag hooks simply do not run.
+func TestBugService_CreateBug_NilTagSvcIsSkippedCleanly(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "B001", nil },
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			bug.ID = 1
+			return nil
+		},
+	}
+	// Explicit nil tagSvc — production code paths that predate F04 wiring.
+	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, nil)
+
+	bug, err := svc.CreateBug(ctx, CreateBugInput{
+		Title:    "Nil tagSvc bug",
+		Severity: models.BugSeverityMedium,
+		Tags:     []string{"voice"}, // even with tags, nil svc is OK
+	})
+	if err != nil {
+		t.Fatalf("CreateBug() with nil tagSvc error = %v", err)
+	}
+	if bug == nil {
+		t.Fatal("expected bug, got nil")
+	}
+}
+
+// TestBugService_CreateBug_RequiredTypeMissingTagsAborts covers AC-16.
+// When EnforceRequired returns *TagRequiredError, the service MUST return
+// that error unchanged AND MUST NOT invoke repo.Create. This proves the
+// pre-persistence ordering of the enforcement check (REQ-F-008).
+func TestBugService_CreateBug_RequiredTypeMissingTagsAborts(t *testing.T) {
+	ctx := context.Background()
+
+	createCalled := false
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "B001", nil },
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			createCalled = true
+			bug.ID = 1
+			return nil
+		},
+	}
+
+	tagSvc := NewMockTagService().WithEnforceRequiredFn(
+		func(ctx context.Context, entityType models.EntityType, names []string) error {
+			return &TagRequiredError{EntityType: string(entityType)}
+		},
+	)
+	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
+
+	_, err := svc.CreateBug(ctx, CreateBugInput{
+		Title:    "Should fail enforcement",
+		Severity: models.BugSeverityLow,
+		Tags:     nil,
+	})
+	if err == nil {
+		t.Fatal("expected TagRequiredError, got nil")
+	}
+	var required *TagRequiredError
+	if !errors.As(err, &required) {
+		t.Fatalf("expected *TagRequiredError, got %T: %v", err, err)
+	}
+	if required.EntityType != "bug" {
+		t.Errorf("TagRequiredError.EntityType = %q, want %q", required.EntityType, "bug")
+	}
+	if createCalled {
+		t.Error("repo.Create was invoked after enforcement failure (REQ-F-008 violation)")
+	}
+	if tagSvc.AttachManyCalls != 0 {
+		t.Errorf("AttachManyCalls = %d, want 0 after enforcement failure", tagSvc.AttachManyCalls)
+	}
+}
+
+// TestBugService_CreateBug_TagsProvidedAttachAfterPersist covers AC-17.
+// When tags are supplied, the service MUST:
+//  1. Invoke EnforceRequired first (returns nil because tags present).
+//  2. Persist the entity (repo.Create).
+//  3. Invoke AttachMany AFTER the entity has an ID.
+//
+// The event log proves the exact ordering; AttachMany receives the post-
+// insert ID.
+func TestBugService_CreateBug_TagsProvidedAttachAfterPersist(t *testing.T) {
+	ctx := context.Background()
+
+	tagSvc := NewMockTagService()
+
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "B001", nil },
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			bug.ID = 42
+			tagSvc.RecordEvent("Create")
+			return nil
+		},
+	}
+	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
+
+	_, err := svc.CreateBug(ctx, CreateBugInput{
+		Title:    "Bug with tags",
+		Severity: models.BugSeverityHigh,
+		Tags:     []string{"voice", "auth"},
+	})
+	if err != nil {
+		t.Fatalf("CreateBug() error = %v", err)
+	}
+	if tagSvc.EnforceRequiredCalls != 1 {
+		t.Errorf("EnforceRequiredCalls = %d, want 1", tagSvc.EnforceRequiredCalls)
+	}
+	if tagSvc.AttachManyCalls != 1 {
+		t.Errorf("AttachManyCalls = %d, want 1", tagSvc.AttachManyCalls)
+	}
+	if tagSvc.LastAttachEntityID != 42 {
+		t.Errorf("AttachMany entityID = %d, want 42 (post-insert id)", tagSvc.LastAttachEntityID)
+	}
+	if tagSvc.LastAttachEntityType != models.EntityTypeBug {
+		t.Errorf("AttachMany entityType = %q, want %q",
+			tagSvc.LastAttachEntityType, models.EntityTypeBug)
+	}
+	// AC-17 ordering assertion: EnforceRequired → Create → AttachMany.
+	gotEvents := tagSvc.EventsCopy()
+	wantEvents := []string{"EnforceRequired", "Create", "AttachMany"}
+	if !sliceEq(gotEvents, wantEvents) {
+		t.Errorf("event order = %v, want %v", gotEvents, wantEvents)
+	}
+}
+
+// TestBugService_CreateBug_AttachFailurePropagates covers AC-17b.
+// When AttachMany fails (e.g., an unregistered tag), the error surfaces
+// to the caller UNCHANGED and the entity REMAINS PERSISTED (matches ADR-
+// F04-2: no transactions in F04; partial-write semantics accepted).
+func TestBugService_CreateBug_AttachFailurePropagates(t *testing.T) {
+	ctx := context.Background()
+
+	createCalled := false
+	repo := &mockBugRepo{
+		getNextKeyFn: func(ctx context.Context) (string, error) { return "B001", nil },
+		createFn: func(ctx context.Context, bug *models.Bug) error {
+			createCalled = true
+			bug.ID = 5
+			return nil
+		},
+	}
+	tagSvc := NewMockTagService().WithAttachManyFn(
+		func(ctx context.Context, entityType models.EntityType, entityID int64, names []string) error {
+			return &UnregisteredTagError{Name: "ghost"}
+		},
+	)
+	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
+
+	_, err := svc.CreateBug(ctx, CreateBugInput{
+		Title:    "Attach will fail",
+		Severity: models.BugSeverityLow,
+		Tags:     []string{"ghost"},
+	})
+	if err == nil {
+		t.Fatal("expected UnregisteredTagError, got nil")
+	}
+	var unregistered *UnregisteredTagError
+	if !errors.As(err, &unregistered) {
+		t.Fatalf("expected *UnregisteredTagError unchanged, got %T: %v", err, err)
+	}
+	if !createCalled {
+		t.Error("entity was not persisted before AttachMany failure (expected persisted per ADR-F04-2)")
+	}
+}
+
+// TestBugService_UpdateBug_TagsAdditive covers AC-18.
+// A non-empty updates.Tags triggers exactly one AttachMany call; DetachOne
+// is NEVER invoked on update (removal goes through `shark bug tag rm`).
+func TestBugService_UpdateBug_TagsAdditive(t *testing.T) {
+	ctx := context.Background()
+
+	repo := &mockBugRepo{
+		getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+			return &models.Bug{
+				BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Existing"},
+				Status:     "reported",
+				Severity:   models.BugSeverityHigh,
+			}, nil
+		},
+		updateFn: func(ctx context.Context, bug *models.Bug) error { return nil },
+	}
+
+	tagSvc := NewMockTagService()
+	svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
+
+	_, err := svc.UpdateBug(ctx, "B001", BugUpdates{Tags: []string{"voice"}})
+	if err != nil {
+		t.Fatalf("UpdateBug() with tags error = %v", err)
+	}
+	if tagSvc.AttachManyCalls != 1 {
+		t.Errorf("AttachManyCalls = %d, want 1", tagSvc.AttachManyCalls)
+	}
+	if tagSvc.DetachOneCalls != 0 {
+		t.Errorf("DetachOneCalls = %d, want 0 (update is additive only)", tagSvc.DetachOneCalls)
+	}
+	if !sliceEq(tagSvc.LastAttachNames, []string{"voice"}) {
+		t.Errorf("AttachMany names = %v, want [voice]", tagSvc.LastAttachNames)
+	}
+	if tagSvc.LastAttachEntityID != 1 {
+		t.Errorf("AttachMany entityID = %d, want 1", tagSvc.LastAttachEntityID)
+	}
+}
+
+// TestBugService_UpdateBug_EmptyTagsIsNoOp covers AC-18b.
+// Both nil and explicit empty-slice update.Tags must result in zero tag
+// service calls. The update itself still proceeds (title/severity/etc.).
+func TestBugService_UpdateBug_EmptyTagsIsNoOp(t *testing.T) {
+	ctx := context.Background()
+
+	cases := []struct {
+		name string
+		tags []string
+	}{
+		{"nil tags", nil},
+		{"empty slice tags", []string{}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockBugRepo{
+				getByKeyFn: func(ctx context.Context, key string) (*models.Bug, error) {
+					return &models.Bug{
+						BaseEntity: models.BaseEntity{ID: 1, Key: "B001", Title: "Existing"},
+						Status:     "reported",
+						Severity:   models.BugSeverityHigh,
+					}, nil
+				},
+				updateFn: func(ctx context.Context, bug *models.Bug) error { return nil },
+			}
+			tagSvc := NewMockTagService()
+			svc := newBugServiceWithTagSvc(repo, nil, nil, nil, tagSvc)
+
+			// Also change title to make the update meaningful.
+			newTitle := "Updated"
+			_, err := svc.UpdateBug(ctx, "B001", BugUpdates{
+				Title: &newTitle,
+				Tags:  tc.tags,
+			})
+			if err != nil {
+				t.Fatalf("UpdateBug() error = %v", err)
+			}
+			if tagSvc.AttachManyCalls != 0 {
+				t.Errorf("AttachManyCalls = %d, want 0 for %s", tagSvc.AttachManyCalls, tc.name)
+			}
+			if tagSvc.DetachOneCalls != 0 {
+				t.Errorf("DetachOneCalls = %d, want 0 for %s", tagSvc.DetachOneCalls, tc.name)
+			}
+			if tagSvc.EnforceRequiredCalls != 0 {
+				t.Errorf("EnforceRequiredCalls = %d, want 0 on update for %s",
+					tagSvc.EnforceRequiredCalls, tc.name)
+			}
+		})
+	}
+}
+
+// sliceEq is a small helper used by E28-F04 tag-integration tests above.
+// Two slices are equal when they share length and all element indices
+// match. nil and empty are treated as equal.
+func sliceEq(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TC-F09-014: makeResolveActionFn callback returns nil for unconfigured status

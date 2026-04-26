@@ -137,13 +137,16 @@ func buildFeaturePlanningBasicInfo(info *services.FeatureDisplayInfo) [][]string
 	return basicInfo
 }
 
-// renderFeaturePlanning renders a feature in planning mode showing workflow position.
-func renderFeaturePlanning(info *services.FeatureDisplayInfo) {
+// renderFeaturePlanningWithTags renders a feature in planning mode with optional tag display.
+// tags==nil means tagSvc unavailable (no Tags line). Empty slice renders "Tags: (none)".
+func renderFeaturePlanningWithTags(info *services.FeatureDisplayInfo, tags []string) {
+	basicInfo := buildFeaturePlanningBasicInfo(info)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "feature",
 		Key:                info.Feature.Key,
 		Status:             string(info.Feature.Status),
-		BasicInfo:          buildFeaturePlanningBasicInfo(info),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   info.ValidTransitions,
 		OrchestratorAction: info.OrchestratorAction,
 		RelatedDocs:        info.RelatedDocs,
@@ -410,15 +413,18 @@ func buildFeatureBasicInfo(feature *models.Feature, data *FeatureGetData) [][]st
 	return info
 }
 
-// renderFeatureAggregation renders feature details in aggregation mode using RenderEntity.
-func renderFeatureAggregation(feature *models.Feature, data *FeatureGetData, orchestratorAction *config.PopulatedAction) {
+// renderFeatureAggregationWithTags renders feature details with optional tag display.
+// tags==nil means tagSvc unavailable (no Tags line). Empty slice renders "Tags: (none)".
+func renderFeatureAggregationWithTags(feature *models.Feature, data *FeatureGetData, orchestratorAction *config.PopulatedAction, tags []string) {
 	validTransitions := GetValidTransitions(string(feature.Status), data.WorkflowCfg)
 
+	basicInfo := buildFeatureBasicInfo(feature, data)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "feature",
 		Key:                feature.Key,
 		Status:             string(feature.Status),
-		BasicInfo:          buildFeatureBasicInfo(feature, data),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   validTransitions,
 		OrchestratorAction: orchestratorAction,
 		RelatedDocs:        data.RelatedDocs,
@@ -718,20 +724,21 @@ func buildFeatureGetData(ctx context.Context, feature *models.Feature) (*Feature
 }
 
 // fetchFeaturesWithTaskCount fetches features with progress and task count enrichment.
-func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter string, showAll bool) ([]FeatureWithTaskCount, error) {
+// tagFilter is nil when no --tag flags were supplied; non-nil applies AND-intersection filtering.
+func fetchFeaturesWithTaskCount(ctx context.Context, epicFilter, statusFilter string, showAll bool, tagFilter []string) ([]FeatureWithTaskCount, error) {
 	featureSvc := cli.GetFeatureService()
 
 	var features []*models.Feature
 	var err error
 	if epicFilter != "" {
-		features, err = featureSvc.ListFeaturesByEpicKey(ctx, epicFilter, statusFilter)
+		features, err = featureSvc.ListFeaturesByEpicKey(ctx, services.FeatureFilters{EpicKey: epicFilter, Status: statusFilter, Tags: tagFilter})
 		if err != nil {
 			cli.Error(fmt.Sprintf("Error: Epic %s does not exist", epicFilter))
 			cli.Info("Use 'shark epic list' to see available epics")
 			os.Exit(1)
 		}
 	} else {
-		features, err = featureSvc.ListFeatures(ctx, services.FeatureFilters{Status: statusFilter})
+		features, err = featureSvc.ListFeatures(ctx, services.FeatureFilters{Status: statusFilter, Tags: tagFilter})
 	}
 	if err != nil {
 		return nil, err
@@ -1067,11 +1074,11 @@ func performFeatureUpdate(ctx context.Context, featureKey string, cmd *cobra.Com
 }
 
 // parseFeatureListFlags parses and validates the feature list command flags/args.
-// Returns epicFilter, statusFilter, sortBy, showAll, or error.
-func parseFeatureListFlags(cmd *cobra.Command, args []string) (epicFilter, statusFilter, sortBy string, showAll bool, err error) {
+// Returns epicFilter, statusFilter, sortBy, showAll, tagFilter, or error.
+func parseFeatureListFlags(cmd *cobra.Command, args []string) (epicFilter, statusFilter, sortBy string, showAll bool, tagFilter []string, err error) {
 	positionalEpic, parseErr := ParseFeatureListArgs(args)
 	if parseErr != nil {
-		return "", "", "", false, parseErr
+		return "", "", "", false, nil, parseErr
 	}
 	epicFilter, _ = cmd.Flags().GetString("epic")
 	statusFilter, _ = cmd.Flags().GetString("status")
@@ -1079,20 +1086,24 @@ func parseFeatureListFlags(cmd *cobra.Command, args []string) (epicFilter, statu
 	showAll, _ = cmd.Flags().GetBool("show-all")
 	allFlag, _ := cmd.Flags().GetBool("all")
 	showAll = showAll || allFlag
+	// E28-F05 REQ-F-010: read the repeatable --tag flag; nil when absent (AC-T2).
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		tagFilter = rawTags
+	}
 	if positionalEpic != nil {
 		epicFilter = *positionalEpic
 	}
 	if statusFilter != "" {
 		validatedStatus, sErr := ParseFeatureStatus(statusFilter)
 		if sErr != nil {
-			return "", "", "", false, sErr
+			return "", "", "", false, nil, sErr
 		}
 		statusFilter = validatedStatus
 	}
 	if sortBy != "" && sortBy != "key" && sortBy != "progress" && sortBy != "status" {
-		return "", "", "", false, fmt.Errorf("invalid sort-by '%s'. Must be one of: key, progress, status", sortBy)
+		return "", "", "", false, nil, fmt.Errorf("invalid sort-by '%s'. Must be one of: key, progress, status", sortBy)
 	}
-	return epicFilter, statusFilter, sortBy, showAll, nil
+	return epicFilter, statusFilter, sortBy, showAll, tagFilter, nil
 }
 
 // buildFeatureGetJSON builds the JSON map for feature get output.

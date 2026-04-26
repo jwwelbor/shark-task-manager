@@ -248,6 +248,9 @@ func parseCreateTaskInput(cmd *cobra.Command, args []string) services.CreateTask
 	}
 	createFile, _ := cmd.Flags().GetBool("create")
 	force, _ := cmd.Flags().GetBool("force")
+	// E28-F04 REQ-F-012: read --tag via the flag accessor so repeated test
+	// invocations see a fresh value each time.
+	tags, _ := cmd.Flags().GetStringSlice("tag")
 	var dependsOn []string
 	for _, d := range strings.Split(dependsOnStr, ",") {
 		if d = strings.TrimSpace(d); d != "" {
@@ -258,7 +261,7 @@ func parseCreateTaskInput(cmd *cobra.Command, args []string) services.CreateTask
 		EpicKey: epicKey, FeatureKey: featureKey, Title: title,
 		AgentType: agentType, Description: description, Priority: priority,
 		ExecutionOrder: order, DependsOn: dependsOn, FilePath: filePath,
-		CreateFile: createFile, Force: force,
+		CreateFile: createFile, Force: force, Tags: tags,
 	}
 }
 
@@ -291,6 +294,13 @@ func parseTaskUpdates(cmd *cobra.Command) services.TaskUpdates {
 	}
 	if v := getFileFlagValue(cmd); v != "" {
 		updates.FilePath = &v
+	}
+	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE only.
+	// Guard with `Changed` so only explicit --tag usage sets Tags (nil
+	// otherwise). The service-layer hook skips when len(Tags)==0.
+	if cmd.Flags().Changed("tag") {
+		tags, _ := cmd.Flags().GetStringSlice("tag")
+		updates.Tags = tags
 	}
 	return updates
 }
@@ -325,6 +335,8 @@ func registerListFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("all", false, "Show all tasks including completed")
 	cmd.Flags().Bool("with-actions", false, "Include orchestrator actions with each task")
 	cmd.Flags().Bool("has-rejections", false, "Filter tasks that have rejections")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	cmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 }
 
 // registerCreateFlags adds flags for the task create command.
@@ -346,6 +358,10 @@ func registerCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("path", "", "Alias for --file")
 	_ = cmd.Flags().MarkHidden("filename")
 	_ = cmd.Flags().MarkHidden("path")
+	// E28-F04 REQ-F-012: repeatable --tag flag. Tag must be registered in
+	// the vocabulary (see `shark tags list` / `shark tags add`).
+	cmd.Flags().StringSlice("tag", nil,
+		"Tag to apply (repeatable). Tag must be registered; see 'shark tags list'.")
 }
 
 // registerUpdateFlags adds flags for the task update command.
@@ -358,4 +374,8 @@ func registerUpdateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("filename", "", "New file path (relative to project root)")
 	cmd.Flags().String("depends-on", "", "New comma-separated dependency task keys")
 	cmd.Flags().Int("order", -1, "New execution order (-1=no change)")
+	// E28-F04 REQ-F-012 / REQ-F-010: `--tag` on update is ADDITIVE (no
+	// detach). Use `shark task tag rm` to detach a single tag.
+	cmd.Flags().StringSlice("tag", nil,
+		"Tag to apply additively (repeatable). Empty = no change; use 'shark task tag rm' to detach.")
 }

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -164,6 +165,8 @@ func init() {
 	featureListCmd.Flags().Bool("show-all", false, "Show all features including completed")
 	_ = featureListCmd.Flags().MarkDeprecated("show-all", "use --all instead")
 	featureListCmd.Flags().Bool("all", false, "Show all features including completed")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	featureListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	// Create flags
 	featureCreateCmd.Flags().StringVar(&featureCreateEpic, "epic", "", "Epic key (e.g., E01)")
@@ -213,16 +216,15 @@ func runFeatureList(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	epicFilter, statusFilter, sortBy, showAll, err := parseFeatureListFlags(cmd, args)
+	epicFilter, statusFilter, sortBy, showAll, tagFilter, err := parseFeatureListFlags(cmd, args)
 	if err != nil {
 		cli.Error(fmt.Sprintf("Error: %v", err))
 		os.Exit(1)
 	}
 
-	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll)
+	featuresWithTaskCount, err := fetchFeaturesWithTaskCount(ctx, epicFilter, statusFilter, showAll, tagFilter)
 	if err != nil {
-		handleServiceError(err, "feature", "")
-		return nil
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "feature", "")
 	}
 
 	if len(featuresWithTaskCount) == 0 {
@@ -254,11 +256,18 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	featureKey := args[0]
+	// Use GetFeatureWithTags for tag enrichment (REQ-F-014, REQ-F-015).
 	featureSvc := cli.GetFeatureService()
-	feature, err := featureSvc.GetFeature(ctx, featureKey)
+	feature, tags, err := featureSvc.GetFeatureWithTags(ctx, featureKey)
 	if err != nil {
 		handleServiceError(err, "feature", featureKey)
 		return nil
+	}
+
+	// REQ-F-015: JSON always has a "tags" key, never null.
+	jsonTags := tags
+	if jsonTags == nil {
+		jsonTags = []string{}
 	}
 
 	displaySvc := cli.GetDisplayService()
@@ -271,9 +280,19 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 		}
 		info.ResolvedPath = resolveFeaturePath(ctx, feature)
 		if cli.GlobalConfig.JSON {
-			return cli.OutputJSON(info)
+			// Add "tags" to the planning JSON envelope.
+			infoJSON, marshalErr := json.Marshal(info)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			var infoMap map[string]interface{}
+			if unmarshalErr := json.Unmarshal(infoJSON, &infoMap); unmarshalErr != nil {
+				return unmarshalErr
+			}
+			infoMap["tags"] = jsonTags
+			return cli.OutputJSON(infoMap)
 		}
-		renderFeaturePlanning(info)
+		renderFeaturePlanningWithTags(info, tags)
 		return nil
 	}
 
@@ -285,9 +304,11 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 
 	orchestratorAction := displaySvc.ResolveFeatureAction(ctx, feature)
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(buildFeatureGetJSON(feature, data, orchestratorAction))
+		result := buildFeatureGetJSON(feature, data, orchestratorAction)
+		result["tags"] = jsonTags
+		return cli.OutputJSON(result)
 	}
-	renderFeatureAggregation(feature, data, orchestratorAction)
+	renderFeatureAggregationWithTags(feature, data, orchestratorAction, tags)
 	return nil
 }
 

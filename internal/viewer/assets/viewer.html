@@ -1923,11 +1923,17 @@ async function apiGetHistory(key) {
 /**
  * Fetches all tasks for a feature.
  * @param {string} key - feature key (e.g. "E07-F01")
+ * @param {string[]} [tags] - Optional tag filter (AND semantics, E28-F06 REQ-F-017, AC-12, AC-T3)
  * @returns {Promise<Array|null>} parsed JSON array or null on error
  */
-async function apiGetFeatureTasks(key) {
+async function apiGetFeatureTasks(key, tags) {
   try {
-    const resp = await fetch(`/api/v1/viewer/features/${encodeURIComponent(key)}/tasks`);
+    let url = `/api/v1/viewer/features/${encodeURIComponent(key)}/tasks`;
+    if (tags && tags.length > 0) {
+      const params = tags.map(t => 'tag=' + encodeURIComponent(t)).join('&');
+      url += '?' + params;
+    }
+    const resp = await fetch(url);
     if (!resp.ok) return null;
     return await resp.json();
   } catch {
@@ -2039,18 +2045,52 @@ function renderTagChipsHtml(entity) {
  * activeTagFilter selection and updates treeData/hierarchyData.
  * Called when the user clicks a chip in the filter control.
  * Rebuilds the sidebar and (if on dashboard) re-renders the main pane.
+ *
+ * REQ-F-017 / AC-12: the filter must apply to BOTH the hierarchy AND the
+ * `features/{key}/tasks` list view. When the user is currently viewing a
+ * feature's Overview (whose Tasks table reads from the in-memory hierarchy
+ * `feature.tasks` array), we additionally refetch the feature-tasks endpoint
+ * with the same `?tag=` params and replace the feature's tasks array so the
+ * UAT-T-E28-F06-007 regression — chip toggle not refetching feature tasks —
+ * cannot recur.
+ *
  * @param {string[]} selectedTags - tags to filter by (AC-T3: repeated ?tag= params)
  */
 async function applyTagFilter(selectedTags) {
+  const tagsArg = selectedTags.length > 0 ? selectedTags : undefined;
   let hierarchy;
   try {
-    hierarchy = await apiGetHierarchy(selectedTags.length > 0 ? selectedTags : undefined);
+    hierarchy = await apiGetHierarchy(tagsArg);
   } catch (err) {
     showToast('Failed to apply tag filter', 'error');
     return;
   }
   hierarchyData = hierarchy;
   treeData = Array.isArray(hierarchy?.epics) ? hierarchy.epics : [];
+
+  // REQ-F-017 / AC-12: also refetch the feature-tasks list when a feature is
+  // currently in view, so the `features/{key}/tasks` endpoint is exercised
+  // with the active tag filter (AC-T3: repeated ?tag= params).
+  if (appState === 'entity_view' && selectedKey) {
+    const entity = findEntityByKey(selectedKey);
+    if (entity && entity.type === 'feature') {
+      const tasks = await apiGetFeatureTasks(selectedKey, tagsArg);
+      if (Array.isArray(tasks)) {
+        // Patch the in-memory feature's tasks so renderTasksTableSection picks
+        // up the filtered list. Walk treeData to find the matching feature.
+        for (const epic of treeData) {
+          const features = Array.isArray(epic.features) ? epic.features : [];
+          for (const feature of features) {
+            if (feature.key === selectedKey) {
+              feature.tasks = tasks;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
   render();
 }
 

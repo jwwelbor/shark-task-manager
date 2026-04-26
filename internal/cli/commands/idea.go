@@ -14,6 +14,26 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ideaGetServicer defines the narrow interface used by runIdeaGet.
+// Allows tests to inject a mock without touching the global CLI layer.
+type ideaGetServicer interface {
+	GetIdea(ctx context.Context, key string) (*models.Idea, error)
+	// GetIdeaWithTags returns the idea and sorted attached tag names (REQ-F-014).
+	// When TagService is nil or unavailable, tags will be nil (graceful degradation).
+	GetIdeaWithTags(ctx context.Context, key string) (*models.Idea, []string, error)
+}
+
+// ideaGetSvcOverride is non-nil only during tests.
+var ideaGetSvcOverride ideaGetServicer
+
+// getIdeaGetService returns the service to use for runIdeaGet, preferring the test override.
+func getIdeaGetService() ideaGetServicer {
+	if ideaGetSvcOverride != nil {
+		return ideaGetSvcOverride
+	}
+	return cli.GetIdeaService()
+}
+
 // ideaCmd represents the idea command group
 var ideaCmd = &cobra.Command{
 	Use:     "idea",
@@ -241,6 +261,8 @@ func init() {
 	// List command flags
 	ideaListCmd.Flags().StringVar(&ideaStatus, "status", "", "Filter by status (new, on_hold, converted, archived)")
 	ideaListCmd.Flags().IntVar(&ideaPriority, "priority", 0, "Filter by priority (1-10)")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	ideaListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	// Create command flags
 	ideaCreateCmd.Flags().StringVar(&ideaDescription, "description", "", "Idea description")
@@ -280,11 +302,15 @@ func init() {
 // runIdeaList handles the idea list command
 func runIdeaList(cmd *cobra.Command, args []string) error {
 	filters := services.IdeaFilters{Status: ideaStatus}
+	// E28-F05 REQ-F-010: read the repeatable --tag flag; nil when absent (AC-T2).
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		filters.Tags = rawTags
+	}
 
 	svc := cli.GetIdeaService()
 	ideas, err := svc.ListIdeas(cmd.Context(), filters)
 	if err != nil {
-		return fmt.Errorf("failed to list ideas: %w", err)
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "idea", "")
 	}
 
 	ideas = filterIdeasByPriorityAndStatus(ideas, ideaPriority, ideaStatus)
@@ -299,16 +325,31 @@ func runIdeaList(cmd *cobra.Command, args []string) error {
 func runIdeaGet(cmd *cobra.Command, args []string) error {
 	ideaKey := args[0]
 
-	svc := cli.GetIdeaService()
-	idea, err := svc.GetIdea(cmd.Context(), ideaKey)
+	// Use GetIdeaWithTags for tag enrichment (REQ-F-014, REQ-F-015).
+	svc := getIdeaGetService()
+	idea, tags, err := svc.GetIdeaWithTags(cmd.Context(), ideaKey)
 	if err != nil {
 		return fmt.Errorf("failed to get idea: %w", err)
 	}
 
 	if cli.GlobalConfig.JSON {
-		return cli.OutputJSON(idea)
+		// REQ-F-015: "tags" field always present, never null.
+		if tags == nil {
+			tags = []string{}
+		}
+		// Build result with tags injected.
+		ideaJSON, jsonErr := json.Marshal(idea)
+		if jsonErr != nil {
+			return fmt.Errorf("failed to marshal idea: %w", jsonErr)
+		}
+		var result map[string]interface{}
+		if jsonErr = json.Unmarshal(ideaJSON, &result); jsonErr != nil {
+			return fmt.Errorf("failed to unmarshal idea: %w", jsonErr)
+		}
+		result["tags"] = tags
+		return cli.OutputJSON(result)
 	}
-	return printIdeaDetail(idea)
+	return printIdeaDetailWithTags(idea, tags)
 }
 
 // runIdeaCreate handles the idea create command
@@ -698,8 +739,9 @@ func printIdeaList(ideas []*models.Idea) error {
 	return nil
 }
 
-// printIdeaDetail prints detailed idea information.
-func printIdeaDetail(idea *models.Idea) error {
+// printIdeaDetailWithTags prints detailed idea information including the tag line.
+// tags==nil means tagSvc unavailable (no Tags line). Empty slice renders "Tags: (none)".
+func printIdeaDetailWithTags(idea *models.Idea, tags []string) error {
 	fmt.Printf("Idea: %s\n", idea.Key)
 	fmt.Printf("Title: %s\n", idea.Title)
 	fmt.Printf("Status: %s\n", idea.Status)
@@ -731,6 +773,14 @@ func printIdeaDetail(idea *models.Idea) error {
 	}
 	fmt.Printf("Created: %s\n", idea.CreatedDate.Format("2006-01-02 15:04:05"))
 	fmt.Printf("Updated: %s\n", idea.UpdatedAt.Format("2006-01-02 15:04:05"))
+	// REQ-F-015: render tags when available. nil means tagSvc unavailable — omit.
+	if tags != nil {
+		if len(tags) == 0 {
+			fmt.Println("Tags: (none)")
+		} else {
+			fmt.Printf("Tags: %s\n", strings.Join(tags, ", "))
+		}
+	}
 	return nil
 }
 

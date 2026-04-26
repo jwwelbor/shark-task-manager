@@ -18,6 +18,9 @@ import (
 type changeCardServicer interface {
 	CreateChangeCard(ctx context.Context, input services.CreateChangeCardInput) (*models.ChangeCard, error)
 	GetChangeCard(ctx context.Context, key string) (*models.ChangeCard, error)
+	// GetChangeCardWithTags returns the change-card along with sorted tag names (REQ-F-014).
+	// When TagService is nil or unavailable, tags will be nil (graceful degradation).
+	GetChangeCardWithTags(ctx context.Context, key string) (*models.ChangeCard, []string, error)
 	ListChangeCards(ctx context.Context, filters services.ChangeCardFilters) ([]*models.ChangeCard, error)
 	UpdateChangeCard(ctx context.Context, key string, updates services.ChangeCardUpdates) (*models.ChangeCard, error)
 	DeleteChangeCard(ctx context.Context, key string) error
@@ -227,6 +230,8 @@ func init() {
 	changeListCmd.Flags().StringVar(&changeStatusFilter, "status", "", "Filter by status (proposed, approved, in_progress, completed, declined)")
 	changeListCmd.Flags().StringVar(&changeLinkFilter, "link", "", "Filter by linked entity key (E## or E##-F##)")
 	changeListCmd.Flags().Bool("all", false, "Show all change-cards including terminal statuses (completed, declined)")
+	// E28-F05 REQ-F-010 / REQ-F-018: repeatable --tag flag with AND semantics.
+	changeListCmd.Flags().StringSlice("tag", nil, "Filter by tag (repeatable; AND — all tags must match).")
 
 	// Update flags
 	changeUpdateCmd.Flags().StringVar(&changeTitle, "title", "", "New title")
@@ -285,9 +290,9 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	ctx := cmd.Context()
 
-	// Step 2: Call service
+	// Step 2: Call service — use GetChangeCardWithTags for tag enrichment (REQ-F-014, REQ-F-015).
 	svc := getChangeCardService()
-	card, err := svc.GetChangeCard(ctx, key)
+	card, tags, err := svc.GetChangeCardWithTags(ctx, key)
 	if err != nil {
 		return fmt.Errorf("change-card %s not found: %w", key, err)
 	}
@@ -319,14 +324,21 @@ func runChangeGet(cmd *cobra.Command, args []string) error {
 		if contextData != nil {
 			result["context_data"] = contextData
 		}
+		// REQ-F-015: "tags" field always present, never null.
+		if tags == nil {
+			tags = []string{}
+		}
+		result["tags"] = tags
 		return cli.OutputJSON(result)
 	}
 
+	basicInfo := buildChangeCardBasicInfo(card)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "change-card",
 		Key:                card.Key,
 		Status:             string(card.Status),
-		BasicInfo:          buildChangeCardBasicInfo(card),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   validTransitions,
 		OrchestratorAction: orchestratorAction,
 		Notes:              notes,
@@ -351,12 +363,16 @@ func runChangeList(cmd *cobra.Command, args []string) error {
 			filters.EpicKey = changeLinkFilter
 		}
 	}
+	// E28-F05 REQ-F-010: read the repeatable --tag flag; nil when absent (AC-T2).
+	if rawTags, tagErr := cmd.Flags().GetStringSlice("tag"); tagErr == nil && len(rawTags) > 0 {
+		filters.Tags = rawTags
+	}
 
 	// Step 2: Call service
 	svc := getChangeCardService()
 	cards, err := svc.ListChangeCards(cmd.Context(), filters)
 	if err != nil {
-		return fmt.Errorf("failed to list change-cards: %w", err)
+		return handleEntityServiceError(cmd, cli.GetTagService(), err, "change", "")
 	}
 
 	// Step 3: Format output

@@ -29,8 +29,12 @@ type SearchResult struct {
 
 // EntitySearchResult represents a cross-entity search result.
 // Severity is populated only for bugs; omitted for all other entity types.
+// ID is the primary-key of the matched entity in its source table. It is
+// guaranteed to be non-zero for every row returned by SearchAll. The field
+// is required by the tag post-filter in the search service (REQ-F-012).
 type EntitySearchResult struct {
 	EntityType string `json:"entity_type"`
+	ID         int64  `json:"id,omitempty"`
 	Key        string `json:"key"`
 	Title      string `json:"title"`
 	Status     string `json:"status"`
@@ -49,42 +53,44 @@ func (r *SearchRepository) SearchAll(ctx context.Context, query string, entityTy
 
 	pattern := "%" + query + "%"
 
-	// UNION query across all entity tables. Column order: entity_type, key, title, status, severity.
+	// UNION query across all entity tables. Column order: entity_type, id, key, title, status, severity.
+	// The id column is the primary-key of the matched entity (REQ-F-012) and is required by the
+	// tag post-filter in the search service.
 	unionSQL := `
-		SELECT 'epic'    AS entity_type, key, title, status, '' AS severity
+		SELECT 'epic'    AS entity_type, id, key, title, status, '' AS severity
 		FROM epics
 		WHERE title LIKE ? OR key LIKE ?
 
 		UNION ALL
 
-		SELECT 'feature' AS entity_type, key, title, status, '' AS severity
+		SELECT 'feature' AS entity_type, id, key, title, status, '' AS severity
 		FROM features
 		WHERE title LIKE ? OR key LIKE ?
 
 		UNION ALL
 
-		SELECT 'task'    AS entity_type, key, title, status, '' AS severity
+		SELECT 'task'    AS entity_type, id, key, title, status, '' AS severity
 		FROM tasks
 		WHERE title LIKE ? OR key LIKE ?
 		   OR COALESCE(description, '') LIKE ?
 
 		UNION ALL
 
-		SELECT 'bug'     AS entity_type, key, title, CAST(status AS TEXT), CAST(severity AS TEXT) AS severity
+		SELECT 'bug'     AS entity_type, id, key, title, CAST(status AS TEXT), CAST(severity AS TEXT) AS severity
 		FROM bugs
 		WHERE title LIKE ? OR key LIKE ?
 		   OR COALESCE(description, '') LIKE ?
 
 		UNION ALL
 
-		SELECT 'change'  AS entity_type, key, title, CAST(status AS TEXT), '' AS severity
+		SELECT 'change'  AS entity_type, id, key, title, CAST(status AS TEXT), '' AS severity
 		FROM change_cards
 		WHERE title LIKE ? OR key LIKE ?
 		   OR COALESCE(description, '') LIKE ?
 
 		UNION ALL
 
-		SELECT 'tech_debt' AS entity_type, key, title, CAST(status AS TEXT), CAST(category AS TEXT) AS severity
+		SELECT 'tech_debt' AS entity_type, id, key, title, CAST(status AS TEXT), CAST(category AS TEXT) AS severity
 		FROM tech_debts
 		WHERE title LIKE ? OR key LIKE ?
 		   OR COALESCE(description, '') LIKE ?
@@ -110,7 +116,7 @@ func (r *SearchRepository) SearchAll(ctx context.Context, query string, entityTy
 	var results []*EntitySearchResult
 	for rows.Next() {
 		res := &EntitySearchResult{}
-		if err := rows.Scan(&res.EntityType, &res.Key, &res.Title, &res.Status, &res.Severity); err != nil {
+		if err := rows.Scan(&res.EntityType, &res.ID, &res.Key, &res.Title, &res.Status, &res.Severity); err != nil {
 			return nil, fmt.Errorf("failed to scan search result: %w", err)
 		}
 

@@ -86,6 +86,23 @@ Commands for creating, updating, and organizing entities.
 
 **Reference:** [Core Commands](core-commands.md) | [Context Commands](context-commands.md) | [Discovery Commands](discovery-commands.md)
 
+### Vocabulary
+
+Commands for managing the closed tag vocabulary and applying registered tags to entities.
+
+| Command | Description | Reference |
+|---------|-------------|-----------|
+| `shark tags list` | List all registered tag names | [Tags](tags.md) |
+| `shark tags add <name>` | Register a new tag name (auth required) | [Tags](tags.md) |
+| `shark tags rm <name>` | Remove a tag from the vocabulary (auth required) | [Tags](tags.md) |
+| `shark tags rename <old> <new>` | Rename a tag across all entities (auth required) | [Tags](tags.md) |
+| `shark <entity> tag add <key> <name>` | Retroactively attach a tag to an existing entity (task, feature, epic, bug, change, idea) | [Tags](tags.md#retroactive-tagging-shark-entity-tag-addrm) |
+| `shark <entity> tag rm <key> <name>` | Retroactively detach a tag from an existing entity | [Tags](tags.md#retroactive-tagging-shark-entity-tag-addrm) |
+
+All six `create` and `update` commands also accept a repeatable `--tag <name>` flag. See [Applying Tags During Create/Update](tags.md#applying-tags-during-createupdate). Tags can be made mandatory on creation per entity type via the [`tag_required_for`](configuration.md#tag_required_for) config field.
+
+**Reference:** [Tags Commands](tags.md)
+
 ### Advanced
 
 Full entity-specific subcommands, analytics, and administrative tools.
@@ -98,13 +115,16 @@ Full entity-specific subcommands, analytics, and administrative tools.
 
 #### Entity Commands
 
+All six entity families support the `--tag <name>` repeatable flag on `create` and `update`, plus a `tag add|rm <key> <name>` subcommand for retroactive tagging. See [Tags](tags.md).
+
 | Entity | Subcommands | Reference |
 |--------|-------------|-----------|
-| `shark task` | 19 subcommands (create, get, list, update, delete, next-status, set-status, approve, reopen, deps, note, ...) | [Task Commands](task-commands.md) |
-| `shark feature` | 13 subcommands (create, get, list, complete, context, note, ...) | [Feature Commands](feature-commands.md) |
-| `shark epic` | 14 subcommands (create, get, list, complete, context, note, status, ...) | [Epic Commands](epic-commands.md) |
-| `shark bug` | 10 subcommands (create, get, list, update, delete, triage, note, notes, context) | [Bug Commands](bug-commands.md) |
-| `shark change` | 10 subcommands (create, get, list, update, delete, approve, note, notes, context) | [Change Commands](change-commands.md) |
+| `shark task` | 20 subcommands (create, get, list, update, delete, next-status, set-status, tag, context, deps, blocked-by, blocks, history, link, note, notes, timeline, resume, sessions, unlink) | [Task Commands](task-commands.md) |
+| `shark feature` | 13 subcommands (create, get, list, complete, context, note, tag, ...) | [Feature Commands](feature-commands.md) |
+| `shark epic` | 14 subcommands (create, get, list, complete, context, note, status, tag, ...) | [Epic Commands](epic-commands.md) |
+| `shark bug` | 10 subcommands (create, get, list, update, delete, triage, note, notes, context, tag) | [Bug Commands](bug-commands.md) |
+| `shark change` | 10 subcommands (create, get, list, update, delete, approve, note, notes, context, tag) | [Change Commands](change-commands.md) |
+| `shark idea` | 7 subcommands (create, get, list, update, delete, convert, tag) | [Idea Commands](idea-commands.md) |
 
 **Note:** `shark task update`, `shark feature update`, `shark epic update`, `shark bug update`, and `shark change update` do not accept `--status`. Use `shark status set <key> <status>` instead.
 

@@ -38,6 +38,11 @@ type MockViewerServicer struct {
 	NotesFunc          func(ctx context.Context, key string) (*services.NotesResponse, error)
 	RelatedDocsFunc    func(ctx context.Context, key string) (*services.RelatedDocsResponse, error)
 	TagsFunc           func(ctx context.Context) (*services.TagsResponse, error) // NEW F06
+
+	// TagsCallCount counts invocations of Tags() so security regression tests can
+	// assert that non-GET methods on /api/v1/viewer/tags never reach the service
+	// (TC-AC03-5, AC-T2). Read directly in tests; the mock is single-goroutine.
+	TagsCallCount int
 }
 
 func (m *MockViewerServicer) Summary(ctx context.Context) (*services.SummaryResponse, error) {
@@ -118,6 +123,7 @@ func (m *MockViewerServicer) RelatedDocs(ctx context.Context, key string) (*serv
 }
 
 func (m *MockViewerServicer) Tags(ctx context.Context) (*services.TagsResponse, error) {
+	m.TagsCallCount++
 	if m.TagsFunc != nil {
 		return m.TagsFunc(ctx)
 	}
@@ -347,6 +353,192 @@ func TestHandler_Hierarchy(t *testing.T) {
 		assertJSON(t, rec, &errResp)
 		if errResp["error"] == "" {
 			t.Error("TC-H-012: expected non-empty error field in response")
+		}
+	})
+}
+
+// ----- T-E28-F06-005: tag filter on GET /hierarchy -----
+//
+// These tests cover the UAT-rejected gap on T-E28-F06-005: the handler-side
+// tag-parsing and unregistered-tag error path on /api/v1/viewer/hierarchy.
+//
+// Spec: REQ-F-009, REQ-F-011, REQ-NF-005, AC-08
+// Test plan: TC-AC08-1, TC-AC08-2, TC-AC08-3, TC-AC08-4; IS-3
+// Task ACs: AC-T1, AC-T2, AC-T3, AC-T5
+//
+// The mock captures the HierarchyOptions it received via a closure variable so
+// each test can assert exactly what the handler forwarded. parseTagsQuery()
+// in handler.go is exercised end-to-end via the URL — no direct unit-test
+// shortcut, matching the test-plan's "handler layer" requirement.
+func TestHandler_Hierarchy_Tags(t *testing.T) {
+	// Helper: returns a mock that captures opts in *captured and returns an
+	// empty hierarchy on success. Lets each subtest focus on the assertion.
+	makeCaptureMock := func(captured *services.HierarchyOptions) *MockViewerServicer {
+		return &MockViewerServicer{
+			HierarchyFunc: func(_ context.Context, opts services.HierarchyOptions) (*services.HierarchyResponse, error) {
+				*captured = opts
+				return &services.HierarchyResponse{Epics: []*services.HierarchyEpic{}}, nil
+			},
+		}
+	}
+
+	// TC-AC08-1 / AC-T1: ?tag=voice → service receives Tags=["voice"].
+	// Handler must NOT lowercase or otherwise normalize — that is REQ-NF-005's
+	// service-side responsibility.
+	t.Run("TC-AC08-1_single_tag_forwarded", func(t *testing.T) {
+		var got services.HierarchyOptions
+		mock := makeCaptureMock(&got)
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/hierarchy?tag=voice", newTestMux(mock))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-AC08-1: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		if len(got.Tags) != 1 || got.Tags[0] != "voice" {
+			t.Errorf("TC-AC08-1: expected opts.Tags=[\"voice\"], got %#v", got.Tags)
+		}
+	})
+
+	// TC-AC08-2 / AC-T2 / IS-3: blanks-and-whitespace handling.
+	// `?tag=&tag=voice&tag=%20%20` — empty + valid + whitespace-only.
+	// Per REQ-F-009/REQ-NF-005: handler trims and drops empty-after-trim, but
+	// does NOT case-normalize. So the service should receive exactly ["voice"].
+	t.Run("TC-AC08-2_blanks_and_whitespace_dropped", func(t *testing.T) {
+		var got services.HierarchyOptions
+		mock := makeCaptureMock(&got)
+		// %20%20 is two spaces — they must be trimmed away to "" and dropped.
+		rec := makeRequest(
+			http.MethodGet,
+			"/api/v1/viewer/hierarchy?tag=&tag=voice&tag=%20%20",
+			newTestMux(mock),
+		)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-AC08-2: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		if len(got.Tags) != 1 || got.Tags[0] != "voice" {
+			t.Errorf("TC-AC08-2: expected opts.Tags=[\"voice\"] after blanks dropped, got %#v", got.Tags)
+		}
+	})
+
+	// IS-3 (focused): tab-only and multi-space tag values are also dropped.
+	// Adds explicit coverage for the whitespace-trim contract of parseTagsQuery
+	// beyond the simple two-space case.
+	t.Run("IS-3_tab_and_mixed_whitespace_dropped", func(t *testing.T) {
+		var got services.HierarchyOptions
+		mock := makeCaptureMock(&got)
+		// %09 = tab, %20%20%20 = three spaces. Both must be dropped.
+		rec := makeRequest(
+			http.MethodGet,
+			"/api/v1/viewer/hierarchy?tag=%09&tag=%20%20%20",
+			newTestMux(mock),
+		)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("IS-3: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		if len(got.Tags) != 0 {
+			t.Errorf("IS-3: expected opts.Tags=[] after whitespace-only inputs, got %#v", got.Tags)
+		}
+	})
+
+	// TC-AC08-3 / AC-T3 (positive): unregistered tag → 400 with
+	// `unregistered_tags` array body.
+	// Note: the spec example AC-08 shows the message coming from
+	// UnregisteredTagError.Error() (e.g. "tag is not registered: ..."). We
+	// assert the structural contract: 400 + non-empty error/message + the
+	// offending name appears in unregistered_tags. We deliberately do NOT
+	// hard-code the exact message string so a future Error() format tweak
+	// does not break this test.
+	t.Run("TC-AC08-3_unregistered_tag_returns_400", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			HierarchyFunc: func(_ context.Context, opts services.HierarchyOptions) (*services.HierarchyResponse, error) {
+				// Sanity: handler did forward the tag.
+				if len(opts.Tags) != 1 || opts.Tags[0] != "does-not-exist" {
+					t.Errorf("TC-AC08-3: expected opts.Tags=[\"does-not-exist\"], got %#v", opts.Tags)
+				}
+				return nil, &services.UnregisteredTagError{Name: "does-not-exist"}
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/hierarchy?tag=does-not-exist", newTestMux(mock))
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("TC-AC08-3: expected 400, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		assertContentTypeJSON(t, rec)
+
+		// Body must include `unregistered_tags` containing "does-not-exist".
+		var body struct {
+			Error            string   `json:"error"`
+			Message          string   `json:"message"`
+			UnregisteredTags []string `json:"unregistered_tags"`
+		}
+		assertJSON(t, rec, &body)
+		if body.Error == "" {
+			t.Error("TC-AC08-3: expected non-empty error field")
+		}
+		if body.Message == "" {
+			t.Error("TC-AC08-3: expected non-empty message field")
+		}
+		if len(body.UnregisteredTags) != 1 || body.UnregisteredTags[0] != "does-not-exist" {
+			t.Errorf("TC-AC08-3: expected unregistered_tags=[\"does-not-exist\"], got %#v", body.UnregisteredTags)
+		}
+	})
+
+	// TC-AC08-3 (errors.As wrapping): the handler uses errors.As, so a wrapped
+	// UnregisteredTagError must still produce 400 (not 500). Guards against a
+	// future refactor that swaps errors.As for a type-assertion or `==` check.
+	t.Run("TC-AC08-3b_wrapped_unregistered_tag_still_400", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			HierarchyFunc: func(_ context.Context, _ services.HierarchyOptions) (*services.HierarchyResponse, error) {
+				return nil, fmt.Errorf("hierarchy failed: %w", &services.UnregisteredTagError{Name: "ghost"})
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/hierarchy?tag=ghost", newTestMux(mock))
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("TC-AC08-3b: expected 400 from wrapped UnregisteredTagError, got %d; body: %s",
+				rec.Code, rec.Body.String())
+		}
+		var body struct {
+			UnregisteredTags []string `json:"unregistered_tags"`
+		}
+		assertJSON(t, rec, &body)
+		if len(body.UnregisteredTags) != 1 || body.UnregisteredTags[0] != "ghost" {
+			t.Errorf("TC-AC08-3b: expected unregistered_tags=[\"ghost\"], got %#v", body.UnregisteredTags)
+		}
+	})
+
+	// TC-AC08-4 / AC-T3 (regression): generic (non-tag) errors must still go
+	// to 500. This guards the existing TC-H-012 path while the tag branch was
+	// added; ensures the new errors.As check did not accidentally swallow
+	// other errors into 400.
+	t.Run("TC-AC08-4_generic_error_still_500", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			HierarchyFunc: func(_ context.Context, _ services.HierarchyOptions) (*services.HierarchyResponse, error) {
+				return nil, fmt.Errorf("db connection lost")
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/hierarchy?tag=voice", newTestMux(mock))
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("TC-AC08-4: expected 500 for generic error, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	// AC-T5: HierarchyFunc signature must accept HierarchyOptions. This is
+	// already enforced at compile time by the mock definition — we add a
+	// no-tag request to confirm the zero-value HierarchyOptions{} path still
+	// works (existing TC-H-010 behavior must not regress).
+	t.Run("AC-T5_zero_options_path_unchanged", func(t *testing.T) {
+		var got services.HierarchyOptions
+		mock := makeCaptureMock(&got)
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/hierarchy", newTestMux(mock))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("AC-T5: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		if len(got.Tags) != 0 {
+			t.Errorf("AC-T5: expected opts.Tags to be empty (no ?tag=), got %#v", got.Tags)
 		}
 	})
 }
@@ -814,6 +1006,197 @@ func TestHandler_FeatureTasks(t *testing.T) {
 		// Default limit for FeatureTasks is 200 (parseIntClamp default)
 		if capturedLimit != 200 {
 			t.Errorf("TC-H-046: expected default opts.Limit=200, got %d", capturedLimit)
+		}
+	})
+}
+
+// ----- T-E28-F06-005: tag filter on GET /features/{key}/tasks -----
+//
+// These tests cover the UAT-rejected gap on T-E28-F06-005: the handler-side
+// tag-parsing, unregistered-tag error path, and 400-vs-404 ordering on
+// /api/v1/viewer/features/{key}/tasks.
+//
+// Spec: REQ-F-009, REQ-F-012, REQ-NF-005, AC-09, AC-10
+// Test plan: TC-AC10-1, TC-AC10-2, TC-AC10-3, TC-AC10-4
+// Task ACs: AC-T1, AC-T4
+//
+// The mock captures opts via a closure variable so each test can assert
+// exactly what the handler forwarded.
+func TestHandler_FeatureTasks_Tags(t *testing.T) {
+	// TC-AC10-4 / AC-T1: ?tag=voice happy path → 200, opts.Tags=["voice"].
+	t.Run("TC-AC10-4_single_tag_forwarded", func(t *testing.T) {
+		var got services.FeatureTaskOptions
+		mock := &MockViewerServicer{
+			FeatureTasksFunc: func(_ context.Context, featureKey string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error) {
+				got = opts
+				return &services.FeatureTasksResponse{
+					FeatureKey: featureKey,
+					Total:      0,
+					Tasks:      []*services.ViewerTask{},
+				}, nil
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/features/E01-F01/tasks?tag=voice", newTestMux(mock))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-AC10-4: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		if len(got.Tags) != 1 || got.Tags[0] != "voice" {
+			t.Errorf("TC-AC10-4: expected opts.Tags=[\"voice\"], got %#v", got.Tags)
+		}
+	})
+
+	// TC-AC10-4 (multi-tag + whitespace, IS-3): repeated/blank/whitespace
+	// values must be trimmed and de-empty before reaching the service.
+	t.Run("TC-AC10-4b_multi_tag_blanks_dropped", func(t *testing.T) {
+		var got services.FeatureTaskOptions
+		mock := &MockViewerServicer{
+			FeatureTasksFunc: func(_ context.Context, featureKey string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error) {
+				got = opts
+				return &services.FeatureTasksResponse{
+					FeatureKey: featureKey,
+					Total:      0,
+					Tasks:      []*services.ViewerTask{},
+				}, nil
+			},
+		}
+		rec := makeRequest(
+			http.MethodGet,
+			"/api/v1/viewer/features/E01-F01/tasks?tag=voice&tag=&tag=auth&tag=%20%20",
+			newTestMux(mock),
+		)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-AC10-4b: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		if len(got.Tags) != 2 || got.Tags[0] != "voice" || got.Tags[1] != "auth" {
+			t.Errorf("TC-AC10-4b: expected opts.Tags=[\"voice\",\"auth\"] after blanks dropped, got %#v", got.Tags)
+		}
+	})
+
+	// TC-AC10-1 / AC-T4: feature exists + tag is unregistered → 400 with
+	// `unregistered_tags` array body. The 400 path comes from the service's
+	// *UnregisteredTagError.
+	t.Run("TC-AC10-1_feature_found_unregistered_tag_returns_400", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			FeatureTasksFunc: func(_ context.Context, _ string, opts services.FeatureTaskOptions) (*services.FeatureTasksResponse, error) {
+				if len(opts.Tags) != 1 || opts.Tags[0] != "does-not-exist" {
+					t.Errorf("TC-AC10-1: expected opts.Tags=[\"does-not-exist\"], got %#v", opts.Tags)
+				}
+				return nil, &services.UnregisteredTagError{Name: "does-not-exist"}
+			},
+		}
+		rec := makeRequest(
+			http.MethodGet,
+			"/api/v1/viewer/features/E01-F01/tasks?tag=does-not-exist",
+			newTestMux(mock),
+		)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("TC-AC10-1: expected 400, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		assertContentTypeJSON(t, rec)
+
+		var body struct {
+			Error            string   `json:"error"`
+			Message          string   `json:"message"`
+			UnregisteredTags []string `json:"unregistered_tags"`
+		}
+		assertJSON(t, rec, &body)
+		if body.Error == "" {
+			t.Error("TC-AC10-1: expected non-empty error field")
+		}
+		if len(body.UnregisteredTags) != 1 || body.UnregisteredTags[0] != "does-not-exist" {
+			t.Errorf("TC-AC10-1: expected unregistered_tags=[\"does-not-exist\"], got %#v", body.UnregisteredTags)
+		}
+	})
+
+	// TC-AC10-2 / AC-T4: feature missing → 404, regardless of tag value.
+	// Service returns a "feature not found" error; isNotFound() must catch it
+	// before the tag-error path.
+	t.Run("TC-AC10-2_feature_missing_returns_404_with_tag", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			FeatureTasksFunc: func(_ context.Context, featureKey string, _ services.FeatureTaskOptions) (*services.FeatureTasksResponse, error) {
+				return nil, fmt.Errorf("feature not found: %s", featureKey)
+			},
+		}
+		rec := makeRequest(
+			http.MethodGet,
+			"/api/v1/viewer/features/E99-F99/tasks?tag=voice",
+			newTestMux(mock),
+		)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("TC-AC10-2: expected 404 even when ?tag= present, got %d; body: %s",
+				rec.Code, rec.Body.String())
+		}
+	})
+
+	// TC-AC10-3 / AC-T4 (precedence): when the service returns a feature-not-
+	// found error, that 404 must take precedence over any tag-validation
+	// outcome. The spec says "the feature lookup happens first" (REQ-F-012).
+	//
+	// We model this by having the service return the not-found error even
+	// though the tag is also unregistered in the underlying vocabulary; the
+	// handler's job is simply to translate the error it actually receives.
+	// 404 must win — and the response body must NOT contain unregistered_tags.
+	t.Run("TC-AC10-3_feature_not_found_precedence_over_tag", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			FeatureTasksFunc: func(_ context.Context, featureKey string, _ services.FeatureTaskOptions) (*services.FeatureTasksResponse, error) {
+				// Service decided feature lookup failed first. The
+				// UnregisteredTagError path is NOT triggered here, mirroring
+				// REQ-F-012's "feature lookup first" ordering.
+				return nil, fmt.Errorf("feature not found: %s", featureKey)
+			},
+		}
+		rec := makeRequest(
+			http.MethodGet,
+			"/api/v1/viewer/features/E99-F99/tasks?tag=does-not-exist",
+			newTestMux(mock),
+		)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("TC-AC10-3: expected 404 (not 400), got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		// Confirm the 404 body does NOT carry tag-error fields.
+		var body struct {
+			UnregisteredTags []string `json:"unregistered_tags"`
+		}
+		// Use a tolerant decode — the 404 body has no unregistered_tags key,
+		// so the slice must remain nil/empty.
+		_ = json.NewDecoder(rec.Body).Decode(&body)
+		if len(body.UnregisteredTags) != 0 {
+			t.Errorf("TC-AC10-3: 404 response must not include unregistered_tags, got %#v",
+				body.UnregisteredTags)
+		}
+	})
+
+	// TC-AC10-1 (errors.As wrapping, FeatureTasks branch): wrapped
+	// UnregisteredTagError must still produce 400. Mirrors the Hierarchy
+	// wrapping test; both handler branches use errors.As.
+	t.Run("TC-AC10-1b_wrapped_unregistered_tag_still_400", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			FeatureTasksFunc: func(_ context.Context, _ string, _ services.FeatureTaskOptions) (*services.FeatureTasksResponse, error) {
+				return nil, fmt.Errorf("feature tasks failed: %w",
+					&services.UnregisteredTagError{Name: "ghost"})
+			},
+		}
+		rec := makeRequest(
+			http.MethodGet,
+			"/api/v1/viewer/features/E01-F01/tasks?tag=ghost",
+			newTestMux(mock),
+		)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("TC-AC10-1b: expected 400 from wrapped UnregisteredTagError, got %d; body: %s",
+				rec.Code, rec.Body.String())
+		}
+		var body struct {
+			UnregisteredTags []string `json:"unregistered_tags"`
+		}
+		assertJSON(t, rec, &body)
+		if len(body.UnregisteredTags) != 1 || body.UnregisteredTags[0] != "ghost" {
+			t.Errorf("TC-AC10-1b: expected unregistered_tags=[\"ghost\"], got %#v", body.UnregisteredTags)
 		}
 	})
 }
@@ -1470,5 +1853,201 @@ func TestViewerHandler_RelatedDocs_NotFound(t *testing.T) {
 	rec := makeRequest(http.MethodGet, "/api/v1/viewer/related-docs/E27-F09", mux)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rec.Code)
+	}
+}
+
+// ----- T-E28-F06-004: GET /api/v1/viewer/tags -----
+// Covers AC-T1 (happy path GET), AC-T2 (non-GET methods are rejected and the
+// service is never called), AC-T3 (service error → 500), and the test-plan
+// cases TC-AC01-2, TC-AC02-2, TC-AC03-1..5, TC-AC14-6.
+//
+// These tests are the regression tripwire for REQ-F-013 (the viewer API MUST
+// NOT expose any tag write endpoint) and AC-03 / REQ-NF-012 from the F06
+// spec. They were missing in the original implementation; UAT 2026-04-25
+// rejected the task because no test invoked the /tags route at all.
+
+func TestHandler_Tags(t *testing.T) {
+	// TC-AC01-2 / TC-AC14-6: Happy path — empty vocabulary → 200 + {"tags":[]}.
+	// AC-T1: Tags array MUST be a JSON array (not null) when empty.
+	t.Run("TC-AC01-2_happy_path_empty_vocabulary", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			TagsFunc: func(_ context.Context) (*services.TagsResponse, error) {
+				return &services.TagsResponse{Tags: []services.TagDTO{}}, nil
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/tags", newTestMux(mock))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-AC01-2: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		assertContentTypeJSON(t, rec)
+
+		// Raw-string check guards against the `null` regression: if Tags were
+		// serialized as nil instead of [] the body would be {"tags":null}.
+		body := strings.TrimSpace(rec.Body.String())
+		if body != `{"tags":[]}` {
+			t.Errorf("TC-AC01-2: expected body %q, got %q", `{"tags":[]}`, body)
+		}
+
+		// Belt-and-suspenders: also decode and check structurally.
+		var decoded struct {
+			Tags []services.TagDTO `json:"tags"`
+		}
+		assertJSON(t, rec, &decoded)
+		if decoded.Tags == nil {
+			t.Error("TC-AC01-2: tags field decoded as nil; expected non-nil empty slice")
+		}
+		if len(decoded.Tags) != 0 {
+			t.Errorf("TC-AC01-2: expected 0 tags, got %d", len(decoded.Tags))
+		}
+	})
+
+	// TC-AC02-2: Happy path — populated vocabulary.
+	t.Run("TC-AC02-2_happy_path_populated_vocabulary", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			TagsFunc: func(_ context.Context) (*services.TagsResponse, error) {
+				return &services.TagsResponse{
+					Tags: []services.TagDTO{
+						{Name: "auth"},
+						{Name: "voice"},
+					},
+				}, nil
+			},
+		}
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/tags", newTestMux(mock))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("TC-AC02-2: expected 200, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		assertContentTypeJSON(t, rec)
+
+		var decoded struct {
+			Tags []services.TagDTO `json:"tags"`
+		}
+		assertJSON(t, rec, &decoded)
+		if len(decoded.Tags) != 2 {
+			t.Fatalf("TC-AC02-2: expected 2 tags, got %d", len(decoded.Tags))
+		}
+		if decoded.Tags[0].Name != "auth" || decoded.Tags[1].Name != "voice" {
+			t.Errorf("TC-AC02-2: unexpected tag order/values: %+v", decoded.Tags)
+		}
+	})
+
+	// AC-T3: Service error → 500, no panic.
+	t.Run("AC-T3_service_error_500", func(t *testing.T) {
+		mock := &MockViewerServicer{
+			TagsFunc: func(_ context.Context) (*services.TagsResponse, error) {
+				return nil, fmt.Errorf("tag repository unavailable")
+			},
+		}
+
+		// Defer-recover sanity check: handler must not panic on service error.
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("AC-T3: handler panicked on service error: %v", r)
+			}
+		}()
+
+		rec := makeRequest(http.MethodGet, "/api/v1/viewer/tags", newTestMux(mock))
+
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("AC-T3: expected 500, got %d; body: %s", rec.Code, rec.Body.String())
+		}
+		assertContentTypeJSON(t, rec)
+
+		var errResp map[string]string
+		assertJSON(t, rec, &errResp)
+		if errResp["error"] == "" {
+			t.Error("AC-T3: expected non-empty error field in response")
+		}
+	})
+}
+
+// TestHandler_Tags_NonGetMethods is the AC-03 / REQ-NF-012 / AC-T2 / REQ-F-013
+// regression tripwire. POST/PUT/PATCH/DELETE to /api/v1/viewer/tags must
+// produce 404 or 405, AND the underlying service Tags() call counter must
+// stay at 0 — i.e. the route must not be wired up to a non-GET handler.
+func TestHandler_Tags_NonGetMethods(t *testing.T) {
+	mutationMethods := []string{
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodPatch,
+		http.MethodDelete,
+	}
+
+	mock := &MockViewerServicer{
+		// If Tags() is unexpectedly invoked, return a sentinel so the assertion
+		// failure points cleanly at the regression. The TagsCallCount is the
+		// real assertion; this is just defense-in-depth.
+		TagsFunc: func(_ context.Context) (*services.TagsResponse, error) {
+			return &services.TagsResponse{Tags: []services.TagDTO{}}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	for _, method := range mutationMethods {
+		t.Run("TC-AC03_"+method+"_rejected", func(t *testing.T) {
+			req := httptest.NewRequest(method, "/api/v1/viewer/tags", nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			// TC-AC03-1..4: status must be 404 or 405 (Go 1.22 ServeMux returns
+			// 405 when other methods are registered for the same path; either
+			// is valid per the test plan).
+			if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s /api/v1/viewer/tags: expected 404 or 405, got %d; body: %s",
+					method, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// TC-AC03-5 / AC-T2: After all mutation attempts, Tags() must NEVER have
+	// been called. This is the strongest guarantee that no write handler is
+	// wired up.
+	if mock.TagsCallCount != 0 {
+		t.Errorf("TC-AC03-5: TagsFunc call counter expected 0 after %d non-GET requests, got %d",
+			len(mutationMethods), mock.TagsCallCount)
+	}
+}
+
+// TestHandler_Tags_PathParam_NonGetMethods extends the regression tripwire to
+// cover the /api/v1/viewer/tags/<name> sub-path referenced by the spec
+// (REQ-F-013) and test-plan section 1 note 95 ("Test both
+// /api/v1/viewer/tags and /api/v1/viewer/tags/somename paths"). No write
+// handler exists at this path either; all methods (including GET) should
+// fall through to 404.
+func TestHandler_Tags_PathParam_NonGetMethods(t *testing.T) {
+	methods := []string{
+		http.MethodGet, // GET /tags/<name> is also unwired — should be 404.
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodPatch,
+		http.MethodDelete,
+	}
+
+	mock := &MockViewerServicer{
+		TagsFunc: func(_ context.Context) (*services.TagsResponse, error) {
+			return &services.TagsResponse{Tags: []services.TagDTO{}}, nil
+		},
+	}
+	mux := newTestMux(mock)
+
+	for _, method := range methods {
+		t.Run("path_param_"+method+"_rejected", func(t *testing.T) {
+			req := httptest.NewRequest(method, "/api/v1/viewer/tags/somename", nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s /api/v1/viewer/tags/somename: expected 404 or 405, got %d; body: %s",
+					method, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// Same tripwire: no method on the path-param form must reach the service.
+	if mock.TagsCallCount != 0 {
+		t.Errorf("path-param: TagsFunc call counter expected 0 after %d requests, got %d",
+			len(methods), mock.TagsCallCount)
 	}
 }

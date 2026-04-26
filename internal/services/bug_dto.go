@@ -14,6 +14,13 @@ type CreateBugInput struct {
 	FilePath *string `json:"file_path,omitempty"`
 	// Force allows overwriting an existing file at the target path.
 	Force bool `json:"force,omitempty"`
+	// Tags lists the names of registered tags to attach after the bug is
+	// created. Each name must already exist in the vocabulary
+	// (`shark tags add`) — BugService resolves each name through
+	// TagService.AttachMany post-persistence and returns
+	// *UnregisteredTagError on the first miss. Nil or empty slice means
+	// "no tags"; see REQ-F-011 and spec §2.6 for the full contract.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // BugUpdates contains optional fields for updating a bug.
@@ -24,6 +31,11 @@ type BugUpdates struct {
 	LinkedEntityType *string             `json:"linked_entity_type,omitempty"`
 	LinkedEntityKey  *string             `json:"linked_entity_key,omitempty"`
 	FilePath         *string             `json:"file_path,omitempty"`
+	// Tags is ADDITIVE on update (REQ-F-010): a non-empty slice attaches
+	// each registered name; an empty or nil slice is a no-op (does NOT
+	// detach). Detachment is only available via `shark bug tag rm`.
+	// Type is []string (not *[]string) because empty-means-no-change.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // BugFilters defines filter options for listing bugs via the service layer.
@@ -32,6 +44,9 @@ type BugFilters struct {
 	Severity        *models.BugSeverity `json:"severity,omitempty"`
 	LinkedEntityKey *string             `json:"linked_entity_key,omitempty"`
 	ShowAll         bool                `json:"show_all,omitempty"` // include terminal statuses
+	// Tags filters bugs to those tagged with ALL of the supplied names
+	// (AND semantics, E28-F05 REQ-F-005). Empty/nil means no tag filter.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // TriageBugInput contains the parameters for triaging a bug.

@@ -209,13 +209,16 @@ func renderEpicPlanningSpecific(info *services.EpicDisplayInfo) {
 	}
 }
 
-// renderEpicPlanning renders an epic in planning mode using the unified RenderEntity pattern.
-func renderEpicPlanning(info *services.EpicDisplayInfo) {
+// renderEpicPlanningWithTags renders an epic in planning mode with optional tag display.
+// tags==nil means tagSvc unavailable (no Tags line). Empty slice renders "Tags: (none)".
+func renderEpicPlanningWithTags(info *services.EpicDisplayInfo, tags []string) {
+	basicInfo := buildEpicPlanningBasicInfo(info)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "epic",
 		Key:                info.Epic.Key,
 		Status:             string(info.Epic.Status),
-		BasicInfo:          buildEpicPlanningBasicInfo(info),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   info.ValidTransitions,
 		OrchestratorAction: info.OrchestratorAction,
 		RelatedDocs:        info.RelatedDocs,
@@ -350,14 +353,18 @@ func renderEpicAggregationSpecific(featureRollup map[string]int, taskRollup map[
 }
 
 // renderEpicDetails renders epic details using the unified RenderEntity pattern with callbacks.
-func renderEpicDetails(epic *models.Epic, data *EpicGetData, orchestratorAction *config.PopulatedAction) {
+// renderEpicDetailsWithTags renders epic aggregation details with optional tag display.
+// tags==nil means tagSvc unavailable (no Tags line). Empty slice renders "Tags: (none)".
+func renderEpicDetailsWithTags(epic *models.Epic, data *EpicGetData, orchestratorAction *config.PopulatedAction, tags []string) {
 	validTransitions := GetValidTransitions(string(epic.Status), data.WorkflowCfg)
 
+	basicInfo := buildEpicAggregationBasicInfo(epic, data.EpicProgress, data.DirPath, data.Filename)
+	basicInfo = appendTagsToBasicInfo(basicInfo, tags)
 	RenderEntity(EntityDisplayOptions{
 		EntityType:         "epic",
 		Key:                epic.Key,
 		Status:             string(epic.Status),
-		BasicInfo:          buildEpicAggregationBasicInfo(epic, data.EpicProgress, data.DirPath, data.Filename),
+		BasicInfo:          basicInfo,
 		ValidTransitions:   validTransitions,
 		OrchestratorAction: orchestratorAction,
 		RelatedDocs:        data.RelatedDocs,

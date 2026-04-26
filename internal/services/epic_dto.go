@@ -19,6 +19,13 @@ type CreateEpicInput struct {
 	FilePath      *string `json:"file_path,omitempty"`      // Custom file path (relative)
 	CustomKey     string  `json:"custom_key,omitempty"`     // Override auto-generated key
 	Force         bool    `json:"force,omitempty"`          // Force file reassignment
+
+	// E28-F04 REQ-F-011: Tags attached to the epic on creation. Each name
+	// must be registered in the vocabulary (see TagService.AttachMany) and
+	// is validated+normalized by TagService.ValidateName. Empty/nil means
+	// no tags. Required when Config.TagRequiredFor contains "epic"
+	// (REQ-F-008 / AC-16).
+	Tags []string `json:"tags,omitempty"`
 }
 
 // EpicUpdates contains fields that can be updated on an existing epic.
@@ -30,6 +37,11 @@ type EpicUpdates struct {
 	Priority      *models.Priority   `json:"priority,omitempty"`
 	BusinessValue *models.Priority   `json:"business_value,omitempty"`
 	FilePath      *string            `json:"file_path,omitempty"`
+
+	// E28-F04 REQ-F-010: Tags to attach additively on update. Empty/nil
+	// means no tag change (see AC-18b). Removal on update is explicitly
+	// NOT supported — use `shark epic tag rm` (REQ-F-014).
+	Tags []string `json:"tags,omitempty"`
 }
 
 // CreateFeatureInput contains the parameters for creating a new feature.
@@ -44,6 +56,13 @@ type CreateFeatureInput struct {
 	ExecutionOrder *int    `json:"execution_order,omitempty"` // Position in feature execution sequence
 	FilePath       *string `json:"file_path,omitempty"`       // Custom file path (relative)
 	Force          bool    `json:"force,omitempty"`           // Force file reassignment
+
+	// E28-F04 REQ-F-011: Tags attached to the feature on creation. Each
+	// name must be registered in the vocabulary (see TagService.AttachMany)
+	// and is validated+normalized by TagService.ValidateName. Empty/nil
+	// means no tags. Required when Config.TagRequiredFor contains
+	// "feature" (REQ-F-008 / AC-16).
+	Tags []string `json:"tags,omitempty"`
 }
 
 // FeatureUpdates contains fields that can be updated on an existing feature.
@@ -54,11 +73,19 @@ type FeatureUpdates struct {
 	Status         *models.FeatureStatus `json:"status,omitempty"`
 	ExecutionOrder *int                  `json:"execution_order,omitempty"`
 	FilePath       *string               `json:"file_path,omitempty"`
+
+	// E28-F04 REQ-F-010: Tags to attach additively on update. Empty/nil
+	// means no tag change (see AC-18b). Removal on update is explicitly
+	// NOT supported — use `shark feature tag rm` (REQ-F-014).
+	Tags []string `json:"tags,omitempty"`
 }
 
 // EpicFilters contains criteria for filtering epic lists.
 type EpicFilters struct {
 	Status string `json:"status,omitempty"` // Filter by status
+	// Tags filters epics to those tagged with ALL of the supplied names
+	// (AND semantics, E28-F05 REQ-F-005). Empty/nil means no tag filter.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // EpicHealthInfo contains health analysis for an epic.
@@ -96,6 +123,9 @@ type EpicProgressInfo struct {
 type FeatureFilters struct {
 	EpicKey string `json:"epic_key,omitempty"` // Filter by epic
 	Status  string `json:"status,omitempty"`   // Filter by status
+	// Tags filters features to those tagged with ALL of the supplied names
+	// (AND semantics, E28-F05 REQ-F-005). Empty/nil means no tag filter.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // FeatureProgressInfo contains progress metrics for a feature.

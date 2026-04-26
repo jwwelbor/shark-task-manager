@@ -16,35 +16,53 @@ These commands are useful for tracing which tasks touched specific files, findin
 
 ## `shark search`
 
-Search for tasks using completion metadata like files changed. Supports partial filename matching. Results are ordered by completion date (most recent first).
+Search across entities. `shark search` supports two modes:
+
+- **Full-text query mode** (positional argument): `shark search "login"` searches titles and descriptions across epics, features, tasks, bugs, and change-cards.
+- **File search mode** (`--file` flag): `shark search --file="useTheme.ts"` returns tasks whose completion metadata records changes to the matching file. Results are ordered by completion date (most recent first).
 
 **Usage:**
 
 ```
-shark search [flags]
+shark search [query] [flags]
 ```
 
 **Flags:**
 
 | Flag | Description |
 |------|-------------|
-| `--file <name>` | File name or path to search for (required) |
-| `--epic <key>` | Filter by epic key |
-| `--feature <key>` | Filter by feature key |
-| `--status <status>` | Filter by task status |
+| `--file <name>` | File name or path to search for (file search mode) |
+| `--epic <key>` | Filter by epic key (file search mode) |
+| `--feature <key>` | Filter by feature key (file search mode) |
+| `--status <status>` | Filter by task status (file search mode) |
+| `--type <type>` | Restrict full-text query to a single entity type (`epic`, `feature`, `task`, `bug`, `change`, `idea`, `tech_debt`) |
+| `--tag <name>` | Filter by tag (repeatable; AND — all tags must match). Applies to the full-text query mode. Tag names must be registered in the vocabulary; supplying an unregistered name exits **3** with the SC-2 vocabulary-snippet error. See [Tags Commands → Filtering by Tag](tags.md#filtering-by-tag---tag-on-list-and-search). |
 | `--json` | Output in JSON format |
 
 **Examples:**
 
 ```bash
-# Find tasks that touched a specific file
+# Find tasks that touched a specific file (file search mode)
 shark search --file="useTheme.ts"
 
-# Search within a specific epic
+# Search within a specific epic (file search mode)
 shark search --file="task_repository" --epic E10
 
-# Search within a specific feature with JSON output
+# Search within a specific feature with JSON output (file search mode)
 shark search --file="models/task.go" --json
+
+# Full-text query across all entity types
+shark search "login"
+
+# Restrict full-text query to bugs only
+shark search "login" --type=bug
+
+# Full-text query restricted to entities tagged 'voice' (AC-26)
+shark search "login" --tag=voice
+
+# Full-text query restricted to entities tagged with BOTH 'auth' AND 'voice'
+# (AND semantics across repeated --tag flags)
+shark search "login" --tag=auth --tag=voice
 ```
 
 ---
@@ -217,6 +235,7 @@ shark related-docs delete "Task Details" --task=T-E01-F01-001
 
 ## Related Documentation
 
+- [Tags Commands](tags.md) - Managed tag vocabulary, the `--tag` flag on `shark search`, and AND-semantics filtering on list/search
 - [Task Commands](task-commands.md) - Task lifecycle and management
 - [Epic Commands](epic-commands.md) - Epic management
 - [Feature Commands](feature-commands.md) - Feature management

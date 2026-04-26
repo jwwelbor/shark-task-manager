@@ -69,4 +69,16 @@ type EntityTagRepositoryInterface interface {
 	// CountByTag returns the total number of entity_tags rows for a given tag.
 	// Used by TagService to decide whether Delete(force=false) should fail with ErrTagInUse.
 	CountByTag(ctx context.Context, tagID int64) (int64, error)
+
+	// FilterEntityIDs returns the sorted, deduplicated list of entity_ids whose
+	// entity_tags rows include EVERY tag_id in tagIDs (AND intersection) for the
+	// given entity_type.
+	// Precondition: len(tagIDs) >= 1. Returns ErrEmptyTagIDs if the slice is empty.
+	FilterEntityIDs(ctx context.Context, entityType models.EntityType, tagIDs []int64) ([]int64, error)
+
+	// ListTagNamesByEntities returns (entity_id, tag_name) rows for every
+	// attachment on the given (entityType, entityIDs), ordered by entity_id ASC
+	// then tag_name ASC. Empty entityIDs returns a non-nil empty slice without
+	// touching the DB.
+	ListTagNamesByEntities(ctx context.Context, entityType models.EntityType, entityIDs []int64) ([]EntityIDTagName, error)
 }

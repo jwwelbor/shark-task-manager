@@ -191,6 +191,14 @@ func TestTagErrors_ErrorsAs(t *testing.T) {
 			t.Errorf("EntityType = %q, want %q", target.EntityType, "task")
 		}
 	})
+
+	t.Run("TagFilterUnavailableError works with errors.As", func(t *testing.T) {
+		err := error(&TagFilterUnavailableError{})
+		var target *TagFilterUnavailableError
+		if !errorsAs(err, &target) {
+			t.Error("errors.As should find *TagFilterUnavailableError")
+		}
+	})
 }
 
 // TestUnregisteredTagError_Message covers AC-28 (spec.md §1.3, §2.4).

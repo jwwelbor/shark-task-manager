@@ -21,6 +21,13 @@ type CreateTaskInput struct {
 	CreateFile     bool     `json:"create_file,omitempty"`     // Create file if it doesn't exist
 	Force          bool     `json:"force,omitempty"`           // Force file reassignment if already claimed
 	Description    string   `json:"description,omitempty"`     // Task description
+	// Tags lists the names of registered tags to attach after the task is
+	// created. Each name must already exist in the vocabulary
+	// (`shark tags add`) — TaskService resolves each name through
+	// TagService.AttachMany post-persistence and returns
+	// *UnregisteredTagError on the first miss. Nil or empty slice means
+	// "no tags"; see E28-F04 REQ-F-011 and spec §2.6 for the full contract.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // TaskUpdates contains fields that can be updated on an existing task.
@@ -32,6 +39,12 @@ type TaskUpdates struct {
 	AgentType      *string `json:"agent_type,omitempty"`
 	ExecutionOrder *int    `json:"execution_order,omitempty"`
 	FilePath       *string `json:"file_path,omitempty"`
+	// Tags is ADDITIVE on update (E28-F04 REQ-F-010): a non-empty slice
+	// attaches each registered name; an empty or nil slice is a no-op
+	// (does NOT detach). Detachment is only available via
+	// `shark task tag rm`. Type is []string (not *[]string) because
+	// empty-means-no-change.
+	Tags []string `json:"tags,omitempty"`
 }
 
 // TaskFilters contains criteria for filtering task lists.
@@ -48,6 +61,11 @@ type TaskFilters struct {
 	TitleSearch string   `json:"title_search,omitempty"` // Fuzzy search in title (case-insensitive substring)
 	MinPriority int      `json:"min_priority,omitempty"` // Minimum priority (1-10)
 	MaxPriority int      `json:"max_priority,omitempty"` // Maximum priority (1-10)
+	// Tags filters tasks to those tagged with ALL of the supplied names
+	// (AND semantics, E28-F05 REQ-F-005). Empty/nil means no tag filter.
+	// When non-empty, requires tagSvc to be wired; otherwise
+	// *TagFilterUnavailableError is returned (AC-30).
+	Tags []string `json:"tags,omitempty"`
 }
 
 // DependencyTree represents the hierarchical dependency structure for a task.

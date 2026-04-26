@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jwwelbor/shark-task-manager/internal/auth/maintainer"
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
@@ -14,11 +13,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// tagServiceIface is the local interface used by CLI tests to inject a mock.
-// It mirrors the public surface of *services.TagService. The interface is
-// unexported to keep test seams within the command package (spec §2.4, D4).
-//
-// Spec reference: spec.md AC-T9, D4, §2.4.
+// tagServiceIface mirrors the public surface of *services.TagService. CLI
+// tests inject a mock via this unexported interface; production uses the
+// real service.
 type tagServiceIface interface {
 	ListTags(ctx context.Context) ([]*models.Tag, error)
 	AddTag(ctx context.Context, name, providedPass string) (*models.Tag, error)
@@ -60,8 +57,6 @@ func init() {
 
 // newTagsListCmd constructs the "shark tags list" command. Passing nil uses
 // the real cli.GetTagService(); tests pass a mock.
-//
-// Spec reference: spec.md REQ-F-009, REQ-F-011, AC-13.
 func newTagsListCmd(svc tagServiceIface) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
@@ -78,10 +73,8 @@ func newTagsListCmd(svc tagServiceIface) *cobra.Command {
 				return fmt.Errorf("exit code 2: %w", err)
 			}
 
-			// JSON output — name-only objects per REQ-F-011
 			jsonMode := cmd.Flags().Changed("json") || cli.GlobalConfig.JSON
 			if jsonMode {
-				// Emit [{name:...},...] — no ID or timestamps
 				type tagJSON struct {
 					Name string `json:"name"`
 				}
@@ -112,8 +105,6 @@ func newTagsListCmd(svc tagServiceIface) *cobra.Command {
 // ---------------------------------------------------------------------------
 
 // newTagsAddCmd constructs the "shark tags add <name>" command.
-//
-// Spec reference: spec.md REQ-F-009, REQ-F-010, REQ-F-011, AC-14, AC-15, AC-18.
 func newTagsAddCmd(svc tagServiceIface) *cobra.Command {
 	var flagPass string
 
@@ -171,9 +162,6 @@ Requires maintainer authorization via --pass or a live cache entry.`,
 // ---------------------------------------------------------------------------
 
 // newTagsRmCmd constructs the "shark tags rm <name>" command.
-//
-// Spec reference: spec.md REQ-F-005, REQ-F-008, REQ-F-009, REQ-F-010, REQ-F-011,
-// AC-16, AC-17, AC-18.
 func newTagsRmCmd(svc tagServiceIface) *cobra.Command {
 	var (
 		flagPass  string
@@ -225,8 +213,6 @@ Requires maintainer authorization via --pass or a live cache entry.`,
 // ---------------------------------------------------------------------------
 
 // newTagsRenameCmd constructs the "shark tags rename <old> <new>" command.
-//
-// Spec reference: spec.md REQ-F-006, REQ-F-009, REQ-F-010, REQ-F-011, AC-17, AC-18.
 func newTagsRenameCmd(svc tagServiceIface) *cobra.Command {
 	var flagPass string
 
@@ -269,62 +255,7 @@ Requires maintainer authorization via --pass or a live cache entry.`,
 	return cmd
 }
 
-// ---------------------------------------------------------------------------
-// Error handling helpers
-// ---------------------------------------------------------------------------
-
-// handleTagsRmRenameError handles errors from RemoveTag and RenameTag,
-// including the vocabulary snippet for *NotFoundError (REQ-F-008).
-func handleTagsRmRenameError(cmd *cobra.Command, s tagServiceIface, name string, err error) error {
-	var notFound *services.NotFoundError
-	if errors.As(err, &notFound) {
-		code, exitCode := tagsErrorCode(err)
-		writeTagsError(cmd, code, err.Error())
-
-		jsonMode := cmd.Flags().Changed("json") || cli.GlobalConfig.JSON
-		if !jsonMode {
-			// Assemble vocabulary snippet per REQ-F-008.
-			vocab, listErr := s.ListTags(cmd.Context())
-			if listErr == nil && len(vocab) > 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Available tags:")
-				const maxSnippet = 10
-				shown := vocab
-				remainder := 0
-				if len(vocab) > maxSnippet {
-					shown = vocab[:maxSnippet]
-					remainder = len(vocab) - maxSnippet
-				}
-				var names []string
-				for _, t := range shown {
-					names = append(names, t.Name)
-				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "  %s\n", strings.Join(names, ", "))
-				if remainder > 0 {
-					fmt.Fprintf(cmd.ErrOrStderr(), "  …and %d more\n", remainder)
-				}
-			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "To add it: shark tags add %s\n", name)
-		}
-		return fmt.Errorf("exit code %d: %w", exitCode, err)
-	}
-
-	// Other error types
-	code, exitCode := tagsErrorCode(err)
-	writeTagsError(cmd, code, err.Error())
-
-	var unauth *maintainer.UnauthorizedError
-	if errors.As(err, &unauth) {
-		if hint := unauth.UserHint(); hint != "" {
-			jsonMode := cmd.Flags().Changed("json") || cli.GlobalConfig.JSON
-			if !jsonMode {
-				fmt.Fprintln(cmd.ErrOrStderr(), hint)
-			}
-		}
-	}
-	return fmt.Errorf("exit code %d: %w", exitCode, err)
-}
-
-// tagsErrorCode maps a service error to (jsonCode, exitCode) per REQ-F-010.
+// tagsErrorCode maps a service error to (jsonCode, exitCode).
 func tagsErrorCode(err error) (string, int) {
 	var notFound *services.NotFoundError
 	if errors.As(err, &notFound) {
@@ -351,6 +282,21 @@ func tagsErrorCode(err error) (string, int) {
 		return "validation", 3
 	}
 
+	var unregistered *services.UnregisteredTagError
+	if errors.As(err, &unregistered) {
+		return "unregistered_tag", 3
+	}
+
+	var required *services.TagRequiredError
+	if errors.As(err, &required) {
+		return "tag_required", 3
+	}
+
+	var unavailable *services.TagFilterUnavailableError
+	if errors.As(err, &unavailable) {
+		return "unavailable", 3
+	}
+
 	return "db_error", 2
 }
 
@@ -370,7 +316,7 @@ func writeTagsError(cmd *cobra.Command, code, message string) {
 }
 
 // resolveTagService returns the injected svc (for tests) or the real service
-// (for production). Matches the pattern from admin_maintainer.go.
+// (for production).
 func resolveTagService(svc tagServiceIface) tagServiceIface {
 	if svc != nil {
 		return svc

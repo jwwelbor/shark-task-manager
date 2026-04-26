@@ -1873,7 +1873,7 @@ func TestFeatureService_ListFeaturesByEpicKey_Success(t *testing.T) {
 	}
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, epicLookup)
 
-	features, err := svc.ListFeaturesByEpicKey(context.Background(), "E01", "")
+	features, err := svc.ListFeaturesByEpicKey(context.Background(), FeatureFilters{EpicKey: "E01"})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -1891,7 +1891,7 @@ func TestFeatureService_ListFeaturesByEpicKey_EpicNotFound(t *testing.T) {
 	}
 	svc := NewFeatureService(repo, NewEntityService(newTestFeatureWorkflowService()), featureRepoAsEntityRepo(repo), nil, epicLookup)
 
-	_, err := svc.ListFeaturesByEpicKey(context.Background(), "E99", "")
+	_, err := svc.ListFeaturesByEpicKey(context.Background(), FeatureFilters{EpicKey: "E99"})
 	if err == nil {
 		t.Fatal("expected error for missing epic")
 	}
