@@ -156,6 +156,10 @@ func buildEpicPlanningBasicInfo(info *services.EpicDisplayInfo) [][]string {
 	if epic.BusinessValue != nil {
 		basicInfo = append(basicInfo, []string{"Business Value", string(*epic.BusinessValue)})
 	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if epic.Size != nil {
+		basicInfo = append(basicInfo, []string{"Size", formatSize(epic.Size)})
+	}
 
 	return basicInfo
 }
@@ -253,6 +257,10 @@ func buildEpicAggregationBasicInfo(epic *models.Epic, progress float64, path, fi
 
 	if epic.BusinessValue != nil {
 		info = append(info, []string{"Business Value", string(*epic.BusinessValue)})
+	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if epic.Size != nil {
+		info = append(info, []string{"Size", formatSize(epic.Size)})
 	}
 
 	return info
@@ -499,7 +507,7 @@ func buildEpicGetJSON(epic *models.Epic, data *EpicGetData, orchestratorAction i
 
 	validTransitions := GetValidTransitions(string(epic.Status), data.WorkflowCfg)
 
-	return map[string]interface{}{
+	epicJSON := map[string]interface{}{
 		"id":                     epic.ID,
 		"key":                    epic.Key,
 		"title":                  epic.Title,
@@ -526,6 +534,14 @@ func buildEpicGetJSON(epic *models.Epic, data *EpicGetData, orchestratorAction i
 		"orchestrator_action":    orchestratorAction,
 		"valid_transitions":      validTransitions,
 	}
+	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
+	if epic.Size != nil {
+		epicJSON["size"] = *epic.Size
+		if label, err := models.SizeLabel(*epic.Size); err == nil {
+			epicJSON["size_label"] = label
+		}
+	}
+	return epicJSON
 }
 
 // performEpicCreate handles the core logic of creating an epic

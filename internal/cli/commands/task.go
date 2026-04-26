@@ -232,6 +232,10 @@ func buildTaskBasicInfo(task *models.Task, deps []*models.Task, blockedBy, block
 	if task.ExecutionOrder != nil && *task.ExecutionOrder > 0 {
 		info = append(info, []string{"Execution Order", fmt.Sprintf("%d", *task.ExecutionOrder)})
 	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if task.Size != nil {
+		info = append(info, []string{"Size", formatSize(task.Size)})
+	}
 	if fp := derefString(task.FilePath); fp != "" {
 		info = append(info, []string{"File", fp})
 	}

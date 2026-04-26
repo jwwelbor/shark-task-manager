@@ -10,6 +10,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/cli"
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/keys"
+	"github.com/jwwelbor/shark-task-manager/internal/models"
 )
 
 // NormalizeKey converts a key to canonical uppercase format.
@@ -867,4 +868,23 @@ func handleServiceError(err error, entityType, key string) {
 		slog.Debug("Error details", "error", err)
 	}
 	os.Exit(2)
+}
+
+// formatSize renders a size pointer for human-readable display.
+// Returns "—" when s is nil; otherwise returns "<label> (<num>)" (e.g., "L (5)").
+// Per spec.md §3.6 and REQ-F-006 (E07-F42).
+//
+// The defensive branch ("should never trigger") handles the theoretical case
+// where a non-canonical value somehow reached the model — it falls back to
+// the raw number rather than panicking.
+func formatSize(s *int) string {
+	if s == nil {
+		return "—"
+	}
+	label, err := models.SizeLabel(*s)
+	if err != nil {
+		// Defensive: canonical validation should have caught this upstream.
+		return fmt.Sprintf("%d", *s)
+	}
+	return fmt.Sprintf("%s (%d)", label, *s)
 }

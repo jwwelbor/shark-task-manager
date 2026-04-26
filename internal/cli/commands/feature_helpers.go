@@ -133,6 +133,10 @@ func buildFeaturePlanningBasicInfo(info *services.FeatureDisplayInfo) [][]string
 	if feature.Description != nil && *feature.Description != "" {
 		basicInfo = append(basicInfo, []string{"Description", *feature.Description})
 	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if feature.Size != nil {
+		basicInfo = append(basicInfo, []string{"Size", formatSize(feature.Size)})
+	}
 
 	return basicInfo
 }
@@ -408,6 +412,10 @@ func buildFeatureBasicInfo(feature *models.Feature, data *FeatureGetData) [][]st
 
 	if feature.Description != nil && *feature.Description != "" {
 		info = append(info, []string{"Description", *feature.Description})
+	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if feature.Size != nil {
+		info = append(info, []string{"Size", formatSize(feature.Size)})
 	}
 
 	return info
@@ -1160,6 +1168,13 @@ func buildFeatureGetJSON(feature *models.Feature, data *FeatureGetData, orchestr
 	}
 	if feature.ExecutionOrder != nil {
 		result["execution_order"] = *feature.ExecutionOrder
+	}
+	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
+	if feature.Size != nil {
+		result["size"] = *feature.Size
+		if label, err := models.SizeLabel(*feature.Size); err == nil {
+			result["size_label"] = label
+		}
 	}
 
 	return result

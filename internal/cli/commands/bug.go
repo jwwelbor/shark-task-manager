@@ -566,6 +566,10 @@ func buildBugBasicInfo(bug *models.Bug) [][]string {
 	if bug.Description != nil && *bug.Description != "" {
 		info = append(info, []string{"Description", *bug.Description})
 	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the row entirely.
+	if bug.Size != nil {
+		info = append(info, []string{"Size", formatSize(bug.Size)})
+	}
 	info = append(info, []string{"Created", bug.CreatedAt.Format(time.RFC3339)})
 	info = append(info, []string{"Updated", bug.UpdatedAt.Format(time.RFC3339)})
 

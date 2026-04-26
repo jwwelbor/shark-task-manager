@@ -773,6 +773,10 @@ func printIdeaDetailWithTags(idea *models.Idea, tags []string) error {
 	if idea.Dependencies != nil && *idea.Dependencies != "" {
 		fmt.Printf("Dependencies: %s\n", *idea.Dependencies)
 	}
+	// E07-F42 REQ-F-006: human display uses "<label> (<num>)" or omits the line entirely.
+	if idea.Size != nil {
+		fmt.Printf("Size: %s\n", formatSize(idea.Size))
+	}
 	if idea.Status == models.IdeaStatusConverted {
 		if idea.ConvertedToType != nil && idea.ConvertedToKey != nil {
 			fmt.Printf("\nConverted to: %s %s\n", *idea.ConvertedToType, *idea.ConvertedToKey)

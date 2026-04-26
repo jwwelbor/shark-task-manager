@@ -97,6 +97,14 @@ func buildTaskGetJSON(
 	if len(task.Metadata) > 0 {
 		result["metadata"] = task.Metadata
 	}
+	// E07-F42 REQ-F-006/007: size (numeric) and size_label (t-shirt label) in JSON output.
+	// Both fields are omitted when Size is nil (omitempty behavior via explicit check here).
+	if task.Size != nil {
+		result["size"] = *task.Size
+		if label, err := models.SizeLabel(*task.Size); err == nil {
+			result["size_label"] = label
+		}
+	}
 
 	// Enrichment fields (matching human-readable view)
 	result["dependencies"] = deps
