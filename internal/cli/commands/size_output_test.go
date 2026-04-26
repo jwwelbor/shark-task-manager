@@ -457,6 +457,417 @@ func TestBuildFeatureGetJSON_SizeLabelIncludedWhenNonNil(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// F3 — size_label in JSON output for bug, change-card, and idea (via buildEnrichedJSON)
+// REQ-F-007: --field size_label must work for all 6 entity types.
+// ---------------------------------------------------------------------------
+
+func TestBuildEnrichedJSONBug_SizeLabelIncludedWhenNonNil(t *testing.T) {
+	n := 2
+	bug := &models.Bug{
+		BaseEntity: models.BaseEntity{
+			ID:    1,
+			Key:   "B001",
+			Title: "Test Bug",
+			Size:  &n,
+		},
+		Status:   models.BugStatus("reported"),
+		Severity: models.BugSeverity("medium"),
+	}
+
+	result, err := buildEnrichedJSON(bug, nil, nil)
+	if err != nil {
+		t.Fatalf("buildEnrichedJSON(bug): unexpected error: %v", err)
+	}
+
+	sizeLabelVal, ok := result["size_label"]
+	if !ok {
+		t.Fatal("buildEnrichedJSON(bug): expected 'size_label' key when Size=2, but it is absent")
+	}
+	if sizeLabelVal != "S" {
+		t.Errorf("buildEnrichedJSON(bug): expected size_label='S', got %v", sizeLabelVal)
+	}
+}
+
+func TestBuildEnrichedJSONBug_SizeLabelAbsentWhenNil(t *testing.T) {
+	bug := &models.Bug{
+		BaseEntity: models.BaseEntity{
+			ID:    2,
+			Key:   "B002",
+			Title: "Unsized Bug",
+			Size:  nil,
+		},
+		Status:   models.BugStatus("reported"),
+		Severity: models.BugSeverity("low"),
+	}
+
+	result, err := buildEnrichedJSON(bug, nil, nil)
+	if err != nil {
+		t.Fatalf("buildEnrichedJSON(bug): unexpected error: %v", err)
+	}
+
+	if v, ok := result["size_label"]; ok && v != nil {
+		t.Errorf("buildEnrichedJSON(bug): expected 'size_label' absent or nil when Size=nil, got %v", v)
+	}
+}
+
+func TestBuildEnrichedJSONChange_SizeLabelIncludedWhenNonNil(t *testing.T) {
+	n := 8
+	card := &models.ChangeCard{
+		BaseEntity: models.BaseEntity{
+			ID:    1,
+			Key:   "CC-001",
+			Title: "Test Change",
+			Size:  &n,
+		},
+		Status:   models.ChangeCardStatus("draft"),
+		Priority: 3,
+	}
+
+	result, err := buildEnrichedJSON(card, nil, nil)
+	if err != nil {
+		t.Fatalf("buildEnrichedJSON(change): unexpected error: %v", err)
+	}
+
+	sizeLabelVal, ok := result["size_label"]
+	if !ok {
+		t.Fatal("buildEnrichedJSON(change): expected 'size_label' key when Size=8, but it is absent")
+	}
+	if sizeLabelVal != "XL" {
+		t.Errorf("buildEnrichedJSON(change): expected size_label='XL', got %v", sizeLabelVal)
+	}
+}
+
+func TestBuildEnrichedJSONChange_SizeLabelAbsentWhenNil(t *testing.T) {
+	card := &models.ChangeCard{
+		BaseEntity: models.BaseEntity{
+			ID:    2,
+			Key:   "CC-002",
+			Title: "Unsized Change",
+			Size:  nil,
+		},
+		Status:   models.ChangeCardStatus("draft"),
+		Priority: 2,
+	}
+
+	result, err := buildEnrichedJSON(card, nil, nil)
+	if err != nil {
+		t.Fatalf("buildEnrichedJSON(change): unexpected error: %v", err)
+	}
+
+	if v, ok := result["size_label"]; ok && v != nil {
+		t.Errorf("buildEnrichedJSON(change): expected 'size_label' absent or nil when Size=nil, got %v", v)
+	}
+}
+
+func TestIdeaGetJSON_SizeLabelIncludedWhenNonNil(t *testing.T) {
+	n := 13
+	idea := &models.Idea{
+		ID:     1,
+		Key:    "I-2026-01-01-01",
+		Title:  "XXL Idea",
+		Size:   &n,
+		Status: models.IdeaStatusNew,
+	}
+
+	result := buildIdeaGetJSON(idea, []string{})
+
+	sizeLabelVal, ok := result["size_label"]
+	if !ok {
+		t.Fatal("buildIdeaGetJSON: expected 'size_label' key when Size=13, but it is absent")
+	}
+	if sizeLabelVal != "XXL" {
+		t.Errorf("buildIdeaGetJSON: expected size_label='XXL', got %v", sizeLabelVal)
+	}
+}
+
+func TestIdeaGetJSON_SizeLabelAbsentWhenNil(t *testing.T) {
+	idea := &models.Idea{
+		ID:     2,
+		Key:    "I-2026-01-01-02",
+		Title:  "Unsized Idea",
+		Size:   nil,
+		Status: models.IdeaStatusNew,
+	}
+
+	result := buildIdeaGetJSON(idea, []string{})
+
+	if v, ok := result["size_label"]; ok && v != nil {
+		t.Errorf("buildIdeaGetJSON: expected 'size_label' absent or nil when Size=nil, got %v", v)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F4 — Size column in list-view tables for all 6 entity types.
+// ---------------------------------------------------------------------------
+
+func TestPrintTaskTable_SizeColumn(t *testing.T) {
+	n := 3
+	tasks := []*models.Task{
+		{
+			BaseEntity: models.BaseEntity{
+				Key:   "E07-F01-001",
+				Title: "Sized Task",
+				Size:  &n,
+			},
+			Status:   models.TaskStatus("todo"),
+			Priority: 5,
+		},
+		{
+			BaseEntity: models.BaseEntity{
+				Key:   "E07-F01-002",
+				Title: "Unsized Task",
+				Size:  nil,
+			},
+			Status:   models.TaskStatus("in_progress"),
+			Priority: 3,
+		},
+	}
+
+	rows := buildTaskListRows(tasks)
+	if len(rows) != 2 {
+		t.Fatalf("buildTaskListRows: expected 2 rows, got %d", len(rows))
+	}
+
+	// Row for sized task: should include "M (3)" as Size cell.
+	sizedRow := rows[0]
+	sizeFound := false
+	for _, cell := range sizedRow {
+		if cell == "M (3)" {
+			sizeFound = true
+			break
+		}
+	}
+	if !sizeFound {
+		t.Errorf("buildTaskListRows: expected 'M (3)' cell for sized task, row=%v", sizedRow)
+	}
+
+	// Row for unsized task: should include "—" as Size cell.
+	unsizedRow := rows[1]
+	dashFound := false
+	for _, cell := range unsizedRow {
+		if cell == "—" {
+			dashFound = true
+			break
+		}
+	}
+	if !dashFound {
+		t.Errorf("buildTaskListRows: expected '—' cell for unsized task, row=%v", unsizedRow)
+	}
+}
+
+func TestPrintBugTable_SizeColumn(t *testing.T) {
+	n := 5
+	bugs := []*models.Bug{
+		{
+			BaseEntity: models.BaseEntity{
+				Key:   "B001",
+				Title: "Sized Bug",
+				Size:  &n,
+			},
+			Status:   models.BugStatus("reported"),
+			Severity: models.BugSeverity("high"),
+		},
+		{
+			BaseEntity: models.BaseEntity{
+				Key:   "B002",
+				Title: "Unsized Bug",
+				Size:  nil,
+			},
+			Status:   models.BugStatus("confirmed"),
+			Severity: models.BugSeverity("low"),
+		},
+	}
+
+	rows := buildBugListRows(bugs)
+	if len(rows) != 2 {
+		t.Fatalf("buildBugListRows: expected 2 rows, got %d", len(rows))
+	}
+
+	// Sized bug row: should contain "L (5)".
+	sizeFound := false
+	for _, cell := range rows[0] {
+		if cell == "L (5)" {
+			sizeFound = true
+			break
+		}
+	}
+	if !sizeFound {
+		t.Errorf("buildBugListRows: expected 'L (5)' for sized bug, row=%v", rows[0])
+	}
+
+	// Unsized bug row: should contain "—".
+	dashFound := false
+	for _, cell := range rows[1] {
+		if cell == "—" {
+			dashFound = true
+			break
+		}
+	}
+	if !dashFound {
+		t.Errorf("buildBugListRows: expected '—' for unsized bug, row=%v", rows[1])
+	}
+}
+
+func TestPrintIdeaList_SizeColumn(t *testing.T) {
+	n := 1
+	ideas := []*models.Idea{
+		{
+			Key:    "I-2026-01-01-01",
+			Title:  "Sized Idea",
+			Size:   &n,
+			Status: models.IdeaStatusNew,
+		},
+		{
+			Key:    "I-2026-01-01-02",
+			Title:  "Unsized Idea",
+			Size:   nil,
+			Status: models.IdeaStatusNew,
+		},
+	}
+
+	rows := buildIdeaListRows(ideas)
+	if len(rows) != 2 {
+		t.Fatalf("buildIdeaListRows: expected 2 rows, got %d", len(rows))
+	}
+
+	// Sized idea row: should contain "XS (1)".
+	sizeFound := false
+	for _, cell := range rows[0] {
+		if cell == "XS (1)" {
+			sizeFound = true
+			break
+		}
+	}
+	if !sizeFound {
+		t.Errorf("buildIdeaListRows: expected 'XS (1)' for sized idea, row=%v", rows[0])
+	}
+
+	// Unsized idea row: should contain "—".
+	dashFound := false
+	for _, cell := range rows[1] {
+		if cell == "—" {
+			dashFound = true
+			break
+		}
+	}
+	if !dashFound {
+		t.Errorf("buildIdeaListRows: expected '—' for unsized idea, row=%v", rows[1])
+	}
+}
+
+func TestRenderEpicListTable_SizeColumn(t *testing.T) {
+	n := 8
+	epics := []EpicWithProgress{
+		{
+			Epic: &models.Epic{
+				BaseEntity: models.BaseEntity{
+					Key:   "E07",
+					Title: "Sized Epic",
+					Size:  &n,
+				},
+				Status:   models.EpicStatusActive,
+				Priority: "high",
+			},
+			ProgressPct: 50.0,
+		},
+		{
+			Epic: &models.Epic{
+				BaseEntity: models.BaseEntity{
+					Key:   "E08",
+					Title: "Unsized Epic",
+					Size:  nil,
+				},
+				Status:   models.EpicStatusActive,
+				Priority: "medium",
+			},
+			ProgressPct: 25.0,
+		},
+	}
+
+	rows := buildEpicListRows(epics)
+	if len(rows) != 2 {
+		t.Fatalf("buildEpicListRows: expected 2 rows, got %d", len(rows))
+	}
+
+	// Sized epic row: should contain "XL (8)".
+	sizeFound := false
+	for _, cell := range rows[0] {
+		if cell == "XL (8)" {
+			sizeFound = true
+			break
+		}
+	}
+	if !sizeFound {
+		t.Errorf("buildEpicListRows: expected 'XL (8)' for sized epic, row=%v", rows[0])
+	}
+
+	// Unsized epic row: should contain "—".
+	dashFound := false
+	for _, cell := range rows[1] {
+		if cell == "—" {
+			dashFound = true
+			break
+		}
+	}
+	if !dashFound {
+		t.Errorf("buildEpicListRows: expected '—' for unsized epic, row=%v", rows[1])
+	}
+}
+
+func TestPrintChangeCardList_SizeColumn(t *testing.T) {
+	n := 3
+	cards := []*models.ChangeCard{
+		{
+			BaseEntity: models.BaseEntity{
+				Key:   "CC-001",
+				Title: "Sized Change",
+				Size:  &n,
+			},
+			Status:   models.ChangeCardStatus("draft"),
+			Priority: 2,
+		},
+		{
+			BaseEntity: models.BaseEntity{
+				Key:   "CC-002",
+				Title: "Unsized Change",
+				Size:  nil,
+			},
+			Status:   models.ChangeCardStatus("draft"),
+			Priority: 1,
+		},
+	}
+
+	rows := buildChangeCardListRows(cards)
+	if len(rows) != 2 {
+		t.Fatalf("buildChangeCardListRows: expected 2 rows, got %d", len(rows))
+	}
+
+	// Sized change row: should contain "M (3)".
+	sizeFound := false
+	for _, cell := range rows[0] {
+		if cell == "M (3)" {
+			sizeFound = true
+			break
+		}
+	}
+	if !sizeFound {
+		t.Errorf("buildChangeCardListRows: expected 'M (3)' for sized change, row=%v", rows[0])
+	}
+
+	// Unsized change row: should contain "—".
+	dashFound := false
+	for _, cell := range rows[1] {
+		if cell == "—" {
+			dashFound = true
+			break
+		}
+	}
+	if !dashFound {
+		t.Errorf("buildChangeCardListRows: expected '—' for unsized change, row=%v", rows[1])
+	}
+}
+
+// ---------------------------------------------------------------------------
 // assertSizeValue is a shared helper for checking size values in JSON maps.
 // Accepts *int, int, or float64 (JSON numbers deserialize as float64).
 // ---------------------------------------------------------------------------

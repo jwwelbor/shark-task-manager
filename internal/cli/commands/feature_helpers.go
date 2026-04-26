@@ -207,9 +207,9 @@ func renderFeatureTasksSection(tasks []*models.Task) {
 
 // renderFeatureListTable renders features as a table.
 func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, ctx context.Context) {
-	// Create table data with reordered columns (removed Notes, Health next to Status)
+	// E07-F42: Size column added to feature list table (REQ-F-006).
 	tableData := pterm.TableData{
-		{"Key", "Title", "Progress", "Status", "Health"},
+		{"Key", "Title", "Progress", "Status", "Health", "Size"},
 	}
 
 	// Batch fetch status breakdowns for all features to avoid N+1 query
@@ -289,6 +289,7 @@ func renderFeatureListTable(features []FeatureWithTaskCount, epicFilter string, 
 			progressDisplay,
 			statusDisplay,
 			health,
+			formatSize(feature.Size), // E07-F42 REQ-F-006: Size column
 		})
 	}
 

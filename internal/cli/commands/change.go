@@ -560,6 +560,29 @@ func confirmChangeDelete(card *models.ChangeCard) bool {
 	return strings.EqualFold(response, "yes") || strings.EqualFold(response, "y")
 }
 
+// buildChangeCardListRows converts a slice of change-cards to table rows for list display.
+// Extracted for testability (E07-F42 F4 coverage requirement).
+func buildChangeCardListRows(cards []*models.ChangeCard) [][]string {
+	rows := make([][]string, 0, len(cards))
+	for _, c := range cards {
+		linkedEntity := "--"
+		if c.FeatureID != nil {
+			linkedEntity = fmt.Sprintf("F#%d", *c.FeatureID)
+		} else if c.EpicID != nil {
+			linkedEntity = fmt.Sprintf("E#%d", *c.EpicID)
+		}
+		rows = append(rows, []string{
+			c.Key,
+			c.Title,
+			string(c.Status),
+			linkedEntity,
+			c.CreatedAt.Format("2006-01-02"),
+			formatSize(c.Size), // E07-F42 REQ-F-006: Size column
+		})
+	}
+	return rows
+}
+
 // printChangeCardList renders a table of change-cards.
 func printChangeCardList(cards []*models.ChangeCard) error {
 	if len(cards) == 0 {
@@ -567,23 +590,8 @@ func printChangeCardList(cards []*models.ChangeCard) error {
 		return nil
 	}
 
-	headers := []string{"Key", "Title", "Status", "Linked Entity", "Created"}
-	rows := make([][]string, len(cards))
-	for i, c := range cards {
-		linkedEntity := "--"
-		if c.FeatureID != nil {
-			linkedEntity = fmt.Sprintf("F#%d", *c.FeatureID)
-		} else if c.EpicID != nil {
-			linkedEntity = fmt.Sprintf("E#%d", *c.EpicID)
-		}
-		rows[i] = []string{
-			c.Key,
-			c.Title,
-			string(c.Status),
-			linkedEntity,
-			c.CreatedAt.Format("2006-01-02"),
-		}
-	}
-	cli.OutputTable(headers, rows)
+	// E07-F42: Size column added to change-card list table (REQ-F-006).
+	headers := []string{"Key", "Title", "Status", "Linked Entity", "Created", "Size"}
+	cli.OutputTable(headers, buildChangeCardListRows(cards))
 	return nil
 }

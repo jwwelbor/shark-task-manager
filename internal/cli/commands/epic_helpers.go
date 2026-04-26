@@ -100,27 +100,37 @@ func sortEpics(epics []EpicWithProgress, sortBy string) {
 	}
 }
 
-// renderEpicListTable renders epics as a table
-func renderEpicListTable(epics []EpicWithProgress) {
-	tableData := pterm.TableData{
-		{"Key", "Title", "Status", "Progress", "Priority"},
-	}
-
+// buildEpicListRows converts a slice of EpicWithProgress to table rows for list display.
+// Extracted for testability (E07-F42 F4 coverage requirement).
+func buildEpicListRows(epics []EpicWithProgress) [][]string {
+	rows := make([][]string, 0, len(epics))
 	for _, epic := range epics {
 		title := epic.Title
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
 		progress := fmt.Sprintf("%.0f%%", epic.ProgressPct)
-		tableData = append(tableData, []string{
+		rows = append(rows, []string{
 			epic.Key,
 			title,
 			string(epic.Status),
 			progress,
 			string(epic.Priority),
+			formatSize(epic.Size), // E07-F42 REQ-F-006: Size column
 		})
 	}
+	return rows
+}
 
+// renderEpicListTable renders epics as a table
+func renderEpicListTable(epics []EpicWithProgress) {
+	// E07-F42: Size column added to epic list table (REQ-F-006).
+	tableData := pterm.TableData{
+		{"Key", "Title", "Status", "Progress", "Priority", "Size"},
+	}
+	for _, row := range buildEpicListRows(epics) {
+		tableData = append(tableData, row)
+	}
 	_ = pterm.DefaultTable.WithHasHeader().WithData(tableData).Render()
 }
 

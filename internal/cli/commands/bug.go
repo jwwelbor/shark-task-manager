@@ -576,9 +576,9 @@ func buildBugBasicInfo(bug *models.Bug) [][]string {
 	return info
 }
 
-// printBugTable renders a table for bug list output.
-func printBugTable(bugs []*models.Bug) error {
-	headers := []string{"KEY", "TITLE", "STATUS", "SEVERITY", "LINKED TO"}
+// buildBugListRows converts a slice of bugs to table rows for list display.
+// Extracted for testability (E07-F42 F4 coverage requirement).
+func buildBugListRows(bugs []*models.Bug) [][]string {
 	rows := make([][]string, 0, len(bugs))
 	for _, b := range bugs {
 		linkedTo := ""
@@ -591,9 +591,17 @@ func printBugTable(bugs []*models.Bug) error {
 			string(b.Status),
 			string(b.Severity),
 			linkedTo,
+			formatSize(b.Size), // E07-F42 REQ-F-006: Size column
 		})
 	}
-	cli.OutputTable(headers, rows)
+	return rows
+}
+
+// printBugTable renders a table for bug list output.
+func printBugTable(bugs []*models.Bug) error {
+	// E07-F42: Size column added to bug list table (REQ-F-006).
+	headers := []string{"KEY", "TITLE", "STATUS", "SEVERITY", "LINKED TO", "SIZE"}
+	cli.OutputTable(headers, buildBugListRows(bugs))
 	return nil
 }
 

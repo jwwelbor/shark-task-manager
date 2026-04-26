@@ -137,13 +137,27 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	if cli.GlobalConfig.JSON {
 		return cli.OutputJSON(tasks)
 	}
-	headers := []string{"Key", "Title", "Status", "Agent", "Priority"}
-	var rows [][]string
-	for _, t := range tasks {
-		rows = append(rows, []string{t.Key, t.Title, string(t.Status), derefString(t.AgentType), fmt.Sprintf("%d", t.Priority)})
-	}
-	cli.OutputTable(headers, rows)
+	// E07-F42: Size column added to task list table (REQ-F-006).
+	headers := []string{"Key", "Title", "Status", "Agent", "Priority", "Size"}
+	cli.OutputTable(headers, buildTaskListRows(tasks))
 	return nil
+}
+
+// buildTaskListRows converts a slice of tasks to table rows for list display.
+// Extracted for testability (F4 coverage requirement).
+func buildTaskListRows(tasks []*models.Task) [][]string {
+	rows := make([][]string, 0, len(tasks))
+	for _, t := range tasks {
+		rows = append(rows, []string{
+			t.Key,
+			t.Title,
+			string(t.Status),
+			derefString(t.AgentType),
+			fmt.Sprintf("%d", t.Priority),
+			formatSize(t.Size),
+		})
+	}
+	return rows
 }
 
 // runTaskGet displays details for a single task with full rich output.
