@@ -12,6 +12,7 @@ import (
 	"github.com/jwwelbor/shark-task-manager/internal/config"
 	"github.com/jwwelbor/shark-task-manager/internal/services"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // maintainerBootstrapServiceIface is the interface the set-password command
@@ -115,9 +116,9 @@ func init() {
 // resolvePassword returns the password from the highest-priority source:
 //  1. --password flag (if non-empty)
 //  2. --password-stdin (read one line from os.Stdin)
-//  3. Interactive prompt (not yet implemented; returns empty string)
+//  3. Interactive prompt with echo disabled (when stdin is a terminal)
 //
-// Spec reference: spec.md §2.4 (CLI command surface), AC-T1.
+// Spec reference: spec.md §2.4 (CLI command surface), REQ-F-008, AC-T1.
 func resolvePassword(flagPassword string, fromStdin bool) (string, error) {
 	if flagPassword != "" {
 		return flagPassword, nil
@@ -134,9 +135,19 @@ func resolvePassword(flagPassword string, fromStdin bool) (string, error) {
 		return "", fmt.Errorf("no password provided via stdin")
 	}
 
-	// Interactive prompt is not yet implemented for this command.
-	// Return empty string; the caller will reject it.
-	return "", nil
+	// Interactive prompt: only available when stdin is a terminal.
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return "", fmt.Errorf("no password provided: use --password, --password-stdin, or run interactively")
+	}
+
+	fmt.Fprint(os.Stderr, "Password: ")
+	raw, err := term.ReadPassword(fd)
+	fmt.Fprintln(os.Stderr) // restore newline after hidden input
+	if err != nil {
+		return "", fmt.Errorf("reading password: %w", err)
+	}
+	return string(raw), nil
 }
 
 // newRealBootstrapService constructs the real *services.MaintainerBootstrapService
