@@ -90,6 +90,7 @@ type CreateTaskInput struct {
 	Filename       string // Custom filename path (relative to project root)
 	Force          bool   // Force reassignment if file already claimed
 	Create         bool   // Create file if it doesn't exist (when Filename is specified)
+	Size           *int   // Optional size value (nil = unset)
 }
 
 // CreateTaskResult holds the result of task creation
@@ -239,20 +240,19 @@ func (c *Creator) CreateTask(ctx context.Context, input CreateTaskInput) (*Creat
 	initialStatus := c.workflowService.GetInitialStatus()
 
 	// Create task record
-	task := &models.Task{BaseEntity: models.BaseEntity{Key: key,
+	task := &models.Task{BaseEntity: models.BaseEntity{
+		Key:         key,
 		Title:       input.Title,
 		Description: description,
-
-		FilePath: &filePath,
-
-		CreatedAt: now,
-		UpdatedAt: now}, FeatureID: validated.FeatureID,
-
-		Status:    initialStatus,
-		AgentType: &validated.AgentType,
-		Priority:  input.Priority,
-		DependsOn: dependsOnJSON,
-
+		FilePath:    &filePath,
+		Size:        input.Size,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, FeatureID: validated.FeatureID,
+		Status:         initialStatus,
+		AgentType:      &validated.AgentType,
+		Priority:       input.Priority,
+		DependsOn:      dependsOnJSON,
 		ExecutionOrder: executionOrder,
 	}
 

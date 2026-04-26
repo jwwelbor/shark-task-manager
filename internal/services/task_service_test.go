@@ -2714,3 +2714,275 @@ func TestTaskService_recalculateFeatureProgress_LogsErrorNotSilentlyDiscarded(t 
 	assert.Contains(t, errorAttrValue, recalcErr.Error(),
 		"error attribute should contain the simulated error text")
 }
+
+// ============================================================================
+// TC-SVC-A through TC-SVC-E: Size field propagation (E07-F42-005)
+// ============================================================================
+
+// svcSizeIntPtr is a local helper for creating *int pointers in size tests.
+func svcSizeIntPtr(n int) *int { return &n }
+
+func TestTaskService_CreateTask_PropagatesSize(t *testing.T) {
+	// TC-SVC-A: CreateTask propagates Size to repository.
+	var capturedTask *models.Task
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	size := 5
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E07",
+		FeatureKey: "F01",
+		Title:      "Sized task",
+		AgentType:  "developer",
+		Size:       &size,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Create must be called")
+	require.NotNil(t, capturedTask.Size, "captured task.Size must not be nil")
+	assert.Equal(t, 5, *capturedTask.Size)
+}
+
+func TestTaskService_CreateTask_NilSizePropagated(t *testing.T) {
+	// TC-SVC-E: CreateTask passes Size=nil when not provided.
+	var capturedTask *models.Task
+	mockRepo := &MockTaskRepository{
+		ListByKeyPrefixFunc: func(ctx context.Context, prefix string) ([]*models.Task, error) {
+			return []*models.Task{}, nil
+		},
+		CreateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			task.ID = 1
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	task, err := svc.CreateTask(context.Background(), CreateTaskInput{
+		EpicKey:    "E07",
+		FeatureKey: "F01",
+		Title:      "No size task",
+		AgentType:  "developer",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Create must be called")
+	assert.Nil(t, capturedTask.Size)
+}
+
+func TestTaskService_UpdateTask_SetsSize(t *testing.T) {
+	// TC-SVC-C: UpdateTask with Size=ptr(8) updates the field.
+	var capturedTask *models.Task
+	agentType := "developer"
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Existing Task", Size: svcSizeIntPtr(3)},
+				Status:     "todo",
+				AgentType:  &agentType,
+				Priority:   5,
+			}, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	size := 8
+	task, err := svc.UpdateTask(context.Background(), "T-E07-F01-001", TaskUpdates{
+		Size: &size,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Update must be called")
+	require.NotNil(t, capturedTask.Size)
+	assert.Equal(t, 8, *capturedTask.Size)
+}
+
+func TestTaskService_UpdateTask_ClearSize(t *testing.T) {
+	// TC-SVC-B: UpdateTask with ClearSize=true sets model.Size = nil.
+	var capturedTask *models.Task
+	agentType := "developer"
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Existing Task", Size: svcSizeIntPtr(5)},
+				Status:     "todo",
+				AgentType:  &agentType,
+				Priority:   5,
+			}, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	task, err := svc.UpdateTask(context.Background(), "T-E07-F01-001", TaskUpdates{
+		ClearSize: true,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Update must be called")
+	assert.Nil(t, capturedTask.Size, "ClearSize=true should set Size to nil")
+}
+
+func TestTaskService_UpdateTask_NoSizeChange(t *testing.T) {
+	// TC-SVC-D: UpdateTask with neither Size nor ClearSize leaves size unchanged.
+	var capturedTask *models.Task
+	existingSize := 3
+	agentType := "developer"
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Existing Task", Size: &existingSize},
+				Status:     "todo",
+				AgentType:  &agentType,
+				Priority:   5,
+			}, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	task, err := svc.UpdateTask(context.Background(), "T-E07-F01-001", TaskUpdates{})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Update must be called")
+	require.NotNil(t, capturedTask.Size, "size should remain unchanged")
+	assert.Equal(t, 3, *capturedTask.Size)
+}
+
+// TestTaskService_CreateTask_CreatorSvcPath_PropagatesSize verifies that when
+// creatorSvc is non-nil (the production path), input.Size is propagated through
+// taskcreation.Creator into the persisted models.Task.
+// Uses a real DB + real Creator, mirroring TestTaskService_CreateTask_CreatorSvcPath_ReopensFeature.
+func TestTaskService_CreateTask_CreatorSvcPath_PropagatesSize(t *testing.T) {
+	// Set up a temp SQLite DB
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	sqlDB, err := db.InitDB(dbPath)
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	repoDB := repository.NewDB(sqlDB)
+	ctx := context.Background()
+
+	// Seed epic and feature directly via SQL
+	res, err := sqlDB.ExecContext(ctx, `INSERT INTO epics (key, title, status, priority) VALUES ('E97', 'Size Test Epic', 'active', 'medium')`)
+	require.NoError(t, err)
+	epicID, _ := res.LastInsertId()
+
+	_, err = sqlDB.ExecContext(ctx, `INSERT INTO features (key, title, status, epic_id, file_path) VALUES ('E97-F01', 'Size Test Feature', 'active', ?, 'docs/plan/E97/E97-F01/feature.md')`, epicID)
+	require.NoError(t, err)
+
+	// Build Creator with real repos
+	taskRepo := repository.NewTaskRepository(repoDB)
+	featureRepo := repository.NewFeatureRepository(repoDB)
+	epicRepo := repository.NewEpicRepository(repoDB)
+	historyRepo := repository.NewTaskHistoryRepository(repoDB) //nolint:staticcheck // Required by taskcreation.Creator constructor
+
+	keygen := taskcreation.NewKeyGenerator(taskRepo, featureRepo)
+	validator := taskcreation.NewValidator(epicRepo, featureRepo, taskRepo)
+	loader := templates.NewLoader("")
+	renderer := templates.NewRenderer(loader)
+	wfSvc := workflow.NewService(tempDir)
+
+	creator := taskcreation.NewCreator(repoDB, keygen, validator, renderer, taskRepo, historyRepo, epicRepo, featureRepo, tempDir, wfSvc)
+
+	// Build TaskService with the real Creator (production wiring)
+	entitySvc := NewEntityService(wfSvc)
+	svc := NewTaskService(taskRepo, entitySvc, creator)
+
+	// Wire history recorder
+	historyRecorder := &mockEntityHistoryRecorder{}
+	svc.SetEntityHistoryRepo(historyRecorder)
+
+	// Create task via the creatorSvc path with a non-nil Size
+	size := 5
+	task, err := svc.CreateTask(ctx, CreateTaskInput{
+		EpicKey:    "E97",
+		FeatureKey: "F01",
+		Title:      "Sized task via creator path",
+		AgentType:  "developer",
+		Size:       &size,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	assert.Equal(t, "T-E97-F01-001", task.Key)
+
+	// Assert Size is propagated through the production creatorSvc path
+	require.NotNil(t, task.Size, "task.Size must not be nil — creatorSvc path must propagate input.Size")
+	assert.Equal(t, 5, *task.Size, "task.Size should equal the input Size value")
+
+	// Confirm the DB record also has the correct Size
+	persisted, err := taskRepo.GetByKey(ctx, "T-E97-F01-001")
+	require.NoError(t, err)
+	require.NotNil(t, persisted.Size, "persisted task.Size must not be nil")
+	assert.Equal(t, 5, *persisted.Size, "persisted task.Size should equal the input Size value")
+}
+
+// TestTaskService_UpdateTask_ClearSizePrecedence verifies spec D5:
+// ClearSize=true takes precedence over a simultaneously-set Size value.
+// When both ClearSize=true and Size=ptr(8) are provided, the entity.Size is nil.
+func TestTaskService_UpdateTask_ClearSizePrecedence(t *testing.T) {
+	// TC-SVC-B (extended): ClearSize=true wins over a non-nil Size input.
+	var capturedTask *models.Task
+	existingSize := 3
+	agentType := "developer"
+	mockRepo := &MockTaskRepository{
+		GetByKeyFunc: func(ctx context.Context, key string) (*models.Task, error) {
+			return &models.Task{
+				BaseEntity: models.BaseEntity{ID: 1, Key: key, Title: "Existing Task", Size: &existingSize},
+				Status:     "todo",
+				AgentType:  &agentType,
+				Priority:   5,
+			}, nil
+		},
+		UpdateFunc: func(ctx context.Context, task *models.Task) error {
+			capturedTask = task
+			return nil
+		},
+	}
+
+	svc := NewTaskService(mockRepo, NewEntityService(newMockWorkflowService()), nil)
+
+	// Set BOTH ClearSize=true AND Size=ptr(8) simultaneously — ClearSize must win (spec D5)
+	newSize := 8
+	task, err := svc.UpdateTask(context.Background(), "T-E07-F01-001", TaskUpdates{
+		ClearSize: true,
+		Size:      &newSize,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, task)
+	require.NotNil(t, capturedTask, "repo Update must be called")
+	assert.Nil(t, capturedTask.Size,
+		"ClearSize=true must take precedence over Size=ptr(8) — spec D5 contract")
+}
