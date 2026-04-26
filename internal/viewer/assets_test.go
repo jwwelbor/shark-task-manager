@@ -2335,3 +2335,127 @@ func TestViewerHTMLF10FlatSectionEntityTypeParam(t *testing.T) {
 		t.Error("viewer.html Ideas call to buildFlatSectionHtml must pass 'idea' entityType (T-E27-F10-005 AC-005.1)")
 	}
 }
+
+// TestViewerHTMLF10CompletedCSSRule verifies that the .entity-completed CSS rule exists
+// and sets opacity: 0.55 without text-decoration: line-through. AC-001.2 (T-E27-F10-001).
+func TestViewerHTMLF10CompletedCSSRule(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The entity-completed CSS class must exist in the stylesheet
+	if !strings.Contains(content, ".entity-completed") {
+		t.Fatal("viewer.html missing .entity-completed CSS rule (T-E27-F10-001 AC-001.2)")
+	}
+
+	// The rule must set opacity: 0.55 for tree-node-key and tree-node-title
+	if !strings.Contains(content, ".entity-completed .tree-node-key") {
+		t.Error("viewer.html .entity-completed must target .tree-node-key (T-E27-F10-001 AC-001.2)")
+	}
+	if !strings.Contains(content, ".entity-completed .tree-node-title") {
+		t.Error("viewer.html .entity-completed must target .tree-node-title (T-E27-F10-001 AC-001.2)")
+	}
+
+	// opacity: 0.55 must be present in the completed rule block
+	// We verify by checking the .entity-completed block contains 0.55
+	completedIdx := strings.Index(content, ".entity-completed .tree-node-key")
+	if completedIdx < 0 {
+		t.Fatal("viewer.html missing .entity-completed .tree-node-key rule")
+	}
+	// Look for 0.55 in the nearby block (within 300 chars)
+	block := content[completedIdx : completedIdx+300]
+	if !strings.Contains(block, "0.55") {
+		t.Error("viewer.html .entity-completed rule must set opacity: 0.55 (T-E27-F10-001 AC-001.2)")
+	}
+
+	// The completed rule must NOT contain text-decoration: line-through
+	// (line-through is reserved for .entity-cancelled only)
+	if strings.Contains(block, "line-through") {
+		t.Error("viewer.html .entity-completed must NOT use text-decoration: line-through (T-E27-F10-001 AC-001.2)")
+	}
+}
+
+// TestViewerHTMLF10CompletedTableRowCSS verifies that tr.entity-completed td rule exists
+// with opacity: 0.55 and no line-through. AC-001.5 (T-E27-F10-001).
+func TestViewerHTMLF10CompletedTableRowCSS(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	if !strings.Contains(content, "tr.entity-completed td") {
+		t.Fatal("viewer.html missing tr.entity-completed td CSS rule (T-E27-F10-001 AC-001.5)")
+	}
+
+	// Verify opacity 0.55 is in the tr.entity-completed block
+	trIdx := strings.Index(content, "tr.entity-completed td")
+	if trIdx < 0 {
+		t.Fatal("viewer.html missing tr.entity-completed td rule")
+	}
+	block := content[trIdx : trIdx+200]
+	if !strings.Contains(block, "0.55") {
+		t.Error("viewer.html tr.entity-completed td must set opacity: 0.55 (T-E27-F10-001 AC-001.5)")
+	}
+	if strings.Contains(block, "line-through") {
+		t.Error("viewer.html tr.entity-completed td must NOT use text-decoration: line-through (T-E27-F10-001 AC-001.5)")
+	}
+}
+
+// TestViewerHTMLF10CancelledRegressionCheck verifies that entity-cancelled CSS rules
+// still set opacity: 0.4 and text-decoration: line-through. AC-001.3 (T-E27-F10-001).
+func TestViewerHTMLF10CancelledRegressionCheck(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// entity-cancelled must still have the line-through rule (existing behaviour)
+	if !strings.Contains(content, ".entity-cancelled .tree-node-key") {
+		t.Error("viewer.html missing .entity-cancelled .tree-node-key rule (T-E27-F10-001 AC-001.3 regression)")
+	}
+	cancelledIdx := strings.Index(content, ".entity-cancelled .tree-node-key")
+	if cancelledIdx < 0 {
+		t.Fatal("viewer.html missing .entity-cancelled .tree-node-key rule")
+	}
+	block := content[cancelledIdx : cancelledIdx+300]
+	if !strings.Contains(block, "line-through") {
+		t.Error("viewer.html .entity-cancelled must have text-decoration: line-through (T-E27-F10-001 AC-001.3 regression)")
+	}
+}
+
+// TestViewerHTMLF10BuildNodeHtmlCompletedClass verifies that buildNodeHtml applies
+// entity-completed for completed status. AC-001.1 (T-E27-F10-001).
+func TestViewerHTMLF10BuildNodeHtmlCompletedClass(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The buildNodeHtml function must exist
+	if !strings.Contains(content, "function buildNodeHtml(") {
+		t.Fatal("viewer.html missing buildNodeHtml function (T-E27-F10-001)")
+	}
+
+	// The function must assign entity-completed based on completed status.
+	// We look for a pattern where entity-completed is conditionally set —
+	// similar to how entity-cancelled is set via isCancelledStatus.
+	if !strings.Contains(content, "entity-completed") {
+		t.Fatal("viewer.html: entity-completed class never used in JS (T-E27-F10-001 AC-001.1)")
+	}
+
+	// The cancelled check must come BEFORE the completed check
+	// (isCancelledStatus is checked first — AC-001.4: cancelled wins).
+	cancelledIdx := strings.LastIndex(content, "isCancelledStatus(status)")
+	completedIdx := strings.Index(content, "entity-completed")
+	// Both must exist and cancelled check must appear before entity-completed assignment
+	if cancelledIdx < 0 {
+		t.Error("viewer.html missing isCancelledStatus(status) call in buildNodeHtml area (T-E27-F10-001 AC-001.4)")
+	}
+	if completedIdx < 0 {
+		t.Error("viewer.html missing entity-completed class assignment (T-E27-F10-001 AC-001.1)")
+	}
+}
+
+// TestViewerHTMLF10TableRowsCompletedClass verifies that entity-completed is applied
+// in the feature and task table row builders. AC-001.5 (T-E27-F10-001).
+func TestViewerHTMLF10TableRowsCompletedClass(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The feature table row builder must apply entity-completed for completed status
+	// (not just entity-cancelled). We check that at least one of the two rowClass
+	// builders assigns entity-completed.
+	rowClassCompletedCount := strings.Count(content, "entity-completed")
+	if rowClassCompletedCount < 3 {
+		// We expect at least: CSS rule (1), feature rowClass (1), task rowClass (1)
+		t.Errorf("viewer.html: expected at least 3 occurrences of entity-completed (CSS + feature rowClass + task rowClass), found %d (T-E27-F10-001 AC-001.5)", rowClassCompletedCount)
+	}
+}

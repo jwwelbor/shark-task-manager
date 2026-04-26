@@ -321,6 +321,16 @@
       text-decoration: line-through;
     }
 
+    /* Completed entities: dimmed text only — no line-through (reserved for cancelled).
+       Provides a non-color affordance for colorblind users (WCAG 2.1 SC 1.4.1). */
+    .entity-completed .tree-node-key,
+    .entity-completed .tree-node-title {
+      opacity: 0.55;
+    }
+    tr.entity-completed td {
+      opacity: 0.55;
+    }
+
     /* Compensate selected border for indented nodes */
     .tree-node.selected.tree-node-epic    { padding-left: 13px; }
     .tree-node.selected.tree-node-feature { padding-left: 37px; }
@@ -4158,7 +4168,10 @@ function renderFeaturesTableSection(epic) {
     const pct = typeof f.progress_pct === 'number' ? f.progress_pct : 0;
     const badge = ovStatusBadge(f.status || 'unknown');
     const barColor = 'var(--accent)';
-    const rowClass = isCancelledStatus(f.status) ? ' class="entity-cancelled"' : '';
+    // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
+    let rowClass = '';
+    if (isCancelledStatus(f.status))           rowClass = ' class="entity-cancelled"';
+    else if ((f.status || '') === 'completed') rowClass = ' class="entity-completed"';
     return `<tr${rowClass}>
       <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
@@ -4272,7 +4285,10 @@ function renderTasksTableSection(feature) {
     const title = escapeHtml(t.title || t.key || '');
     const badge = ovStatusBadge(t.status || 'unknown');
     const order = t.execution_order != null ? t.execution_order : '';
-    const rowClass = isCancelledStatus(t.status) ? ' class="entity-cancelled"' : '';
+    // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
+    let rowClass = '';
+    if (isCancelledStatus(t.status))           rowClass = ' class="entity-cancelled"';
+    else if ((t.status || '') === 'completed') rowClass = ' class="entity-completed"';
     return `<tr${rowClass}>
       <td><span class="clickable" role="button" tabindex="0" data-navigate-key="${key}">${key}</span></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${title}">${title}</td>
@@ -4682,14 +4698,17 @@ function buildArrowHtml(expandable, expanded, key) {
 function buildNodeHtml({ key, title, status, nodeClass, expandable, expanded, bold }) {
   const isSelected = key === selectedKey;
   const selectedClass = isSelected ? ' selected' : '';
-  const cancelledClass = isCancelledStatus(status) ? ' entity-cancelled' : '';
+  // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
+  const statusClass = isCancelledStatus(status) ? ' entity-cancelled'
+    : (status || '') === 'completed' ? ' entity-completed'
+    : '';
   const arrowHtml = buildArrowHtml(expandable, expanded, key);
   const dotHtml = buildStatusDotHtml(status);
   const keyLabel = bold
     ? `<strong class="tree-node-key">${escapeHtml(key)}</strong>`
     : `<span class="tree-node-key">${escapeHtml(key)}</span>`;
   const titleHtml = `<span class="tree-node-title">${escapeHtml(title || '')}</span>`;
-  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${cancelledClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
+  return `<div class="tree-node ${escapeHtml(nodeClass)}${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}">${arrowHtml}${dotHtml}${keyLabel}${titleHtml}</div>`;
 }
 
 /**
@@ -4823,8 +4842,11 @@ function buildFlatSectionHtml(title, items, entityType) {
     const key = item.key || String(item.id || '');
     const isSelected = key === selectedKey;
     const selectedClass = isSelected ? ' selected' : '';
-    const cancelledClass = isCancelledStatus(item.status) ? ' entity-cancelled' : '';
-    html += `<div class="tree-node tree-node-flat${selectedClass}${cancelledClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
+    // Cancelled takes priority over completed (AC-001.4): check isCancelledStatus first.
+    const statusClass = isCancelledStatus(item.status) ? ' entity-cancelled'
+      : (item.status || '') === 'completed' ? ' entity-completed'
+      : '';
+    html += `<div class="tree-node tree-node-flat${selectedClass}${statusClass}" data-key="${escapeHtml(key)}" data-select-key="${escapeHtml(key)}"><span class="tree-arrow-spacer"></span>${buildStatusDotHtml(item.status || '')}<span class="tree-node-key">${escapeHtml(key)}</span><span class="tree-node-title">${escapeHtml(item.title || '')}</span></div>`;
   }
   return html;
 }
