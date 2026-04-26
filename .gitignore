@@ -53,6 +53,7 @@ docs/workflow/activity.jsonl
 
 # Run command transcript files (E07-F41)
 .shark/runs/
+shark.log
 
 bin/server
 bin/shark
