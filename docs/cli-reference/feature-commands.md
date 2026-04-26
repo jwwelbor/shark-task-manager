@@ -79,6 +79,7 @@ shark feature create --epic=<epic-key> "<title>" [flags]
 | `--key <key>` | Custom key for the feature |
 | `--order <n>` | Execution order within epic (lower runs first) |
 | `--status <status>` | Initial status (default: `draft`) |
+| `--size <value>` | Size estimate: `XS`, `S`, `M`, `L`, `XL`, `XXL` or numeric `1`, `2`, `3`, `5`, `8`, `13`. Optional; absence stores NULL. |
 | `--tag <name>` | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 
 **Examples:**
@@ -93,27 +94,36 @@ shark feature create E07 "User Profiles" --file="docs/features/profiles/feature.
 # Create with execution order and description
 shark feature create E07 "OAuth Integration" --order=2 --description="Add OAuth 2.0 support"
 
+# Create with size (label or numeric form)
+shark feature create E07 "API Gateway" --size=M
+shark feature create E07 "API Gateway" --size=3
+
 # Create with one or more tags (tags must already be registered)
 shark feature create E07 "OAuth Integration" --tag=auth --tag=voice
 ```
 
-**JSON Output:**
+**JSON Output (example with `--size=M`):**
+
+```bash
+shark feature create E07 "JWT Token Management" --size=M --json
+```
+
+The `create` command returns a **planning-mode** response — a shell for you to fill in — not the stored feature record. `size` and `size_label` are **not** present in create output; use `shark feature get <key> --json` (or `--field size_label`) to retrieve them after creation.
 
 ```json
 {
-  "id": 201,
+  "entity_type": "feature",
   "key": "E07-F01",
-  "slug": "jwt-token-management",
   "title": "JWT Token Management",
-  "epic_id": 7,
-  "epic_key": "E07",
-  "status": "draft",
-  "execution_order": 1,
+  "status": "created",
   "file_path": "docs/plan/E07-user-authentication-system/E07-F01-jwt-token-management/feature.md",
-  "created_at": "2026-02-16T10:30:00Z",
-  "updated_at": "2026-02-16T10:30:00Z"
+  "file_state": "placeholder",
+  "requires_editing": true,
+  "required_actions": ["edit feature.md to add description and acceptance criteria"],
+  "next_commands": ["shark feature get E07-F01", "shark feature next-status E07-F01"]
 }
 ```
+
 
 ---
 
@@ -302,6 +312,7 @@ shark feature update <feature-key> [flags]
 | `--key <key>` | New key (must be unique, no spaces) |
 | `--file <path>` | New file path |
 | `--force` | Force reassignment if file already claimed |
+| `--size <value>` | New size: `XS`\|`S`\|`M`\|`L`\|`XL`\|`XXL` or `1`\|`2`\|`3`\|`5`\|`8`\|`13`. Use `clear` to remove the size (set to NULL). Flag absent = no change. |
 | `--tag <name>` | Tag to apply additively (repeatable). Empty = no change; use `shark feature tag rm` to detach. |
 
 **Examples:**
@@ -312,6 +323,13 @@ shark feature update E07-F01 --title="JWT Token Generation and Validation"
 
 # Update execution order
 shark feature update E07-F01 --order=1
+
+# Set or update size
+shark feature update E07-F01 --size=S
+shark feature update E07-F01 --size=2
+
+# Clear size (set back to NULL)
+shark feature update E07-F01 --size=clear
 
 # Update multiple fields
 shark feature update E07-F01 --status=active --description="Updated scope" --json

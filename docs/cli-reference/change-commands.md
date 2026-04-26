@@ -29,6 +29,7 @@ shark change create <title> [flags]
 | `--requested-by` | string | — | Name or ID of the requester |
 | `--priority` | int | `5` | Priority level (1–10, where 10 = highest) |
 | `--justification` | string | — | Business justification for the change |
+| `--size` | string | — | Size estimate: `XS`, `S`, `M`, `L`, `XL`, `XXL` or numeric `1`, `2`, `3`, `5`, `8`, `13`. Optional; absence stores NULL. |
 | `--tag` | string | — | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 | `--json` | bool | `false` | JSON output |
 
@@ -45,11 +46,12 @@ shark change create "Add dark mode toggle" \
   --requested-by=alice \
   --description="Users have requested dark mode for accessibility reasons"
 
-# Linked to a feature
+# Linked to a feature, with size
 shark change create "Increase session timeout to 8 hours" \
   --link=E07-F01 \
   --priority=6 \
-  --requested-by=security-team
+  --requested-by=security-team \
+  --size=XS
 
 # With one or more tags (tags must already be registered)
 shark change create "Increase session timeout" --tag=auth
@@ -64,19 +66,21 @@ Created change-card CC-001: Add dark mode toggle
   Status: proposed
 ```
 
-**Output (`--json`):**
+**Output (`--json`, with `--size` flag set):**
 ```json
 {
   "key": "CC-001",
-  "title": "Add dark mode toggle",
+  "title": "Increase session timeout to 8 hours",
   "status": "proposed",
-  "priority": 8,
-  "requested_by": "alice",
-  "epic_id": 7,
+  "priority": 6,
+  "size": 1,
   "file_path": "docs/plan/changes/CC-001.md",
   "created_at": "2026-03-05T10:00:00Z"
 }
 ```
+
+> **Note:** `size` is omitted from the JSON response when `--size` is not provided. `size_label` is only emitted by `get` / `status` commands; use `shark change get <key> --field size_label` if you need the label after creation.
+
 
 ---
 
@@ -177,6 +181,7 @@ shark change update <key> [flags]
 | `--justification` | string | Update business justification |
 | `--impact-analysis` | string | Update impact analysis |
 | `--rollback-plan` | string | Update rollback plan |
+| `--size` | string | New size: `XS`\|`S`\|`M`\|`L`\|`XL`\|`XXL` or `1`\|`2`\|`3`\|`5`\|`8`\|`13`. Use `clear` to remove (set to NULL). Flag absent = no change. |
 | `--tag` | string | Tag to apply additively (repeatable). Empty = no change; use `shark change tag rm` to detach. |
 | `--json` | bool | JSON output |
 
@@ -188,6 +193,12 @@ shark change update CC-001 --assigned-to=bob
 shark change update CC-001 --title="Add dark mode with user preference persistence"
 shark change update CC-001 --impact-analysis="Affects UI layer only, no DB changes required"
 shark change update CC-001 --rollback-plan="Revert feature flag, redeploy previous build"
+
+# Set or update size
+shark change update CC-001 --size=S
+
+# Clear size (set back to NULL)
+shark change update CC-001 --size=clear
 
 # Additive tagging
 shark change update CC-001 --tag=auth

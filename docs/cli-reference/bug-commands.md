@@ -28,6 +28,7 @@ shark bug create <title> [flags]
 | `--link` | string | — | Link to existing entity (epic key, feature key, or task key) |
 | `--file` | string | — | Custom file path for the bug markdown file |
 | `--force` | bool | `false` | Overwrite existing file if it exists |
+| `--size` | string | — | Size estimate: `XS`, `S`, `M`, `L`, `XL`, `XXL` or numeric `1`, `2`, `3`, `5`, `8`, `13`. Optional; absence stores NULL. |
 | `--tag` | string | — | Tag to apply (repeatable). Tag must be registered; see `shark tags list`. |
 
 **Examples:**
@@ -45,6 +46,9 @@ shark bug create "JWT tokens not expiring" --severity=high --link=E07-F01-003
 # With custom file path
 shark bug create "Race condition in async handler" --file=docs/bugs/B001-race-condition.md
 
+# With size estimate
+shark bug create "Auth service memory leak" --severity=high --size=L
+
 # With one or more tags (tags must already be in the vocabulary)
 shark bug create "Login crashes" --severity=high --tag=auth
 shark bug create "Race in login flow" --tag=auth --tag=voice
@@ -58,19 +62,21 @@ Created bug B001: Login page crashes on submit
   Status: reported
 ```
 
-**Output (`--json`):**
+**Output (`--json`, with `--size` flag set):**
 ```json
 {
   "key": "B001",
-  "title": "Login page crashes on submit",
+  "title": "Auth service memory leak",
   "status": "reported",
-  "severity": "critical",
-  "linked_entity_type": "feature",
-  "linked_entity_key": "E07-F01",
+  "severity": "high",
+  "size": 5,
   "file_path": "docs/plan/bugs/B001.md",
   "created_at": "2026-03-05T10:00:00Z"
 }
 ```
+
+> **Note:** `size` is omitted from the JSON response when `--size` is not provided. `size_label` is only emitted by `get` / `status` commands; use `shark bug get <key> --field size_label` if you need the label after creation.
+
 
 ---
 
@@ -166,6 +172,7 @@ shark bug update <key> [flags]
 |------|------|-------------|
 | `--title` | string | New bug title |
 | `--severity` | string | New severity: `critical`, `high`, `medium`, `low` |
+| `--size` | string | New size: `XS`\|`S`\|`M`\|`L`\|`XL`\|`XXL` or `1`\|`2`\|`3`\|`5`\|`8`\|`13`. Use `clear` to remove (set to NULL). Flag absent = no change. |
 | `--tag` | string | Tag to apply additively (repeatable). Empty = no change; use `shark bug tag rm` to detach. |
 | `--json` | bool | JSON output |
 
@@ -175,6 +182,12 @@ shark bug update <key> [flags]
 shark bug update B001 --severity=high
 shark bug update B001 --title="Login page crashes on mobile submit"
 shark bug update B001 --severity=critical --json
+
+# Set or update size
+shark bug update B001 --size=M
+
+# Clear size (set back to NULL)
+shark bug update B001 --size=clear
 
 # Additive tagging (does not detach existing tags)
 shark bug update B001 --tag=auth
