@@ -245,6 +245,11 @@
     .sidebar-filter-label input[type="checkbox"] {
       cursor: pointer;
     }
+    .sidebar-filter-bar button {
+      padding: 2px 8px;
+      font-size: 0.85em;
+      cursor: pointer;
+    }
     .sidebar-section-header {
       position: sticky;
       top: 0;
@@ -4880,6 +4885,7 @@ function renderSidebar() {
       <input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}>
       Show all files
     </label>
+    <button id="collapse-all-btn" type="button">Collapse all</button>
   </div>`;
 
   // ── Tag filter control (E28-F06 REQ-F-017, AC-12) ──
@@ -4929,6 +4935,16 @@ function renderSidebar() {
           expandedEpics.add(epic.key || '');
         }
       }
+      renderSidebar();
+    };
+  }
+
+  // ── Wire collapse-all button (T-E27-F10-003 REQ-F-003) ──
+  const collapseAllBtn = document.getElementById('collapse-all-btn');
+  if (collapseAllBtn) {
+    collapseAllBtn.onclick = function() {
+      expandedEpics.clear();
+      expandedFeatures.clear();
       renderSidebar();
     };
   }

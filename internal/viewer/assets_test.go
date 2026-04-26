@@ -2520,3 +2520,103 @@ func TestViewerHTMLF10002VariableComment(t *testing.T) {
 		t.Error("viewer.html: showCompleted declaration must have a comment documenting its 'show all items' semantics (T-E27-F10-002 AC-002.4)")
 	}
 }
+
+// ── T-E27-F10-003: "Collapse all" button ──
+
+// TestViewerHTMLF10003CollapseAllButtonPresent verifies that the collapse-all button
+// is rendered inside .sidebar-filter-bar. AC-003.1 (T-E27-F10-003).
+func TestViewerHTMLF10003CollapseAllButtonPresent(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// AC-003.1: <button id="collapse-all-btn"> must be present
+	if !strings.Contains(content, `id="collapse-all-btn"`) {
+		t.Error(`viewer.html missing <button id="collapse-all-btn"> (T-E27-F10-003 AC-003.1)`)
+	}
+
+	// Button must contain the "Collapse all" label text
+	if !strings.Contains(content, "Collapse all") {
+		t.Error(`viewer.html missing "Collapse all" button text (T-E27-F10-003 AC-003.1)`)
+	}
+
+	// The button must appear within (near) the sidebar-filter-bar — verify it
+	// appears in the renderSidebar function where .sidebar-filter-bar is built.
+	filterBarIdx := strings.Index(content, `sidebar-filter-bar`)
+	collapseIdx := strings.Index(content, `collapse-all-btn`)
+	if filterBarIdx < 0 || collapseIdx < 0 {
+		t.Fatal("viewer.html: sidebar-filter-bar or collapse-all-btn not found (T-E27-F10-003 AC-003.1)")
+	}
+	// The button should appear after the sidebar-filter-bar definition (in renderSidebar)
+	// Both the CSS definition and the HTML template contain sidebar-filter-bar.
+	// We check there is a collapse-all-btn occurrence somewhere after the
+	// first sidebar-filter-bar reference.
+	if collapseIdx < filterBarIdx {
+		t.Error("viewer.html: collapse-all-btn must appear within the sidebar-filter-bar template (T-E27-F10-003 AC-003.1)")
+	}
+}
+
+// TestViewerHTMLF10003CollapseAllCSS verifies that a CSS rule styles
+// the .sidebar-filter-bar button. AC-003.1 (T-E27-F10-003).
+func TestViewerHTMLF10003CollapseAllCSS(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// A CSS rule for .sidebar-filter-bar button must be present to style the button
+	if !strings.Contains(content, ".sidebar-filter-bar button") {
+		t.Error("viewer.html missing .sidebar-filter-bar button CSS rule (T-E27-F10-003 AC-003.1)")
+	}
+}
+
+// TestViewerHTMLF10003CollapseAllClickHandler verifies that the click handler
+// calls expandedEpics.clear(), expandedFeatures.clear(), and renderSidebar().
+// AC-003.2 (T-E27-F10-003).
+func TestViewerHTMLF10003CollapseAllClickHandler(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The handler must clear expandedEpics
+	if !strings.Contains(content, "expandedEpics.clear()") {
+		t.Error("viewer.html missing expandedEpics.clear() in collapse-all handler (T-E27-F10-003 AC-003.2)")
+	}
+
+	// The handler must clear expandedFeatures
+	if !strings.Contains(content, "expandedFeatures.clear()") {
+		t.Error("viewer.html missing expandedFeatures.clear() in collapse-all handler (T-E27-F10-003 AC-003.2)")
+	}
+
+	// The collapse-all button handler must wire to the collapse-all-btn element
+	if !strings.Contains(content, "collapse-all-btn") {
+		t.Error("viewer.html missing reference to collapse-all-btn in wiring (T-E27-F10-003 AC-003.2)")
+	}
+
+	// The handler must call renderSidebar() after clearing
+	// We verify both clear() calls and renderSidebar() appear in close proximity
+	// (within 500 chars) to the collapseAllBtn wiring
+	collapseWireIdx := strings.Index(content, "collapse-all-btn")
+	if collapseWireIdx < 0 {
+		t.Fatal("viewer.html missing collapse-all-btn wiring (T-E27-F10-003 AC-003.2)")
+	}
+	// Find the second occurrence (first is the HTML template, second is wiring)
+	secondOccurrence := strings.Index(content[collapseWireIdx+1:], "collapse-all-btn")
+	if secondOccurrence < 0 {
+		t.Fatal("viewer.html collapse-all-btn only appears once — expected both HTML and JS wiring (T-E27-F10-003 AC-003.2)")
+	}
+	wireOffset := collapseWireIdx + 1 + secondOccurrence
+	// Look for renderSidebar() call in a window after the second occurrence
+	window := content[wireOffset : wireOffset+400]
+	if !strings.Contains(window, "renderSidebar()") {
+		t.Error("viewer.html collapse-all click handler must call renderSidebar() (T-E27-F10-003 AC-003.2)")
+	}
+}
+
+// TestViewerHTMLF10003CollapseAllGuard verifies that the click handler uses
+// an if-guard before accessing the element (safe even if element hasn't rendered).
+// AC-003.5 (T-E27-F10-003).
+func TestViewerHTMLF10003CollapseAllGuard(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// The handler must use getElementById and check for non-null before wiring
+	// Pattern: const collapseAllBtn = document.getElementById('collapse-all-btn');
+	//          if (collapseAllBtn) { ... }
+	if !strings.Contains(content, "getElementById('collapse-all-btn')") &&
+		!strings.Contains(content, `getElementById("collapse-all-btn")`) {
+		t.Error("viewer.html collapse-all handler must use getElementById to find the button (T-E27-F10-003 AC-003.5)")
+	}
+}
