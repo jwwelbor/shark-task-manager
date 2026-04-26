@@ -71,6 +71,12 @@ func (b *Bug) Validate() error {
 	if !ValidBugSeverities[b.Severity] {
 		return fmt.Errorf("invalid severity %q: must be one of critical, high, medium, low", b.Severity)
 	}
+	// Validate size if set (E07-F42: canonical Fibonacci values only).
+	if b.Size != nil {
+		if err := ValidateSize(*b.Size); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

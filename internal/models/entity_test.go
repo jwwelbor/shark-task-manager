@@ -1,9 +1,17 @@
 package models
 
 import (
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
+
+// ptrInt is a test helper that returns a pointer to an int value.
+// Avoids the verbose inline pattern: v := n; &v
+func ptrInt(n int) *int {
+	return &n
+}
 
 // testEntityFactory creates a populated entity of the given type for testing.
 func testEntityFactory(entityType EntityType) Entity {
@@ -546,6 +554,400 @@ func TestEntity_ZeroValueAccessors(t *testing.T) {
 			_ = e.GetContextData()
 			_ = e.GetCreatedAt()
 			_ = e.GetUpdatedAt()
+			// GetSize and SetSize are tested via TC-F001 below
+			_ = e.GetSize()
 		})
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REQ-F-001 — Size field on BaseEntity (TC-F001-A, TC-F001-B, TC-F001-C)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TC-F001-A: nil Size round-trips through JSON; GetSize() returns nil; "size" key absent.
+func TestBaseEntity_Size_NilRoundTripsJSON(t *testing.T) {
+	b := &BaseEntity{ID: 1, Key: "E01", Title: "Test"}
+
+	if got := b.GetSize(); got != nil {
+		t.Errorf("GetSize() on zero-value BaseEntity = %v, want nil", got)
+	}
+
+	data, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	// omitempty means "size" key should be absent from JSON when nil
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("json.Unmarshal into map failed: %v", err)
+	}
+	if _, present := raw["size"]; present {
+		t.Errorf("JSON output contains \"size\" key when Size is nil; want absent (omitempty)")
+	}
+
+	// Round-trip: unmarshal back into BaseEntity
+	var b2 BaseEntity
+	if err := json.Unmarshal(data, &b2); err != nil {
+		t.Fatalf("json.Unmarshal into BaseEntity failed: %v", err)
+	}
+	if b2.GetSize() != nil {
+		t.Errorf("after round-trip, GetSize() = %v, want nil", b2.GetSize())
+	}
+}
+
+// TC-F001-B: ptr(5) Size round-trips through JSON; GetSize() returns pointer to 5; JSON contains "size":5.
+func TestBaseEntity_Size_NonNilRoundTripsJSON(t *testing.T) {
+	b := &BaseEntity{ID: 1, Key: "E01", Title: "Test", Size: ptrInt(5)}
+
+	if got := b.GetSize(); got == nil || *got != 5 {
+		t.Errorf("GetSize() = %v, want ptr(5)", got)
+	}
+
+	data, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	// JSON must contain "size":5
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("json.Unmarshal into map failed: %v", err)
+	}
+	sizeVal, present := raw["size"]
+	if !present {
+		t.Errorf("JSON output missing \"size\" key; want present when Size = ptr(5)")
+	} else if int(sizeVal.(float64)) != 5 {
+		t.Errorf("JSON \"size\" = %v, want 5", sizeVal)
+	}
+
+	// Round-trip back
+	var b2 BaseEntity
+	if err := json.Unmarshal(data, &b2); err != nil {
+		t.Fatalf("json.Unmarshal into BaseEntity failed: %v", err)
+	}
+	if got := b2.GetSize(); got == nil || *got != 5 {
+		t.Errorf("after round-trip, GetSize() = %v, want ptr(5)", got)
+	}
+}
+
+// TC-F001-C: SetSize mutates the field; GetSize reflects the change.
+func TestBaseEntity_SetSize(t *testing.T) {
+	b := &BaseEntity{}
+
+	// Initially nil
+	if got := b.GetSize(); got != nil {
+		t.Errorf("initial GetSize() = %v, want nil", got)
+	}
+
+	// Set to ptr(3)
+	b.SetSize(ptrInt(3))
+	if got := b.GetSize(); got == nil || *got != 3 {
+		t.Errorf("after SetSize(ptr(3)), GetSize() = %v, want ptr(3)", got)
+	}
+
+	// Set to nil
+	b.SetSize(nil)
+	if got := b.GetSize(); got != nil {
+		t.Errorf("after SetSize(nil), GetSize() = %v, want nil", got)
+	}
+}
+
+// TC-F001: GetSize/SetSize accessible via Entity interface (all 5 entity types)
+func TestEntity_GetSetSize_ViaInterface(t *testing.T) {
+	entities := []Entity{
+		&Epic{},
+		&Feature{},
+		&Task{},
+		&Bug{},
+		&ChangeCard{},
+	}
+
+	for _, e := range entities {
+		t.Run(string(e.GetEntityType()), func(t *testing.T) {
+			// Initially nil
+			if got := e.GetSize(); got != nil {
+				t.Errorf("GetSize() on zero-value = %v, want nil", got)
+			}
+
+			// Set via interface
+			e.SetSize(ptrInt(8))
+			if got := e.GetSize(); got == nil || *got != 8 {
+				t.Errorf("after SetSize(ptr(8)), GetSize() = %v, want ptr(8)", got)
+			}
+
+			// Clear via interface
+			e.SetSize(nil)
+			if got := e.GetSize(); got != nil {
+				t.Errorf("after SetSize(nil), GetSize() = %v, want nil", got)
+			}
+		})
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-entity Validate() rejects invalid Size, accepts nil and valid size
+// (test-plan.md §6 "Existing test files to extend")
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestEpic_Validate_Size verifies that Epic.Validate() checks the Size field.
+func TestEpic_Validate_Size(t *testing.T) {
+	base := func() Epic {
+		return Epic{
+			BaseEntity: BaseEntity{Key: "E01", Title: "Epic Title"},
+			Status:     EpicStatusActive,
+			Priority:   "high",
+		}
+	}
+
+	t.Run("nil size is valid", func(t *testing.T) {
+		e := base()
+		e.Size = nil
+		if err := e.Validate(); err != nil {
+			t.Errorf("Validate() with Size=nil returned error: %v", err)
+		}
+	})
+
+	t.Run("valid size ptr(5) is accepted", func(t *testing.T) {
+		e := base()
+		e.SetSize(ptrInt(5))
+		if err := e.Validate(); err != nil {
+			t.Errorf("Validate() with Size=ptr(5) returned error: %v", err)
+		}
+	})
+
+	t.Run("invalid size ptr(4) is rejected", func(t *testing.T) {
+		e := base()
+		e.SetSize(ptrInt(4))
+		err := e.Validate()
+		if err == nil {
+			t.Error("Validate() with Size=ptr(4) expected error but got nil")
+		}
+		if !errors.Is(err, ErrInvalidSize) {
+			t.Errorf("Validate() with Size=ptr(4) error does not wrap ErrInvalidSize: %v", err)
+		}
+	})
+}
+
+// TestFeature_Validate_Size verifies that Feature.Validate() checks the Size field.
+func TestFeature_Validate_Size(t *testing.T) {
+	base := func() Feature {
+		return Feature{
+			BaseEntity: BaseEntity{Key: "E01-F01", Title: "Feature Title"},
+			Status:     FeatureStatusActive,
+		}
+	}
+
+	t.Run("nil size is valid", func(t *testing.T) {
+		f := base()
+		f.Size = nil
+		if err := f.Validate(); err != nil {
+			t.Errorf("Validate() with Size=nil returned error: %v", err)
+		}
+	})
+
+	t.Run("valid size ptr(5) is accepted", func(t *testing.T) {
+		f := base()
+		f.SetSize(ptrInt(5))
+		if err := f.Validate(); err != nil {
+			t.Errorf("Validate() with Size=ptr(5) returned error: %v", err)
+		}
+	})
+
+	t.Run("invalid size ptr(4) is rejected", func(t *testing.T) {
+		f := base()
+		f.SetSize(ptrInt(4))
+		err := f.Validate()
+		if err == nil {
+			t.Error("Validate() with Size=ptr(4) expected error but got nil")
+		}
+		if !errors.Is(err, ErrInvalidSize) {
+			t.Errorf("Validate() with Size=ptr(4) error does not wrap ErrInvalidSize: %v", err)
+		}
+	})
+}
+
+// TestTask_Validate_Size verifies that Task.Validate() checks the Size field.
+func TestTask_Validate_Size(t *testing.T) {
+	base := func() Task {
+		return Task{
+			BaseEntity: BaseEntity{Key: "T-E01-F01-001", Title: "Task Title"},
+			Status:     TaskStatus("todo"),
+			Priority:   5,
+		}
+	}
+
+	t.Run("nil size is valid", func(t *testing.T) {
+		tk := base()
+		tk.Size = nil
+		if err := tk.Validate(); err != nil {
+			t.Errorf("Validate() with Size=nil returned error: %v", err)
+		}
+	})
+
+	t.Run("valid size ptr(5) is accepted", func(t *testing.T) {
+		tk := base()
+		tk.SetSize(ptrInt(5))
+		if err := tk.Validate(); err != nil {
+			t.Errorf("Validate() with Size=ptr(5) returned error: %v", err)
+		}
+	})
+
+	t.Run("invalid size ptr(4) is rejected", func(t *testing.T) {
+		tk := base()
+		tk.SetSize(ptrInt(4))
+		err := tk.Validate()
+		if err == nil {
+			t.Error("Validate() with Size=ptr(4) expected error but got nil")
+		}
+		if !errors.Is(err, ErrInvalidSize) {
+			t.Errorf("Validate() with Size=ptr(4) error does not wrap ErrInvalidSize: %v", err)
+		}
+	})
+}
+
+// TestBug_Validate_Size verifies that Bug.Validate() checks the Size field.
+func TestBug_Validate_Size(t *testing.T) {
+	base := func() Bug {
+		return Bug{
+			BaseEntity: BaseEntity{Key: "B001", Title: "Bug Title"},
+			Status:     BugStatus("reported"),
+			Severity:   BugSeverityHigh,
+		}
+	}
+
+	t.Run("nil size is valid", func(t *testing.T) {
+		b := base()
+		b.Size = nil
+		if err := b.Validate(); err != nil {
+			t.Errorf("Validate() with Size=nil returned error: %v", err)
+		}
+	})
+
+	t.Run("valid size ptr(5) is accepted", func(t *testing.T) {
+		b := base()
+		b.SetSize(ptrInt(5))
+		if err := b.Validate(); err != nil {
+			t.Errorf("Validate() with Size=ptr(5) returned error: %v", err)
+		}
+	})
+
+	t.Run("invalid size ptr(4) is rejected", func(t *testing.T) {
+		b := base()
+		b.SetSize(ptrInt(4))
+		err := b.Validate()
+		if err == nil {
+			t.Error("Validate() with Size=ptr(4) expected error but got nil")
+		}
+		if !errors.Is(err, ErrInvalidSize) {
+			t.Errorf("Validate() with Size=ptr(4) error does not wrap ErrInvalidSize: %v", err)
+		}
+	})
+}
+
+// TestChangeCard_Validate_Size verifies that ChangeCard.Validate() checks the Size field.
+func TestChangeCard_Validate_Size(t *testing.T) {
+	base := func() ChangeCard {
+		return ChangeCard{
+			BaseEntity: BaseEntity{Key: "CC-001", Title: "Change Title"},
+			Status:     ChangeCardStatus("proposed"),
+		}
+	}
+
+	t.Run("nil size is valid", func(t *testing.T) {
+		c := base()
+		c.Size = nil
+		if err := c.Validate(); err != nil {
+			t.Errorf("Validate() with Size=nil returned error: %v", err)
+		}
+	})
+
+	t.Run("valid size ptr(5) is accepted", func(t *testing.T) {
+		c := base()
+		c.SetSize(ptrInt(5))
+		if err := c.Validate(); err != nil {
+			t.Errorf("Validate() with Size=ptr(5) returned error: %v", err)
+		}
+	})
+
+	t.Run("invalid size ptr(4) is rejected", func(t *testing.T) {
+		c := base()
+		c.SetSize(ptrInt(4))
+		err := c.Validate()
+		if err == nil {
+			t.Error("Validate() with Size=ptr(4) expected error but got nil")
+		}
+		if !errors.Is(err, ErrInvalidSize) {
+			t.Errorf("Validate() with Size=ptr(4) error does not wrap ErrInvalidSize: %v", err)
+		}
+	})
+}
+
+// TestIdea_Validate_Size verifies that Idea.Validate() checks the Size field.
+// Idea does not embed BaseEntity so this also tests the direct Size field.
+func TestIdea_Validate_Size(t *testing.T) {
+	base := func() Idea {
+		return Idea{
+			Key:    "I-2026-01-01-01",
+			Title:  "Idea Title",
+			Status: IdeaStatusNew,
+		}
+	}
+
+	t.Run("nil size is valid", func(t *testing.T) {
+		i := base()
+		i.Size = nil
+		if err := i.Validate(); err != nil {
+			t.Errorf("Validate() with Size=nil returned error: %v", err)
+		}
+	})
+
+	t.Run("valid size ptr(5) is accepted", func(t *testing.T) {
+		i := base()
+		n := 5
+		i.Size = &n
+		if err := i.Validate(); err != nil {
+			t.Errorf("Validate() with Size=ptr(5) returned error: %v", err)
+		}
+	})
+
+	t.Run("invalid size ptr(4) is rejected", func(t *testing.T) {
+		i := base()
+		n := 4
+		i.Size = &n
+		err := i.Validate()
+		if err == nil {
+			t.Error("Validate() with Size=ptr(4) expected error but got nil")
+		}
+		if !errors.Is(err, ErrInvalidSize) {
+			t.Errorf("Validate() with Size=ptr(4) error does not wrap ErrInvalidSize: %v", err)
+		}
+	})
+}
+
+// TestIdea_GetSetSize verifies Idea's Size field accessors.
+func TestIdea_GetSetSize(t *testing.T) {
+	i := &Idea{
+		Key:    "I-2026-01-01-01",
+		Title:  "Idea Title",
+		Status: IdeaStatusNew,
+	}
+
+	// Initially nil
+	if got := i.GetSize(); got != nil {
+		t.Errorf("initial GetSize() = %v, want nil", got)
+	}
+
+	// Set to ptr(8)
+	n := 8
+	i.SetSize(&n)
+	if got := i.GetSize(); got == nil || *got != 8 {
+		t.Errorf("after SetSize(ptr(8)), GetSize() = %v, want ptr(8)", got)
+	}
+
+	// Clear to nil
+	i.SetSize(nil)
+	if got := i.GetSize(); got != nil {
+		t.Errorf("after SetSize(nil), GetSize() = %v, want nil", got)
 	}
 }

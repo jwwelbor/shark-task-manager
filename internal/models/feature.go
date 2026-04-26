@@ -46,5 +46,11 @@ func (f *Feature) Validate() error {
 	if f.ProgressPct < 0.0 || f.ProgressPct > 100.0 {
 		return ErrInvalidProgressPct
 	}
+	// Validate size if set (E07-F42: canonical Fibonacci values only).
+	if f.Size != nil {
+		if err := ValidateSize(*f.Size); err != nil {
+			return err
+		}
+	}
 	return nil
 }

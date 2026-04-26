@@ -72,5 +72,11 @@ func (c *ChangeCard) Validate() error {
 			return err
 		}
 	}
+	// Validate size if set (E07-F42: canonical Fibonacci values only).
+	if c.Size != nil {
+		if err := ValidateSize(*c.Size); err != nil {
+			return err
+		}
+	}
 	return nil
 }
