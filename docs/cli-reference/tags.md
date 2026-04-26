@@ -380,7 +380,7 @@ The `shark` CLI process emits exit code **0** on success. For typed errors the p
 
 ## Applying Tags During Create/Update
 
-The six entity families — `task`, `feature`, `epic`, `bug`, `change`, `idea` — accept a repeatable `--tag <name>` flag on both their `create` and `update` subcommands. Tag names must already be registered in the vocabulary (`shark tags add <name>`); attempting to apply an unregistered name exits **3** (internal class `unregistered_tag`). See [Unregistered Tag Errors](#unregistered-tag-errors) below for the exact error shape — and note that as of the current build the SC-2 vocabulary snippet and "To add it:" remediation line render **only** on the `shark <entity> tag add|rm` subcommand path, not on the `--tag` path.
+The six entity families — `task`, `feature`, `epic`, `bug`, `change`, `idea` — accept a repeatable `--tag <name>` flag on both their `create` and `update` subcommands. Tag names must already be registered in the vocabulary (`shark tags add <name>`); attempting to apply an unregistered name exits **3** (internal class `unregistered_tag`). See [Unregistered Tag Errors](#unregistered-tag-errors) below for the exact error shape — and note that as of the current build the SC-2 vocabulary snippet and "To add it:" remediation line render on the `shark <entity> tag add|rm` subcommand path and the `--tag` filter path on `list`/`search`, but **not** on the `--tag` path for `create`/`update` commands (only the outer error envelope is emitted there).
 
 **Key semantics (`--tag` flag on create/update, and `tag add|rm` subcommands):**
 

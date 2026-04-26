@@ -79,17 +79,17 @@ See [Turso Quickstart](../TURSO_QUICKSTART.md) for cloud setup.
 |-------|------|---------|-------------|
 | `database.skip_migrations` | bool | `false` | When `true`, skips the per-command schema/DDL check (recommended for Turso to avoid ~2-second overhead on every shark invocation). Local SQLite users typically leave this `false`. |
 
-> **v14 schema bump (E28 tagging):** The E28 entity tagging epic moved the
-> schema from **version 13 → 14** (added `tags` and `entity_tags` tables). If
-> you are running with `skip_migrations: true`, the migration will not apply
-> automatically — you must temporarily set `skip_migrations` to `false`, run
-> any `shark` command once to apply the bump, then set it back to `true`.
-> Local SQLite users do not need to do anything; migrations always run on
-> local databases.
+> **Schema bumps (v14 → v15):** Recent migrations added the tag vocabulary
+> tables (v14) and `size`/`size_label` columns (v15). When `skip_migrations`
+> is `true`, `ApplySchemaIfNeeded` still detects any gap between the recorded
+> `schema_version` and `CurrentSchemaVersion` and runs pending migrations
+> automatically — no manual toggle is needed. Simply upgrade the binary and
+> run any `shark` command. Local SQLite users do not need to do anything;
+> migrations always run on local databases.
 >
 > See
-> [Initialization → Migrating an existing project to v14 (E28 tagging)](initialization.md#migrating-an-existing-project-to-v14-e28-tagging)
-> for the step-by-step procedure.
+> [Initialization → Migrating an existing project to v15](initialization.md#migrating-an-existing-project-to-v15-e07-size-field--e28-tagging)
+> for details.
 
 ### UI Preferences
 
