@@ -2275,7 +2275,10 @@ let hierarchyData  = null;           // full cached /hierarchy response (include
 let summaryData    = null;           // cached /summary response
 let recentActivity = [];             // cached /recent-activity response
 let workflowMeta   = null;           // cached /workflow-meta response
-let showCompleted    = false;         // sidebar filter: show completed entities
+// showCompleted: when true, shows ALL items regardless of terminal status.
+// User-facing label: "Show all items". Variable name kept for diff minimization.
+// Previously only hid 'completed'; now hides all terminal statuses via isHiddenTerminalStatus.
+let showCompleted    = false;         // false = hide terminal-status entities
 let showAllFiles     = false;         // sidebar filter: show untracked folder files
 let projectName      = '';            // project folder name for header
 let expandedEpics    = new Set();    // epic keys currently expanded in sidebar
@@ -4871,7 +4874,7 @@ function renderSidebar() {
   html += `<div class="sidebar-filter-bar">
     <label class="sidebar-filter-label">
       <input type="checkbox" id="show-completed-checkbox"${showCompleted ? ' checked' : ''}>
-      Show completed
+      Show all items
     </label>
     <label class="sidebar-filter-label">
       <input type="checkbox" id="show-all-files-checkbox"${showAllFiles ? ' checked' : ''}>

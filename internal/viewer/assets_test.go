@@ -2459,3 +2459,64 @@ func TestViewerHTMLF10TableRowsCompletedClass(t *testing.T) {
 		t.Errorf("viewer.html: expected at least 3 occurrences of entity-completed (CSS + feature rowClass + task rowClass), found %d (T-E27-F10-001 AC-001.5)", rowClassCompletedCount)
 	}
 }
+
+// ── T-E27-F10-002: "Show all items" label rename + cancelled visibility ──
+
+// TestViewerHTMLF10002LabelRename verifies that the checkbox label text is
+// "Show all items" (not "Show completed"). AC-002.1 (T-E27-F10-002).
+func TestViewerHTMLF10002LabelRename(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// AC-002.1: label must read "Show all items"
+	if !strings.Contains(content, "Show all items") {
+		t.Error("viewer.html checkbox label must be \"Show all items\" (T-E27-F10-002 AC-002.1)")
+	}
+
+	// The old label text must be absent
+	if strings.Contains(content, "Show completed") {
+		t.Error("viewer.html still contains \"Show completed\" — label must be renamed to \"Show all items\" (T-E27-F10-002 AC-002.1)")
+	}
+}
+
+// TestViewerHTMLF10002ShowAllFilesUnaffected verifies that the second checkbox
+// "Show all files" is still present and separate. AC-002.5 (T-E27-F10-002).
+func TestViewerHTMLF10002ShowAllFilesUnaffected(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// AC-002.5: "Show all files" must remain unchanged
+	if !strings.Contains(content, "Show all files") {
+		t.Error("viewer.html missing \"Show all files\" checkbox — must remain unaffected (T-E27-F10-002 AC-002.5)")
+	}
+}
+
+// TestViewerHTMLF10002VariableComment verifies that showCompleted has a code comment
+// documenting its updated semantics. AC-002.4 (T-E27-F10-002).
+func TestViewerHTMLF10002VariableComment(t *testing.T) {
+	content := string(viewer.ViewerHTML)
+
+	// AC-002.4: The showCompleted variable declaration must have a comment
+	// noting that it now controls all terminal statuses (not just "completed").
+	// We look for the comment keyword near the showCompleted declaration.
+	showCompletedIdx := strings.Index(content, "let showCompleted")
+	if showCompletedIdx < 0 {
+		t.Fatal("viewer.html missing 'let showCompleted' declaration (T-E27-F10-002 AC-002.4)")
+	}
+
+	// Grab a window around and before the declaration to check for a comment.
+	// The comment may appear on the preceding lines.
+	start := showCompletedIdx
+	if start > 300 {
+		start = showCompletedIdx - 300
+	}
+	window := content[start : showCompletedIdx+200]
+
+	// Comment must mention the new "show all items" / "Show all items" semantics
+	// OR at minimum explain it controls "all" / "terminal" items.
+	hasComment := strings.Contains(window, "Show all items") ||
+		strings.Contains(window, "show all items") ||
+		strings.Contains(window, "all items") ||
+		strings.Contains(window, "terminal")
+	if !hasComment {
+		t.Error("viewer.html: showCompleted declaration must have a comment documenting its 'show all items' semantics (T-E27-F10-002 AC-002.4)")
+	}
+}
